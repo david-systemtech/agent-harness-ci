@@ -96,7 +96,7 @@ export const fileChangeObserver = ({ log, writes }: FileChangeObserverOptions) =
         for (const change of log.fileChanges.pending(run.sessionId, call.toolCallId)) {
           if (change.unrestorable !== null || realRoot === null) continue;
           const left = await readFileState(join(realRoot, change.path));
-          outcomes.set(change.changeId, left.kind === "kept" ? { digest: digestOf(left.bytes) } : { unrestorable: left.kind === "absent" ? "unknown" : left.reason });
+          outcomes.set(change.changeId, left.kind === "kept" ? { digest: digestOf(left.bytes), mode: left.mode } : { unrestorable: left.kind === "absent" ? "unknown" : left.reason });
         }
         log.atomically((tx) => log.fileChanges.complete(tx, run.sessionId, call.toolCallId, outcomes));
       });

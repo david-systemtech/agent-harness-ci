@@ -80,8 +80,8 @@ const sessionEventTypes = {
   ...BROWSER_SESSION_EVENT_TYPES,
   ...SETUP_SESSION_EVENT_TYPES,
   ...BANK_SESSION_EVENT_TYPES,
-  ...CHECK_SESSION_EVENT_TYPES,
   ...FILE_UNDO_SESSION_EVENT_TYPES,
+  ...CHECK_SESSION_EVENT_TYPES,
 } as const;
 
 /** Every event type, by the kind of stream it goes on. */

@@ -2,8 +2,9 @@
 # The host-side updater: carries out the agent-harness environment's update
 # plan for its container, from the Docker host that runs it. Cron or a systemd
 # timer runs it every five minutes; its documentation, docs/host-updater.md on
-# the repository's main branch, shows both, its `docker login` and its
-# variables.
+# the repository's main branch, shows both and its variables. The environment
+# reads public GitHub releases; their public ghcr.io image needs no login.
+# This script uses the pending image reference and digest from that source.
 #
 # A container never updates itself (ADR 0007). The environment keeps the
 # plan: channel, pin and auto-update are its settings, so its Your machines

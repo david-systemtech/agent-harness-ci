@@ -322,8 +322,11 @@ describe("the saved ceiling", () => {
     await routineCommand(phone, "routines.disable", { routineId });
     expect((await listed(desktop, routineId))?.state).toMatchObject({ savedUnderCeiling: "bypassPermissions", savedBy: desktop.hello.clientSessionId });
 
-    const enabled = await routineCommand(phone, "routines.enable", { routineId });
-    expect(enabled.result?.routine).toMatchObject({ state: { savedUnderCeiling: "plan", savedBy: phone.hello.clientSessionId }, mode: asked, attention: ["clamped"] });
+    const refused = await routineCommand(phone, "routines.enable", { routineId });
+    expect(refused.receipt).toMatchObject({ status: "rejected", error: { data: { reason: "enable_conditions", attention: ["clamped"] } } });
+    expect((await listed(desktop, routineId))?.state).toMatchObject({ savedUnderCeiling: "bypassPermissions", savedBy: desktop.hello.clientSessionId });
+    const enabled = await routineCommand(desktop, "routines.enable", { routineId });
+    expect(enabled.result?.routine).toMatchObject({ definition: { enabled: true }, state: { savedUnderCeiling: "bypassPermissions", savedBy: desktop.hello.clientSessionId } });
 
     await routineCommand(desktop, "routines.delete", { routineId });
     expect(routineEvents(t, routineId).at(-1)).toEqual({ type: "routine.deleted", payload: {}, actor: `client_session:${desktop.hello.clientSessionId}` });

@@ -1,3 +1,4 @@
+import { bankValidatorUpdateMethodFixtures, bankValidatorUpdateSchemaFixtures } from "./bank-validator-update-fixtures.js";
 import { bankMigrationSchemaFixtures, bankMigrationMethodFixtures } from "./bank-migration-fixtures.js";
 import { bankSplitSchemaFixtures, bankSplitMethodFixtures } from "./bank-split-fixtures.js";
 import { memoryDraftSchemaFixtures, memoryDraftMethodFixtures } from "./memory-draft-fixtures.js";
@@ -35,8 +36,8 @@ import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
-import { checkMethodFixtures, checkSchemaFixtures, checksChangedNotice, checksFailuresResetNotice } from "./check-fixtures.js";
 import { fileUndoMethodFixtures, fileUndoSchemaFixtures } from "./file-undo-fixtures.js";
+import { checkMethodFixtures, checkSchemaFixtures, checksChangedNotice, checksFailuresResetNotice } from "./check-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
 import { carryOverMethodFixtures, carryOverSchemaFixtures } from "./carry-over-fixtures.js";
@@ -560,8 +561,8 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...managedToolMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
-  ...checkMethodFixtures,
   ...fileUndoMethodFixtures,
+  ...checkMethodFixtures,
   ...workspaceMethodFixtures,
   ...updateMethodFixtures,
   ...routineMethodFixtures,
@@ -576,6 +577,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...memoryDraftMethodFixtures,
   ...bankSplitMethodFixtures,
   ...bankMigrationMethodFixtures,
+  ...bankValidatorUpdateMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -1044,6 +1046,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...memoryDraftSchemaFixtures,
   ...bankSplitSchemaFixtures,
   ...bankMigrationSchemaFixtures,
+  ...bankValidatorUpdateSchemaFixtures,
   ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
@@ -1054,8 +1057,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...knownEnvironmentSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
-  ...checkSchemaFixtures,
   ...fileUndoSchemaFixtures,
+  ...checkSchemaFixtures,
   ...workspaceSchemaFixtures,
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,

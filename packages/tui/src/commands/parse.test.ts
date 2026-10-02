@@ -94,8 +94,10 @@ describe("parseCommand", () => {
     for (const name of wired) expect(parseCommand(`/${name}`), name).not.toMatchObject({ kind: "not-here" });
   });
 
-  it("gives an absent command's reason", () => {
-    expect(parseCommand("/undo")).toMatchObject({ kind: "not-here", line: expect.stringContaining("Deferred to phase D") });
+  it("answers file undo and workspace checks", () => {
+    expect(parseCommand("/undo")).toEqual({ kind: "file-undo" });
+    expect(parseCommand("/undo now")).toMatchObject({ kind: "usage", line: expect.stringContaining("/undo") });
+    expect(parseCommand("/check")).toEqual({ kind: "check", action: "get" });
   });
 
   it("leaves a command it does not know to the agent, as typed", () => {

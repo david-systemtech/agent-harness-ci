@@ -268,7 +268,7 @@ const eventPayloads: Record<string, Fixtures> = {
 /** Every session and group schema the export writes, by path. */
 export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/session-id.json": { valid: [sessionId], invalid: ["s-1", "", 7, v1] },
-  "sessions/session-origin.json": { valid: [importOrigin], invalid: [{ ...importOrigin, kind: "fork" }, { ...importOrigin, providerSessionId: "" }, { ...importOrigin, createdAt: "earlier" }, { kind: "import" }] },
+  "sessions/session-origin.json": { valid: [importOrigin, { ...importOrigin, sourceDirectory: "/fixtures/secondary" }], invalid: [{ ...importOrigin, sourceDirectory: "relative" }, { ...importOrigin, kind: "fork" }, { ...importOrigin, providerSessionId: "" }, { ...importOrigin, createdAt: "earlier" }, { kind: "import" }] },
   "sessions/group-id.json": { valid: [groupId], invalid: ["g-1", "", v1] },
   "sessions/order-key.json": { valid: ["b", "an", "zzz"], invalid: ["", "a", "ba", "B", "b1"] },
   "sessions/user-title.json": {

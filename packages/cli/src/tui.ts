@@ -38,7 +38,7 @@ type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | 
   readonly print: PrintRequest | undefined;
 };
 
-const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
+export const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
   if (value !== undefined && value.trim() === "") throw new UsageError(`${flag} takes a value; got an empty one.`);
   return value;
 };
@@ -88,14 +88,16 @@ const parseTui = (args: readonly string[]): TuiFlags => {
   if (session !== undefined && values.continue) throw new UsageError("--session and -c each name the session to open; give one.");
   const cwd = nonEmpty("--cwd", values.cwd);
   const keybindings = nonEmpty("--keybindings", values.keybindings);
+  const print = parsePrint(values, session);
   return {
     ...(values["import-terminal-state"] ? { terminalSource: readLocalTerminalSource } : {}),
     environment: nonEmpty("--environment", values.environment),
     session,
     continueLatest: values.continue ?? false,
-    cwd: cwd === undefined ? undefined : resolve(cwd),
+    // Printing resolves only after selection says whose machine the directory is on.
+    cwd: cwd === undefined || print !== undefined ? cwd : resolve(cwd),
     keybindings: keybindings === undefined ? undefined : resolve(keybindings),
-    print: parsePrint(values, session),
+    print,
   };
 };
 
@@ -163,7 +165,12 @@ const localDataDirectory = (context: Pick<TuiContext, "seams">): string => {
 const print = async (request: PrintRequest, flags: TuiFlags, context: TuiContext): Promise<number> => {
   const { printAnswer } = await import("@agent-harness/tui/screenless");
   const selection = { environment: flags.environment, session: flags.session, continueLatest: flags.continueLatest, cwd: flags.cwd };
-  return printAnswer(() => selectEnvironment(selection, { seams: context.seams, report: (line) => context.stderr(`${line}\n`) }), request, {
+  return printAnswer(async () => {
+    const outcome = await selectEnvironment(selection, { seams: context.seams, report: (line) => context.stderr(`${line}\n`) });
+    if (!outcome.ok || outcome.selection.environment.kind !== "local" || flags.cwd === undefined) return outcome;
+    const cwd = resolve(flags.cwd);
+    return { ...outcome, selection: { ...outcome.selection, session: { ...outcome.selection.session, cwd, workspace: cwd } } };
+  }, request, {
     stdout: context.stdout,
     stderr: context.stderr,
     interrupted: context.stopRequested(),

@@ -600,8 +600,8 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       if (ambientReading !== undefined) ambient.set(provider, { ...ambientReading, accountId });
       notice(accountId, "adopted");
       arm(accountId);
-      void readModels(accountId);
-      if (ambientReading === undefined) void readStatus(accountId);
+      // Listed adoption reads cached identity only. Normal refresh/startup owns authentication and model probes.
+      if (ambientReading !== undefined) void readModels(accountId);
     });
     return { aggregate, result: { account: recordOf(accountId) } };
   };

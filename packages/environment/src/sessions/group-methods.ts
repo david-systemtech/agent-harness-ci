@@ -1,6 +1,6 @@
 import type { Group } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
-import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
+import type { CommandAnswer, CommandContext, MethodHandler, MethodHandlers } from "../serve/methods.js";
 import type { Decision, Refusal } from "./decider.js";
 import {
   DELETED_GROUP,
@@ -29,7 +29,7 @@ export interface GroupMethodsOptions {
   readonly clock?: () => Date;
 }
 
-export const groupMethods = (options: GroupMethodsOptions): MethodHandlers => {
+export const groupMethods = (options: GroupMethodsOptions): MethodHandlers & { readonly "groups.create": MethodHandler<"groups.create"> } => {
   const { log } = options;
   const clock = options.clock ?? (() => new Date());
   // The log's query-only read: inside a command it reads that command's own transaction.
@@ -106,4 +106,11 @@ export const groupMethods = (options: GroupMethodsOptions): MethodHandlers => {
 
     "groups.list": () => ({ groups: listGroups(reader) }),
   };
+};
+
+/** Imports append after keyless Groups too, even when several share the clock's instant. Existing order is untouched. */
+export const createImportedGroup = (log: EventLog, now: () => Date): MethodHandler<"groups.create"> => (params, context) => {
+  const last = listGroups({ all: (sql, ...values) => log.read(sql, ...values) }).filter((group) => group.orderKey === null).at(-1);
+  const at = new Date(Math.max(now().getTime(), last === undefined ? 0 : Date.parse(last.createdAt) + 1));
+  return groupMethods({ log, clock: () => at })["groups.create"](params, context);
 };

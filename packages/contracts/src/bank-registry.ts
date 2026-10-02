@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AccountId } from "./accounts.js";
-import { BANK_KINDS, BankName } from "./banks.js";
+import { BANK_KINDS, BankName, BankValidatorStatus } from "./banks.js";
 import { KeyManagerReference } from "./key-managers.js";
 import { ForgeOrigin } from "./forge.js";
 import { EnvironmentId, Timestamp } from "./primitives.js";
@@ -185,6 +185,7 @@ export type BankEntry = z.infer<typeof BankEntry>;
 
 /** A bank as `banks.list` and `banks.get` answer it: its entry, its counts and its rendered line. */
 export const BankRecord = BankEntry.extend({
+  validator: BankValidatorStatus.optional().meta({ description: "The vendored stamp and whether it needs an update; absent on environments predating validator updates." }),
   memories: z.int().nonnegative().meta({ description: "How many memories its main holds." }),
   folders: z.int().nonnegative().meta({ description: "How many scope folders hold a memory." }),
   line: z.string().nullable().meta({ description: "The bank's line as a session's trail renders it (T0); null while BANK.md does not read." }),

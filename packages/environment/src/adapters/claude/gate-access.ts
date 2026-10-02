@@ -52,9 +52,10 @@ export const claudeToolAccess = (toolName: string, input: Readonly<Record<string
     const edits = toolName === "MultiEdit" && Array.isArray(input["edits"]) ? input["edits"] : [];
     const paths = edits.flatMap((edit: unknown) => {
       const named = edit !== null && typeof edit === "object" ? text((edit as Record<string, unknown>)["file_path"]) : undefined;
-      return named === undefined ? [] : [named];
+      const target = named ?? path;
+      return target === undefined ? [] : [target];
     });
-    return { kind: "write", paths: [...new Set([...(path === undefined ? [] : [path]), ...paths])] };
+    return { kind: "write", paths: [...new Set(edits.length === 0 ? (path === undefined ? [] : [path]) : paths)] };
   }
   const readKey = READ_PATH[toolName];
   if (readKey !== undefined) {

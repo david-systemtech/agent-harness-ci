@@ -355,7 +355,6 @@ const group = <const Id extends string>(title: string, context: ActionContext, r
 });
 
 const RULES_PER_SESSION = "Rules are per session on the harness: a prompt never saves a rule (docs/specs/permissions.md).";
-const PHASE_D = "Deferred to phase D, carried if Seth relies on it (docs/specs/tui.md, Out of Scope).";
 
 /*
  * The GUI column's reasons for the keys it leaves to something else (the GUI
@@ -500,6 +499,7 @@ export const ACTION_GROUPS = [
     key("row.recall", ["r"], "Put the command it ran back in the composer", ROW_POINTER),
     key("row.copy", ["y"], "Copy the row — a diff as a diff", ROW_POINTER),
     key("row.diff", ["d"], "The whole diff it wrote", ROW_POINTER),
+    key("row.checkFailure.send", ["s"], "Send the offered check failure", notInGui("Workspace check failure controls are tracked in #1190.")),
     key("row.unfold", ["Enter"], "Unfold what the row is holding back", ROW_POINTER),
     key("row.stop", ["x"], "Stop the call that is still running", ROW_POINTER),
     key("row.leave", ["Esc"], "Put the cursor away, back to the composer", ROW_POINTER),
@@ -618,8 +618,8 @@ export const ACTION_GROUPS = [
     command("copy", "/copy", "Copy the last reply, or one of its code blocks, to the clipboard"),
     command("export", "/export [file]", "Write this conversation to a markdown file"),
     command("diff", "/diff", "What this conversation changed, and the working tree's diff"),
-    command("undo", "/undo", "Take back the last file change the agent made", { absent: PHASE_D, guiAbsent: PHASE_D }),
-    command("check", "/check [command|off|now]", "Run this project's own lint or tests after the agent edits", { absent: PHASE_D, guiAbsent: PHASE_D }),
+    command("undo", "/undo", "Take back the last file change the agent made"),
+    command("check", "/check [command|off|now]", "Run this project's own lint or tests after the agent edits", { guiAbsent: "Workspace check controls are tracked in #1190." }),
     command("pin", "/pin", "Keep this conversation at the top of its folder"),
     command("title", "/title <name>", "Name this conversation"),
     command("asks", "/asks", "Every conversation waiting on a permission, answerable in one list"),

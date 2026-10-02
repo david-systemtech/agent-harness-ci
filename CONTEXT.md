@@ -201,7 +201,7 @@ Which releases an environment follows for updates: stable (releases only) or bet
 _Avoid_: track, ring, branch, the launcher channel (the launcher's IPC connection, defined below)
 
 **Release source**:
-Where an environment reads its releases: a forge origin, its kind and the repository, compiled into each build and read only with the forge account for that origin.
+Where an environment reads its releases: a forge origin, its kind and the repository, compiled into each build; public releases read anonymously, with the forge account for that origin used when configured.
 _Avoid_: feed, update server, release URL
 
 **Release manifest**:

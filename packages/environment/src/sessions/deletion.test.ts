@@ -250,11 +250,11 @@ describe("a deleted session", () => {
     "trust.decide": { sessionId, decision: "trusted" },
     // Session bank pins reject the deleted session before resolving its folder.
     "banks.pin": { sessionId, pointer: "sample:personal/homelab/", pinned: true },
+    // A deleted session's changes are not undone (#1183).
+    "files.undo": { sessionId },
     // A deleted session has no Workspace directory to set a check for or to check (#1187).
     "checks.set": { sessionId, command: "pnpm test" },
     "checks.run": { sessionId },
-    // A deleted session's changes are not undone (#1183).
-    "files.undo": { sessionId },
   });
 
   /**

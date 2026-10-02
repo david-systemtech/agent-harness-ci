@@ -1,50 +1,9 @@
-# The release workflow (launcher-update spec, "The release"): what a `v` tag
-# on this repository publishes, one complete release per tag. Six jobs:
-#
-#   check    before anything is built or pushed: that the tag's release is not
-#            published already (a re-run over a published release stops
-#            here, pushing no image over it), then typecheck, lint, test and
-#            the JSON Schema export, as ci.yml runs them
-#   image    #357's: the version's image, pushed, its reference and digest
-#            handed on
-#   desktop-macos, desktop-windows, desktop-arch
-#            #359's: each platform's desktop (#423) for the tag's version,
-#            built and checked with the desktop workflow's steps (desktop.yml,
-#            which says where each runs and why), from that platform's server
-#            artefact, which the job builds first with the release build at
-#            the tag's version; then handed to the release job through the
-#            generic package registry (.forgejo/scripts/desktop-builds.sh).
-#            The zip needs the Mac, so a tag's release waits while it sleeps.
-#   release  #356's build of the three server artefacts with that image's
-#            reference and digest, which also writes the release's other
-#            assets (the asset list below, the three desktops among them)
-#            and release.json, each with a .sha256 sidecar; then every file
-#            to a draft release whose notes say how to open an unsigned
-#            desktop the first time, published last
-#            (scripts/release/publish.ts), so no reader sees a partial
-#            release, flagged prerelease exactly when the version has a
-#            prerelease part. A failed step leaves a draft at most, which
-#            readers pass over; a re-run replaces it.
-#
-# The image job builds the Dockerfile on the shared `build` runners, as
-# david/ci's image template (templates/image.yml) does, and pushes it to this
-# Forgejo's registry as git.systemtech.dev:5526/david/agent-harness:<version>,
-# the tag's version without its v, for linux/amd64 only. It pushes that one
-# tag and no other: no latest, no main, no commit or channel tag. A moving tag
-# pulls whatever it points at by then (hermes:latest is rebuilt on every push
-# to main), and a rollback needs an exact reference. So the template's main
-# and commit tags are gone, and its pull request build is image.yml. The work
-# is .forgejo/scripts/image.sh, tested by test/image-script.test.ts; the
-# release job's, by packages/cli/scripts/release/*.test.ts; the desktop
-# jobs', by packages/desktop/scripts/desktop-build/*.test.ts and
-# test/desktop-builds-script.test.ts. The first run of a tag is the
-# service-install checklist's Release section.
-
+# Manual recovery only: select a v tag when dispatching. Tag pushes publish
+# through the public GitHub snapshot's release workflow (#1258, #1275).
 name: release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 # A tag's run is never cancelled half-way through its push: a second run of
 # the same tag queues behind it.

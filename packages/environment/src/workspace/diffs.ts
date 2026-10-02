@@ -269,13 +269,12 @@ const changesFromInput = (name: string, input: Record<string, unknown>): { file:
   }
   const byFile = new Map<string, string[]>();
   const defaultFile = typeof input["file_path"] === "string" ? input["file_path"] : undefined;
-  if (defaultFile !== undefined) byFile.set(defaultFile, []);
   const edits = Array.isArray(input["edits"]) ? input["edits"].filter(isRecord) : [];
   for (const edit of edits) {
     const file = typeof edit["file_path"] === "string" ? edit["file_path"] : defaultFile;
-    if (file === undefined) continue;
+    if (file === undefined || typeof edit["old_string"] !== "string" || typeof edit["new_string"] !== "string") continue;
     const hunks = byFile.get(file) ?? [];
-    if (typeof edit["old_string"] === "string" && typeof edit["new_string"] === "string") hunks.push(editHunk(edit["old_string"], edit["new_string"]));
+    hunks.push(editHunk(edit["old_string"], edit["new_string"]));
     byFile.set(file, hunks);
   }
   return [...byFile].map(([file, hunks]) => ({ file, hunks }));

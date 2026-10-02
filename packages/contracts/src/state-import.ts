@@ -195,7 +195,7 @@ export const StateImportStartedPayload = z
 export type StateImportStartedPayload = z.infer<typeof StateImportStartedPayload>;
 
 /** The kinds of item a state import carries, each written through the service that owns it. */
-export const StateImportItemKind = z.enum(["instruction", "forge-account", "key-manager-connection", "dev-site", "page-policy"]).meta({ description: "The kind of item a state import carried: an owned instruction, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy." });
+export const StateImportItemKind = z.enum(["instruction", "bank", "bank-default", "forge-account", "key-manager-connection", "dev-site", "page-policy", "account", "account-default", "session", "archive", "pin", "group", "group-membership", "draft", "routine", "skill-source", "skill-always-on"]).meta({ description: "The owning service kind for a carried Bank/default, instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection, dev site, page policy or a disabled local Routine, tracked Skill repository or Account Skill choice." });
 export type StateImportItemKind = z.infer<typeof StateImportItemKind>;
 
 /**
@@ -210,10 +210,11 @@ export const StateImportItemCarriedPayload = z
   .object({
     importId,
     sourceKey,
-    store: z.string().min(1).meta({ description: "The source store the item was read from: instructions, browser.devSites or browser.evaluateEverywhere." }),
+    store: z.string().min(1).meta({ description: "The source store or organisation decision kind, including banks, banks.default, provider-sessions and organisation.archive/pin/group/group-source/membership/draft." }),
     sourceId: z.string().min(1).meta({ description: "The item's id in its store, or its natural identity where the store gives it none." }),
     kind: StateImportItemKind,
-    targetId: z.string().min(1).meta({ description: "The target held by its owning service: an owned instruction's id, a dev-site host pattern or the local browser.evaluateEverywhere setting key." }),
+    sourceDirectory: z.string().min(1).optional().meta({ description: "The canonical listed Claude directory retained as an import source for an Account or Session mapping, including a secondary directory. No credentials." }),
+    targetId: z.string().min(1).meta({ description: "The target held by its owning service: a Bank, Account, Session, Group or instruction id, a dev-site host pattern, connection id or setting key." }),
     origin: z.literal("import").meta({ description: "Always import: the target was written by a state import." }),
   })
   .meta({

@@ -32,10 +32,12 @@ import {
   ttlWords,
   typedPath,
   undoableFold,
+  undoFile,
   userMessagesOf,
   withdrawQueued,
   workspaceLabel,
   type BrowseRow,
+  type CapabilityAnswer,
   type ClientCommandRow,
   type Clock,
   type EnvironmentView,
@@ -121,6 +123,8 @@ import {
   type Press,
 } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
+import { jsonDocuments } from "./platform/json-documents.js";
+import { AFTER_EDIT_DOCUMENT } from "./platform/terminal-batch.js";
 import { inMemoryPresentation, type Presentation } from "./presentation.js";
 import { PickerCard, STAYS, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
 import { badgesOf } from "./rail/badge.js";
@@ -396,7 +400,7 @@ const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () 
  * The slash menu's rows: the commands this build answers, from the shared list, then the open session's skills and the
  * provider's own commands (`commands.list`, #503), by the runtime's rule for every renderer.
  */
-const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[]): readonly CommandRow[] => {
+const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[], undo: CapabilityAnswer): readonly CommandRow[] => {
   const own = [...ANSWERED]
     .filter((id) => isCommandId(id))
     .map((id): ClientCommandRow => {
@@ -406,6 +410,7 @@ const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly S
   const taken = new Set(own.map((row) => row.name));
   return slashMenuRows(own, listed, (name) => taken.has(name)).map((row) => {
     const state = row.source === "skill" ? readiness.find((skill) => skill.name === row.name.replace(/^skill:/, "")) : undefined;
+    if (row.source === "client" && row.name === "undo") return { ...row, availability: undo };
     return state === undefined ? row : { ...row, readiness: state };
   });
 };
@@ -514,6 +519,12 @@ export const App = (props: AppProps) => {
   useFollow(headerView?.flags.includes("setup") ? headerSetup : undefined, request);
   const setupSummary = headerSetup && headerView ? setupHeader(headerSetup.read(), nameOf(headerView)) : undefined;
   const setupSummaryRows = setupSummary === undefined ? 0 : wrap([{ text: setupSummary }], size.columns).length;
+  const checks = useMemo(() => opened ? runtime.projections.checks(opened.environmentId, opened.sessionId) : undefined, [runtime, opened]);
+  useFollow(checks, request);
+  const checkView = checks?.read();
+  const checkUnavailable = checkView?.availability.status === "absent" ? ` Check: ${checkView.availability.message}` : undefined;
+  const checkOffer = checkView?.offer ? ` Send failure: Enter on an empty composer · ${checkView.offer.result?.timedOut ? "timeout" : "failure"}` : undefined;
+  const checkSummaryRows = [checkUnavailable, checkOffer].reduce((rows, text) => rows + (text === undefined ? 0 : wrap([{ text }], size.columns).length), 0);
 
   // The open session's workspace, when the environment has found it gone (#328): read from its list row, as the rail's.
   const openRow = opened ? list.rows.find((row) => row.environmentId === opened.environmentId && row.summary.id === opened.sessionId) : undefined;
@@ -568,7 +579,7 @@ export const App = (props: AppProps) => {
   const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) || (focus === "delegated" && tasks.length === 0) ? "composer" : focus;
   // The pane's terminal is as wide as the column beside the rail (the help overlay's taking the width is no resize) and two
   // fifths of the frame tall, within the column.
-  const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows - setupSummaryRows) };
+  const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows - setupSummaryRows - checkSummaryRows) };
   useEffect(() => terminal.resize(paneSize), [paneSize.cols, paneSize.rows]);
   useEffect(() => {
     if (focus !== focused) setFocus(focused);
@@ -709,6 +720,7 @@ export const App = (props: AppProps) => {
   const lineContext = {
     width: mainWidth - (transcriptFocused ? 1 : 0),
     quietMs: (id: string) => quietFor(session.quiet, id, now),
+    checkOutput: (id: string) => checkView?.runningOutput.get(id),
     stopKey: keys("row.stop"),
     unfoldKey: keys("row.unfold"),
     openKey: keys("row.open"),
@@ -795,6 +807,15 @@ export const App = (props: AppProps) => {
     open(next);
   };
 
+  const sendingFailure = useRef(false);
+  const sendCheckFailure = (): boolean => {
+    if (!opened || !checkView?.offer || sendingFailure.current) return false;
+    sendingFailure.current = true;
+    void runtime.checks.sendFailure(opened.environmentId, opened.sessionId, pickers.choice(opened)).then((answer) => {
+      if (!answer.ok) say(answer.line);
+    }).finally(() => { sendingFailure.current = false; });
+    return true;
+  };
   // The composer.
   const readiness = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "skills.readiness", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
   useFollow(readiness, request);
@@ -818,7 +839,7 @@ export const App = (props: AppProps) => {
   const composer = useComposer({
     keymap,
     sources: {
-      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? []),
+      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? [], opened ? runtime.capability(opened.environmentId, "files.undo") : { status: "absent", reason: "unreachable", message: "No session is open." }),
       paths,
       ...(stores.mentions && { frecency: stores.mentions }),
       snippets: stores.snippets?.list() ?? [],
@@ -836,6 +857,7 @@ export const App = (props: AppProps) => {
     },
     say,
     submit: (raw, message) => submit(raw, message),
+    sendFailure: sendCheckFailure,
     picked: (path) => {
       stores.mentions?.record(path);
       void stores.mentions?.save().catch(() => undefined);
@@ -1284,6 +1306,37 @@ export const App = (props: AppProps) => {
   const submit = (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
     const command = parseCommand(raw);
     switch (command.kind) {
+      case "check": {
+        if (!opened) { say("Open a Session to configure its Workspace check."); return true; }
+        const { environmentId, sessionId } = opened;
+        const available = runtime.capability(environmentId, "checks.get");
+        if (available.status === "absent") { say(available.message); return true; }
+        if (command.action === "get") {
+          void runtime.checks.get(environmentId, sessionId).then(async (answer) => {
+            runtime.requests.refresh(environmentId, "checks.get", { sessionId });
+            if (!answer.ok) { say(answer.error.message); return; }
+            let imported: string | undefined;
+            if (answer.result.command === null && props.stateDir !== undefined && viewOf(environmentId)?.kind === "local") {
+              try {
+                const stored = await jsonDocuments(join(props.stateDir, "documents")).get(AFTER_EDIT_DOCUMENT);
+                if (typeof stored === "object" && stored !== null && Object.hasOwn(stored, answer.result.workspace)) {
+                  const text: unknown = (stored as Record<string, unknown>)[answer.result.workspace];
+                  if (typeof text === "string") imported = text;
+                }
+              } catch { /* An unreadable local import enables nothing. */ }
+            }
+            say(answer.result.command === null ? `Check is off for ${answer.result.workspace}.${imported === undefined ? "" : ` Imported (inert): ${imported}; save explicitly with /check <command>.`}` : `$ ${answer.result.command}`);
+          });
+        } else if (command.action === "now") {
+          void runtime.checks.run(environmentId, sessionId).then((answer) => {
+            const error = !answer.ok ? answer.error : answer.result.receipt.status === "rejected" ? answer.result.receipt.error : undefined;
+            say(error === undefined ? "Check running on the Environment." : `${error.data?.["reason"] ?? error.code}: ${error.message}`);
+          });
+        } else {
+          void runtime.checks.set(environmentId, sessionId, command.action === "set" ? command.command : null).then((answer) => say(!answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : command.action === "off" ? "Check is off." : "Check saved for this Workspace."));
+        }
+        return true;
+      }
       case "trust": {
         if (!opened) {
           say("Cannot decide repository trust: no session is open.");
@@ -1422,6 +1475,13 @@ export const App = (props: AppProps) => {
       case "files":
         openFiles(command.path);
         return true;
+      case "file-undo":
+        if (!opened) {
+          noSession();
+          return false;
+        }
+        void undoFile(runtime, clock, opened.environmentId, opened.sessionId).then((answer) => say(answer.line));
+        return false;
       case "diff":
         showDiff();
         return true;
@@ -1741,7 +1801,7 @@ export const App = (props: AppProps) => {
 
   // The help overlay's body, and the pager's: the frame less the header, the three lines, the composer and the status line
   // under the card, and the card's title and foot.
-  const helpHeight = Math.max(1, size.rows - 9 - setupSummaryRows);
+  const helpHeight = Math.max(1, size.rows - 9 - setupSummaryRows - checkSummaryRows);
   const helpMaxTop = Math.max(0, help.length - helpHeight);
   // A taller terminal, or a shorter map after `/reload`, leaves less to scroll: the overlay's place is clamped to it.
   useEffect(() => {
@@ -2098,6 +2158,11 @@ export const App = (props: AppProps) => {
           .trim();
         void clipboard.copy(text).then((outcome) => say(outcome === "none" ? "Nothing here can reach a clipboard." : "Copied the row."));
       },
+      "row.checkFailure.send": () => {
+        const row = onRow();
+        if (row?.kind !== "check" || row.entry.terminalId !== checkView?.offer?.terminalId) return false;
+        return sendCheckFailure() ? undefined : false;
+      },
       "row.unfold": () => {
         const row = onRow();
         if (!row) return false;
@@ -2399,7 +2464,7 @@ export const App = (props: AppProps) => {
   const railInPane = !railDrawn && railListed && focused === "sidebar" && card.kind === "none" && !promptShown;
   // The rows the rail and a picker have: the frame less the header and the six lines under the pane (the two lines, the
   // composer, the status line's two and the activity line).
-  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN - setupSummaryRows);
+  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN - setupSummaryRows - checkSummaryRows);
   const listHint = (verb: string, leave: string) => `${keys("picker.move")} move · ${keys("picker.choose")} ${verb} · ${keys("picker.leave")} ${leave}`;
   /** The permission card's legend: the keys the card answers, in the map in force; the note's line takes Enter, Tab and Esc as they are. */
   const cardHint = (kind: PromptKind, lineOpen: boolean): string => {
@@ -2430,7 +2495,7 @@ export const App = (props: AppProps) => {
   const fileVerbs =
     cursorRow === undefined
       ? ""
-      : `${rowFile(cursorRow) || cursorRow.kind === "forked" ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
+      : `${cursorRow.kind === "check" && cursorRow.entry.terminalId === checkView?.offer?.terminalId ? ` · ${keys("row.checkFailure.send")} Send failure` : ""}${rowFile(cursorRow) || cursorRow.kind === "forked" ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
   const hint =
     card.kind === "panel" || card.kind === "routines"
       ? `The card has the keys · ${card.kind === "panel" ? pickers.hint(card.panel) : `${keys("picker.leave")} ${routines.back(card.routines) ? "goes back" : "closes it"}`}`
@@ -2687,6 +2752,8 @@ export const App = (props: AppProps) => {
       <Line text={screen.line} />
       <Line text={promptLine} color={TERMINAL_ROLES.warning} />
       {trustLine !== undefined && <Line text={trustLine} color={TERMINAL_ROLES.warning} />}
+      {checkUnavailable !== undefined && <Text dimColor>{checkUnavailable}</Text>}
+      {checkOffer !== undefined && <Text color={TERMINAL_ROLES.warning}>{checkOffer}</Text>}
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}

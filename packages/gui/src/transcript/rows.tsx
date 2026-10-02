@@ -1,7 +1,9 @@
 import {
   attachmentChip,
+  checkStatus,
   endWords,
   environmentMessage,
+  fileUndoWords,
   oneLine,
   promptsIn,
   turnFacts,
@@ -83,6 +85,20 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
             <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words">
               <Marked text={row.entry.output.trim()} />
             </pre>
+          )}
+        </article>
+      );
+    case "file-undo":
+      return <p className="text-[0.85em] text-ink-muted"><Marked text={fileUndoWords(row.entry)} /></p>;
+    case "check":
+      return (
+        <article aria-label="Workspace check" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
+          <span className="font-mono"><Marked text={`$ ${row.entry.command} · ${checkStatus(row.entry)}`} /></span>
+          {row.entry.result !== null && (
+            <>
+              {row.entry.result.truncated && <span>Earlier output omitted</span>}
+              {row.entry.result.output.length > 0 && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={row.entry.result.output} /></pre>}
+            </>
           )}
         </article>
       );

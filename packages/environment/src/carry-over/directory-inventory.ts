@@ -1,4 +1,4 @@
-import { ContractError, type CarryOverMemoryInventory, type CarryOverSessionsInventory, type CarryOverSkillsInventory, type ResultOf, type SkillsCarryOverReport } from "@agent-harness/contracts";
+import { ContractError, type CarryOverMemoryInventory, type CarryOverSessionsInventory, type CarryOverSkillsInventory, type CarryOverInventory, type SkillsCarryOverReport } from "@agent-harness/contracts";
 import { readDoesNotCarry } from "../adapters/claude/adopted-directory.js";
 import type { AccountRef, ProviderSessionInfo } from "../adapter/contract.js";
 import type { AdapterRegistry } from "../adapter/registry.js";
@@ -41,7 +41,7 @@ export const directoryInventory = (options: DirectoryInventoryOptions) => {
   const reader: Reader = { all: (sql, ...params) => options.log.read(sql, ...params) };
   const { looks } = options;
   const memory = carryOverMemory({ reader, looks, autoMemory: options.autoMemory });
-  return async ({ provider, account }: DirectorySource): Promise<ResultOf<"carryOver.inventory">> => {
+  return async ({ provider, account }: DirectorySource): Promise<CarryOverInventory> => {
     const accountId = account.id;
     const adapter = options.adapters.get(provider);
     if (adapter === undefined) throw new ContractError({ code: "unsupported", message: `No adapter serves ${provider}.`, data: {} });
@@ -52,7 +52,7 @@ export const directoryInventory = (options: DirectoryInventoryOptions) => {
       if (error instanceof ContractError) throw error;
       throw new ContractError({ code: "internal", message: listingFailed(account, error), data: {} });
     }
-    const held = heldProviderSessions(reader);
+    const held = heldProviderSessions(reader, undefined, account.id);
     const directories = await findDirectories(
       sessions.map((session) => session.workingDirectory),
       looks,

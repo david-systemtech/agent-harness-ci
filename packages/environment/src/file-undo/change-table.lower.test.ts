@@ -43,7 +43,7 @@ const change = (log: EventLog, path: string, pre: Buffer | null, tool = "Edit"):
     unrestorable: pre === null ? "unknown" : null,
   };
   log.atomically((tx) => log.fileChanges.begin(tx, [captured]));
-  log.atomically((tx) => log.fileChanges.complete(tx, sessionId, toolCallId, new Map(pre === null ? [] : [[captured.changeId, { digest: "after" }]])));
+  log.atomically((tx) => log.fileChanges.complete(tx, sessionId, toolCallId, new Map(pre === null ? [] : [[captured.changeId, { digest: "after", mode: 0o644 }]])));
   return captured.changeId;
 };
 
@@ -87,7 +87,7 @@ describe("a session's change records", () => {
     const paths = Array.from({ length: FILE_UNDO_MAX_CHANGES + 2 }, (_, index) => `f${String(index).padStart(2, "0")}.txt`);
     const captured = paths.map((path): CapturedChange => ({ changeId: randomUUID(), sessionId, runId: "run", toolCallId: "toolu_many", tool: "MultiEdit", path, inside: true, existed: false, pre: null, preMode: null, unrestorable: null }));
     log.atomically((tx) => log.fileChanges.begin(tx, captured));
-    log.atomically((tx) => log.fileChanges.complete(tx, sessionId, "toolu_many", new Map(captured.map((record) => [record.changeId, { digest: "created" }]))));
+    log.atomically((tx) => log.fileChanges.complete(tx, sessionId, "toolu_many", new Map(captured.map((record) => [record.changeId, { digest: "created", mode: 0o644 }]))));
     expect(undoAll(log)).toMatchObject({ undone: paths.slice(2).reverse(), stoppedAt: { path: "f01.txt", unrestorable: "evicted", existed: false, pre: null } });
   });
 

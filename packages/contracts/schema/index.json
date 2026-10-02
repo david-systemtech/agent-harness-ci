@@ -1627,6 +1627,10 @@
       "title": "BankEntry"
     },
     {
+      "path": "banks/validator-status.json",
+      "title": "BankValidatorStatus"
+    },
+    {
       "path": "banks/record.json",
       "title": "BankRecord"
     },
@@ -2737,6 +2741,10 @@
     {
       "path": "carry-over/inventory.json",
       "title": "CarryOverInventory"
+    },
+    {
+      "path": "carry-over/state-import-account-inventories.json",
+      "title": "StateImportAccountInventories"
     },
     {
       "path": "carry-over/sessions-imported.json",
@@ -5465,6 +5473,22 @@
     {
       "path": "methods/banks.migrate/error.json",
       "title": "banks.migrate error"
+    },
+    {
+      "path": "methods/banks.validator.update/params.json",
+      "title": "banks.validator.update params"
+    },
+    {
+      "path": "methods/banks.validator.update/result.json",
+      "title": "banks.validator.update result"
+    },
+    {
+      "path": "methods/banks.validator.update/response.json",
+      "title": "banks.validator.update response"
+    },
+    {
+      "path": "methods/banks.validator.update/error.json",
+      "title": "banks.validator.update error"
     },
     {
       "path": "methods/banks.join.preview/params.json",
@@ -8294,6 +8318,16 @@
       "result": "methods/banks.migrate/result.json",
       "response": "methods/banks.migrate/response.json",
       "error": "methods/banks.migrate/error.json"
+    },
+    {
+      "name": "banks.validator.update",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.validator.update/params.json",
+      "result": "methods/banks.validator.update/result.json",
+      "response": "methods/banks.validator.update/response.json",
+      "error": "methods/banks.validator.update/error.json"
     },
     {
       "name": "banks.join.preview",

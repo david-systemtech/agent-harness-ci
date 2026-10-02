@@ -179,7 +179,7 @@ describe("the question card", () => {
 
   it("ticks several options with Space on a multi-select question, then walks to the next, and answers them all", async () => {
     const { app, env } = await opened();
-    await park(app, env, questions, "Checks");
+    await park(app, env, questions, "? Checks");
     expect(app.frame()).toContain("Which checks?");
     expect(app.frame()).toContain("1/2");
     await app.press(KEY.space, KEY.down, KEY.down, KEY.space);
@@ -198,7 +198,7 @@ describe("the question card", () => {
 
   it("skips the question on Esc, which denies it", async () => {
     const { app, env } = await opened();
-    await park(app, env, questions, "Checks");
+    await park(app, env, questions, "? Checks");
     await app.press(KEY.esc);
     await app.waitUntil(() => answersSent(env).length === 1, "an answer sent");
     expect(answersSent(env)[0]).toEqual({ commandId: expect.any(String), promptId: expect.any(String), sessionId: SESSION, decision: "deny" });

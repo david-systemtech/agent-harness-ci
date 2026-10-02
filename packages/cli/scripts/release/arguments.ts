@@ -94,5 +94,5 @@ export const publishOptionsOf = (args: readonly string[], env: NodeJS.ProcessEnv
   const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repository, RELEASE_TOKEN: token } = env;
   if (server === undefined || server === "" || repository === undefined || repository === "") throw new ArgumentsError("GITHUB_SERVER_URL and GITHUB_REPOSITORY are needed: the forge and repository the release is published on.");
   if (token === undefined || token === "") throw new ArgumentsError("RELEASE_TOKEN is empty: publishing needs a token that can write the repository's releases.");
-  return { tag, folder: from === undefined ? null : resolve(cwd, from), forge: { server, repository, token } };
+  return { tag, folder: from === undefined ? null : resolve(cwd, from), forge: { server, repository, token, ...(server === "https://github.com" && { kind: "github" as const }) } };
 };

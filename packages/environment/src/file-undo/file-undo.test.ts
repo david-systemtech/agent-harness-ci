@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { rename, unlink } from "node:fs/promises";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { editFile, end, fakeAdapter, fileTool, gate, say, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -10,6 +11,7 @@ import { deleteSession, purgeSession } from "../../test/sessions.js";
 import { sessionIn } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent } from "../adapter/contract.js";
+import { claudeToolAccess } from "../adapters/claude/gate-access.js";
 
 /**
  * File undo through the primary seam (switch-over spec, "Phase-D commands
@@ -18,6 +20,11 @@ import type { AdapterEvent } from "../adapter/contract.js";
  * `files.undo` over the typed wire, asserted on the workspace's bytes and
  * modes and on the session's log.
  */
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rename: vi.fn(actual.rename), unlink: vi.fn(actual.unlink) };
+});
 
 const { onCleanup, tempDir } = useCleanups();
 
@@ -152,6 +159,17 @@ describe("files.undo", () => {
     writeFileSync(join(root, "a.txt"), "b\n");
     await client.apply("files.undo", { commandId: randomUUID(), sessionId });
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+  });
+
+  it("refuses file_changed when only the file's mode has changed since the Edit, leaving the mode as it is", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    chmodSync(join(root, "a.txt"), 0o644);
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    chmodSync(join(root, "a.txt"), 0o755);
+
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "file_changed", sessionId, changeId: expect.any(String), path: "a.txt" } });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("b\n");
+    expect(modeOf(join(root, "a.txt"))).toBe(0o755);
   });
 
   it("never passes a newest change it cannot restore to undo an older one", async () => {
@@ -310,6 +328,31 @@ describe("files.undo", () => {
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
     expect(await paths()).toEqual([]);
     expect((await refusal(client, sessionId)).data.reason).toBe("nothing_to_undo");
+  });
+
+  it.each([false, true])("undoes only targeted MultiEdit files when its unused shared path exists: %s", async (sharedExists) => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n", ...(sharedExists ? { "z-unused.txt": "untouched\n" } : {}) });
+    const input = {
+      file_path: "z-unused.txt",
+      edits: [
+        { file_path: "a.txt", old_string: "a", new_string: "A" },
+        { file_path: "b.txt", old_string: "b", new_string: "B" },
+      ],
+    };
+    const access = claudeToolAccess("MultiEdit", input);
+    if (access.kind !== "write") throw new Error("MultiEdit must be a write.");
+    await runScript(t, client, sessionId, playing((controls) => fileTool(controls, {
+      tool: "MultiEdit", input, paths: access.paths,
+      write: () => { writeFileSync(join(root, "a.txt"), "A\n"); writeFileSync(join(root, "b.txt"), "B\n"); },
+    })));
+
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("b.txt");
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("a.txt");
+    expect((await refusal(client, sessionId)).data.reason).toBe("nothing_to_undo");
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("b\n");
+    expect(existsSync(join(root, "z-unused.txt"))).toBe(sharedExists);
+    if (sharedExists) expect(readFileSync(join(root, "z-unused.txt"), "utf8")).toBe("untouched\n");
   });
 
   it("consumes the diff of one multi-file path reached through an in-workspace symlink", async () => {
@@ -550,6 +593,41 @@ describe("files.undo's receipts and its journal", () => {
     expect(eventsOf(t, sessionId, "files.undo-finished")).toHaveLength(1);
   });
 
+  it("removes the scratch file and journal before reporting a failed rename, leaving the change for a retry", async () => {
+    const { t, client, root, sessionId } = await edited();
+    const target = join(root, "a.txt");
+    const commandId = randomUUID();
+    vi.mocked(rename).mockRejectedValueOnce(new Error("The rename failed."));
+
+    await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
+
+    expect(readdirSync(root)).toEqual(["a.txt"]);
+    expect(readFileSync(target, "utf8")).toBe("b\n");
+    expect(t.env.log.fileChanges.allJournaled()).toEqual([]);
+    expect(t.env.log.fileChanges.newest(sessionId)).toMatchObject({ state: "completed" });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+    const again = await undo(client, sessionId, commandId);
+    expect(again.result).toEqual({ changeId: expect.any(String), path: "a.txt", action: "restored" });
+    expect(readFileSync(target, "utf8")).toBe("a\n");
+  });
+
+  it("removes the journal when deleting a created file fails, leaving the file and change for a retry", async () => {
+    const { t, client, root, sessionId } = await setUp();
+    const target = join(root, "new.txt");
+    await runScript(t, client, sessionId, playing((controls) => writeCall(controls, target, "created\n")));
+    const commandId = randomUUID();
+    vi.mocked(unlink).mockRejectedValueOnce(new Error("The deletion failed."));
+
+    await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
+
+    expect(readFileSync(target, "utf8")).toBe("created\n");
+    expect(t.env.log.fileChanges.allJournaled()).toEqual([]);
+    expect(t.env.log.fileChanges.newest(sessionId)).toMatchObject({ state: "completed" });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+    expect((await undo(client, sessionId, commandId)).result).toMatchObject({ path: "new.txt", action: "deleted" });
+    expect(existsSync(target)).toBe(false);
+  });
+
   it("records a restore an earlier attempt of the command applied once, without writing again", async () => {
     let failOnce = true;
     const { t, client, root, sessionId } = await edited({
@@ -564,6 +642,7 @@ describe("files.undo's receipts and its journal", () => {
     const commandId = randomUUID();
     await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(t.env.log.fileChanges.allJournaled()).toHaveLength(1);
     // The retry finds the file restored: it records the restore, where running afresh would find the file changed.
     const again = await undo(client, sessionId, commandId);
     expect(again).toEqual({ receipt: expect.objectContaining({ status: "accepted" }), result: { changeId: expect.any(String), path: "a.txt", action: "restored" } });

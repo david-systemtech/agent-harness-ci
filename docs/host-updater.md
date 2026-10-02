@@ -101,18 +101,18 @@ the environment runs on the host.
    for example `/opt/agent-harness`, and make the script executable:
    `chmod +x /opt/agent-harness/host-updater.sh`. The updater finds the compose
    file beside itself; `AGENT_HARNESS_COMPOSE_FILE` names another.
-2. Log in to the project's registry, which is private, as the same user, with
-   a Forgejo access token with the `read:package` scope
-   (git.systemtech.dev: Settings > Applications). Docker keeps the login in
-   that user's `~/.docker/config.json`, where the updater's pulls find it:
+2. Start the environment once, as `compose.yaml`'s header says:
+   `docker compose up -d` in that folder. The public image is
+   `ghcr.io/david-systemtech/agent-harness:<version>`; no registry login is
+   required. Obtain the compose file and updater from the same release at
+   <https://github.com/david-systemtech/agent-harness/releases>.
+3. Run the updater every five minutes, with cron or with a systemd timer.
 
-   ```sh
-   docker login git.systemtech.dev:5526
-   ```
-
-3. Start the environment once, as `compose.yaml`'s header says:
-   `docker compose up -d` in that folder.
-4. Run the updater every five minutes, with cron or with a systemd timer.
+The environment reads the public GitHub releases anonymously, or with its
+configured GitHub forge account for a higher rate limit. The updater consumes
+that environment's pending image reference and digest; it does not read a
+second release channel. A GitHub 403/429 rate limit appears in `update status`
+as a failed check, retried under the environment's existing check cadence.
 
 ### With cron
 
