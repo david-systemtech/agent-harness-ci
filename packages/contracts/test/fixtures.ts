@@ -1,3 +1,4 @@
+import { bankValidatorUpdateMethodFixtures, bankValidatorUpdateSchemaFixtures } from "./bank-validator-update-fixtures.js";
 import { bankMigrationSchemaFixtures, bankMigrationMethodFixtures } from "./bank-migration-fixtures.js";
 import { bankSplitSchemaFixtures, bankSplitMethodFixtures } from "./bank-split-fixtures.js";
 import { memoryDraftSchemaFixtures, memoryDraftMethodFixtures } from "./memory-draft-fixtures.js";
@@ -576,6 +577,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...memoryDraftMethodFixtures,
   ...bankSplitMethodFixtures,
   ...bankMigrationMethodFixtures,
+  ...bankValidatorUpdateMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -1042,6 +1044,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...memoryDraftSchemaFixtures,
   ...bankSplitSchemaFixtures,
   ...bankMigrationSchemaFixtures,
+  ...bankValidatorUpdateSchemaFixtures,
   ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
