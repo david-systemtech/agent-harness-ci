@@ -34,7 +34,7 @@ const noService: LocalService = {
   readiness: async () => "nothing",
 };
 
-describe.sequential("the rail through the real spine", () => {
+describe("the rail through the real spine", { concurrent: false }, () => {
   it("starts a session in a directory workspace from Enter on the environment's heading, then pins it and moves it into a new group", { timeout: SMOKE_TEST_MS }, async () => {
     const until = async (condition: () => boolean, what: () => string): Promise<void> => {
       const deadline = Date.now() + WAIT_MS;
