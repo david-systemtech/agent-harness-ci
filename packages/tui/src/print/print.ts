@@ -5,9 +5,12 @@ import {
   CompletionsModelList,
   MODELS_PATH,
   type CompletionsModel,
+  type CompletionUsage,
   type Mode,
+  type RunEndReason,
 } from "@agent-harness/contracts";
 import type { SelectionOutcome } from "../startup/selection.js";
+import { formatWriter, type PrintFormat } from "./output.js";
 import { eventData } from "./sse.js";
 
 /**
@@ -17,10 +20,6 @@ import { eventData } from "./sse.js";
  * the completions surface every program uses (ADR 0015) on the selection's
  * credential, and standard output carries only what the format prints.
  */
-
-/** What standard output carries: the answer's text, one JSON result, or each chunk as a JSON line and then the result. */
-export const PRINT_FORMATS = ["text", "json", "stream-json"] as const;
-export type PrintFormat = (typeof PRINT_FORMATS)[number];
 
 /** What `-p` asks, as the CLI parsed it. */
 export interface PrintRequest {
@@ -62,15 +61,29 @@ const listModels = async (io: PrintIo, origin: string, token: string): Promise<r
  * the exit code. Whatever it started is closed by then.
  */
 export const printAnswer = async (select: () => Promise<SelectionOutcome>, request: PrintRequest, io: PrintIo): Promise<number> => {
+  const startedAt = performance.now();
+  const writer = formatWriter(request.format, io.stdout);
+  const ids: { environmentId: string | null; sessionId: string | null; runId: string | null } = { environmentId: null, sessionId: null, runId: null };
+  let text = "";
+  let usage: CompletionUsage | null = null;
+  let reason: RunEndReason = "error";
+  let error: string | null = null;
+  let completed = false;
+  const end = (code: number): number => {
+    writer.end({ type: "result", ...ids, text, usage, durationMs: Math.round(performance.now() - startedAt), reason, error }, completed);
+    return code;
+  };
+
   const outcome = await select();
-  if (!outcome.ok) return 1;
+  if (!outcome.ok) return end(1);
   const { selection } = outcome;
+  ids.environmentId = selection.environment.environmentId;
   try {
     const { credential, session } = selection;
     const presets = await selection.newSessionPresets();
     const listing = await listModels(io, credential.origin, credential.token);
     const model = listing.find((entry) => entry[COMPLETIONS_NAMESPACE].accountId === presets.account.value?.id && modelOf(entry.id) === presets.model.value?.id);
-    if (model === undefined) return 1;
+    if (model === undefined) return end(1);
     const body = {
       model: model.id,
       messages: [{ role: "user", content: request.prompt }],
@@ -83,14 +96,21 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
       headers: { authorization: `Bearer ${credential.token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (response.body === null) return 1;
+    if (response.body === null) return end(1);
     for await (const data of eventData(response.body)) {
-      const chunk = ChatCompletionChunk.parse(JSON.parse(data));
+      const raw: unknown = JSON.parse(data);
+      const chunk = ChatCompletionChunk.parse(raw);
+      const fields = chunk[COMPLETIONS_NAMESPACE];
+      if (fields.sessionId !== undefined) ids.sessionId = fields.sessionId;
+      if (fields.runId !== undefined) ids.runId = fields.runId;
       const content = chunk.choices[0]?.delta.content;
-      if (content !== undefined) io.stdout(content);
+      if (content !== undefined) text += content;
+      if (chunk.usage !== undefined) usage = chunk.usage;
+      if (fields.ended !== undefined) reason = fields.ended.reason;
+      if (chunk.choices[0]?.finish_reason === "stop" && fields.ended?.reason === "completed") completed = true;
+      writer.chunk(raw, content);
     }
-    io.stdout("\n");
-    return 0;
+    return end(completed ? 0 : 1);
   } finally {
     await selection.close();
   }

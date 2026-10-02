@@ -128,4 +128,73 @@ describe("printing one answer", () => {
     for (const method of ["sessions.create", "runs.start", "runs.send"]) expect(environment.requests(method), method).toEqual([]);
     expect(openSockets(on)).toEqual(noneOpen(on));
   });
+
+  it("prints one JSON result with the environment, session and run, the text, the usage the run reported, how long it took and how it ended", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { format: "json" });
+
+    const turn = await http.turn();
+    const sessionId = environment.sessionId(0);
+    const run = environment.startRun(sessionId, "Say hello");
+    const answer = turn.open();
+    answer.chunk(headOf(environment, sessionId, run));
+    answer.chunk(chunkOf(4, { content: "Hello" }));
+    answer.chunk(chunkOf(5, { content: ", world." }));
+    completed(answer, 6);
+
+    expect(await printing.exit).toBe(0);
+    expect(printing.stdout().endsWith("\n")).toBe(true);
+    const lines = printing.stdout().trimEnd().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toEqual({
+      type: "result",
+      environmentId: DESK,
+      sessionId,
+      runId: run.runId,
+      text: "Hello, world.",
+      usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16, prompt_tokens_details: { cached_tokens: 8 } },
+      durationMs: expect.any(Number),
+      reason: "completed",
+      error: null,
+    });
+    expect(printing.stderr()).toBe("");
+  });
+
+  it("prints each chunk of a stream cut anywhere as one JSON line, then the result, with no row for a keep-alive or the end marker", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const usage = { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16, prompt_tokens_details: { cached_tokens: 8 } };
+
+    for (const format of ["stream-json", "text"] as const) {
+      const http = fakeCompletions(environment.wire.origin, [OPUS]);
+      const printing = print(on, http, { format });
+      const turn = await http.turn();
+      const run = environment.startRun(sessionId, "Say hello");
+      environment.endRun(sessionId, run.runId);
+      const chunks = [
+        headOf(environment, sessionId, run),
+        chunkOf(4, { content: "Grüße, " }),
+        chunkOf(5, { content: "Welt ✓" }),
+        chunkOf(6, { finish: "stop", ext: { ended: { reason: "completed", cause: null } } }),
+        chunkOf(6, { usage }),
+      ];
+      // The surface's events with a keep-alive among them and the end marker, delivered a byte at a time.
+      const sse = chunks.map((chunk, index) => `${index === 2 ? ": keep-alive\n\n" : ""}data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+      const answer = turn.open();
+      for (const byte of new TextEncoder().encode(sse)) answer.bytes(Uint8Array.of(byte));
+      answer.end();
+
+      expect(await printing.exit, format).toBe(0);
+      if (format === "text") {
+        expect(printing.stdout()).toBe("Grüße, Welt ✓\n");
+        continue;
+      }
+      const rows = printing.stdout().trimEnd().split("\n").map((line) => JSON.parse(line) as unknown);
+      expect(rows.slice(0, -1)).toEqual(chunks);
+      expect(rows.at(-1)).toMatchObject({ type: "result", sessionId, runId: run.runId, text: "Grüße, Welt ✓", usage, reason: "completed", error: null });
+    }
+  });
 });

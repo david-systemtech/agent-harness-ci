@@ -54,4 +54,5 @@ export const selectTerminalEnvironment = (options: ScreenlessOptions): Promise<S
   });
 };
 
-export { PRINT_FORMATS, printAnswer, type PrintFormat, type PrintIo, type PrintRequest } from "./print/print.js";
+export { printAnswer, type PrintIo, type PrintRequest } from "./print/print.js";
+export { PRINT_FORMATS, type PrintFormat, type PrintResult } from "./print/output.js";
