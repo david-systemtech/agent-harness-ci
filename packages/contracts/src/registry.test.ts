@@ -290,6 +290,8 @@ describe("the method registry", () => {
       "terminals.write",
       "terminals.resize",
       "terminals.close",
+      "checks.set",
+      "checks.run",
       "updates.apply",
       "updates.cancel",
       "updates.settings.set",
@@ -560,6 +562,9 @@ describe("the method registry", () => {
       | "terminals.close"
       | "terminals.list"
       | "terminals.subscribe"
+      | "checks.get"
+      | "checks.set"
+      | "checks.run"
       | "files.list"
       | "files.read"
       | "diffs.workingTree"

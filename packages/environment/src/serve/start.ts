@@ -192,6 +192,8 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
+import { createWorkspaceChecks } from "../checks/service.js";
+import { checksProjector } from "../checks/store.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
@@ -909,6 +911,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       skillChoicesProjector,
       skillSourcesProjector,
       chromesProjector,
+      checksProjector,
       stateImportProjector,
       ...(options.projectors ?? []),
     ]) {
@@ -1196,7 +1199,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // check asks this (#511), since the caller's tools are its request's alone.
   bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
-  closers.push(() => bankService.closeLanding());
+  // Either bank worker can be queued behind the other: abort both before awaiting either.
+  closers.push(async () => { await Promise.all([bankSyncer.close(), bankService.closeLanding()]); });
   // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
   const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
   const memoryTools = createMemoryToolServers(memoryOperations);
@@ -1505,6 +1509,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
   });
   closers.push(() => terminalService.close());
+  // Workspace checks (#1187): each directory's command, run in the session's terminals as terminals.run runs one; closed
+  // before the terminals, so a check the stop cuts short is recorded interrupted. A check a crash cut is recorded as it starts.
+  const workspaceChecks = createWorkspaceChecks({ log, clock, environmentId: record.id, terminals: terminalService.commands, scrub });
+  closers.push(() => workspaceChecks.close());
+  capabilities.push("workspaceChecks");
   // Install and Update in a tool terminal (#376): closed before the terminals, so a run the stop cuts short is recorded finished.
   const toolRunner = createToolRunner({
     tools: managedTools,
@@ -1748,6 +1757,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
     orientation: readOrientation,
   });
+  const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1761,7 +1771,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() }),
+    ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({
       log,
@@ -1832,6 +1842,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
+    ...workspaceChecks.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
     ...workspaceMethods({
       log,
@@ -1899,6 +1910,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       environmentId: record.id,
       coordinator: stateImports,
       createInstruction: instructionHandlers["instructions.create"],
+      forge,
+      managers: keyManagerConnections,
+      getSettings: settingsHandlers["settings.get"],
+      updateSettings: settingsHandlers["settings.update"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
     }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).

@@ -3,6 +3,7 @@ import { BANK_CAPS, BANK_LAYOUT, RepositoryIdentity, REVIEWED_CLASSES, bankValid
 import { bankTreeOf, readBankMarkdown, validateBank, type BankFiles } from "@agent-harness/contracts/bank-validator";
 
 const markdown = (data: Record<string, unknown>, body = "") => `---\n${stringify(data, { lineWidth: 0 })}---\n${body}`;
+const isLegacyMemory = (path: string) => /^(brands|shared)\/(?:[^/]+\/)*memories\/.*\.md$/.test(path);
 
 /** Pure shared planner: all changes happen in a copy; unresolved authoring stays visible in the report. */
 export const planBankMigration = (source: BankFiles, choices: BankMigrationChoices, target: { name: string; land: "commit" | "pull-request"; forge: BankWorkflowForge; validator: string }) => {
@@ -10,7 +11,6 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
   const renames: BankMigrationReport["renames"] = [];
   const moves: BankMigrationReport["moves"] = [];
   const decisions: BankMigrationReport["decisions"] = [];
-  const originalTree = bankTreeOf(Object.keys(source));
   const rename = (data: Record<string, unknown>, path: string, from: string, to: string) => {
     if (!Object.hasOwn(data, from)) return;
     if (!Object.hasOwn(data, to)) data[to] = data[from];
@@ -32,6 +32,34 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
     if (!Object.hasOwn(source, path)) throw new Error("An artefact repair must name an existing scope file.");
     files[path] = repair;
   }
+  // Legacy team scopes are normalized before the shared key/identity conversion.
+  // Explicit mappings win; holding scopes are never inferred from company names.
+  const scopeMoves = Object.entries(choices.scopeMoves ?? {}).sort(([a], [b]) => b.length - a.length);
+  for (const [from, pointer] of scopeMoves) {
+    if (!choices.team || !pointer.startsWith(`${target.name}:${choices.team.org}/`)) throw new Error("Team scope moves must stay in the chosen bank and org.");
+    if (from.startsWith("shared/") && !pointer.startsWith(`${target.name}:${choices.team.org}/holding/`)) throw new Error("Shared facts must move into the holding project.");
+    if (!Object.keys(source).some((path) => path.startsWith(from))) throw new Error("A scope move must name an existing source folder.");
+  }
+  const destinations = new Map<string, string>();
+  for (const [path, text] of Object.entries(files)) {
+    if (!/^(brands|shared)\//.test(path)) continue;
+    const mapped = scopeMoves.find(([from]) => path.startsWith(from));
+    let destination: string;
+    if (mapped) destination = `projects/${mapped[1].slice(target.name.length + 1)}${path.slice(mapped[0].length)}`;
+    else if (path.startsWith("brands/") && choices.team) destination = `projects/${choices.team.org}/${path.slice("brands/".length)}`;
+    else {
+      decisions.push({ path, value: "scope", reason: "Supply the team org and an explicit holding-project mapping for unmoved shared facts." });
+      continue;
+    }
+    // A product line is a topic in its product area, never a fourth scope level.
+    destination = destination.replace(/^(projects\/[^/]+\/[^/]+\/product\/)([^/]+)\/memories\//, "$1memories/$2/");
+    if (Object.hasOwn(source, destination) || destinations.has(destination)) throw new Error("A team scope move must not replace an existing file.");
+    destinations.set(destination, path);
+    delete files[path];
+    files[destination] = text;
+    moves.push({ from: path, to: destination });
+  }
+  const originalTree = bankTreeOf(Object.keys(files));
   // Only scope artefacts get key renames; memory descriptions retain their meaning.
   for (const [path, text] of Object.entries(files)) {
     if (!/^projects\/[^/]+\/[^/]+\/(?:[^/]+\/)?(?:PROJECT|AREA|SYSTEM)\.md$/.test(path)) continue;
@@ -66,6 +94,12 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
     const path = `${org}ORG.md`;
     if (!Object.hasOwn(files, path)) files[path] = markdown({ line: `${org.split("/")[1]} work and projects` });
   }
+  if (choices.team) {
+    for (const project of tree.projects) {
+      const path = `${project}PROJECT.md`;
+      files[path] ??= markdown({ line: `${project.split("/")[2]} facts`, topics: {}, repos: [] });
+    }
+  }
   const parsedManifest = readBankMarkdown(files["BANK.md"] ?? "");
   if (parsedManifest.ok) {
     const data = { ...parsedManifest.data };
@@ -74,16 +108,17 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
     rename(data, "BANK.md", "description", "purpose");
     delete data.index;
     data.name ??= target.name;
-    data.kind ??= "personal";
+    data.kind = choices.team ? "team" : data.kind ?? "personal";
+    if (choices.team) data.owners = choices.team.owners;
     data.purpose = choices.purpose ?? data.purpose;
     data.entities = choices.entities ?? data.entities ?? [...tree.orgs].map((org) => ({ name: org.split("/")[1], aliases: [org.split("/")[1]], folder: org.slice("projects/".length) }));
     data.memories = { glob: BANK_LAYOUT.glob, scope: BANK_LAYOUT.scope, schema: BANK_LAYOUT.schema };
-    data.docs ??= { globs: ["projects/**/{PROJECT,AREA,HANDOFF,PLAN}.md", "reference/**/*.md"] };
+    data.docs ??= { globs: ["projects/**/{ORG,PROJECT,AREA,HANDOFF,PLAN}.md", "reference/**/*.md"] };
     const write = typeof data.write === "object" && data.write !== null ? data.write as Record<string, unknown> : {};
     const merge = typeof write.merge === "object" && write.merge !== null ? write.merge as Record<string, unknown> : {};
     data.write = { ...write, place: BANK_LAYOUT.place, land: target.land, merge: { memories: merge.memories ?? "auto", reviewed: [...REVIEWED_CLASSES] } };
-    if (choices.orientationDrafts !== undefined || !Array.isArray(data.orientation) || data.orientation.length === 0) {
-      const home = data.kind === "team" ? `${[...tree.orgs][0] ?? "projects/team/"}bank/` : "projects/personal/memory-bank/";
+    if (choices.team !== undefined || choices.orientationDrafts !== undefined || !Array.isArray(data.orientation) || data.orientation.length === 0) {
+      const home = data.kind === "team" ? `${choices.team ? `projects/${choices.team.org}/` : [...tree.orgs][0] ?? "projects/team/"}bank/` : "projects/personal/memory-bank/";
       files[`${home.split("/").slice(0, 2).join("/")}/ORG.md`] ??= markdown({ line: "The bank's own work and projects" });
       files[`${home}PROJECT.md`] ??= markdown({ line: "The bank's own orientation pointers", topics: {}, repos: [] });
       const names = originalTree.memories.slice(0, 3).flatMap(({ path }) => {
@@ -110,6 +145,15 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
     files["BANK.md"] = markdown(data, parsedManifest.body);
   }
   delete files["INDEX.md"];
+  for (const [pointer, topics] of Object.entries(choices.topicDeclarations ?? {})) {
+    if (!pointer.startsWith(`${target.name}:`)) throw new Error("Topic declarations must name the bank being migrated.");
+    const scope = `projects/${pointer.slice(target.name.length + 1)}`;
+    const artefact = `${scope}${scope.split("/").length === 4 ? "PROJECT.md" : "AREA.md"}`;
+    const folder = readBankMarkdown(files[artefact] ?? "");
+    if (!folder.ok) throw new Error("Topic declarations need a parsing scope artefact.");
+    const existing = typeof folder.data.topics === "object" && folder.data.topics !== null ? folder.data.topics : {};
+    files[artefact] = markdown({ ...folder.data, topics: { ...existing, ...topics } }, folder.body);
+  }
   for (const [pointer, topics] of Object.entries(choices.topics ?? {})) {
     if (!pointer.startsWith(`${target.name}:`)) throw new Error("Accepted topics must name the bank being migrated.");
     const scope = `projects/${pointer.slice(pointer.indexOf(":") + 1)}`;
@@ -153,9 +197,39 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
   files[workflow.path] = workflow.text;
   files[VENDORED_VALIDATOR_PATH] = target.validator;
   const verdict = validateBank({ files });
-  const before = originalTree.memories.length;
-  const after = finalTree.memories.length;
+  const unmoved = Object.keys(files).filter(isLegacyMemory).length;
+  const before = originalTree.memories.length + unmoved;
+  const after = finalTree.memories.length + unmoved;
   const report: BankMigrationReport = { valid: verdict.valid && decisions.length === 0, memories: { before, after, added: after - before }, renames, moves, findings: verdict.findings, decisions, proposals };
+  const originalMemories = Object.entries(source).filter(([path]) => bankTreeOf([path]).memories.length > 0 || isLegacyMemory(path));
+  const nameOf = (text: string) => {
+    const parsed = readBankMarkdown(text);
+    return parsed.ok && typeof parsed.data.name === "string" ? parsed.data.name : null;
+  };
+  const linksOf = (text: string) => JSON.stringify(text.match(/\[\[[^\]\n]+\]\]/g) ?? []);
+  const finalByName = new Map<string, string[]>();
+  for (const { path } of finalTree.memories) {
+    const text = files[path]!;
+    const name = nameOf(text);
+    if (name !== null) finalByName.set(name, [...(finalByName.get(name) ?? []), text]);
+  }
+  const retained = originalMemories.map(([, text]) => ({ text, matches: finalByName.get(nameOf(text) ?? "") ?? [] }));
+  report.preservation = {
+    names: retained.every(({ matches }) => matches.length === 1),
+    links: retained.every(({ text, matches }) => matches.length === 1 && linksOf(matches[0]!) === linksOf(text)),
+    counts: originalMemories.length === before && retained.every(({ matches }) => matches.length === 1) && after >= before,
+  };
+  if (choices.team && Object.values(report.preservation).some((preserved) => !preserved)) {
+    report.valid = false;
+    decisions.push({ path: "BANK.md", value: "preservation", reason: "Resolve missing or changed memory names, links or counts before preparing the team migration." });
+  }
+  if (choices.team) report.headsUp = {
+    title: "Team bank contract migration: heads-up before switch-over",
+    body: `Albert, this is the proposed bank contract migration. David must post this issue before any landing.\n\n` +
+      `Brand and system scopes move from brands/<brand>/<system>/ to projects/${choices.team.org}/<brand>/[<area>/]; holding-company shared facts move to projects/${choices.team.org}/holding/[<area>/]. SYSTEM.md becomes AREA.md; product lines become declared topics. Memory names and [[links]] must be retained (${before} existing memories, ${report.memories.added} added orientation pointers; preservation: names=${report.preservation.names}, links=${report.preservation.links}, counts=${report.preservation.counts}).\n\n` +
+      `The manifest adds kind, purpose, entities and fresh orientation pointers, owners: [${choices.team.owners.join(", ")}], and the team review contract: orientation, decisions, status and manifest changes wait for owner review; a sole owner merges manually. INDEX.md and index keys are removed; the vendored Node validator and GitHub validate workflow run alongside the secret scan.\n\n` +
+      `No landing date is set. David coordinates the switch-over under #94 and will confirm the timing here before landing the reviewed PR. The current tree stays in use until then. Pending human approvals: shared-scope mappings, repository identities, product topics, orientation pointers, owners, validator and secret-scan CI, and the day-of merge. Unresolved conversion decisions: ${decisions.length}; validator refusals: ${verdict.findings.filter((finding) => finding.severity === "refusal").length}. Keep the migration PR unmerged until those approvals and this heads-up are in place.\n`,
+  };
   const writes: Record<string, string | null> = {};
   for (const path of new Set([...Object.keys(source), ...Object.keys(files)])) if (source[path] !== files[path]) writes[path] = files[path] ?? null;
   return { report, files, writes };
