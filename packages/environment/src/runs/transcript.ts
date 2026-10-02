@@ -4,6 +4,8 @@ import {
   type AssistantDeltaPayload,
   type AssistantTextPayload,
   type CommandRanPayload,
+  type ChecksFinishedPayload,
+  type ChecksStartedPayload,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
   type MessageSentPayload,
@@ -223,6 +225,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   /** Items to update later, by the id their events carry. */
   const messages = new Map<string, ItemOf<"user-message">>();
   const toolCalls = new Map<string, ItemOf<"tool-call">>();
+  const checks = new Map<string, ItemOf<"check">>();
   const ledgers = new Map<string, ItemOf<"tasks">>();
   /** Prompt items not yet answered, by prompt id. */
   const prompts = new Map<string, ItemOf<"prompt">>();
@@ -236,6 +239,9 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
     } else if (item.kind === "tool-call") {
       const call = item as unknown as ItemOf<"tool-call">;
       toolCalls.set(call.toolCallId, call);
+    } else if (item.kind === "check") {
+      const check = item as unknown as ItemOf<"check">;
+      checks.set(check.terminalId, check);
     } else if (item.kind === "tasks") {
       const ledger = item as unknown as ItemOf<"tasks">;
       ledgers.set(ledger.runId, ledger);
@@ -416,6 +422,17 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
       case "command.ran": {
         const payload = event.payload as CommandRanPayload;
         push({ kind: "command", sequence, runId: payload.runId, name: payload.name, args: payload.args, output: payload.output });
+        break;
+      }
+      case "checks.started": {
+        const payload = event.payload as ChecksStartedPayload;
+        checks.set(payload.terminalId, push<ItemOf<"check">>({ kind: "check", sequence, ...payload, state: "running", result: null }));
+        break;
+      }
+      case "checks.finished": {
+        const { terminalId, output, truncated, exitCode, signal, timedOut, failure } = event.payload as ChecksFinishedPayload;
+        const check = checks.get(terminalId);
+        if (check !== undefined) Object.assign(check, { state: "finished", result: { output, truncated, exitCode, signal, timedOut, failure } });
         break;
       }
       case "tasks.changed": {

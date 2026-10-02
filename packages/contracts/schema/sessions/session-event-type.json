@@ -64,6 +64,7 @@
     "run.browser.resolved",
     "setup.minted",
     "session.bank-used",
+    "files.undo-finished",
     "checks.started",
     "checks.finished"
   ],
