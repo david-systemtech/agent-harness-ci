@@ -214,6 +214,9 @@ def rehearse(repo, commit, checkout):
                     except ProcessLookupError:
                         pass
                 else:
+                    # Terminate descendants before their launcher disappears.
+                    subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     process.kill()
                 process.wait()
                 raise ValueError('Public checkout rehearsal exceeded 30 minutes; publication blocked') from None

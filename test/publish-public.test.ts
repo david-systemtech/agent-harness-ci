@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,6 +108,64 @@ it.each(["install", "typecheck", "lint", "test"])("blocks both public refs when 
   expect(f.rehearsal().slice(4).map((entry) => entry.args[0])).toEqual(
     ["install", "typecheck", "lint", "test"].slice(0, ["install", "typecheck", "lint", "test"].indexOf(step) + 1),
   );
+});
+
+it.each(["posix", "nt"])("stops the whole timed-out rehearsal on %s before blocking publication", (platform) => {
+  const f = fixture();
+  const result = spawnSync("python3", ["-c", `
+import os,runpy,signal,subprocess,sys,types
+publisher = runpy.run_path(sys.argv[1])['main']
+namespace = publisher.__globals__
+real_popen, real_run = subprocess.Popen, subprocess.run
+alive = {'launcher': True, 'worker': True}
+class RehearsalProcess:
+    pid = 12345
+    def __init__(self, args, **kwargs):
+        self.args = args
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        assert not any(alive.values()), 'rehearsal processes survived cleanup'
+    def wait(self, timeout=None):
+        if timeout is not None:
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        assert not alive['launcher'], 'launcher was not terminated'
+        return 1
+    def kill(self):
+        alive['launcher'] = False
+
+def popen(args, **kwargs):
+    if args[0] == 'pnpm':
+        return RehearsalProcess(args, **kwargs)
+    return real_popen(args, **kwargs)
+
+def run(args, **kwargs):
+    if args[0] == 'taskkill':
+        assert args == ['taskkill', '/PID', '12345', '/T', '/F']
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
+        alive.update(launcher=False, worker=False)
+        return subprocess.CompletedProcess(args, 0)
+    return real_run(args, **kwargs)
+
+def killpg(pid, sig):
+    assert pid == 12345 and sig == signal.SIGKILL
+    alive.update(launcher=False, worker=False)
+
+namespace['os'] = types.SimpleNamespace(**{**vars(os), 'name': sys.argv[2], 'killpg': killpg})
+subprocess.Popen, subprocess.run = popen, run
+sys.argv = [sys.argv[1], *sys.argv[3:]]
+assert publisher() == 1
+assert not any(alive.values())
+`, script, platform, "--source", f.source, "--ref", "HEAD", "--remote", f.remote,
+  "--version", "1.2.3", "--tag", "v1.2.3", "--gitleaks", f.scanner], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  });
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("Public checkout rehearsal exceeded 30 minutes; publication blocked");
+  expect(result.stdout).not.toContain("Published ");
+  expect(result.stdout).not.toContain("Public checkout rehearsal: pass");
+  expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
 it("keeps rehearsal changes and generated files out of the public snapshot", () => {
