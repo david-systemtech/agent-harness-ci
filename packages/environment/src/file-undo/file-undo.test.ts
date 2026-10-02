@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { editFile, end, fakeAdapter, fileTool, gate, say, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { deleteSession, purgeSession } from "../../test/sessions.js";
 import { sessionIn } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 
@@ -281,6 +283,80 @@ describe("files.undo", () => {
     );
     expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "new.txt", unrestorable: "unknown" });
     expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("n\n");
+  });
+});
+
+describe("files.undo beside the rest of the session", () => {
+  /** Runs git in `cwd` as a test user, with no global or system configuration. */
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", ...args], {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+    });
+
+  it("leaves the repository's index and stash as they were", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n" });
+    git(root, "init", "-q");
+    git(root, "add", "a.txt", "b.txt");
+    git(root, "commit", "-qm", "first");
+    writeFileSync(join(root, "b.txt"), "stashed\n");
+    git(root, "stash", "-q");
+    writeFileSync(join(root, "b.txt"), "staged\n");
+    git(root, "add", "b.txt");
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" })));
+    const index = readFileSync(join(root, ".git", "index"));
+    const stash = git(root, "stash", "list", "--format=%H");
+
+    await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(readFileSync(join(root, ".git", "index")).equals(index)).toBe(true);
+    expect(git(root, "stash", "list", "--format=%H")).toBe(stash);
+    expect(git(root, "diff", "--cached", "--name-only")).toBe("b.txt\n");
+  });
+
+  it("serialises two undos of one workspace, each restoring its own change", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n" });
+    await runScript(
+      t,
+      client,
+      sessionId,
+      playing(
+        (controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" }),
+        (controls) => editFile(controls, { path: "b.txt", oldString: "b", newString: "B" }),
+      ),
+    );
+    const answers = await Promise.all([client.apply("files.undo", { commandId: randomUUID(), sessionId }), client.apply("files.undo", { commandId: randomUUID(), sessionId })]);
+    expect(answers.map((answer) => answer.path)).toEqual(["b.txt", "a.txt"]);
+    expect([readFileSync(join(root, "a.txt"), "utf8"), readFileSync(join(root, "b.txt"), "utf8")]).toEqual(["a\n", "b\n"]);
+  });
+
+  it("neither rewinds the conversation nor undoes a rewind: it appends files.undo-finished alone", async () => {
+    const { t, client, sessionId } = await setUp({ "a.txt": "a\n" });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    const before = t.env.log.head();
+    const summary = (await client.request("sessions.get", { sessionId })).summary;
+
+    await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+
+    expect(t.env.log.readStream({ kind: "session", id: sessionId }, before).map((event) => event.type)).toEqual(["files.undo-finished"]);
+    expect((await client.request("sessions.get", { sessionId })).summary).toEqual(summary);
+  });
+
+  it("is offered as the fileUndo flag", async () => {
+    const { client } = await setUp();
+    expect(client.hello.capabilities).toContain("fileUndo");
+  });
+
+  it("keeps no snapshot of a purged session", async () => {
+    const { t, client, sessionId } = await setUp({ "a.txt": "a\n" });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    const kept = () => t.env.log.read<{ count: number }>("SELECT count(*) AS count FROM file_changes WHERE session_id = ?", sessionId)[0]?.count;
+    expect(kept()).toBe(1);
+    await deleteSession(client, sessionId);
+    await purgeSession(client, sessionId);
+    expect(kept()).toBe(0);
   });
 });
 
