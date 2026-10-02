@@ -1,3 +1,4 @@
+import { reduceSession } from "../projections/session.js";
 import type { DelegatedWorkRow, RunSummary } from "@agent-harness/contracts";
 import type {
   AssistantEntry,
@@ -69,7 +70,7 @@ export type TranscriptRow =
   | { readonly kind: "turn"; readonly id: string; readonly runId: string; readonly run: RunSummary }
   | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry }
   /** A fork's first row: the session it was forked from and the message it was taken before, which opening the row opens. */
-  | { readonly kind: "forked"; readonly id: string; readonly runId: null; readonly entry: ForkedEntry }
+  | { readonly kind: "forked"; readonly id: string; readonly runId: null; readonly entry: ForkedEntry; readonly rows: readonly TranscriptRow[] }
   /** An imported session's line saying its history could not be read from the account's directory, and why (#579). */
   | { readonly kind: "history-unreadable"; readonly id: string; readonly runId: null; readonly entry: HistoryUnreadableEntry }
   /** The branch a rewind cut, folded where it was cut: the rows it holds, drawn under it when unfolded. */
@@ -166,7 +167,9 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
         push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });
         break;
       case "forked":
-        push({ kind: "forked", id: `forked:${entry.sequence}`, runId: null, entry });
+        push({ kind: "forked", id: `forked:${entry.sequence}`, runId: null, entry, rows: entry.history === undefined ? [] : transcriptRows(reduceSession({
+          items: entry.history.items, runs: entry.history.runs, parkedPrompts: [], rewinds: [], instructions: "",
+        }, [])) });
         break;
       case "history-unreadable":
         push({ kind: "history-unreadable", id: `history-unreadable:${entry.sequence}`, runId: null, entry });
@@ -226,6 +229,7 @@ export const forkedFrom = (
   entry: ForkedEntry,
   source: { readonly summary: { readonly title: string } | null; readonly items: readonly TranscriptEntry[] } | undefined,
 ): ForkedFrom => {
+  if (entry.history !== undefined) return { title: entry.history.title, anchor: entry.history.anchor };
   const messageId = entry.atMessageId?.toLowerCase();
   const find = (items: readonly TranscriptEntry[]): string | null => {
     for (const item of items) {

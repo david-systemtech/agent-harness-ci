@@ -125,6 +125,15 @@ describe("a fork's first row", () => {
     ]);
   });
 
+  it("names and unfolds the independent seed after the source is gone", () => {
+    const copied = message(1, "Fix the receipts");
+    if (copied.kind !== "user-message") throw new Error("Expected a user message.");
+    const seeded = transcriptRows(view([{ kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2",
+      history: { title: "Receipts", anchor: "Add the tests", items: [copied], runs: [] } }]));
+    expect(shown(transcriptLines(seeded, CONTEXT))).toEqual(["⑂ Forked from Receipts at Add the tests · o opens it · Enter unfolds"]);
+    expect(shown(transcriptLines(seeded, { ...CONTEXT, expanded: true }))).toEqual(["⑂ Forked from Receipts at Add the tests", "┊ ", "┊ ▌ Fix the receipts"]);
+  });
+
   it("names what it knows: another session while the source is not read, no prompt for a fork of the whole session; and no key in the pager", () => {
     expect(shown(transcriptLines(rows.slice(0, 1), CONTEXT))).toEqual(["⑂ Forked from another session · o opens it"]);
     expect(shown(transcriptLines(rows.slice(0, 1), { ...CONTEXT, expanded: true, openKey: "O", forkedFrom: { title: "Receipts", anchor: null } }))).toEqual(["⑂ Forked from Receipts"]);

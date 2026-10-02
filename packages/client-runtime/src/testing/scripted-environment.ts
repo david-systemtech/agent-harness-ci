@@ -55,6 +55,7 @@ import {
   type RunEndReason,
   type Scope,
   SessionSummary,
+  TranscriptItem,
   TERMINAL_EXITED_TYPE,
   TERMINAL_OUTPUT_TYPE,
   TERMINAL_STREAM_KIND,
@@ -64,6 +65,7 @@ import {
   type TerminalInfo,
   type WorkspaceProblem,
 } from "@agent-harness/contracts";
+import { reduceSession } from "../projections/session.js";
 import { uuidv4 } from "../ids.js";
 import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
 import { FAKE_HARNESS_VERSION, fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
@@ -1061,6 +1063,17 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       },
       sessions.length,
     );
+    const transcript = reduceSession({ runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" }, eventsOf(source.id));
+    const copied = transcript.items.flatMap((item) => {
+      if (item.kind === "forked") return item.history?.items ?? [];
+      if (item.kind === "rewound") return [];
+      if (item.kind === "subagent") return item.calls.map((call) => TranscriptItem.parse(call));
+      return [TranscriptItem.parse(item.kind === "question" || item.kind === "plan" ? { ...item, kind: "prompt" } : item)];
+    });
+    const history = { title: source.title, anchor: anchor?.text ?? null,
+      items: copied.filter((item) => item.sequence < (anchor?.sequence ?? Number.POSITIVE_INFINITY)),
+      runs: [...transcript.runs, ...transcript.items.flatMap((item) => item.kind === "forked" ? item.history?.runs ?? [] : [])],
+    };
     // In the environment's order: created, title-generated, draft-set, forked.
     emit(
       id,
@@ -1070,7 +1083,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     );
     if (carriedTitle !== null) emit(id, "session.title-generated", { title: carriedTitle, source: "prompt" });
     if (draft !== "") emit(id, "session.draft-set", { draft }, { fields: { draft } });
-    emit(id, "session.forked", { fromSessionId: source.id, atMessageId, fromProviderSessionId });
+    emit(id, "session.forked", { fromSessionId: source.id, atMessageId, fromProviderSessionId, history });
     return acceptedWith({ summary });
   });
   // The workspace's files, which a run's writes and edits (`writeFile`, `editFile`) change.

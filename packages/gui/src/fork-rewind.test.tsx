@@ -141,8 +141,15 @@ describe("Fork", () => {
     const forked = await within(pane).findByRole("button", { name: "Forked from Receipts at Add the tests" });
     expect(within(pane).queryByText("Nothing said yet.")).toBeNull();
 
-    // And it opens the source.
+    expect(forked.getAttribute("aria-expanded")).toBe("false");
+    expect(within(pane).queryByText("Reply to Fix the receipts.")).toBeNull();
     await app.user.click(forked);
+    const history = within(pane).getByRole("group", { name: "Copied fork history" });
+    expect(within(history).getByText("Reply to Fix the receipts.")).toBeTruthy();
+    expect(within(history).queryByText("Reply to Add the tests.")).toBeNull();
+    await app.user.hover(within(history).getByText("Fix the receipts"));
+    expect(within(history).queryByRole("button", { name: "Fork" })).toBeNull();
+    await app.user.click(within(pane).getByRole("button", { name: "Open source session" }));
     await waitFor(() => expect(inPane(app)).toEqual({ environmentId: env.environmentId, sessionId: session }));
     expect(await screen.findByText("Reply to Add the tests.")).toBeTruthy();
   });

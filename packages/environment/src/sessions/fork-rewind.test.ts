@@ -9,6 +9,7 @@ import { command, create, deleteSession, get, purgeSession, refusal, workspace }
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { createProviderTranscriptStore } from "../provider-transcripts/store.js";
+import { createCompactionSweep } from "./compaction.js";
 import { REWIND_WAIT_MS } from "./fork-rewind.js";
 
 /**
@@ -82,6 +83,47 @@ const snapshotOf = async (t: TestEnvironment, client: WireClient, sessionId: str
 };
 
 describe("sessions.fork", () => {
+  it("copies visible history before an anchor and at the end, retaining it after the source is purged", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client, { title: "Receipts" });
+    await runTo(t, client, source.id, "Fix the receipts");
+    const second = await runTo(t, client, source.id, "Add the tests");
+    const anchored = randomUUID();
+    const whole = randomUUID();
+    await fork(client, { sessionId: source.id, id: anchored, atMessageId: second.messageId });
+    await fork(client, { sessionId: source.id, id: whole });
+    await deleteSession(client, source.id);
+    await purgeSession(client, source.id);
+
+    const before = await snapshotOf(t, client, anchored);
+    const end = await snapshotOf(t, client, whole);
+    expect(before.items).toEqual([expect.objectContaining({ kind: "forked", fromSessionId: source.id,
+      history: expect.objectContaining({ title: "Receipts", anchor: "Add the tests", items: [
+        expect.objectContaining({ kind: "user-message", text: "Fix the receipts" }),
+        expect.objectContaining({ kind: "assistant-text", text: "Done: Fix the receipts" }),
+      ] }),
+    })]);
+    expect(end.items).toEqual([expect.objectContaining({ kind: "forked",
+      history: expect.objectContaining({ title: "Receipts", anchor: null, items: [
+        expect.objectContaining({ text: "Fix the receipts" }), expect.objectContaining({ text: "Done: Fix the receipts" }),
+        expect.objectContaining({ text: "Add the tests" }), expect.objectContaining({ text: "Done: Add the tests" }),
+      ] }),
+    })]);
+    await runTo(t, client, anchored, "Continue independently");
+    const future = manualClock();
+    future.advance(91 * 24 * 60 * 60 * 1000);
+    expect(createCompactionSweep({ log: t.env.log, clock: future }).sweep().compacted).toContain(anchored);
+    expect((await snapshotOf(t, client, anchored)).items[0]).toEqual(before.items[0]);
+    const grandchild = randomUUID();
+    await fork(client, { sessionId: anchored, id: grandchild });
+    await deleteSession(client, anchored);
+    await purgeSession(client, anchored);
+    const next = await snapshotOf(t, client, grandchild);
+    expect(next.items[0]).toMatchObject({ kind: "forked", history: { items: [expect.objectContaining({ text: "Fix the receipts" }), expect.objectContaining({ text: "Done: Fix the receipts" }),
+      expect.objectContaining({ text: "Continue independently" }), expect.objectContaining({ text: "Done: Continue independently" })] } });
+  });
+
   it("creates the fork through session-state's create, carrying the source's title, tags and group, and records session.forked on its stream", async () => {
     const t = await start();
     const client = await t.client();
@@ -96,7 +138,7 @@ describe("sessions.fork", () => {
     expect(events(t, id).map((event) => [event.type, event.payload])).toEqual([
       ["session.created", expect.objectContaining({ workspace, account: null, tags: ["wip"] })],
       ["session.title-generated", { title: "Fix the receipt sweep", source: "prompt" }],
-      ["session.forked", { fromSessionId: source.id, atMessageId: null, fromProviderSessionId: "provider-1" }],
+      ["session.forked", expect.objectContaining({ fromSessionId: source.id, atMessageId: null, fromProviderSessionId: "provider-1", history: expect.any(Object) })],
     ]);
     expect(events(t, id).every((event) => event.correlationId === null && !("runId" in event.payload))).toBe(true);
     // Nothing is appended to the source.
@@ -138,7 +180,7 @@ describe("sessions.fork", () => {
 
     const answer = await fork(client, { sessionId: source.id, id, atMessageId: second.messageId, title: "The other approach" });
     expect(answer.result?.summary).toMatchObject({ title: "The other approach", titleSource: "user", draft: "Second, differently" });
-    expect(events(t, id).at(-1)?.payload).toEqual({ fromSessionId: source.id, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    expect(events(t, id).at(-1)?.payload).toMatchObject({ fromSessionId: source.id, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
     await runTo(t, client, id, "Third");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
   });
@@ -149,7 +191,7 @@ describe("sessions.fork", () => {
     const idle = await create(client, { title: "Nothing yet" });
     const fromIdle = randomUUID();
     await fork(client, { sessionId: idle.id, id: fromIdle });
-    expect(events(t, fromIdle).at(-1)?.payload).toEqual({ fromSessionId: idle.id, atMessageId: null, fromProviderSessionId: null });
+    expect(events(t, fromIdle).at(-1)?.payload).toMatchObject({ fromSessionId: idle.id, atMessageId: null, fromProviderSessionId: null });
 
     const source = await create(client);
     const first = await runTo(t, client, source.id, "The very first");
@@ -173,7 +215,7 @@ describe("sessions.fork", () => {
     const grandchild = randomUUID();
 
     await fork(client, { sessionId: child, id: grandchild });
-    expect(events(t, grandchild).at(-1)?.payload).toEqual({ fromSessionId: child, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    expect(events(t, grandchild).at(-1)?.payload).toMatchObject({ fromSessionId: child, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
     // Its copy of the provider session is the child's, which the child copied from the source.
     expect(await store.load({ projectKey: grandchild, sessionId: "provider-1" })).toEqual([{ type: "user", uuid: "u1", message: { role: "user", content: "First" } }]);
     t.adapter.nextScripts.push(linking("provider-grandchild"));
@@ -197,7 +239,7 @@ describe("sessions.fork", () => {
     const fromUnlinked = randomUUID();
     const answer = await fork(client, { sessionId: unlinked, id: fromUnlinked, atMessageId: failed.messageId });
     expect(answer.result?.summary.draft).toBe("Unlinked first");
-    expect(events(t, fromUnlinked).at(-1)?.payload).toEqual({ fromSessionId: unlinked, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    expect(events(t, fromUnlinked).at(-1)?.payload).toMatchObject({ fromSessionId: unlinked, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
     await runTo(t, client, fromUnlinked, "Onwards");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
 
@@ -208,7 +250,7 @@ describe("sessions.fork", () => {
     const own = await runTo(t, client, linked, "Linked first");
     const fromLinked = randomUUID();
     await fork(client, { sessionId: linked, id: fromLinked, atMessageId: own.messageId });
-    expect(events(t, fromLinked).at(-1)?.payload).toEqual({ fromSessionId: linked, atMessageId: own.messageId, fromProviderSessionId: "provider-linked" });
+    expect(events(t, fromLinked).at(-1)?.payload).toMatchObject({ fromSessionId: linked, atMessageId: own.messageId, fromProviderSessionId: "provider-linked" });
   });
 
   it("forks the whole of a source with a rewind not yet continued from at the rewind's message, since its provider session still holds what the rewind hid", async () => {
@@ -221,7 +263,9 @@ describe("sessions.fork", () => {
     const id = randomUUID();
 
     await fork(client, { sessionId: source.id, id });
-    expect(events(t, id).at(-1)?.payload).toEqual({ fromSessionId: source.id, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    expect(events(t, id).at(-1)?.payload).toMatchObject({ fromSessionId: source.id, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    const copied = await snapshotOf(t, client, id);
+    expect(copied.items[0]).toMatchObject({ history: { anchor: null, items: [expect.objectContaining({ text: "First" }), expect.objectContaining({ text: "Done: First" })] } });
     await runTo(t, client, id, "Elsewhere");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
   });
@@ -233,14 +277,22 @@ describe("sessions.fork", () => {
     const source = await create(client);
     t.adapter.nextScripts.push(async function* () {
       yield { type: "session.provider-linked", payload: { providerSessionId: "provider-1" } } as const;
+      yield { type: "assistant.delta", payload: { itemId: "partial", fragments: [{ kind: "text", text: "Looking " }] } } as const;
+      yield { type: "assistant.delta", payload: { itemId: "partial", fragments: [{ kind: "text", text: "now" }] } } as const;
       await held.opened;
+      yield say("Finished later");
       yield end();
     });
     await client.request("runs.start", { commandId: randomUUID(), sessionId: source.id, text: "Long work" });
-    await vi.waitFor(() => expect(events(t, source.id).map((event) => event.type)).toContain("session.provider-linked"));
-    const answer = await fork(client, { sessionId: source.id, id: randomUUID() });
+    await vi.waitFor(() => expect(events(t, source.id).filter((event) => event.type === "assistant.delta")).toHaveLength(2));
+    const id = randomUUID();
+    const answer = await fork(client, { sessionId: source.id, id });
     expect(answer.receipt.status).toBe("accepted");
+    const frozen = await snapshotOf(t, client, id);
+    expect(frozen.items[0]).toMatchObject({ history: { items: [expect.objectContaining({ text: "Long work" }), expect.objectContaining({ text: "Looking now" })] } });
     held.open();
+    await vi.waitFor(() => expect(ended(t, source.id)).toHaveLength(1));
+    expect((await snapshotOf(t, client, id)).items).toEqual(frozen.items);
   });
 
   it("refuses a source not here, a message not in it, an id in use, an account that cannot run, and an adapter that cannot fork", async () => {

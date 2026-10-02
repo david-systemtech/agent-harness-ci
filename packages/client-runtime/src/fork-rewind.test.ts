@@ -114,7 +114,7 @@ describe("commands.fork", () => {
     onTestFinished(fork.subscribe(() => undefined));
     await vi.waitFor(() => expect(fork.read().items).toHaveLength(1), EVENTUALLY);
     const [entry] = fork.read().items;
-    expect(entry).toEqual({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor });
+    expect(entry).toMatchObject({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor, history: { title: "Receipts", anchor: "Then the tests" } });
     expect(fork.read()).toMatchObject({ draft: "Then the tests", summary: { title: "Receipts, again" } });
     // What its row names, read from the source.
     if (entry?.kind !== "forked") throw new Error("The fork does not open on its forked entry.");

@@ -21,6 +21,7 @@ import {
   type RunSummary,
   type SessionContainmentSetPayload,
   type SessionForkedPayload,
+  type ForkHistory,
   type SessionHistoryImportedPayload,
   type SessionInstructionsSetPayload,
   type SessionRewindUndonePayload,
@@ -217,6 +218,8 @@ export interface ForkedEntry {
    * own anchor, a message of the source's source (the contracts' `SessionForkedPayload`).
    */
   readonly atMessageId: string | null;
+  /** Copied at fork, independent of the source; absent on older forks. */
+  readonly history?: ForkHistory | undefined;
 }
 
 /**
@@ -370,6 +373,8 @@ const fromSnapshot = (item: TranscriptItem): Held => {
     case "command":
     case "tasks":
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
+    case "forked":
+      return { ...(item as SnapshotItem<"forked">) };
     case "history-unreadable":
       return { ...(item as HistoryUnreadableEntry) };
     case "assistant-text":
@@ -663,9 +668,9 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         return;
       }
       case "session.forked": {
-        const { fromSessionId, atMessageId } = event.payload as SessionForkedPayload;
+        const { fromSessionId, atMessageId, history } = event.payload as SessionForkedPayload;
         if (typeof fromSessionId !== "string") throw new TypeError("session.forked names no source.");
-        push<ForkedEntry>({ kind: "forked", sequence, fromSessionId, atMessageId: atMessageId ?? null });
+        push<ForkedEntry>({ kind: "forked", sequence, fromSessionId, atMessageId: atMessageId ?? null, ...(history !== undefined && { history }) });
         return;
       }
       case "session.history-imported": {

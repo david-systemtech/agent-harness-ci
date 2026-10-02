@@ -94,7 +94,13 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
     case "rewound":
       return <RewoundFold row={row} facts={facts} />;
     case "forked":
-      return <ForkedRow entry={row.entry} />;
+      return (
+        <ForkedRow entry={row.entry}>
+          <div role="group" aria-label="Copied fork history" className="flex flex-col gap-3 border-l border-hairline pl-3">
+            {row.rows.map((inner) => <TranscriptRowView key={inner.id} row={inner} facts={{ ...facts, verbs: false }} />)}
+          </div>
+        </ForkedRow>
+      );
     case "history-unreadable":
       // An imported session whose history the account's directory no longer gave (#579): one line saying so, and why.
       return (

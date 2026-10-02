@@ -352,11 +352,15 @@ const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineConte
  * key that opens the source (not in the pager, which opens nothing).
  */
 const forkedLines = (row: Extract<Row, { kind: "forked" }>, context: LineContext): Line[] => {
-  const { title, anchor } = context.forkedFrom ?? { title: null, anchor: null };
+  const { title, anchor } = row.entry.history ?? context.forkedFrom ?? { title: null, anchor: null };
   const head: Span[] = [{ text: "Forked from ", bold: true }, { text: title ?? "another session" }];
   if (anchor !== null) head.push({ text: " at ", bold: true }, { text: oneLine(anchor, 160) });
   if (!context.expanded) head.push({ text: ` · ${context.openKey ?? "o"} opens it`, dim: true });
-  return block(row.id, { text: "⑂", color: TERMINAL_ROLES.machine }, [head], context.width, true);
+  if (!context.expanded && row.entry.history !== undefined) head.push({ text: ` · ${context.unfoldKey ?? "Enter"} unfolds`, dim: true });
+  const lines = block(row.id, { text: "⑂", color: TERMINAL_ROLES.machine }, [head], context.width, true);
+  if (!context.expanded) return lines;
+  const inner = transcriptLines(row.rows, { ...context, width: context.width - 2 });
+  return [...lines, ...inner.map((line): Line => ({ row: row.id, spans: [{ text: "┊ ", color: TERMINAL_ROLES.machine }, ...line.spans] }))];
 };
 
 /** The lines of one row. */
