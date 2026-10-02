@@ -43,10 +43,10 @@ export interface StateImportOptions {
   readonly environmentId: string;
   /** The environment's one import coordinator. */
   readonly coordinator: ImportCoordinator;
-  /** The Instructions service's create command, which carries each instruction. */
   readonly accounts: AccountService;
   readonly updateSettings: MethodHandler<"settings.update">;
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
+  /** The Instructions service's create command, which carries each instruction. */
   readonly createInstruction: MethodHandler<"instructions.create">;
   readonly hooks?: StateImportHooks;
 }
