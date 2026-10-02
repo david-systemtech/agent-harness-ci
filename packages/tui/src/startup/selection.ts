@@ -1,6 +1,15 @@
-import { PRESET_SETTING_KEYS, type AccountChip, type ConnectionCredential, type EnvironmentView, type ModelChip, type Runtime } from "@agent-harness/client-runtime";
+import {
+  PRESET_SETTING_KEYS,
+  createRuntime,
+  type AccountChip,
+  type ConnectionCredential,
+  type EnvironmentView,
+  type ModelChip,
+  type Platform,
+  type Runtime,
+} from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
-import { SERVICE_DOWN, currentEnvironment, environmentsNamed, knownEnvironments, localIsDown, nameOf, phaseWords } from "../view.js";
+import { SERVICE_DOWN, currentEnvironment, environmentsNamed, isPlaceholder, knownEnvironments, nameOf, phaseWords } from "../view.js";
 
 /**
  * The terminal UI's Environment selection without a screen (#1178), for
@@ -85,8 +94,17 @@ const refused = (reason: SelectionRefusalReason, message: string): SelectionRefu
 /** The service-down offer's sentence, with the verb that answers it, since nobody is there to answer `y`. */
 const NOT_RUNNING = refused("unreachable", `${SERVICE_DOWN} \`${PRODUCT_NAME} service start\` starts it.`);
 
+/** Whether the local environment's grant file is there: an environment this machine has never reached is not running, rather than none. */
+const grantPresent = async (platform: Platform): Promise<boolean> => {
+  try {
+    return (await platform.grant?.read()) !== undefined;
+  } catch {
+    return false;
+  }
+};
+
 /** The environment `wanted` names among those the runtime lists, else the one the screen's header shows; or why there is none to use. */
-const choose = (runtime: Runtime, wanted: string | undefined): { readonly ok: true; readonly environment: EnvironmentView } | SelectionRefusal => {
+const choose = async (platform: Platform, runtime: Runtime, wanted: string | undefined): Promise<{ readonly ok: true; readonly environment: EnvironmentView } | SelectionRefusal> => {
   const views = runtime.projections.environments.read();
   let environment: EnvironmentView | undefined;
   if (wanted !== undefined) {
@@ -100,8 +118,8 @@ const choose = (runtime: Runtime, wanted: string | undefined): { readonly ok: tr
   } else {
     environment = currentEnvironment(views, runtime.preferences.read(), undefined);
   }
-  if (environment === undefined) {
-    if (localIsDown(views, runtime.local.read())) return NOT_RUNNING;
+  // The placeholder alone is listed: this machine's environment never answered, and without a grant file there is none here.
+  if (environment === undefined || (isPlaceholder(environment) && !(await grantPresent(platform)))) {
     return refused("none", `No environment is known here: \`${PRODUCT_NAME} service install\` sets up this machine's, and \`/pair\` in \`${PRODUCT_NAME} tui\` adds another.`);
   }
   if (environment.phase === "ready") return { ok: true, environment };
@@ -139,15 +157,17 @@ const newSessionPresets = (runtime: Runtime, environmentId: string): Promise<New
 };
 
 /**
- * Starts `runtime` (the saved connections read, the local grant exchanged,
- * each connection's first attempt settled), chooses the environment and
- * hands over what using it needs. A refusal, or a start that fails, closes
- * the runtime; a selection leaves it to the caller's `close`.
+ * Starts a client runtime on `platform` (the saved connections read, the
+ * local grant exchanged, each connection's first attempt settled), chooses
+ * the environment and hands over what using it needs. A refusal, or a start
+ * that fails, closes the runtime; a selection leaves it to the caller's
+ * `close`.
  */
-export const selectOn = async (runtime: Runtime, request: SelectionRequest): Promise<SelectionOutcome> => {
+export const selectOn = async (platform: Platform, request: SelectionRequest): Promise<SelectionOutcome> => {
+  const runtime = createRuntime(platform);
   try {
     await runtime.start();
-    const choice = choose(runtime, request.environment);
+    const choice = await choose(platform, runtime, request.environment);
     if (!choice.ok) {
       await runtime.close();
       return choice;

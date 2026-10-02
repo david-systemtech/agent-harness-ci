@@ -1,8 +1,14 @@
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { BOOTSTRAP_GRANT_FILE } from "@agent-harness/contracts";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { selectTerminalEnvironment } from "./screenless.js";
 import { selectOn, type SelectionRequest } from "./startup/selection.js";
 
 // Nothing the screenless selection loads may draw a screen: Ink or React imported anywhere under it fails the import.
@@ -50,7 +56,7 @@ const machine = async (script: Script): Promise<Machine> => {
 
 /** The selection as a later invocation makes it, on what the machine saved; a selection made is closed when the test ends. */
 const select = async (on: Machine, request: Partial<SelectionRequest> = {}) => {
-  const outcome = await selectOn(createRuntime(on.platform), { currentDirectory: HERE, ...request });
+  const outcome = await selectOn(on.platform, { currentDirectory: HERE, ...request });
   if (outcome.ok) onTestFinished(() => outcome.selection.close());
   return outcome;
 };
@@ -248,5 +254,36 @@ describe("a selection refused", () => {
       reason: "none",
       message: "No environment is known here: `agent-harness service install` sets up this machine's, and `/pair` in `agent-harness tui` adds another.",
     });
+  });
+});
+
+/** A loopback port nothing listens on: one the system handed out, closed again. */
+const closedPort = async (): Promise<number> => {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { readonly port: number };
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+};
+
+describe("the screenless entry", () => {
+  it("starts on the terminal's own state directory and the local environment's grant file, with no terminal and no screen", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "agent-harness-screenless-"));
+    onTestFinished(() => rmSync(scratch, { recursive: true, force: true }));
+    const stateDir = join(scratch, "state");
+    const faults: string[] = [];
+    const options = { dataDir: scratch, stateDir, version: "0.0.0-test", currentDirectory: HERE, report: (line: string) => void faults.push(line) };
+
+    expect(await selectTerminalEnvironment(options)).toMatchObject({ ok: false, reason: "none" });
+    if (process.platform !== "win32") expect(statSync(stateDir).mode & 0o777).toBe(0o700);
+
+    // The grant file names this machine's environment, on a port nothing listens on: it is not running.
+    writeFileSync(join(scratch, BOOTSTRAP_GRANT_FILE), JSON.stringify({ secret: "secret-for-tests", address: { host: "127.0.0.1", port: await closedPort() } }));
+    expect(await selectTerminalEnvironment(options)).toEqual({
+      ok: false,
+      reason: "unreachable",
+      message: "The environment on this machine is not running. `agent-harness service start` starts it.",
+    });
+    expect(faults).toEqual([]);
   });
 });
