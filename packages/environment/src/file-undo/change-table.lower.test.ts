@@ -70,16 +70,25 @@ describe("a session's change records", () => {
     expect(stoppedAt).toMatchObject({ path: "f01.txt", unrestorable: "evicted", pre: null });
   });
 
-  it("keep at most 16 MiB of snapshots, evicting the oldest past it", () => {
+  it.each(["Edit", "MultiEdit", "Write", "NotebookEdit"])("keep at most 16 MiB of %s snapshots, evicting the oldest past it", (tool) => {
     const log = open();
     const fill = (n: number) => Buffer.alloc(FILE_UNDO_MAX_FILE_BYTES, n);
     const fitting = FILE_UNDO_MAX_SESSION_BYTES / FILE_UNDO_MAX_FILE_BYTES;
     const paths = Array.from({ length: fitting + 1 }, (_, index) => `big-${index}.txt`);
-    for (const [index, path] of paths.entries()) change(log, path, fill(index));
+    for (const [index, path] of paths.entries()) change(log, path, fill(index), tool);
 
     const { undone, stoppedAt } = undoAll(log);
     expect(undone).toEqual(paths.slice(1).reverse());
     expect(stoppedAt).toMatchObject({ path: "big-0.txt", unrestorable: "evicted" });
+  });
+
+  it("counts created-file absence against the 50-change bound within one multi-file completion", () => {
+    const log = open();
+    const paths = Array.from({ length: FILE_UNDO_MAX_CHANGES + 2 }, (_, index) => `f${String(index).padStart(2, "0")}.txt`);
+    const captured = paths.map((path): CapturedChange => ({ changeId: randomUUID(), sessionId, runId: "run", toolCallId: "toolu_many", tool: "MultiEdit", path, inside: true, existed: false, pre: null, preMode: null, unrestorable: null }));
+    log.atomically((tx) => log.fileChanges.begin(tx, captured));
+    log.atomically((tx) => log.fileChanges.complete(tx, sessionId, "toolu_many", new Map(captured.map((record) => [record.changeId, { digest: "created", mode: 0o644 }]))));
+    expect(undoAll(log)).toMatchObject({ undone: paths.slice(2).reverse(), stoppedAt: { path: "f01.txt", unrestorable: "evicted", existed: false, pre: null } });
   });
 
   it("drop what lies behind the newest change that cannot be restored, which undo never reaches", () => {

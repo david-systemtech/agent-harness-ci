@@ -49,7 +49,13 @@ export const claudeToolAccess = (toolName: string, input: Readonly<Record<string
   const writeKey = WRITE_PATH[toolName];
   if (writeKey !== undefined) {
     const path = text(input[writeKey]);
-    return { kind: "write", paths: path === undefined ? [] : [path] };
+    const edits = toolName === "MultiEdit" && Array.isArray(input["edits"]) ? input["edits"] : [];
+    const paths = edits.flatMap((edit: unknown) => {
+      const named = edit !== null && typeof edit === "object" ? text((edit as Record<string, unknown>)["file_path"]) : undefined;
+      const target = named ?? path;
+      return target === undefined ? [] : [target];
+    });
+    return { kind: "write", paths: [...new Set(edits.length === 0 ? (path === undefined ? [] : [path]) : paths)] };
   }
   const readKey = READ_PATH[toolName];
   if (readKey !== undefined) {
