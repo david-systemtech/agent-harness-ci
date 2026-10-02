@@ -25,6 +25,19 @@ export interface PrintResult {
   readonly error: string | null;
 }
 
+/** The result of a print refused before it began: its arguments could not be used. */
+export const refusedResult = (error: string): PrintResult => ({
+  type: "result",
+  environmentId: null,
+  sessionId: null,
+  runId: null,
+  text: "",
+  usage: null,
+  durationMs: 0,
+  reason: "error",
+  error,
+});
+
 /** Standard output in one format: the text as it comes, each chunk as it comes, and the end. */
 export interface FormatWriter {
   /** One chunk as the answer sent it, parsed. */
