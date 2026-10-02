@@ -13,6 +13,7 @@ import { decideStart } from "../runs/run-decider.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { CANCELLED_MESSAGE, DUPLICATE_PROMPT_MESSAGE, RUN_ENDED_MESSAGE } from "./broker.js";
+import type { BlastRadiusDeps } from "./command-preview.js";
 import { permissionsProjector } from "./permissions-store.js";
 import { PREVIEW_TIMEOUT_MS } from "./preview.js";
 
@@ -20,7 +21,7 @@ const { onCleanup, tempDir } = useCleanups();
 const detail = { toolName: "Bash", input: { command: "rm -rf *" } };
 
 /** A real broker over the read-only I/O seam, held before its first directory read finishes. */
-const setup = async (script: Script) => {
+const setup = async (script: Script, previewDeps: Partial<BlastRadiusDeps> = {}) => {
   const workspace = tempDir();
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
@@ -38,6 +39,7 @@ const setup = async (script: Script) => {
   });
   const host = createAdapterHost({ log, clock, adapters: [adapter], accounts, ceilingOf: () => undefined, previewDeps: {
     readdir: async () => { reading.open(); await released.opened; return []; },
+    ...previewDeps,
   } });
   onCleanup(() => host.close("disposed"));
   const sessionId = randomUUID();
@@ -50,6 +52,68 @@ const setup = async (script: Script) => {
     prompts: () => log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "prompt.opened").map((event) => event.payload as PromptOpenedPayload),
   };
 };
+
+describe("the broker's indirect execution preview", () => {
+  it.skipIf(process.platform === "win32").each([
+    "(rm -rf build)",
+    "{ rm -rf build; }",
+    "time { rm -rf build; }",
+    "time -p { rm -rf build; }",
+    "function f { rm -rf build; }; f",
+    "exec sh -c 'rm -rf build'",
+    "timeout 10 sh -c 'rm -rf build'",
+    "busybox sh -c 'rm -rf build'",
+    "coproc { rm -rf build; }",
+    "coproc CLEANUP { rm -rf build; }",
+    "coproc sh -c 'rm -rf build'",
+    "su -c 'rm -rf build'",
+    "su root -c 'rm -rf build'",
+    "su -- root -c 'rm -rf build'",
+    "runuser -u root -- sh -c 'rm -rf build'",
+    "chroot /mnt/root sh -c 'rm -rf build'",
+    "echo $(rm -rf build)",
+    "X=$(rm -rf build)",
+    "eval rm -rf build",
+    "sh -c 'rm -rf build'",
+    'echo "$(rm -rf /outside)"',
+    "echo `rm -rf build`",
+    "sh -c 'git reset --hard; curl https://preview.example.test'",
+  ])("records a warning for %s without querying its contents, and keeps the prompt answerable", async (command) => {
+    const answers: PromptDecision[] = [];
+    const calls: string[] = [];
+    const t = await setup(async function* ({ context, input }) {
+      answers.push(await context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "indirect", kind: "permission", detail: { toolName: "Bash", input: { command } } }));
+      yield end();
+    }, {
+      execFile: async () => { calls.push("exec"); return ""; },
+      readdir: async () => { calls.push("readdir"); return []; },
+      stat: async () => { calls.push("stat"); return { size: 0, directory: false }; },
+    });
+    await t.opened.opened;
+    expect(t.prompts()).toMatchObject([{ promptId: "indirect", previewLines: ["⚠ cannot tell: indirect shell execution may change files or contact the network"] }]);
+    expect(calls).toEqual([]);
+    t.host.deliverAnswer(t.runId, "indirect", { decision: "deny" });
+    await t.ended.opened;
+    expect(answers).toEqual([{ decision: "deny" }]);
+  });
+
+  it.skipIf(process.platform === "win32").each([
+    "echo '(rm -rf build)'",
+    'echo "{ rm -rf build; }"',
+    "echo '$(rm -rf build)'",
+    "echo 'eval rm -rf build'",
+    "echo \"sh -c 'rm -rf build'\"",
+  ])("records null for command-looking literal data: %s", async (command) => {
+    const t = await setup(async function* ({ context, input }) {
+      await context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "literal", kind: "permission", detail: { toolName: "Bash", input: { command } } });
+      yield end();
+    });
+    await t.opened.opened;
+    expect(t.prompts()).toMatchObject([{ promptId: "literal", previewLines: null }]);
+    t.host.deliverAnswer(t.runId, "literal", { decision: "deny" });
+    await t.ended.opened;
+  });
+});
 
 describe("the broker while a preview is held", () => {
   it("opens an answerable prompt with null lines after the total budget expires", async () => {
