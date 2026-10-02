@@ -32,9 +32,9 @@ export interface KeyManagerStateChecksOptions {
   readonly connections: () => readonly KeyManagerConnectionRecord[];
   /** Verifies every connection, joining one running, and answers the records after (`KeyManagerConnections.verify`). */
   readonly verify: () => Promise<readonly KeyManagerConnectionRecord[]>;
-  /** The Managed tools rows, once any probe under way has ended (`ManagedTools.list`). */
   /** Connection ids preserved by Forge references, including records still to be repaired. */
   readonly requiredConnections?: () => readonly string[];
+  /** The Managed tools rows, once any probe under way has ended (`ManagedTools.list`). */
   readonly toolRows: () => Promise<readonly ManagedToolRow[]>;
 }
 
