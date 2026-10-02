@@ -1,5 +1,7 @@
-import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportNotCarried, StateImportReport } from "@agent-harness/contracts";
-import type { ImportItem, ItemsApplied } from "./items.js";
+import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportNotCarried, StateImportLater, StateImportReport } from "@agent-harness/contracts";
+import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
+import type { MethodHandler } from "../serve/methods.js";
+import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
 import { storeChanged, type SourceStores, type StoreSnapshot } from "./source/stores.js";
 
@@ -29,6 +31,7 @@ export interface ImportPlan {
   /** What fails before any item is applied: a store that could not be read, an item its owner's bounds refuse or that waits for a mapping. */
   readonly failed: readonly StateImportFailure[];
   readonly notCarried: readonly StateImportNotCarried[];
+  readonly later: readonly StateImportLater[];
   /** Read from the preferences; the snapshot they were read from is one of the stores. */
   readonly clientLocal: StateImportClientLocal;
 }
@@ -37,19 +40,24 @@ export interface ImportPlan {
 export const itemsOf = (plan: ImportPlan): readonly ImportItem[] => plan.stores.flatMap((store) => store.items);
 
 /** A plan with nothing to carry from `sourceKey`: a source with a terminal-client state folder alone. */
-export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores: [], failed: [], notCarried: [], clientLocal: {} });
+export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores: [], failed: [], notCarried: [], later: [], clientLocal: {} });
 
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey">): ImportPlan => {
-  const { sourceKey, instructions, preferences } = stores;
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & { readonly updateSettings: MethodHandler<"settings.update"> }): Promise<ImportPlan> => {
+  const { sourceKey, instructions, preferences, profiles } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
   const planned: PlannedStore[] = [];
+  const accounts = profiles.status === "read" ? await planAccounts(profiles.records, { ...options, sourceKey }) : undefined;
+  if (accounts !== undefined && profiles.status === "read") {
+    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items });
+    failed.push(...accounts.failed);
+  } else if (profiles.status === "failed") failed.push({ label: "Accounts", message: profiles.diagnostic });
   if (instructions.status === "failed") failed.push({ label: INSTRUCTIONS, message: instructions.diagnostic });
   else {
-    const plan = planInstructions(instructions.records, { ...options, sourceKey });
+    const plan = planInstructions(instructions.records, { ...options, sourceKey, accountIds: accounts?.accountIds });
     planned.push({ snapshot: instructions.snapshot, label: INSTRUCTIONS, items: plan.items });
     failed.push(...plan.failed);
     notCarried.push(...plan.notCarried);
@@ -59,11 +67,17 @@ export const planImport = (stores: SourceStores, options: Omit<PlanInstructionsO
   else {
     const { records } = preferences;
     clientLocal = records.clientLocal;
-    planned.push({ snapshot: preferences.snapshot, label: PREFERENCES, items: [] });
+    const active = records.activeProfileId;
+    const defaultItems: ImportItem[] = [];
+    if (active !== undefined && mappedTarget(options.log, { sourceKey, store: "preferences", sourceId: "active-profile" }) === undefined) {
+      if (!accounts?.accountIds.has(active)) failed.push({ label: "Default Account", message: "The active profile has no live mapped Account; the harness default is preserved." });
+      else defaultItems.push(defaultAccountItem(active, { ...options, sourceKey }));
+    }
+    planned.push({ snapshot: preferences.snapshot, label: PREFERENCES, items: defaultItems });
     if (records.modelChoices > 0) notCarried.push({ label: "Per-session model choices", count: records.modelChoices, step: null });
     if (records.layouts > 0) notCarried.push({ label: "Dock layouts", count: records.layouts, step: null });
   }
-  return { sourceKey, stores: planned, failed, notCarried, clientLocal };
+  return { sourceKey, stores: planned, failed, notCarried, clientLocal, later: profiles.status === "read" ? [...profiles.records.later] : [] };
 };
 
 /**
@@ -103,9 +117,9 @@ const NOTHING_CARRIED: StateImportCarried = {
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
   const carriedItems = applied === null ? itemsOf(plan) : applied.carried;
   return {
-    carried: { ...NOTHING_CARRIED, instructions: carriedItems.filter((item) => item.kind === "instruction").length },
+    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length },
     reEnter: [],
-    later: [],
+    later: [...plan.later],
     notCarried: [...plan.notCarried],
     failed: [...plan.failed, ...(applied?.failed ?? [])],
     clientLocal: plan.clientLocal,
