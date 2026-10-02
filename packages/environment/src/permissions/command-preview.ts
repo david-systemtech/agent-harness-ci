@@ -561,22 +561,35 @@ const USER_SHELLS = new Set(['su', 'runuser']);
 const USER_SHELL_VALUE_OPTIONS = new Set(['-s', '--shell', '-g', '--group', '-G', '--supp-group', '-w', '--whitelist-environment', '-u', '--user']);
 
 /** Only invocation options count: `sh script -c text` passes data to a script. */
-function evaluatesShell(segment: Segment): boolean {
+function evaluatesShell(segment: Segment, depth = 0): boolean {
+  if (depth >= 8) return true; // Further user-switching wrappers remain opaque.
   const invocation = invocationOf(segment);
   if (invocation === null) return false;
   const { name, args } = invocation;
   if (name === 'eval' || name === 'coproc' || name === 'chroot') return args.length > 0;
   const userShell = USER_SHELLS.has(name);
   if (!SHELLS.has(name) && !userShell) return false;
+  let username = false;
+  let forwarded = false;
+  let directUser = false;
   for (let at = 0; at < args.length; at += 1) {
     const option = args[at]?.text ?? '';
-    if (option === '--') break;
-    if (userShell && USER_SHELL_VALUE_OPTIONS.has(option)) { at += 1; continue; }
+    if (option === '--') {
+      if (directUser) return evaluatesShell({ ...segment, words: args.slice(at + 1) }, depth + 1);
+      if (!userShell || forwarded) break;
+      forwarded = true; // su forwards the remaining arguments to the user's shell.
+      continue;
+    }
+    if (name === 'runuser' && !forwarded && (option.startsWith('--user=') || hasShortFlag([option], 'u', 'sgGw'))) directUser = true;
+    if (userShell && !forwarded && USER_SHELL_VALUE_OPTIONS.has(option)) { at += 1; continue; }
     if (option === '-' || !/^[+-]/.test(option)) {
-      if (userShell) continue; // User-switching options can follow the username.
+      if (userShell && (!forwarded || !username)) {
+        if (option !== '-') username = true;
+        continue; // Options may follow the username; forwarded script arguments remain data.
+      }
       break;
     }
-    const commandFlag = userShell ? hasShortFlag([option], 'c', 'sgGwu') : /^-[^-]*c/.test(option);
+    const commandFlag = userShell && !forwarded ? hasShortFlag([option], 'c', 'sgGwu') : /^-[^-]*c/.test(option);
     if (commandFlag || option === '--command' || option.startsWith('--command=')
       || (userShell && (option === '--session-command' || option.startsWith('--session-command=')))) return true;
     if (SHELL_VALUE_OPTIONS.has(option)) at += 1;

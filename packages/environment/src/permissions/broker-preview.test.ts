@@ -68,6 +68,8 @@ describe("the broker's indirect execution preview", () => {
     "coproc sh -c 'rm -rf build'",
     "su -c 'rm -rf build'",
     "su root -c 'rm -rf build'",
+    "su -- root -c 'rm -rf build'",
+    "runuser -u root -- sh -c 'rm -rf build'",
     "chroot /mnt/root sh -c 'rm -rf build'",
     "echo $(rm -rf build)",
     "X=$(rm -rf build)",

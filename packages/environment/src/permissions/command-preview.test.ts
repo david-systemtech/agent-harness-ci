@@ -215,10 +215,10 @@ describe('reading a command line', () => {
     expect(destructiveParts("echo 'coproc { rm -rf build; }'")).toEqual([]);
   });
   it('warns when user-switching commands ask a shell to evaluate text, even after a username', () => {
-    for (const command of ["su -c 'rm -rf build'", "su root -c 'rm -rf build'", "sudo su root --command='rm -rf build'", "su -s /bin/sh root -lc 'rm -rf build'", "runuser root --session-command 'rm -rf build'"]) {
+    for (const command of ["su -c 'rm -rf build'", "su root -c 'rm -rf build'", "sudo su root --command='rm -rf build'", "su -s /bin/sh root -lc 'rm -rf build'", "runuser root --session-command 'rm -rf build'", "su -- root '-c' 'rm -rf build'", "su root -- -c 'rm -rf build'", "runuser -u root -- sh -c 'rm -rf build'"]) {
       expect(kinds(command)).toEqual(['indirect-shell']);
     }
-    for (const command of ["echo \"su root -c 'rm -rf build'\"", "su -- root '-c' 'rm -rf build'", "su -s '-c' root", "runuser -u root -- echo '-c' 'rm -rf build'"]) {
+    for (const command of ["echo \"su root -c 'rm -rf build'\"", "su -- root script.sh '-c' 'rm -rf build'", "su -- root -- '-c' 'rm -rf build'", "su -s '-c' root", "runuser -u root -- echo '-c' 'rm -rf build'"]) {
       expect(destructiveParts(command)).toEqual([]);
     }
   });
