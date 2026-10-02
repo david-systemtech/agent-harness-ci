@@ -161,6 +161,7 @@ export const nodeBlastDeps: BlastRadiusDeps = {
 interface Word {
   readonly text: string;
   readonly quoted: boolean;
+  readonly operand: string;
 }
 
 type RedirectOp = '>' | '>>' | '<';
@@ -201,19 +202,21 @@ function tokenize(command: string): readonly Segment[] {
   /** One past the last character that was part of a command, so comments do not reach `text`. */
   let mark = 0;
   let text = '';
+  let operand = '';
   let open = false;
   let quoted = false;
   let pending: RedirectOp | null = null;
 
   const pushWord = (): void => {
     if (!open) return;
-    const word: Word = { text, quoted };
+    const word: Word = { text, quoted, operand };
     if (pending === null) words.push(word);
     else {
       redirects.push({ op: pending, target: word });
       pending = null;
     }
     text = '';
+    operand = '';
     open = false;
     quoted = false;
   };
@@ -234,6 +237,7 @@ function tokenize(command: string): readonly Segment[] {
   const flushBeforeRedirect = (): void => {
     if (open && /^\d+$/.test(text) && !quoted) {
       text = '';
+      operand = '';
       open = false;
       quoted = false;
       return;
@@ -250,6 +254,7 @@ function tokenize(command: string): readonly Segment[] {
       if (next === undefined) {
         open = true;
         text += '\\';
+        operand += '\\\\';
         index += 1;
         mark = index;
         continue;
@@ -259,6 +264,7 @@ function tokenize(command: string): readonly Segment[] {
         open = true;
         quoted = true;
         text += next;
+        operand += escapeLiteral(next);
       }
       index += 2;
       mark = index;
@@ -269,6 +275,7 @@ function tokenize(command: string): readonly Segment[] {
       const close = command.indexOf("'", index + 1);
       const stop = close === -1 ? command.length : close;
       text += command.slice(index + 1, stop);
+      operand += escapeLiteral(command.slice(index + 1, stop));
       open = true;
       quoted = true;
       index = stop + 1;
@@ -285,15 +292,20 @@ function tokenize(command: string): readonly Segment[] {
           const next = command[at + 1];
           // Inside double quotes a backslash is literal except before these four.
           if (next !== undefined && '"\\$`\n'.includes(next)) {
-            if (next !== '\n') text += next;
+            if (next !== '\n') {
+              text += next;
+              operand += escapeLiteral(next);
+            }
             at += 2;
             continue;
           }
           text += '\\';
+          operand += '\\\\';
           at += 1;
           continue;
         }
         text += inner;
+        operand += '$`'.includes(inner) ? inner : escapeLiteral(inner);
         at += 1;
       }
       open = true;
@@ -372,6 +384,7 @@ function tokenize(command: string): readonly Segment[] {
 
     open = true;
     text += char;
+    operand += char;
     index += 1;
     mark = index;
   }
@@ -428,8 +441,12 @@ function split(args: readonly Word[]): { readonly flags: readonly string[]; read
   return { flags, operands };
 }
 
-/** A quoted operand cannot be a glob, and says so by escaping its own magic. */
-const operandOf = (word: Word): string => (word.quoted ? word.text.replace(/[*?[\]{}\\]/g, (char) => `\\${char}`) : word.text);
+/** Quoting protects each character separately, including within a mixed word. */
+const escapeLiteral = (text: string): string => text.replace(/[*?[\]{}\\$`~]/g, (char) => `\\${char}`);
+const operandOf = (word: Word): string => word.operand;
+
+/** Expansions needing a shell must never become a literal-path all-clear. */
+const needsShell = (target: string): boolean => target.startsWith('~') || /(^|[^\\])(?:\\\\)*[$`]/.test(target);
 
 /** Strip the command's wrappers and leading assignments; `null` when nothing is left. */
 function invocationOf(segment: Segment): { readonly name: string; readonly args: readonly Word[] } | null {
@@ -544,12 +561,17 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
       return { kind: 'git-push-force', text, targets: operands, flags };
     }
     case 'checkout': {
-      // Only the `-- <paths>` form discards work; `git checkout <branch>` moves.
       const separator = rest.findIndex((word) => !word.quoted && word.text === '--');
-      if (separator === -1) return null;
-      const paths = rest.slice(separator + 1).map(operandOf);
+      const { flags, operands } = split(rest);
+      if (separator === -1) {
+        if (flags.includes('-f') || flags.includes('--force')) return { kind: 'git-checkout-discard', text, targets: operands, flags };
+        if (flags.some((flag) => ['-b', '-B', '--orphan'].includes(flag))) return null;
+        // A branch name remains ambiguous; path-shaped operands can discard work.
+        if (!operands.some((path) => path.includes('/') || path.includes('.') || isGlob(path))) return null;
+      }
+      const paths = separator === -1 ? operands : rest.slice(separator + 1).map(operandOf);
       if (paths.length === 0) return null;
-      return { kind: 'git-checkout-discard', text, targets: paths, flags: split(rest.slice(0, separator)).flags };
+      return { kind: 'git-checkout-discard', text, targets: paths, flags };
     }
     case 'restore': {
       const { flags, operands } = split(rest);
@@ -1025,7 +1047,7 @@ async function previewOne(part: Destructive, cwd: string, deps: BlastRadiusDeps,
       case 'drop':
         return previewDrop(part);
       case 'truncate-redirect':
-        return await previewTruncate(part, cwd, deps);
+        return await previewTruncate(part, cwd, deps, budget);
       case 'chmod-recursive':
       case 'find-delete':
         return await previewUnder(part, cwd, deps, budget);
@@ -1060,7 +1082,7 @@ async function previewRemove(part: Destructive, cwd: string, deps: BlastRadiusDe
   // `~/work` and `$BUILD` mean nothing without the shell, and resolving them
   // literally finds no file — which would read as "nothing would be deleted"
   // about a command that deletes a home directory. They are named instead.
-  const unresolved = part.targets.filter((target) => target.startsWith('~') || target.includes('$'));
+  const unresolved = part.targets.filter(needsShell);
   const candidates = new Set<string>();
   for (const target of part.targets) {
     if (unresolved.includes(target)) continue;
@@ -1113,7 +1135,7 @@ async function previewRemove(part: Destructive, cwd: string, deps: BlastRadiusDe
   const pieces: string[] = [];
   if (files > 0) pieces.push(plural(files, 'file'));
   if (directories > 0) pieces.push(plural(directories, 'directory', 'directories'));
-  const within = directories > 0 ? ` (${truncated ? `${String(MAX_ENTRIES)}+` : String(inside)} files inside)` : '';
+  const within = directories > 0 ? ` (${truncated ? `${String(MAX_ENTRIES)}+ files` : plural(inside, 'file')} inside)` : '';
   const more = unresolved.length > 0 ? `, and ${plural(unresolved.length, 'path')} the shell would have to expand` : '';
   return { kind: part.kind, summary: `${pieces.join(' and ')}${within}${more}`, lines: listed.slice(0, MAX_LISTED), count: listed.length, truncated };
 }
@@ -1161,11 +1183,13 @@ async function previewResetHard(part: Destructive, cwd: string, deps: BlastRadiu
   const changes = status
     .split('\n')
     .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0);
+    .filter((line) => line.trim().length > 0 && !line.startsWith('??'));
   const target = part.targets[0];
   const back = head.length > 0 ? `, back to ${target === undefined ? head : `${target} — currently ${head}`}` : '';
-  const summary = changes.length === 0 ? `nothing uncommitted would be lost${back}` : `${plural(changes.length, 'uncommitted change')} would be lost${back}`;
-  return { kind: part.kind, summary, lines: changes.slice(0, MAX_LISTED), count: changes.length };
+  const summary = changes.length === 0 ? `no tracked changes reported${back}` : `${plural(changes.length, 'uncommitted change')} would be lost${back}`;
+  const lines = changes.slice(0, MAX_LISTED);
+  if (status.split('\n').some((line) => line.startsWith('??'))) lines.push('untracked paths may be overwritten if they obstruct the reset');
+  return { kind: part.kind, summary, lines, count: changes.length };
 }
 
 async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
@@ -1189,6 +1213,12 @@ async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiu
 }
 
 async function previewCheckoutDiscard(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
+  if (part.flags.includes('-f') || part.flags.includes('--force')) {
+    return { kind: part.kind, summary: 'forced checkout may discard local changes, including files obstructing the checkout', lines: [] };
+  }
+  if (part.targets.some((target) => needsShell(target) || isGlob(target))) {
+    return { kind: part.kind, summary: 'cannot tell: checkout pathspecs may discard local changes', lines: [...part.targets].slice(0, MAX_LISTED) };
+  }
   const git = gitIn(cwd, deps);
   const changed = (await git(['diff', '--name-only', '--relative']))
     .split('\n')
@@ -1234,10 +1264,14 @@ function previewDrop(part: Destructive): Preview {
   return { kind: part.kind, summary: `would drop ${plural(part.targets.length, noun)}`, lines: [...part.targets].slice(0, MAX_LISTED), count: part.targets.length };
 }
 
-async function previewTruncate(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview | null> {
+async function previewTruncate(part: Destructive, cwd: string, deps: BlastRadiusDeps, budget: Budget): Promise<Preview | null> {
   const target = part.targets[0];
   if (target === undefined) return null;
-  const path = resolve(cwd, unescape(target));
+  if (needsShell(target)) return { kind: part.kind, summary: 'cannot tell: redirect target needs the shell to expand', lines: [] };
+  const matches = isGlob(target) ? await expandGlob(target, cwd, deps, budget) : [resolve(cwd, unescape(target))];
+  if (matches.length !== 1 || budget.exhausted) return { kind: part.kind, summary: 'cannot tell: redirect glob does not resolve to exactly one path', lines: [] };
+  const path = matches[0];
+  if (path === undefined) return null;
   const info = await statOf(path, deps);
   // Nothing there, a directory the redirect would fail on, or a file that is
   // already empty: in none of those cases does anything get thrown away.

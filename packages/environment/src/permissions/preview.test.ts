@@ -26,9 +26,9 @@ describe("the broker's workspace preview", () => {
     await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Clean build" });
     const frame = await client.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "prompt.opened");
     if (frame.type !== "event") throw new Error("Expected the prompt event");
-    expect(frame.event.payload).toMatchObject({ previewLines: ["⚠ 1 directory (1 files inside)", "  build/"] });
+    expect(frame.event.payload).toMatchObject({ previewLines: ["⚠ 1 directory (1 file inside)", "  build/"] });
     const listed = await client.request("permissions.prompts.list", { sessionId: id });
-    expect(listed).toMatchObject({ prompts: [{ prompt: { previewLines: ["⚠ 1 directory (1 files inside)", "  build/"] } }] });
+    expect(listed).toMatchObject({ prompts: [{ prompt: { previewLines: ["⚠ 1 directory (1 file inside)", "  build/"] } }] });
     expect(await readFile(join(workspace, "build", "one.js"), "utf8")).toBe("keep this");
   });
 

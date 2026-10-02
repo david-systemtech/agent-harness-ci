@@ -128,9 +128,22 @@ const only = async (command: string, cwd: string, deps: Partial<BlastRadiusDeps>
   return first;
 };
 
+it('reports unresolved substitutions instead of claiming nothing would be deleted', async () => {
+  const root = await tree();
+  for (const command of ['rm -rf `ls`', 'rm -rf ${TARGET}', 'rm -rf "$(ls)"']) {
+    expect((await only(command, root)).summary).toContain('cannot tell:');
+  }
+  await writeFile(join(root, 'afoo'), 'keep');
+  expect(await only("rm *'foo'", root)).toMatchObject({ summary: '1 file', lines: ['afoo'] });
+});
+
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it('preserves which glob characters were quoted within a word', () => {
+    expect(destructiveParts("rm *'foo'")[0]?.targets).toEqual(['*foo']);
+    expect(destructiveParts("rm '*'foo")[0]?.targets).toEqual(['\\*foo']);
+  });
   it('keeps a quoted path whole, and a quoted glob literal', () => {
     expect(destructiveParts('rm "my notes.txt" \'a b\'')[0]?.targets).toEqual(['my notes.txt', 'a b']);
     // The escape is how a quoted `*` survives as a filename rather than a pattern.
@@ -208,6 +221,15 @@ describe('the verbs it knows', () => {
     expect(destructiveParts('git checkout -b feature')).toEqual([]);
     expect(destructiveParts('git restore --staged src/a.ts')).toEqual([]);
     expect(kinds('git restore --staged --worktree src/a.ts')).toEqual(['git-checkout-discard']);
+  });
+
+  it('previews path checkout without a separator and warns about forced branch checkout', async () => {
+    const disk = recorder({ 'git diff --name-only --relative': 'src/a.ts\n' });
+    expect(await only('git checkout .', '/repo', disk)).toMatchObject({ summary: '1 of 1 path would lose local changes' });
+    expect(await only('git checkout src/a.ts', '/repo', disk)).toMatchObject({ lines: ['src/a.ts — local changes would be lost'] });
+    expect((await only('git checkout -f main', '/repo', disk)).summary).toContain('forced checkout');
+    expect(kinds('git checkout --force main')).toEqual(['git-checkout-discard']);
+    expect((await only('git checkout src/*.ts', '/repo', disk)).summary).toContain('cannot tell:');
   });
 
   it('recognises git branch -D and leaves -d alone', () => {
@@ -328,6 +350,13 @@ describe('previewing rm against a directory', () => {
 });
 
 describe('previewing the things that are not rm', () => {
+  it('previews a single glob redirect and reports ambiguous or unresolved targets', async () => {
+    const root = await tree();
+    expect(await only('echo hi > *.txt', root)).toMatchObject({ summary: 'cannot tell: redirect glob does not resolve to exactly one path' });
+    expect(await only('echo hi > l*.txt', root)).toMatchObject({ summary: 'log.txt would be emptied, throwing away 11 B' });
+    expect((await only('echo hi > $LOG', root)).summary).toContain('cannot tell:');
+    expect((await only('echo hi > `pwd`', root)).summary).toContain('cannot tell:');
+  });
   it('reports the size a redirect would throw away, and says nothing when there is none', async () => {
     const root = await tree();
     expect(await only('echo hi > log.txt', root)).toMatchObject({ kind: 'truncate-redirect', summary: 'log.txt would be emptied, throwing away 11 B' });
@@ -368,14 +397,14 @@ describe('previewing git, with git standing in', () => {
   });
 
   it('counts what a reset --hard would lose and names where it would land', async () => {
-    const replies = { 'git status --porcelain': ' M a.ts\n?? b.ts\n', 'git log --oneline -1': 'abc1234 the last commit\n' };
+    const replies = { 'git status --porcelain': ' M a.ts\nA  added.ts\n?? b.ts\n', 'git log --oneline -1': 'abc1234 the last commit\n' };
     expect(await only('git reset --hard origin/main', '/repo', recorder(replies))).toMatchObject({
       summary: '2 uncommitted changes would be lost, back to origin/main — currently abc1234 the last commit',
-      lines: [' M a.ts', '?? b.ts'],
+      lines: [' M a.ts', 'A  added.ts', 'untracked paths may be overwritten if they obstruct the reset'],
       count: 2,
     });
     expect((await only('git reset --hard', '/repo', recorder({ ...replies, 'git status --porcelain': '' }))).summary).toBe(
-      'nothing uncommitted would be lost, back to abc1234 the last commit',
+      'no tracked changes reported, back to abc1234 the last commit',
     );
   });
 

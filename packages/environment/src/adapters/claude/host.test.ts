@@ -376,6 +376,7 @@ describe("a Claude run through the adapter host", () => {
       mode: "acceptEdits",
       ceiling: "bypassPermissions",
       ttlExpiresAt: null,
+      previewLines: ["⚠ nothing matching is there, so nothing would be deleted"],
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(settled).toBe(false);
