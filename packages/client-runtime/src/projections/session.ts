@@ -2,6 +2,7 @@ import {
   ChecksFinishedPayload,
   ChecksStartedPayload,
   SESSION_STREAM_KIND,
+  FilesUndoFinishedPayload,
   RunBrowserResolvedPayload,
   RunSuggestion,
   type RunBrowserResolution,
@@ -209,6 +210,9 @@ export interface OpaqueEntry {
  */
 export type HistoryUnreadableEntry = SnapshotItem<"history-unreadable">;
 
+/** A completed Environment file undo, with no file contents. */
+export type FileUndoEntry = SnapshotItem<"file-undo">;
+
 /**
  * A fork's first entry (#390): where it came from, as its `session.forked`
  * names it, with the source's visible history copied under one folded row
@@ -263,6 +267,7 @@ export type TranscriptEntry =
   | PromptEntry
   | SubagentEntry
   | ForkedEntry
+  | FileUndoEntry
   | HistoryUnreadableEntry
   | RewoundEntry
   | OpaqueEntry;
@@ -340,6 +345,7 @@ type Held =
   | Mutable<TasksEntry>
   | Mutable<PromptEntry>
   | ForkedEntry
+  | FileUndoEntry
   | HistoryUnreadableEntry
   | Fold
   | OpaqueEntry;
@@ -392,6 +398,8 @@ const fromSnapshot = (item: TranscriptItem): Held => {
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
     case "update-interrupted":
       return { ...(item as UpdateInterruptedEntry) };
+    case "file-undo":
+      return { ...(item as FileUndoEntry) };
     case "check": {
       const check = item as CheckEntry;
       return { ...check };
@@ -493,6 +501,8 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     items.push(item);
     return item;
   };
+
+  const undone = new Set(everyItem(items).flatMap((item) => item.kind === "file-undo" ? [item.changeId] : []));
 
   const fold = (event: EventEnvelope): void => {
     const { sequence } = event;
@@ -697,6 +707,14 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         const call = toolCalls.get(payload.toolCallId);
         if (call !== undefined) call.decision = payload;
         else decisions.set(payload.toolCallId, payload);
+        return;
+      }
+      case "files.undo-finished": {
+        const payload = FilesUndoFinishedPayload.parse(event.payload);
+        if (!undone.has(payload.changeId)) {
+          push<FileUndoEntry>({ kind: "file-undo", sequence, ...payload });
+          undone.add(payload.changeId);
+        }
         return;
       }
       case "command.ran": {

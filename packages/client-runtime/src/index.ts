@@ -302,6 +302,7 @@ export type {
   AssistantEntry,
   CheckEntry,
   CommandEntry,
+  FileUndoEntry,
   ForkedEntry,
   HistoryUnreadableEntry,
   OpaqueEntry,
@@ -677,4 +678,5 @@ export { terminalAnswers } from "./terminals/answers.js";
 export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";
 
 export type { Checks, ChecksView } from "./checks.js";
+export { undoFile, fileUndoWords, type FileUndoResult } from "./files/undo.js";
 export { clientLocalImportValues } from "./state-import.js";
