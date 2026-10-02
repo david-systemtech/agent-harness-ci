@@ -70,6 +70,9 @@ describe("the public GitHub release workflow", () => {
       expect(body).toContain("needs: [check, image]");
     }
     expect(job("desktop-windows").join("\n")).toContain("electronuserland/builder:24-wine-");
+    // GitHub mounts its own HOME into container jobs, owned by the runner's user, and wine refuses
+    // a prefix there (run 37049414754): the setup step runs with the container user's own home.
+    expect(step("desktop-windows", "The Windows setup")).toMatch(/\n {8}env:\n {10}HOME: \/root\n/);
     expect(job("desktop-macos").join("\n")).toContain('codesign --verify --deep --strict "$app"');
     expect(job("desktop-arch").join("\n")).toContain('grep -qx "pkgname = agent-harness-desktop"');
     expect(step("release", "The desktop jobs' builds")).toContain("merge-multiple: true");
