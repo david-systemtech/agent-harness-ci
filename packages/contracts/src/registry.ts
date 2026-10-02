@@ -1,3 +1,4 @@
+import { banksMigrate } from "./bank-migration.js";
 import { banksSplitPropose, banksSplitApply } from "./bank-split.js";
 import { banksDraftsList, banksMemoryDraft, banksMemoryPromote, banksMemoryRead, banksMemorySearch } from "./memory-drafts.js";
 import type { z } from "zod";
@@ -308,6 +309,7 @@ export const methods = [
   banksList,
   banksSplitPropose,
   banksSplitApply,
+  banksMigrate,
   banksJoinPreview,
   banksJoin,
   banksDraftsList,
