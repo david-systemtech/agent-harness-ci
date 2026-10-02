@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readlink, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import {
   CHECK_OUTPUT_MAX_BYTES,
   CHECK_TIMEOUT_MS,
+  checkPassed,
   ENVIRONMENT_STREAM_KIND,
   TERMINAL_EXITED_TYPE,
   TERMINAL_OUTPUT_TYPE,
@@ -22,11 +23,11 @@ import type { Reader } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { CommandTerminals } from "../terminals/service.js";
 import { requireSessionWorkspace, sessionWorkspace, sessionWorkspaceStatus } from "../workspace/session.js";
-import { readUnfinishedChecks, readWorkspaceCheck } from "./store.js";
+import { checkRevision, failureWasOffered, readCheckContext, readPendingChecks, readUnfinishedChecks, readWorkspaceCheck } from "./store.js";
 
 /**
  * Workspace checks (switch-over spec, "Phase-D commands and parity",
- * Checks; #1187): `checks.get`, `checks.set` and `checks.run`.
+ * Checks; #1187, #1188): manual and automatic checks through one executor.
  *
  * - **Configuration.** One command per Workspace directory, keyed by the
  *   directory's real path once the availability watcher has looked at it,
@@ -35,6 +36,13 @@ import { readUnfinishedChecks, readWorkspaceCheck } from "./store.js";
  *   session that set it; the projection of those notices (`store.ts`) is
  *   what survives a restart. Nothing else writes it: an imported
  *   after-edit command stays inert until someone sets it here.
+ * - **Automatic work.** Successful file hooks record edit evidence before
+ *   bounded undo capture. Completed Runs project durable pending work once
+ *   per Run, with the latest busy edit kept per canonical directory. Each
+ *   launch rechecks the configuring Client's live terminal grant. Command
+ *   revisions cancel pending work and stale failure offers; running work
+ *   keeps its original command. Failure identities use scrubbed results,
+ *   surviving restart and resetting on a pass, manual now or configuration.
  * - **Execution.** A check runs in a terminal of the session that asked,
  *   opened through the terminal service exactly as `terminals.run` opens
  *   one (its refusals, its one-off shell in the Workspace directory, its
@@ -66,6 +74,8 @@ export interface WorkspaceChecksOptions {
   readonly terminals: CommandTerminals;
   /** The scrub registry, which a check's kept output passes through again as it is recorded. */
   readonly scrub: Pick<ScrubRegistry, "scrub">;
+  /** Live terminal authority of the Client session that configured automatic work. */
+  readonly canRun: (clientSessionId: string) => boolean;
 }
 
 export interface WorkspaceChecks {
@@ -79,6 +89,7 @@ interface Running {
   readonly workspace: string;
   readonly sessionId: string;
   readonly started: ChecksStartedPayload;
+  readonly revision: number;
   readonly output: OutputTail;
   timedOut: boolean;
   timer: Timer | undefined;
@@ -168,6 +179,7 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
   /** The check running in each canonical directory. */
   const running = new Map<string, Running>();
   let closed = false;
+  const pumping = new Set<string>();
 
   /**
    * The session's Workspace directory as checks key it, once the
@@ -176,6 +188,7 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
    */
   const located = async (sessionId: string, recorded: string): Promise<string | null> => {
     await terminals.look(sessionId);
+    if (closed) return null;
     if (sessionWorkspaceStatus(log, sessionId)?.status === "missing") return null;
     try {
       return await realpath(recorded);
@@ -204,10 +217,10 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
   };
 
   /** Appends `checks.finished` on the check's session, unless a purge has taken the session; a failed append is said. */
-  const record = (sessionId: string, finished: ChecksFinishedPayload): void => {
+  const record = (sessionId: string, finished: ChecksFinishedPayload, failureKey?: string): void => {
     if (log.read("SELECT 1 FROM sessions WHERE id = ?", sessionId).length === 0) return;
     try {
-      log.append(sessionStream(sessionId), [{ type: "checks.finished", payload: finished }], { actor: CHECKS_ACTOR });
+      log.append(sessionStream(sessionId), [{ type: "checks.finished", payload: finished, metadata: failureKey === undefined ? {} : { failureKey } }], { actor: CHECKS_ACTOR });
     } catch (error) {
       console.error(`Recording the end of the check in terminal ${finished.terminalId} failed:`, error);
     }
@@ -219,7 +232,13 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
     check.finished = true;
     check.timer?.cancel();
     if (running.get(check.workspace) === check) running.delete(check.workspace);
-    record(check.sessionId, { ...check.started, ...check.output.read((text) => options.scrub.scrub(text)), ...ended });
+    const finished = { ...check.started, ...check.output.read((text) => options.scrub.scrub(text)), ...ended };
+    const key = createHash("sha256").update(JSON.stringify([finished.command, finished.output, finished.exitCode, finished.signal, finished.timedOut, finished.failure])).digest("hex");
+    const offerFailure = !checkPassed(finished) && checkRevision(reader, check.workspace) === check.revision && !failureWasOffered(reader, check.workspace, key);
+    record(check.sessionId, { ...finished, offerFailure }, key);
+    if (checkPassed(finished) && checkRevision(reader, check.workspace) === check.revision) {
+      log.append(environmentStream, [{ type: "checks.failures-reset", payload: { workspace: check.workspace } }], { actor: CHECKS_ACTOR });
+    }
   };
 
   /** A check's terminal event: output kept, or its exit recorded and the exited terminal closed. */
@@ -247,8 +266,57 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
 
   // A check a crash cut: started, never finished. Its command is not run again.
   for (const { sessionId, ...started } of readUnfinishedChecks(reader)) {
-    record(sessionId, { ...started, output: "", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
+    const context = readCheckContext(reader, started.terminalId);
+    if (context?.workspace != null && context.revision !== null) {
+      finish({ workspace: context.workspace, sessionId, started, revision: context.revision, output: outputTail(), timedOut: false, timer: undefined, finished: false }, { exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
+    } else record(sessionId, { ...started, output: "", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
   }
+
+  /** Consume durable pending work only in the same transaction that records the attempt. */
+  const pump = async (workspace: string): Promise<void> => {
+    if (closed || running.has(workspace) || pumping.has(workspace)) return;
+    pumping.add(workspace);
+    let failed = false;
+    try {
+      const pending = readPendingChecks(reader).find((item) => item.workspace === workspace);
+      if (pending === undefined) return;
+      const prepared = await locate(pending.sessionId);
+      // Keep this attempt: newer edits remain pending for its one follow-up.
+      if (closed || running.has(workspace)) return;
+      const config = readWorkspaceCheck(reader, workspace);
+      if (config?.command == null || checkRevision(reader, workspace) !== pending.revision) return;
+      const { sessionId, runId, revision } = pending;
+      const command = config.command;
+      const started: ChecksStartedPayload = { terminalId: randomUUID(), command, sourceRunId: runId };
+      const check: Running = { workspace, sessionId, started, revision, output: outputTail(), timedOut: false, timer: undefined, finished: false };
+      log.atomically((tx) => {
+        // Recheck at the launch boundary, never borrowing the editing Client's grant.
+        const allowed = options.canRun(config.configuredBy.replace(/^client_session:/, ""));
+        const rejection = !allowed ? "The configuring Client session's terminal grant is revoked, expired or unavailable." : (!prepared.isCurrent() || prepared.workspace !== workspace) ? "The edited Session's configured Workspace is missing or has changed." : null;
+        const opened = rejection === null ? terminals.run({ id: started.terminalId, sessionId, command, cwd: workspace, follow: (event) => heard(check, event) }, tx) : undefined;
+        log.append(sessionStream(sessionId), [{ type: "checks.started", payload: started, metadata: { workspace, revision } }], { actor: CHECKS_ACTOR, tx });
+        if (opened === undefined || "rejected" in opened) {
+          check.output.push(rejection ?? opened?.rejected.message ?? "The automatic check's terminal execution was refused.");
+          tx.afterCommit(() => finish(check, { exitCode: null, signal: null, timedOut: false, failure: "launch_failed" }));
+        } else tx.afterCommit(() => begin(check));
+      });
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
+      pumping.delete(workspace);
+      // A newer edit may have replaced the one whose asynchronous look just ended.
+      if (!failed && !closed && !running.has(workspace) && readPendingChecks(reader).some((item) => item.workspace === workspace)) queueMicrotask(() => wake());
+    }
+  };
+  const wake = (): void => {
+    if (closed) return;
+    for (const { workspace } of readPendingChecks(reader)) void pump(workspace).catch((error: unknown) => console.error("Scheduling a Workspace check failed:", error));
+  };
+  const stopHearing = log.subscribe((event) => {
+    if (event.type === "run.ended" || event.type === "checks.finished" || event.type === "checks.changed") wake();
+  });
+  queueMicrotask(wake);
 
   const handlers: WorkspaceChecks["handlers"] = {
     "checks.get": async (params): Promise<WorkspaceCheck> => {
@@ -290,11 +358,12 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
             return { aggregate, rejected: conflict("check_running", `A check of ${workspace} is running in terminal ${terminalId}; one runs at a time.`, { workspace, terminalId }) };
           }
           const started: ChecksStartedPayload = { terminalId: randomUUID(), command, sourceRunId: null };
-          const check: Running = { workspace, sessionId, started, output: outputTail(), timedOut: false, timer: undefined, finished: false };
+          const check: Running = { workspace, sessionId, started, revision: checkRevision(reader, workspace)!, output: outputTail(), timedOut: false, timer: undefined, finished: false };
           const opened = terminals.run({ id: started.terminalId, sessionId, command, cwd: workspace, follow: (event) => heard(check, event) }, context.tx);
           if ("rejected" in opened) return { aggregate, rejected: opened.rejected };
+          log.append(environmentStream, [{ type: "checks.failures-reset", payload: { workspace } }], { actor: context.actor, tx: context.tx });
           context.tx.afterCommit(() => begin(check));
-          return { aggregate, result: { terminalId: started.terminalId }, events: [{ type: "checks.started", payload: started }] };
+          return { aggregate, result: { terminalId: started.terminalId }, events: [{ type: "checks.started", payload: started, metadata: { workspace, revision: check.revision } }] };
         };
         return Object.assign(run, { isCurrent: prepared.isCurrent });
       },
@@ -305,8 +374,9 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
     handlers,
     close() {
       if (closed) return;
-      for (const check of [...running.values()]) finish(check, { exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
       closed = true;
+      stopHearing();
+      for (const check of [...running.values()]) finish(check, { exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
     },
   };
 };

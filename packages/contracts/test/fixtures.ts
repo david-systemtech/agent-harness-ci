@@ -35,7 +35,7 @@ import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
-import { checkMethodFixtures, checkSchemaFixtures, checksChangedNotice } from "./check-fixtures.js";
+import { checkMethodFixtures, checkSchemaFixtures, checksChangedNotice, checksFailuresResetNotice } from "./check-fixtures.js";
 import { fileUndoMethodFixtures, fileUndoSchemaFixtures } from "./file-undo-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
@@ -888,6 +888,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       ...toolRunNotices.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       checksChangedNotice.valid,
+      checksFailuresResetNotice.valid,
       { type: "workspace.kept", payload: workspaceKept },
       { type: "workspace.kept", payload: { ...workspaceKept, branch: null, reason: "git_failed" } },
       { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "connected" } },
@@ -928,6 +929,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       ...toolRunNotices.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       checksChangedNotice.invalid,
+      checksFailuresResetNotice.invalid,
       { type: "workspace.kept", payload: { ...workspaceKept, reason: "dirty" } },
       { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "proved" } },
       validEnvelope,

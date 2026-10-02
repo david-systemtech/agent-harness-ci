@@ -87,6 +87,7 @@ describe("environment notices", () => {
       "carry-over.memory-assigned",
       "state-import.finished",
       "checks.changed",
+      "checks.failures-reset",
       "workspace.kept",
       "chrome.updated",
       "client.call",

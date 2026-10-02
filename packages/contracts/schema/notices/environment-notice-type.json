@@ -349,6 +349,11 @@
     },
     {
       "type": "string",
+      "const": "checks.failures-reset",
+      "description": "Clear stale failure-send offers in every Session of this canonical Workspace directory; a check passed or a manual check began."
+    },
+    {
+      "type": "string",
       "const": "workspace.kept",
       "description": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why."
     },

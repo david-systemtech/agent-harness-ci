@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChecksFailuresResetPayload",
+  "type": "object",
+  "properties": {
+    "workspace": {
+      "type": "string",
+      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+    }
+  },
+  "required": [
+    "workspace"
+  ],
+  "description": "checks.failures-reset: clear stale failure-send offers for this canonical Workspace directory; a check passed or a manual check began."
+}

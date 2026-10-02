@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import type { FileChangeObserver, FileToolCall } from "../adapter/contract.js";
+import { sessionStream } from "../sessions/streams.js";
 import type { EventLog } from "../event-log/event-log.js";
 import { resolvePath } from "../permissions/gate.js";
 import { isInside } from "../workspace/paths.js";
@@ -34,7 +35,7 @@ export interface FileChangeRun {
 }
 
 export interface FileChangeObserverOptions {
-  readonly log: Pick<EventLog, "atomically" | "fileChanges">;
+  readonly log: Pick<EventLog, "atomically" | "fileChanges" | "append">;
   readonly writes: WorkspaceWrites;
 }
 
@@ -80,8 +81,12 @@ export const fileChangeObserver = ({ log, writes }: FileChangeObserverOptions) =
         const changes = await Promise.all(call.paths.map((named) => capture(call, named, realRoot, true)));
         log.atomically((tx) => log.fileChanges.begin(tx, changes));
       }),
-    completed: (call) =>
-      withTurn(async (realRoot) => {
+    completed: async (call) => {
+      // Successful tool evidence survives even when capturing or retaining undo bytes fails.
+      if (FILE_EDITING_TOOLS.has(call.tool)) {
+        log.append(sessionStream(run.sessionId), [{ type: "checks.edit-observed", payload: { runId: run.runId, workspace: (await rootOf()) ?? run.workspace } }], { actor: "system:file-observation" });
+      }
+      return withTurn(async (realRoot) => {
         // A capture that failed before the call left no record: the change is recorded all the same, as one undo cannot restore.
         if (log.fileChanges.pending(run.sessionId, call.toolCallId).length === 0) {
           const unknown = await Promise.all(call.paths.map((named) => capture(call, named, realRoot, false)));
@@ -94,7 +99,8 @@ export const fileChangeObserver = ({ log, writes }: FileChangeObserverOptions) =
           outcomes.set(change.changeId, left.kind === "kept" ? { digest: digestOf(left.bytes) } : { unrestorable: left.kind === "absent" ? "unknown" : left.reason });
         }
         log.atomically((tx) => log.fileChanges.complete(tx, run.sessionId, call.toolCallId, outcomes));
-      }),
+      });
+    },
     failed: (call) => log.atomically((tx) => log.fileChanges.discard(tx, run.sessionId, call.toolCallId)),
   };
 };

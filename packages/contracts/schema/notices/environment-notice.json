@@ -8665,6 +8665,34 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "checks.failures-reset"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "workspace": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+            }
+          },
+          "required": [
+            "workspace"
+          ],
+          "description": "checks.failures-reset: clear stale failure-send offers for this canonical Workspace directory; a check passed or a manual check began."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A manual check began or a check passed: clear failure-send offers in every Session of the canonical directory."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "workspace.kept"
         },
         "payload": {

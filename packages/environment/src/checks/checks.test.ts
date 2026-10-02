@@ -125,6 +125,7 @@ describe("a manual check", () => {
       terminalId,
       command,
       sourceRunId: null,
+      offerFailure: true,
       output: "src/a.ts(1,1): error TS2322\n",
       truncated: false,
       exitCode: 2,
@@ -205,6 +206,7 @@ describe("how a check ends", () => {
       terminalId,
       command,
       sourceRunId: null,
+      offerFailure: true,
       output: "watching for changes\n",
       truncated: false,
       exitCode: null,
@@ -302,7 +304,7 @@ describe("a running check", () => {
     const again = await back.client({ token });
     const { subscription } = await again.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
     const finished = await again.next((frame): frame is EventFrame => frame.type === "event" && frame.subscription === subscription && frame.event.type === "checks.finished");
-    expect(finished.event.payload).toEqual({ terminalId, command, sourceRunId: null, output: "half way\n", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
+    expect(finished.event.payload).toEqual({ terminalId, command, sourceRunId: null, offerFailure: true, output: "half way\n", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
     expect(await again.request("checks.run", params)).toEqual({ receipt: first.receipt });
     expect(back.run.spawned).toEqual([]);
   });
