@@ -58,7 +58,7 @@ it("offers failures from replay, sends only explicitly, and preserves the Sessio
   stream.event(numbered(1, [["checks.finished", check()]])[0]!);
   stream.synchronized(1);
   await flush();
-  expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, output: "failed assertion" });
+  expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, result: { output: "failed assertion" } });
   expect(wire.server.received().filter((f) => f.type === "request" && f.method === "runs.start")).toHaveLength(0);
   runtime.drafts.set(id, SESSION, "untouched draft");
   expect(await runtime.checks.sendFailure(id, SESSION)).toMatchObject({ ok: true });
@@ -162,5 +162,20 @@ it("keeps an in-flight check's later failure offer after a busy manual-now reset
   expect(await runtime.checks.run(id, SESSION)).toMatchObject({ ok: true, result: { receipt: { status: "rejected" } } });
   stream.event(numbered(2, [["checks.finished", manual]])[0]!);
   await flush();
-  expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, output: "failed assertion" });
+  expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, result: { output: "failed assertion" } });
+});
+
+it("offers a finished failure received in a durable Session snapshot", async () => {
+  const { runtime, wire, id } = await paired();
+  wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test" } }));
+  wire.answer("sessions.subscribeSession", () => undefined);
+  const view = runtime.projections.checks(id, SESSION);
+  onTestFinished(view.subscribe(() => undefined));
+  const stream = await subscription(wire, "sessions.subscribeSession");
+  const { terminalId, command, sourceRunId, ...result } = check();
+  stream.snapshot(1, { ...recordedSnapshot(), sequence: 1, runs: [], items: [{ kind: "check", sequence: 1, terminalId, command, sourceRunId, state: "finished", result }], parkedPrompts: [], rewinds: [], instructions: "" });
+  stream.synchronized(1);
+  await flush();
+  expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, result: { output: "failed assertion" } });
+  expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method === "runs.start")).toHaveLength(0);
 });

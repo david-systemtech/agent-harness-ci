@@ -1,3 +1,4 @@
+import { checkPassed } from "@agent-harness/contracts";
 import {
   TOOL_QUIET_MS,
   attachmentChip,
@@ -104,9 +105,9 @@ export const RESULT_TAIL = 1;
 export const PLAN_LINES = 12;
 
 export interface LineContext {
-  readonly checkOutput?: (terminalId: string) => { readonly output: string; readonly truncated: boolean } | undefined;
   /** The columns a line has. */
   readonly width: number;
+  readonly checkOutput?: (terminalId: string) => { readonly output: string; readonly truncated: boolean } | undefined;
   /** Nothing folded: every call, every line of every result. */
   readonly expanded: boolean;
   /** How long each running call has been quiet, by tool call id; a call not in it is not quiet. */
@@ -394,20 +395,21 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
     }
     case "calls":
       return callsLines(row.id, row.calls, context);
-    case "check": {
-      const { entry } = row;
-      const color = entry.status === "pass" ? TERMINAL_ROLES.success : entry.status === "running" ? TERMINAL_ROLES.machine : TERMINAL_ROLES.danger;
-      const head: Span[] = [{ text: entry.command }, { text: ` · ${entry.status}${entry.status === "running" ? "" : ` · exit ${entry.exitCode ?? "none"}`}`, color }];
-      const live = entry.status === "running" ? context.checkOutput?.(entry.terminalId) : undefined;
-      const body = [head, ...returned(cutLines(nonBlank(live?.output ?? entry.output), context.expanded))];
-      if (live?.truncated ?? entry.truncated) body.push([{ text: "(output truncated to last 64 KiB)", dim: true }]);
-      if (entry.failure !== null) body.push([{ text: entry.failure, color: TERMINAL_ROLES.danger }]);
-      return block(row.id, { text: "$", color }, body, width, true);
-    }
     case "command": {
       const { entry } = row;
       const head: Span[] = [{ text: `${entry.name}${entry.args.length > 0 ? ` ${entry.args}` : ""}`, dim: true }];
       return block(row.id, { text: "/", dim: true }, [head, ...returned(cutLines(nonBlank(entry.output ?? ""), context.expanded))], width, true);
+    }
+    case "check": {
+      const { entry } = row;
+      const status = entry.state === "running" ? "running" : entry.result.timedOut ? "timeout" : checkPassed(entry.result) ? "pass" : "failure";
+      const color = status === "pass" ? TERMINAL_ROLES.success : status === "running" ? TERMINAL_ROLES.machine : TERMINAL_ROLES.danger;
+      const head: Span[] = [{ text: entry.command }, { text: ` · ${status}${entry.state === "running" ? "" : ` · exit ${entry.result.exitCode ?? "none"}`}`, color }];
+      const live = entry.state === "running" ? context.checkOutput?.(entry.terminalId) : undefined;
+      const body = [head, ...returned(cutLines(nonBlank(live?.output ?? entry.result?.output ?? ""), context.expanded))];
+      if (live?.truncated ?? entry.result?.truncated) body.push([{ text: "(output truncated to last 64 KiB)", dim: true }]);
+      if (entry.result?.failure != null) body.push([{ text: entry.result.failure, color: TERMINAL_ROLES.danger }]);
+      return block(row.id, { text: "$", color }, body, width, true);
     }
     case "prompt":
       return promptLines(row.id, row.entry, context);

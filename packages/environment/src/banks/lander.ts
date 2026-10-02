@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { BankManifest, ENVIRONMENT_STREAM_KIND, normaliseRemote, type BankReviewHeldPayload, type BankDraft, type BankEntry, type MemoryPromoteResult } from "@agent-harness/contracts";
+import { BankManifest, ContractError, ENVIRONMENT_STREAM_KIND, normaliseRemote, type BankReviewHeldPayload, type BankDraft, type BankEntry, type MemoryPromoteResult } from "@agent-harness/contracts";
 import { bankTreeOf, readBankMarkdown, validateBank } from "@agent-harness/contracts/bank-validator";
 import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
@@ -332,9 +332,13 @@ export const createBankLander = (options: {
       busy.add(bankId);
       return () => busy.delete(bankId);
     },
-    reconcile(bank: BankEntry): Promise<MemoryPromoteResult | null> {
-      if (busy.has(bank.id)) return active.get(bank.id) ?? Promise.resolve(null);
+    reconcile(bank: BankEntry, expectedPaths?: readonly string[]): Promise<MemoryPromoteResult | null> {
       const review = heldReview(bank.id);
+      if (review !== null && expectedPaths !== undefined) {
+        const paths = Object.keys(review.writes);
+        if (paths.length !== expectedPaths.length || paths.some((path) => !expectedPaths.includes(path))) throw new ContractError({ code: "conflict", message: "Another reviewed change is awaiting reconciliation for this bank.", data: { reason: "landing_in_progress", bankId: bank.id } });
+      }
+      if (busy.has(bank.id)) return active.get(bank.id) ?? Promise.resolve(null);
       return review === null ? Promise.resolve(null) : track(bank.id, promote(bank, review.sessionId, []));
     },
     promote(bank: BankEntry, sessionId: string, drafts: readonly BankDraft[]) {

@@ -1,5 +1,6 @@
 import {
   attachmentChip,
+  checkStatus,
   classifyTool,
   clockTime,
   endWords,
@@ -54,7 +55,7 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
         })
         .join("\n");
     case "check":
-      return [`$ ${row.entry.command}`, `${row.entry.status}; exit ${row.entry.exitCode ?? "none"}${row.entry.truncated ? "; output truncated" : ""}`, row.entry.output].join("\n\n");
+      return [`\`$ ${row.entry.command}\` · ${checkStatus(row.entry)}`, ...(row.entry.result?.truncated ? ["_Earlier output omitted_"] : []), row.entry.result?.output ?? ""].filter((part) => part.length > 0).join("\n\n");
     case "command":
       return [`\`/${row.entry.name}${row.entry.args.length > 0 ? ` ${row.entry.args}` : ""}\``, row.entry.output ?? ""].filter((part) => part.length > 0).join("\n\n");
     case "prompt": {

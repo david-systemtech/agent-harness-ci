@@ -1,5 +1,5 @@
+import { checkPassed, type DelegatedWorkRow, type RunSummary } from "@agent-harness/contracts";
 import { reduceSession } from "../projections/session.js";
-import type { DelegatedWorkRow, RunSummary } from "@agent-harness/contracts";
 import type {
   AssistantEntry,
   CheckEntry,
@@ -63,12 +63,12 @@ import { isLiveTask } from "./tasks.js";
  */
 
 export type TranscriptRow =
-  | { readonly kind: "check"; readonly id: string; readonly runId: null; readonly entry: CheckEntry }
   | { readonly kind: "user"; readonly id: string; readonly runId: string; readonly entry: UserMessageEntry }
   | { readonly kind: "update-interrupted"; readonly id: string; readonly runId: null; readonly entry: UpdateInterruptedEntry }
   | { readonly kind: "assistant"; readonly id: string; readonly runId: string; readonly entry: AssistantEntry }
   | { readonly kind: "calls"; readonly id: string; readonly runId: string; readonly calls: readonly ToolCallEntry[] }
   | { readonly kind: "command"; readonly id: string; readonly runId: string; readonly entry: CommandEntry }
+  | { readonly kind: "check"; readonly id: string; readonly runId: null; readonly entry: CheckEntry }
   | { readonly kind: "prompt"; readonly id: string; readonly runId: string; readonly entry: PromptEntry }
   | { readonly kind: "subagent"; readonly id: string; readonly runId: string; readonly entry: SubagentEntry }
   | { readonly kind: "turn"; readonly id: string; readonly runId: string; readonly run: RunSummary }
@@ -82,6 +82,16 @@ export type TranscriptRow =
 
 /** The row a run's calls fold into: named for the run, so it keeps its id as the run makes more calls. */
 export const callsRowId = (runId: string): string => `calls:${runId}`;
+
+/** The status both Clients draw beside a Workspace check's command. */
+export const checkStatus = (check: CheckEntry): string => {
+  if (check.state === "running") return "running";
+  const result = check.result;
+  if (result.timedOut) return "timed out";
+  if (result.failure !== null) return result.failure === "launch_failed" ? "launch failed" : result.failure;
+  if (result.signal !== null) return `signal ${result.signal}`;
+  return checkPassed(result) ? "passed" : result.exitCode === null ? "failed" : `exit ${result.exitCode}`;
+};
 
 /** The row a rewind's fold is: named for its `session.rewound`. */
 export const rewoundRowId = (sequence: number): string => `rewound:${sequence}`;
@@ -153,11 +163,11 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
         }
         break;
       }
-      case "check":
-        push({ kind: "check", id: `check:${entry.terminalId}`, runId: null, entry });
-        break;
       case "command":
         push({ kind: "command", id: `command:${entry.sequence}`, runId: entry.runId, entry });
+        break;
+      case "check":
+        push({ kind: "check", id: `check:${entry.terminalId}`, runId: null, entry });
         break;
       case "prompt":
       case "question":

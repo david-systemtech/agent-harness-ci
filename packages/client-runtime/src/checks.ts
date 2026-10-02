@@ -1,4 +1,4 @@
-import { CHECK_OUTPUT_MAX_BYTES, utf8Bytes } from "@agent-harness/contracts";
+import { CHECK_OUTPUT_MAX_BYTES, checkPassed, utf8Bytes } from "@agent-harness/contracts";
 import type { WorkspaceCheck, ChecksChangedPayload } from "@agent-harness/contracts";
 import type { CapabilityAnswer } from "./capabilities.js";
 import type { ConnectionRecord } from "./connections/records.js";
@@ -44,23 +44,23 @@ export const createChecks = (host: {
     const prior = state.get(key);
     if (prior) {
       // A reset dismisses completed offers; an in-flight check may still produce a new failure.
-      prior.floor = Math.max(prior.floor, ...entries(environmentId, sessionId).filter((item) => item.status !== "running").map((item) => item.sequence));
+      prior.floor = Math.max(prior.floor, ...entries(environmentId, sessionId).filter((item) => item.state !== "running").map((item) => item.sequence));
       prior.sent.clear();
       prior.generation++;
     }
     resets.update((n) => n + 1);
   };
-  const identity = (entry: CheckEntry) => JSON.stringify([entry.command, entry.output, entry.exitCode]);
-  const offered = (items: readonly CheckEntry[], command: string | null | undefined, key: string): { entry: CheckEntry; id: string } | null => {
+  const identity = (entry: CheckEntry) => JSON.stringify([entry.command, entry.result?.output, entry.result?.exitCode]);
+  const offered = (items: readonly CheckEntry[], command: string | null | undefined, key: string): { entry: Extract<CheckEntry, { state: "finished" }>; id: string } | null => {
     const saved = state.get(key)!;
     let epoch = "initial";
-    let offer: { entry: CheckEntry; id: string } | null = null;
+    let offer: { entry: Extract<CheckEntry, { state: "finished" }>; id: string } | null = null;
     const seen = new Set<string>();
     for (const entry of items) {
       if (entry.sequence <= saved.floor) continue;
-      if (entry.sourceRunId === null || entry.status === "pass") { epoch = entry.terminalId; seen.clear(); offer = null; }
-      if (entry.status === "running") { offer = null; continue; }
-      if (entry.status === "pass" || entry.command !== command) continue;
+      if (entry.sourceRunId === null || (entry.state === "finished" && checkPassed(entry.result))) { epoch = entry.terminalId; seen.clear(); offer = null; }
+      if (entry.state === "running") { offer = null; continue; }
+      if ((entry.state === "finished" && checkPassed(entry.result)) || entry.command !== command) continue;
       const id = `${epoch} ${identity(entry)}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -83,7 +83,7 @@ export const createChecks = (host: {
       let followers = 0;
       let stopWatching: (() => void) | undefined;
       const sync = () => {
-        const running = new Set(entries(environmentId, sessionId).filter((entry) => entry.status === "running").map((entry) => entry.terminalId));
+        const running = new Set(entries(environmentId, sessionId).filter((entry) => entry.state === "running").map((entry) => entry.terminalId));
         for (const [id, handle] of handles) if (!running.has(id)) { handle.release(); handles.delete(id); }
         for (const id of running) if (!handles.has(id)) {
           const handle = host.terminal(environmentId, id, (chunk) => {
@@ -156,7 +156,7 @@ export const createChecks = (host: {
       saved.sending = true;
       try {
         const entry = offer.entry;
-        const text = `$ ${entry.command}\nCheck ${entry.status}; exit ${entry.exitCode ?? "none"}${entry.truncated ? "; output truncated" : ""}\n${entry.output}`;
+        const text = `$ ${entry.command}\nCheck ${entry.result.timedOut ? "timeout" : "failure"}; exit ${entry.result.exitCode ?? "none"}${entry.result.truncated ? "; output truncated" : ""}\n${entry.result.output}`;
         const answer = await host.send(environmentId, sessionId, { text, attachments: [] }, choice);
         if (answer.ok && saved.generation === generation) { saved.sent.add(offer.id); resets.update((n) => n + 1); }
         return answer;

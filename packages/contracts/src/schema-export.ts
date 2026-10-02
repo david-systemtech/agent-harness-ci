@@ -1,3 +1,4 @@
+import { BankValidatorStatus } from "./banks.js";
 import { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
 import { SessionBankUsedPayload } from "./bank-use.js";
@@ -566,6 +567,7 @@ import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
 import { CHECK_SESSION_EVENT_TYPES, CheckCommand, CheckFailure, ChecksChangedPayload, WorkspaceCheck } from "./checks.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
+import { FileChangeId, FileChangeUnrestorableReason, FileUndoAction, FileUndoConflictReason, FilesUndoFinishedPayload } from "./file-undo.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
@@ -1079,6 +1081,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "banks/scope-segment.json", title: "MemoryScopeSegment", schema: MemoryScopeSegment },
   { path: "banks/draft-scope.json", title: "MemoryDraftScope", schema: MemoryDraftScope },
   { path: "sessions/events/session.bank-used.json", title: "SessionBankUsedPayload", schema: SessionBankUsedPayload },
+  { path: "files/change-id.json", title: "FileChangeId", schema: FileChangeId },
+  { path: "files/undo-action.json", title: "FileUndoAction", schema: FileUndoAction },
+  { path: "files/undo-conflict-reason.json", title: "FileUndoConflictReason", schema: FileUndoConflictReason },
+  { path: "files/unrestorable-reason.json", title: "FileChangeUnrestorableReason", schema: FileChangeUnrestorableReason },
+  { path: "sessions/events/files.undo-finished.json", title: "FilesUndoFinishedPayload", schema: FilesUndoFinishedPayload },
   { path: "banks/tools/search.json", title: "MemorySearchInput", schema: MemorySearchInput },
   { path: "banks/tools/read.json", title: "MemoryReadInput", schema: MemoryReadInput },
   { path: "banks/tools/promote.json", title: "MemoryPromoteInput", schema: MemoryPromoteInput },
@@ -1112,6 +1119,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "banks/landing-status.json", title: "BankLandingStatus", schema: BankLandingStatus },
   { path: "banks/status.json", title: "BankStatus", schema: BankStatus },
   { path: "banks/entry.json", title: "BankEntry", schema: BankEntry },
+  { path: "banks/validator-status.json", title: "BankValidatorStatus", schema: BankValidatorStatus },
   { path: "banks/record.json", title: "BankRecord", schema: BankRecord },
   { path: "banks/join-preview.json", title: "BankJoinPreview", schema: BankJoinPreview },
   { path: "banks/conflict-reason.json", title: "BankConflictReason", schema: BankConflictReason },

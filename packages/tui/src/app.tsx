@@ -520,7 +520,7 @@ export const App = (props: AppProps) => {
   useFollow(checks, request);
   const checkView = checks?.read();
   const checkUnavailable = checkView?.availability.status === "absent" ? ` Check: ${checkView.availability.message}` : undefined;
-  const checkOffer = checkView?.offer ? ` Send failure: Enter on an empty composer · ${checkView.offer.status}` : undefined;
+  const checkOffer = checkView?.offer ? ` Send failure: Enter on an empty composer · ${checkView.offer.result?.timedOut ? "timeout" : "failure"}` : undefined;
   const checkSummaryRows = [checkUnavailable, checkOffer].reduce((rows, text) => rows + (text === undefined ? 0 : wrap([{ text }], size.columns).length), 0);
 
   // The open session's workspace, when the environment has found it gone (#328): read from its list row, as the rail's.

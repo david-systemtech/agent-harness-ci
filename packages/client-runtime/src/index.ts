@@ -300,6 +300,7 @@ export {
 } from "./requests.js";
 export type {
   AssistantEntry,
+  CheckEntry,
   CommandEntry,
   ForkedEntry,
   HistoryUnreadableEntry,
@@ -372,6 +373,7 @@ export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
 export {
   callsRowId,
+  checkStatus,
   environmentMessage,
   folded,
   forkedFrom,
@@ -675,5 +677,4 @@ export { terminalAnswers } from "./terminals/answers.js";
 export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";
 
 export type { Checks, ChecksView } from "./checks.js";
-export type { CheckEntry } from "./projections/session.js";
 export { clientLocalImportValues } from "./state-import.js";
