@@ -2284,6 +2284,49 @@ describe("a run that joins a kept process", () => {
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened" }) })]);
   });
 
+  it("withdraws the prompt of a run the open timeout ends, and what was sent onto it, so a CLI that opens late does not run them", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const followUp = message("And this");
+    await run.send(followUp);
+    await query.promptsPushed(2);
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId, followUp.messageId]);
+  });
+
+  it("does not ask for the prompt again when the open timeout ends a run whose prompt the CLI will not give back", async () => {
+    fake.controls = { cancelled: () => false };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    const [end] = ends(await read.done);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
+    expect(end).toEqual(expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("may still run it") }) }));
+    expect(JSON.stringify(end)).not.toContain("send again");
+  });
+
+  it("withdraws the prompt of a run it ends when the CLI sends init and then nothing", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
+  });
+
   it("withdraws what was sent onto a run that has not opened with its prompt, and hands those messages back", async () => {
     fake.controls = { cancelled: () => true };
     const adapter = adapterWith();
