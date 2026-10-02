@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { rename, unlink } from "node:fs/promises";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { editFile, end, fakeAdapter, fileTool, gate, say, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -18,6 +19,11 @@ import type { AdapterEvent } from "../adapter/contract.js";
  * `files.undo` over the typed wire, asserted on the workspace's bytes and
  * modes and on the session's log.
  */
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rename: vi.fn(actual.rename), unlink: vi.fn(actual.unlink) };
+});
 
 const { onCleanup, tempDir } = useCleanups();
 
@@ -561,6 +567,41 @@ describe("files.undo's receipts and its journal", () => {
     expect(eventsOf(t, sessionId, "files.undo-finished")).toHaveLength(1);
   });
 
+  it("removes the scratch file and journal before reporting a failed rename, leaving the change for a retry", async () => {
+    const { t, client, root, sessionId } = await edited();
+    const target = join(root, "a.txt");
+    const commandId = randomUUID();
+    vi.mocked(rename).mockRejectedValueOnce(new Error("The rename failed."));
+
+    await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
+
+    expect(readdirSync(root)).toEqual(["a.txt"]);
+    expect(readFileSync(target, "utf8")).toBe("b\n");
+    expect(t.env.log.fileChanges.allJournaled()).toEqual([]);
+    expect(t.env.log.fileChanges.newest(sessionId)).toMatchObject({ state: "completed" });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+    const again = await undo(client, sessionId, commandId);
+    expect(again.result).toEqual({ changeId: expect.any(String), path: "a.txt", action: "restored" });
+    expect(readFileSync(target, "utf8")).toBe("a\n");
+  });
+
+  it("removes the journal when deleting a created file fails, leaving the file and change for a retry", async () => {
+    const { t, client, root, sessionId } = await setUp();
+    const target = join(root, "new.txt");
+    await runScript(t, client, sessionId, playing((controls) => writeCall(controls, target, "created\n")));
+    const commandId = randomUUID();
+    vi.mocked(unlink).mockRejectedValueOnce(new Error("The deletion failed."));
+
+    await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
+
+    expect(readFileSync(target, "utf8")).toBe("created\n");
+    expect(t.env.log.fileChanges.allJournaled()).toEqual([]);
+    expect(t.env.log.fileChanges.newest(sessionId)).toMatchObject({ state: "completed" });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+    expect((await undo(client, sessionId, commandId)).result).toMatchObject({ path: "new.txt", action: "deleted" });
+    expect(existsSync(target)).toBe(false);
+  });
+
   it("records a restore an earlier attempt of the command applied once, without writing again", async () => {
     let failOnce = true;
     const { t, client, root, sessionId } = await edited({
@@ -575,6 +616,7 @@ describe("files.undo's receipts and its journal", () => {
     const commandId = randomUUID();
     await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(t.env.log.fileChanges.allJournaled()).toHaveLength(1);
     // The retry finds the file restored: it records the restore, where running afresh would find the file changed.
     const again = await undo(client, sessionId, commandId);
     expect(again).toEqual({ receipt: expect.objectContaining({ status: "accepted" }), result: { changeId: expect.any(String), path: "a.txt", action: "restored" } });

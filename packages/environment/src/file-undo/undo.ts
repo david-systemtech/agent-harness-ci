@@ -271,13 +271,13 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
               log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
               return holding(refuse(fileChanged(change)));
             }
+            if (change.existed) await rename(entry.scratch, target);
+            else await unlink(target);
           } catch (error) {
             await rm(entry.scratch, { force: true });
             log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
             throw error;
           }
-          if (change.existed) await rename(entry.scratch, target);
-          else await unlink(target);
           await hooks?.afterRename?.();
           return holding((_params, command) => finished(aggregate, change, entry, command.tx));
         } catch (error) {

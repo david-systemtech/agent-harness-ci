@@ -541,11 +541,13 @@ export const createRequestCache = (host: {
     },
     sessionChanged(environmentId, sessionId, type) {
       const methods: readonly QueryMethodName[] =
-        type === "session.workspace-set"
-          ? ["skills.get", "skills.readiness", "trust.get", "commands.list"]
-          : type === "run.started"
-            ? ["skills.get", "skills.readiness", "commands.list"]
-            : [];
+        type === "files.undo-finished"
+          ? ["diffs.session", "diffs.workingTree"]
+          : type === "session.workspace-set"
+            ? ["skills.get", "skills.readiness", "trust.get", "commands.list"]
+            : type === "run.started"
+              ? ["skills.get", "skills.readiness", "commands.list"]
+              : [];
       for (const entry of entries.values()) {
         if (entry.environmentId === environmentId && typeof entry.params["sessionId"] === "string" && entry.params["sessionId"].toLowerCase() === sessionId.toLowerCase() && methods.includes(entry.method)) refresh(entry);
       }

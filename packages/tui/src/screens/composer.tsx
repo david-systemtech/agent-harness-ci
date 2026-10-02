@@ -65,6 +65,7 @@ const BufferLine = (props: { readonly text: string; readonly cursor: number | un
 /** What a slash menu row says after its usage: its description, marked when the agent's own or a slash-only skill. */
 const rowNote = (row: CommandRow): string => {
   const note = row.source === "provider" ? `${row.description} · the agent's` : row.slashOnly ? `${row.description} · slash-only` : row.description;
+  if (row.availability?.status === "absent") return `${row.availability.message} · ${note}`;
   if (row.readiness?.state === "setup-needed") return `setup needed · ${note}`;
   if (row.readiness?.state === "unsupported") return `unsupported: ${row.readiness.why ?? row.readiness.failing[0]?.message} · ${note}`;
   return note;
@@ -86,7 +87,7 @@ const PopupRows = (props: { readonly popup: Popup; readonly highlight: number })
       {popup.kind === "commands" &&
         popup.rows.map((row, index) => (
           <Box key={row.name} flexDirection="column" flexShrink={0}>
-            <Text wrap="truncate-end" inverse={index === props.highlight} dimColor={row.readiness?.state === "unsupported"}>
+            <Text wrap="truncate-end" inverse={index === props.highlight} dimColor={row.availability?.status === "absent" || row.readiness?.state === "unsupported"}>
               {"    "}
               {row.usage.padEnd(22)} <Text dimColor>{rowNote(row)}</Text>
             </Text>
