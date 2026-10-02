@@ -105,14 +105,14 @@ describe("agent-harness tui", () => {
       "--session",
       "0199aa00-0000-4000-8000-000000000001",
       "--cwd",
-      "code/brandsolidate",
+      "code/meadowstudios",
       "--keybindings",
       "keys.json",
     );
     expect(handed).toMatchObject({
       environment: "laptop",
       session: "0199aa00-0000-4000-8000-000000000001",
-      cwd: resolve("code/brandsolidate"),
+      cwd: resolve("code/meadowstudios"),
       keybindings: resolve("keys.json"),
       continueLatest: false,
     });

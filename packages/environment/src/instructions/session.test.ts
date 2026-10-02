@@ -34,7 +34,7 @@ import type { OrientationSeam } from "./composer.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-const ORIENTATION = "# Orientation\n\nYou are on SYSTEM-SERVER.";
+const ORIENTATION = "# Orientation\n\nYou are on SAMPLE-SERVER.";
 const HEADING = "# Instructions for this session";
 
 /** The text a run is handed for the session's instructions `text`: the heading over it. */

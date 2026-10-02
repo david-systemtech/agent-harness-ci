@@ -53,24 +53,24 @@ describe("the session-list projector", () => {
     const { events } = log.append(
       { kind: "group", id: groupId },
       [
-        { type: "group.created", payload: { name: "Brandsolidate", orderKey: null } },
-        { type: "group.renamed", payload: { name: "BrandSolidate" } },
+        { type: "group.created", payload: { name: "Meadowstudios", orderKey: null } },
+        { type: "group.renamed", payload: { name: "MeadowStudios" } },
         { type: "group.deleted", payload: {} },
       ],
       { actor: "system:test" },
     );
     const at = "2026-09-24T00:00:00.000Z";
     expect(events.map((event) => event.metadata[LIST_PATCH_KEY])).toEqual([
-      { op: "add", group: { id: groupId, name: "Brandsolidate", orderKey: null, createdAt: at, updatedAt: at } },
-      { op: "set", groupId, fields: { name: "BrandSolidate" } },
+      { op: "add", group: { id: groupId, name: "Meadowstudios", orderKey: null, createdAt: at, updatedAt: at } },
+      { op: "set", groupId, fields: { name: "MeadowStudios" } },
       { op: "remove", groupId },
     ]);
     const other = "9f8e7d6c-5b4a-4c3d-8e2f-1a0b9c8d7e6f";
     const third = "3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a";
-    log.append({ kind: "group", id: other }, [{ type: "group.created", payload: { name: "Cool Jams", orderKey: null } }], { actor: "system:test" });
+    log.append({ kind: "group", id: other }, [{ type: "group.created", payload: { name: "Moon Gems", orderKey: null } }], { actor: "system:test" });
     const head = log.head();
     expect(() =>
-      log.append({ kind: "group", id: third }, [{ type: "group.created", payload: { name: "cool jams", orderKey: null } }], { actor: "system:test" }),
+      log.append({ kind: "group", id: third }, [{ type: "group.created", payload: { name: "moon gems", orderKey: null } }], { actor: "system:test" }),
     ).toThrow(/UNIQUE/);
     expect(log.head()).toBe(head);
   });

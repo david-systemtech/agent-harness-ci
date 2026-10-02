@@ -15,7 +15,7 @@ afterEach(async () => {
 
 const document: DiscoveryDocument = {
   environmentId: "0b6f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f",
-  environmentName: "SYSTEM-SERVER",
+  environmentName: "SAMPLE-SERVER",
   harnessVersion: HARNESS_VERSION,
   protocolVersion: PROTOCOL_VERSION,
   capabilities: [],
@@ -88,7 +88,7 @@ describe("agent-harness status", () => {
     expect(await runCli(["status"], run.context)).toBe(0);
     expect(run.out()).toBe(
       [
-        "Environment: SYSTEM-SERVER (0b6f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f)",
+        "Environment: SAMPLE-SERVER (0b6f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f)",
         `Version: agent-harness ${HARNESS_VERSION}, protocol ${PROTOCOL_VERSION}`,
         "Readiness: ready",
         "Address: http://127.0.0.1:7433",

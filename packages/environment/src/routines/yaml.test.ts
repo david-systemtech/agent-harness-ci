@@ -28,7 +28,7 @@ const { onCleanup, tempDir } = useCleanups();
 const ZONE = "Asia/Manila";
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment({ timeZone: ZONE, name: "SYSTEM-SERVER", ...options });
+  const t = await startTestEnvironment({ timeZone: ZONE, name: "SAMPLE-SERVER", ...options });
   onCleanup(() => t.close());
   return t;
 };
@@ -58,7 +58,7 @@ describe("a routine's repository identity", () => {
     const t = await start();
     const client = await t.client();
     const checkout = clone();
-    const tools = clone("https://example.com/Seth/tools.git");
+    const tools = clone("https://example.com/Milo/tools.git");
 
     const routine = await created(client, written({ workspace: { kind: "directory", path: checkout, repositoryIdentity: null } }));
     expect(routine.definition.workspace).toEqual({ kind: "directory", path: checkout, repositoryIdentity: IDENTITY });
@@ -69,7 +69,7 @@ describe("a routine's repository identity", () => {
       kind: "worktree",
       repository: tools,
       branch: "main",
-      repositoryIdentity: "https://example.com/seth/tools",
+      repositoryIdentity: "https://example.com/milo/tools",
     });
     expect((await update({ kind: "scratch", repositoryIdentity: IDENTITY })).result?.routine.definition.workspace).toEqual({ kind: "scratch", repositoryIdentity: null });
     const gone = join(tempDir(), "not-here");
@@ -89,7 +89,7 @@ describe("routines.export", () => {
     const digest = await created(client, written({ name: "Nightly digest", schedule: { kind: "daily", at: "23:30" }, timezone: "Europe/London", mode: "plan" }));
 
     const { yaml } = await client.request("routines.export", {});
-    expect(yaml.split("\n")[0]).toBe(`# Routines exported from SYSTEM-SERVER at ${MANUAL_CLOCK_START}.`);
+    expect(yaml.split("\n")[0]).toBe(`# Routines exported from SAMPLE-SERVER at ${MANUAL_CLOCK_START}.`);
     expect(readRoutineYaml(yaml, "UTC")).toEqual([
       { index: 0, definition: watch.definition, issues: [] },
       { index: 1, definition: digest.definition, issues: [] },

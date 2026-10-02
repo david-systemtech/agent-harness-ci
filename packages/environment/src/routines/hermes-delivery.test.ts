@@ -18,7 +18,7 @@ const document = readFileSync(new URL("../../../../docs/routines/upstream-watch.
 
 /** A delivering-only receiver boundary, not the live Hermes adapter or Matrix. */
 const setup = async () => {
-  const t = await startTestEnvironment({ name: "SYSTEM-SERVER" });
+  const t = await startTestEnvironment({ name: "SAMPLE-SERVER" });
   onCleanup(() => t.close());
   const bao = await startFakeOpenBao({ now: () => t.clock.now() });
   onCleanup(async () => {
@@ -34,9 +34,9 @@ const setup = async () => {
   });
   bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "endpoints"] });
   // The imported routine inherits injection, so its provider processes need to mint run tokens too.
-  bao.policy("endpoints", 'path "personal/data/agents/endpoint-hermes" { capabilities = ["read"] }\npath "auth/token/create" { capabilities = ["update"] }');
+  bao.policy("endpoints", 'path "personal/data/harness/endpoint-hermes" { capabilities = ["read"] }\npath "auth/token/create" { capabilities = ["update"] }');
   bao.kv("personal", 2);
-  bao.secret("personal", "agents/endpoint-hermes", { secret: SECRET });
+  bao.secret("personal", "harness/endpoint-hermes", { secret: SECRET });
   const received: ReceivedRequest[] = [];
   const room: { id: string; body: unknown }[] = [];
   const delivered = new Set<string>();
@@ -71,7 +71,7 @@ const setup = async () => {
   const connection = await added(client, { label: "Personal OpenBao", address: bao.address, ca: bao.ca, credential: approle() });
   const set = await client.request("routines.endpoints.set", {
     commandId: randomUUID(), name: "hermes", url,
-    secret: { kind: "reference", reference: { provider: "openbao", connectionId: connection.id, mount: "personal", path: "agents/endpoint-hermes", key: "secret" } },
+    secret: { kind: "reference", reference: { provider: "openbao", connectionId: connection.id, mount: "personal", path: "harness/endpoint-hermes", key: "secret" } },
   });
   expect(set.receipt.status).toBe("accepted");
   const imported = await routineCommand(client, "routines.import", { yaml: document });
@@ -119,7 +119,7 @@ describe("upstream watch results through the Hermes endpoint", { timeout: 60_000
     expect(await client.request("routines.endpoints.test", { name: "hermes" })).toMatchObject({ status: 204, error: null });
     expect(room).toHaveLength(1);
     expect(room[0]?.body).toMatchObject({ type: "routine.test", version: 1 });
-    expect((await client.request("routines.endpoints.list", {})).endpoints).toMatchObject([{ name: "hermes", secretKind: "reference", reference: { locator: "personal/agents/endpoint-hermes (key secret)" } }]);
+    expect((await client.request("routines.endpoints.list", {})).endpoints).toMatchObject([{ name: "hermes", secretKind: "reference", reference: { locator: "personal/harness/endpoint-hermes (key secret)" } }]);
     loseNextAcknowledgement();
     const entryId = await fire("completed", "Digest filed.\nSee issue #123.");
     expect((await attempted(entryId, 1)).payload).toMatchObject({ result: "retrying", status: 503 });
@@ -127,7 +127,7 @@ describe("upstream watch results through the Hermes endpoint", { timeout: 60_000
     expect((await attempted(entryId, 2)).payload).toMatchObject({ result: "delivered", status: 204 });
     expect(received.slice(1).map((request) => request.headers["webhook-id"])).toEqual([`${entryId}:hermes:success`, `${entryId}:hermes:success`]);
     expect(room).toHaveLength(2);
-    expect(room[1]?.body).toMatchObject({ type: "routine.result", version: 1, environment: { name: "SYSTEM-SERVER" }, routine: { name: "Upstream watch" }, entry: { id: entryId, outcome: "succeeded" }, text: "Digest filed.\nSee issue #123." });
+    expect(room[1]?.body).toMatchObject({ type: "routine.result", version: 1, environment: { name: "SAMPLE-SERVER" }, routine: { name: "Upstream watch" }, entry: { id: entryId, outcome: "succeeded" }, text: "Digest filed.\nSee issue #123." });
     expect((await history(client, routine.state.id))[0]?.deliveries).toMatchObject([
       { target: { kind: "client-notice", on: "both" }, result: "delivered" },
       { target: { kind: "webhook", target: "hermes", on: "success" }, result: "delivered", attempts: [{ status: 503 }, { status: 204 }] },

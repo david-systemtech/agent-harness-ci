@@ -688,7 +688,7 @@ describe("the provider's tag field", () => {
   it("is reached by no organisation command: of all a client files, tags and titles, only a user title goes to the provider", async () => {
     const t = await start({ titleWrite: true, title: "Provider's own" });
     const client = await t.client();
-    const { id: groupId } = await createGroup(client, { name: "Brandsolidate" });
+    const { id: groupId } = await createGroup(client, { name: "Meadowstudios" });
     const { id } = await create(client, { title: "Mine", tags: ["wip"] });
     const { runId, sequence } = await startRun(client, id);
     await waitForEvent(t, id, sequence, "run.ended", runId);

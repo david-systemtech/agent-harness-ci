@@ -173,7 +173,7 @@ describe("a run's event stream", () => {
     const t = await setup(fakeAdapter(), {
       toolServers,
       instructions: composeInstructions({
-        orientation: () => ({ text: "You are on SYSTEM-SERVER.", unreadRegistries: [] }),
+        orientation: () => ({ text: "You are on SAMPLE-SERVER.", unreadRegistries: [] }),
         session: () => [{ id: "session", version: null, title: "Instructions for this session", text: "Be brief." }],
       }),
       // The policy seam, here one that clamps every run to acceptEdits, whatever the actor's ceiling.
@@ -190,7 +190,7 @@ describe("a run's event stream", () => {
       effort: "high",
       mode: "acceptEdits",
       ceiling: "acceptEdits",
-      instructions: "You are on SYSTEM-SERVER.\n\nBe brief.",
+      instructions: "You are on SAMPLE-SERVER.\n\nBe brief.",
       target: { kind: "fresh" },
       toolServers: [{ name: "memory", config: {} }],
       trusted: false,
@@ -1154,7 +1154,7 @@ describe("a run composing its instructions (#493)", () => {
         begun.count += 1;
         await held.opened;
         begun.answered += 1;
-        return { text: "You are on SYSTEM-SERVER.", unreadRegistries: [] };
+        return { text: "You are on SAMPLE-SERVER.", unreadRegistries: [] };
       },
     });
     return { begun, instructions };
