@@ -186,6 +186,20 @@ describe("the screenless selection", () => {
     expect(on.world.environment("desk").requests("sessions.create")).toEqual([]);
   });
 
+  it("stops waiting for the presets when the caller closes the selection first", async () => {
+    const on = await machine(deskAndLaptop);
+    // The settings never answer, so the presets would wait for ever.
+    on.world.environment("desk").wire.answer("settings.get", () => new Promise<FakeAnswer>(() => undefined));
+    const selection = await chosen(on);
+    const presets = selection.newSessionPresets();
+    for (let i = 0; i < 5; i++) await flush();
+
+    await selection.close();
+
+    await expect(presets).rejects.toThrow("The selection was closed before the new-session presets were read.");
+    expect(openSockets(on)).toEqual(noneOpen(on));
+  });
+
   it("closes every connection it opened when the caller is done", async () => {
     const on = await machine(deskAndLaptop);
     const selection = await chosen(on, { environment: "laptop" });
