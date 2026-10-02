@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { JsonObject } from "@agent-harness/contracts";
 import { expect, it, vi } from "vitest";
 import { PERSONAL_BANK, TEAM_BANK, markdown, personalManifest, type FixtureBank } from "../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { callHostTool, end, fakeAdapter, type HostToolCallScript } from "../../environment/test/fake-adapter.js";
-import { startTestEnvironment } from "../../environment/test/helper.js";
+import { startFakeForge } from "../../environment/test/fake-forge.js";
+import { added, DAVID, TOKEN } from "../../environment/test/forge.js";
+import { startTestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
 import { create } from "../../environment/test/sessions.js";
 import { WAIT_MS } from "../../environment/test/wire-client.js";
 import { git } from "../../environment/test/workspaces.js";
@@ -35,9 +38,9 @@ const bankRepository = (files: FixtureBank): string => {
   return root;
 };
 
-const start = async () => {
+const start = async (options: TestEnvironmentOptions = {}) => {
   const adapter = fakeAdapter();
-  const t = await startTestEnvironment({ adapter });
+  const t = await startTestEnvironment({ adapter, ...options });
   onCleanup(() => t.close());
   return { t, adapter, client: await t.client() };
 };
@@ -221,4 +224,60 @@ it("reaches the banks in scope for the environment's default account and the rep
     code: 0, out: `Queued release-train for acme at projects/acme/bank/memories/release-train.md (session ${session}).\n`,
   });
   expect(h.t.env.log.readStream({ kind: "session", id: session })).toEqual([]);
+});
+
+/**
+ * `files` as a bank on a fake forge's `maya/memory`, whose git is a bare
+ * repository beside it, checked out and registered on an environment with
+ * the forge's account, which the harness's git reaches through its
+ * credential helper, as the Lander's tests set it up.
+ */
+const forgeBank = async (files: FixtureBank) => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  forge.user(TOKEN, DAVID);
+  forge.repository(TOKEN, "maya/memory");
+  forge.gitCredential("david", TOKEN);
+  const remote = join(tempDir("bank-cli-origin-"), "memory.git");
+  git(tempDir(), "clone", "--quiet", "--bare", bankRepository(files), remote);
+  const checkout = tempDir("bank-cli-checkout-");
+  git(checkout, "clone", "--quiet", remote, ".");
+  git(checkout, "remote", "set-url", "origin", `${forge.origin}/maya/memory.git`);
+  const helper = join(tempDir("bank-cli-helper-"), "helper.mjs");
+  writeFileSync(helper, `import { readFileSync } from "node:fs";
+if (process.argv.at(-1) !== "get") process.exit(0);
+const attrs = Object.fromEntries(readFileSync(0, "utf8").trim().split("\\n").map(line => line.split("=")));
+const response = await fetch("http://" + process.env.AGENT_HARNESS_ADDRESS + "/api/internal/git-credential", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + process.env.AGENT_HARNESS_RUN_SECRET }, body: JSON.stringify({ action: "get", slug: process.argv.at(-2), protocol: attrs.protocol, host: attrs.host }) });
+if (response.ok) { const answer = await response.json(); process.stdout.write("username=" + answer.username + "\\npassword=" + answer.password + "\\n\\n"); }
+`);
+  const h = await start({ forgeFetch: forge.fetch, harnessCommand: [process.execPath, helper], harnessGitConfig: [[`url.${pathToFileURL(remote).href}.insteadOf`, `${forge.origin}/maya/memory.git`]] });
+  await added(h.client, { url: forge.origin, kind: "forgejo" });
+  const bankId = await register(h, files, {}, checkout);
+  return { ...h, forge, remote, checkout, bankId };
+};
+
+it("prints the pull request and each pending file of a landing awaiting review, and the step and reason of a failed one", async () => {
+  const reviewed = { ...(personalManifest()["write"] as Record<string, unknown>), merge: { memories: "review", reviewed: ["orientation", "decisions", "status", "manifest"] } };
+  const h = await forgeBank({ ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ write: reviewed })) });
+  const pullRequest = `${h.forge.origin}/maya/memory/pulls/1`;
+  h.forge.answer(TOKEN, "POST /api/v1/repos/maya/memory/pulls", (request) => {
+    const branch = (request.body as { head: string }).head;
+    h.forge.pullRequest(TOKEN, "maya/memory", 1, { head: branch });
+    return { status: 201, body: { number: 1, title: "Memories", state: "open", head: { ref: branch, sha: git(h.remote, "rev-parse", branch).trim(), repo: { full_name: "maya/memory" } }, base: { ref: "main" }, html_url: pullRequest } };
+  });
+  const elsewhere = bankRepository({ ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ name: "sam-memory" })) });
+  git(elsewhere, "remote", "add", "origin", "https://git.example.test/sam/memory.git");
+  await register(h, {}, {}, elsewhere);
+  const session = randomUUID();
+  const draft = (bank: string) => bankCli(h, ["draft", "rollout-steps", "--bank", bank, "--scope", "personal/homelab", "--type", "project", "--description", DESCRIPTION, "--body", "Roll out once.", "--session", session]);
+  expect(await draft("maya-memory")).toMatchObject({ code: 0, err: "" });
+  expect(await draft("sam-memory")).toMatchObject({ code: 0, err: "" });
+
+  const awaiting = await bankCli(h, ["promote", "--bank", "maya-memory", "--session", session]);
+  expect(awaiting).toMatchObject({ code: 0, err: "", out: `Awaiting review in maya-memory: ${pullRequest}\n  pending projects/personal/homelab/memories/rollout-steps.md\n` });
+  const failed = await bankCli(h, ["promote", "--bank", "sam-memory", "--session", session]);
+  const landing = h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).findLast((event) => event.type === "bank.landing-failed");
+  // No forge account serves the origin: the landing cannot fetch the bank.
+  expect(landing?.payload).toMatchObject({ sessionId: session, step: "fetch", reason: expect.any(String) });
+  expect(failed).toMatchObject({ code: 1, out: "", err: `Landing in sam-memory failed at ${String(landing?.payload["step"])}: ${String(landing?.payload["reason"])}\n` });
 });
