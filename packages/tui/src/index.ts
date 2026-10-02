@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createElement } from "react";
-import { PROTOCOL_VERSION, createRuntime, writable } from "@agent-harness/client-runtime";
+import { PROTOCOL_VERSION, createRuntime, writable, type Platform } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { App, mountApp, type InkRender } from "./app.js";
 import { terminalChrome } from "./attention/chrome.js";
@@ -8,6 +8,7 @@ import { keybindingsFor } from "./keys.js";
 import { ensurePrivateDirectory } from "./platform/files.js";
 import { nodePlatform, stateDirectory, systemClock } from "./platform/node-platform.js";
 import type { LocalService } from "./platform/services.js";
+import { importTerminalState, type TerminalImportSource } from "./platform/terminal-import.js";
 import { presentationFile } from "./presentation.js";
 import { createRuntimeHost } from "./runtime-host.js";
 import { colourDepth } from "./theme/colours.js";
@@ -21,6 +22,8 @@ export const TUI_PROTOCOL_VERSION: number = PROTOCOL_VERSION;
 
 /** `agent-harness tui`'s flags and what the CLI hands in beside them. */
 export interface TuiOptions {
+  /** Read the detected local source before mounting, only for `--import-terminal-state`. */
+  readonly terminalSource?: () => Promise<TerminalImportSource | null>;
   /** `--environment <name or id>`. */
   readonly environment?: string | undefined;
   /** `--session <id>`. */
@@ -42,6 +45,8 @@ export interface TuiOptions {
   readonly stdin?: NodeJS.ReadStream;
   readonly stdout?: NodeJS.WriteStream;
   readonly stderr?: NodeJS.WriteStream;
+  /** Platform boundary for an entry-point harness; preset the Node terminal platform. */
+  readonly platform?: Platform;
   /** Ink's `render`, unless a test hands in another. */
   readonly render?: InkRender;
   /** The variables the colour depth is read from (`COLORTERM`, `AGENT_HARNESS_TUI_BACKGROUND`); preset the process's. */
@@ -70,13 +75,29 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
   // On the system clock the platform is built with, the one notices carry, so the activity line can tell which is newer;
   // read from the clock itself, so a report never depends on the platform binding being initialised.
   const report = (message: string) => faults.update((list) => [...list, { message, at: systemClock.now().toISOString() }].slice(-20));
-  const platform = nodePlatform({
+  const platform = options.platform ?? nodePlatform({
     stateDir,
     dataDir: options.dataDir,
     version: options.version,
     reportError: (error) => report(`Fault: ${messageOf(error)}`),
   });
   const host = createRuntimeHost(() => createRuntime(platform));
+  if (options.terminalSource) {
+    try {
+      const source = await options.terminalSource();
+      if (source) {
+        await host.start();
+        const messages = await importTerminalState({ source, stateDir, runtime: host.current.read(), environment: options.environment });
+        for (const message of messages) { stderr.write(`${message}\n`); report(message); }
+      } else {
+        stderr.write("Terminal import: no local terminal source found.\n");
+      }
+    } catch {
+      stderr.write("Terminal import failed; retry with --import-terminal-state. Committed data will recover on the next launch.\n");
+      await host.close();
+      return 1;
+    }
+  }
   const app = createElement(App, {
     host,
     clock: platform.clock,
