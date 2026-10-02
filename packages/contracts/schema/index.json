@@ -2759,6 +2759,22 @@
       "title": "StateImportReport"
     },
     {
+      "path": "state-import/event-type.json",
+      "title": "StateImportEventType"
+    },
+    {
+      "path": "state-import/item-kind.json",
+      "title": "StateImportItemKind"
+    },
+    {
+      "path": "state-import/events/state-import.started.json",
+      "title": "StateImportStartedPayload"
+    },
+    {
+      "path": "state-import/events/state-import.item-carried.json",
+      "title": "StateImportItemCarriedPayload"
+    },
+    {
       "path": "settings/settings-key.json",
       "title": "SettingsKey"
     },
