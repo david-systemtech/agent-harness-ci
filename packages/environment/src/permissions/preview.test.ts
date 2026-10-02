@@ -47,7 +47,7 @@ describe("the broker's workspace preview", () => {
 });
 
 const contained = (workspace: string): RunContainment => ({
-  level: "workspace-no-network", mechanism: "bubblewrap", scratchDirectory: workspace, temporaryDirectory: workspace, writable: [workspace], network: false,
+  level: "workspace-no-network", mechanism: "bubblewrap", scratchDirectory: workspace, temporaryDirectory: workspace, writable: [workspace], readOnly: [], network: false,
 });
 
 describe("the preview's budget and workspace boundary", () => {
