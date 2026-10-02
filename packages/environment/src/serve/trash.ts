@@ -1,4 +1,4 @@
-import { removeTree } from "./remove-tree.js";
+import { makeTreeWritable, removeTree } from "./remove-tree.js";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, readdir, rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -39,6 +39,7 @@ export interface Trash {
 
 /** Moves `from` to `to`; across file systems, by a copy that keeps links as they are, then a removal. */
 const move = async (from: string, to: string): Promise<void> => {
+  await makeTreeWritable(from);
   try {
     await rename(from, to);
   } catch (error) {

@@ -50,6 +50,8 @@ describe("the trash", () => {
     const { dataDir, folder } = withFolder();
     const clock = manualClock();
     const trash = createTrash({ dataDir, clock });
+    chmodSync(join(folder, "SKILL.md"), 0o400);
+    chmodSync(folder, 0o500);
     const trashed = await trash.put(folder);
     chmodSync(join(trashed, "SKILL.md"), 0o400);
     chmodSync(trashed, 0o500);

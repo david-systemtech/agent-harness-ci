@@ -991,21 +991,19 @@ describe.runIf(posix)("the launcher at the end of a watch", () => {
     ]);
   });
 
-  // Root removes whatever a mode says, so only an ordinary user can meet a folder it cannot remove.
-  it.runIf(!runningAsRoot)("passes over a version it cannot remove, saying so, and clears the rest away", async () => {
+  // Root ignores mode bits, so an ordinary user verifies read-only version pruning.
+  it.runIf(!runningAsRoot)("removes read-only version directories and clears the rest away", async () => {
     const dataDir = withManyVersions();
     const locked = join(dataDir, "versions", "0.1.0", "packages");
     chmodSync(locked, 0o555);
-    cleanups.push(() => chmodSync(locked, 0o755));
+    cleanups.push(() => { if (existsSync(locked)) chmodSync(locked, 0o755); });
     const running = launch({ dataDir, version: "0.2.0" });
     await running.events("install-answered");
     running.timer.run(10 * 60_000);
-    expect(readdirSync(join(dataDir, "versions")).sort()).toEqual(["0.1.0", "0.2.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0"]);
-    // Its sentinel went first, so what is left of it is no version.
+    expect(readdirSync(join(dataDir, "versions")).sort()).toEqual(["0.2.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0"]);
     expect(completeVersions(dataDir)).toEqual(["0.2.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0"]);
     expect(readdirSync(join(dataDir, "snapshots"))).toEqual([]);
-    expect(running.log()).toContainEqual(expect.stringMatching(/^launcher: 0\.1\.0 could not be removed, so it waits for the next watch's end: .*EACCES/));
-    expect(running.log()).toContain("launcher: pruned 0.0.9, 0.3.0 and 0.7.0, keeping 0.2.0, 0.3.1, 0.4.0, 0.5.0 and 0.6.0");
+    expect(running.log()).toContain("launcher: pruned 0.0.9, 0.1.0, 0.3.0 and 0.7.0, keeping 0.2.0, 0.3.1, 0.4.0, 0.5.0 and 0.6.0");
   });
 
   it("prunes nothing and keeps the snapshots when the watch ends while an update is pending", async () => {

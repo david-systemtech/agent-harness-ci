@@ -3,12 +3,12 @@ import { chmod, lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Restores owner access before descending; links and missing entries are left alone. */
-const makeWritable = async (path: string): Promise<void> => {
+export const makeTreeWritable = async (path: string): Promise<void> => {
   try {
     const found = await lstat(path);
     if (found.isSymbolicLink()) return;
     await chmod(path, found.mode | (found.isDirectory() ? 0o700 : 0o200));
-    if (found.isDirectory()) for (const entry of await readdir(path)) await makeWritable(join(path, entry));
+    if (found.isDirectory()) for (const entry of await readdir(path)) await makeTreeWritable(join(path, entry));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
@@ -16,7 +16,7 @@ const makeWritable = async (path: string): Promise<void> => {
 
 /** Removes an owned tree, including read-only entries, without following links. */
 export const removeTree = async (path: string): Promise<void> => {
-  await makeWritable(path);
+  await makeTreeWritable(path);
   await rm(path, { recursive: true, force: true });
 };
 
