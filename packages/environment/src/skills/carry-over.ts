@@ -159,6 +159,7 @@ export interface SkillsCarryOver extends PreparedCommand<"skills.carryOver"> {
   /** What a dry run answers for the account `accountId`, having written nothing; the refusal, not held or not adopted, thrown. */
   dryRun(accountId: string): Promise<SkillsCarryOverReport>;
   /** Internal, read-only inventory for a validated explicit source before its Account exists. */
+  prepareDirectory(account: AccountRef & { readonly directory: string }, dryRun: boolean, context: PrepareContext): Promise<MethodHandler<"skills.carryOver">>;
   dryRunDirectory(account: AccountRef & { readonly directory: string }): Promise<SkillsCarryOverReport>;
 }
 
@@ -272,18 +273,20 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): SkillsCarryOve
 
   const dryRunDirectory = (account: AccountRef & { readonly directory: string }): Promise<SkillsCarryOverReport> => carry(account, true, { onUndo: () => undefined });
 
+  const prepareDirectory = async (account: AccountRef & { readonly directory: string }, dryRun: boolean, context: PrepareContext): Promise<MethodHandler<"skills.carryOver">> => {
+    if (holdsRootSkill(await own.members())) return () => ({ aggregate: stream, rejected: rootSkill({ accountId: account.id }) });
+    const report = await carry(account, dryRun, context);
+    const after = dryRun || report.copied.length === 0 ? null : await own.members();
+    return (_params, command) => ({ aggregate: stream, result: report, ...(after !== null && { events: own.changedIn(command.tx, after) }) });
+  };
+
   return {
     dryRunDirectory,
+    prepareDirectory,
     async prepare({ accountId, dryRun }, context): Promise<MethodHandler<"skills.carryOver">> {
       const account = adoptedAccount(options.account, accountId);
       if (isCarryOverRefusal(account)) return () => ({ aggregate: stream, rejected: account });
-
-      // While skills/ is one skill no folder copied into it would be read, so nothing is carried, dry or not.
-      if (holdsRootSkill(await own.members())) return () => ({ aggregate: stream, rejected: rootSkill({ accountId }) });
-
-      const report = await carry(account, dryRun, context);
-      const after = dryRun || report.copied.length === 0 ? null : await own.members();
-      return (_params, command) => ({ aggregate: stream, result: report, ...(after !== null && { events: own.changedIn(command.tx, after) }) });
+      return prepareDirectory(account, dryRun, context);
     },
     async dryRun(accountId) {
       const account = adoptedAccount(options.account, accountId);

@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { ENVIRONMENT_STREAM_KIND, type StateImportFinishedPayload, type StateImportReport } from "@agent-harness/contracts";
+import type { CarryOverService } from "../carry-over/methods.js";
 import type { AccountService } from "../accounts/account-service.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
@@ -8,6 +9,7 @@ import type { ImportCoordinator } from "./coordinator.js";
 import { applyItems, stateImportStream, type ImportItem } from "./items.js";
 import { emptyPlan, itemsOf, planImport, recheckStores, reportOf } from "./plan.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
+import { carryListedSources } from "./sessions.js";
 import { readSourceStores } from "./source/stores.js";
 
 /**
@@ -45,6 +47,7 @@ export interface StateImportOptions {
   readonly coordinator: ImportCoordinator;
   /** The Instructions service's create command, which carries each instruction. */
   readonly accounts: AccountService;
+  readonly carryOver: CarryOverService;
   readonly updateSettings: MethodHandler<"settings.update">;
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
   readonly createInstruction: MethodHandler<"instructions.create">;
@@ -94,7 +97,8 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           actor,
           afterItem: (item) => hooks?.carried?.({ kind: item.kind, sourceId: item.sourceId }),
         });
-        const report = reportOf(plan, applied);
+        const carryFailures = await carryListedSources(plan, { log, accounts: options.accounts, carryOver: options.carryOver, caller, actor, importId, afterSource: (sourceId) => hooks?.carried?.({ kind: "session", sourceId }) });
+        const report = reportOf(plan, { ...applied, failed: [...applied.failed, ...carryFailures] });
         return (_params, command) => {
           const finished = { type: "state-import.finished", payload: finishedPayload(report) };
           log.append(environmentStream, [finished], { tx: command.tx, actor: command.actor, commandId: command.commandId, correlationId: importId });

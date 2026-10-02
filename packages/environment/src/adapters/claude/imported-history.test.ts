@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
+import { seedStoreFromDirectory } from "./imported-history.js";
 import { EMPTY_RUN_SKILL_SET, registry, type SessionCreatedPayload } from "@agent-harness/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../../test/cleanups.js";
@@ -103,7 +105,7 @@ const adoptedDirectory = (): string => {
 /** Every file under `directory`, with its size and time, for "nothing was written". */
 const tree = (directory: string): Record<string, string> => {
   const walk = (path: string): string[] => readdirSync(path, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(join(path, entry.name)) : [join(path, entry.name)]));
-  return Object.fromEntries(walk(directory).map((path) => [relative(directory, path), `${statSync(path).mtimeMs} ${readFileSync(path, "utf8").length}`]));
+  return Object.fromEntries(walk(directory).map((path) => [relative(directory, path), `${statSync(path).mtimeMs} ${readFileSync(path, "base64")}`]));
 };
 
 let fake: FakeSdk;
@@ -203,6 +205,37 @@ const context = (): RunContext => ({
 });
 
 describe("an imported session's first run", () => {
+  it("hydrates secondary parent and subagent transcripts but resumes and refreshes only with the winning Account", async () => {
+    const secondary = adoptedDirectory();
+    const winner = tempDir();
+    writeFileSync(join(winner, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "winner-for-tests", refreshToken: "winner-refresh-for-tests" } }));
+    writeFileSync(join(secondary, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "secondary-for-tests" } }));
+    const before = tree(secondary);
+    const input = { ...runInput(winner), target: { kind: "resume" as const, providerSessionId: PROVIDER, sourceDirectory: secondary } };
+    adapterWith().createRun(input, context());
+    const resumed = await fake.made(2);
+    expect((await store.load({ projectKey: HARNESS, sessionId: PROVIDER }))?.map((entry) => entry.uuid)).toEqual(MAIN.map((line) => line.uuid));
+    expect(await store.listSubkeys({ projectKey: HARNESS, sessionId: PROVIDER })).toEqual([`subagents/agent-${AGENT}`]);
+    expect(resumed.options).toMatchObject({ sessionStore: store, resume: PROVIDER });
+    expect(resumed.env["CLAUDE_CONFIG_DIR"]).toBe(winner);
+    expect(resumed.env["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBe(winner);
+    expect((await fake.made(1)).env["CLAUDE_CONFIG_DIR"]).toBe(winner);
+    expect(tree(secondary)).toEqual(before);
+  });
+
+  it("does not treat a partial SDK hydration as authoritative, and retries the whole parent and subagent transcript", async () => {
+    const directory = adoptedDirectory();
+    const seed = { queue: createConfigDirQueue(process.env), directory, harnessSessionId: HARNESS, providerSessionId: PROVIDER, store, required: true };
+    await expect(seedStoreFromDirectory({ ...seed, importSessionToStore: async (id, target) => {
+      await target.append({ projectKey: FOLDER, sessionId: id }, MAIN.slice(0, 1));
+      throw new Error("Interrupted before subagents were loaded.");
+    } })).rejects.toThrow("Interrupted");
+    expect(await store.load({ projectKey: HARNESS, sessionId: PROVIDER })).toBeNull();
+    await seedStoreFromDirectory({ ...seed, importSessionToStore });
+    expect((await store.load({ projectKey: HARNESS, sessionId: PROVIDER }))?.map((entry) => entry.uuid)).toEqual(MAIN.map((line) => line.uuid));
+    expect((await store.load({ projectKey: HARNESS, sessionId: PROVIDER, subpath: `subagents/agent-${AGENT}` }))?.filter((entry) => entry.uuid !== undefined).map((entry) => entry.uuid)).toEqual(SUBAGENT.map((line) => line.uuid));
+  });
+
   it.each([false, true])("a fork owns the imported transcript on another account after its source is purged (linked: %s)", async (linked) => {
     const directory = adoptedDirectory();
     const before = tree(directory);
