@@ -7,7 +7,7 @@ import { PROVENANCE_MANIFEST, readProvenanceManifest } from "./provenance.js";
 import { occupied } from "./own-directory.js";
 import { readCommandFolder, readSkillFolder } from "./reader.js";
 
-/** The repository layer, read live only under trust (#998): see `repositorySkillPlaces`. */
+/** The repository layer, read live only under trust, where `repositorySkillPlaces` says. */
 export type RepositorySkillScope = Pick<SkillSetScope, "workspace" | "trust" | "nativeRoots">;
 
 const from = (root: string, path: string): string => relative(root, path).split(sep).join("/") || ".";

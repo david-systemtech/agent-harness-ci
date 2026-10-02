@@ -346,15 +346,23 @@ describe("a run", () => {
   });
 });
 
+/** A checkout with one commit and a linked worktree of it holding a directory below its root, under a temporary `root`. */
+const linkedWorktree = () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+  const checkout = join(root, "app");
+  git(root, "init", "-q", checkout);
+  git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+  const worktree = join(root, "worktree");
+  git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
+  const below = join(worktree, "packages", "web");
+  mkdirSync(below, { recursive: true });
+  return { root, checkout, worktree, below };
+};
+
 describe("a run in a worktree", () => {
   it("takes the project settings of the worktree's main checkout when the repository is trusted, and none when it is not", async () => {
-    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    const { root, checkout, worktree } = linkedWorktree();
     try {
-      const checkout = join(root, "app");
-      git(root, "init", "-q", checkout);
-      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
-      const worktree = join(root, "worktree");
-      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
       const workspace = { kind: "worktree", path: worktree, repository: checkout, branch: "fix" } as const;
       adapterWith().createRun(runInput({ trusted: true, workspace }), contextWith());
       expect((await started()).options).toMatchObject({ cwd: worktree, projectConfigRoot: checkout });
@@ -366,15 +374,8 @@ describe("a run in a worktree", () => {
   });
 
   it("takes the main checkout's project settings for a workspace below the worktree's root too", async () => {
-    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    const { root, checkout, below } = linkedWorktree();
     try {
-      const checkout = join(root, "app");
-      git(root, "init", "-q", checkout);
-      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
-      const worktree = join(root, "worktree");
-      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
-      const below = join(worktree, "packages", "web");
-      mkdirSync(below, { recursive: true });
       adapterWith().createRun(runInput({ trusted: true, workspace: { kind: "directory", path: below } }), contextWith());
       expect((await started()).options).toMatchObject({ cwd: below, projectConfigRoot: checkout });
     } finally {
@@ -2668,15 +2669,8 @@ describe("the unsampled queries", () => {
 
   it("lists commands in a worktree, or below its root, from its main checkout's project configuration as a run there loads it, and from none untrusted", async () => {
     fake.controls = { supportedCommands: async () => [] };
-    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    const { root, checkout, worktree, below } = linkedWorktree();
     try {
-      const checkout = join(root, "app");
-      git(root, "init", "-q", checkout);
-      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
-      const worktree = join(root, "worktree");
-      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
-      const below = join(worktree, "packages", "web");
-      mkdirSync(below, { recursive: true });
       const adapter = adapterWith();
       for (const path of [worktree, below]) {
         await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
