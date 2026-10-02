@@ -553,6 +553,7 @@ describe("the terminal scope", () => {
       "terminals.list": { sessionId },
       "files.list": { sessionId },
       "files.read": { sessionId, path: "a.txt" },
+      "files.undo": { commandId: randomUUID(), sessionId },
       "diffs.workingTree": { sessionId },
       "diffs.session": { sessionId },
     };
