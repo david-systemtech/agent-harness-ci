@@ -91,6 +91,8 @@ export interface TerminalsOptions {
   readonly scrub: Pick<ScrubRegistry, "scrub" | "stream">;
   /** Preset: `node-pty`. */
   readonly pty?: Pty;
+  /** What a one-off command runs through: pipes, closed stdin and no controlling terminal. Preset: `runProcess`; tests give a fake, so no command runs. */
+  readonly run?: Pty;
   /** What a terminal runs. Preset: the user's login shell (`loginShell`). */
   readonly shell?: () => ShellCommand;
   /** The clean base under a client's variables. Preset: `baseEnvironment`. */
@@ -116,6 +118,12 @@ export interface OpenTerminal {
   readonly openedAt: string;
   /** A one-off command, run without a pseudo-terminal or login shell. */
   readonly command?: string;
+  /**
+   * Hears the terminal's events from its first, as a subscriber does, up to
+   * and with its exit: what opened it in process and follows its command
+   * (a Workspace check, #1187), so not even an exit at once is missed.
+   */
+  readonly follow?: (event: EventEnvelope) => void;
 }
 
 /** What opening a tool terminal takes (#362). */
@@ -196,6 +204,8 @@ type Owner =
 interface Launch {
   readonly command: () => ShellCommand;
   readonly process?: Pty;
+  /** A one-off command's: started on the cached login PATH (`runPath`). */
+  readonly oneOff?: boolean;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
 }
@@ -284,6 +294,7 @@ const signal = (process: PtyProcess | undefined, name: string): void => {
 
 export const createTerminals = (options: TerminalsOptions): Terminals => {
   const pty = options.pty ?? nodePty;
+  const oneOff = options.run ?? runProcess;
   const shell = options.shell ?? (() => loginShell());
   const base = options.baseEnvironment ?? (() => baseEnvironment());
   const gatherMs = options.gatherMs ?? OUTPUT_GATHER_MS;
@@ -398,7 +409,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
         exited(terminal, -1, null);
       }
     };
-    if (launch.process !== runProcess || options.runPath === undefined) spawn({});
+    if (launch.oneOff !== true || options.runPath === undefined) spawn({});
     else void options.runPath().then(
       (PATH) => spawn({ PATH }),
       (error: unknown) => {
@@ -464,9 +475,10 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     },
     open(request) {
       const terminal = admit(request, { kind: "session", sessionId: request.sessionId });
+      if (request.follow !== undefined) terminal.listeners.add(request.follow);
       const launch: Launch = request.command === undefined
         ? { command: shell, cwd: request.cwd, env: request.env }
-        : { command: () => oneOffShell(request.command ?? ""), process: runProcess, cwd: request.cwd, env: request.env };
+        : { command: () => oneOffShell(request.command ?? ""), process: oneOff, oneOff: true, cwd: request.cwd, env: request.env };
       const environment = options.processEnvironment;
       if (environment === undefined) start(terminal, launch, {});
       else {
