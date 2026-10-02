@@ -37,8 +37,8 @@ const paintedWith = (theme: Theme, ladder: LadderName = "dark") =>
 beforeEach(() => root().removeAttribute("style"));
 
 /** The window over `desk`, this machine's, and whatever else `more` scripts. */
-const opened = async (desk: Partial<ScriptedEnvironment> = {}, ...more: Partial<ScriptedEnvironment>[]) =>
-  renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], ...desk }, ...more.map((each, at) => ({ name: `env${String(at)}`, ...each }))] });
+const opened = async (desk: Partial<ScriptedEnvironment> = {}, ...more: ScriptedEnvironment[]) =>
+  renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], ...desk }, ...more] });
 
 /** Opens Settings with Mod+, and the Theme row from its rail; answers its part showing the home environment's theme. */
 const openTheme = async (app: RenderedApp) => {
