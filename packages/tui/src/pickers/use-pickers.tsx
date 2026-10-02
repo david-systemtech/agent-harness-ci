@@ -484,15 +484,17 @@ export const usePickers = (host: PickersHost): Pickers => {
       ? [{ key: "start-service", action: "start-service" as const, words: "Start service", targets: [], plan: { kind: "start-service" as const } }, ...actions.filter((offer) => offer.action !== "start-service")]
       : actions;
   };
-  const toolUpdateReason = (card: Extract<Panel, { kind: "setup" }>, offer: OfferedSetupAction): string | undefined => {
+  const toolUpdateReason = (card: Extract<Panel, { kind: "setup" }>, offer: OfferedSetupAction): { status: "loading" | "unavailable"; message: string } | undefined => {
     if (offer.action !== "update" || offer.plan.kind !== "run-tool") return undefined;
     const capability = runtime.capability(card.environmentId, "tools.run");
-    if (capability.status === "absent") return capability.message;
+    if (capability.status === "absent") return { status: "unavailable", message: capability.message };
+    const listCapability = runtime.capability(card.environmentId, "tools.list");
+    if (listCapability.status === "absent") return { status: "unavailable", message: listCapability.message };
     const tools = setupTools?.read();
-    if (tools?.error) return tools.error.message;
-    if (tools?.result === null || tools === undefined) return "Reading managed tools…";
+    if (tools?.error) return { status: "unavailable", message: tools.error.message };
+    if (tools?.result === null || tools === undefined) return { status: "loading", message: "Reading managed tools…" };
     const tool = tools.result.tools.find((tool) => offer.plan.kind === "run-tool" && tool.tool === offer.plan.tool);
-    return tool?.action === "update" ? undefined : tool?.command ?? "The environment does not serve an update for this tool.";
+    return tool?.action === "update" ? undefined : { status: "unavailable", message: tool?.command ?? "The environment does not serve an update for this tool." };
   };
   const runnableOffers = (card: Extract<Panel, { kind: "setup" }>) => offered(card).filter((offer) => toolUpdateReason(card, offer) === undefined);
   const selectedOffer = (card: Extract<Panel, { kind: "setup" }>) => {
@@ -857,10 +859,15 @@ export const usePickers = (host: PickersHost): Pickers => {
           const footer = setup ? setupLines(setup.read(), nameFor(card.environmentId), card.checking, card.failed, liveSetup) : [];
           const offer = selectedOffer(card);
           const step = selectedStep(card);
-          const reasons = offered(card).flatMap((offer) => {
+          const blockedOffers = offered(card).flatMap((offer) => {
             const reason = toolUpdateReason(card, offer);
-            return reason === undefined ? [] : [[{ text: `Update ${offer.targets[0]?.label ?? "tool"} is unavailable here: ${reason}`, dim: true }]];
+            return reason === undefined ? [] : [{ offer, reason }];
           });
+          const loadingTools = blockedOffers.some(({ reason }) => reason.status === "loading");
+          const reasons = blockedOffers.map(({ offer, reason }) => [{
+            text: reason.status === "loading" ? reason.message : `Update ${offer.targets[0]?.label ?? "tool"} is unavailable here: ${reason.message}`,
+            dim: true,
+          }]);
           return (
             <ListCard
               title={`Set up on ${nameFor(card.environmentId)}`} hint={hint} rows={rows}
@@ -869,7 +876,7 @@ export const usePickers = (host: PickersHost): Pickers => {
                 ...footer,
                 ...(step ? [[{ text: stepLine(step, runtime.environmentNow(card.environmentId)), dim: true }]] : []),
                 ...reasons,
-                [{ text: card.sending ? "Running the action…" : offer ? `Action: ${offer.words}` : "No action offered.", dim: true }],
+                [{ text: card.sending ? "Running the action…" : offer ? `Action: ${offer.words}` : loadingTools ? "Waiting for managed tools before offering Update." : "No action offered.", dim: true }],
               ]}
             />
           );

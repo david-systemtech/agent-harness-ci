@@ -777,6 +777,31 @@ describe("/setup", () => {
     expect(app.environment("desk").requests("tools.run")).toEqual([]);
   });
 
+  it("waits for managed tools before offering a tool update", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup", "managedTools"],
+      keyManagers: { tools: [{ tool: "gh" }] },
+      setup: { ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+        forges: { state: "needs-attention", reason: "gh needs attention.", actions: ["update"], targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }] },
+      },
+    })]);
+    let answer = () => {};
+    env.wire.answer("tools.list", () => new Promise((resolve) => {
+      answer = () => resolve({ result: { tools: [...env.toolRows()], probedAt: "2026-09-25T09:00:00.000Z" } });
+    }));
+    await command(app, "/setup");
+    await app.waitFor("Reading managed tools…");
+    expect(app.frame()).not.toContain("is unavailable here:");
+    expect(app.frame()).not.toContain("No action offered.");
+    expect(app.frame()).toContain("Waiting for managed tools before offering Update.");
+    await app.press(KEY.enter);
+    expect(env.requests("tools.run")).toEqual([]);
+    answer();
+    await app.waitFor("Action: Update gh in a tool terminal");
+    expect(app.frame()).not.toContain("Reading managed tools…");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => env.requests("tools.run").length === 1, "the update to start after the list answers");
+  });
+
   it("restores the denylist sections named by the line then checks Permissions", async () => {
     const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
       ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
