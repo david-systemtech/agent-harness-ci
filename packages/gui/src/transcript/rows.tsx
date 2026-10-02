@@ -81,10 +81,12 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       const entry = row.entry;
       const live = entry.state === "running" ? facts.checkOutput?.get(entry.terminalId) : undefined;
       const output = live?.output ?? entry.result?.output ?? "";
+      const status = checkStatus(entry);
       return (
-        <article aria-label="Workspace check result" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
-          <pre className="font-mono whitespace-pre-wrap break-words"><Marked text={`$ ${entry.command}`} /></pre>
-          <p>{checkStatus(entry)}{entry.result === null ? "" : `; exit ${entry.result.exitCode ?? "none"}`}{(live?.truncated ?? entry.result?.truncated) ? "; output truncated" : ""}</p>
+        <article aria-label="Workspace check" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
+          <pre className="font-mono whitespace-pre-wrap break-words"><Marked text={`$ ${entry.command} · ${status}`} /></pre>
+          {entry.result !== null && status !== `exit ${entry.result.exitCode}` && <p>exit {entry.result.exitCode ?? "none"}</p>}
+          {(live?.truncated ?? entry.result?.truncated) && <span>Earlier output omitted</span>}
           {entry.result?.failure != null && <p className="text-amber">{entry.result.failure}</p>}
           {output !== "" && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={output} /></pre>}
         </article>

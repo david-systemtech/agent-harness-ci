@@ -53,7 +53,7 @@ it("renders manual and automatic dollar-command rows, streaming output, pass, ti
   const { app, env, session, change } = await opened({ terminals: [{ id: TERMINAL, output: "live check output" }] });
   act(() => change("pnpm test"));
   act(() => env.emit(session, "checks.started", started));
-  const row = await screen.findByRole("article", { name: "Workspace check result" });
+  const row = await screen.findByRole("article", { name: "Workspace check" });
   await within(row).findByText("live check output");
   expect(row.textContent).toContain("$ pnpm test");
   expect(row.textContent).toContain("running");
@@ -61,12 +61,15 @@ it("renders manual and automatic dollar-command rows, streaming output, pass, ti
   await waitFor(() => expect(row.textContent).toContain("more output"));
   act(() => env.emit(session, "checks.finished", { ...finished, output: "durable result", exitCode: 0 }));
   await within(row).findByText("durable result");
-  expect(row.textContent).toContain("passed; exit 0");
+  expect(row.textContent).toContain("passed");
+  expect(row.textContent).toContain("exit 0");
   act(() => env.emit(session, "checks.finished", { ...finished, terminalId: RUN, sourceRunId: RUN, timedOut: true, exitCode: null, truncated: true }));
-  await waitFor(() => expect(screen.getAllByRole("article", { name: "Workspace check result" })).toHaveLength(2));
-  const rows = screen.getAllByRole("article", { name: "Workspace check result" });
+  await waitFor(() => expect(screen.getAllByRole("article", { name: "Workspace check" })).toHaveLength(2));
+  const rows = screen.getAllByRole("article", { name: "Workspace check" });
   await within(rows[1]!).findByText("failed assertion");
-  expect(rows[1]!.textContent).toContain("timed out; exit none; output truncated");
+  expect(rows[1]!.textContent).toContain("timed out");
+  expect(rows[1]!.textContent).toContain("exit none");
+  expect(rows[1]!.textContent).toContain("Earlier output omitted");
   await screen.findByRole("button", { name: "Send failure" });
   expect(env.requests("runs.start")).toHaveLength(0);
   expect(env.requests("terminals.run")).toHaveLength(0);
@@ -117,7 +120,7 @@ it("sends a replayed failure once on empty Enter and never replaces a retained d
   act(() => env.emit(session, "checks.finished", { ...finished, sourceRunId: RUN }));
   app.open("desk", 0);
   await screen.findByRole("button", { name: "Send failure" });
-  expect(screen.getByRole("article", { name: "Workspace check result" }).textContent).toContain("exit 1; exit 1");
+  expect(screen.getByRole("article", { name: "Workspace check" }).textContent?.match(/exit 1/g)).toHaveLength(1);
   expect(env.requests("runs.start")).toHaveLength(0);
   fireEvent.change(box(), { target: { value: "keep this draft" } });
   await app.user.click(screen.getByRole("button", { name: "Send failure" }));
@@ -126,7 +129,7 @@ it("sends a replayed failure once on empty Enter and never replaces a retained d
   expect(env.requests("runs.start")[0]?.params).toMatchObject({ text: "$ pnpm test\nCheck failure; exit 1\nfailed assertion" });
   await waitFor(() => expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull());
   act(() => env.emit(session, "checks.finished", { ...finished, sourceRunId: RUN, terminalId: "0199aa00-0000-4000-8000-000000000007" }));
-  await waitFor(() => expect(screen.getAllByRole("article", { name: "Workspace check result" })).toHaveLength(2));
+  await waitFor(() => expect(screen.getAllByRole("article", { name: "Workspace check" })).toHaveLength(2));
   expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull();
   act(() => env.emit(session, "checks.finished", { ...finished, sourceRunId: RUN, exitCode: 0, terminalId: "0199aa00-0000-4000-8000-000000000008" }));
   act(() => env.emit(session, "checks.finished", { ...finished, sourceRunId: RUN, terminalId: "0199aa00-0000-4000-8000-000000000009" }));
