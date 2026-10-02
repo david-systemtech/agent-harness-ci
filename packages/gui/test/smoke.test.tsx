@@ -89,7 +89,7 @@ const secondClient = async (t: TestEnvironment, environmentId: string, sessionId
   return { runtime, draft: () => session.read().draft };
 };
 
-describe.sequential("the composer through the real spine", () => {
+describe("the composer through the real spine", { concurrent: false }, () => {
   it("streams a send through the fake provider into the rendered transcript, and its draft reaches a second runtime", async () => {
     const t = await startTestEnvironment({ name: "smoke-composer" });
     onCleanup(() => t.close());
