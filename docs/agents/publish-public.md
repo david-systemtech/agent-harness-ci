@@ -42,7 +42,8 @@ ref decides the release artefacts and whether a prerelease is created.
 `.public-exclude` in the selected ref lists root-relative glob patterns, one per
 line, with `#` comments; a matched directory excludes its descendants. It has no
 negation syntax. It removes development CI, publication tooling and private
-runbooks. README and `.github/workflows/` must survive the filter. Symlinks and
+runbooks. It also removes `.gitleaksignore` so committed fingerprints cannot
+suppress the privacy scan. README and `.github/workflows/` must survive the filter. Symlinks and
 submodules are rejected rather than followed or fetched. Regular files retain
 exact committed bytes and executable modes, unaffected by Git clean filters.
 

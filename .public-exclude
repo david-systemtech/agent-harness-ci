@@ -4,6 +4,7 @@
 .ci/
 .public-exclude
 .public-privacy.json
+.gitleaksignore
 scripts/publish-public.py
 test/publish-public.test.ts
 docs/agents/publish-public.md

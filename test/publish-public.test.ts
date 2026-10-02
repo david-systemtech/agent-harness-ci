@@ -136,6 +136,24 @@ sys.exit(1)
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
+it("blocks secrets even when the selected tree contains scanner ignore fingerprints", () => {
+  const f = fixture();
+  f.write("README.md", "fake-secret-for-tests\n");
+  f.write(".gitleaksignore", "test-secret-fingerprint\n");
+  f.commit();
+  writeFileSync(f.scanner, `#!/usr/bin/env python3
+import pathlib,sys
+if sys.argv[1:] == ['version']: print('8.30.1'); sys.exit(0)
+args = sys.argv[1:]
+ignore = pathlib.Path(args[-1]) / '.gitleaksignore'
+suppressed = ignore.is_file() and bool(ignore.read_text().strip())
+secret = any(b'fake-secret-for-tests' in p.read_bytes() for p in pathlib.Path(args[-1]).rglob('*') if p.is_file())
+sys.exit(1 if secret and not suppressed else 0)
+`);
+  expect(() => f.publish()).toThrow();
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
 it("refuses an unpinned scanner and missing public release files", () => {
   const f = fixture();
   const scanner = join(f.source, "..", "wrong-gitleaks");
