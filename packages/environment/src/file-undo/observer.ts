@@ -5,6 +5,7 @@ import type { FileChangeObserver, FileToolCall } from "../adapter/contract.js";
 import type { EventLog } from "../event-log/event-log.js";
 import { resolvePath } from "../permissions/gate.js";
 import { isInside } from "../workspace/paths.js";
+import { FILE_EDITING_TOOLS } from "../workspace/diffs.js";
 import type { CapturedChange, ChangeOutcome } from "./change-table.js";
 import { digestOf, readFileState } from "./snapshot.js";
 import type { WorkspaceWrites } from "./workspace-writes.js";
@@ -19,10 +20,9 @@ import type { WorkspaceWrites } from "./workspace-writes.js";
  * succeeds, it completes each with a digest of what the call left; a failed
  * call's records are removed, since it changed nothing undo could take back.
  *
- * Only `Edit` of a regular text file already there is restorable for now:
- * the other recognised tools, a file the call creates, a file outside the
- * workspace and a capture that failed are recorded as changes that cannot
- * be restored (`unknown`), so undo stops at them rather than passing them.
+ * Recognised tools share the same bounded text snapshots. Absence before
+ * a call is explicit, so undo can delete a created file. A file outside the
+ * workspace or a capture that failed stops undo rather than being skipped.
  */
 
 /** The run an observer records changes for. */
@@ -37,9 +37,6 @@ export interface FileChangeObserverOptions {
   readonly log: Pick<EventLog, "atomically" | "fileChanges">;
   readonly writes: WorkspaceWrites;
 }
-
-/** The tools whose changes are restored; a recognised tool beside them is recorded unrestorable. */
-const RESTORED_TOOLS: ReadonlySet<string> = new Set(["Edit"]);
 
 /** `path`, inside `root`, as the workspace names it: relative, with forward slashes. */
 const workspaceRelative = (root: string, path: string): string => relative(root, path).split(sep).join("/");
@@ -60,9 +57,9 @@ export const fileChangeObserver = ({ log, writes }: FileChangeObserverOptions) =
     const path = workspaceRelative(realRoot, target);
     if (!read) return { ...base, path, inside: true, existed: false, unrestorable: "unknown" };
     const found = await readFileState(target);
-    if (found.kind === "absent") return { ...base, path, inside: true, existed: false, unrestorable: "unknown" };
+    if (found.kind === "absent") return { ...base, path, inside: true, existed: false, unrestorable: FILE_EDITING_TOOLS.has(call.tool) ? null : "unknown" };
     if (found.kind === "unrestorable") return { ...base, path, inside: true, existed: true, unrestorable: found.reason };
-    if (!RESTORED_TOOLS.has(call.tool)) return { ...base, path, inside: true, existed: true, unrestorable: "unknown" };
+    if (!FILE_EDITING_TOOLS.has(call.tool)) return { ...base, path, inside: true, existed: true, unrestorable: "unknown" };
     return { ...base, path, inside: true, existed: true, pre: found.bytes, preMode: found.mode, unrestorable: null };
   };
 

@@ -16,6 +16,13 @@ describe("Claude's tools as the gate reads them", () => {
     expect(claudeToolAccess("mcp__memory__recall", { query: "x" })).toEqual({ kind: "other" });
   });
 
+  it("uses a MultiEdit's shared path only for edits without their own path, deduplicating targets", () => {
+    const a = { file_path: "a.txt", old_string: "a", new_string: "A" };
+    const b = { file_path: "b.txt", old_string: "b", new_string: "B" };
+    expect(claudeToolAccess("MultiEdit", { file_path: "z-unused.txt", edits: [a, b, a] })).toEqual({ kind: "write", paths: ["a.txt", "b.txt"] });
+    expect(claudeToolAccess("MultiEdit", { file_path: "shared.txt", edits: [a, { old_string: "s", new_string: "S" }, a] })).toEqual({ kind: "write", paths: ["a.txt", "shared.txt"] });
+  });
+
   it("reads a write tool with no path as a write naming none, which a workspace level denies", () => {
     expect(claudeToolAccess("Write", { content: "x" })).toEqual({ kind: "write", paths: [] });
     expect(claudeToolAccess("Edit", { file_path: 42 })).toEqual({ kind: "write", paths: [] });
