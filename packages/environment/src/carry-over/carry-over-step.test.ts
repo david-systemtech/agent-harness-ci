@@ -28,7 +28,8 @@ const TARGET = { kind: "account", id: ACCOUNT, label: ACCOUNT } as const;
 /** The step's line when every check holds. */
 const ALL_HOLD =
   "An adopted account's directory holds something to carry, or a source data folder or terminal-client state folder is on this machine. " +
-  "Every adopted account's directory can be read. Every adopted account with something to carry has been imported, and its last import finished.";
+  "Every adopted account's directory can be read. Every adopted account with something to carry has been imported, and its last import finished. " +
+  "No imported default Account is waiting for sign-in.";
 
 /** The step's line when it is skipped. */
 const NOTHING =

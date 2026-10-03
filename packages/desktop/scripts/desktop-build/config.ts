@@ -73,8 +73,8 @@ export const nsisSchemeInclude = (scheme: string): string =>
 export interface BuildFolders {
   /** The staged app: its `package.json`, the bundles and the `gui` build. */
   readonly app: string;
-  /** The platform's server artefact, unpacked. */
-  readonly server: string;
+  /** The resource root, with the unpacked artefact under `PACKAGED_SERVER`. */
+  readonly resources: string;
   /** Where electron-builder writes. */
   readonly output: string;
   /** The NSIS include `nsisSchemeInclude` wrote, for the Windows setup. */
@@ -126,7 +126,9 @@ export const builderConfig = (target: DesktopTarget, folders: BuildFolders, elec
   npmRebuild: false,
   nodeGypRebuild: false,
   buildDependenciesFromSource: false,
-  extraResources: [{ from: folders.server, to: PACKAGED_SERVER, filter: ["**/*"] }],
+  // A file set drops a root node_modules even with **/*; nesting the server keeps its whole tree.
+  // Copy during normal packing, before the macOS bundle is signed.
+  extraResources: [{ from: folders.resources, to: ".", filter: [`${PACKAGED_SERVER}/**/*`] }],
   // The macOS bundle's CFBundleURLTypes and the Linux desktop entry's MimeType; the Windows setup's is its include.
   protocols: [{ name: PRODUCT_NAME, schemes: [APP_SCHEME] }],
   publish: null,

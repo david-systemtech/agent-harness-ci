@@ -9,6 +9,13 @@ import { useObservable, useRuntime } from "../window-context.js";
 /** Loopback alone, with the tailnet switch on: ADR 0025's standing notice, never a failure. */
 const TAILSCALE_WARNING = "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.";
 
+/** Installation known by newer environments; older ones retain the generic notice. */
+const tailscaleWarning = (installed: boolean | undefined): string => installed === true
+  ? "Tailscale is installed, but its address could not be read. This machine is reachable only from itself. Check that Tailscale is running and signed in, then check again."
+  : installed === false
+    ? "Tailscale is not installed. This machine is reachable only from itself. Install Tailscale to reach it from your other devices."
+    : TAILSCALE_WARNING;
+
 /** What binding a LAN address opens the environment to. */
 const LAN_WARNING = "Anyone on this network could try to reach it; it still needs a paired client.";
 
@@ -108,7 +115,7 @@ const Reached = ({ binding, name, tailnetOff, recheck }: ReachedProps) => {
   const found = binding.tailnetFound ?? null;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {found === null ? <p className="text-amber">{TAILSCALE_WARNING}</p> : <p className="text-ink">{`Tailscale address ${found} found: ${name} binds it at its next start.`}</p>}
+      {found === null ? <p className="text-amber">{tailscaleWarning(binding.tailscaleInstalled)}</p> : <p className="text-ink">{`Tailscale address ${found} found: ${name} binds it at its next start.`}</p>}
       <Button disabled={recheck === undefined} onClick={recheck}>
         Check again
       </Button>
@@ -167,6 +174,7 @@ const LanSwitch = ({ bound, addresses, writable, save }: LanSwitchProps) => {
         )}
       </span>
       {address === undefined && <p className="text-ink-muted">No LAN address found on this machine.</p>}
+      {address?.includes(":") && <p className="text-ink-muted">An IPv6 address may change. If it does, choose an address this machine still holds.</p>}
       <p className="text-ink-muted">{LAN_WARNING}</p>
     </div>
   );

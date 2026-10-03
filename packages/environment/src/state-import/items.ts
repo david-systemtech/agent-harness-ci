@@ -98,8 +98,8 @@ interface ImportItemKey extends ItemKey {
   readonly counted?: boolean;
 }
 
-/** Prepared owners finish bounded filesystem/provider reads before the item transaction. */
-type ImportApply = (context: CommandContext) => CommandAnswer<{ readonly targetId: string; readonly carried?: boolean }>;
+/** Prepared owners finish bounded filesystem/provider reads before the item transaction. A deferred result commits the owner's retained choice without a carried mapping. */
+type ImportApply = (context: CommandContext) => CommandAnswer<{ readonly targetId: string; readonly carried?: boolean; readonly deferred?: boolean }>;
 type ImportPrepare = (context: PrepareContext & { readonly commandId: string }) => Promise<ImportApply>;
 export type ImportItem = ImportItemKey & (
   | { readonly apply: ImportApply; readonly prepare?: ImportPrepare }
@@ -159,6 +159,7 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
           const { code, message = `The item was refused: ${code}.`, data = {} } = answer.rejected;
           return { aggregate: answer.aggregate, rejected: { code, message, data } };
         }
+        if (answer.result.deferred === true) return { aggregate: answer.aggregate, result: { carried: false } };
         const { sourceKey, store, sourceId, kind } = item;
         const payload: StateImportItemCarriedPayload = { importId, sourceKey, store, sourceId, kind, targetId: answer.result.targetId, origin: "import", ...(item.sourceDirectory !== undefined && { sourceDirectory: item.sourceDirectory }) };
         log.append(stream, [{ type: "state-import.item-carried", payload: { ...payload } }], { tx, actor, commandId, correlationId: importId });

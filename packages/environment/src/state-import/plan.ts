@@ -1,3 +1,4 @@
+import { defaultAccountRepair, deferredDefaults } from "./default-account.js";
 import { planBanks, BANK_REGISTRY_LABEL, type PlanBanksOptions } from "./banks.js";
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
@@ -57,7 +58,7 @@ export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanBanksOptions, "sourceKey"> & Omit<PlanSkillsOptions, "sourceKey"> & Omit<PlanRoutinesOptions, "sourceKey" | "accountPlan" | "routineNames"> & PagePolicyOwner): Promise<ImportPlan> => {
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanBanksOptions, "sourceKey"> & Omit<PlanSkillsOptions, "sourceKey"> & Omit<PlanRoutinesOptions, "sourceKey" | "accountPlan" | "routineNames"> & PagePolicyOwner & { readonly environmentId: string }): Promise<ImportPlan> => {
   const { sourceKey, instructions, preferences, profiles, browser, banks, skills } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
@@ -80,16 +81,31 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: skills.snapshot, label: "Skills", items: plan.items });
     failed.push(...plan.failed);
   }
+  let defaultRepair: ((preview: boolean) => readonly StateImportReEnter[]) = () => [];
   let clientLocal: StateImportClientLocal = {};
   if (preferences.status === "failed") failed.push({ label: PREFERENCES, message: preferences.diagnostic });
   else {
     const { records } = preferences;
     clientLocal = records.clientLocal;
-    const active = records.activeProfileId;
+    const retained = deferredDefaults({ all: (sql, ...params) => options.log.read(sql, ...params) }).find((choice) => choice.sourceKey === sourceKey);
+    const active = retained?.sourceId ?? records.activeProfileId;
     const defaultItems: ImportItem[] = [];
     if (active !== undefined && mappedTarget(options.log, { sourceKey, store: "preferences", sourceId: "active-profile" }) === undefined) {
-      if (!accounts?.accountIds.has(active)) failed.push({ label: "Default Account", message: "The active profile has no live mapped Account; the harness default is preserved." });
-      else defaultItems.push(defaultAccountItem(active, { ...options, sourceKey, updateSettings: options.update }));
+      const deferred = profiles.status === "read" ? profiles.records.deferredProfiles.find((profile) => profile.sourceId === active) : undefined;
+      const listed = accounts?.listed.find((profile) => profile.sourceId === active);
+      const label = retained?.label ?? deferred?.label ?? listed?.label ?? active;
+      if (retained === undefined && !accounts?.accountIds.has(active) && deferred === undefined) failed.push({ label: "Default Account", message: "The active profile has no live mapped Account; the harness default is preserved." });
+      else {
+        if (retained === undefined) defaultItems.push(defaultAccountItem(active, { ...options, sourceKey, label, deferredProvider: deferred !== undefined, updateSettings: options.update }));
+        defaultRepair = (preview) => {
+          if (mappedTarget(options.log, { sourceKey, store: "preferences", sourceId: "active-profile" }) !== undefined) return [];
+          const id = mappedTarget(options.log, { sourceKey, store: "profiles", sourceId: active }) ?? accounts?.accountIds.get(active);
+          const account = options.accounts.list().find((entry) => entry.id === id);
+          const held = deferredDefaults({ all: (sql, ...params) => options.log.read(sql, ...params) }).find((choice) => choice.sourceKey === sourceKey);
+          if (!preview && held === undefined) return [];
+          return account?.status.state === "signed-in" ? [] : [defaultAccountRepair(account?.label ?? held?.label ?? label)];
+        };
+      }
     }
     const excluded: StateImportNotCarried[] = [];
     if (records.modelChoices > 0) excluded.push({ label: "Per-session model choices", count: records.modelChoices, step: null });
@@ -124,7 +140,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: banks.snapshot, ...(profiles.status === "read" && bankPlan.items.length > 0 && { dependencies: [profiles.snapshot] }), label: BANK_REGISTRY_LABEL, items: bankPlan.items });
     failed.push(...bankPlan.failed);
   } else if (banks.status === "failed") failed.push({ label: "Bank registry", message: banks.diagnostic });
-  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), ...(bankPlan !== null && { repairs: bankPlan.repairs }) }, stores.reportStores);
+  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), repairs: (preview) => [...defaultRepair(preview), ...(bankPlan?.repairs(preview) ?? [])] }, stores.reportStores);
 };
 
 /** Omission-only stores still participate in byte consistency and scrubbed store failures. */

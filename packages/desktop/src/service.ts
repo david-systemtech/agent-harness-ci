@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ShellPlatform, ShellService } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { ARTEFACT_CLI_ENTRY, artefactNode } from "@agent-harness/contracts/launcher";
-import { lastLine, oneAtATime } from "./commands.js";
+import { oneAtATime } from "./commands.js";
 
 /**
  * The shell's `service` (docs/specs/gui.md, "The desktop shell"): this
@@ -64,6 +64,12 @@ const isStatusReport = (value: unknown): value is StatusReport => {
   );
 };
 
+/** Node prints a source excerpt before its error and a runtime version after the stack. */
+const firstErrorLine = (text: string): string | undefined => {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
+  return lines.find((line) => /^\w*Error(?: \[[^\]]+\])?:/.test(line)) ?? lines[0];
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts): ShellService => {
@@ -84,7 +90,7 @@ export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts
   /** Runs a verb that answers nothing, rejecting with the CLI's own sentence, after `what`, when it fails. */
   const verb = async (args: readonly string[], what: string): Promise<void> => {
     const ran = await run(args);
-    if (ran.code !== 0) throw new Error(`${what}${lastLine(ran.stderr) ?? lastLine(ran.stdout) ?? `\`service ${args.join(" ")}\` exited with ${ran.code}.`}`);
+    if (ran.code !== 0) throw new Error(`${what}${firstErrorLine(ran.stderr) ?? firstErrorLine(ran.stdout) ?? `\`service ${args.join(" ")}\` exited with ${ran.code}.`}`);
   };
 
   const status = async (): Promise<StatusReport> => {
@@ -95,7 +101,7 @@ export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts
     } catch {
       report = undefined;
     }
-    if (!isStatusReport(report)) throw new Error(`Could not read the service's status: ${lastLine(ran.stderr) ?? `\`service status\` exited with ${ran.code}.`}`);
+    if (!isStatusReport(report)) throw new Error(`Could not read the service's status: ${firstErrorLine(ran.stderr) ?? `\`service status\` exited with ${ran.code}.`}`);
     return report;
   };
 

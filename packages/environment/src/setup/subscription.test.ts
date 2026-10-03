@@ -299,7 +299,7 @@ describe("the result cache", () => {
     const client = await t.client();
     const account = await check(client, "account");
     // The lower seam: a row with a state this build does not have, and one that is not JSON.
-    const unreadable = { ...account, step: "permissions", state: "pending" };
+    const unreadable = { ...account, step: "permissions", state: "checking" };
     t.env.log.atomically((tx) => {
       t.env.log.setupResults.write(tx, "permissions", JSON.stringify(unreadable));
       t.env.log.setupResults.write(tx, "appearance", "{");

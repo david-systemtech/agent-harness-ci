@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { CAPABILITY_FLAG_LIST, CapabilityFlag, CapabilityFlags, PROTOCOL_VERSION, ProtocolVersion, supports } from "./index.js";
 
 describe("protocol negotiation", () => {
-  it("is one integer, 1, and a client may announce any positive integer", () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+  it("is one integer, 2, and a client may announce any positive integer", () => {
+    expect(PROTOCOL_VERSION).toBe(2);
     expect(ProtocolVersion.safeParse(PROTOCOL_VERSION).success).toBe(true);
-    expect(ProtocolVersion.safeParse(2).success).toBe(true);
+    expect(ProtocolVersion.safeParse(1).success).toBe(true);
     expect(ProtocolVersion.safeParse("1").success).toBe(false);
   });
 

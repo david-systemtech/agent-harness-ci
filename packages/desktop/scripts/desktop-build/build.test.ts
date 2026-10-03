@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join, relative, sep } from "node:path";
+import type { Configuration } from "electron-builder";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanUp, scratch } from "../../test/harness.js";
 import { buildDesktop, type DesktopBuildOptions, type DesktopBuildSeams, type PackRequest } from "./build.js";
@@ -48,9 +50,13 @@ const serverArtefact = (platform: string, version = "0.5.0", zip = false): strin
   mkdirSync(join(root, "packages", "cli", "dist"), { recursive: true });
   writeFileSync(join(root, "packages", "cli", "package.json"), JSON.stringify({ name: "agent-harness", version }));
   writeFileSync(join(root, "packages", "cli", "dist", "main.js"), "export {};\n");
+  mkdirSync(join(root, "node_modules", "@agent-harness", "contracts"), { recursive: true });
+  writeFileSync(join(root, "node_modules", "@agent-harness", "contracts", "package.json"), JSON.stringify({ name: "@agent-harness/contracts", version }));
+  mkdirSync(join(root, "node_modules", ".pnpm", "fixture"), { recursive: true });
+  writeFileSync(join(root, "node_modules", ".pnpm", "fixture", "package.json"), "{}\n");
   const archive = join(scratch(), `agent-harness-${platform}.${zip ? "zip" : "tar.gz"}`);
-  if (zip) execFileSync("python3", ["-m", "zipfile", "-c", archive, "node", "packages"], { cwd: root });
-  else execFileSync("tar", ["-czf", archive, "-C", root, "node", "packages"]);
+  if (zip) execFileSync("python3", ["-m", "zipfile", "-c", archive, "node", "packages", "node_modules"], { cwd: root });
+  else execFileSync("tar", ["-czf", archive, "-C", root, "node", "packages", "node_modules"]);
   return archive;
 };
 
@@ -118,7 +124,7 @@ const fixture = (host: string, seams: Partial<DesktopBuildSeams> = {}): Fixture 
           request,
           manifest: JSON.parse(readFileSync(join(app, "package.json"), "utf8")) as Record<string, unknown>,
           app: files(app),
-          server: files(from),
+          server: files(join(from, "server")),
           ...(typeof include === "string" && { nsisInclude: readFileSync(include, "utf8") }),
         });
         const section = config[SECTION[target.format]] as { artifactName?: string } | null | undefined;
@@ -132,7 +138,47 @@ const fixture = (host: string, seams: Partial<DesktopBuildSeams> = {}): Fixture 
   };
 };
 
+/** Only electron-builder's resource copier is loaded; no Electron or packaging process runs. */
+interface ResourceMatcher { readonly from: string; readonly to: string }
+const requireBuilder = createRequire(createRequire(import.meta.url).resolve("electron-builder"));
+const { getFileMatchers, copyFiles } = requireBuilder("app-builder-lib/out/fileMatcher.js") as {
+  getFileMatchers(config: Configuration, name: "extraResources", destination: string, options: {
+    readonly macroExpander: (pattern: string) => string;
+    readonly customBuildOptions: Record<string, never>;
+    readonly globalOutDir: string;
+    readonly defaultSrc: string;
+  }): ResourceMatcher[];
+  copyFiles(matchers: ResourceMatcher[]): Promise<unknown>;
+};
+
 describe("the desktop build", () => {
+  it.each(["linux-x64", "darwin-arm64", "win32-x64"])("copies the whole %s server tree, including dependencies, through electron-builder's resource filter", async (platform) => {
+    const build = fixture(platform === "win32-x64" ? "linux-x64" : platform);
+    const resources = join(scratch(), "resources");
+    const pack = build.seams.pack;
+    await buildDesktop(build.options({ platform, server: serverArtefact(platform, "0.5.0", platform === "win32-x64") }), { ...build.seams, pack: async (request) => {
+      const matchers = getFileMatchers(request.config, "extraResources", resources, {
+        macroExpander: (pattern) => pattern,
+        customBuildOptions: {},
+        globalOutDir: String(request.config.directories?.output),
+        defaultSrc: request.projectDir,
+      });
+      await copyFiles(matchers);
+      await pack?.(request);
+    } });
+    expect(files(resources)).toEqual([
+      platform === "win32-x64" ? "server/node/node.exe" : "server/node/bin/node",
+      "server/node_modules/.pnpm/fixture/package.json",
+      "server/node_modules/@agent-harness/contracts/package.json",
+      "server/packages/cli/dist/main.js",
+      "server/packages/cli/package.json",
+    ]);
+    const node = join(resources, "server", platform === "win32-x64" ? "node/node.exe" : "node/bin/node");
+    expect(readFileSync(node)).toEqual(executableHeader(platform));
+    if (platform !== "win32-x64" && process.platform !== "win32") expect(statSync(node).mode & 0o111).toBeGreaterThan(0);
+    expect(JSON.parse(readFileSync(join(resources, "server/node_modules/@agent-harness/contracts/package.json"), "utf8"))).toEqual({ name: "@agent-harness/contracts", version: "0.5.0" });
+  });
+
   it("builds the Arch package on linux-x64 as agent-harness-desktop-linux-x64.pacman in the out folder, and nothing else there", async () => {
     const build = fixture("linux-x64");
     await buildDesktop(build.options(), build.seams);
@@ -156,8 +202,8 @@ describe("the desktop build", () => {
     const build = fixture("linux-x64");
     await buildDesktop(build.options(), build.seams);
     const [packed] = build.packed;
-    expect(packed?.request.config.extraResources).toEqual([{ from: expect.any(String), to: "server", filter: ["**/*"] }]);
-    expect(packed?.server).toEqual(["node/bin/node", "packages/cli/dist/main.js", "packages/cli/package.json"]);
+    expect(packed?.request.config.extraResources).toEqual([{ from: expect.any(String), to: ".", filter: ["server/**/*"] }]);
+    expect(packed?.server).toEqual(["node/bin/node", "node_modules/.pnpm/fixture/package.json", "node_modules/@agent-harness/contracts/package.json", "packages/cli/dist/main.js", "packages/cli/package.json"]);
   });
 
   it("refuses a tag that is not v and a semantic version, before it builds anything", async () => {
@@ -279,7 +325,7 @@ describe("the desktop build", () => {
     const [packed] = build.packed;
     expect(packed?.request.target.platform).toBe("win32-x64");
     expect(packed?.request.config).toMatchObject({ win: { target: [{ target: "nsis", arch: ["x64"] }] }, nsis: { oneClick: true, perMachine: false } });
-    expect(packed?.server).toEqual(["node/node.exe", "packages/cli/dist/main.js", "packages/cli/package.json"]);
+    expect(packed?.server).toEqual(["node/node.exe", "node_modules/.pnpm/fixture/package.json", "node_modules/@agent-harness/contracts/package.json", "packages/cli/dist/main.js", "packages/cli/package.json"]);
     expect(packed?.nsisInclude).toContain("!macro customInstall");
   });
 

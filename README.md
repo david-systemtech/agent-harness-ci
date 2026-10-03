@@ -93,6 +93,16 @@ logs environment` prints a pairing link and code; use them in the desktop's
 unless you enable it. This path requires the Linux host network; userspace
 Tailscale and Docker Desktop are unsupported.
 
+For an environment running directly on macOS, detection tries `tailscale` on
+PATH, then `/Applications/Tailscale.app/Contents/MacOS/Tailscale` for `ip -4`
+and `status --json`. Without a CLI address it checks `utun*` interfaces for
+an IPv4 address in Tailscale's range. This fallback is a heuristic: another VPN
+using the same range on a generic macOS tunnel cannot be distinguished without
+a CLI answer. **Your machines** distinguishes a missing
+installation from an installed app whose address could not be read. LAN choices
+prefer private IPv4, then unique-local IPv6, then other IPv6; an IPv6 choice
+warns that its address may change.
+
 A container never updates itself. Make `host-updater.sh` executable and
 schedule it on the Docker host every five minutes, as described in the
 [host-side updater instructions](docs/host-updater.md). It follows the
