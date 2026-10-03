@@ -32,7 +32,7 @@ const serviceCalls = (app: RenderedApp) => app.shell.calls.filter(([member]) => 
 
 describe("first launch", () => {
   it("shows Starting before local discovery answers instead of offering pairing", async () => {
-    const world = await prepareWorld({ environments: [{ name: "desk", reach: "local" }] });
+    const world = await prepareWorld({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     const platform = await desktopPlatform({ ...world, version: world.version, documents: world.documents,
       network: { read: () => ({ online: true, foreground: true }), subscribe: () => () => {} },
       webSocket: world.world.webSocket, reportError: () => {},
@@ -41,10 +41,12 @@ describe("first launch", () => {
     const presentation = await openPresentation(world.documents);
     onTestFinished(async () => { await runtime.close(); await presentation.close(); });
     render(<App runtime={runtime} presentation={presentation} clock={world.clock} version={world.version} macOS={false} shell={world.shell} />);
-    expect(within(pane()).getByRole("status").textContent).toBe("Starting…");
+    expect(screen.getByRole("heading", { name: "Welcome to agent-harness" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Waiting for this machine…" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("main")).toBeNull();
     expect(screen.queryByRole("region", { name: "Pair with an environment" })).toBeNull();
     await act(async () => runtime.start());
-    expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Begin set up" })).toBeDefined();
   });
 
   it("welcomes the empty pane with readiness actions and the effective eight-key legend", async () => {
@@ -75,23 +77,25 @@ describe("first launch", () => {
       { shell, firstLaunch: true },
     );
 
-    expect(await within(pane()).findByText("Installing the environment (first start only)…")).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Welcome to agent-harness" })).toBeDefined();
+    expect(await screen.findByText("Installing the environment (first start only)…")).toBeDefined();
     expect(serviceCalls(app)).toEqual(["service.status", "service.install"]);
     await act(async () => installed());
-    expect(await within(pane()).findByText("Starting the environment on this machine…")).toBeDefined();
+    expect(await screen.findByText("Starting the environment on this machine")).toBeDefined();
     expect(serviceCalls(app)).toEqual(["service.status", "service.install", "service.start"]);
     expect(app.runtime.connections.list.read()).toMatchObject([{ environmentId: LOCAL_PLACEHOLDER_ID, phase: "service-down" }]);
 
     // The service is installed and started; the environment answers, starting.
     app.environment("desk").discovery("starting");
     await act(async () => started());
-    expect(await within(pane()).findByText("desk is starting…")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Waiting for this machine…" }).hasAttribute("disabled")).toBe(true);
 
     app.environment("desk").discovery("ready");
     act(() => app.clock.advance(STARTING_POLL_MS));
 
     // Ready, with the first-launch mark unset: Set up takes the whole window, the steps on a rail with their dots, the
     // first step's card beside it, and the environment it checks with a picker.
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const setup = await screen.findByRole("region", { name: "Set up" });
     expect(screen.queryByRole("navigation", { name: "Sessions" })).toBeNull();
     expect(screen.queryByRole("main")).toBeNull();

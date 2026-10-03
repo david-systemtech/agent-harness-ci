@@ -112,7 +112,7 @@ describe("About", () => {
     await app.user.click(within(await screen.findByRole("dialog", { name: "Drain desk and update it to 0.6.0 now?" })).getByRole("button", { name: "Drain and update" }));
     expect(await within(about).findByRole("status")).toHaveProperty("textContent", "Draining desk to update to 0.6.0.");
     expect(desk.requests("updates.apply").map((request) => request.params)).toEqual([{ commandId: expect.any(String), when: "now" }]);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Drain desk and update it to 0.6.0 now?" })).toBeNull();
   });
 
   it("says a refused Update now in one line", async () => {
@@ -140,7 +140,7 @@ describe("About", () => {
 describe("Restart to update", () => {
   it("shows in the header and on About once the runtime reports a staged desktop build, and a click applies it", async () => {
     const app = await opened({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED } });
-    const restart = await within(header()).findByRole("button", { name: "Restart to update" });
+    expect(await within(header()).findByRole("button", { name: "Restart to update" })).toBeDefined();
     // Handed to the shell for the next quit as soon as it was staged.
     expect(app.shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"]]);
 
@@ -149,7 +149,7 @@ describe("Restart to update", () => {
     expect(within(about).getByText("0.6.0 is ready: it installs when this client next quits, or now with Restart to update.")).toBeDefined();
     expect(within(about).getByRole("button", { name: "Restart to update" })).toBeDefined();
 
-    await app.user.click(restart);
+    await app.user.click(within(about).getByRole("button", { name: "Restart to update" }));
     await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"], [STAGED, "now"]]));
   });
 

@@ -19,6 +19,7 @@ import type {
   ShellWebViewState,
   ShellWebViewKey,
   ShellWindow,
+  ShellWindowState,
 } from "../shell.js";
 
 /**
@@ -37,6 +38,11 @@ export interface ShellFunctions {
   "dialogs.openFileContents": ShellDialogs["openFileContents"];
   "dialogs.openDirectory": ShellDialogs["openDirectory"];
   "dialogs.save": ShellDialogs["save"];
+  "window.minimize": NonNullable<ShellWindow["minimize"]>;
+  "window.toggleMaximize": NonNullable<ShellWindow["toggleMaximize"]>;
+  "window.close": NonNullable<ShellWindow["close"]>;
+  "window.state": NonNullable<ShellWindow["state"]>;
+  "window.onChange": NonNullable<ShellWindow["onChange"]>;
   "window.setTitle": ShellWindow["setTitle"];
   "window.focus": ShellWindow["focus"];
   "window.setBadge": ShellWindow["setBadge"];
@@ -105,6 +111,7 @@ export type FakeShell = Required<Shell> & {
   answer<M extends ScriptableShellFunction>(member: M, responder: ShellFunctions[M]): void;
   /** Opens `url` as the desktop does a deep link: every listener `deepLinks.onOpen` holds now hears it. */
   openDeepLink(url: string): void;
+  changeWindow(state: ShellWindowState): void;
   changeWebView(id: string, state: ShellWebViewState): void;
   pressWebViewKey(id: string, key: ShellWebViewKey): void;
   /** Clicks the notification shown with `tag`: every listener `notifications.onActivate` holds now is handed the tag. Throws when none was shown with it. */
@@ -116,6 +123,7 @@ export const fakeShell = (): FakeShell => {
   const secrets = new Map<string, string>();
   const heard = { links: new Set<(url: string) => void>(), activations: new Set<(tag: string) => void>() };
   const keyListeners = new Set<(id: string, key: ShellWebViewKey) => void>();
+  const windowListeners = new Set<(state: ShellWindowState) => void>();
   const viewListeners = new Set<(id: string, state: ShellWebViewState) => void>();
   const viewStates = new Map<string, ShellWebViewState>();
   let views = 0;
@@ -131,6 +139,11 @@ export const fakeShell = (): FakeShell => {
     "dialogs.openFileContents": async () => [],
     "dialogs.openDirectory": async () => undefined,
     "dialogs.save": async () => undefined,
+    "window.minimize": () => undefined,
+    "window.toggleMaximize": () => undefined,
+    "window.close": () => undefined,
+    "window.state": async () => undefined,
+    "window.onChange": listen(windowListeners),
     "window.setTitle": () => undefined,
     "window.focus": () => undefined,
     "window.setBadge": () => undefined,
@@ -211,6 +224,11 @@ export const fakeShell = (): FakeShell => {
       save: recorded("dialogs.save"),
     },
     window: {
+      minimize: recorded("window.minimize"),
+      toggleMaximize: recorded("window.toggleMaximize"),
+      close: recorded("window.close"),
+      state: recorded("window.state"),
+      onChange: recorded("window.onChange"),
       setTitle: recorded("window.setTitle"),
       focus: recorded("window.focus"),
       setBadge: recorded("window.setBadge"),
@@ -258,6 +276,7 @@ export const fakeShell = (): FakeShell => {
       responders[member] = responder;
     },
     pressWebViewKey(id, key) { for (const listener of keyListeners) listener(id, key); },
+    changeWindow(state) { for (const listener of [...windowListeners]) listener(state); },
     changeWebView(id, state) {
       viewStates.set(id, state);
       for (const listener of viewListeners) listener(id, state);

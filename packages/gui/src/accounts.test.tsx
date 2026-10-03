@@ -96,6 +96,18 @@ describe("Accounts", () => {
     expect(within(screen.getByRole("region", { name: "Set up" })).getByRole("region", { name: "Carry over" })).toBeDefined();
   });
 
+  it("marks the default account and follows changes from another client", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal" }, { label: "work" }], settings: { "accounts.defaultAccount": "account-2" } } });
+    const accounts = await openRow(app, "Accounts");
+    const work = await within(accounts).findByRole("region", { name: "work" });
+    const personal = within(accounts).getByRole("region", { name: "personal" });
+    await within(work).findByText("Default");
+    expect(within(personal).queryByText("Default")).toBeNull();
+    app.environment("desk").setSettings({ "accounts.defaultAccount": "account-1" });
+    await within(personal).findByText("Default");
+    expect(within(work).queryByText("Default")).toBeNull();
+  });
+
   it("offers the Claude Code sign-in on the environment's machine from accounts.probe, adopts it with accounts.adopt, and says a refusal in one line", async () => {
     const app = await opened({ desk: { accounts: [{ label: "work", directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/1" } }], ambient: { present: true, signedIn: true, identity: MILO } } });
     const desk = app.environment("desk");
@@ -124,26 +136,45 @@ describe("Accounts", () => {
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
     await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
-    const adding = await screen.findByRole("dialog", { name: "Add an account on desk" });
+    const adding = await screen.findByRole("region", { name: "Add an account on desk" });
     await app.user.type(within(adding).getByRole("textbox", { name: "Label for the new account" }), "personal{Enter}");
-    const signing = await screen.findByRole("dialog", { name: "Sign in: personal on desk" });
+    const signing = await screen.findByRole("region", { name: "Sign in: personal on desk" });
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
+    await within(signing).findByRole("button", { name: "Copy terminal command" });
+    await app.user.click(within(signing).getByRole("button", { name: "Copy terminal command" }));
+    expect(app.shell.calls.filter(([member]) => member === "clipboard.writeText").at(-1)?.slice(1)).toEqual([within(signing).getByRole("region", { name: "Terminal fallback" }).querySelector("code")?.textContent]);
     await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests{Enter}");
     await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests" })]));
     desk.signIn("done");
     expect(await within(accounts).findByText("personal is signed in on desk.")).toBeDefined();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(within(signing).getByRole("button", { name: "Done" })).toBeDefined();
+    await app.user.click(within(signing).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("region", { name: "Sign in: personal on desk" })).toBeNull();
+    expect(desk.requests("accounts.signin.cancel")).toHaveLength(0);
     await waitFor(async () => expect(facts(await within(accounts).findByRole("region", { name: "personal" }))["Status"]).toBe("signed in"));
 
     const work = within(accounts).getByRole("region", { name: "work" });
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
-    const again = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
+    const again = await screen.findByRole("region", { name: "Sign in: work on desk" });
     await waitFor(() => expect(desk.requests("accounts.signin.start").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-1" })]));
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=again" });
     await within(again).findByRole("textbox", { name: "Then paste the code it shows" });
     await app.user.click(within(again).getByRole("button", { name: "Cancel the sign-in" }));
     expect(await within(accounts).findByText("The sign-in of work was cancelled.")).toBeDefined();
     expect(within(accounts).queryByText("personal is signed in on desk.")).toBeNull();
+  });
+
+  it("cancels an inline sign-in when Settings closes", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal", status: { state: "expired", checkedAt: null, detail: null } }] } });
+    const accounts = await openRow(app, "Accounts");
+    const personal = await within(accounts).findByRole("region", { name: "personal" });
+    await app.user.click(within(personal).getByRole("button", { name: "Sign in again" }));
+    const signing = await within(accounts).findByRole("region", { name: "Sign in: personal on desk" });
+    const desk = app.environment("desk");
+    desk.signIn("awaiting-code", { url: "https://claude.test/sign-in" });
+    await within(signing).findByRole("textbox", { name: "Then paste the code it shows" });
+    await app.user.click(within(settings()).getByRole("button", { name: "Close Settings" }));
+    await waitFor(() => expect(desk.requests("accounts.signin.cancel")).toHaveLength(1));
   });
 
   it("relabels one with accounts.relabel, says a refusal in one line, and shows at once a relabel another client made", async () => {
@@ -184,7 +215,7 @@ describe("Accounts", () => {
     let asking = await screen.findByRole("dialog", { name: "Remove work from desk?" });
     expect(within(asking).getByText("Its directory, /home/milo/.agent-harness/accounts/2, stays unless you delete it too, with its sign-in and history.")).toBeDefined();
     await app.user.click(within(asking).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Remove work from desk?" })).toBeNull();
     expect(desk.requests("accounts.remove")).toEqual([]);
 
     await app.user.click(within(within(accounts).getByRole("region", { name: "work" })).getByRole("button", { name: "Remove…" }));
@@ -210,7 +241,7 @@ describe("Accounts", () => {
     desk.changeAccount("account-3", null);
     await app.user.click(within(asking).getByRole("button", { name: "Remove" }));
     expect(await within(accounts).findByText("Not removed: No account account-3 on this environment.")).toBeDefined();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Remove spare from desk?" })).toBeNull();
     expect(desk.accounts()).toEqual([]);
   });
 

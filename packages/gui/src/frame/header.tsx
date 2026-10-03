@@ -11,6 +11,7 @@ import { Button, IconButton, Tooltip } from "../ui/index.js";
 import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { HeaderMenu } from "./header-menu.js";
+import { useWindowFrame, WindowControls } from "./window-controls.js";
 import { ThemeToggle } from "./theme-toggle.js";
 
 /** The focused session's live summary, with the list's pending rename reflected immediately. */
@@ -43,8 +44,9 @@ export const Header = () => {
   const settingsKeys = useFirstKey("app.settings.toggle");
   const actions = useEveryWiredAction();
   const settings = useSettings();
+  const frame = useWindowFrame();
   return (
-    <header data-window-header className="flex h-[44px] min-w-0 shrink-0 items-center gap-1 whitespace-nowrap border-b border-hairline bg-abyss px-2">
+    <header data-window-header data-native-frame={frame?.platform} style={frame?.platform === "darwin" && !frame.fullScreen ? { paddingLeft: 76 } : undefined} className="flex h-[44px] min-w-0 shrink-0 items-center gap-1 whitespace-nowrap border-b border-hairline bg-abyss px-2">
       {!sidebarShown && <IconButton label="Show sidebar" {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => setSidebarShown(true)}><PanelLeft aria-hidden="true" /></IconButton>}
       <div className="flex min-w-0 flex-1 items-center gap-1">
         {pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <>
@@ -66,6 +68,7 @@ export const Header = () => {
         <IconButton label="Settings" {...(settingsKeys !== undefined && { keys: settingsKeys })} onClick={() => settings.open()}><Settings aria-hidden="true" /></IconButton>
         <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-hairline" />
         <ThemeToggle />
+        <WindowControls state={frame} />
       </div>
     </header>
   );

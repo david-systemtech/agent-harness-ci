@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import type { AccountUsage, HandoffRecommendation } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
@@ -134,11 +134,94 @@ describe("the model picker", () => {
     },
   ];
 
+  it("opens the same dependency columns from either chip and keeps the menu open after choosing a model", async () => {
+    const { app } = await opened([desk({ models })]);
+    let menu = await openPicker(app, "Account");
+    expect(within(menu).getByRole("group", { name: "Accounts" })).toBeTruthy();
+    expect(within(menu).getByRole("group", { name: "Models" })).toBeTruthy();
+    expect(within(menu).getByRole("group", { name: "Effort" })).toBeTruthy();
+    await app.user.keyboard("{Escape}");
+    menu = await openPicker(app, "Model");
+    await app.user.click(within(menu).getByRole("menuitem", { name: "claude-haiku-4" }));
+    expect(screen.getByRole("menu")).toBe(menu);
+    expect(within(menu).queryByRole("group", { name: "Effort" })).toBeNull();
+    await app.user.click(within(menu).getByRole("menuitem", { name: "Opus (claude-opus-4)" }));
+    expect(within(menu).getByRole("group", { name: "Effort" })).toBeTruthy();
+    await app.user.keyboard("{Escape}");
+    expect(within(statusLine()).getByRole("button", { name: /^Model:/ })).toBe(document.activeElement);
+  });
+
+  it("moves within a column and tabs between columns, with permission and browser submenus", async () => {
+    const { app } = await opened([desk({ models })]);
+    const menu = await openPicker(app, "Model");
+    const list = within(menu).getByRole("group", { name: "Models" });
+    act(() => within(list).getByRole("menuitem", { name: "Opus (claude-opus-4)" }).focus());
+    await app.user.keyboard("{End}");
+    expect(document.activeElement).toBe(within(list).getByRole("menuitem", { name: "claude-haiku-4" }));
+    await app.user.keyboard("{Home}{Tab}");
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "its own effort" }));
+    await app.user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(within(list).getByRole("menuitem", { name: "Opus (claude-opus-4)" }));
+    await app.user.keyboard("{Tab}{Tab}");
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Mode" }));
+    await app.user.keyboard("{ArrowRight}");
+    const modes = await screen.findByRole("menu", { name: "Mode" });
+    expect(modes.className).toContain("w-72");
+    act(() => within(modes).getByRole("menuitem", { name: /^plan/ }).focus());
+    await app.user.keyboard("{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
+  });
+
+  it("bounds narrow choices as a dialog and preserves the selection when going back", async () => {
+    const previousWidth = globalThis.window.innerWidth;
+    Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 480 });
+    onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: previousWidth }); });
+    const { app } = await opened([desk({ models })]);
+    const trigger = within(statusLine()).getByRole("button", { name: /^Model:/ });
+    act(() => trigger.focus());
+    await app.user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "Run choices" });
+    expect(within(dialog).queryByRole("group", { name: "Accounts" })).toBeNull();
+    await app.user.click(within(dialog).getByRole("menuitem", { name: "claude-haiku-4" }));
+    await app.user.click(within(dialog).getByRole("button", { name: "Back to accounts" }));
+    expect(within(dialog).getByRole("group", { name: "Accounts" })).toBeTruthy();
+    await app.user.click(within(dialog).getByRole("button", { name: "Choose model and effort" }));
+    expect(within(dialog).getByRole("menuitem", { name: "claude-haiku-4" }).className).toContain("bg-wash");
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull());
+  });
+
+  it("searches a long catalogue and takes ArrowDown from search into the models column", async () => {
+    const many = Array.from({ length: 15 }, (_, index) => ({ id: `model-${index}`, family: "sample", tier: index, efforts: [], label: `Model ${index}` }));
+    const { app } = await opened([desk({ models: [{ accountId: "account-1", live: true, models: many }] })]);
+    const menu = await openPicker(app, "Model");
+    const search = within(menu).getByRole("textbox", { name: "Search models" });
+    await app.user.type(search, "model-14");
+    const result = within(menu).getByRole("menuitem", { name: "Model 14 (model-14)" });
+    expect(within(menu).queryByRole("menuitem", { name: "Model 1 (model-1)" })).toBeNull();
+    await app.user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "All models" }));
+    await app.user.click(result);
+    await app.user.keyboard("{Escape}");
+    expect(within(statusLine()).getByRole("button", { name: "Model: model-14" })).toBeTruthy();
+  });
+
+  it("keeps accounts and models visible with a reason during a live run and sends no change", async () => {
+    const { app, env, session } = await opened([desk({ models })]);
+    act(() => env.startRun(session, "Check the receipts"));
+    const menu = await openPicker(app, "Account");
+    expect(within(menu).getByText("Wait for this run to end before changing its account or model.")).toBeTruthy();
+    await app.user.click(within(menu).getByRole("menuitem", { name: /^personal/ }));
+    await app.user.click(within(menu).getByRole("menuitem", { name: "claude-haiku-4" }));
+    expect(sent(env, "sessions.fork")).toEqual([]);
+    expect(within(statusLine()).getByRole("button", { name: /^Model: claude-opus-4/ })).toBeTruthy();
+  });
+
   it("lists the models of the session's account with their efforts, and the choice goes with the session's next run", async () => {
     const { app, env, session } = await opened([desk({ models })]);
     const menu = await openPicker(app, "Model");
-    const opus = await within(menu).findByRole("group", { name: "Opus (claude-opus-4)" });
-    expect(within(opus).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["its own effortthis session", "low", "high"]);
+    const opus = await within(menu).findByRole("group", { name: "Effort" });
+    expect(within(opus).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["its own effortthis sessionLet the model choose its effort.", "lowReasoning effort for the next run.", "highReasoning effort for the next run."]);
     expect(within(menu).getByRole("menuitem", { name: "claude-haiku-4" })).toBeTruthy();
 
     await app.user.click(within(opus).getByRole("menuitem", { name: "high" }));
@@ -165,8 +248,8 @@ describe("the account picker", () => {
     env.setUsage([reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
     await within(statusLine()).findByRole("group", { name: "Plan usage" });
     const menu = await openPicker(app, "Account");
-    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work milo@work.testsigned in · this session5hr 42% · Week 10%");
-    expect(within(menu).getByRole("menuitem", { name: /^personal/ }).textContent).toBe("personal milo@home.testsign-in expiredNot signed in.");
+    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work milo@work.testsigned in · this session · claude5hr 42% · Week 10%");
+    expect(within(menu).getByRole("menuitem", { name: /^personal/ }).textContent).toBe("personal milo@home.testsign-in expired · Sign in · claudeNot signed in.");
     expect(within(menu).getByRole("menuitem", { name: "Add an account…" })).toBeTruthy();
   });
 

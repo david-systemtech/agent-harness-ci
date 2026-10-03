@@ -39,6 +39,7 @@ const opened = async (given: { readonly desk?: Partial<ScriptedEnvironment>; rea
     },
     { firstLaunch: true, ...options },
   );
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   await screen.findByRole("region", { name: "Set up" });
   await app.user.click(within(rail()).getByRole("button", { name: "Your machines" }));
   return app;
