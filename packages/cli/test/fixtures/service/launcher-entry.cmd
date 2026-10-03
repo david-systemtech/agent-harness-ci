@@ -14,16 +14,16 @@ set "DATA_DIR=C:\Users\david\AppData\Local\agent-harness"
 set "LOG=%DATA_DIR%\logs\service.log"
 :start
 set "VERSION="
-if exist "%DATA_DIR%\launcher-version" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\launcher-version" >nul && goto no_version
+if exist "%DATA_DIR%\launcher-version" findstr /r "[^0-9A-Za-z.+-]" "%DATA_DIR%\launcher-version" >nul && goto no_version
 if exist "%DATA_DIR%\launcher-version" for /f "usebackq delims=" %%V in ("%DATA_DIR%\launcher-version") do if not defined VERSION set "VERSION=%%V"
 if not defined VERSION goto no_version
 set "FROM="
 set "TO="
-if exist "%DATA_DIR%\launcher-handover" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\launcher-handover" >nul || for /f "usebackq delims=" %%L in ("%DATA_DIR%\launcher-handover") do if not defined FROM (set "FROM=%%L") else if not defined TO set "TO=%%L"
+if exist "%DATA_DIR%\launcher-handover" findstr /r "[^0-9A-Za-z.+-]" "%DATA_DIR%\launcher-handover" >nul || for /f "usebackq delims=" %%L in ("%DATA_DIR%\launcher-handover") do if not defined FROM (set "FROM=%%L") else if not defined TO set "TO=%%L"
 if not defined TO goto run
 if not "%TO%"=="%VERSION%" goto run
 set "STARTS=0"
-if exist "%DATA_DIR%\launcher-handover-starts" findstr /r /v /x "[0-9]*" "%DATA_DIR%\launcher-handover-starts" >nul || for /f "usebackq delims=" %%N in ("%DATA_DIR%\launcher-handover-starts") do set /a "STARTS=%%N"
+if exist "%DATA_DIR%\launcher-handover-starts" findstr /r "[^0-9]" "%DATA_DIR%\launcher-handover-starts" >nul || for /f "usebackq delims=" %%N in ("%DATA_DIR%\launcher-handover-starts") do set /a "STARTS=%%N"
 if %STARTS% GEQ 3 goto fall_back
 set /a "STARTS+=1"
 >"%DATA_DIR%\.launcher-handover-starts.tmp" echo %STARTS%
