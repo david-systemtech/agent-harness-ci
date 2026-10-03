@@ -129,12 +129,17 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
   const request: StateCheckRequest = { maxAgeMs: context.askedBy === "client" ? 0 : step.cadence.minutes * 60_000 };
   /** The state checks called and not answered yet: what a timeout names. */
   const unanswered = new Set<string>();
+  const holdingLines = new Map<string, string>();
 
   const ask = async ({ id, actions }: StateCheck): Promise<true | Failure> => {
     unanswered.add(id);
     try {
       const answer = await (context.stateChecks[id] as StateChecker)(request);
       if (answer === true) return true;
+      if (answer.holds) {
+        holdingLines.set(id, answer.reason);
+        return true;
+      }
       const targets = (answer.targets ?? []).filter((target) => actions.includes(target.action));
       return { id, reason: answer.reason, actions, targets, couldNotCheck: false, ...(answer.pending && { pending: true }) };
     } catch (error) {
@@ -196,7 +201,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
       return failed(failedChecks, llm === undefined || couldNotCheck ? [] : llm.stopped());
     }
     if (pending.length > 0) return { step: step.id, state: "pending", reason: pending.map((check) => check.reason).join(" "), failing: [], actions: [], checkedAt };
-    const reason = step.stateChecks.length === 0 ? VALUES_HOLD : step.stateChecks.map((stateCheck) => stateCheck.holds).join(" ");
+    const reason = step.stateChecks.length === 0 ? VALUES_HOLD : step.stateChecks.map((stateCheck) => holdingLines.get(stateCheck.id) ?? stateCheck.holds).join(" ");
     if (llm === undefined) return { step: step.id, state: "done", reason, failing: [], actions: [], checkedAt };
     const targets = llm.subjects().map((subject): SetupTarget => ({ action: "revise", ...subject }));
     return { step: step.id, state: "done", reason, failing: [], actions: ["revise"], ...(targets.length > 0 && { targets }), checkedAt };
