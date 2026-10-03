@@ -7,6 +7,12 @@ import { COLOUR_UTILITIES } from "./no-literal-colour.js";
 /** The stylesheet is the authority: a token with no Tailwind mapping paints nothing. */
 const stylesheet = readFileSync(new URL("../packages/gui/src/styles.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const mapped = new Set([...stylesheet.matchAll(/--color-([\w-]+)\s*:\s*var\(--[\w-]+\)/g)].map((match) => match[1]));
+/** Custom font sizes belong to text utilities only; companion line-height declarations are not sizes. */
+const textSizes = new Set([...stylesheet.matchAll(/@theme(?:\s+[\w-]+)*\s*\{([^}]*)\}/g)].flatMap((theme) =>
+  [...(theme[1] ?? "").matchAll(/--text-([\w-]+)\s*:\s*([^;{}]+);/g)]
+    .filter((declaration) => !declaration[1]?.includes("--") && declaration[2]?.trim() !== "initial")
+    .map((declaration) => declaration[1]),
+));
 const prefixes = [...COLOUR_UTILITIES].sort((a, b) => b.length - a.length);
 
 /** Overloaded colour prefixes also name sizes, alignment, geometry and styles in Tailwind 4. */
@@ -51,6 +57,7 @@ const isUnmapped = (candidate: string): boolean => {
   if (!prefix) return false;
   const value = utility.slice(prefix.length + 1);
   if (!value || value.startsWith("[") || value.startsWith("(")) return false;
+  if (prefix === "text" && textSizes.has(value)) return false;
   if (mapped.has(value) || /^(?:transparent|current|inherit)$/.test(value)) return false;
   // Widths and gradient stop positions, including mask stops, are numbers rather than colours.
   if (/^(?:border(?:-(?:x|y|s|e|t|r|b|l|bs|be))?|divide|decoration|outline|ring|inset-ring|ring-offset|stroke|from|via|to|mask-.+-(?:from|to))$/.test(prefix) && /^\d+(?:\.\d+)?%?$/.test(value)) return false;
