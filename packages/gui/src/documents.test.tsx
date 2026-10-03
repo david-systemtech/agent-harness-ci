@@ -32,7 +32,7 @@ const opened = async (more: Partial<ScriptedEnvironment> = {}, shell?: FakeShell
 
 /** Chooses `name` from the header's side panes menu, from the keyboard: jsdom lays nothing out, so a pointer press lands on the sidebar's divider. */
 const openPane = async (app: RenderedApp, name: string) => {
-  act(() => within(screen.getByRole("banner")).getByRole("button", { name: "Side panes" }).focus());
+  act(() => within(screen.getByRole("banner")).getByRole("button", { name: "More" }).focus());
   await app.user.keyboard("{Enter}");
   await app.user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${name}`) }));
 };
@@ -216,15 +216,17 @@ describe("the Preview pane", () => {
     expect(grants(app.shell)).toEqual([]);
   });
 
-  it("is absent without the shell's preview, with no-shell's line: the pane says it, and the Documents pane's Preview and the tile are dim with it", async () => {
+  it("is absent without the shell's preview, with no-shell's line in More, and the Documents pane's Preview and the tile are dim with it", async () => {
     const shell = Object.assign(fakeShell(), { preview: undefined });
     const { app, env, session, runId } = await opened({}, shell);
     env.writeFile(session, runId, "site/index.html", PAGE);
     const line = "This client cannot show a preview: its shell has no shell.preview.";
 
     await openPane(app, "Preview");
-    expect(within(pane("Preview")).getByText(line)).toBeDefined();
-    expect(named("Preview").getAttribute("aria-disabled")).toBe("true");
+    const unavailable = screen.getByRole("menuitem", { name: "Preview" });
+    expect(unavailable.textContent).toContain(line);
+    expect(unavailable.getAttribute("aria-disabled")).toBe("true");
+    await app.user.keyboard("{Escape}");
 
     await openPane(app, "Documents");
     const preview = within(await waitFor(() => row("site/index.html"))).getByRole("button", { name: "Preview" });
