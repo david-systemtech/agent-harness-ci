@@ -49,10 +49,10 @@ describe("the Browser card in Set up", () => {
     expect(within(card()).getByText("Open chrome://extensions. Turn on Developer mode. Click Load unpacked and choose this folder.")).toBeDefined();
     await app.user.click(within(card()).getByRole("button", { name: "Copy" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", status.folder.path]);
-    expect((within(card()).getByRole("checkbox", { name: "Load the extension" }) as HTMLInputElement).checked).toBe(false);
+    expect(within(card()).getByRole("img", { name: "1. Load the extension: pending" })).toBeDefined();
     status.unpairedConnected = true;
     act(() => desk.notice("extension.seen", { protocolVersion: PROTOCOL_VERSION, extensionVersion: "0.1.0" }));
-    await waitFor(() => expect((within(card()).getByRole("checkbox", { name: "Load the extension" }) as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect(within(card()).getByRole("img", { name: "1. Load the extension: complete" })).toBeDefined());
   });
   it("mints a code on opening, counts down on the environment clock, and renews it on expiry", async () => {
     const { app, desk } = await opened();
@@ -75,12 +75,12 @@ describe("the Browser card in Set up", () => {
     await within(card()).findByText("ABCD2345");
     status.unpairedConnected = true;
     act(() => desk.notice("extension.seen", { protocolVersion: PROTOCOL_VERSION, extensionVersion: "0.1.0" }));
-    await waitFor(() => expect((within(card()).getByRole("checkbox", { name: "Load the extension" }) as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect(within(card()).getByRole("img", { name: "1. Load the extension: complete" })).toBeDefined());
     status.unpairedConnected = false;
     act(pair);
     expect(await within(card()).findByText("Paired: Work Chrome.")).toBeDefined();
-    expect((within(card()).getByRole("checkbox", { name: "Pair" }) as HTMLInputElement).checked).toBe(true);
-    expect((within(card()).getByRole("checkbox", { name: "Load the extension" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(card()).getByRole("img", { name: "2. Pair: complete" })).toBeDefined();
+    expect(within(card()).getByRole("img", { name: "1. Load the extension: complete" })).toBeDefined();
     expect(within(card()).queryByRole("timer")).toBeNull();
     expect(within(card()).queryByText("Type this code on the extension's options page.")).toBeNull();
   });

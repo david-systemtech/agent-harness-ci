@@ -1,5 +1,7 @@
 import { adminCall, uuidv7 } from "@agent-harness/client-runtime";
 import type { AccountRecord, CarryOverInventory, CarryOverReport } from "@agent-harness/contracts";
+import { Download, RefreshCw } from "lucide-react";
+import { CountGrid } from "./count-grid.js";
 import { useEffect, useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
@@ -71,9 +73,9 @@ const AccountCarryOver = ({
     runtime.requests.refresh(environmentId, "carryOver.inventory", { accountId: account.id });
   }, [runtime, environmentId, account.id]);
   return (
-    <section aria-label={account.label} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 className="font-semibold text-ink">{account.label}</h3>
-      <p className="text-sm text-ink-muted">{account.directory.path}</p>
+    <section aria-label={account.label} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-4">
+      <h3 className="text-sm font-medium text-ink">{account.label}</h3>
+      <p className="break-all font-mono text-xs text-ink-muted">{account.directory.path}</p>
       {listed.error !== null && <p className="text-sm text-ink-muted">The inventory could not be read: {listed.error.message}</p>}
       {listed.result !== null && "accountId" in listed.result && (
         <AccountInventory
@@ -126,34 +128,20 @@ const AccountInventory = ({
   const imported = report !== undefined || sessions.new < sessions.total;
   return (
     <>
-      <p className="text-sm text-ink">
-        {sessions.total} sessions; {sessions.archived} archived; {sessions.missingDirectory} missing directory.
-      </p>
-      <p className="text-sm text-ink">
-        {memory.folders} memory folders; {memory.repositories} repositories; {memory.unmappable.length} unmappable folders.
-      </p>
-      <p className="text-sm text-ink">
-        {inventory.skills.skills} skills; {inventory.skills.commands} commands; {inventory.skills.offered.length} checkouts offered;{" "}
-        {inventory.skills.invalid} invalid.
-      </p>
-      <p className="text-sm text-ink-muted">
-        Not carried: {inventory.notCarried.filter((item) => item.kind === "subagent").length} agents;{" "}
-        {inventory.notCarried.filter((item) => item.kind === "plugin").length} plugins.
-      </p>
-      <p className="text-sm text-ink-muted">
-        Does not carry: {doesNotCarry.hooks} hooks; {doesNotCarry.mcpServers} personal MCP servers; {doesNotCarry.permissionRules}{" "}
-        permission rules.
-      </p>
+      <CountGrid label="Sessions" rows={[["Sessions", sessions.total], ["Archived", sessions.archived], ["Missing directory", sessions.missingDirectory], ["New sessions", sessions.new]]} />
+      <CountGrid label="Memory" rows={[["Memory folders", memory.folders], ["Repositories", memory.repositories], ["Unmappable folders", memory.unmappable.length]]} />
+      <CountGrid label="Skills and commands" rows={[["Skills", inventory.skills.skills], ["Commands", inventory.skills.commands], ["Checkouts offered", inventory.skills.offered.length], ["Invalid", inventory.skills.invalid]]} />
+      <CountGrid label="Not carried" rows={[["Agents", inventory.notCarried.filter((item) => item.kind === "subagent").length], ["Plugins", inventory.notCarried.filter((item) => item.kind === "plugin").length], ["Hooks", doesNotCarry.hooks], ["Personal MCP servers", doesNotCarry.mcpServers], ["Permission rules", doesNotCarry.permissionRules]]} />
       <label className="flex items-center gap-2 text-sm text-ink">
-        <input type="checkbox" checked={skills} disabled={!writable || busy} onChange={(event) => setSkillsChoice(event.target.checked)} />
+        <input type="checkbox" title="Copy skills and commands · Tab, Space" checked={skills} disabled={!writable || busy} onChange={(event) => setSkillsChoice(event.target.checked)} />
         Copy skills and commands
       </label>
-      <Button tone="primary" disabled={!writable || busy} onClick={() => void run()}>
-        {imported && sessions.new > 0 ? `Import ${sessions.new} new sessions` : "Import"}
+      <Button variant="default" title="Import · Tab, Enter or Space" className="self-start" disabled={!writable || busy} onClick={() => void run()}>
+        <Download aria-hidden="true" />{imported && sessions.new > 0 ? `Import ${sessions.new} new sessions` : "Import"}
       </Button>
       {retry !== undefined && (
-        <Button tone="primary" disabled={!writable || busy} onClick={() => void run()}>
-          Import again: {retry}
+        <Button variant="outline" title={`Import again: ${retry} · Tab, Enter or Space`} className="self-start" disabled={!writable || busy} onClick={() => void run()}>
+          <RefreshCw aria-hidden="true" />Import again: {retry}
         </Button>
       )}
       {imported && sessions.new === 0 && <p className="text-sm text-ink-muted">No new sessions.</p>}
