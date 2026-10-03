@@ -7,7 +7,7 @@ import { attentionResult, doneResult, skippedResult } from "../test/setup.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
-import { stepLine } from "./setup/checklist.js";
+import { countsWords, rowHealth, stepLine } from "./setup/checklist.js";
 import { fakeShell, inMemoryDocuments, inMemoryPlatform, inMemorySecrets, MANUAL_CLOCK_START, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
 import { whenWords } from "./transcript/format.js";
 
@@ -82,6 +82,24 @@ const withResults = async () => {
 };
 
 describe("projections.setup from the snapshot and the notices", () => {
+  it("keeps scheduled reads neutral, excludes them from attention, and follows completion", async () => {
+    const { runtime, env, environment, adding } = await paired();
+    const pending = { ...doneResult("your-machines"), state: "pending", reason: "Waiting for the first release channel read." };
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), pending] });
+    environment.synchronized(3);
+    await adding;
+    await flush();
+    const setup = runtime.projections.setup(env);
+    expect(setup.read().counts).toEqual({ registered: 2, done: 1, needsAttention: 0, skipped: 0, attention: [] });
+    expect(rowHealth(setup.read(), "environments.machines")).toBe("pending");
+    expect(rowHealth(setup.read(), "setup.checklist")).toBe("pending");
+    expect(countsWords(setup.read().counts)).toBe("1 done, 0 need attention, 0 skipped, 1 checking");
+    environment.event(noticeEvent(4, env, "setup.result-changed", doneResult("your-machines")));
+    await flush();
+    expect(rowHealth(setup.read(), "environments.machines")).toBe("done");
+    expect(setup.read().counts.done).toBe(2);
+  });
+
   it("lists the eleven steps in order with their labels, home rows and whether each may be skipped, fills from the snapshot's setup and applies each notice, with no call of its own", async () => {
     const { runtime, wire, env, environment, adding } = await paired();
     const setup = runtime.projections.setup(env);

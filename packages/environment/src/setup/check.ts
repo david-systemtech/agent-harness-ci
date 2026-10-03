@@ -109,6 +109,7 @@ interface Failure {
   /** The items its actions apply to, as it named them. */
   readonly targets: readonly SetupTarget[];
   readonly couldNotCheck: boolean;
+  readonly pending?: true;
 }
 
 /** The targets in their order, each once: a target is its action, kind and id. */
@@ -135,7 +136,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
       const answer = await (context.stateChecks[id] as StateChecker)(request);
       if (answer === true) return true;
       const targets = (answer.targets ?? []).filter((target) => actions.includes(target.action));
-      return { id, reason: answer.reason, actions, targets, couldNotCheck: false };
+      return { id, reason: answer.reason, actions, targets, couldNotCheck: false, ...(answer.pending && { pending: true }) };
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
       return { id, reason: `Could not check ${id}: ${message}.`, actions, targets: [], couldNotCheck: true };
@@ -175,6 +176,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     if (skipCheck !== undefined) {
       const answer = await ask(skipCheck);
       if (answer !== true && answer.couldNotCheck) return failed([answer]);
+      if (answer !== true && answer.pending) return { step: step.id, state: "pending", reason: answer.reason, failing: [], actions: [], checkedAt };
       if (answer !== true) return { step: step.id, state: "skipped", reason: answer.reason, failing: [], actions: [], checkedAt };
     }
     const failures: Failure[] = [];
@@ -185,10 +187,13 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     const answers = await Promise.all(step.stateChecks.filter((stateCheck) => stateCheck !== skipCheck).map(ask));
     for (const answer of answers) if (answer !== true) failures.push(answer);
     const { llm } = context;
-    if (failures.length > 0) {
-      const couldNotCheck = failures.some((failure) => failure.couldNotCheck);
-      return failed(failures, llm === undefined || couldNotCheck ? [] : llm.stopped());
+    const pending = failures.filter((failure) => failure.pending);
+    const failedChecks = failures.filter((failure) => !failure.pending);
+    if (failedChecks.length > 0) {
+      const couldNotCheck = failedChecks.some((failure) => failure.couldNotCheck);
+      return failed(failedChecks, llm === undefined || couldNotCheck ? [] : llm.stopped());
     }
+    if (pending.length > 0) return { step: step.id, state: "pending", reason: pending.map((check) => check.reason).join(" "), failing: [], actions: [], checkedAt };
     const reason = step.stateChecks.length === 0 ? VALUES_HOLD : step.stateChecks.map((stateCheck) => stateCheck.holds).join(" ");
     if (llm === undefined) return { step: step.id, state: "done", reason, failing: [], actions: [], checkedAt };
     const targets = llm.subjects().map((subject): SetupTarget => ({ action: "revise", ...subject }));

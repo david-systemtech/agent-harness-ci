@@ -76,6 +76,14 @@ describe("a step's result", () => {
     expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "A Chrome is paired with this environment. A paired Chrome is connected. Every paired Chrome last reported the shipped extension version." });
   });
 
+  it("reports pending without failure actions while waiting for a scheduled read, and gives real failures precedence", async () => {
+    const waiting: StateCheckers = { ...holding, "your-machines.release-channel": () => ({ pending: true, reason: "Waiting for the first release channel read." }) };
+    expect(await check(stepOf("your-machines"), presetSettings(), waiting)).toMatchObject({ state: "pending", failing: [], actions: [] });
+    expect(await check(stepOf("your-machines"), presetSettings(), {
+      ...waiting, "your-machines.named": () => ({ reason: "The environment needs a name." }),
+    })).toMatchObject({ state: "needs-attention", failing: ["your-machines.named"], reason: "The environment needs a name." });
+  });
+
   it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {
     const values = { ...presetSettings(), "permissions.parkedPrompt.ttl": "forever" } as unknown as ReturnType<typeof presetSettings>;
     const result = await check(stepOf("permissions"), values, {

@@ -25,16 +25,17 @@ export const homedChecks = (row: SettingsRowId): readonly RegisteredStepId[] => 
 };
 
 /** Each state in words, as a dot is named and a line says it. */
-export const STEP_STATE_WORDS: { readonly [State in StepState]: string } = { done: "done", "needs-attention": "needs attention", skipped: "skipped" };
+export const STEP_STATE_WORDS: { readonly [State in StepState]: string } = { done: "done", "needs-attention": "needs attention", skipped: "skipped", pending: "checking" };
 
 /**
  * How bad each state is, the worst last: a step that needs attention is
- * worse than one done, and one done worse than one skipped, which checked
+ * worse than one pending a scheduled read, which is neutral but not yet
+ * known to pass. Done is worse than skipped, which checked
  * nothing, so a row whose checked steps all pass shows done even beside a
  * step with nothing set up (a chosen default: ADR 0031 names the worst state
  * but not the order of the two that pass).
  */
-const SEVERITY: { readonly [State in StepState]: number } = { skipped: 0, done: 1, "needs-attention": 2 };
+const SEVERITY: { readonly [State in StepState]: number } = { skipped: 0, done: 1, pending: 2, "needs-attention": 3 };
 
 /** The worst of `states`; null for none. */
 export const worstState = (states: readonly StepState[]): StepState | null =>
@@ -89,10 +90,13 @@ export const stepLine = (step: SetupStepView, now: Date): string => {
  * The counts, as the Set up pane says them (the Set up specification's
  * chosen wording, #573): `8 done, 1 needs attention, 2 skipped`, over the
  * steps the environment registers; a step it does not register is counted
- * nowhere, its name drawn dim instead.
+ * nowhere, its name drawn dim instead. The remainder of registered results
+ * are pending scheduled reads and counted as checking only while present.
  */
-export const countsWords = (counts: SetupCounts): string =>
-  `${counts.done} done, ${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention, ${counts.skipped} skipped`;
+export const countsWords = (counts: SetupCounts): string => {
+  const pending = counts.registered - counts.done - counts.needsAttention - counts.skipped;
+  return `${counts.done} done, ${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention, ${counts.skipped} skipped${pending > 0 ? `, ${pending} checking` : ""}`;
+};
 
 /**
  * The result that passed before one that could not check, beneath it,

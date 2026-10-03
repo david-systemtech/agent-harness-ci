@@ -33,7 +33,7 @@ import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
-import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
+import { forgeRejected, pendingRead, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { fileUndoMethodFixtures, fileUndoSchemaFixtures } from "./file-undo-fixtures.js";
@@ -431,6 +431,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
         { status: validStatuses[0], environment: validLook },
         { status: validStatuses[0], setup: [] },
         { status: validStatuses[0], setup: [forgeRejected] },
+        { status: validStatuses[0], setup: [pendingRead] },
         { status: validStatuses[0], environment: validLook, setup: [forgeRejected] },
       ],
       invalid: [
@@ -438,7 +439,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
         ...invalidStatuses.map((status) => ({ status })),
         { status: validStatuses[0], environment: { ...validLook, colour: "#008080" } },
         { status: validStatuses[0], environment: { name: "LAB" } },
-        { status: validStatuses[0], setup: [{ ...forgeRejected, state: "pending" }] },
+        { status: validStatuses[0], setup: [{ ...forgeRejected, state: "checking" }] },
         { status: validStatuses[0], setup: forgeRejected },
       ],
     },
@@ -867,6 +868,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "review.updated", payload: {} },
       { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
       { type: "setup.result-changed", payload: forgeRejected },
+      { type: "setup.result-changed", payload: pendingRead },
       { type: "skills.updated", payload: {} },
       { type: "trust.updated", payload: {} },
       { type: "instructions.updated", payload: {} },
