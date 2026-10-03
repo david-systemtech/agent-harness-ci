@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { discoverScenes, type SceneModule } from "../gallery/scene-registry.js";
 import { mountGallery } from "../gallery/mount.js";
@@ -27,6 +27,23 @@ it("renders the real empty window on a ready environment and marks the scene rea
 
 it("refuses an unknown scene rather than capturing a different window", async () => {
   await expect(mountGallery(document.createElement("div"), "missing-scene")).rejects.toThrow("Unknown gallery scene");
+});
+
+it("renders the session window with nine sessions and its sidebar geometry contract", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "window-session");
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("window-session"));
+  const sidebar = within(screen.getByRole("navigation", { name: "Sessions" }));
+  expect(sidebar.getByRole("searchbox", { name: "Filter the sessions" })).toBeDefined();
+  expect(sidebar.getAllByRole("listitem")).toHaveLength(9);
+  expect(await screen.findByRole("region", { name: "Transcript" })).toBeDefined();
+  expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(expect.arrayContaining([
+    { selector: "[data-sidebar-card]", width: 224 },
+    { selector: "[data-sidebar-caption]", height: 32 },
+    { selector: 'nav[aria-label="Sessions"] button[aria-label="New session"]', height: 28 },
+  ]));
 });
 
 it("renders the scripted window in the requested light ladder", async () => {
@@ -60,5 +77,22 @@ it("discovers a component scene and mounts its controls and geometry in each lad
     expect(container.dataset["galleryReady"]).toBeUndefined();
     expect(container.dataset["galleryGeometry"]).toBeUndefined();
     container.remove();
+  }
+});
+
+it.each(["window-not-ready", "window-start-failed"])("renders %s with the measured welcome and readiness alert", async (scene) => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, scene);
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  expect(screen.getByRole("heading", { name: "agent-harness" })).toBeDefined();
+  expect(screen.getByRole("alert").textContent).toContain("Not ready to run");
+  const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+  expect(geometry).toContainEqual({ selector: "[data-welcome-tile]", width: 44, height: 44 });
+  if (scene === "window-start-failed") {
+    expect(screen.getByRole("status").textContent).not.toContain("remote method");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Pair instead" })).toBeDefined();
   }
 });

@@ -55,6 +55,19 @@ const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
   return app;
 };
 
+it("numbers all eleven steps with an outcome hint and distinguishes required from optional", async () => {
+  await firstLaunch();
+  const rows = within(steps()).getAllByRole("listitem");
+  const hints = ["Choose your agent’s account", "Bring past work with you", "Work here or elsewhere", "Open pull requests", "Fetch keys when needed", "Keep a shared notebook", "Reuse working procedures", "Guide every session", "See and use web pages", "Choose when agents ask", "Make the window feel right"];
+  expect(rows).toHaveLength(11);
+  for (const [index, row] of rows.entries()) {
+    expect(within(row).getByText(String(index + 1))).toBeDefined();
+    expect(within(row).getByText(hints[index] as string)).toBeDefined();
+    expect(within(row).getByText(index === 0 ? "Required" : "Optional")).toBeDefined();
+  }
+  expect(within(screen.getByRole("region", { name: "Account" })).getByText(hints[0] as string)).toBeDefined();
+});
+
 it("shows a pending scheduled read as neutral checking and leaves it out of the header attention count", async () => {
   const app = await firstLaunch({ capabilities: ["setup"], setup: onlySteps({
     "your-machines": { state: "pending", reason: "Waiting for the first release channel read." },
@@ -127,6 +140,25 @@ describe("the first-launch mark", () => {
   });
 });
 
+it("walks eleven steps in both directions and keeps Skip visible but disabled on Account", async () => {
+  const app = await firstLaunch({ accounts: [{ label: "personal" }] });
+  const back = () => screen.getByRole("button", { name: "Back" });
+  expect(back().hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Skip for now" }).hasAttribute("disabled")).toBe(true);
+  for (const label of ["Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions", "Appearance"]) {
+    await app.user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByRole("heading", { name: label, level: 2 })).toBeDefined();
+    expect(back().hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Skip for now" }).hasAttribute("disabled")).toBe(false);
+  }
+  expect(screen.getByRole("button", { name: "Finish" })).toBeDefined();
+  for (const label of ["Permissions", "Browser", "Instructions", "Skills", "Memory bank", "Key manager", "Forges", "Your machines", "Carry over", "Account"]) {
+    await app.user.click(back());
+    expect(screen.getByRole("heading", { name: label, level: 2 })).toBeDefined();
+  }
+  expect(back().hasAttribute("disabled")).toBe(true);
+});
+
 describe("Skip for now", () => {
   it("is on a skippable step's card beside Continue, moves the rail to the next step and records nothing", async () => {
     // Continue past Account waits on a signed-in account on first launch (#575).
@@ -135,11 +167,11 @@ describe("Skip for now", () => {
     const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
     const skippable: string[] = [];
     while (within(card()).queryByRole("button", { name: "Continue" }) !== null) {
-      if (within(card()).queryByRole("button", { name: "Skip for now" }) !== null) skippable.push(within(card()).getByRole("heading", { level: 2 }).textContent ?? "");
+      if (!within(card()).getByRole("button", { name: "Skip for now" }).hasAttribute("disabled")) skippable.push(within(card()).getByRole("heading", { level: 2 }).textContent ?? "");
       await app.user.click(within(card()).getByRole("button", { name: "Continue" }));
     }
-    // The steps this build registers as skippable: Carry over, Forges, Key manager, Memory bank, Skills and Browser, with nothing set up there when they are skipped.
-    expect(skippable).toEqual(["Carry over", "Forges", "Key manager", "Memory bank", "Skills", "Browser"]);
+    // Every step after Account may be left for later; this navigation does not change the health skip rules.
+    expect(skippable).toEqual(["Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions"]);
 
     await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
     const commands = () => desk.requests().filter((request) => request.params["commandId"] !== undefined).length;
@@ -205,7 +237,7 @@ const dimSteps = (list: HTMLElement) =>
   within(list)
     .getAllByRole("button")
     .filter((button) => button.className.split(" ").includes("text-ink-faint"))
-    .map((button) => button.textContent);
+    .map((button) => button.getAttribute("aria-label") ?? button.textContent);
 
 describe("the Set up pane", () => {
   it("names the environment it checks with a picker, and lists each step with its dot and line, linking to its home row, and the counts", async () => {

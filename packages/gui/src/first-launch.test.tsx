@@ -1,7 +1,11 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
-import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { createRuntime, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { App } from "./app.js";
+import { prepareWorld } from "../gallery/world.js";
+import { desktopPlatform } from "./platform/desktop-platform.js";
+import { openPresentation } from "./presentation.js";
 import { renderApp, type RenderedApp } from "../test/harness.js";
 
 /**
@@ -27,6 +31,38 @@ const STARTING_POLL_MS = 2000;
 const serviceCalls = (app: RenderedApp) => app.shell.calls.filter(([member]) => member.startsWith("service.")).map(([member]) => member);
 
 describe("first launch", () => {
+  it("shows Starting before local discovery answers instead of offering pairing", async () => {
+    const world = await prepareWorld({ environments: [{ name: "desk", reach: "local" }] });
+    const platform = await desktopPlatform({ ...world, version: world.version, documents: world.documents,
+      network: { read: () => ({ online: true, foreground: true }), subscribe: () => () => {} },
+      webSocket: world.world.webSocket, reportError: () => {},
+    });
+    const runtime = createRuntime(platform);
+    const presentation = await openPresentation(world.documents);
+    onTestFinished(async () => { await runtime.close(); await presentation.close(); });
+    render(<App runtime={runtime} presentation={presentation} clock={world.clock} version={world.version} macOS={false} shell={world.shell} />);
+    expect(within(pane()).getByRole("status").textContent).toBe("Starting…");
+    expect(screen.queryByRole("region", { name: "Pair with an environment" })).toBeNull();
+    await act(async () => runtime.start());
+    expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
+  });
+
+  it("welcomes the empty pane with readiness actions and the effective eight-key legend", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [] }] }, {
+      presentation: { keyRemaps: { "app.palette": ["Mod+P"] } },
+    });
+    expect(await within(pane()).findByRole("heading", { name: "agent-harness" })).toBeDefined();
+    const alert = within(pane()).getByRole("alert");
+    expect(within(alert).getByText("Not ready to run")).toBeDefined();
+    expect(within(alert).getByRole("button", { name: "Add an account" })).toBeDefined();
+    const legend = within(pane()).getByRole("list", { name: "Keyboard shortcuts" });
+    expect(within(legend).getAllByRole("listitem")).toHaveLength(8);
+    expect(within(legend).getByText("Ctrl+P")).toBeDefined();
+    expect(legend.textContent).not.toContain("stop the run");
+    await app.user.click(within(alert).getByRole("button", { name: "Add an account" }));
+    expect(await screen.findByRole("region", { name: "Accounts" })).toBeDefined();
+  });
+
   it("installs and starts this machine's environment through the shell, follows it from service down through starting to ready, then opens Set up as the whole window", async () => {
     const shell = fakeShell();
     let installed!: () => void;
@@ -63,7 +99,7 @@ describe("first launch", () => {
     expect(
       within(steps)
         .getAllByRole("button")
-        .map((step) => step.textContent),
+        .map((step) => step.getAttribute("aria-label")),
     ).toEqual(["Account", "Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions", "Appearance"]);
     expect(await within(steps).findByRole("img", { name: "Permissions: needs attention" })).toBeDefined();
     expect(within(steps).getByRole("img", { name: "Account: done" })).toBeDefined();
@@ -96,13 +132,18 @@ describe("first launch", () => {
   it("says in one line why the start failed, and starts it again on Try again", async () => {
     const shell = fakeShell();
     shell.answer("service.start", async () => {
-      throw new Error("Installed, but starting it failed: Could not run systemctl: no user manager.");
+      throw new Error("Error invoking remote method 'shell:service.start': Error: Installed, but starting it failed: Could not run systemctl: no user manager.");
     });
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, { shell });
     expect(
       await within(pane()).findByText("The environment on this machine did not start: Installed, but starting it failed: Could not run systemctl: no user manager."),
     ).toBeDefined();
 
+    expect(within(pane()).getByRole("status").textContent).not.toMatch(/remote method/i);
+    await app.user.click(within(pane()).getByRole("button", { name: "Pair instead" }));
+    const pairing = await screen.findByRole("dialog", { name: "Pair with an environment" });
+    expect(within(pairing).getByRole("textbox", { name: "Pairing link" })).toBeDefined();
+    await app.user.keyboard("{Escape}");
     shell.answer("service.start", async () => app.environment("desk").discovery("ready"));
     await app.user.click(within(pane()).getByRole("button", { name: "Try again" }));
     expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();

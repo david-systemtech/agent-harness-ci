@@ -66,8 +66,8 @@ export const writerOf = (key: SettingsKey): SettingsWriter | null => {
   return isOwnWriter(own) ? own : null;
 };
 
-/** What a key is for, in its schema's words. */
-export const describeKey = (key: SettingsKey): string => SETTINGS[key].schema.description ?? "";
+/** What a setting is for, in the words shown by both editors. */
+export const describeKey = (key: SettingsKey): string => SETTINGS[key].description;
 
 export type Parsed = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly line: string };
 

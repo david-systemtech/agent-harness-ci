@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BYPASS_SENTENCE, type CommandReceipt } from "@agent-harness/contracts";
-import { confirmationOf, noKeysLine, parseTyped, rowKeys, saveSetting, valueWords, writerOf } from "./editor.js";
+import { confirmationOf, describeKey, noKeysLine, parseTyped, rowKeys, saveSetting, valueWords, writerOf } from "./editor.js";
 
 /**
  * The generic settings editor both renderers draw (docs/specs/tui.md,
@@ -120,4 +120,9 @@ describe("saving a key", () => {
     });
     expect(none.sent).toEqual([]);
   });
+});
+
+it("describes a setting in words for both editors", () => {
+  expect(describeKey("sessions.autoSettleAfterIdle")).toBe("Move quiet sessions out of the active list after this long. Choose none to keep them active until you settle them yourself.");
+  expect(describeKey("browser.headless.endpoint")).not.toMatch(/browser\.headless|\bnull\b/);
 });

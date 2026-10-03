@@ -1,3 +1,4 @@
+import { SETTINGS, type SettingsKey } from "@agent-harness/contracts";
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -34,7 +35,7 @@ const openService = async (app: RenderedApp, environment?: string) => {
 const stateOf = (region: HTMLElement) => within(region).getByRole("region", { name: "State" });
 
 /** A key's group, by the key. */
-const field = (region: HTMLElement, key: string) => within(region).getByRole("group", { name: key });
+const field = (region: HTMLElement, key: SettingsKey) => within(region).getByRole("group", { name: SETTINGS[key].label });
 
 describe("the state", () => {
   it("shows what environment.status says: ready and idle, busy with why, and updates managed outside", async () => {

@@ -3,7 +3,7 @@ import { GRID_FULL, type SplitDirection } from "../grid/layout.js";
 import { usePaneGrid } from "../grid/grid.js";
 import { useKeyAction } from "../keys/key-dispatch.js";
 import { useSettings } from "../settings/settings-window.js";
-import { Button } from "../ui/index.js";
+import { Button, type ButtonProps } from "../ui/index.js";
 import { useSurfaces, type NewSessionControl } from "./surfaces.js";
 import { OFF_GRID } from "./words.js";
 
@@ -71,19 +71,18 @@ const useDragControl = (control: NewSessionControl) => {
   };
 };
 
-interface NewSessionButtonProps {
+type NewSessionButtonProps = Omit<ButtonProps, "aria-label" | "title" | "onClick"> & {
   readonly control: NewSessionControl;
   /** Its accessible name and tooltip. */
   readonly label: string;
-  readonly className?: string;
   readonly children: ReactNode;
-}
+};
 
 /** A New session control: a click shows the surface in the focused pane, and it drags onto the grid. */
-export const NewSessionButton = ({ control, label, className, children }: NewSessionButtonProps) => {
+export const NewSessionButton = ({ control, label, children, ...props }: NewSessionButtonProps) => {
   const start = useStartNewSession();
   return (
-    <Button aria-label={label} title={label} className={className} onClick={() => start.here(control)} {...useDragControl(control)}>
+    <Button {...props} aria-label={label} title={label} onClick={() => start.here(control)} {...useDragControl(control)}>
       {children}
     </Button>
   );

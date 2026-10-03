@@ -1,20 +1,24 @@
-import * as RadixTooltip from "@radix-ui/react-tooltip";
-import type { ReactElement, ReactNode } from "react";
-import { OVERLAY, classes } from "./classes.js";
+import { Tooltip as RadixTooltip } from "radix-ui";
+import { createContext, useContext, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { classes } from "./classes.js";
 
-/** How long the pointer rests on a control before its tooltip shows, in milliseconds (a chosen default); focus shows it at once. */
-export const TOOLTIP_DELAY_MS = 500;
+export const TOOLTIP_DELAY_MS = 250;
+export const TOOLTIP_SKIP_MS = 400;
+const HasTooltipProvider = createContext(false);
 
-/** A tooltip for one control, `children`, which it wraps: shown on hover after a moment, and on focus. */
-export const Tooltip = ({ content, children, className }: { readonly content: ReactNode; readonly children: ReactElement; readonly className?: string }) => (
-  <RadixTooltip.Provider delayDuration={TOOLTIP_DELAY_MS}>
-    <RadixTooltip.Root>
-      <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
-      <RadixTooltip.Portal>
-        <RadixTooltip.Content sideOffset={4} className={classes(OVERLAY, "px-2 py-1 text-xs", className)}>
-          {content}
-        </RadixTooltip.Content>
-      </RadixTooltip.Portal>
-    </RadixTooltip.Root>
-  </RadixTooltip.Provider>
+/** One provider per window makes moving between nearby controls skip the first delay. */
+export const TooltipProvider = ({ children, delayDuration = TOOLTIP_DELAY_MS, skipDelayDuration = TOOLTIP_SKIP_MS, ...props }: ComponentProps<typeof RadixTooltip.Provider>) => (
+  <HasTooltipProvider value><RadixTooltip.Provider delayDuration={delayDuration} skipDelayDuration={skipDelayDuration} {...props}>{children}</RadixTooltip.Provider></HasTooltipProvider>
 );
+
+/** Focus reveals the hint immediately; isolated controls get the same default timing. */
+export const Tooltip = ({ content, children, className, ...props }: ComponentProps<typeof RadixTooltip.Root> & { readonly content: ReactNode; readonly children: ReactElement; readonly className?: string }) => {
+  const shared = useContext(HasTooltipProvider);
+  const hint = <RadixTooltip.Root {...props}>
+    <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
+    <RadixTooltip.Portal>
+      <RadixTooltip.Content sideOffset={6} collisionPadding={8} className={classes("z-50 flex max-w-72 gap-1.5 rounded-md border border-hairline-strong bg-float px-2.5 py-1.5 text-xs leading-snug text-ink [overflow-wrap:anywhere] shadow-lg shadow-scrim/40 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 duration-100 motion-reduce:animate-none", className)}>{content}</RadixTooltip.Content>
+    </RadixTooltip.Portal>
+  </RadixTooltip.Root>;
+  return shared ? hint : <TooltipProvider>{hint}</TooltipProvider>;
+};

@@ -1,5 +1,6 @@
 import { LOCAL_PLACEHOLDER_ID, type CapabilityAnswer } from "@agent-harness/client-runtime";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { desktopErrorMessage } from "../platform/desktop-platform.js";
 import { useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
 
 /**
@@ -31,8 +32,6 @@ export interface LocalService {
 
 const LocalServiceContext = createContext<LocalService | null>(null);
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-
 export const LocalServiceProvider = ({ children }: { readonly children: ReactNode }) => {
   const runtime = useRuntime();
   const shell = useShell();
@@ -63,7 +62,7 @@ export const LocalServiceProvider = ({ children }: { readonly children: ReactNod
         (error: unknown) => {
           setStarting(false);
           setInstalling(false);
-          setFailure(messageOf(error));
+          setFailure(desktopErrorMessage(error));
         },
       );
     },

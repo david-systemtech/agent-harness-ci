@@ -91,8 +91,8 @@ describe("the Theme row's preferences", () => {
 
     await app.user.click(within(settings()).getByRole("button", { name: "Close Settings" }));
     const transcript = await screen.findByRole("region", { name: "Transcript" });
-    expect(transcript.style.fontSize).toBe("17px");
-    expect((transcript.firstElementChild as HTMLElement).style.maxWidth).toBe("1280px");
+    expect(transcript.style.fontSize).toBe("");
+    expect((transcript.firstElementChild as HTMLElement).style.maxWidth).toBe("80rem");
   });
 });
 

@@ -12,4 +12,4 @@ const TONES: { readonly [State in StepState]: string } = { done: "bg-mint", "nee
  * while there is no state to show.
  */
 export const HealthDot = ({ state, of }: { readonly state: StepState | null; readonly of: string }) =>
-  state === null ? null : <span role="img" aria-label={`${of}: ${STEP_STATE_WORDS[state]}`} className={classes("size-2 shrink-0 rounded-full", TONES[state])} />;
+  state === null ? null : <span role="img" aria-label={`${of}: ${STEP_STATE_WORDS[state]}`} className={classes("size-1.5 shrink-0 rounded-full", TONES[state])} />;

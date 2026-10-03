@@ -1,17 +1,21 @@
 import { keepsFold, rowKey, sessionHeadings, type DropTarget, type HeadingRow, type SessionHeading, type SessionRow } from "@agent-harness/client-runtime";
 import { useMemo, useRef, type ReactNode } from "react";
+import { FolderGit2, PanelLeftClose, Plug, Plus, RotateCcw, Search } from "lucide-react";
+import { useFirstKey } from "../keys/key-dispatch.js";
+import { NewSessionButton } from "../new-session/control.js";
 import { useOpenPairing } from "../connections/pairing.js";
 import { focusedPane } from "../grid/layout.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
-import { Button, Input, Switch } from "../ui/index.js";
+import { Button, IconButton, Input, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { SidebarDialogs } from "./dialogs.js";
 import { useDropTarget } from "./drag.js";
 import { EnvironmentSection, FoldingSection } from "./headings.js";
 import { OrganiseLine, OrganiseProvider, useOrganise } from "./organise.js";
 import { SessionRowView } from "./row.js";
-import { useDraggedRow, useFilterFocus, useSidebarFilter } from "./window-sidebar.js";
+import { useDraggedRow, useFilterFocus, useSidebarFilter, useSidebarSearchShown } from "./window-sidebar.js";
+import { SidebarNewGroup } from "./new-group.js";
 
 /**
  * The sidebar (docs/specs/gui.md, "The window and the sidebar"; #397, #398):
@@ -46,10 +50,14 @@ const Headings = () => {
   const [folded, setFolded] = usePresentation("collapsedHeadings");
   const [by, setBy] = usePresentation("sidebarView");
   const [layout] = usePresentation("paneLayout");
+  const [, setSidebarShown] = usePresentation("sidebarShown");
+  const sidebarKeys = useFirstKey("app.sidebar.toggle");
+  const newSessionKeys = useFirstKey("app.session.new");
   const openInPane = useOpenInPane();
   const openPairing = useOpenPairing();
   const organise = useOrganise();
   const [filter, setFilter] = useSidebarFilter();
+  const searchShown = useSidebarSearchShown();
   const field = useRef<HTMLInputElement>(null);
   useFilterFocus(field);
   const [dragged] = useDraggedRow();
@@ -83,30 +91,56 @@ const Headings = () => {
     ));
 
   return (
-    <nav aria-label="Sessions" className="flex h-full flex-col gap-3 overflow-y-auto bg-inset p-3">
-      <Input ref={field} type="search" aria-label="Filter the sessions" placeholder="Filter" value={filter} onChange={(event) => setFilter(event.target.value)} />
-      <label className="flex items-center gap-2 text-xs text-ink-muted">
-        <Switch aria-label="By repository" checked={by === "repositories"} onCheckedChange={(on) => setBy(on ? "repositories" : "groups")} />
-        <span>By repository</span>
-      </label>
-      {query === "" ? (
-        <>
-          {dragged !== null && !headings.some((heading) => heading.kind === "pinned") && <EmptyPinned />}
-          {headings.map((heading) =>
-            heading.kind === "environment" ? (
-              <EnvironmentSection key={heading.key} heading={heading} rows={rows} />
-            ) : (
-              <FoldingSection key={heading.key} heading={heading} fold={fold} rows={rows} />
-            ),
-          )}
-        </>
-      ) : (
-        <Matches query={query} rows={(lines) => rows(lines, null)} />
-      )}
-      <div className="mt-auto flex flex-col items-start gap-1">
+    <nav aria-label="Sessions" className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div data-sidebar-caption className="chrome-label flex h-8 shrink-0 items-center justify-between px-2 text-ink-muted">
+        <span>Sessions</span>
+        <IconButton label="Hide sidebar" {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => setSidebarShown(false)}><PanelLeftClose aria-hidden="true" /></IconButton>
+      </div>
+      <div className="shrink-0 p-2">
+        <Tooltip content={["New session", newSessionKeys].filter(Boolean).join(" · ")}>
+          <NewSessionButton control={{ environmentId: null }} label="New session" variant="default" size="sm" className="w-full justify-start">
+            <Plus aria-hidden="true" data-icon="inline-start" />
+            <span>New session</span>
+            {newSessionKeys !== undefined && <kbd className="ml-auto font-mono text-2xs">{newSessionKeys}</kbd>}
+          </NewSessionButton>
+        </Tooltip>
+      </div>
+      <div className="flex shrink-0 items-center gap-1 px-1.5 pt-2 pb-1.5">
+        {(list.rows.length > 8 || searchShown || filter !== "") && (
+          <div className="relative min-w-0 flex-1">
+            <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-3 text-ink-faint" />
+            <Input ref={field} type="search" aria-label="Filter the sessions" title="Filter the sessions" placeholder="Filter" className="h-6 pl-[26px] text-xs" value={filter} onChange={(event) => setFilter(event.target.value)} />
+          </div>
+        )}
+        <SidebarNewGroup environmentId={focusedPane(layout).session?.environmentId ?? environments[0]?.environmentId} />
+        <IconButton label="By repository" size="icon-xs" role="switch" aria-checked={by === "repositories"} onClick={() => setBy(by === "repositories" ? "groups" : "repositories")} className={by === "repositories" ? "bg-wash-strong text-beam-text" : undefined}>
+          <FolderGit2 aria-hidden="true" />
+        </IconButton>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2">
+        {query === "" ? (
+          <>
+            {dragged !== null && !headings.some((heading) => heading.kind === "pinned") && <EmptyPinned />}
+            {headings.map((heading) =>
+              heading.kind === "environment" ? (
+                <EnvironmentSection key={heading.key} heading={heading} rows={rows} />
+              ) : (
+                <FoldingSection key={heading.key} heading={heading} fold={fold} rows={rows} />
+              ),
+            )}
+          </>
+        ) : (
+          <Matches query={query} rows={(lines) => rows(lines, null)} />
+        )}
+      </div>
+      <div className="flex shrink-0 flex-col border-t border-hairline">
         <OrganiseLine />
-        <Button onClick={() => organise.open({ kind: "restore" })}>Restore a deleted session…</Button>
-        <Button onClick={() => openPairing()}>Pair with an environment…</Button>
+        <Tooltip content="Restore a deleted session…">
+          <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-2xs text-ink-muted hover:bg-wash" onClick={() => organise.open({ kind: "restore" })}><RotateCcw aria-hidden="true" className="size-3" />Restore a deleted session…</Button>
+        </Tooltip>
+        <Tooltip content="Pair with an environment…">
+          <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-2xs text-ink-muted hover:bg-wash" onClick={() => openPairing()}><Plug aria-hidden="true" className="size-3" />Pair with an environment…</Button>
+        </Tooltip>
       </div>
       <SidebarDialogs />
     </nav>
