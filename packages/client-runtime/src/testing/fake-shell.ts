@@ -74,6 +74,8 @@ export interface ShellFunctions {
   "installer.bundledServer": ShellInstaller["bundledServer"];
   "update.current": ShellUpdate["current"];
   "update.apply": ShellUpdate["apply"];
+  "service.pendingUpdate": NonNullable<ShellService["pendingUpdate"]>;
+  "service.applyUpdateNow": NonNullable<ShellService["applyUpdateNow"]>;
   "service.install": ShellService["install"];
   "service.start": ShellService["start"];
   "service.status": ShellService["status"];
@@ -197,6 +199,8 @@ export const fakeShell = (): FakeShell => {
     "installer.bundledServer": async () => null,
     "update.current": async () => ({ version: "0.0.0-test", platform: "linux", arch: "x64", format: "pacman" }),
     "update.apply": async () => ({ outcome: "applied" }),
+    "service.pendingUpdate": async () => ({ state: "current" }),
+    "service.applyUpdateNow": async () => undefined,
     "service.install": async () => undefined,
     "service.start": async () => undefined,
     "service.status": async () => ({ installed: true, running: true, ready: true }),
@@ -274,7 +278,7 @@ export const fakeShell = (): FakeShell => {
     preview: { grant: recorded("preview.grant") },
     installer: { bundledServer: recorded("installer.bundledServer") },
     update: { current: recorded("update.current"), apply: recorded("update.apply") },
-    service: { install: recorded("service.install"), start: recorded("service.start"), status: recorded("service.status") },
+    service: { pendingUpdate: recorded("service.pendingUpdate"), applyUpdateNow: recorded("service.applyUpdateNow"), install: recorded("service.install"), start: recorded("service.start"), status: recorded("service.status") },
     clipboard: { readText: recorded("clipboard.readText"), writeText: recorded("clipboard.writeText"), readImage: recorded("clipboard.readImage") },
     openExternal: recorded("openExternal"),
     localGrant: { read: recorded("localGrant.read") },

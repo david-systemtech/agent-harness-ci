@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { PendingUpdate } from "@agent-harness/contracts";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
 import { ARTEFACT_CLI_ENTRY, artefactNode } from "@agent-harness/contracts/launcher";
 import { scratch } from "./harness.js";
@@ -14,6 +15,7 @@ import { scratch } from "./harness.js";
  */
 
 export interface FakeServiceState {
+  readonly pendingUpdate?: PendingUpdate;
   readonly installed: boolean;
   readonly running: boolean;
   /** What discovery answers now: null while nothing answers. */
@@ -47,6 +49,12 @@ const verb = args[0] === "service" ? args[1] : undefined;
 if (state.fails && state.fails.verb === verb) {
   process[state.fails.stream ?? "stderr"].write(state.fails.message + "\\n");
   process.exit(1);
+}
+if (args[0] === "update") {
+  if (args[1] === "status") process.stdout.write(JSON.stringify({ pending: state.pendingUpdate ?? { state: "current" } }));
+  else if (args[1] === "apply" && args.includes("--now")) process.stdout.write("Updating now.\\n");
+  else process.exit(2);
+  process.exit(0);
 }
 switch (verb) {
   case "install":

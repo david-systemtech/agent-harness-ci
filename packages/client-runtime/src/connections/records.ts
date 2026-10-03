@@ -8,6 +8,7 @@ import {
   type ByeReason,
   type CapabilityFlags,
   type Scope,
+  type PendingUpdate,
 } from "@agent-harness/contracts";
 import type { ConnectionAction } from "./state-machine.js";
 
@@ -113,8 +114,17 @@ export interface ConnectionCredential {
   readonly token: string;
 }
 
+/** Progress read outside the wire while an accepted update crosses a protocol gap. */
+export interface ConnectionUpdate {
+  readonly pending: PendingUpdate | null;
+  readonly error: string | null;
+  readonly restarting: boolean;
+  readonly canUpdateNow: boolean;
+}
+
 /** A connection as `connections.list` shows it. */
 export interface ConnectionRecord extends SavedConnection {
+  readonly update?: ConnectionUpdate;
   readonly environmentId: string;
   readonly enabled: boolean;
   readonly phase: ConnectionPhase;
