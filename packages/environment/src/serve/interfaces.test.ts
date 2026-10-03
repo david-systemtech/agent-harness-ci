@@ -46,14 +46,14 @@ describe("the Tailscale detector", () => {
     let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
       en0: [entry("100.64.0.5")],
       utun2: [entry("192.168.1.20"), entry("100.63.255.255"), entry("100.128.0.1"), entry("100.64.0.7", true), entry("fd7a:115c:a1e0::1")],
-      utun10: [entry("100.64.0.10"), entry("fd00::10")],
-      utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9")],
+      utun10: [entry("100.64.0.10"), entry("fd00::20")],
+      utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::1")],
       utun0: [entry("100.64.0.8")],
     };
     const detector = tailscaleDetector(scripted({}).run, () => interfaces, { platform: "darwin" });
     expect(await detector.tailscaleAddress()).toBe("100.64.0.9");
     expect(await tailscaleDetector(scripted({}).run, () => interfaces, { platform: "linux" }).tailscaleAddress()).toBeUndefined();
-    interfaces = { utun4: [entry("100.127.255.254"), entry("FD7A:115C:A1E0::9")] };
+    interfaces = { utun4: [entry("100.127.255.254"), entry("FD7A:115C:A1E0::1")] };
     expect(await detector.tailscaleAddress()).toBe("100.127.255.254");
     interfaces = {};
     expect(await detector.tailscaleAddress()).toBeUndefined();
@@ -74,7 +74,7 @@ describe("the Tailscale detector", () => {
         "/Applications/Tailscale.app/Contents/MacOS/Tailscale status --json": JSON.stringify({ BackendState: state }),
       }).run, () => ({
         utun0: [entry("100.64.0.8")],
-        utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9")],
+        utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::1")],
       }), { platform: "darwin", readInstalled: () => true });
       expect(await detector.tailscaleAddress(), state).toBeUndefined();
       expect(await detector.tailnetName(), state).toBeUndefined();
@@ -85,9 +85,9 @@ describe("the Tailscale detector", () => {
   it("leaves ownership undetermined without a non-internal Tailscale IPv6 on that numbered tunnel", async () => {
     for (const interfaces of [
       { utun4: [entry("100.64.0.9")] },
-      { utun4: [entry("100.64.0.9"), entry("fd00::9")], utun5: [entry("fd7a:115c:a1e0::9")] },
-      { utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9", true)] },
-      { utunOther: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9")] },
+      { utun4: [entry("100.64.0.9"), entry("fd00::20")], utun5: [entry("fd7a:115c:a1e0::1")] },
+      { utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::1", true)] },
+      { utunOther: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::1")] },
     ]) {
       const detector = tailscaleDetector(scripted({}).run, () => interfaces, { platform: "darwin" });
       expect(await detector.tailscaleAddress()).toBeUndefined();

@@ -127,7 +127,7 @@
     {
       "rule": "private-ip",
       "path": "^(?:docs/specs/env\\.md|README\\.md|scripts/compose\\.yaml)$",
-      "value": "(?:100\\.64\\.0\\.0)"
+      "value": "(?:100\\.64\\.0\\.0|fd7a:115c:a1e0::)"
     },
     {
       "rule": "private-ip",
@@ -183,6 +183,11 @@
       "rule": "private-ip",
       "path": "^packages/client-runtime/src/access/words[.]ts$",
       "value": "100[.]64[.]0[.]7"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^\\.github/workflows/release\\.yml$",
+      "value": "(?:100\\.64\\.0\\.[89]|fd7a:115c:a1e0::1)"
     }
   ]
 }
