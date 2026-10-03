@@ -1,3 +1,5 @@
+import { ShieldCheck } from "lucide-react";
+import { Tooltip } from "../ui/index.js";
 import { POLICY_WRITES_WORDS, policyWarning, setPolicies, ticksWith } from "@agent-harness/client-runtime";
 import type { KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import { useEffect, useRef, useState } from "react";
@@ -62,12 +64,15 @@ export const PolicyTicks = ({ environmentId, connection, writable, say }: Policy
         const warning = ticked ? policyWarning(policy.writes) : null;
         return (
           <div key={policy.name} className="flex flex-col">
+            <Tooltip content={`${policy.name} · Space to toggle`}>
             <label className="flex items-center gap-2 text-ink">
               <input type="checkbox" name={policy.name} className="accent-beam" checked={ticked} disabled={!writable} onChange={(event) => tick(policy.name, event.target.checked)} />
+              <ShieldCheck aria-hidden="true" className="size-3.5 shrink-0 text-ink-faint" />
               <span>
                 {policy.name}, <span className="text-ink-muted">{POLICY_WRITES_WORDS[policy.writes]}</span>
               </span>
             </label>
+            </Tooltip>
             {warning !== null && <p className="pl-6 text-xs text-amber">{warning}</p>}
           </div>
         );

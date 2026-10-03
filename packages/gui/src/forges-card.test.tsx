@@ -39,8 +39,6 @@ const facts = (region: HTMLElement): Record<string, string> => {
 /** The rail's button for a step. */
 const railStep = (name: string) => within(within(checklist()).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name });
 
-const dialog = (name: string | RegExp) => screen.findByRole("dialog", { name });
-
 /** The full checklist on its first launch over `desk`, this machine's environment offering forge, as `desk` scripts it, and the other environments given, showing the Forges step on the environment named. */
 const opened = async (desk: Partial<ScriptedEnvironment> = {}, others: readonly ScriptedEnvironment[] = [], options: { readonly on?: string; readonly shell?: FakeShell } = {}): Promise<RenderedApp> => {
   const app = await renderApp(
@@ -53,10 +51,10 @@ const opened = async (desk: Partial<ScriptedEnvironment> = {}, others: readonly 
   return app;
 };
 
-/** Opens Add a forge on the card, and the dialog it opens. */
+/** Opens Add a forge on the card, and its inline group. */
 const openAdd = async (app: RenderedApp, environment = "desk") => {
   await app.user.click(within(step()).getByRole("button", { name: "Add a forge" }));
-  return dialog(`Add a forge on ${environment}`);
+  return screen.findByRole("region", { name: `Add a forge on ${environment}` });
 };
 
 describe("the Forges step's card", () => {
@@ -175,7 +173,7 @@ describe("Add a forge", () => {
 
     await app.user.type(within(add).getByLabelText("Token"), TOKEN);
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
     expect(await within(step()).findByText("Added david on git.example.test.")).toBeDefined();
     expect(facts(await row("https://git.example.test"))).toMatchObject({ Kind: "Forgejo" });
     const desk = app.environment("desk");
@@ -210,7 +208,7 @@ describe("the gh paths", () => {
     const add = await openAdd(app, "laptop");
     await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://github.com/david/agent-harness");
     await app.user.click(within(add).getByRole("button", { name: "Use the gh signed in on this computer" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on laptop" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on laptop" })).toBeNull());
     expect(await row("https://github.com")).toBeDefined();
     const laptop = app.environment("laptop");
     expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([["gh.token", "github.com"]]);
@@ -261,7 +259,7 @@ describe("the gh paths", () => {
     await app.user.clear(within(add).getByRole("textbox", { name: "URL" }));
     await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "git@github.com:david/agent-harness.git");
     await app.user.click(within(add).getByRole("button", { name: "Use this machine's gh" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
     expect(await row("https://github.com")).toBeDefined();
     expect(desk.requests("forge.accounts.add").map((request) => request.params)).toMatchObject([{ url: "git@github.com:david/agent-harness.git", credential: { kind: "gh", login: "david" } }]);
     expect(desk.forgeAccounts()[0]?.credential).toEqual({ kind: "gh", login: "david" });

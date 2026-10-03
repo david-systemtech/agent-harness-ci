@@ -1,0 +1,42 @@
+import userEvent from "@testing-library/user-event";
+import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { mountGallery } from "../gallery/mount.js";
+
+let close: (() => Promise<void>) | undefined;
+afterEach(async () => {
+  await close?.();
+  close = undefined;
+  document.body.replaceChildren();
+  vi.unstubAllGlobals();
+});
+
+it.each([
+  ["settings-key-managers", "Key managers", "Project keys", "Add a key manager", 1400, 1000],
+  ["settings-key-managers", "Key managers", "Project keys", "Add a key manager", 1024, 976],
+  ["settings-forges", "Forges", "https://git.example.test", "Add a forge", 1400, 1000],
+  ["settings-forges", "Forges", "https://git.example.test", "Add a forge", 1024, 976],
+] as const)("renders %s over the runtime with measured cards and inline Add", async (scene, name, card, add, width, dialogWidth) => {
+  vi.stubGlobal("innerWidth", width);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, scene);
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  const settings = await screen.findByRole("dialog", { name: "Settings" });
+  const pane = within(settings).getByRole("region", { name });
+  const connection = await within(pane).findByRole("region", { name: card });
+  expect(within(connection).getByText("Verified")).toBeDefined();
+  expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([
+    { selector: "[data-settings-dialog]", width: dialogWidth, height: 660 },
+    { selector: "[data-access-card]", paddingLeft: 12, paddingTop: 12 },
+    { selector: "[data-access-card] button", height: 28 },
+    { selector: "[data-access-card] header > svg", width: 16, height: 16 },
+  ]));
+  await userEvent.setup().click(within(pane).getByRole("button", { name: add }));
+  const form = await within(pane).findByRole("region", { name: `${add} on desk` });
+  expect(within(form).getAllByRole("radio").length).toBeGreaterThan(2);
+  expect(within(form).getByRole("textbox", { name: scene === "settings-forges" ? "URL" : "Label" })).toBeDefined();
+  await userEvent.setup().click(within(form).getByRole("button", { name: "Cancel" }));
+  expect(within(pane).queryByRole("region", { name: `${add} on desk` })).toBeNull();
+});

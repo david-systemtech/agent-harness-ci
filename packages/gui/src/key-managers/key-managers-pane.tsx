@@ -1,10 +1,11 @@
+import { Plus } from "lucide-react";
+import { ActionButton as Button, useInlineAdd } from "./action-button.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
-import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AddConnection } from "./add-connection.js";
 import { ConnectionCard } from "./connection-card.js";
@@ -36,7 +37,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
   const { environmentId } = view;
   const flagged = runtime.capability(environmentId, "keyManagers");
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.list", {}), [runtime, environmentId]));
-  const [adding, setAdding] = useState(false);
+  const { adding, setAdding, trigger } = useInlineAdd();
   const [line, say] = useState<string | undefined>(undefined);
   const hint = <p className="text-sm text-ink-muted">{settingsRow("access.key-managers").hint}</p>;
 
@@ -53,7 +54,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
   const admin = runtime.capability(environmentId, "keyManagers.connections.add");
   const writable = admin.status === "present";
   return (
-    <>
+    <div data-access-pane className="flex flex-col gap-3.5">
       {hint}
       {!ready && (
         <p className="text-sm text-amber">
@@ -61,11 +62,14 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
         </p>
       )}
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
-      <div className="flex flex-wrap gap-2">
-        <Button tone="primary" disabled={!writable} onClick={() => setAdding(true)}>
-          Add a key manager
-        </Button>
-      </div>
+      {!adding && (
+        <div className="flex flex-wrap gap-2">
+          <Button ref={trigger} icon={Plus} label="Add a key manager" tone="primary" disabled={!writable} onClick={() => setAdding(true)}>
+            Add a key manager
+          </Button>
+        </div>
+      )}
+      {adding && <AddConnection environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} />}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {connections === null
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
@@ -74,7 +78,6 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
           : connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} writable={writable} say={say} />)}
       {connections !== null && connections.length > 0 && <MoveCard environmentId={environmentId} connections={connections} writable={writable} />}
       <InjectionSetting view={view} />
-      {adding && <AddConnection environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} />}
-    </>
+    </div>
   );
 };

@@ -1,9 +1,10 @@
+import { CapabilityDots } from "./capability-dots.js";
+import { LogIn, Plus, Star, X } from "lucide-react";
+import { ActionButton as Button, AccessField as Field } from "../key-managers/action-button.js";
 import {
   FORGE_KIND_WORDS,
   SETUP_ACTION_WORDS,
   addForgeAlias,
-  capabilityName,
-  capabilityStateWords,
   forgeAliasWords,
   forgeIdentityWords,
   forgeProblemAction,
@@ -13,18 +14,14 @@ import {
   verifyForge,
   type ForgeProblemAction,
 } from "@agent-harness/client-runtime";
-import { FORGE_CAPABILITIES, forgeTokenPages, type ForgeCapabilityState } from "@agent-harness/contracts";
+import { forgeTokenPages } from "@agent-harness/contracts";
 import { useId, useState, type FormEvent } from "react";
 import { MoveToKeyManager } from "../key-managers/move-card.js";
 import { useChecklist } from "../setup/checklist-window.js";
-import { classes } from "../ui/classes.js";
-import { Button, Fact, Field, Input } from "../ui/index.js";
+import { Fact, Input } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { TokenPages } from "./add-forge.js";
 import { useForgeVerb, type ForgeCardProps } from "./forge-card.js";
-
-/** Each capability state's dot, a token (ADR 0023): the success colour verified, the error colour refused, faint not tried yet. */
-const DOT_TONES: { readonly [State in ForgeCapabilityState]: string } = { verified: "bg-mint", failed: "bg-signal", unknown: "bg-ink-faint" };
 
 /** What each problem action's button says. */
 const PROBLEM_ACTION_WORDS: { readonly [Action in ForgeProblemAction]: string } = {
@@ -68,17 +65,17 @@ export const ForgeAccountRow = ({ environmentId, account, writable, say }: Forge
     }
   };
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
+    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
       <header className="flex flex-wrap items-center gap-2">
-        <h3 id={heading} className="text-base font-semibold text-ink">
+        <h3 id={heading} className="text-xs font-semibold text-ink">
           {account.origin}
         </h3>
         {account.primary ? (
           <span role="img" aria-label="Primary forge" className="text-amber">
-            ★
+            <Star aria-hidden="true" className="size-3" />
           </span>
         ) : (
-          <Button disabled={!writable || sending} onClick={() => send(() => setPrimaryForge(sender, environmentId, account))}>
+          <Button icon={Star} label="Make primary" disabled={!writable || sending} onClick={() => send(() => setPrimaryForge(sender, environmentId, account))}>
             Make primary
           </Button>
         )}
@@ -92,28 +89,17 @@ export const ForgeAccountRow = ({ environmentId, account, writable, say }: Forge
           ))}
         </ul>
       )}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+      <dl className="grid grid-cols-[minmax(0,112px)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <Fact name="Kind">{FORGE_KIND_WORDS[account.kind]}</Fact>
         <Fact name="Signed in as">{forgeIdentityWords(account.identity)}</Fact>
       </dl>
-      <ul aria-label="Capabilities" className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink">
-        {FORGE_CAPABILITIES.map((name) => (
-          <li key={name} className="flex items-center gap-1.5">
-            <span
-              role="img"
-              aria-label={`${capabilityName(name)}: ${capabilityStateWords(account.capabilities[name])}`}
-              className={classes("size-2 shrink-0 rounded-full", DOT_TONES[account.capabilities[name].state])}
-            />
-            {capabilityName(name)}
-          </li>
-        ))}
-      </ul>
+      <CapabilityDots capabilities={account.capabilities} />
       {problem !== null && (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-amber">{problem.message}</p>
           {action !== null && (
             // The Key manager step is only a way there; the rest change the forge account.
-            <Button disabled={action !== "key-manager" && (!writable || sending)} onClick={() => act(action)}>
+            <Button icon={LogIn} label={PROBLEM_ACTION_WORDS[action]} disabled={action !== "key-manager" && (!writable || sending)} onClick={() => act(action)}>
               {PROBLEM_ACTION_WORDS[action]}
             </Button>
           )}
@@ -165,10 +151,10 @@ const SignInAgain = ({ environmentId, account, close, say }: Omit<ForgeCardProps
       </Field>
       {refused !== undefined && <p className="text-sm text-signal">{refused}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button tone="primary" type="submit" disabled={sending}>
+        <Button icon={LogIn} label="Sign in again" tone="primary" type="submit" disabled={sending}>
           Sign in again
         </Button>
-        <Button onClick={close}>Cancel</Button>
+        <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
       </div>
     </form>
   );
@@ -203,9 +189,9 @@ const AliasField = ({ environmentId, account, writable, say }: ForgeCardProps) =
     <form aria-label={`Add an alias to ${account.origin}`} className="flex flex-col gap-1" onSubmit={submit}>
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Alias">
-          <Input value={alias} placeholder="http://forge.tailnet.example:3000" disabled={!writable} onChange={(event) => setAlias(event.target.value)} />
+          <Input value={alias} placeholder="https://alias.example.test" disabled={!writable} onChange={(event) => setAlias(event.target.value)} />
         </Field>
-        <Button type="submit" disabled={!writable || sending}>
+        <Button icon={Plus} label="Add alias" type="submit" disabled={!writable || sending}>
           Add alias
         </Button>
       </div>
