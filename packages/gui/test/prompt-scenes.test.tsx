@@ -28,7 +28,7 @@ it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s p
     const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; height?: number }[];
     expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] button', height: 28 });
     expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 });
-    if (kind === "plan") expect(geometry).toContainEqual({ selector: '[aria-label="Plan body"]', height: 416 });
+    if (kind === "plan") expect(geometry).toContainEqual({ selector: '[aria-label="Plan body"]', maxHeight: 416, visibleWithin: '[aria-label="Parked prompt"]' });
     if (kind === "permission") expect(geometry).toContainEqual({ selector: '[aria-label="Arguments"]', height: 224 });
     for (const check of geometry) expect(container.querySelector(check.selector)).not.toBeNull();
     await gallery.close();

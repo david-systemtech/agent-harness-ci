@@ -17,6 +17,7 @@ export interface SceneGeometry {
   readonly paddingTop?: number;
   readonly fontSize?: number;
   readonly maxWidth?: number;
+  readonly maxHeight?: number;
   readonly tolerance?: number;
   /** Content may grow beyond a scene’s viewport-height floor. */
   readonly minimumHeight?: number;
