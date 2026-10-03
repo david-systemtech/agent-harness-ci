@@ -764,7 +764,8 @@ describe("a result this window did not ask for", () => {
     expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
     // A re-check that finds nothing new is never heard, so the line says since when it is unchanged rather than how old it is.
     expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", `The denylist lost 2 presets. (unchanged since ${passed})`]);
-    expect(screen.getByRole("button", { name: "Set up: 1 needs attention" })).toBeDefined();
+    // The header continues to update behind Settings, which hides background controls from assistive technology.
+    expect(screen.getByText("Set up: 1 needs attention")).toBeDefined();
     expect(screen.queryByText("Checking…")).toBeNull();
     expect(desk.requests("setup.check")).toHaveLength(asked);
   });

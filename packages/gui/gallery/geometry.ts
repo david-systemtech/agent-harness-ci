@@ -9,11 +9,13 @@ export function measureSceneGeometry(): string[] {
     if (elements.length === 0) return [`${check.selector}: no matching elements`];
     return elements.flatMap((element, index) => {
       const rect = element.getBoundingClientRect();
-      return (["width", "height"] as const).flatMap((dimension) => {
+      const style = getComputedStyle(element);
+      return (["width", "height", "paddingLeft", "paddingTop", "fontSize", "maxWidth"] as const).flatMap((dimension) => {
         const expected = check[dimension];
         const minimum = dimension === "height" ? check.minimumHeight : undefined;
         if (expected === undefined && minimum === undefined) return [];
-        const actual = rect[dimension], tolerance = check.tolerance ?? 0.5;
+        const actual = dimension === "width" || dimension === "height" ? rect[dimension] : Number.parseFloat(style[dimension]);
+        const tolerance = check.tolerance ?? 0.5;
         const matches = (expected === undefined || Math.abs(actual - expected) <= tolerance)
           && (minimum === undefined || actual >= minimum - tolerance);
         return Number.isFinite(actual) && matches ? []

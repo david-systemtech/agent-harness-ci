@@ -24,8 +24,7 @@ import { SidebarRegion } from "./sidebar-region.js";
  * It holds the window's terminal panes, which the header and
  * every session pane ask (#409), the pane grid's line, which the header
  * draws and the grid's gestures say (#407), and what the new-session
- * surfaces keep beside the layout (#420). While Settings is open it takes
- * the window below the header in place of the sidebar and the session panes;
+ * surfaces keep beside the layout (#420). Settings overlays the mounted sidebar and session panes;
  * while the full checklist is open (Set up on first launch) it takes the
  * whole window.
  */
@@ -44,16 +43,13 @@ export const Frame = () => {
             ) : (
               <div className="flex h-dvh flex-col bg-abyss text-ink">
                 <Header />
-                {shown ? (
-                  <SettingsView />
-                ) : (
-                  <div data-window-body className="flex min-h-0 min-w-0 flex-1 gap-[7px] p-[7px]">
-                    {sidebarShown && <SidebarRegion />}
-                    <div data-session-card className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-hairline bg-panel">
-                      <SessionPaneRegion />
-                    </div>
+                <div data-window-body className="flex min-h-0 min-w-0 flex-1 gap-[7px] p-[7px]">
+                  {sidebarShown && <SidebarRegion />}
+                  <div data-session-card className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-hairline bg-panel">
+                    <SessionPaneRegion />
                   </div>
-                )}
+                </div>
+                {shown && <SettingsView />}
               </div>
             )}
           </NewSessionSurfaces>

@@ -23,25 +23,18 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
   container.dataset["galleryGeometry"] = JSON.stringify(geometry);
   const Ready = () => {
     useEffect(() => {
-      if (Component !== undefined) {
-        paintLadder(document.documentElement, derive(DEFAULT_THEME)[ladder], ladder);
-        container.dataset["galleryReady"] = scene;
-        return;
-      }
+      if (Component !== undefined) paintLadder(document.documentElement, derive(DEFAULT_THEME)[ladder], ladder);
       const views = world.runtime.projections.environments;
-      let frame = 0;
       const mark = () => {
-        cancelAnimationFrame(frame);
-        if (!views.read().every((view) => view.phase === "ready")) return;
-        if (definition.readySelector && !container.querySelector(definition.readySelector)) {
-          frame = requestAnimationFrame(mark);
-          return;
-        }
-        container.dataset["galleryReady"] = scene;
+        const connected = Component !== undefined || views.read().every((view) => view.phase === "ready");
+        const drawn = definition.readySelector === undefined || container.querySelector(definition.readySelector) !== null;
+        if (connected && drawn) container.dataset["galleryReady"] = scene;
       };
       const stop = views.subscribe(mark);
+      const observer = new MutationObserver(mark);
+      observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
       mark();
-      return () => { stop(); cancelAnimationFrame(frame); };
+      return () => { stop(); observer.disconnect(); };
     }, []);
     return null;
   };

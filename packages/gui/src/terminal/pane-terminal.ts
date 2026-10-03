@@ -10,7 +10,7 @@ import {
   type TerminalOutput,
   type TerminalStreamView,
 } from "@agent-harness/client-runtime";
-import { TERMINAL_SCROLLBACK, TOOL_TERMINAL_KEPT_MS } from "@agent-harness/contracts";
+import { TOOL_TERMINAL_KEPT_MS } from "@agent-harness/contracts";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import type { TerminalAsk } from "./terminal-panes.js";
@@ -177,12 +177,13 @@ const sameSize = (a: Size | null, b: Size) => a !== null && a.cols === b.cols &&
 /** How long after asking finds a kept tool terminal still held it is asked after again, on the environment's clock: this window's reckoning of that clock is off by the socket's latency, and by any drift since `hello`. */
 const KEPT_ASKED_AGAIN_MS = 60_000;
 
-/** The pane's fonts: the system's monospace faces, since the window bundles no font. */
-const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+/** The bundled machine face; xterm takes a concrete family and pixel size rather than CSS variables. */
+const FONT_FAMILY = '"JetBrains Mono Variable", ui-monospace, monospace';
+const fontSize = () => 12 * (Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--font-scale")) || 1);
 
 export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal => {
   const { runtime, environmentId, source, host, nameOf } = options;
-  const term = new Terminal({ theme: options.theme, scrollback: TERMINAL_SCROLLBACK.lines, fontFamily: FONT_FAMILY, fontSize: 13 });
+  const term = new Terminal({ theme: options.theme, allowTransparency: true, scrollback: 10000, fontFamily: FONT_FAMILY, fontSize: fontSize(), lineHeight: 1.3 });
   const fit = new FitAddon();
   term.loadAddon(fit);
 
@@ -280,6 +281,8 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
 
   const fitNow = () => {
     if (!onScreen || !opened || disposed) return;
+    const scaled = fontSize();
+    if (term.options.fontSize !== scaled) term.options.fontSize = scaled;
     const proposed = fit.proposeDimensions();
     if (proposed === undefined || !(proposed.cols > 0 && proposed.rows > 0)) return;
     if (proposed.cols !== term.cols || proposed.rows !== term.rows) term.resize(proposed.cols, proposed.rows);
@@ -506,6 +509,9 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const observer = new ResizeObserver(() => fitNow());
   observer.observe(host);
   stops.push(() => observer.disconnect());
+  const rootSize = new MutationObserver(fitNow);
+  rootSize.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+  stops.push(() => rootSize.disconnect());
   openOnScreen();
 
   return {
@@ -542,6 +548,8 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     },
     theme(theme) {
       term.options.theme = theme;
+      term.options.fontSize = fontSize();
+      fitNow();
     },
     onScreen(next) {
       onScreen = next;

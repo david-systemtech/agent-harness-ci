@@ -76,6 +76,7 @@ type ValuesOf<S extends readonly Observable<unknown>[]> = { [K in keyof S]: S[K]
 export const derived = <S extends readonly Observable<unknown>[], T>(sources: S, compute: (...values: ValuesOf<S>) => T): Observable<T> => {
   let inputs: unknown[] | undefined;
   let value: T;
+  let lastNotified: T;
   const listeners = new Set<(value: T) => void>();
   let stops: (() => void)[] = [];
 
@@ -89,16 +90,19 @@ export const derived = <S extends readonly Observable<unknown>[], T>(sources: S,
     return value;
   };
   const onSource = () => {
-    const before = value;
     const after = read();
-    if (!Object.is(before, after)) notifyAll(listeners, after);
+    // Another source listener may have refreshed the read cache before this callback.
+    if (!Object.is(lastNotified, after)) {
+      lastNotified = after;
+      notifyAll(listeners, after);
+    }
   };
 
   return {
     read,
     subscribe(listener) {
       if (listeners.size === 0) {
-        read();
+        lastNotified = read();
         stops = sources.map((source) => source.subscribe(onSource));
       }
       listeners.add(listener);

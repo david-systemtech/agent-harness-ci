@@ -17,6 +17,13 @@ const image = (width = 100, height = 100, changed = 0) => {
   return PNG.sync.write({ width, height, data });
 };
 
+it("plans distinct captures for every run-picker scene and viewport", async () => {
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter((scene) => scene.startsWith("run-picker"));
+  expect(scenes).toHaveLength(2);
+  const names = scenes.flatMap((scene) => [captureName(scene, 1400), captureName(scene, 1024)]);
+  expect(new Set(names).size).toBe(4);
+});
+
 describe("gallery comparisons", () => {
   it("detects changed pixels and produces a difference image", () => {
     const capture = image(100, 100, 20);

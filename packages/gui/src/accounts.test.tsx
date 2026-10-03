@@ -132,7 +132,7 @@ describe("Accounts", () => {
     await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests" })]));
     desk.signIn("done");
     expect(await within(accounts).findByText("personal is signed in on desk.")).toBeDefined();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Sign in: personal on desk" })).toBeNull();
     await waitFor(async () => expect(facts(await within(accounts).findByRole("region", { name: "personal" }))["Status"]).toBe("signed in"));
 
     const work = within(accounts).getByRole("region", { name: "work" });
@@ -184,7 +184,7 @@ describe("Accounts", () => {
     let asking = await screen.findByRole("dialog", { name: "Remove work from desk?" });
     expect(within(asking).getByText("Its directory, /home/milo/.agent-harness/accounts/2, stays unless you delete it too, with its sign-in and history.")).toBeDefined();
     await app.user.click(within(asking).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Remove work from desk?" })).toBeNull();
     expect(desk.requests("accounts.remove")).toEqual([]);
 
     await app.user.click(within(within(accounts).getByRole("region", { name: "work" })).getByRole("button", { name: "Remove…" }));
@@ -210,7 +210,7 @@ describe("Accounts", () => {
     desk.changeAccount("account-3", null);
     await app.user.click(within(asking).getByRole("button", { name: "Remove" }));
     expect(await within(accounts).findByText("Not removed: No account account-3 on this environment.")).toBeDefined();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Remove spare from desk?" })).toBeNull();
     expect(desk.accounts()).toEqual([]);
   });
 

@@ -89,8 +89,8 @@ const Opened = ({ environmentId, sessionId, previewed }: PreviewPaneProps & { re
         <span className="text-ink-muted">{`${shown.marks} · read at ${shown.at}`}</span>
       </h3>
       {shown.state === "markdown" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-sm text-ink">
-          <Markdown text={shown.text} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm text-ink">
+          <div className="mx-auto max-w-[48rem]" data-preview-markdown><Markdown text={shown.text} /></div>
         </div>
       ) : (
         <iframe
