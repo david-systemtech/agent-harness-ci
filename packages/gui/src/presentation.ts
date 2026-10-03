@@ -110,9 +110,12 @@ export const sideColumnKey = (session: PaneSession): string => `${session.enviro
 export const READING_WIDTHS = ["comfortable", "wide", "full"] as const;
 export type ReadingWidth = (typeof READING_WIDTHS)[number];
 
-/** The transcript's text size in CSS pixels: the least and the most it may be, so a stored value can never make the window unreadable. */
+/** The window's text size in CSS pixels: the least and the most it may be, so a stored value can never make the window unreadable. */
 export const TEXT_SIZE_LEAST = 11;
-export const TEXT_SIZE_MOST = 24;
+export const TEXT_SIZE_MOST = 20;
+
+/** look.md §3: every finite preference is a whole size inside the window's range. */
+export const normalizeTextSize = (size: number): number => Number.isFinite(size) ? Math.min(TEXT_SIZE_MOST, Math.max(TEXT_SIZE_LEAST, Math.round(size))) : 14;
 
 /**
  * Light or dark (ADR 0023): the ladder of the theme this client paints,
@@ -148,7 +151,7 @@ export interface PresentationValues {
   readonly browserPartitions: Readonly<Record<string, string>>;
   /** Each session's side column, by `sideColumnKey`; a session with no pane open has none. */
   readonly sideColumns: Readonly<Record<string, SideColumn>>;
-  /** The transcript's text size, in CSS pixels (`TEXT_SIZE_LEAST` to `TEXT_SIZE_MOST`). */
+  /** The window's text size, in CSS pixels (`TEXT_SIZE_LEAST` to `TEXT_SIZE_MOST`). */
   readonly textSize: number;
   /** How wide the transcript's column may grow. */
   readonly readingWidth: ReadingWidth;
@@ -378,7 +381,7 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
     }
     return columns;
   },
-  textSize: (stored) => (typeof stored === "number" && stored >= TEXT_SIZE_LEAST && stored <= TEXT_SIZE_MOST ? stored : undefined),
+  textSize: (stored) => (typeof stored === "number" ? normalizeTextSize(stored) : undefined),
   readingWidth: (stored) => READING_WIDTHS.find((width) => width === stored),
   reasoningShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
   streamingFade: (stored) => (typeof stored === "boolean" ? stored : undefined),
@@ -438,8 +441,9 @@ export const openPresentation = async (documents: DocumentStore, report: (error:
     values,
     set(key, value) {
       const now = values.read();
-      if (Object.is(now[key], value)) return;
-      const next: PresentationValues = { ...now, [key]: value };
+      const normalized = key === "textSize" ? READERS.textSize(value) ?? 14 : value;
+      if (Object.is(now[key], normalized)) return;
+      const next: PresentationValues = { ...now, [key]: normalized };
       values.set(next);
       writes = writes.then(() => documents.set(DOCUMENT, { format: FORMAT, ...next })).catch(report);
     },

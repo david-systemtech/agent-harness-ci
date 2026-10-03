@@ -25,7 +25,6 @@ export const InstructionsContent = ({ view, setup = false }: { readonly view: En
   const listed = useObservable(useMemo(() => runtime.requests.cached(view.environmentId, "instructions.list", {}), [runtime, view.environmentId]));
   const result = listed.result;
   const [editing, edit] = useState<string | null>(null);
-  const editingRow = result?.instructions.find((row) => row.id === editing);
   return (
     <>
       <p className="text-sm text-ink-muted">{settingsRow("knowledge.instructions").hint}</p>
@@ -47,12 +46,12 @@ export const InstructionsContent = ({ view, setup = false }: { readonly view: En
         ) : result.instructions.length === 0 ? (
           <p className="text-sm text-ink-muted">No owned instruction on this environment.</p>
         ) : (
-          result.instructions.map((row) => <OwnedInstructionCard key={row.id} environmentId={view.environmentId} row={row} rows={result.instructions} edit={() => edit(row.id)} />)
+          result.instructions.map((row) => <OwnedInstructionCard key={row.id} environmentId={view.environmentId} row={row} rows={result.instructions} edit={() => edit(row.id)} {...(editing === row.id && { editor: <InstructionEditor inline environmentId={view.environmentId} row={row} close={() => edit(null)} /> })} />)
         )}
       </Part>
       {result !== null && <SuggestedInstructions environmentId={view.environmentId} rows={result.instructions} dismissed={result.dismissed} {...(setup && { custom: () => edit("new") })} />}
-      {(editing === "new" || editingRow !== undefined) && (
-        <InstructionEditor environmentId={view.environmentId} {...(editingRow !== undefined && { row: editingRow })} close={() => edit(null)} />
+      {editing === "new" && (
+        <InstructionEditor environmentId={view.environmentId} close={() => edit(null)} />
       )}
     </>
   );

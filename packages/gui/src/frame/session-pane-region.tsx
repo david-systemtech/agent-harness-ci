@@ -1,3 +1,4 @@
+import { WindowNotices } from "../notices/window-notices.js";
 import { PaneGrid } from "../grid/pane-grid.js";
 import { PaneLines } from "../session/pane-line.js";
 
@@ -10,8 +11,11 @@ import { PaneLines } from "../session/pane-line.js";
  */
 export const SessionPaneRegion = () => (
   <PaneLines>
-    <main className="flex h-full min-w-0 flex-col bg-panel">
-      <PaneGrid />
+    <main className="-m-px flex h-[calc(100%+2px)] min-w-0 flex-col bg-abyss">
+      <WindowNotices />
+      <div className="min-h-0 min-w-0 flex-1">
+        <PaneGrid />
+      </div>
     </main>
   </PaneLines>
 );

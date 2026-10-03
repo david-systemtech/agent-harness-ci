@@ -1,10 +1,12 @@
 import { ACTION_CONDITIONS, ACTION_GROUPS, isCommandId, isGuiOnly, settingsRow, type ActionCondition, type ListedAction } from "@agent-harness/contracts";
+import { CircleStop, Keyboard, RotateCcw, Search } from "lucide-react";
 import { useId, useState, type KeyboardEvent } from "react";
 import { chordOfEvent, keyLabel } from "../keys/chords.js";
 import { useMacOS } from "../keys/key-dispatch.js";
 import { clashOf, defaultGuiKeys, guiKeysOf, isRemappable, isWrittenOff, keyRefusal, withKey, withoutRemap, type KeyRemaps } from "../keys/key-map.js";
 import { matchingSkillsActions, SkillsKeyboardHelp } from "../skills/keyboard-help.js";
-import { Button, Input, Switch } from "../ui/index.js";
+import { SettingsGroup } from "../settings/part.js";
+import { Button, Input, Kbd, Switch, Tooltip } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
 import { InstructionControlShortcuts, instructionControlsMatching } from "../instructions/shortcuts.js";
 
@@ -67,28 +69,29 @@ export const ShortcutsPane = () => {
         The terminal UI&apos;s column is its defaults, read-only here: the terminal UI remaps its keys in keybindings.json in its state directory, or the file its
         --keybindings names, which this pane never writes.
       </p>
-      <div className="flex items-center gap-2">
-        <Input type="search" aria-label="Search the shortcuts" placeholder="Search the shortcuts" value={query} onChange={(event) => setQuery(event.target.value)} className="flex-1" />
-        <Button disabled={Object.keys(remaps).length === 0} onClick={() => setRemaps({})}>
-          Reset every key
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
+        <Tooltip content="Search the shortcuts · Type to filter"><Input type="search" aria-label="Search the shortcuts" placeholder="Search the shortcuts" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1" /></Tooltip>
+        <Tooltip content="Reset every key · Enter / Space"><Button disabled={Object.keys(remaps).length === 0} onClick={() => setRemaps({})}>
+          <RotateCcw aria-hidden="true" />Reset every key
+        </Button></Tooltip>
       </div>
       <SkillsKeyboardHelp query={query} />
       {found.length === 0 && instructionControls.length === 0 && matchingSkillsActions(query).length === 0 ? (
         <p className="text-sm text-ink-faint">No action matches “{query}”.</p>
       ) : (
         found.map((part) => (
-          <table key={part.title} aria-label={part.title} className="w-full border-collapse text-left text-sm">
-            <caption className="py-1 text-left text-xs font-semibold text-ink-muted">{part.title}</caption>
+          <div key={part.title} className="overflow-x-auto rounded-lg border border-hairline"><table aria-label={part.title} className="w-full min-w-[32rem] border-collapse text-left text-xs">
+            <caption className="border-b border-hairline px-3 py-2 text-left text-xs font-medium text-ink">{part.title}</caption>
             <thead>
               <tr className="border-b border-hairline text-xs text-ink-faint">
-                <th scope="col" className="w-2/5 py-1 font-normal">
+                <th scope="col" className="w-2/5 px-3 py-2 font-normal">
                   Action
                 </th>
-                <th scope="col" className="py-1 font-normal">
+                <th scope="col" className="px-3 py-2 font-normal">
                   Terminal UI
                 </th>
-                <th scope="col" className="py-1 font-normal">
+                <th scope="col" className="px-3 py-2 font-normal">
                   GUI
                 </th>
               </tr>
@@ -98,7 +101,7 @@ export const ShortcutsPane = () => {
                 <ActionRow key={action.id} action={action} keys={keys} line={said?.id === action.id ? said.line : undefined} />
               ))}
             </tbody>
-          </table>
+          </table></div>
         ))
       )}
       <InstructionControlShortcuts rows={instructionControls} />
@@ -111,17 +114,18 @@ const EscStopsRun = () => {
   const [on, set] = usePresentation("escStopsRun");
   const label = useId();
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
+    <SettingsGroup><div className="flex items-center justify-between gap-3">
       <div className="flex flex-col gap-0.5">
-        <span id={label} className="text-sm text-ink">
+        <span id={label} className="flex items-center gap-2 text-xs font-medium text-ink">
+          <CircleStop aria-hidden="true" className="size-4" />
           Esc stops the run
         </span>
         <span className="text-xs text-ink-muted">
           Off, no key stops a run: the Stop button and the palette&apos;s Stop the run do. On, Esc stops the focused pane&apos;s run once nothing else it closes is open.
         </span>
       </div>
-      <Switch aria-labelledby={label} checked={on} onCheckedChange={set} />
-    </div>
+      <Tooltip content="Esc stops the run · Space"><Switch aria-labelledby={label} checked={on} onCheckedChange={set} /></Tooltip>
+    </div></SettingsGroup>
   );
 };
 
@@ -163,7 +167,7 @@ const matches = (action: ListedAction, remaps: KeyRemaps, macOS: boolean, query:
 const TerminalKeys = ({ action }: { readonly action: ListedAction }) => {
   if (isGuiOnly(action)) return <span className="text-ink-faint">None: only the GUI answers it.</span>;
   const keys = isCommandId(action.id) ? typedName(action) : `${action.keys.join(", ")}${conditionWords(action.when)}`;
-  return action.status === "absent" ? <span className="text-ink-faint">{`${keys}: ${action.reason}`}</span> : <span className="font-mono text-ink">{keys}</span>;
+  return action.status === "absent" ? <span className="text-ink-faint">{`${keys}: ${action.reason}`}</span> : <Kbd className="h-auto min-h-5 font-mono">{keys}</Kbd>;
 };
 
 /** One action: its description and id, the terminal UI's keys, and the GUI's. */
@@ -171,14 +175,14 @@ const ActionRow = ({ action, keys, line }: { readonly action: ListedAction; read
   const absent = action.gui.status === "absent";
   return (
     <tr aria-label={action.description} aria-disabled={absent ? true : undefined} className="border-b border-hairline align-top aria-disabled:text-ink-faint">
-      <td className="py-1.5 pr-3">
+      <td className="px-3 py-2">
         <span className="block">{action.description}</span>
-        <span className="block font-mono text-xs text-ink-faint">{action.id}</span>
+        <span className="block font-mono text-2xs text-ink-faint">{action.id}</span>
       </td>
-      <td className="py-1.5 pr-3">
+      <td className="px-3 py-2">
         <TerminalKeys action={action} />
       </td>
-      <td className="py-1.5">
+      <td className="px-3 py-2">
         <GuiKeys action={action} keys={keys} />
         {line !== undefined && <p className="text-xs text-signal">{line}</p>}
       </td>
@@ -205,9 +209,9 @@ const GuiKeys = ({ action, keys }: { readonly action: ListedAction; readonly key
       {remapped && (
         <>
           <span className="text-xs text-amber">Remapped from {defaults.length === 0 ? "no key" : defaults.map((key) => keyLabel(key, keys.macOS)).join(", ")}</span>
-          <Button className="h-6 px-2 text-xs" onClick={() => keys.reset(action)}>
-            Reset
-          </Button>
+          <Tooltip content="Reset this key · Enter / Space"><Button size="xs" onClick={() => keys.reset(action)}>
+            <RotateCcw aria-hidden="true" />Reset
+          </Button></Tooltip>
         </>
       )}
     </div>
@@ -232,14 +236,17 @@ const KeySlot = ({ action, place, written, keys }: { readonly action: ListedActi
     else keys.record(action, place, chord);
   };
   return (
-    <Button
+    <Tooltip content={recording ? "Press a chord · Esc to cancel" : `Record ${action.description} · ${written === undefined ? "No key assigned" : keyLabel(written, keys.macOS)} · Enter / Space`} onEscapeKeyDown={(event) => { if (recording) event.preventDefault(); }}><Button
+      aria-pressed={recording}
+      aria-live="polite"
       data-recording={recording || undefined}
-      className="h-6 border border-line px-2 font-mono text-xs data-recording:border-beam"
+      size="xs"
+      className="border border-hairline data-recording:border-beam data-recording:bg-wash-strong"
       onClick={() => !recording && keys.start(action, place)}
       onKeyDown={onKeyDown}
       onBlur={() => recording && keys.leave()}
     >
-      {recording ? "Press a key…" : written === undefined ? "Record a key" : keyLabel(written, keys.macOS)}
-    </Button>
+      <Keyboard aria-hidden="true" />{recording ? "Press a key…" : written === undefined ? "Record a key" : <Kbd className="font-mono">{keyLabel(written, keys.macOS)}</Kbd>}
+    </Button></Tooltip>
   );
 };

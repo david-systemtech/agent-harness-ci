@@ -13,7 +13,7 @@
  * the call does, then kills the script.
  */
 import { execFile, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +40,8 @@ const HEALTH = "http://127.0.0.1:7433/health";
 
 /** The calls the updater makes, as the fakes log them (compose's `-f <file>` left out). */
 const STATUS = "docker compose exec -T environment agent-harness update status --json --host-updater --data-dir /data";
+const READ_STATUS = "docker compose exec -T environment agent-harness update status --json --data-dir /data";
+const CURRENT_IMAGE = "docker inspect --format {{.Config.Image}} container-for-tests";
 const IMAGES = "docker compose config --images environment";
 const PULL = `docker pull ${REPOSITORY}@${DIGEST}`;
 const TAG = `docker tag ${REPOSITORY}@${DIGEST} ${NEW}`;
@@ -194,6 +196,7 @@ case "$*" in
   "compose up -d --no-recreate environment")
     [ -f "$FAKE_STATE/running" ] || cp "$FAKE_STATE/created" "$FAKE_STATE/running" ;;
   "compose ps -q environment") [ ! -f "$FAKE_STATE/running" ] || echo container-for-tests ;;
+  "inspect --format {{.Config.Image}} container-for-tests") cat "$FAKE_STATE/created" ;;
   "inspect --format {{.RestartCount}} container-for-tests")
     count=0
     if [ "$(cat "$FAKE_STATE/running" 2>/dev/null)" = "$FAKE_TARGET" ]; then
@@ -373,6 +376,7 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
     const help = await tick(f, {}, ["--help"]);
     expect(help.code).toBe(0);
     expect(help.stdout).toMatch(/^Usage: host-updater\.sh/);
+    expect(help.stdout).toContain("--dry-run");
     for (const variable of ["AGENT_HARNESS_COMPOSE_FILE", "AGENT_HARNESS_HEALTH_URL", "AGENT_HARNESS_NOTIFY_COMMAND", "AGENT_HARNESS_UPDATER"]) {
       expect(help.stdout).toContain(variable);
     }
@@ -380,6 +384,102 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
     expect(wrong.code).toBe(2);
     expect(wrong.stderr).toContain("Usage: host-updater.sh");
     expect(f.calls()).toEqual([]);
+  });
+
+  it("dry-run reports the ready plan and actual current image without applying it or saving state", async () => {
+    const f = fixture({ envFile: `COMPOSE_PROFILES=tools\nAGENT_HARNESS_IMAGE=${NEW}\n` });
+    write(join(f.composeDir, ".host-updater.state"), "current\n");
+    const files = () => Object.fromEntries(readdirSync(f.composeDir).map((name) => [name, readFileSync(join(f.composeDir, name), "utf8")]));
+    const before = files();
+    const result = await tick(f, { AGENT_HARNESS_NOTIFY_COMMAND: "exit 99" }, ["--dry-run"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`Pending update: ${UPDATE_ID} (ready), 0.5.0 -> 0.6.0`);
+    expect(result.stdout).toContain(`Current image: ${OLD}`);
+    expect(result.stdout).toContain(`Target image: ${NEW} (${DIGEST})`);
+    for (const action of ["pull", "digest", "drain", "stop", "snapshot", ".env", "recreate", "120", "600", "rollback", "discard", "remove"]) {
+      expect(result.stdout).toContain(action);
+    }
+    expect(f.calls()).toEqual([READ_STATUS, CONTAINER, CURRENT_IMAGE]);
+    expect(files()).toEqual(before);
+    expect(f.running()).toBe(OLD);
+    expect(f.images()).toEqual([OLDER, OLD]);
+  });
+
+  describe("dry-run outcomes", () => {
+    const files = (f: Fixture) => Object.fromEntries(readdirSync(f.composeDir).map((name) => [name, readFileSync(join(f.composeDir, name), "utf8")]));
+
+    it.each(["current", "waiting", "draining", "blocked", "staging"])("reports %s every time without saving a poll or log state", async (state) => {
+      const f = fixture({ pending: state === "current" ? { state } : pendingUpdate(state) });
+      const before = files(f);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        f.forget();
+        const result = await tick(f, {}, ["--dry-run"]);
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain(`Current image: ${OLD}`);
+        expect(result.stdout).toContain(state === "current" ? "No pending update" : `(${state})`);
+        expect(result.stdout).toContain("Actions: none");
+        expect(f.calls()).toEqual([READ_STATUS, CONTAINER, CURRENT_IMAGE]);
+        expect(files(f)).toEqual(before);
+      }
+    });
+
+    it("clearly fails an unreachable status read without saving update state", async () => {
+      const f = fixture();
+      rmSync(join(f.state, "running"));
+      const before = files(f);
+      const result = await tick(f, {}, ["--dry-run"]);
+      expect(result.code).toBe(1);
+      expect(result.stdout).toContain("did not answer update status");
+      expect(f.calls()).toEqual([READ_STATUS]);
+      expect(files(f)).toEqual(before);
+    });
+
+    it("refuses an unreadable status rather than claiming there is no update", async () => {
+      const f = fixture();
+      write(join(f.state, "status.json"), "not a status document\n");
+      const result = await tick(f, {}, ["--dry-run"]);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("status is unreadable");
+      expect(f.calls()).toEqual([READ_STATUS]);
+      expect(readdirSync(f.composeDir)).toEqual(["compose.yaml"]);
+    });
+
+    it.each([
+      [null, "no image to pull"],
+      [{ reference: NEW, digest: "sha256:abc" }, "no image digest"],
+      [{ reference: "bad image", digest: DIGEST }, "reference is not one to pull"],
+    ])("refuses an unusable ready image %j without pulling or writing state", async (image, message) => {
+      const f = fixture({ pending: pendingUpdate("ready", image) });
+      const before = files(f);
+      const result = await tick(f, {}, ["--dry-run"]);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(message);
+      expect(f.calls()).toEqual([READ_STATUS, CONTAINER, CURRENT_IMAGE]);
+      expect(files(f)).toEqual(before);
+    });
+
+    it("reports an interrupted update without running recovery or altering its record", async () => {
+      const f = fixture();
+      expect((await tick(f, { FAKE_CUT: STOP })).signal).toBe("SIGKILL");
+      expect(f.running()).toBeNull();
+      const before = files(f);
+      f.forget();
+      const result = await tick(f, {}, ["--dry-run"]);
+      expect(result.code).toBe(1);
+      expect(result.stdout).toContain(`update ${UPDATE_ID} to 0.6.0 was cut short at stop`);
+      expect(result.stdout).toContain(`Previous image: ${OLD}`);
+      expect(result.stdout).toContain(`Target image: ${NEW}`);
+      expect(result.stderr).toContain("dry run performs no recovery");
+      expect(f.calls()).toEqual([]);
+      expect(files(f)).toEqual(before);
+      expect(f.running()).toBeNull();
+    });
+
+    it("rejects extra arguments before inspecting anything", async () => {
+      const f = fixture();
+      expect((await tick(f, {}, ["--dry-run", "--now"])).code).toBe(2);
+      expect(f.calls()).toEqual([]);
+    });
   });
 
   it("exits at once, calling nothing more, when another tick holds the lock", async () => {

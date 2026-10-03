@@ -1,9 +1,11 @@
+import { ArrowRight, Copy, Pencil, RefreshCw, X } from "lucide-react";
+import { ActionButton as Button, AccessField as Field } from "./action-button.js";
 import { copyValue, moveItems, setBasePath, type MoveFollowUp, type MoveLine, type MoveOptions } from "@agent-harness/client-runtime";
 import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerMoveLocator } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type Ref } from "react";
 import { useSettings } from "../settings/settings-window.js";
 import { useChecklist } from "../setup/checklist-window.js";
-import { Button, Dialog, DialogContent, Field, Input, Select } from "../ui/index.js";
+import { Dialog, DialogContent, Input, Select } from "../ui/index.js";
 import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 
 /** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
@@ -42,8 +44,8 @@ export const MoveCard = ({ environmentId, connections, writable, ref }: MoveCard
   const connection = connections.find((each) => each.id === chosen) ?? connections.find((each) => each.id === presetOf(connections));
   if (connection === undefined) return null;
   return (
-    <section ref={ref} tabIndex={-1} aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4 outline-none">
-      <h3 id={heading} className="text-base font-semibold text-ink">
+    <section ref={ref} tabIndex={-1} aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3 outline-none">
+      <h3 id={heading} className="text-xs font-semibold text-ink">
         Move stored tokens
       </h3>
       <p className="text-sm text-ink-muted">Each is written to the key manager, read back, swapped for a reference to it, and its stored copy deleted.</p>
@@ -111,19 +113,19 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
     switch (followUps.get(item.id)) {
       case "overwrite":
         return (
-          <Button disabled={moving} onClick={() => move([ref], { overwrite: true })}>
+          <Button icon={ArrowRight} label="Overwrite" disabled={moving} onClick={() => move([ref], { overwrite: true })}>
             Overwrite
           </Button>
         );
       case "copy-value":
         return (
-          <Button disabled={acting} onClick={() => copy(ref)}>
+          <Button icon={Copy} label="Copy value" disabled={acting} onClick={() => copy(ref)}>
             Copy value
           </Button>
         );
       case "verify":
         return (
-          <Button disabled={moving} onClick={() => move([ref], { verifyOnly: true })}>
+          <Button icon={RefreshCw} label="Verify the paste" disabled={moving} onClick={() => move([ref], { verifyOnly: true })}>
             Verify the paste
           </Button>
         );
@@ -134,11 +136,11 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
 
   return (
     <>
-      <div className="flex items-end gap-2">
+      <div className="flex flex-wrap items-end gap-2">
         <Field label="Base path">
           <Input value={basePath} disabled={!writable} onChange={(event) => setTyped(event.target.value)} />
         </Field>
-        <Button
+        <Button icon={Pencil} label="Set the base path"
           disabled={acting || basePath.trim() === "" || basePath.trim() === connection.basePath}
           onClick={() => void setBasePath(sender, environmentId, connection, basePath).then((set) => setLine(set.line))}
         >
@@ -157,10 +159,10 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
             return (
               <li key={item.id} aria-label={item.name} className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-ink">{item.name}</span>
-                <span className="text-ink-muted">{target === undefined ? "Set a base path to see where it goes." : `To ${referenceLocator(target)}`}</span>
+                <span className="min-w-0 break-all font-mono text-xs text-ink-muted">{target === undefined ? "Set a base path to see where it goes." : `To ${referenceLocator(target)}`}</span>
                 <span className="ml-auto flex gap-2">
                   {followUp(item)}
-                  <Button disabled={moving || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
+                  <Button icon={ArrowRight} label="Move" disabled={moving || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
                     Move
                   </Button>
                 </span>
@@ -170,7 +172,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
         </ul>
       )}
       {connection.basePath !== null && items.length > 0 && (
-        <Button tone="primary" className="self-start" disabled={moving} onClick={() => move("all")}>
+        <Button icon={ArrowRight} label="Move all" tone="primary" className="self-start" disabled={moving} onClick={() => move("all")}>
           Move all
         </Button>
       )}
@@ -208,8 +210,8 @@ const CopiedValueDialog = ({ environmentId, label, copied, close }: { readonly e
           <Input readOnly value={copied.value} className="font-mono" onFocus={(event) => event.target.select()} />
         </Field>
         <div className="flex justify-end gap-2">
-          {clipboard !== undefined && <Button onClick={() => void clipboard.writeText(copied.value)}>Copy to the clipboard</Button>}
-          <Button tone="primary" onClick={close}>
+          {clipboard !== undefined && <Button icon={Copy} label="Copy to the clipboard" onClick={() => void clipboard.writeText(copied.value)}>Copy to the clipboard</Button>}
+          <Button icon={X} label="Done" tone="primary" onClick={close}>
             Done
           </Button>
         </div>
@@ -228,7 +230,7 @@ export const MoveToKeyManager = ({ environmentId }: { readonly environmentId: st
   const { pick } = useSettings();
   const { open } = useChecklist();
   return (
-    <Button
+    <Button icon={ArrowRight} label="Move to your key manager"
       onClick={() => {
         pick(environmentId);
         open("key-manager", "move-stored-tokens");

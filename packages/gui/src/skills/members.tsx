@@ -1,6 +1,7 @@
 import type { SkillReadiness, SkillsView, SkillsViewMember } from "@agent-harness/contracts";
+import { Sparkles, Power, Repeat, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
-import { Button, Dialog, DialogContent, Switch } from "../ui/index.js";
+import { Button, Dialog, DialogContent, Switch, Tooltip } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
 
@@ -28,35 +29,40 @@ export const MemberCard = ({
   const environmentChoice = skills.choices.find((choice) => choice.kind === "enabled" && choice.name === name && choice.accountId === null);
   const environmentEnabled = environmentChoice?.kind === "enabled" ? environmentChoice.enabled : true;
   return (
-    <section aria-label={name ?? member.path} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 className="font-semibold">{name ?? member.path}</h3>
-      <p className="text-sm text-ink-muted">{member.description}</p>
-      <p className="text-sm text-ink-muted">
-        {member.layer.kind}: {member.path} · {member.invocation}
+    <section aria-label={name ?? member.path} className="grid gap-3 rounded-lg border border-hairline bg-panel px-3 py-2.5 min-[900px]:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="flex min-w-0 flex-col gap-1">
+      <h3 className="flex items-center gap-2 text-xs font-semibold"><Sparkles aria-hidden="true" className="size-4 text-ink-muted" /><span className="font-mono">{member.userInvocable && name !== null ? `/${name}` : name ?? member.path}</span></h3>
+      <p className="text-2xs text-ink-muted">{member.description}</p>
+      <p className="text-2xs text-ink-muted">
+        {member.layer.kind}: <span className="font-mono">{member.path}</span> · {member.invocation}
         {!member.userInvocable && " · Not in the slash menu"}
       </p>
       {member.origin !== null && (
-        <p className="text-sm text-ink-muted">
+        <p className="break-all text-2xs text-ink-muted">
           {member.origin.repository} — {member.origin.path}
         </p>
       )}
+      <p className="flex items-center gap-1 text-2xs text-ink-faint"><ShieldCheck aria-hidden="true" className="size-3" />Licence: {member.origin?.kind === "manifest" ? member.origin.licence ?? "Not supplied" : "Not supplied"}</p>
+      <p className="text-2xs text-ink-muted">
+        {member.size} characters · approximately {member.tokens} tokens on every prompt. A disabled or shadowed member is never appended.
+      </p>
       {member.shadowedBy !== null && (
-        <p className="text-sm text-amber">
+        <p className="text-xs text-amber">
           Shadowed by {member.shadowedBy.layer.kind}: {member.shadowedBy.path}
         </p>
       )}
       {member.problems.map((problem, index) => (
-        <p key={index} className="text-sm text-amber">
+        <p key={index} className="text-xs text-amber">
           {problem.message}
         </p>
       ))}
       {member.warnings.map((warning, index) => (
-        <p key={index} className="text-sm text-amber">
+        <p key={index} className="text-xs text-amber">
           {warning.message}
         </p>
       ))}
       {readiness !== undefined && (
-        <div className="text-sm text-ink-muted">
+        <div className="text-2xs text-ink-muted">
           <p>{readiness.state === "ready" ? "Ready" : readiness.state === "unsupported" ? "Unsupported" : "Setup needed"}</p>
           {readiness.state !== "ready" && (
             <>
@@ -69,11 +75,13 @@ export const MemberCard = ({
           )}
         </div>
       )}
-      {enabledCapability.status === "absent" && <p className="text-sm text-ink-faint">{enabledCapability.message}</p>}
-      {alwaysCapability.status === "absent" && <p className="text-sm text-ink-faint">{alwaysCapability.message}</p>}
-      {invalid && <p className="text-sm text-ink-faint">Invalid members cannot be enabled or made always-on.</p>}
-      <label className="flex items-center gap-2 text-sm">
-        <Switch
+      </div>
+      <div className="flex min-w-0 flex-col gap-2">
+      {enabledCapability.status === "absent" && <p className="text-xs text-ink-faint">{enabledCapability.message}</p>}
+      {alwaysCapability.status === "absent" && <p className="text-xs text-ink-faint">{alwaysCapability.message}</p>}
+      {invalid && <p className="text-xs text-ink-faint">Invalid members cannot be enabled or made always-on.</p>}
+      <label className="flex items-center gap-2 text-xs">
+        <Tooltip content="Enabled on this environment · Space"><Switch
           aria-label={`Enabled ${name ?? member.path} on this environment`}
           disabled={invalid || sending || enabledCapability.status === "absent"}
           checked={environmentEnabled}
@@ -84,13 +92,10 @@ export const MemberCard = ({
                 enabled ? "Skill enabled on this environment." : "Skill disabled on this environment.",
               );
           }}
-        />
-        Enabled on this environment
+        /></Tooltip>
+        <Power aria-hidden="true" className="size-3.5" />Enabled on this environment
       </label>
-      <p className="text-sm text-ink-muted">
-        Always-on: {member.size} characters, about {member.tokens} tokens on every run. A disabled or shadowed member is never appended.
-      </p>
-      {skills.accounts.length === 0 && <p className="text-sm text-ink-faint">No account is available for account choices.</p>}
+      {skills.accounts.length === 0 && <p className="text-xs text-ink-faint">No account is available for account choices.</p>}
       {skills.accounts.map((account) => {
         const enabledChoice = skills.choices.find((choice) => choice.kind === "enabled" && choice.name === name && choice.accountId === account.accountId);
         const alwaysChoice = skills.choices.find((choice) => choice.kind === "always-on" && choice.name === name && choice.accountId === account.accountId);
@@ -98,8 +103,8 @@ export const MemberCard = ({
         const on = alwaysChoice?.kind === "always-on" ? alwaysChoice.on : false;
         return (
           <div key={account.accountId} className="flex flex-col gap-2">
-            <label className="flex items-center gap-2 text-sm">
-              <Switch
+            <label className="flex items-center gap-2 text-xs">
+              <Tooltip content={`Enabled on ${account.accountId} · Space`}><Switch
                 aria-label={`Enabled ${name ?? member.path} on ${account.accountId}`}
                 disabled={invalid || sending || enabledCapability.status === "absent" || !environmentEnabled}
                 checked={accountEnabled}
@@ -110,25 +115,25 @@ export const MemberCard = ({
                       "Account choice saved.",
                     );
                 }}
-              />
-              Enabled on {account.accountId}
+              /></Tooltip>
+              <Power aria-hidden="true" className="size-3.5" />Enabled on {account.accountId}
             </label>
             {!environmentEnabled && <p className="text-xs text-ink-faint">The environment's disabled choice takes precedence.</p>}
-            <label className="flex items-center gap-2 text-sm">
-              <Switch
-                aria-label={`Always-on ${name ?? member.path} on ${account.accountId}`}
+            <label className="flex items-center gap-2 text-xs">
+              <Tooltip content={`Every prompt on ${account.accountId} · Space`}><Switch
+                aria-label={`Every prompt ${name ?? member.path} on ${account.accountId}`}
                 disabled={invalid || sending || alwaysCapability.status === "absent" || account.channel === "none"}
                 checked={on}
                 onCheckedChange={(on) => {
                   if (name !== null)
                     void send(
                       () => runtime.requests.call(environmentId, "skills.setAlwaysOn", { commandId: commandId(), name, accountId: account.accountId, on }),
-                      "Always-on choice saved.",
+                      "Every prompt choice saved.",
                     );
                 }}
-              />
-              Always-on on {account.accountId}
-              {account.accountId === skills.accountId && " (viewed account)"}
+              /></Tooltip>
+              <Repeat aria-hidden="true" className="size-3.5" />Every prompt on {account.accountId}
+
             </label>
             {account.channel === "none" && <p className="text-xs text-ink-faint">{account.reason ?? "This account has no instruction channel."}</p>}
           </div>
@@ -154,10 +159,11 @@ export const MemberCard = ({
           Remove own skill
         </SkillButton>
       )}
+      </div>
       <Dialog open={removing} onOpenChange={setRemoving}>
         <DialogContent title={`Remove own skill ${name}`} description="Move the skill to the environment's trash for thirty days.">
           {refusal !== undefined && (
-            <p role="status" className="text-sm text-amber">
+            <p role="status" className="text-xs text-amber">
               {refusal}
             </p>
           )}
@@ -176,7 +182,7 @@ export const MemberCard = ({
           >
             Confirm remove skill
           </SkillButton>
-          <Button onClick={() => setRemoving(false)}>Cancel</Button>
+          <Tooltip content="Cancel · Escape"><Button onClick={() => setRemoving(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
         </DialogContent>
       </Dialog>
     </section>

@@ -1,5 +1,6 @@
 import { uuidv4, type NewSessionChips } from "@agent-harness/client-runtime";
-import { createContext, use, useMemo, useState, type ReactNode } from "react";
+import { createContext, use, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { toast } from "../ui/toaster.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import type { GridPane, PaneLayout, PaneSession } from "../presentation.js";
 import { usePresentation } from "../window-context.js";
@@ -25,37 +26,47 @@ import {
  * `layout.ts` says): what the header's split actions, a pane's caption, a
  * drop on the grid and the sidebar's Open in a new pane do, and the New
  * session controls (#420). A way of adding a pane to a grid of eight is
- * refused, and the grid's line in the header says why; the next gesture that
+ * refused, and a transient toast says why; the next gesture that
  * does something clears it.
  */
 
+const DragContext = createContext<readonly [string | null, (id: string | null) => void] | null>(null);
+
 const PRESENT: Offer = { status: "present" };
 
-/** The grid's line: what it last refused, and the setter that says another (undefined clears it). */
-const LineContext = createContext<readonly [string | undefined, (line: string | undefined) => void] | null>(null);
+/** Transient grid refusals, separate from the environment notice feed. */
+const RefusalContext = createContext<((message: string | undefined) => void) | null>(null);
 
-/** The window's grid line, held around the header and the grid. */
+/** Holds caption drags and the refusal toast around the window's grid controls. */
 export const PaneGridProvider = ({ children }: { readonly children: ReactNode }) => {
-  const [line, say] = useState<string | undefined>(undefined);
-  const held = useMemo(() => [line, say] as const, [line]);
-  return <LineContext value={held}>{children}</LineContext>;
+  const [dragged, drag] = useState<string | null>(null);
+  const carried = useMemo(() => [dragged, drag] as const, [dragged]);
+  const currentToast = useRef<string | number | null>(null);
+  const say = useCallback((message: string | undefined) => {
+    if (message === undefined) {
+      if (currentToast.current !== null) toast.dismiss(currentToast.current);
+      currentToast.current = null;
+      return;
+    }
+    const id = toast.warning(message, {
+      ...(currentToast.current !== null && { id: currentToast.current }),
+      onDismiss: ({ id }) => { if (currentToast.current === id) currentToast.current = null; },
+      onAutoClose: ({ id }) => { if (currentToast.current === id) currentToast.current = null; },
+    });
+    currentToast.current = id;
+  }, []);
+  useEffect(() => () => { if (currentToast.current !== null) toast.dismiss(currentToast.current); }, []);
+  return <RefusalContext value={say}><DragContext value={carried}>{children}</DragContext></RefusalContext>;
 };
 
-const useLine = () => {
-  const line = use(LineContext);
-  if (line === null) throw new Error("The pane grid is changed inside the window's frame, which holds its line.");
-  return line;
+const useRefusal = () => {
+  const say = use(RefusalContext);
+  if (say === null) throw new Error("The pane grid is changed inside the window's frame, which holds its feedback.");
+  return say;
 };
 
-/** The grid's line in the header: what it last refused. */
-export const GridLine = () => {
-  const [line] = useLine();
-  return line === undefined ? null : (
-    <p role="status" className="px-2 text-xs text-ink-muted">
-      {line}
-    </p>
-  );
-};
+/** Compatibility for the header until it removes its grid line; refusals now use the transient toast lane. */
+export const GridLine = () => null;
 
 /** The id of the grid pane a component is drawn in; none outside one (the header, the sidebar, the palette). */
 const PaneIdContext = createContext<string | null>(null);
@@ -74,6 +85,9 @@ export const useInFocusedPane = (): boolean => {
 };
 
 export interface PaneGrid {
+  readonly dragged: string | null;
+  move(paneId: string, zone: "centre" | SplitDirection): void;
+  drag(id: string | null): void;
   readonly focused: GridPane;
   /** Whether a pane can be added now: absent, with `GRID_FULL`, while the grid holds eight. */
   readonly adding: Offer;
@@ -110,7 +124,8 @@ export interface PaneGrid {
 /** The grid as presentation holds it, and its gestures. */
 export const usePaneGrid = (): PaneGrid => {
   const [layout, setLayout] = usePresentation("paneLayout");
-  const [, say] = useLine();
+  const say = useRefusal();
+  const [dragged, drag] = use(DragContext) ?? [null, () => {}];
   return useMemo<PaneGrid>(() => {
     /** Makes the change, saying the grid is full when it cannot be made; answers whether it was made. */
     const add = (change: (held: PaneLayout) => PaneLayout | undefined): boolean => {
@@ -129,6 +144,22 @@ export const usePaneGrid = (): PaneGrid => {
     };
     const full: Offer = { status: "absent", message: GRID_FULL };
     return {
+      dragged, drag,
+      move: (paneId, zone) => {
+        drag(null);
+        change((held) => {
+          const from = held.rows.flatMap((row) => row.panes).find((pane) => pane.id === dragged);
+          const to = held.rows.flatMap((row) => row.panes).find((pane) => pane.id === paneId);
+          if (from === undefined || to === undefined || from.id === to.id) return held;
+          if (zone === "centre") return {
+            focused: from.id,
+            rows: held.rows.map((row) => ({ ...row, panes: row.panes.map((pane) => pane.id === from.id ? { ...to, width: pane.width } : pane.id === to.id ? { ...from, width: pane.width } : pane) })),
+          };
+          const next = addPane(removePane(held, from.id), to.id, zone);
+          if (next === undefined) return held;
+          return { focused: from.id, rows: next.rows.map((row) => ({ ...row, panes: row.panes.map((pane) => pane.id === next.focused ? { ...from, width: pane.width } : pane) })) };
+        });
+      },
       focused: focusedPane(layout),
       adding: isFull(layout) ? full : PRESENT,
       split: (direction) => add((held) => addPane(held, held.focused, direction)),
@@ -154,5 +185,5 @@ export const usePaneGrid = (): PaneGrid => {
       chooseChips: (id, choose) => setLayout((held) => chooseChips(held, id, choose)),
       refuse: (line = GRID_FULL) => say(line),
     };
-  }, [layout, setLayout, say]);
+  }, [layout, setLayout, say, dragged, drag]);
 };

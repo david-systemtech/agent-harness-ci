@@ -21,11 +21,15 @@ export type DialogContentProps = Omit<ComponentProps<typeof RadixDialog.Content>
   readonly showClose?: boolean;
 };
 
-export const DialogContent = ({ title, description, showClose = true, className, children, onKeyDown, ...props }: DialogContentProps) => (
+export const DialogContent = ({ title, description, showClose = true, className, children, onKeyDown, onEscapeKeyDown, ...props }: DialogContentProps) => (
   <RadixDialog.Portal>
     <RadixDialog.Overlay className={DIALOG_SCRIM} />
     <RadixDialog.Content
       {...(description === undefined && { "aria-describedby": undefined })}
+      onEscapeKeyDown={(event) => {
+        if (event.target instanceof Element && event.target.closest("[data-local-escape]")) event.preventDefault();
+        onEscapeKeyDown?.(event);
+      }}
       onKeyDown={(event) => { onKeyDown?.(event); event.stopPropagation(); }}
       className={classes(DIALOG_SURFACE, className)}
       {...props}

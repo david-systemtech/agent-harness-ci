@@ -50,7 +50,7 @@ for comment in comments:
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
-        if not isinstance(files, list) or not files or len(files) > 600: continue
+        if not isinstance(files, list) or not files or len(files) > 400: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         manifest = candidate
 if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
@@ -58,7 +58,7 @@ version = manifest.get('version', head)
 if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
     sys.exit('Invalid gallery capture version.')
 files = manifest.get('captures', [])
-if not files or len(files) > 600: sys.exit('Invalid gallery capture list.')
+if not files or len(files) > 400: sys.exit('Invalid gallery capture list.')
 names = [item['name'] for item in files]
 if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
 if selected - set(names): sys.exit('A requested capture is absent from the current report.')
@@ -71,14 +71,14 @@ for item in files:
     if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or parsed.path != f'/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}' or parsed.query or parsed.fragment:
         sys.exit('Invalid gallery attachment origin.')
     if selected and name not in selected: continue
-    data = get(url, limit=24*1024*1024)
+    data = get(url, limit=48*1024*1024)
     digest = item.get('sha256')
     if (version != head or digest is not None) and (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest) or hashlib.sha256(data).hexdigest() != digest):
         sys.exit('Gallery capture bytes do not match the reviewed manifest.')
     if len(data) < 33 or data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR': sys.exit('Gallery attachment is not a PNG.')
     if struct.unpack('>II', data[16:24]) not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
     total += len(data)
-    if total > 24*1024*1024: sys.exit('Gallery captures exceed their size limit.')
+    if total > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
     accepted[name] = data
 # Validate and download every selected capture before writing any baseline.
 folder = root / 'packages/gui/gallery/baselines'

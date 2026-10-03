@@ -1,6 +1,8 @@
+import { ShieldCheck, Trash2, X } from "lucide-react";
+import { ActionButton as Button } from "./action-button.js";
 import { caWords, certificateFacts, previewCertificate, type CertificatePreview } from "@agent-harness/client-runtime";
 import { useEffect, useState } from "react";
-import { Button, Dialog, DialogContent } from "../ui/index.js";
+import { Dialog, DialogContent } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 
 export interface CertificateCheckProps {
@@ -32,7 +34,7 @@ export const CertificateCheck = ({ environmentId, address, trust, close }: Certi
         {preview === undefined && <p className="text-sm text-ink-faint">Reading its certificate…</p>}
         {preview?.ok === false && <p className="text-sm text-signal">{preview.line}</p>}
         {preview?.ok === true && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          <dl className="grid grid-cols-[minmax(0,112px)_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border border-hairline bg-inset p-3 text-xs">
             {certificateFacts(preview.certificate, now).map(([name, value]) => (
               <div key={name} className="contents">
                 <dt className="text-ink-muted">{name}</dt>
@@ -42,8 +44,8 @@ export const CertificateCheck = ({ environmentId, address, trust, close }: Certi
           </dl>
         )}
         <div className="flex justify-end gap-2">
-          <Button onClick={close}>Cancel</Button>
-          <Button
+          <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
+          <Button icon={ShieldCheck} label="Trust this certificate"
             tone="primary"
             disabled={preview?.ok !== true}
             onClick={() => {
@@ -82,10 +84,10 @@ export const CaChoice = ({ environmentId, address, ca, choose }: CaChoiceProps) 
       <span className="text-ink">CA</span>
       <span className="text-ink-muted">{caWords({ provider: "openbao", ca })}</span>
       <div className="flex gap-2">
-        <Button disabled={!address.trim().startsWith("https://")} onClick={() => setChecking(true)}>
+        <Button icon={ShieldCheck} label="Read its certificate" disabled={!address.trim().startsWith("https://")} onClick={() => setChecking(true)}>
           Read its certificate
         </Button>
-        {ca !== null && <Button onClick={() => choose(null)}>Unpin the CA</Button>}
+        {ca !== null && <Button icon={Trash2} label="Unpin the CA" onClick={() => choose(null)}>Unpin the CA</Button>}
       </div>
       {checking && <CertificateCheck environmentId={environmentId} address={address.trim()} trust={choose} close={() => setChecking(false)} />}
     </div>
