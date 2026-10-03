@@ -14,7 +14,7 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
   if (!Object.hasOwn(registry, scene) || definition === undefined) throw new Error(`Unknown gallery scene: ${scene}`);
   const prepared = await prepareWorld(definition.script ?? { environments: [] }, { presentation: { ...definition.presentation, lightOrDark: ladder } });
   const world = { ...prepared, ...await startWorld(prepared, prepared.paired) };
-  definition.arrange?.(world.world);
+  definition.arrange?.(world.world, world.shell);
   const root = createRoot(container);
   const Component = definition.default;
   const geometry = typeof definition.geometry === "function"
@@ -29,12 +29,19 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
         return;
       }
       const views = world.runtime.projections.environments;
+      let frame = 0;
       const mark = () => {
-        if (views.read().every((view) => view.phase === "ready")) container.dataset["galleryReady"] = scene;
+        cancelAnimationFrame(frame);
+        if (!views.read().every((view) => view.phase === "ready")) return;
+        if (definition.readySelector && !container.querySelector(definition.readySelector)) {
+          frame = requestAnimationFrame(mark);
+          return;
+        }
+        container.dataset["galleryReady"] = scene;
       };
       const stop = views.subscribe(mark);
       mark();
-      return stop;
+      return () => { stop(); cancelAnimationFrame(frame); };
     }, []);
     return null;
   };

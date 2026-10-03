@@ -181,6 +181,7 @@ export const shellMembers = ({
     "webView.back": (id) => webView.back(text(id, "A view's id")),
     "webView.forward": (id) => webView.forward(text(id, "A view's id")),
     "webView.reload": (id) => webView.reload(text(id, "A view's id")),
+    "webView.stop": (id) => webView.stop(text(id, "A view's id")),
     "webView.state": (id) => webView.state(text(id, "A view's id")),
     "webView.destroy": (id) => webView.destroy(text(id, "A view's id")),
     "network.allow": (addresses) => network.allow(texts(addresses, "The addresses")),

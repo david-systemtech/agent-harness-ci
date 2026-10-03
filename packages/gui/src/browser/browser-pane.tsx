@@ -1,9 +1,10 @@
 import { uuidv4, type ShellWebViewState } from "@agent-harness/client-runtime";
+import { RotateCw, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useIsKeyOf } from "../keys/key-dispatch.js";
 import { hideColumn, useSideColumn } from "../side-column/column.js";
 import { useGridPaneId } from "../grid/grid.js";
-import { Button, Input } from "../ui/index.js";
+import { Button, IconButton, Input } from "../ui/index.js";
 import { sideColumnKey } from "../presentation.js";
 import { usePresentation, useShell } from "../window-context.js";
 import { useBrowserPanes } from "./browser-panes.js";
@@ -31,7 +32,7 @@ export const BrowserPane = ({
   const views = useShell()?.webView;
   const surface = useRef<HTMLDivElement>(null);
   const [id, setId] = useState<string>();
-  const [state, setState] = useState<ShellWebViewState>({ url: "about:blank", canGoBack: false, canGoForward: false });
+  const [state, setState] = useState<ShellWebViewState>({ url: "about:blank", canGoBack: false, canGoForward: false, loading: false });
   const [address, setAddress] = useState("about:blank");
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -128,9 +129,15 @@ export const BrowserPane = ({
         <Button type="button" aria-label="Forward" disabled={!id || !state.canGoForward} onClick={() => id && views?.forward(id)}>
           →
         </Button>
-        <Button type="button" aria-label="Reload" disabled={!id} onClick={() => id && views?.reload(id)}>
-          ↻
-        </Button>
+        <IconButton
+          label={state.loading ? "Stop" : "Reload"}
+          size="icon-xs"
+          className="[&_svg]:size-3.5"
+          disabled={!id}
+          onClick={() => id && (state.loading ? views?.stop(id) : views?.reload(id))}
+        >
+          {state.loading ? <Square aria-hidden="true" /> : <RotateCw aria-hidden="true" />}
+        </IconButton>
         <Input aria-label="Address" value={address} onChange={(event) => setAddress(event.target.value)} className="min-w-0 flex-1" />
         <Button type="submit" disabled={!id}>
           Go

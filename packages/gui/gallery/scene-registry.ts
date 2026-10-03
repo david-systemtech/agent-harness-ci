@@ -1,3 +1,4 @@
+import type { FakeShell } from "@agent-harness/client-runtime/testing";
 import type { Script, ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import type { ComponentType } from "react";
@@ -25,7 +26,9 @@ export interface SceneModule {
   readonly default?: ComponentType<{ readonly ladder: LadderName }>;
   readonly script?: Script;
   /** Arrange readings or run events on each fresh world before the app mounts. */
-  readonly arrange?: (world: ScriptedWorld) => void;
+  readonly arrange?: (world: ScriptedWorld, shell: FakeShell) => void;
+  /** Wait for asynchronous scene content before capture. */
+  readonly readySelector?: string;
   readonly presentation?: Partial<PresentationValues>;
   readonly geometry?: readonly SceneGeometry[] | ((viewport: SceneViewport) => readonly SceneGeometry[]);
 }

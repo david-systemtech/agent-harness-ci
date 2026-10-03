@@ -171,9 +171,13 @@ export interface ElectronWebView {
     close(): void;
     getURL(): string;
     reload(): void;
+    stop(): void;
+    isLoadingMainFrame(): boolean;
+    on(name: "did-frame-finish-load", listener: (details: unknown, isMainFrame: boolean) => void): unknown;
+    on(name: "did-start-navigation", listener: (details: { readonly isMainFrame: boolean; readonly isSameDocument: boolean }) => void): unknown;
     navigationHistory: { canGoBack(): boolean; canGoForward(): boolean; goBack(): void; goForward(): void };
     on(name: "before-input-event", listener: (details: Refusable, input: { readonly type: string; readonly key: string; readonly code: string; readonly control: boolean; readonly meta: boolean; readonly shift: boolean; readonly alt: boolean }) => void): unknown;
-    on(name: "did-navigate" | "did-navigate-in-page" | "did-stop-loading", listener: () => void): unknown;
+    on(name: "did-navigate" | "did-navigate-in-page" | "did-start-loading" | "did-stop-loading", listener: () => void): unknown;
   };
   setBounds(bounds: ViewBounds): void;
   setVisible(visible: boolean): void;

@@ -206,8 +206,10 @@ export interface ShellWebView {
   back(viewId: string): void;
   forward(viewId: string): void;
   reload(viewId: string): void;
+  /** Stops the current page load without closing the view. */
+  stop(viewId: string): void;
   state(viewId: string): Promise<ShellWebViewState>;
-  /** Hears top-level page navigation and history changes, including links followed inside the page. */
+  /** Hears top-level page loading, navigation and history changes, including links followed inside the page. */
   onChange(listener: (viewId: string, state: ShellWebViewState) => void): () => void;
   /** Key presses in the native page, which the renderer may match against its own shortcuts. */
   onKey(listener: (viewId: string, key: ShellWebViewKey) => void): () => void;
@@ -224,6 +226,8 @@ export interface ShellWebViewKey {
 }
 
 export interface ShellWebViewState {
+  /** Whether the top-level page is loading; independent iframe loads do not count. */
+  readonly loading: boolean;
   readonly url: string;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;

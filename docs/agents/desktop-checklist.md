@@ -370,6 +370,13 @@ section as not run. On each platform, with a session open in the pane:
    the app's own page stays on `agent-harness://app/`, and the console shows
    no content-policy error from it.
 
+5. **Loading and Stop.** Navigate to a slow page: Reload becomes the named
+   Stop icon and its tooltip says Stop. Stop cancels the load and restores
+   Reload without an error strip. Reload again and let it finish: Reload
+   returns. Repeat through an in-page link and history navigation; an iframe
+   loading by itself must leave Reload visible. Hide and restore the dock
+   during the load: Stop still reflects that page's state.
+
 ## First launch and the keychain (#395)
 
 Run on each platform with a packaged desktop (#423's artefact) as an ordinary

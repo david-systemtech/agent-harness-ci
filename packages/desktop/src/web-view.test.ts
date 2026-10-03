@@ -31,7 +31,7 @@ describe("the browser dock's view", () => {
     await views.navigate(id, "https://example.org/one");
     await views.navigate(id, "https://example.org/two");
     views.back(id);
-    expect(await views.state(id)).toEqual({ url: "https://example.org/one", canGoBack: true, canGoForward: true });
+    expect(await views.state(id)).toEqual({ url: "https://example.org/one", canGoBack: true, canGoForward: true, loading: false });
     views.forward(id);
     views.reload(id);
     expect(page.reloads).toBe(1);
@@ -43,11 +43,65 @@ describe("the browser dock's view", () => {
     expect(page.visible).toBe(true);
     expect(page.bounds.width).toBe(580);
     expect((await views.state(id)).url).toBe("https://example.org/two");
-    expect(changed).toContainEqual([id, { url: "https://example.org/two", canGoBack: true, canGoForward: false }]);
+    expect(changed).toContainEqual([id, { url: "https://example.org/two", canGoBack: true, canGoForward: false, loading: false }]);
     stop();
     views.destroy(id);
     expect(page.closed).toBe(true);
     expect(electron.window().children).not.toContain(page);
+  });
+
+  it("reports top-level loading over the preload, stops it, and keeps lifecycle events scoped to live pages", async () => {
+    const { electron, shell } = await start();
+    const views = shell().webView;
+    const id = await views.create({ url: "about:blank" });
+    const page = electron.views[0]!;
+    const states: unknown[] = [];
+    const unsubscribe = views.onChange((changed, state) => states.push([changed, state]));
+    expect(await views.state(id)).toMatchObject({ loading: false });
+    page.startLoading(false);
+    expect(await views.state(id)).toMatchObject({ loading: false });
+    page.startLoading();
+    expect(states.at(-1)).toEqual([id, { url: "about:blank", canGoBack: false, canGoForward: false, loading: true }]);
+    views.hide(id);
+    expect(await views.state(id)).toMatchObject({ loading: true });
+    views.stop(id);
+    expect(page.stops).toBe(1);
+    expect(states.at(-1)).toEqual([id, { url: "about:blank", canGoBack: false, canGoForward: false, loading: false }]);
+    page.startLoading();
+    page.startLoading(false);
+    page.finishLoading(false);
+    expect(await views.state(id)).toMatchObject({ loading: true });
+    // The main frame finishes even when an iframe keeps the tab spinner running.
+    page.finishLoading(true, true);
+    expect(states.at(-1)).toEqual([id, { url: "about:blank", canGoBack: false, canGoForward: false, loading: false }]);
+    expect(await views.state(id)).toMatchObject({ loading: false });
+    unsubscribe();
+    const heard = states.length;
+    page.startLoading();
+    expect(states).toHaveLength(heard);
+    views.onChange((changed, state) => states.push([changed, state]));
+    views.destroy(id);
+    page.finishLoading();
+    expect(states).toHaveLength(heard);
+  });
+
+  it("treats Stop as cancellation while a real navigation failure still rejects and ends loading", async () => {
+    const { electron, shell } = await start();
+    const views = shell().webView;
+    const id = await views.create({ url: "about:blank" });
+    const page = electron.views[0]!;
+    page.holdNextLoad();
+    const navigation = views.navigate(id, "https://example.org/slow");
+    await expect(views.state(id)).resolves.toMatchObject({ loading: true });
+    views.stop(id);
+    await expect(navigation).resolves.toBeUndefined();
+    await expect(views.state(id)).resolves.toMatchObject({ loading: false });
+    const failed = page.holdNextLoad();
+    const failure = views.navigate(id, "https://example.org/missing");
+    const rejected = expect(failure).rejects.toThrow("Name not resolved");
+    failed.fail(Object.assign(new Error("Name not resolved"), { code: "ERR_NAME_NOT_RESOLVED" }));
+    await rejected;
+    expect(await views.state(id)).toMatchObject({ loading: false });
   });
 
   it("closes every retained page with the window, denies popup windows and rejects non-web URLs and invalid IPC bounds", async () => {

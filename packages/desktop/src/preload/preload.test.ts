@@ -89,6 +89,21 @@ describe("the preload bundle", () => {
     expect([...new Set(loaded.required)]).toEqual(["electron"]);
   });
 
+  it("carries browser Stop and loading state through the sandboxed bundle", async () => {
+    const state = { url: "https://example.org/", canGoBack: false, canGoForward: false, loading: true };
+    const loaded = preload({ "shell:webView.state": state });
+    const views = shellOf(loaded)["webView"]!;
+    views["stop"]!("view-1");
+    expect(loaded.told).toContainEqual(["shell:webView.stop", "view-1"]);
+    expect(await views["state"]!("view-1")).toEqual(state);
+    const heard: unknown[] = [];
+    const unsubscribe = views["onChange"]!((id: string, changed: unknown) => heard.push([id, changed])) as () => void;
+    loaded.deliver("shell:webView.changed", "view-1", state);
+    unsubscribe();
+    loaded.deliver("shell:webView.changed", "view-1", { ...state, loading: false });
+    expect(heard).toEqual([["view-1", state]]);
+  });
+
   it("exposes the shell's members as window.desktopShell, and nothing else", () => {
     const shell = shellOf(preload());
     expect(Object.keys(shell).sort()).toEqual([

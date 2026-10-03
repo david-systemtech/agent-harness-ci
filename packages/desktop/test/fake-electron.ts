@@ -527,6 +527,10 @@ export interface FakeWebView extends ElectronWebView {
   closed: boolean;
   readonly urls: string[];
   reloads: number;
+  stops: number;
+  holdNextLoad(): { finish(): void; fail(error: unknown): void };
+  startLoading(mainFrame?: boolean): void;
+  finishLoading(mainFrame?: boolean, otherFramesLoading?: boolean): void;
   press(key: string, modifiers?: { control?: boolean; meta?: boolean; shift?: boolean; alt?: boolean }): void;
   readonly webContents: FakeContents & ElectronWebView["webContents"] & { readonly debugger: ElectronWebView["webContents"]["debugger"] & {
     readonly commands: unknown[];
@@ -539,6 +543,9 @@ const fakeWebView = (options: ViewOptions): FakeWebView => {
   const debugEvents = listeners();
   let attached = false;
   const commands: unknown[] = [];
+  let loading = false;
+  let nextLoad: Promise<void> | undefined;
+  let abortLoad: (() => void) | undefined;
   let at = -1;
   const moved = () => events.emit("did-navigate");
   const view: FakeWebView = {
@@ -548,6 +555,24 @@ const fakeWebView = (options: ViewOptions): FakeWebView => {
     closed: false,
     urls: [],
     reloads: 0,
+    stops: 0,
+    holdNextLoad() {
+      let finish!: () => void;
+      let fail!: (error: unknown) => void;
+      nextLoad = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject; });
+      abortLoad = () => fail(Object.assign(new Error("Navigation aborted"), { code: "ERR_ABORTED", errno: -3 }));
+      return { finish, fail };
+    },
+    startLoading(mainFrame = true) {
+      if (mainFrame) loading = true;
+      events.emit("did-start-navigation", { isMainFrame: mainFrame, isSameDocument: false });
+      events.emit("did-start-loading");
+    },
+    finishLoading(mainFrame = true, otherFramesLoading = false) {
+      if (mainFrame) loading = false;
+      events.emit("did-frame-finish-load", {}, mainFrame);
+      if (!loading && !otherFramesLoading) events.emit("did-stop-loading");
+    },
     press: (key, modifiers = {}) => events.emit("before-input-event", { preventDefault: () => undefined }, { type: "keyDown", key, code: `Key${key.toUpperCase()}`, control: false, meta: false, shift: false, alt: false, ...modifiers }),
     webContents: {
       ...contents,
@@ -569,12 +594,18 @@ const fakeWebView = (options: ViewOptions): FakeWebView => {
         events.on(name, listener);
       },
       loadURL: async (url) => {
+        const held = nextLoad;
+        nextLoad = undefined;
+        view.startLoading();
         view.urls.splice(at + 1);
         view.urls.push(url);
         at++;
         moved();
+        try { await held; } finally { abortLoad = undefined; view.finishLoading(); }
       },
       getURL: () => view.urls[at] ?? "",
+      isLoadingMainFrame: () => loading,
+      stop: () => { view.stops++; abortLoad?.(); view.finishLoading(); },
       close: () => {
         view.closed = true;
       },
