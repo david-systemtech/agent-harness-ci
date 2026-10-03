@@ -15,7 +15,7 @@ async function fixture(failure = "") {
   let base = "";
   const packageVersion = (version: string, created_at = "2020-01-01T00:00:00Z", name = "window-gallery") => ({ type: "generic", name, version, created_at });
   const packages = [
-    packageVersion("expired-orphan"), packageVersion("active-head-1"), packageVersion("earlier-head-2"),
+    packageVersion(failure === "unbound" ? "expired-head-99" : "expired-orphan"), packageVersion("active-head-1"), packageVersion("earlier-head-2"),
     packageVersion("legacy-head"), packageVersion("active-head-3"), packageVersion("new-run", "2099-01-01T00:00:00Z"),
     packageVersion("unrelated", undefined, "server-release"), packageVersion("expired-second-page"),
   ];
@@ -31,11 +31,16 @@ async function fixture(failure = "") {
       response.end(JSON.stringify(page === "1" ? [{ number: 42, head: { sha: "active-head" } }] : []));
     } else if (url.pathname.includes("/comments")) {
       if (failure === "comments") { response.writeHead(503).end(); return; }
-      const manifest = (head: string, version: string, modern = true) => ({ body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: [{ api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png` }] }) + ' -->' });
-      const comments = [...Array.from({ length: 50 }, () => ({ body: "Discussion" })),
+      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: [{ name: "window-empty.dark.png", api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png` }] }) + ' -->' });
+      const comments = [...Array.from({ length: 50 }, (_, index) => ({ id: 1000 + index, user: { id: 7 }, body: "Discussion" })),
         manifest("active-head", "active-head-1"), manifest("earlier-head", "earlier-head-2"), manifest("legacy-head", "legacy-head", false),
-        ...(failure === "malformed" ? [{ body: '<!-- window-gallery {broken -->' }, { body: '<!-- window-gallery [] -->' }] : []),
+        ...(failure === "malformed" ? [{ id: 1500, user: { id: -2 }, body: '<!-- window-gallery {broken -->' }, { id: 1501, user: { id: -2 }, body: '<!-- window-gallery [] -->' }] : []),
       ];
+      if (failure === "spoofed") {
+        comments.push({ ...manifest("expired-orphan", "expired-orphan", false), user: { id: 7 } });
+        comments.push({ id: 456, user: { id: 7 }, body: '<!-- window-gallery ' + JSON.stringify({ head: "active-head", version: "active-head-456", captures: [{ name: "window-empty.dark.png", api_url: "https://elsewhere.example.invalid/capture.png" }] }) + ' -->' });
+      }
+      if (failure === "unbound") comments.push({ ...manifest("expired-head", "expired-head-99"), id: 100 });
       // Forgejo's per-issue comments endpoint ignores page and limit and returns the whole thread.
       response.end(JSON.stringify(comments));
     } else if (url.pathname === "/api/v1/packages/example") {
@@ -79,4 +84,17 @@ it("uses the package credential for inventory and deletion and the repository cr
   const f = await fixture("package-auth");
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
+});
+
+
+it("ignores well-formed manifest copies and off-origin markers from ordinary discussion", async () => {
+  const f = await fixture("spoofed");
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
+});
+
+it("requires a modern report version to belong to its containing relay comment", async () => {
+  const f = await fixture("unbound");
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-head-99", "expired-second-page"]);
 });

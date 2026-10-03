@@ -60,6 +60,12 @@ def main():
         if not isinstance(comments, list):
             raise ValueError('Incomplete gallery comment listing')
         for comment in comments:
+            if not isinstance(comment, dict):
+                raise ValueError('Invalid gallery comment listing')
+            # Forgejo's reserved Actions identity authors relay reports, including legacy ones.
+            author = comment.get('user')
+            if not isinstance(author, dict) or author.get('id') != -2:
+                continue
             markers = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
             if not markers:
                 continue
@@ -69,18 +75,22 @@ def main():
                 continue
             if not isinstance(manifest, dict) or not isinstance(manifest.get('head'), str):
                 continue
+            head = manifest['head']
+            version = manifest.get('version', head)
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', head) or (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')):
+                continue
             captures = manifest.get('captures')
             if not isinstance(captures, list) or not captures or len(captures) > 200:
                 continue
-            if not all(isinstance(item, dict) and isinstance(item.get('api_url'), str) for item in captures):
+            if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in captures):
                 continue
+            valid = True
             for capture in captures:
                 parsed = urllib.parse.urlsplit(capture['api_url'])
-                if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith(package_path) or parsed.query or parsed.fragment:
-                    raise ValueError('Invalid gallery manifest origin')
-                version, name = parsed.path[len(package_path):].split('/')
-                if not re.fullmatch(r'[A-Za-z0-9._-]+', version) or not re.fullmatch(r'[a-z0-9-]+[.](light|dark)[.]png', name):
-                    raise ValueError('Invalid gallery manifest path')
+                if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or parsed.query or parsed.fragment or not re.fullmatch(r'[a-z0-9-]+[.](light|dark)[.]png', capture['name']) or parsed.path != package_path + version + '/' + capture['name']:
+                    valid = False
+                    break
+            if valid:
                 protected.add(version)
 
     packages = list(pages(f'/packages/{owner}?type=generic&q=window-gallery'))

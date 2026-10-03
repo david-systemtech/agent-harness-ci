@@ -32,14 +32,18 @@ async function fixture(mode = "current") {
     response.setHeader("content-type", "application/json");
     if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ head: { sha: "test-head", ref: "build/42-gallery" } }));
     else if (request.url?.includes("/comments")) {
-      const version = ["versioned", "digest-mismatch", "wrong-version"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
+      const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
       const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : png).digest("hex") }];
       if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
-      const manifest = { body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
+      const manifest = { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
       if (mode === "marker") manifest.body = '<!-- window-gallery {"head":"test-head","captures":[]} -->\n' + manifest.body;
       const invalid = mode === "invalid-json" ? "{broken" : mode === "non-object" ? "[]" : mode === "invalid-shape" ? '{"head":"test-head","captures":null}' : undefined;
-      const comments = invalid === undefined ? [manifest] : [{ body: `<!-- window-gallery ${invalid} -->` }, manifest, { body: `<!-- window-gallery ${invalid} -->` }];
+      const comments = invalid === undefined ? [manifest] : [{ id: 121, user: { id: -2 }, body: `<!-- window-gallery ${invalid} -->` }, manifest, { id: 125, user: { id: -2 }, body: `<!-- window-gallery ${invalid} -->` }];
+      if (mode === "spoofed" || mode === "unbound") {
+        const bogus = { head: "test-head", version: "test-head-999", captures: [{ ...captures[0], api_url: `${base}/api/packages/example/generic/window-gallery/test-head-999/window-empty.dark.png` }] };
+        comments.push({ id: mode === "spoofed" ? 999 : 1000, user: { id: mode === "spoofed" ? 7 : -2 }, body: '<!-- window-gallery ' + JSON.stringify(bogus) + ' -->' });
+      }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
     else response.end(mode === "corrupt" ? Buffer.from("not an image") : png);
@@ -114,7 +118,7 @@ it("refuses bytes that differ from the reviewed manifest without writing a basel
 
 it("refuses a report version for another head before downloading", async () => {
   const f = await fixture("wrong-version");
-  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Invalid gallery capture version") });
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("No gallery captures on the current PR head") });
   expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
 });
 
@@ -122,5 +126,14 @@ it.each(["invalid-json", "non-object", "invalid-shape"])("ignores %s markers in 
   const f = await fixture(mode);
   const result = await run("bash", [script, "42"], { env: f.env });
   expect(result.stdout).toContain("Accepted window-empty.dark.png");
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+});
+
+
+it.each(["spoofed", "unbound"])("keeps the genuine report when a later %s manifest names the current head", async (mode) => {
+  const f = await fixture(mode);
+  await run("bash", [script, "42"], { env: f.env });
+  expect(f.requests).toContain("/api/packages/example/generic/window-gallery/test-head-123/window-empty.dark.png");
+  expect(f.requests.some((url) => url.includes("test-head-999"))).toBe(false);
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
 });

@@ -536,7 +536,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
     if (request.method === "GET" && path.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha, ref: "build/42-gallery" } }));
     else if (request.method === "GET" && path.includes("/comments")) response.end(JSON.stringify(comments));
     else if (request.method === "POST" && path.endsWith("/comments")) {
-      const comment = { id: comments.length + 1, body: (JSON.parse(data.toString()) as { body: string }).body };
+      const comment = { id: comments.length + 1, user: { id: -2 }, body: (JSON.parse(data.toString()) as { body: string }).body };
       comments.push(comment); response.end(JSON.stringify(comment));
     } else if (request.method === "PATCH") {
       const id = Number(path.split("/").at(-1));
@@ -637,6 +637,7 @@ it("runs cleanup daily and after a completed gallery report", () => {
   const workflow = readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery-retention.yml"), "utf8");
   expect(workflow).toContain("cron:");
   expect(workflow).toContain("workflow_dispatch:");
+  expect(workflow).toContain("ref: ${{ github.event.repository.default_branch }}");
   expect(workflow).toContain("python3 scripts/gallery-retention.py");
   expect(workflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery.yml"), "utf8")).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");

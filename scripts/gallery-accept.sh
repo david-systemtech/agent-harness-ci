@@ -36,11 +36,16 @@ comments = json.loads(get(f'{api}/issues/{number}/comments'))
 if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
 manifest = None
 for comment in comments:
+    # Only the reserved Forgejo Actions identity can supply relay reports.
+    author = comment.get('user')
+    if not isinstance(author, dict) or author.get('id') != -2: continue
     matches = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
     if matches:
         try: candidate = json.loads(matches[-1])
         except json.JSONDecodeError: continue
         if not isinstance(candidate, dict) or candidate.get('head') != head: continue
+        version = candidate.get('version', head)
+        if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
         if not isinstance(files, list) or not files or len(files) > 200: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
