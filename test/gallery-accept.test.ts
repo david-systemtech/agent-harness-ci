@@ -208,4 +208,3 @@ it.each([
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining(error) });
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });
-
