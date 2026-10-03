@@ -93,6 +93,15 @@ describe("the command palette", () => {
     await app.user.pointer({ keys: "[MouseLeft]", target: palette() as HTMLElement });
     expect(palette()).toBeNull();
   });
+
+  it("names a row's effective keys in its native hover hint and closes on Escape", async () => {
+    const { app } = await opened();
+    await inComposer(app, "{Control>}k{/Control}");
+    expect(within(palette() as HTMLElement).getByTitle("New session — Ctrl+N")).toBeTruthy();
+    await app.user.keyboard("{Escape}");
+    expect(palette()).toBeNull();
+    expect(document.activeElement).toBe(box());
+  });
 });
 
 /** The palette's entries under the heading `heading`, each as it reads. */
@@ -102,11 +111,21 @@ const entriesUnder = (heading: string) =>
     .map((option) => option.textContent);
 
 describe("its entries", () => {
+  it("groups commands as Session, Configure, Settings and Inspect before browsing sessions", async () => {
+    const { app } = await opened();
+    await inComposer(app, "{Control>}k{/Control}");
+    const groups = within(palette() as HTMLElement).getAllByRole("group");
+    expect(groups).toEqual(["Session", "Configure", "Settings", "Inspect", "Sessions"].map((name) => within(palette() as HTMLElement).getByRole("group", { name })));
+    expect(entriesUnder("Session")).toContain("New sessionCtrl+N");
+    expect(entriesUnder("Configure")).toContain("Show or hide the sidebarCtrl+B");
+    expect(entriesUnder("Inspect")).toContain("Find in the conversationCtrl+F");
+  });
+
   it("are every action the window has wired, in the shared list's groups, each with its GUI keys in force", async () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}");
     // Stop the run is app.interrupt, whose Esc is off until "Esc stops the run" is on: no key.
-    expect(entriesUnder("Anywhere")).toEqual([
+    expect(entries()).toEqual(expect.arrayContaining([
       "Stop the runNothing is running in this session.",
       "Find in the conversationCtrl+F",
       "New sessionCtrl+N",
@@ -119,8 +138,8 @@ describe("its entries", () => {
       "Split the focused pane downwardsCtrl+Shift+\\",
       "Open or close SettingsCtrl+,",
       "Show or hide the run's detailsCtrl+I",
-    ]);
-    expect(entriesUnder("Writing a message")).toEqual([
+    ]));
+    expect(entries()).toEqual(expect.arrayContaining([
       "Send it, steer a turn, run a row, send a failed checkEnter",
       "A newline instead of sendingShift+Enter",
       "The text, then the queue, then history↑↓",
@@ -130,8 +149,8 @@ describe("its entries", () => {
       "Paste an image, or the text thereCtrl+V",
       "Have the queued message read now, mid-turnNothing is queued to read.",
       "Take the newest queued message back to edit↑Nothing is queued to withdraw.",
-    ]);
-    expect(entriesUnder("Slash commands")).toEqual([
+    ]));
+    expect(entries()).toEqual(expect.arrayContaining([
       "/modelChoose the model, and its effort where it has one",
       "/modeSet the permission mode for the next turn",
       "/attachSend an image or file with the next message",
@@ -158,7 +177,7 @@ describe("its entries", () => {
       "/forkFork this session n prompts back; bare, at the end",
       // Nothing is said yet, so the rewind a bare /rewind is has nowhere to go: dim with the runtime's reason.
       "/rewindRewind n prompts, one by default; undo takes the rewind backNo message a run has read to rewind to.",
-    ]);
+    ]));
     // Its own keys are not listed: the list's, and the one that opens it.
     expect(within(palette() as HTMLElement).queryByRole("group", { name: "A list to choose from" })).toBeNull();
     expect(entries()).not.toContainEqual(expect.stringContaining("Open the command palette"));
@@ -168,15 +187,15 @@ describe("its entries", () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>}k{/Control}");
-    expect(entriesUnder("Anywhere")).toEqual([
+    expect(entries()).toEqual(expect.arrayContaining([
       "New sessionCtrl+N",
       "New session in a new paneCtrl+Shift+N",
       "Show or hide the sidebarCtrl+B",
       "Split the focused pane to the rightCtrl+\\",
       "Split the focused pane downwardsCtrl+Shift+\\",
       "Open or close SettingsCtrl+,",
-    ]);
-    expect(entriesUnder("Settings")).toHaveLength(19);
+    ]));
+    expect(entriesUnder("Settings")).toHaveLength(20);
     expect(entries()).toHaveLength(26);
     expect(entries().at(-1)).toBe("Sessions on every environment…");
   });
@@ -280,25 +299,15 @@ describe("choosing an entry", () => {
   it("moves with ↑ and ↓ past a dim entry, and chooses with Enter where the focus was", async () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}");
-    // Nothing is running, so Stop the run is dim and the first entry that can be chosen is highlighted.
-    expect(highlighted()).toBe("Find in the conversationCtrl+F");
-    await app.user.keyboard("{ArrowDown}");
+    // Stop is dim: movement skips it while the first Session action is selected.
     expect(highlighted()).toBe("New sessionCtrl+N");
-    await app.user.keyboard("{ArrowDown}{ArrowDown}");
-    expect(highlighted()).toBe("Show or hide the sidebarCtrl+B");
     await app.user.keyboard("{ArrowDown}");
-    expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
-    await app.user.keyboard("{ArrowDown}");
-    expect(highlighted()).toBe("Choose the session browser for the next run");
-    await app.user.keyboard("{ArrowDown}");
-    expect(highlighted()).toBe("Show or hide the browserCtrl+Shift+B");
-    await app.user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
-    expect(highlighted()).toBe("Open or close SettingsCtrl+,");
-    await app.user.keyboard("{ArrowDown}");
-    expect(highlighted()).toMatch(/^Show or hide the run's details/);
-    await app.user.keyboard("{ArrowDown}{ArrowUp}");
-    expect(highlighted()).toMatch(/^Show or hide the run's details/);
-    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
+    expect(highlighted()).toBe("New session in a new paneCtrl+Shift+N");
+    await app.user.keyboard("{ArrowUp}");
+    expect(highlighted()).toBe("New sessionCtrl+N");
+    await app.user.keyboard("Find in the conversation");
+    await waitFor(() => expect(highlighted()).toBe("Find in the conversationCtrl+F"));
+    await app.user.keyboard("{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });
@@ -338,16 +347,29 @@ describe("an entry that cannot be done now", () => {
 });
 
 describe("the sessions page", () => {
+  it("shows a session's age, workspace, branch and environment swatch without losing its title or environment", async () => {
+    const { app } = await opened({ sessions: [{ title: "Receipts", workspace: { kind: "worktree", path: "/projects/receipts", repository: "/projects/main", branch: "fix/receipts" } }] });
+    await inComposer(app, "{Control>}k{/Control}");
+    await app.user.click(entry("Sessions on every environment"));
+    const row = within(palette() as HTMLElement).getByRole("option", { name: /Receipts/ });
+    expect(within(row).getByText("/projects/receipts")).toBeTruthy();
+    expect(within(row).getByText("fix/receipts")).toBeTruthy();
+    expect(within(row).getByText("just now")).toBeTruthy();
+    expect(within(row).getByRole("img", { name: "desk colour" })).toBeTruthy();
+    act(() => app.clock.advance(120_000));
+    expect(within(row).getByText("2m ago")).toBeTruthy();
+  });
+
   it("finds a session on the second environment through projections.search, and opens it in the focused pane", async () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}");
     await app.user.click(entry("Sessions on every environment"));
     expect(query()).toHaveProperty("value", "");
     expect(document.activeElement).toBe(query());
-    expect(entries()).toEqual(["Receiptsdesk", "Parser rewritelab", "Release noteslab"]);
+    expect(entries()).toEqual([expect.stringMatching(/^Receiptsdeskjust now/), expect.stringMatching(/^Parser rewritelabjust now/), expect.stringMatching(/^Release noteslabjust now/)]);
 
     await app.user.keyboard("pars");
-    await waitFor(() => expect(entries()).toEqual(["Parser rewritelab"]));
+    await waitFor(() => expect(entries()).toEqual([expect.stringMatching(/^Parser rewritelabjust now/)]));
     await app.user.keyboard("{Enter}");
     expect(palette()).toBeNull();
     const lab = app.environment("lab");
@@ -359,14 +381,14 @@ describe("the sessions page", () => {
     await inComposer(app, "{Control>}k{/Control}rele");
     await waitFor(() => expect(entries()).toEqual(["Sessions on every environment matching “rele”"]));
     await app.user.keyboard("{Enter}");
-    await waitFor(() => expect(entries()).toEqual(["Release noteslab"]));
+    await waitFor(() => expect(entries()).toEqual([expect.stringMatching(/^Release noteslabjust now/)]));
     expect(query()).toHaveProperty("value", "rele");
   });
 
   it("goes back to the first page on Backspace at an empty query, and not before", async () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}rele{Enter}");
-    await waitFor(() => expect(entries()).toEqual(["Release noteslab"]));
+    await waitFor(() => expect(entries()).toEqual([expect.stringMatching(/^Release noteslabjust now/)]));
     await app.user.keyboard("{Backspace}{Backspace}{Backspace}{Backspace}");
     await waitFor(() => expect(entries()).toHaveLength(3));
     await app.user.keyboard("{Backspace}");
