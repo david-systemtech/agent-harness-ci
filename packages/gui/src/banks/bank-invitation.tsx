@@ -1,5 +1,7 @@
 import type { BankLocation, ForgeAccountRecord } from "@agent-harness/contracts";
+import { UserPlus } from "lucide-react";
 import { useMemo } from "react";
+import { Tooltip } from "../ui/index.js";
 import { CopyLine } from "../settings/copy-line.js";
 import { ExternalLink } from "../session/external-link.js";
 import { useFollowed, useRuntime } from "../window-context.js";
@@ -22,7 +24,7 @@ export const BankInvitation = ({ environmentId, location, forges }: {
     ? github ? `${location.origin}/orgs/${owner}/people` : `${location.origin}/org/${owner}/members`
     : `${join}/settings/${github ? "access" : "collaboration"}`;
   return <>
-    <ExternalLink url={invite}>Invite teammates on {host}</ExternalLink>
+    <Tooltip content="Invite teammates · Tab, Enter or Space"><span className="inline-flex"><ExternalLink look="inline-flex items-center gap-1.5 text-beam-text underline" url={invite}><UserPlus aria-hidden="true" className="size-4" />Invite teammates on {host}</ExternalLink></span></Tooltip>
     <CopyLine label="Join link" text={join} />
   </>;
 };

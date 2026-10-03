@@ -112,8 +112,8 @@ describe("detection", () => {
     expect(forge.requests).toEqual(EVERY_ROUTE);
   });
 
-  it("answers unreachable for an address nothing listens on, and for one answering a route that it cannot now, asking nothing after", async () => {
-    const nowhere = await unreachableOrigin();
+  it("answers unreachable for an address dropping every connection, and for one answering a route that it cannot now, asking nothing after", async () => {
+    const nowhere = await unreachableOrigin(onCleanup);
     expect(await detect(nowhere, (url, init) => fetch(url, init))).toEqual({ outcome: "unreachable", message: expect.stringMatching(/^The forge at http:\/\/127\.0\.0\.1:\d+ could not be reached: /) });
 
     const busy = await fakeForge();

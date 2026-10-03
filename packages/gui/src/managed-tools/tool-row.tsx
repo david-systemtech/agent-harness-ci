@@ -11,9 +11,10 @@ import {
   type ActionOutcome,
 } from "@agent-harness/client-runtime";
 import { VerifiableToolName, managedTool, type ManagedToolDetail, type ManagedToolRow, type RunnableToolAction, type ToolRunFinishedPayload } from "@agent-harness/contracts";
+import { ArrowDownToLine, CircleCheck, Info, Terminal } from "lucide-react";
 import { useId, useState } from "react";
 import { CopyLine } from "../settings/copy-line.js";
-import { Button, Fact } from "../ui/index.js";
+import { Button, Fact, Tooltip } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import type { ShownRun } from "./tool-terminal.js";
 
@@ -78,14 +79,15 @@ export const ToolRow = ({ environmentId, name, row, writable, readable, finished
   };
 
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-md border border-line p-3">
-      <header className="flex items-baseline gap-2">
-        <h4 id={heading} className="text-sm font-semibold text-ink">
+    <section data-managed-tool={row.tool} aria-labelledby={heading} className="flex flex-col gap-2 px-3 py-2.5">
+      <header className="flex flex-wrap items-center gap-2">
+        <Terminal aria-hidden="true" className="size-4 text-cyan" />
+        <h4 id={heading} className="text-xs font-medium text-ink">
           {row.label}
         </h4>
         <span className="font-mono text-xs text-ink-muted">{row.tool}</span>
       </header>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-2xs">
         <Fact name="Version">{installed ? (row.version ?? "Not read") : null}</Fact>
         <Fact name="Install method">{row.method === null ? null : INSTALL_METHOD_WORDS[row.method]}</Fact>
         <Fact name="Minimum">{row.minimum ?? "None"}</Fact>
@@ -95,19 +97,19 @@ export const ToolRow = ({ environmentId, name, row, writable, readable, finished
       </dl>
       <div className="flex flex-wrap gap-2">
         {action !== null && (
-          <Button tone="primary" disabled={!writable} onClick={() => void run(action)}>
-            {runWords(row, action)}
-          </Button>
+          <Tooltip content={`${runWords(row, action)} · Enter / Space`}><Button variant="secondary" disabled={!writable} onClick={() => void run(action)}>
+            <ArrowDownToLine aria-hidden="true" />{runWords(row, action)}
+          </Button></Tooltip>
         )}
         {verifiable.success && (
-          <Button disabled={!writable} onClick={() => void verify(verifiable.data)}>
-            Verify
-          </Button>
+          <Tooltip content="Verify tool · Enter / Space"><Button disabled={!writable} onClick={() => void verify(verifiable.data)}>
+            <CircleCheck aria-hidden="true" />Verify
+          </Button></Tooltip>
         )}
         {row.tool === "claude" && (
-          <Button disabled={!readable} onClick={() => void details()}>
-            Details
-          </Button>
+          <Tooltip content="Tool details · Enter / Space"><Button disabled={!readable} onClick={() => void details()}>
+            <Info aria-hidden="true" />Details
+          </Button></Tooltip>
         )}
       </div>
       {row.action === "copy" &&
@@ -140,7 +142,7 @@ const DoctorDetail = ({ detail }: { readonly detail: ManagedToolDetail | string 
         <p className="text-sm text-signal">{detail}</p>
       ) : (
         <>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-2xs">
             <Fact name="Detected install method">{detail.row.method === null ? "None: it is not installed." : INSTALL_METHOD_WORDS[detail.row.method]}</Fact>
             <Fact name="claude doctor reports">{doctorMethodWords(detail.doctor)}</Fact>
           </dl>
