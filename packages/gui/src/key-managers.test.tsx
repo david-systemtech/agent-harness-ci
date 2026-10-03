@@ -49,6 +49,17 @@ const facts = (region: HTMLElement): Record<string, string> => {
 };
 
 describe("a connection's card", () => {
+  it("marks a signed-in connection as verified and describes the keyboard action", async () => {
+    const app = await opened({ keyManagers: { connections: [{ label: "Project keys" }] } });
+    await openKeyManagers(app);
+    const connection = await card("Project keys");
+    expect(within(connection).getByText("Verified")).toBeDefined();
+    const verify = within(connection).getByRole("button", { name: "Verify now" });
+    expect(verify.querySelector("svg")).not.toBeNull();
+    verify.focus();
+    expect(await screen.findByRole("tooltip", { name: "Verify now · Enter / Space" })).toBeDefined();
+  });
+
   it("shows what the cached keyManagers.list holds of it: provider, label, address, method, status with its line, token, minting, base path, injection, its CLI row and a copy's source", async () => {
     const app = await opened({
       keyManagers: {
@@ -101,10 +112,10 @@ describe("a connection's card", () => {
   });
 });
 
-/** The dialog open, by its name. */
+/** A confirmation dialog, by its name. */
 const dialog = (name: string | RegExp) => screen.findByRole("dialog", { name });
 
-/** Fills the Add dialog's OpenBao form: label, address and an AppRole's role id and secret id. */
+/** Fills inline Add's OpenBao form: label, address and an AppRole's role id and secret id. */
 const fillAppRole = async (app: RenderedApp, add: HTMLElement, fields: { readonly label: string; readonly address: string; readonly secretId: string }) => {
   await app.user.clear(within(add).getByRole("textbox", { name: "Label" }));
   await app.user.type(within(add).getByRole("textbox", { name: "Label" }), fields.label);
@@ -114,14 +125,31 @@ const fillAppRole = async (app: RenderedApp, add: HTMLElement, fields: { readonl
 };
 
 describe("Add", () => {
+  it("opens Add inline and chooses a provider with named tiles before signing in", async () => {
+    const app = await opened();
+    const keyManagers = await openKeyManagers(app);
+    await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
+    const add = await within(keyManagers).findByRole("region", { name: "Add a key manager on desk" });
+    expect(screen.queryByRole("dialog", { name: "Add a key manager on desk" })).toBeNull();
+    expect(document.activeElement).toBe(within(add).getByRole("radio", { name: "OpenBao or Vault" }));
+    const provider = within(add).getByRole("radio", { name: "Doppler" });
+    await app.user.click(provider);
+    expect(provider.getAttribute("aria-checked")).toBe("true");
+    expect((within(add).getByRole("textbox", { name: "Label" }) as HTMLInputElement).value).toBe("Doppler");
+    expect(within(add).getByRole("button", { name: "Add" }).querySelector("svg")).not.toBeNull();
+    await app.user.click(within(add).getByRole("button", { name: "Cancel" }));
+    expect(within(keyManagers).queryByRole("region", { name: "Add a key manager on desk" })).toBeNull();
+    expect(document.activeElement).toBe(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
+  });
+
   it("sends keyManagers.connections.add directly with the form's fields, says a rejected credential in one line, keeps no credential, and adds on an accepted one", async () => {
     const app = await opened({ keyManagers: { rejects: ["secret-rejected-for-tests"] } });
     const keyManagers = await openKeyManagers(app);
     expect(await within(keyManagers).findByText("No key manager is connected here.")).toBeDefined();
     await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
-    const add = await dialog("Add a key manager on desk");
+    const add = await screen.findByRole("region", { name: "Add a key manager on desk" });
     // OpenBao by AppRole, the mount preset to the method's name and following it until it is typed at.
-    expect((within(add).getByRole("combobox", { name: "Provider" }) as HTMLSelectElement).value).toBe("openbao");
+    expect(within(add).getByRole("radio", { name: "OpenBao or Vault" }).getAttribute("aria-checked")).toBe("true");
     expect((within(add).getByRole("textbox", { name: "Mount" }) as HTMLInputElement).value).toBe("approle");
     await app.user.selectOptions(within(add).getByRole("combobox", { name: "Signs in by" }), "userpass");
     expect((within(add).getByRole("textbox", { name: "Mount" }) as HTMLInputElement).value).toBe("userpass");
@@ -151,7 +179,7 @@ describe("Add", () => {
 
     await app.user.type(within(add).getByLabelText("Secret ID"), "secret-for-tests");
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a key manager on desk" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a key manager on desk" })).toBeNull());
     expect(await within(keyManagers).findByText("Added Home OpenBao: Signed in to OpenBao as approle.")).toBeDefined();
     const home = await card("Home OpenBao");
     expect(facts(home)["Status"]).toMatch(/^Signed in since/);
@@ -164,8 +192,8 @@ describe("Add", () => {
     const app = await opened();
     const keyManagers = await openKeyManagers(app);
     await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
-    const add = await dialog("Add a key manager on desk");
-    await app.user.selectOptions(within(add).getByRole("combobox", { name: "Provider" }), "doppler");
+    const add = await screen.findByRole("region", { name: "Add a key manager on desk" });
+    await app.user.click(within(add).getByRole("radio", { name: "Doppler" }));
     expect((within(add).getByRole("textbox", { name: "Label" }) as HTMLInputElement).value).toBe("Doppler");
     expect((within(add).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe("https://api.doppler.com");
     expect(within(add).queryByRole("combobox", { name: "Signs in by" })).toBeNull();
@@ -186,10 +214,10 @@ describe("Add", () => {
     const app = await opened();
     const keyManagers = await openKeyManagers(app);
     await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
-    const add = await dialog("Add a key manager on desk");
+    const add = await screen.findByRole("region", { name: "Add a key manager on desk" });
     // An address typed for OpenBao first is not sent once 1Password is chosen.
     await app.user.type(within(add).getByRole("textbox", { name: "Address" }), "https://bao.home.test:8200");
-    await app.user.selectOptions(within(add).getByRole("combobox", { name: "Provider" }), "onepassword");
+    await app.user.click(within(add).getByRole("radio", { name: "1Password" }));
     expect((within(add).getByRole("textbox", { name: "Label" }) as HTMLInputElement).value).toBe("1Password");
     expect(within(add).queryByRole("textbox", { name: "Address" })).toBeNull();
     expect(within(add).getByText("No address: it is the account URL the token names, learned at sign-in.")).toBeDefined();
@@ -206,7 +234,7 @@ describe("Add", () => {
     const keyManagers = await openKeyManagers(app);
     await card("Home OpenBao");
     await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
-    const add = await dialog("Add a key manager on desk");
+    const add = await screen.findByRole("region", { name: "Add a key manager on desk" });
     await fillAppRole(app, add, { label: "Again", address: "https://bao.home.test:8200", secretId: "secret-for-tests" });
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
     expect(await within(add).findByText("Not added: A connection to OpenBao at https://bao.home.test:8200 is on this environment already.")).toBeDefined();
@@ -219,7 +247,7 @@ describe("a certificate the environment does not trust", () => {
     const app = await opened({ keyManagers: { untrusted: [address] } });
     const keyManagers = await openKeyManagers(app);
     await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
-    const add = await dialog("Add a key manager on desk");
+    const add = await screen.findByRole("region", { name: "Add a key manager on desk" });
     await fillAppRole(app, add, { label: "Home OpenBao", address, secretId: "secret-for-tests" });
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
     const home = await card("Home OpenBao");
@@ -768,7 +796,7 @@ describe("the row's reach", () => {
     const keyManagers = await openKeyManagers(app, "laptop");
     await card("Laptop OpenBao");
     await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
-    const add = await dialog("Add a key manager on laptop");
+    const add = await screen.findByRole("region", { name: "Add a key manager on laptop" });
     await fillAppRole(app, add, { label: "Work OpenBao", address: "https://bao.work.test", secretId: "secret-for-tests" });
 
     const laptop = app.environment("laptop");

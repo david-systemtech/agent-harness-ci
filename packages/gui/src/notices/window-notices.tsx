@@ -5,12 +5,13 @@ import { useLocalService } from "../connections/local-service.js";
 import { useOpenPairing } from "../connections/pairing.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { useChecklist } from "../setup/checklist-window.js";
-import { Toast, Toasts } from "../ui/index.js";
+import { ArrowRight, Info, TriangleAlert, X } from "lucide-react";
+import { Button, IconButton, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /**
  * The window's notices (docs/specs/gui.md, "Parked asks, attention and
- * notices"): every notice of `projections.notices` is a toast with its line
+ * notices"): every notice of `projections.notices` is a banner with its line
  * and what it offers, stacked in one list, newest last, each kept until it
  * is dismissed. Dismissing one takes it off this client alone
  * (`notices.dismiss`), and so does running what it offers:
@@ -30,7 +31,7 @@ import { useObservable, useRuntime } from "../window-context.js";
  *   session, in the focused pane.
  */
 
-/** What a toast offers: a button that runs something, or a line saying why it cannot. */
+/** What a banner offers: a button that runs something, or a line saying why it cannot. */
 type Offer = { readonly label: string; readonly run: () => void } | { readonly line: string } | undefined;
 
 /** The step a notice offers, when its action is one: `setup.key-manager` offers the Key manager step. */
@@ -71,41 +72,74 @@ const useOffer = (notice: Notice): Offer => {
   }
 };
 
-/** One notice's toast: its line, what it offers, and Dismiss. */
-const NoticeToast = ({ notice }: { readonly notice: Notice }) => {
+/** The feed carries kinds and routine outcomes; tint is renderer presentation only. */
+const toneOf = (notice: Notice): "info" | "warning" | "error" => {
+  switch (notice.kind) {
+    case "revoked":
+    case "expired":
+    case "refresh-failed":
+    case "update-failed":
+    case "routine-delivery-failed":
+    case "command-rejected":
+    case "command-dropped":
+      return "error";
+    case "unsupported-client":
+    case "protocol-mismatch":
+    case "update-refused":
+    case "draining":
+    case "account":
+    case "prompt-parked":
+    case "forge":
+    case "key-manager":
+    case "workspace-kept":
+      return "warning";
+    case "routine":
+      return notice.outcome === "failed" ? "error" : "info";
+    case "updated":
+    case "prompt-resolved":
+      return "info";
+  }
+};
+const TINTS = {
+  info: "border-hairline bg-wash",
+  warning: "border-amber/45 bg-amber/10",
+  error: "border-signal/45 bg-signal/10",
+};
+
+/** A persistent notice in normal flow, with wrapping text and client-local actions. */
+const NoticeBanner = ({ notice }: { readonly notice: Notice }) => {
   const runtime = useRuntime();
   const offer = useOffer(notice);
   const dismiss = () => runtime.notices.dismiss(notice.id);
+  const tone = toneOf(notice);
+  const Icon = tone === "info" ? Info : TriangleAlert;
+  const label = tone === "info" ? "Information" : tone === "warning" ? "Warning" : "Error";
   return (
-    <Toast
-      open
-      duration={Infinity}
-      title={notice.message}
-      {...(offer !== undefined && "line" in offer && { description: offer.line })}
-      {...(offer !== undefined &&
-        "run" in offer && {
-          action: {
-            label: offer.label,
-            run: () => {
-              dismiss();
-              offer.run();
-            },
-          },
-        })}
-      onOpenChange={(open) => !open && dismiss()}
-    />
+    <li data-notice-tone={tone} className={`relative flex min-w-0 flex-wrap items-start gap-x-2 gap-y-2 rounded-[8px] border px-3 py-2 pr-9 text-ink ${TINTS[tone]}`}>
+      <Icon role="img" aria-label={label} className={`size-4 shrink-0 ${tone === "error" ? "text-signal" : tone === "warning" ? "text-amber" : "text-ink-muted"}`} />
+      <div role={tone === "info" ? "status" : "alert"} className="min-w-0 max-w-full flex-1 basis-[16rem] font-mono text-2xs [overflow-wrap:anywhere]">
+        <p>{notice.message}</p>
+        {offer !== undefined && "line" in offer && <p className="mt-1 text-ink-muted">{offer.line}</p>}
+      </div>
+      {offer !== undefined && "run" in offer && <Tooltip content={`${offer.label} · Enter / Space`}>
+        <Button variant="outline" size="xs" className="min-w-0 max-w-full" onClick={() => { dismiss(); offer.run(); }}>
+          <ArrowRight aria-hidden="true" /><span className="truncate">{offer.label}</span>
+        </Button>
+      </Tooltip>}
+      <IconButton label="Dismiss" keys="Enter / Space" size="icon-xs" className="absolute top-1 right-1" onClick={dismiss}><X aria-hidden="true" /></IconButton>
+    </li>
   );
 };
 
-/** Every notice this client holds, as a toast in one list. */
+/** Every notice, oldest first; the bounded stack leaves the grid and composer reachable. */
 export const WindowNotices = () => {
   const notices = useObservable(useRuntime().projections.notices);
   if (notices.length === 0) return null;
   return (
-    <Toasts>
-      {notices.map((notice) => (
-        <NoticeToast key={notice.id} notice={notice} />
-      ))}
-    </Toasts>
+    <section aria-label="Notifications" className="mb-[7px] max-h-[40%] min-h-0 shrink-0 overflow-y-auto">
+      <ul className="flex min-w-0 flex-col gap-1.5">
+        {notices.map((notice) => <NoticeBanner key={notice.id} notice={notice} />)}
+      </ul>
+    </section>
   );
 };
