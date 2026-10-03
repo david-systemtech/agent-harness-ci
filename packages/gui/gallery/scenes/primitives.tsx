@@ -30,13 +30,19 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
         <IconButton label="New session" keys="Ctrl+N" disabledReason="Sign in first"><Plus aria-hidden="true" /></IconButton>
       </Part>
       <Part title="Text controls">
-        <Field label="Name" description="Shown in the window"><Input data-geometry="input" defaultValue="Desk" /></Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Name" description="Shown in the window"><Input data-geometry="input" defaultValue="Desk" /></Field>
+          <Field label="Invalid name" error="Choose a name"><Input aria-invalid defaultValue="" /></Field>
+        </div>
         <Input aria-label="Disabled name" disabled defaultValue="Unavailable" />
-        <Field label="Invalid name" error="Choose a name"><Input aria-invalid defaultValue="" /></Field>
-        <Field label="Effort"><Select defaultValue="medium"><option>Low</option><option value="medium">Medium</option><option>High</option></Select></Field>
-        <Select aria-label="Disabled choice" disabled><option>Unavailable</option></Select>
-        <Textarea aria-label="Notes" placeholder="Write a note" />
-        <Textarea aria-label="Disabled notes" disabled defaultValue="Read only" />
+        <div className="grid grid-cols-2 items-end gap-2">
+          <Field label="Effort"><Select defaultValue="medium"><option>Low</option><option value="medium">Medium</option><option>High</option></Select></Field>
+          <Select aria-label="Disabled choice" disabled><option>Unavailable</option></Select>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Textarea aria-label="Notes" placeholder="Write a note" />
+          <Textarea aria-label="Disabled notes" disabled defaultValue="Read only" />
+        </div>
       </Part>
       <Part title="Choices">
         <div className="flex items-center gap-3"><Switch aria-label="Off" /><Switch aria-label="On" defaultChecked /><Switch aria-label="Disabled switch" defaultChecked disabled /><Switch aria-label="Small switch" size="sm" defaultChecked /></div>
@@ -56,8 +62,7 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
         <div className="flex items-center gap-2"><Spinner label="Loading" /><Skeleton className="h-4 w-32" /></div>
         <Progress aria-label="Starting" value={0} /><Progress aria-label="Halfway" value={50} /><Progress aria-label="Complete" value={100} /><Progress aria-label="Unknown progress" value={null} />
         <Alert><Info aria-hidden="true" /><AlertTitle>Information</AlertTitle><AlertDescription>Keep working in this window.</AlertDescription></Alert>
-        <Alert variant="warning"><AlertTitle>Needs attention</AlertTitle><AlertDescription>Check the connection.</AlertDescription></Alert>
-        <Alert variant="destructive"><AlertTitle>Could not connect</AlertTitle><AlertDescription>Try again.</AlertDescription></Alert>
+        <div className="grid grid-cols-2 gap-2"><Alert variant="warning"><AlertTitle>Needs attention</AlertTitle><AlertDescription>Check the connection.</AlertDescription></Alert><Alert variant="destructive"><AlertTitle>Could not connect</AlertTitle><AlertDescription>Try again.</AlertDescription></Alert></div>
       </Part>
       <Part title="Cards and items">
         <Card size="sm"><CardHeader><CardTitle>Project</CardTitle><CardDescription>Work with a coding agent.</CardDescription><CardAction><Badge variant="secondary">Ready</Badge></CardAction></CardHeader><CardContent><Item variant="outline" size="xs"><ItemContent><ItemTitle>Session</ItemTitle><ItemDescription>A short description</ItemDescription></ItemContent><ItemActions><IconButton label="Add session" size="icon-xs"><Plus aria-hidden="true" /></IconButton></ItemActions></Item></CardContent><CardFooter><Button variant="outline" size="xs"><Plus aria-hidden="true" />New session</Button></CardFooter></Card>
@@ -76,9 +81,12 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
 
 /** Measured control heights at the default 16px root; both ladders use the same geometry. */
 export const geometry = [
-  ...(["xs", "sm", "default", "lg"] as const).map((size, index) => ({ selector: `button[data-size="${size}"]`, height: [24, 28, 32, 36][index], tolerance: 0.1 })),
+  { selector: "main[data-scene=primitives]", width: 1400, height: 900, tolerance: 0.1 },
+  ...([["xs", 24], ["sm", 28], ["default", 32], ["lg", 36]] as const).map(([size, height]) => ({ selector: `button[data-size="${size}"]`, height, tolerance: 0.1 })),
+  ...([["icon-xs", 24], ["icon-sm", 28], ["icon", 32], ["icon-lg", 36]] as const).map(([size, dimension]) => ({ selector: `button[data-size="${size}"]`, width: dimension, height: dimension, tolerance: 0.1 })),
   { selector: "input[data-geometry=input]", height: 32, tolerance: 0.1 },
   { selector: "[role=switch][data-size=default]", width: 32, height: 18.4, tolerance: 0.1 },
+  { selector: "[role=switch][data-size=sm]", width: 24, height: 14, tolerance: 0.1 },
 ];
 export const ladders = ["light", "dark"] as const;
 export default PrimitivesScene;

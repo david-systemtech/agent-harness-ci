@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { Plus } from "lucide-react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { Button, IconButton } from "./button.js";
 import { Field } from "./field.js";
 import { Input } from "./input.js";
@@ -20,6 +20,7 @@ import { Empty, EmptyTitle, EmptyDescription } from "./empty.js";
 import { Spinner, StatusDot, Skeleton } from "./feedback.js";
 import { CodeBlock } from "./code-block.js";
 import { Swatch } from "./swatch.js";
+import { mountGallery } from "../../gallery/mount.js";
 import { PrimitivesScene } from "../../gallery/scenes/primitives.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 
@@ -155,5 +156,17 @@ describe("window controls", () => {
       act(() => vi.advanceTimersByTime(1));
       expect(screen.getByRole("status").textContent).toBe("");
     } finally { vi.useRealTimers(); }
+  });
+  it.each(["light", "dark"] as const)("discovers and mounts the primitives gallery URL in the %s ladder", async (ladder) => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => {
+      const gallery = await mountGallery(container, "primitives", ladder);
+      onTestFinished(async () => { await act(async () => { await gallery.close(); }); container.remove(); });
+    });
+    expect(container.dataset["galleryReady"]).toBe("primitives");
+    expect(document.documentElement.dataset["ladder"]).toBe(ladder);
+    expect(screen.getByRole("heading", { name: "Window primitives" })).toBeTruthy();
+    expect(container.dataset["galleryGeometry"]).toContain("input[data-geometry=input]");
   });
 });
