@@ -368,6 +368,7 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'desktop/agent-harness-desktop-win32-x64-setup.exe').Path -Destination (Join-Path $work 'desktop')
             New-Item -ItemType Directory -Path (Join-Path $work 'scripts') -Force | Out-Null
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-extension.mjs').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
             $smoke = @'
           param([Parameter(Mandatory)][string] $Version)
@@ -418,12 +419,9 @@ jobs:
           $listener.Stop()
           $process = $null
           $serviceLog = Join-Path $dataDir "logs\service.log"
+          . (Join-Path $PSScriptRoot 'scripts/stop-windows-process-tree.ps1')
           function Stop-Tree {
-            if ($null -ne $process -and !$process.HasExited) {
-              & taskkill.exe /PID $process.Id /T /F | Out-Host
-              if ($LASTEXITCODE -ne 0) { throw 'Could not kill the smoke process tree' }
-              if (!$process.WaitForExit(10000)) { throw 'The smoke process tree did not stop' }
-            }
+            if ($null -ne $process -and !$process.HasExited) { Stop-OwnedProcessTree -Root $process }
           }
           function Show-Logs {
             Get-ChildItem -LiteralPath $dataDir -Recurse -Filter '*.log' | ForEach-Object {

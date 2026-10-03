@@ -116,7 +116,9 @@ describe("the public release's packaged server smoke tests", () => {
     expect(body).toContain('names no version');
     expect(body).toContain('launcher-entry version check (#1382)');
     expect(body).toContain('finally {');
-    expect(body).toContain('taskkill.exe /PID $process.Id /T /F');
+    expect(body).toContain('Stop-OwnedProcessTree -Root $process');
+    expect(body).toContain(". (Join-Path $PSScriptRoot 'scripts/stop-windows-process-tree.ps1')");
+    expect(body).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')");
     expect(body).not.toContain('service uninstall --data-dir $dataDir');
     expect(body).toContain('"Uninstall agent-harness.exe"');
     expect(body).toContain('$uninstall.ExitCode -ne 0');
