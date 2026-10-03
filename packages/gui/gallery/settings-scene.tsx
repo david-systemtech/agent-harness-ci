@@ -2,6 +2,7 @@ import { settingsDeepLink } from "@agent-harness/client-runtime";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect } from "react";
 import { App } from "../src/app.js";
+import type { SceneGeometry, SceneViewport } from "./scene-registry.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 /** Real Settings over the session window, with only fake accounts and environments. */
@@ -37,12 +38,15 @@ export async function settingsScene(search: boolean) {
   };
 }
 
-/** look.md §12.1–12.2, at the gallery's 1400×900 viewport. */
-export const settingsGeometry = [
-  { selector: "[data-settings-dialog]", width: 1000, height: 660 },
-  { selector: 'nav[aria-label="Settings rows"]', width: 208 },
-  { selector: 'input[aria-label="Search settings"]', height: 32 },
-  { selector: '[aria-label="Close Settings"]', width: 24, height: 24 },
-  { selector: "[data-settings-pane]", width: 792 },
-  { selector: 'nav[aria-label="Settings rows"] button svg', width: 16, height: 16 },
-];
+/** look.md §12.1–12.2: capped dialog with 24px clearance on every side. */
+export const settingsGeometry = ({ width, height }: SceneViewport): readonly SceneGeometry[] => {
+  const dialogWidth = Math.min(1000, width - 48);
+  return [
+    { selector: "[data-settings-dialog]", width: dialogWidth, height: Math.min(660, height - 48) },
+    { selector: 'nav[aria-label="Settings rows"]', width: 208 },
+    { selector: 'input[aria-label="Search settings"]', height: 32 },
+    { selector: '[aria-label="Close Settings"]', width: 24, height: 24 },
+    { selector: "[data-settings-pane]", width: dialogWidth - 208 },
+    { selector: 'nav[aria-label="Settings rows"] button svg', width: 16, height: 16 },
+  ];
+};
