@@ -112,7 +112,7 @@ const CatalogueCard = ({ entry, environmentId, tick, readable, say }: {
       <p className="text-sm text-ink-muted">{entry.pitch}</p>
       <p className="text-sm">{entry.skillCount} skill(s)</p>
       <p className="text-sm">
-        {(licence.where.kind !== "file" || licence.holder === null) && <TriangleAlert aria-label="Licence caution" className="inline size-3.5 text-amber" />}
+        {(licence.where.kind !== "file" || licence.holder === null) && <TriangleAlert aria-label="Licence caution" className="mr-1 inline size-3.5 text-amber" />}
         <a href={licence.link} target="_blank" rel="noreferrer">{licence.spdx ?? "No licence"} — {declaration}</a>
         {licence.holder !== null && ` · ${licence.holder}`}
       </p>

@@ -5,6 +5,8 @@ import { usePickedEnvironment, useSettings } from "../settings/settings-window.j
 import { classes } from "../ui/classes.js";
 import { RotateCw } from "lucide-react";
 import { DialogAction as Button } from "../ui/dialog-action.js";
+import { Tooltip } from "../ui/tooltip.js";
+import { STEP_ICONS } from "./step-card.js";
 import { useRuntime } from "../window-context.js";
 import { useChecklist } from "./checklist-window.js";
 import { HealthDot } from "./health-dot.js";
@@ -54,15 +56,18 @@ export const SetupPane = () => {
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       <ol aria-label="Steps" className="flex flex-col gap-1">
-        {view.steps.map((step) => (
-          <li key={step.id} className="flex items-baseline gap-3">
-            <span className="flex w-4 shrink-0 justify-center self-center">
+        {view.steps.map((step, index) => (
+          <li key={step.id} className="flex min-w-0 items-center gap-2">
+            <span aria-hidden="true" className="w-[18px] shrink-0 text-right font-mono text-xs text-ink-faint">{index + 1}</span>
+            <span className="flex w-1.5 shrink-0 justify-center">
               <HealthDot state={step.result?.state ?? null} of={step.label} />
             </span>
-            <Button className={classes("w-36 shrink-0 justify-start", !step.registered && "text-ink-faint")} onClick={() => openRow(step.home, environmentId)}>
+            <Button icon={STEP_ICONS[step.id]} size="sm" className={classes("w-36 shrink-0 justify-start", !step.registered && "text-ink-faint")} onClick={() => openRow(step.home, environmentId)}>
               {step.label}
             </Button>
-            <span className="text-sm text-ink-muted">{stepLine(step, now)}</span>
+            <Tooltip content={stepLine(step, now)}>
+              <span className="min-w-0 truncate text-xs text-ink-muted">{stepLine(step, now)}</span>
+            </Tooltip>
           </li>
         ))}
       </ol>
