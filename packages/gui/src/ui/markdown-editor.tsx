@@ -22,6 +22,7 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
 }) => {
   const [link, setLink] = useState<string | null>(null);
   const lastMarkdown = useRef(value);
+  const linkHandled = useRef(false);
   const extensions = useMemo(() => [StarterKit.configure({ heading: { levels: [2, 3] }, link: { openOnClick: false }, underline: false }),
       Markdown.configure({ html: false, tightLists: true, bulletListMarker: "-", transformPastedText: true, transformCopiedText: true }),
       CharacterCount.configure({ limit: maxLength }),
@@ -69,10 +70,11 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
     { name: "Ordered list", icon: ListOrdered, active: editor.isActive("orderedList"), run: () => editor.chain().focus().toggleOrderedList().run(), keys: "Mod+Shift+7" },
     { name: "Quote", icon: Quote, active: editor.isActive("blockquote"), run: () => editor.chain().focus().toggleBlockquote().run(), keys: "Mod+Shift+B" },
     { name: "Code block", icon: SquareCode, active: editor.isActive("codeBlock"), run: () => editor.chain().focus().toggleCodeBlock().run(), keys: "Mod+Alt+C" },
-    { name: "Link", icon: Link, active: editor.isActive("link"), run: () => setLink(String(editor.getAttributes("link")["href"] ?? "")), keys: "Enter to edit URL", separator: true },
+    { name: "Link", icon: Link, active: editor.isActive("link"), run: () => { linkHandled.current = false; setLink(String(editor.getAttributes("link")["href"] ?? "")); }, keys: "Enter to edit URL", separator: true },
   ];
   const applyLink = () => {
-    if (link === null) return;
+    if (link === null || readOnly || linkHandled.current) return;
+    linkHandled.current = true;
     const chain = editor.chain().focus().extendMarkRange("link");
     if (link.trim() === "") chain.unsetLink().run();
     else chain.setLink({ href: link.trim() }).run();
@@ -85,7 +87,7 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
       </span>)}
       {link !== null && <Input data-local-escape autoFocus aria-label="Link URL" title="Link URL · Enter or blur to apply · Escape to cancel" value={link} className="h-7 w-56 rounded-md px-2 font-mono text-2xs" onChange={(event) => setLink(event.target.value)} onBlur={applyLink} onKeyDown={(event) => {
         if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); applyLink(); }
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setLink(null); editor.commands.focus(); }
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); linkHandled.current = true; setLink(null); editor.commands.focus(); }
       }} />}
     </div>}
     <EditorContent editor={editor} />

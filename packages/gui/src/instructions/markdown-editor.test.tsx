@@ -1,4 +1,5 @@
 import "../../test/markdown-editor-dom.js";
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "../ui/markdown-editor.js";
@@ -67,6 +68,28 @@ describe("instruction Markdown editing", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Link URL" }), { target: { value: "https://example.test/cancelled" } });
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Link URL" }), { key: "Escape" });
     expect(change).not.toHaveBeenCalled();
+  });
+  it("cancels the URL before synchronous editor focus can blur it", async () => {
+    const agent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Version/18.0 Safari/605.1.15");
+    try {
+      const user = userEvent.setup();
+      const change = vi.fn();
+      render(<MarkdownField value="A habit" change={change} />);
+      fireEvent.keyDown(screen.getByRole("textbox"), { key: "a", ctrlKey: true });
+      await user.click(screen.getByRole("button", { name: "Link" }));
+      const url = screen.getByRole("textbox", { name: "Link URL" });
+      expect(document.activeElement).toBe(url);
+      await user.type(url, "https://example.test/cancelled");
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("textbox", { name: "Link URL" })).toBeNull();
+      expect(change).not.toHaveBeenCalled();
+      expect(screen.getByRole("textbox").querySelector("a")).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Link" }));
+      await user.type(screen.getByRole("textbox", { name: "Link URL" }), "https://example.test/guide");
+      await user.tab();
+      expect(change).toHaveBeenCalledTimes(1);
+      expect(change).toHaveBeenLastCalledWith("[A habit](https://example.test/guide)");
+    } finally { agent.mockRestore(); }
   });
   it("keeps raw HTML out of the rendered document", () => {
     render(<MarkdownField value={'<img src="example" onerror="alert(1)">'} change={() => undefined} />);
