@@ -538,7 +538,10 @@ Rows of columns, not a fixed matrix. At most 8 panes, fixed floors 360px wide an
 220px high. A single pane has no caption or unnecessary divider. Multi-pane
 caption 32/x 10/gap 6, draggable; focused beam/55 boundary/wash, other hairline.
 Seven-pixel transparent dividers: beam/30 hover, beam/50 drag, keyboard-accessible
-separator. User resizing persists shares; closing a caption backgrounds a live
+separator. A refused grid operation shows a compact amber status strip above
+the grid until the next split, close or opening clears it; this is separate from
+the runtime notice feed. Split actions in More and the palette show the same reason.
+User resizing persists shares; closing a caption backgrounds a live
 session and never closes the last pane or silently stops its run. Centre/right/
 bottom session drop targets open or split; pane drag can move/swap. Valid target
 beam/15 fill and beam/50 inset ring, dashed beam/70 label on panel x 12/y 6,
