@@ -1,5 +1,8 @@
 import type { DropTarget, EnvironmentView, HeadingRow, RowActivity } from "@agent-harness/client-runtime";
-import { Fragment, useState } from "react";
+import { useMemo, useState } from "react";
+import { GitBranch, LoaderCircle } from "lucide-react";
+import { useObservable, useRuntime } from "../window-context.js";
+import { SessionTooltip, RowTooltip, accountSwatch, sessionAge } from "./session-tooltip.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import { PullRequestMark } from "../session/pull-requests.js";
@@ -8,6 +11,7 @@ import { ContextMenu, ContextMenuTrigger } from "../ui/index.js";
 import { useDragRow, useDropTarget } from "./drag.js";
 import { useOrganise } from "./organise.js";
 import { RenameField } from "./rename-field.js";
+import { contextMenuKeys } from "./menu-entry.js";
 import { RowMenu } from "./row-menu.js";
 import { activityWords, quoted } from "./words.js";
 
@@ -24,18 +28,11 @@ import { activityWords, quoted } from "./words.js";
  * takes a dragged one dropped on it (`drag.tsx`).
  */
 
-/** The activity's mark: a dot while starting or running, the parked count in the warning's colour; nothing while idle. */
+/** Six-pixel semantic dots, with waiting taking precedence in the runtime's activity resolver. */
 const ActivityMark = ({ activity }: { readonly activity: RowActivity }) => {
   const words = activityWords(activity);
   if (words === undefined) return null;
-  if (activity.state === "parked") {
-    return (
-      <span role="img" aria-label={words} className="shrink-0 rounded-sm px-1 text-xs font-semibold text-amber">
-        ?{activity.parked > 0 ? activity.parked : ""}
-      </span>
-    );
-  }
-  return <span role="img" aria-label={words} className={classes("size-2 shrink-0 rounded-full", activity.state === "running" ? "bg-sage" : "border border-cyan")} />;
+  return <span role="img" aria-label={words} className={classes("size-1.5 shrink-0 rounded-full", activity.state === "parked" ? "bg-amber" : "bg-cyan", activity.state === "running" && "motion-safe:animate-pulse")} />;
 };
 
 export interface SessionRowProps {
@@ -54,13 +51,17 @@ export const TITLE_MOST = 200;
 export const SessionRowView = ({ line, environment, current, drop, open }: SessionRowProps) => {
   const { row } = line;
   const { summary } = row;
+  const runtime = useRuntime();
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(row.environmentId), [runtime, row.environmentId]));
+  const account = accounts.value?.find((held) => held.id === summary.accountId);
+  const age = sessionAge(summary.lastActivityAt ?? summary.updatedAt, runtime.environmentNow(row.environmentId));
   const name = environment?.name ?? THIS_MACHINE;
   const organise = useOrganise();
   const [editing, setEditing] = useState(false);
   const dragging = useDragRow(row);
   const target = useDropTarget(drop);
   return (
-    <li {...target.handlers} className={classes("rounded-sm", target.over && "bg-wash-strong")}>
+    <li {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
       {editing ? (
         <RenameField
           label={`Rename ${quoted(summary.title)}`}
@@ -71,47 +72,42 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
         />
       ) : (
         <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <button
-              type="button"
-              onClick={open}
-              {...dragging}
-              aria-current={current ? "true" : undefined}
-              title={line.dim ? `Cached: ${name} is not answering.` : undefined}
-              className={classes(
-                "flex w-full min-w-0 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-sm outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
-                line.dim ? "text-ink-faint" : "text-ink",
-                current && "bg-wash-strong",
-              )}
-            >
-              {/* Each part after a space of its own, outside it, so the row's name reads "desk Later 18:00 Pending". */}
-              <EnvironmentGlyph view={environment} label={name} />{" "}
-              <span className="min-w-0 flex-1 truncate">{summary.title}</span>
-              {summary.tags.map((tag) => (
-                <Fragment key={tag}>
-                  {" "}
-                  <span className="shrink-0 text-xs text-ink-faint">#{tag}</span>
-                </Fragment>
-              ))}
-              {line.wake !== null && (
-                <>
-                  {" "}
-                  <span className="shrink-0 text-xs text-ink-muted">{line.wake}</span>
-                </>
-              )}
-              <PullRequestMark pullRequests={summary.pullRequests} />
-              {line.activity.state !== "idle" && " "}
-              <ActivityMark activity={line.activity} />
-              {line.pending && (
-                <>
-                  {" "}
-                  <span role="img" aria-label="Pending" title="Sent; waiting for the environment's receipt." className="shrink-0 text-amber">
-                    ↻
-                  </span>
-                </>
-              )}
-            </button>
-          </ContextMenuTrigger>
+          <RowTooltip content={<SessionTooltip line={line} environment={name} account={account?.label} />}>
+            <ContextMenuTrigger asChild>
+              <button
+                type="button"
+                onClick={open}
+                onKeyDown={contextMenuKeys}
+                {...dragging}
+                data-sidebar-row
+                aria-label={[name, summary.title, ...summary.tags.map((tag) => `#${tag}`), line.wake, activityWords(line.activity), line.pending ? "Pending" : null].filter(Boolean).join(" ")}
+                aria-current={current ? "true" : undefined}
+                title={line.dim ? `Cached: ${name} is not answering.` : undefined}
+                className={classes(
+                  "flex h-full w-full min-w-0 flex-col items-start justify-center gap-0.5 rounded-md px-2 py-1.5 text-left font-normal outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
+                  line.dim ? "text-ink-faint" : "text-ink",
+                  current && "bg-wash-strong",
+                  summary.archivedAt !== null && "opacity-60",
+                )}
+              >
+                <span className="flex w-full min-w-0 shrink-0 items-center gap-1.5 text-xs leading-[18px]">
+                  <ActivityMark activity={line.activity} />
+                  <span data-sidebar-title className="min-w-0 flex-1 truncate">{summary.title}</span>
+                  <span className="ml-auto shrink-0 pl-1 font-mono text-2xs text-ink-faint">{age}</span>
+                </span>
+                <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden font-mono text-2xs text-ink-faint">
+                  {"branch" in summary.workspace && <span className="flex min-w-0 items-center gap-1"><GitBranch aria-hidden="true" className="size-2.5 shrink-0" /><span className="truncate">{summary.workspace.branch}</span></span>}
+                  <EnvironmentGlyph view={environment} label={name} />
+                  {account !== undefined && <span className="flex min-w-0 items-center gap-1"><span aria-hidden="true" className={classes("size-2 shrink-0 rounded-[3px]", accountSwatch(account.id))} /><span className="max-w-[176px] truncate">{account.label}</span></span>}
+                  {summary.tags.map((tag) => <span key={tag} data-sidebar-tag className="shrink-0">#{tag}</span>)}
+                  {line.wake !== null && <span data-sidebar-wake className="shrink-0 text-ink-muted">{line.wake}</span>}
+                  {line.activity.state === "parked" && line.activity.parked > 0 && <span data-sidebar-waiting className="shrink-0 text-amber">{line.activity.parked}</span>}
+                  <PullRequestMark pullRequests={summary.pullRequests} />
+                  {line.pending && <LoaderCircle role="img" aria-label="Pending" className="size-3 shrink-0 text-amber motion-safe:animate-spin" />}
+                </span>
+              </button>
+            </ContextMenuTrigger>
+          </RowTooltip>
           <RowMenu line={line} rename={() => setEditing(true)} />
         </ContextMenu>
       )}

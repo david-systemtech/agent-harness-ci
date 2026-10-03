@@ -39,6 +39,65 @@ const write = async (app: RenderedApp, keys: string) => {
 /** What `method` was sent with, each time. */
 const sent = (env: EnvironmentHandle, method: string) => env.requests(method).map((request) => request.params);
 
+describe("the composer card", () => {
+  it("names the editor state and keeps attachment and send actions available", async () => {
+    const { app, env, session } = await opened();
+    expect(box().placeholder).toBe("Continue the session…");
+    expect(screen.getByRole("region", { name: "Status line" }).textContent).not.toContain("idle");
+    expect(box().getAttribute("spellcheck")).toBe("false");
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Hand off" })).toBeDefined();
+    expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull();
+
+    const { runId } = env.startRun(session, "Check the receipts");
+    await waitFor(() => expect(box().placeholder).toBe("Steer the run…"));
+    const activity = await screen.findByRole("status", { name: "Run activity" });
+    const announcement = activity.textContent;
+    expect(announcement).not.toMatch(/\d+s/);
+    expect(screen.getByText("1s")).toBeDefined();
+    act(() => app.clock.advance(2000));
+    await screen.findByText("2s");
+    expect(activity.textContent).toBe(announcement);
+    env.endRun(session, runId);
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull());
+  });
+});
+
+describe("the workspace row", () => {
+  it("starts a new-session surface from a recent folder without moving or creating a session", async () => {
+    const { app, env } = await opened({ sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/work/receipts" } }, { title: "Parser", workspace: { kind: "directory", path: "/work/parser" } }] });
+    await app.user.click(screen.getByRole("button", { name: "Recent folders" }));
+    const folder = await screen.findByRole("menuitem", { name: "/work/parser" });
+    await app.user.click(folder);
+    await screen.findByRole("region", { name: "New session" });
+    expect(screen.getByRole("button", { name: "Workspace: directory parser" })).toBeDefined();
+    expect(env.requests("sessions.setWorkspace")).toEqual([]);
+    expect(env.requests("sessions.create")).toEqual([]);
+  });
+
+  it("opens the existing hand-off picker from the row", async () => {
+    const { app } = await opened();
+    await app.user.click(screen.getByRole("button", { name: "Hand off" }));
+    expect(await screen.findByRole("dialog", { name: "Hand off Receipts on desk" })).toBeDefined();
+  });
+});
+
+describe("the command menu", () => {
+  it("cycles through the commands and dismisses only the menu, keeping the draft", async () => {
+    const { app } = await opened();
+    await write(app, "/");
+    const menu = await screen.findByRole("listbox", { name: "Commands" });
+    const rows = within(menu).getAllByRole("option");
+    await write(app, "{ArrowUp}");
+    expect(rows.at(-1)?.getAttribute("aria-selected")).toBe("true");
+    await write(app, "{ArrowDown}");
+    expect(rows[0]?.getAttribute("aria-selected")).toBe("true");
+    await write(app, "{Escape}");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
+    expect(box().value).toBe("/");
+  });
+});
+
 describe("sending", () => {
   it("starts a run with runs.start when none is live, and the message is drawn in the transcript", async () => {
     const { app, env, transcript, session } = await opened();
@@ -168,6 +227,7 @@ describe("the Send and Stop button", () => {
     await app.user.click(stop);
     await waitFor(() => expect(sent(env, "runs.interrupt")).toEqual([expect.objectContaining({ runId })]));
     expect(screen.getByRole("button", { name: "Stopping…" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("Stopping…");
 
     env.endRun(session, runId, { reason: "interrupted" });
     await screen.findByRole("button", { name: "Send" });
@@ -208,6 +268,17 @@ const pickerOpens = () => {
 };
 
 describe("attachments", () => {
+  it("previews only local image bytes and removes them through a named action", async () => {
+    const shell = fakeShell();
+    shell.answer("dialogs.openFileContents", async () => [{ name: "shot.png", size: PNG.length, bytes: PNG }]);
+    const { app } = await opened({}, shell);
+    await app.user.click(screen.getByRole("button", { name: "Attach files" }));
+    const image = await screen.findByRole("img", { name: "shot.png" });
+    expect(image.getAttribute("src")).toBe("data:image/png;base64,iVBORw==");
+    await app.user.click(screen.getByRole("button", { name: "Remove shot.png" }));
+    expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
+  });
+
   it("come by the shell's file dialog, show as chips, and go with the message", async () => {
     const shell = fakeShell();
     shell.answer("dialogs.openFileContents", async () => [{ name: "shot.png", size: PNG.length, bytes: PNG }]);
@@ -377,7 +448,7 @@ const WINDOW_COMMANDS = [
   "/documentsThe pages, SVGs and markdown this session wrote, newest first",
   "/forkFork this session n prompts back; bare, at the end",
   "/rewindRewind n prompts, one by default; undo takes the rewind back",
-];
+].map((words) => `${words} · client`);
 
 /** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
 const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[11], WINDOW_COMMANDS[20], WINDOW_COMMANDS[22]];
@@ -402,10 +473,10 @@ describe("slash commands", () => {
     // Those /m begins first, then those holding an m, each group in the menu's order: the window's, the skills, the provider's.
     const [model, mode, ...holding] = WINDOW_M;
     await waitFor(() =>
-      expect(rows("Commands")).toEqual([model, mode, "/migrateMove the schema · slash-only", ...holding, "/skill:modelSketch a data model", "/compactCompact the conversation · the agent's"]),
+      expect(rows("Commands")).toEqual([model, mode, "/migrateMove the schema · skill · slash-only", ...holding, "/skill:modelSketch a data model · skill", "/compactCompact the conversation · the agent's"]),
     );
     await write(app, "ig");
-    await waitFor(() => expect(rows("Commands")).toEqual(["/migrateMove the schema · slash-only"]));
+    await waitFor(() => expect(rows("Commands")).toEqual(["/migrateMove the schema · skill · slash-only"]));
     expect(env.requests("commands.list").map((request) => request.params)).toContainEqual({ sessionId: session });
   });
 

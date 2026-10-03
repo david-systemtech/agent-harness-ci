@@ -90,15 +90,24 @@ export const region = (name: string) => within(sidebar()).getByRole("region", { 
  * mark, its name, and its count while folded), then each row under it,
  * indented: its title, tags, wake time, activity and marker.
  */
+/** Organisation assertions read row facts independently of age and account metadata. */
+export const rowWords = (line: HTMLElement): string => [
+  line.querySelector("[data-sidebar-title]")?.textContent,
+  ...Array.from(line.querySelectorAll("[data-sidebar-tag], [data-sidebar-wake]")).map((part) => part.textContent),
+  ...(line.querySelector("[data-sidebar-waiting]") ? [`${line.querySelector("[data-sidebar-waiting]")?.textContent} waiting`] : []),
+  ...(line.querySelector('[aria-label="Pending"]') ? ["Pending"] : []),
+].filter(Boolean).join(" ");
+
 export const drawn = (): string[] =>
-  within(sidebar())
-    .queryAllByRole("region")
-    .flatMap((section) => [
-      (within(section).getAllByRole("heading")[0]?.textContent ?? "").trim(),
-      ...within(section)
-        .queryAllByRole("listitem")
-        .map((row) => `  ${(row.textContent ?? "").trim()}`),
-    ]);
+  within(sidebar()).queryAllByRole("region").flatMap((section) => {
+    const heading = within(section).getAllByRole("heading")[0];
+    const fold = heading?.querySelector("button[aria-expanded]");
+    // These suites verify filing/folding; the look suite verifies the expanded count and chevron.
+    const label = fold?.getAttribute("aria-expanded") === "true"
+      ? `${fold.getAttribute("aria-label")}${heading?.textContent?.includes("pending") ? " pending" : ""}`
+      : (heading?.textContent ?? "").trim();
+    return [label, ...within(section).queryAllByRole("listitem").map((line) => `  ${rowWords(line)}`)];
+  });
 
 /** The row whose title is `title`: the button that opens it. */
 export const row = (title: string) => within(sidebar()).getByRole("button", { name: new RegExp(`^\\S+ ${title}\\b`) });

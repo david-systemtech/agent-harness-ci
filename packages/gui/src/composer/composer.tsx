@@ -12,15 +12,21 @@ import {
   type CapabilityAnswer,
   type Lock,
 } from "@agent-harness/client-runtime";
-import { useMemo, useState } from "react";
-import { KeyContext, useKeyAction, type Offer } from "../keys/key-dispatch.js";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { CircleStop, LoaderCircle, Paperclip, SendHorizontal } from "lucide-react";
+import { KeyContext, useFirstKey, useKeyAction, type Offer } from "../keys/key-dispatch.js";
 import { useSessionQueue } from "../queue/session-queue.js";
 import { useModelChoice } from "../status/run-choices.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
 import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
-import { Button } from "../ui/index.js";
+import { classes } from "../ui/classes.js";
+import { IconButton } from "../ui/index.js";
+import { PromptCard } from "../prompt-card/prompt-card.js";
+import { QueueStrip } from "../queue/queued.js";
+import { RewoundStrip } from "../fork-rewind/rewound.js";
+import { Activity, BackgroundWork } from "./activity.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { MissingWorkspace, useGoneWorkspace } from "../workspace/missing.js";
 import { AttachmentChips, AttachmentPicker, useAttachments } from "./attachments.js";
@@ -28,7 +34,7 @@ import { useBox } from "./box.js";
 import { MenuList, optionId, useMenus, type Menu } from "./menus.js";
 import { useSessionDraft } from "./session-draft.js";
 import { notWired, typedCommand, useSlashCommand, useWiredCommands } from "./slash-commands.js";
-import { useWorkspaceChecks, WorkspaceCheck } from "./workspace-checks.js";
+import { useWorkspaceChecks, WorkspaceCheck, WorkspaceRow } from "./workspace-checks.js";
 import { usePromptWalk } from "./walk.js";
 
 export interface ComposerProps {
@@ -89,6 +95,29 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const checks = useWorkspaceChecks(environmentId, sessionId, say);
   const box = useBox();
   useSessionDraft(environmentId, sessionId, projection, box);
+  const sendKey = useFirstKey("composer.send");
+  const newlineKey = useFirstKey("composer.newline");
+  const pasteKey = useFirstKey("composer.paste");
+  const [fileHover, setFileHover] = useState(false);
+  useLayoutEffect(() => {
+    const field = box.field.current;
+    if (field === null) return;
+    field.style.height = "0px";
+    field.style.height = `${Math.max(44, field.scrollHeight)}px`;
+  }, [box.text, box.field]);
+  useEffect(() => {
+    const field = box.field.current;
+    if (field === null) return;
+    let width = -1;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry === undefined || entry.contentRect.width === width) return;
+      width = entry.contentRect.width;
+      field.style.height = "0px";
+      field.style.height = `${Math.max(44, field.scrollHeight)}px`;
+    });
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [box.field]);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
   const menus = useMenus({ environmentId, sessionId, provider, text: box.text, caret: box.caret });
   const walk = usePromptWalk(projection, box);
@@ -201,6 +230,12 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   };
   return (
     <>
+      <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />
+      <RewoundStrip />
+      {gone === undefined && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
+      <PromptCard environmentId={environmentId} sessionId={sessionId} />
+      <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
+      <QueueStrip />
       <KeyContext context="composer" conditions={conditions}>
         <ComposerKeys
           send={submit}
@@ -222,43 +257,44 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
           }}
         />
         {gone === undefined && (
-          <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3" onDragOver={attachments.dragging} onDrop={attachments.dropped}>
-            {lock.locked && <p className="text-xs text-amber">Locked: {lock.reason}</p>}
-            {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
+          <div className="shrink-0 px-3 pb-1" onDragOver={(event) => { attachments.dragging(event); if (event.dataTransfer.types.includes("Files")) setFileHover(true); }} onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFileHover(false); }} onDrop={(event) => { setFileHover(false); attachments.dropped(event); }}>
+            {lock.locked && <p className="pb-1 text-xs text-amber">Locked: {lock.reason}</p>}
             <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />
-            <AttachmentChips attachments={attachments} />
-            <div className="flex items-end gap-2">
+            <div data-composer-card className={classes("relative rounded-[10px] border border-hairline-strong bg-wash focus-within:ring-3 focus-within:ring-beam/50", fileHover && "ring-2 ring-beam ring-offset-2 ring-offset-abyss")}>
+              {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
+              <AttachmentChips attachments={attachments} />
               <textarea
                 ref={box.field}
                 aria-label="Message"
                 aria-controls={menu === null ? undefined : menus.listId}
                 aria-activedescendant={menu === null || at < 0 ? undefined : optionId(menus.listId, at)}
+                placeholder={runs.state === "parked" ? "Answer the card above…" : live ? "Steer the run…" : "Continue the session…"}
+                spellCheck={false}
                 value={box.text}
                 onChange={(event) => box.put(event.target.value, null)}
                 onSelect={box.moved}
                 onKeyDown={menus.keyDown}
                 onPaste={attachments.pasted}
-                rows={3}
-                className="min-w-0 flex-1 resize-none rounded-md border border-line bg-inset px-3 py-2 text-sm text-ink outline-none focus-visible:border-beam"
+                rows={1}
+                className="block max-h-[35vh] min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm leading-relaxed text-ink outline-none"
               />
-              <Button aria-label="Attach files" onClick={attachments.choose}>
-                Attach
-              </Button>
-              <AttachmentPicker attachments={attachments} />
-              <SendOrStop
-                stops={live && box.text.trim().length === 0 && attachments.list.length === 0}
-                sends={!lock.locked && box.text.trim().length > 0}
-                stopping={liveRunId !== undefined && interruptAsked === liveRunId}
-                interrupt={liveRunId === undefined ? undefined : runtime.capability(environmentId, "runs.interrupt")}
-                send={submit}
-                stop={stop}
-              />
+              <div className="flex items-center gap-2 px-2 pb-2">
+                <IconButton label="Attach files" keys={pasteKey === undefined ? "/attach" : `/attach · ${pasteKey} paste`} onClick={attachments.choose}>
+                  <Paperclip aria-hidden="true" />
+                </IconButton>
+                <AttachmentPicker attachments={attachments} />
+                <span className="ml-auto hidden text-2xs text-ink-faint min-[640px]:inline">{sendKey === undefined ? "Send" : `${sendKey} send`} · {newlineKey === undefined ? "New line" : `${newlineKey} newline`}</span>
+                <SendOrStop
+                  stops={live && box.text.trim().length === 0 && attachments.list.length === 0}
+                  sends={!lock.locked && box.text.trim().length > 0}
+                  stopping={liveRunId !== undefined && interruptAsked === liveRunId}
+                  interrupt={liveRunId === undefined ? undefined : runtime.capability(environmentId, "runs.interrupt")}
+                  send={submit}
+                  stop={stop}
+                />
+              </div>
             </div>
-            {line !== undefined && (
-              <p role="status" className="text-xs text-ink-muted">
-                {line}
-              </p>
-            )}
+            {line !== undefined && <p role="status" className="pt-1 text-xs text-ink-muted">{line}</p>}
           </div>
         )}
       </KeyContext>
@@ -329,22 +365,10 @@ interface SendOrStopProps {
  * send says why on hover.
  */
 const SendOrStop = ({ stops, sends, stopping, interrupt, send, stop }: SendOrStopProps) => {
-  if (!stops)
-    return (
-      <Button tone="primary" disabled={!sends} onClick={send}>
-        Send
-      </Button>
-    );
-  if (stopping)
-    return (
-      <Button tone="danger" disabled>
-        Stopping…
-      </Button>
-    );
+  const sendKey = useFirstKey("composer.send");
+  const stopKey = useFirstKey("app.interrupt");
+  if (!stops) return <IconButton label="Send" {...(sendKey === undefined ? {} : { keys: sendKey })} tone="primary" disabled={!sends} className="ml-auto" onClick={send}><SendHorizontal aria-hidden="true" /></IconButton>;
+  if (stopping) return <IconButton label="Stopping…" {...(stopKey === undefined ? {} : { keys: stopKey })} tone="danger" disabled className="ml-auto"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /></IconButton>;
   const absent = interrupt?.status === "absent" ? interrupt.message : interrupt === undefined ? "The run has not started yet." : undefined;
-  return (
-    <Button tone="danger" disabled={absent !== undefined} title={absent} onClick={stop}>
-      Stop
-    </Button>
-  );
+  return <IconButton label="Stop" {...(stopKey === undefined ? {} : { keys: stopKey })} tone="danger" {...(absent === undefined ? {} : { disabledReason: absent })} className="ml-auto" onClick={stop}><CircleStop aria-hidden="true" /></IconButton>;
 };

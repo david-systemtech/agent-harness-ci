@@ -1,9 +1,6 @@
 import {
   hear,
-  liveRun,
-  liveTasks,
   nextQuietChange,
-  oneLine,
   quietFor,
   runningCalls,
   transcriptRows,
@@ -11,7 +8,6 @@ import {
   type SessionProjection,
 } from "@agent-harness/client-runtime";
 import { ArrowDown } from "lucide-react";
-import type { DelegatedWorkRow } from "@agent-harness/contracts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { ReadingWidth } from "../presentation.js";
@@ -31,7 +27,7 @@ export interface TranscriptProps {
 }
 
 /** How wide the column of rows may grow, by the reading-width preference. */
-const COLUMN_WIDTHS: Readonly<Record<ReadingWidth, string>> = { comfortable: "920px", wide: "80rem", full: "none" };
+export const COLUMN_WIDTHS: Readonly<Record<ReadingWidth, string>> = { comfortable: "920px", wide: "80rem", full: "none" };
 
 /** How near the end, in pixels, still counts as at the end: a scroll that lands this close follows the end again. */
 const AT_END_PX = 48;
@@ -62,7 +58,7 @@ const useQuietCalls = (projection: SessionProjection): ((toolCallId: string) => 
 
 /**
  * Following the end: the scroll box kept at its end as what it holds grows,
- * until David scrolls up (a scroll that moved up, not merely one short of
+ * until the reader scrolls up (a scroll that moved up, not merely one short of
  * the end, since the box growing moves nothing), and again once he scrolls
  * back to the end or jumps there.
  */
@@ -147,10 +143,10 @@ const useReveal = (follow: { readonly column: RefObject<HTMLDivElement | null>; 
  * each message of the session's queue drawn after its turn (#401).
  * Following the projection holds the session's subscription while the
  * transcript is on screen. It is bottom-anchored and follows new output
- * until David scrolls up, offering a way back to the end. Until its stream
+ * until the reader scrolls up, offering a way back to the end. Until its stream
  * is live a marker heads it: the catch-up under way, or what this window
- * last saw of it while its environment is not answering. Under it, the live
- * run's delegated work still going. Its reading width is
+ * last saw of it while its environment is not answering. The composer owns
+ * the live delegated-work strip below it. Its reading width is
  * presentation; text scales with the window root. Mod+F opens its find bar.
  */
 export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
@@ -164,7 +160,6 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const rows = useMemo(() => transcriptRows(projection).filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [projection]);
   const { queue } = useSessionQueue().runs;
   const drawn = useMemo(() => withQueued(rows, queue), [rows, queue]);
-  const tasks = useMemo(() => liveTasks(projection, liveRun(projection)?.runId), [projection]);
   // What the stream held when it first went live was written before this transcript was watching: only what comes after arrives.
   const [liveFrom, setLiveFrom] = useState<number | null>(null);
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
@@ -213,19 +208,6 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
         )}
         {find.open && <FindBar find={find} />}
       </div>
-      <DelegatedStrip tasks={tasks} />
     </KeyContext>
   );
 };
-
-/** The live run's delegated work still going, each with its agent: the strip under the transcript. */
-const DelegatedStrip = ({ tasks }: { readonly tasks: readonly DelegatedWorkRow[] }) =>
-  tasks.length === 0 ? null : (
-    <ul aria-label="Delegated work" className="flex shrink-0 flex-col gap-0.5 border-t border-hairline px-4 py-1.5 text-xs text-ink-muted">
-      {tasks.map((task) => (
-        <li key={task.taskId}>
-          <span className="text-cyan">{task.subagentType ?? task.kind}</span>: {oneLine(task.description, 120)} · {task.status}
-        </li>
-      ))}
-    </ul>
-  );
