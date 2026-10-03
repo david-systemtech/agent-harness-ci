@@ -4,13 +4,13 @@ import { APP_ID } from "./app-id.js";
 import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
 import { allowAppCamera } from "./camera-permission.js";
-import { ANSWERED, channelOf, TOLD, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
+import { ANSWERED, channelOf, TOLD, WINDOW_CHANNEL, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
 import { computerGh, NODE_GH_PROCESS, type GhProcess } from "./gh.js";
 import { grantFile } from "./local-grant.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronIpcMain, IpcCaller, WindowOptions } from "./electron.js";
 import { lockNavigation, lockNetwork } from "./lockdown.js";
-import { bringForward, shellMembers, type Members } from "./members.js";
+import { bringForward, shellMembers, windowState, type Members } from "./members.js";
 import { desktopNotifications } from "./notifications.js";
 import type { DesktopPlatform } from "./platform.js";
 import { PREVIEW_SCHEME_REGISTRATION, previews } from "./preview.js";
@@ -36,6 +36,8 @@ const SECRETS_DIRECTORY = "secrets";
 /** The four layers' first: the renderer is sandboxed and isolated, with no Node, and the preload its one bridge. */
 const windowOptions = (platform: DesktopPlatform, backgroundColor: string): WindowOptions => ({
   title: PRODUCT_NAME,
+  titleBarStyle: "hidden",
+  ...(platform.os === "darwin" ? { trafficLightPosition: { x: 12, y: 15 } } : { frame: false }),
   width: 1280,
   height: 800,
   backgroundColor,
@@ -143,6 +145,9 @@ export const startDesktop = async (
   const canvas = canvasStore(platform.paths.data);
   const window = electron.openWindow(windowOptions(platform, (await canvas.read()) ?? presetCanvas(electron.nativeTheme.shouldUseDarkColors)));
   shown.window = window;
+  for (const event of ["focus", "blur", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"] as const) {
+    window.on(event, () => window.webContents.send(WINDOW_CHANNEL, windowState(window, platform.os)));
+  }
   allowAppCamera(window.webContents);
   lockNavigation(window.webContents, (url) => void electron.shell.openExternal(url).catch(reportError));
   // The renderer's platform reports what it has no caller for to its console: its errors are the window's faults.
