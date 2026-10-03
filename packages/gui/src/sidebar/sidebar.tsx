@@ -99,10 +99,9 @@ const Headings = () => {
       </div>
       <div className="shrink-0 p-2">
         <Tooltip content={["New session", newSessionKeys].filter(Boolean).join(" · ")}>
-          <NewSessionButton control={{ environmentId: null }} label="New session" variant="default" size="sm" className="w-full justify-start">
-            <Plus aria-hidden="true" data-icon="inline-start" />
-            <span>New session</span>
-            {newSessionKeys !== undefined && <kbd className="ml-auto font-mono text-2xs">{newSessionKeys}</kbd>}
+          <NewSessionButton control={{ environmentId: null }} label="New session" variant="default" size="sm" className="h-auto min-h-7 w-full flex-wrap justify-start py-0">
+            <span className="inline-flex shrink-0 items-center gap-1"><Plus aria-hidden="true" data-icon="inline-start" /><span>New session</span></span>
+            {newSessionKeys !== undefined && <kbd className="ml-auto shrink-0 font-mono text-2xs">{newSessionKeys}</kbd>}
           </NewSessionButton>
         </Tooltip>
       </div>
@@ -138,10 +137,10 @@ const Headings = () => {
       <div className="flex shrink-0 flex-col border-t border-hairline">
         <OrganiseLine />
         <Tooltip content="Restore a deleted session…">
-          <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-2xs text-ink-muted hover:bg-wash" onClick={() => organise.open({ kind: "restore" })}><RotateCcw aria-hidden="true" className="size-3" />Restore a deleted session…</Button>
+          <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-left text-2xs whitespace-normal text-ink-muted hover:bg-wash" onClick={() => organise.open({ kind: "restore" })}><RotateCcw aria-hidden="true" className="size-3" /><span className="min-w-0">Restore a deleted session…</span></Button>
         </Tooltip>
         <Tooltip content="Pair with an environment…">
-          <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-2xs text-ink-muted hover:bg-wash" onClick={() => openPairing()}><Plug aria-hidden="true" className="size-3" />Pair with an environment…</Button>
+          <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-left text-2xs whitespace-normal text-ink-muted hover:bg-wash" onClick={() => openPairing()}><Plug aria-hidden="true" className="size-3" /><span className="min-w-0">Pair with an environment…</span></Button>
         </Tooltip>
       </div>
       <SidebarDialogs />

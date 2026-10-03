@@ -11,6 +11,10 @@ export function measureSceneGeometry(): string[] {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
       const visibility: string[] = [];
+      if (check.contentFits === true && (element.scrollWidth > element.clientWidth + (check.tolerance ?? 0.5)
+        || element.scrollHeight > element.clientHeight + (check.tolerance ?? 0.5))) {
+        visibility.push(`${check.selector}[${index}]: content overflows its bounds`);
+      }
       if (check.visibleWithin !== undefined) {
         const pane = element.closest(check.visibleWithin);
         const bounds = pane?.getBoundingClientRect();
