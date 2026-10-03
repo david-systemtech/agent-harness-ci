@@ -1,5 +1,7 @@
 import type { DesktopBuildView } from "@agent-harness/client-runtime";
-import { Button } from "../ui/index.js";
+import { ArrowDown, CircleAlert, LoaderCircle } from "lucide-react";
+import { classes } from "../ui/classes.js";
+import { Button, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /** Whether a restart would update: a build is staged, ready, or left to apply after a failed step. */
@@ -16,9 +18,11 @@ export const RestartButton = () => {
   const { build } = useObservable(runtime.desktopUpdate.view);
   if (!restartable(build)) return null;
   return (
-    <Button tone="primary" onClick={() => void runtime.desktopUpdate.restart()}>
-      Restart to update
-    </Button>
+    <Tooltip content={build.state === "failed" ? `Restart to update · ${build.message}` : "Restart to update"}>
+      <Button size="xs" className={classes("h-[22px] max-w-36 gap-1.5 border font-mono", build.state === "failed" ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text")} onClick={() => void runtime.desktopUpdate.restart()}>
+        <ArrowDown aria-hidden="true" /><span className="truncate">Restart to update</span>
+      </Button>
+    </Tooltip>
   );
 };
 
@@ -26,5 +30,14 @@ export const RestartButton = () => {
 export const RestartToUpdate = () => {
   const runtime = useRuntime();
   const { build } = useObservable(runtime.desktopUpdate.view);
-  return build.state === "applying" ? <span className="text-xs text-ink-muted">Restarting to update…</span> : <RestartButton />;
+  const pending = build.state === "checking" || build.state === "staging" || build.state === "applying";
+  const failed = build.state === "failed" && build.staged === null;
+  if (!pending && !failed) return <RestartButton />;
+  const label = build.state === "applying" ? "Restarting to update…" : build.state === "staging" ? "Downloading update…" : failed ? "Update failed" : "Checking for an update…";
+  const Icon = failed ? CircleAlert : LoaderCircle;
+  return <Tooltip content={build.state === "failed" ? build.message : label}>
+    <span role="status" tabIndex={0} className={classes("flex h-[22px] max-w-36 items-center gap-1.5 rounded-md border px-2 font-mono text-xs", failed ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text opacity-60")}>
+      <Icon aria-hidden="true" className={classes("size-3 shrink-0", pending && "animate-spin motion-reduce:animate-none")} /><span className="truncate">{label}</span>
+    </span>
+  </Tooltip>;
 };

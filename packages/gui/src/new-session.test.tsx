@@ -1,3 +1,4 @@
+import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
@@ -77,7 +78,12 @@ const withOpen = async (title = "Train tidy", options: Parameters<typeof launch>
 };
 
 const header = () => screen.getByRole("banner");
-const gridLine = () => within(header()).queryByRole("status")?.textContent;
+const gridLine = async (app: RenderedApp) => {
+  const menu = await openHeaderMenu(app);
+  const text = within(menu).queryByRole("status")?.textContent;
+  await app.user.keyboard("{Escape}");
+  return text;
+};
 const panes = () => within(screen.getByRole("main")).getAllByRole("region", { name: "Session pane" });
 const surfaceOf = (pane: HTMLElement) => within(pane).queryByRole("region", { name: "New session" });
 
@@ -127,7 +133,7 @@ const methods = (app: RenderedApp, name: string) => app.environment(name).reques
 const params = (app: RenderedApp, name: string, method: string) => app.environment(name).requests(method).map((request) => request.params);
 
 /** The header's New session control, and an environment heading's. */
-const headerControl = () => within(header()).getByRole("button", { name: "New session" });
+const headerControl = () => screen.getByRole("menuitem", { name: "New session" });
 const headingControl = (environment: string) => within(region(environment)).getByRole("button", { name: `New session on ${environment}` });
 
 /** A New session control dragged onto `onto` (found once the drag has started) and dropped; answers whether the drop was taken. */
@@ -152,7 +158,7 @@ describe("New session in the focused pane", () => {
     const app = await withOpen("Train tidy");
     expect(within(region("desk")).getByRole("button", { name: "New session on desk" })).toBeDefined();
 
-    await app.user.click(headerControl());
+    await chooseHeaderAction(app, "New session");
     expect(grid()).toEqual([["*+"]]);
     // The header's carries the focused pane's environment, and the pane beside is its own: its session's workspace.
     await chipsRead(() => surfaces()[0] as HTMLElement, TRAIN_CHIPS);
@@ -374,6 +380,7 @@ describe("a new session in a new pane", () => {
   it("opens where a New session control is dropped on the grid: a pane's edge splits it, anywhere else splits the focused pane right, and the chips preset from the pane landed beside", async () => {
     const app = await twoPanes();
     // Onto the grid of two, at a pane's centre: a third pane beside the focused one, replacing neither.
+    await openHeaderMenu(app);
     expect(dropControl(headerControl(), zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(true);
     expect(grid()).toEqual([["Train tidy", "Fix the rail", "*+"]]);
     await chipsRead(() => surfaces()[0] as HTMLElement, DESK_CHIPS);
@@ -400,22 +407,24 @@ describe("a new session in a new pane", () => {
   it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in the grid's line", async () => {
     const app = await twoPanes();
     expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-    expect(gridLine()).toBe("A new session opens in a pane.");
+    expect(await gridLine(app)).toBe("A new session opens in a pane.");
+    await openHeaderMenu(app);
     expect(dropControl(headerControl(), () => header())).toBe(false);
-    expect(gridLine()).toBe("A new session opens in a pane.");
+    expect(await gridLine(app)).toBe("A new session opens in a pane.");
     expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]);
 
     for (let split = 2; split < 8; split += 1) await app.user.keyboard(split % 2 === 0 ? SPLIT_DOWN : SPLIT_RIGHT);
     expect(panes()).toHaveLength(8);
-    expect(gridLine()).toBeUndefined();
+    expect(await gridLine(app)).toBeUndefined();
 
     await app.user.keyboard(NEW_IN_PANE);
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
+    await openHeaderMenu(app);
     expect(dropControl(headerControl(), zone(() => paneOf("Train tidy"), "New session to the right"))).toBe(false);
     expect(dropControl(headingControl("desk"), zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(false);
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
     expect(dropControl(headingControl("desk"), () => heading("laptop"))).toBe(false);
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
     expect(panes()).toHaveLength(8);
     expect(surfaces()).toHaveLength(0);
 
