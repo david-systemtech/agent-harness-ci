@@ -8,6 +8,10 @@ export interface SceneGeometry {
   readonly selector: string;
   readonly width?: number;
   readonly height?: number;
+  readonly paddingLeft?: number;
+  readonly paddingTop?: number;
+  readonly fontSize?: number;
+  readonly maxWidth?: number;
   readonly tolerance?: number;
 }
 
@@ -19,6 +23,8 @@ export interface SceneModule {
   readonly arrange?: (world: ScriptedWorld) => void;
   readonly presentation?: Partial<PresentationValues>;
   readonly geometry?: readonly SceneGeometry[];
+  /** Wait for asynchronously drawn pane content before measuring or capturing it. */
+  readonly readySelector?: string;
 }
 export type SceneRegistry = Readonly<Record<string, SceneModule>>;
 

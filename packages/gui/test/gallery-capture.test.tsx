@@ -38,3 +38,14 @@ it("checks every control and fails missing geometry selectors", () => {
   root.querySelector("input")?.remove();
   expect(measureSceneGeometry()).toContain("input: no matching elements");
 });
+
+it("checks computed padding, type size and reading caps as well as outer bounds", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "article", paddingLeft: 20, paddingTop: 16, fontSize: 12, maxWidth: 768 }]);
+  root.innerHTML = '<article style="padding: 16px 20px; font-size: 13px; max-width: 768px">Preview</article>';
+  document.body.append(root);
+  expect(measureSceneGeometry()).toEqual(["article[0].fontSize: got 13, expected 12 ±0.5"]);
+  root.querySelector("article")!.style.fontSize = "12px";
+  expect(measureSceneGeometry()).toEqual([]);
+});

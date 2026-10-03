@@ -111,3 +111,28 @@ it.each(["dock-files", "dock-narrow"])("renders %s with retained Files and the m
   expect(geometry).toContainEqual({ selector: "section:not([hidden]) > [data-dock-header]", height: 30 });
   expect(geometry).toContainEqual({ selector: '[role="tab"]', width: 28, height: 28 });
 });
+
+it.each(["dock-terminal", "dock-browser", "dock-preview"])("renders %s with pane content and geometry from the look contract", async (scene) => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, scene);
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+  expect(geometry).toContainEqual({ selector: "[data-dock-rail]", width: 40 });
+  if (scene === "dock-terminal") {
+    await waitFor(() => expect(screen.getByLabelText("Terminal screen").textContent).toContain("12 checks passed"));
+  } else if (scene === "dock-browser") {
+    const navigation = within(screen.getByRole("form", { name: "Browser navigation" }));
+    expect(navigation.getByRole("textbox", { name: "Address" })).toBeDefined();
+    for (const name of ["Back", "Forward", "Reload", "Go"]) {
+      expect(navigation.getByRole("button", { name }).querySelector("svg")).not.toBeNull();
+    }
+    expect(geometry).toContainEqual({ selector: 'form[aria-label="Browser navigation"] button', width: 24, height: 24 });
+  } else {
+    const preview = within(await screen.findByRole("region", { name: "Preview" }));
+    expect(await preview.findByRole("heading", { name: "Receipt notes" })).toBeDefined();
+    expect(preview.getByText("Keep integer cents.")).toBeDefined();
+    expect(preview.getByRole("code").textContent).toContain("const total");
+  }
+});
