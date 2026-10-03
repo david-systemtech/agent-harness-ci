@@ -35,19 +35,19 @@ describe("the presentation", () => {
     presentation.values.subscribe((values) => seen.push(values.sidebarWidth));
     expect(presentation.values.read().sidebarWidth).toBeNull();
 
-    presentation.set("sidebarWidth", 24);
-    expect(presentation.values.read().sidebarWidth).toBe(24);
-    presentation.set("sidebarWidth", 24);
-    expect(seen).toEqual([24]);
+    presentation.set("sidebarWidth", 240);
+    expect(presentation.values.read().sidebarWidth).toBe(240);
+    presentation.set("sidebarWidth", 240);
+    expect(seen).toEqual([240]);
   });
 
   it("keeps what it holds in the documents it was opened on, so a presentation opened on them again holds it", async () => {
     const documents = inMemoryDocuments();
     const first = await openPresentation(documents);
-    first.set("sidebarWidth", 31.5);
+    first.set("sidebarWidth", 315);
     await first.close();
 
-    expect((await openPresentation(documents)).values.read().sidebarWidth).toBe(31.5);
+    expect((await openPresentation(documents)).values.read().sidebarWidth).toBe(315);
     expect((await openPresentation(inMemoryDocuments())).values.read().sidebarWidth).toBeNull();
   });
 
@@ -59,7 +59,7 @@ describe("the presentation", () => {
     expect(reported).toHaveLength(1);
 
     const outOfRange = inMemoryDocuments();
-    await outOfRange.set("presentation", { format: 1, sidebarWidth: 140, unknownKey: true });
+    await outOfRange.set("presentation", { format: 1, sidebarWidth: "wide", unknownKey: true });
     expect((await openPresentation(outOfRange, (error) => reported.push(error))).values.read()).toEqual(PRESENTATION_DEFAULTS);
     expect(reported).toHaveLength(2);
   });

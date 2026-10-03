@@ -11,7 +11,7 @@ import { prepareWorld, startWorld } from "./world.js";
 export const mountGallery = async (container: HTMLElement, scene: string, ladder: LadderName = "dark", registry: SceneRegistry = scenes) => {
   const definition = registry[scene];
   if (!Object.hasOwn(registry, scene) || definition === undefined) throw new Error(`Unknown gallery scene: ${scene}`);
-  const prepared = await prepareWorld(definition.script ?? { environments: [] }, { presentation: { lightOrDark: ladder } });
+  const prepared = await prepareWorld(definition.script ?? { environments: [] }, { presentation: { ...definition.presentation, lightOrDark: ladder } });
   const world = { ...prepared, ...await startWorld(prepared, prepared.paired) };
   const root = createRoot(container);
   const Component = definition.default;

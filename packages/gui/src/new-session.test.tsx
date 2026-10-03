@@ -363,6 +363,14 @@ describe("a new session in a new pane", () => {
     await chipsRead(() => surfaces()[0] as HTMLElement, TRAIN_CHIPS);
   });
 
+  it("drags the sidebar's New session action onto the grid without replacing an open session", async () => {
+    await twoPanes();
+    const control = within(sidebar()).getByRole("button", { name: "New session" });
+    expect(dropControl(control, zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(true);
+    expect(grid()).toEqual([["Train tidy", "Fix the rail", "*+"]]);
+    await chipsRead(() => surfaces()[0] as HTMLElement, DESK_CHIPS);
+  });
+
   it("opens where a New session control is dropped on the grid: a pane's edge splits it, anywhere else splits the focused pane right, and the chips preset from the pane landed beside", async () => {
     const app = await twoPanes();
     // Onto the grid of two, at a pane's centre: a third pane beside the focused one, replacing neither.
