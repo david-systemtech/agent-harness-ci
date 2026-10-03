@@ -207,7 +207,7 @@ describe("run info", () => {
 
   it("says there is no run yet, and closes on Esc", async () => {
     const { app } = await opened();
-    await app.user.click(within(screen.getByRole("region", { name: "Session pane" })).getByRole("button", { name: "Run info" }));
+    await app.user.keyboard("{Control>}i{/Control}");
     expect(await screen.findByText("No run yet: the session's first message starts one.")).toBeTruthy();
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByText("No run yet: the session's first message starts one.")).toBeNull());

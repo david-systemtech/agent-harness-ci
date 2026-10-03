@@ -1,0 +1,23 @@
+import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { PresentationValues } from "../../src/presentation.js";
+
+const environmentId = "0199cc00-0000-4000-8000-000000000001";
+const first = "0199dd00-0000-4000-8000-000000000001";
+const second = "0199dd00-0000-4000-8000-000000000002";
+export const script: Script = { environments: [{ name: "desk", reach: "local", environmentId, sessions: (() => [
+  { id: first, title: "Check the ledger", workspace: { kind: "directory", path: "/work/ledger" }, pullRequests: [{ url: "https://forge.example.test/team/ledger/pulls/12", state: "open", mergedAt: null, closedAt: null }] },
+  { id: second, title: "Review the receipt parser", workspace: { kind: "worktree", path: "/work/ledger-review", repository: "/work/ledger", branch: "review" } },
+])() }] };
+export const presentation: Partial<PresentationValues> = { paneLayout: { focused: "pane-2", rows: [{ id: "row-1", height: 100, panes: [
+  { id: "pane-1", width: 50, session: { environmentId, sessionId: first } },
+  { id: "pane-2", width: 50, session: { environmentId, sessionId: second } },
+] }] } };
+
+/** docs/specs/look.md §9.3 and §10.1: gapped cards, multi-pane captions and compact controls. */
+export const geometry = [
+  { selector: "[data-grid-card]", width: 574, tolerance: 1 },
+  { selector: "[data-pane-caption]", height: 32 },
+  { selector: '[aria-label="Resize the panes"]', width: 7 },
+  { selector: '[aria-label="Close the pane"]', width: 24, height: 24 },
+  { selector: "[data-caption-run-info] > button", width: 24, height: 24 },
+];

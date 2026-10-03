@@ -20,7 +20,7 @@ inUtc();
 const panes = () => within(screen.getByRole("main")).getAllByRole("region", { name: "Session pane" });
 
 /** A pane's caption title, "·" for a pane with no session. */
-const titleOf = (pane: HTMLElement) => within(pane).queryByRole("button", { name: /^Rename / })?.textContent ?? "·";
+const titleOf = (pane: HTMLElement) => pane.querySelector('button[aria-label^="Rename "]')?.textContent ?? "·";
 
 /** The grid as a person reads it: each row's panes left to right, by title, the focused one starred. */
 const grid = () =>
@@ -35,7 +35,7 @@ const paneOf = (title: string) => panes().find((pane) => titleOf(pane) === title
 const header = () => screen.getByRole("banner");
 
 /** What the grid's line in the header says. */
-const gridLine = () => within(header()).queryByRole("status")?.textContent;
+const gridLine = () => screen.queryAllByText("The grid holds eight panes; close one first.").find((node) => node.closest("[data-sonner-toast]") !== null)?.closest("[data-sonner-toast]")?.querySelector("[data-title]")?.textContent;
 
 /** Presses a key chord with the focus where it is. */
 const press = (app: RenderedApp, keys: string) => app.user.keyboard(keys);
@@ -164,7 +164,7 @@ describe("eight panes", () => {
     await app.user.click(within(paneOf("Fix the rail")).getByRole("button", { name: "Close the pane" }));
     await press(app, SPLIT_RIGHT);
     expect(panes()).toHaveLength(8);
-    expect(gridLine()).toBeUndefined();
+    await waitFor(() => expect(gridLine()).toBeUndefined());
   });
 });
 
@@ -192,6 +192,31 @@ describe("a session dragged onto the grid", () => {
     await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Spare", "Fix the rail"], ["Brand copy"]]));
     // Nothing covers the panes once the drag is over.
     expect(screen.queryByLabelText("Open here")).toBeNull();
+  });
+});
+
+describe("a pane dragged by its caption", () => {
+  it("swaps whole panes at the centre, moves one below another, and keeps the arrangement after a remount", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_RIGHT);
+    await app.user.click(row("Fix the rail"));
+    const drag = (title: string, onto: string, label: string) => {
+      const from = paneOf(title).querySelector("[data-pane-caption]") as HTMLElement;
+      const carried = dataTransfer();
+      fireEvent.dragStart(from, { dataTransfer: carried });
+      const target = within(paneOf(onto).closest("[data-panel]") as HTMLElement).getByLabelText(label);
+      expect(fireEvent.dragOver(target, { dataTransfer: carried })).toBe(false);
+      fireEvent.drop(target, { dataTransfer: carried });
+      fireEvent.dragEnd(from, { dataTransfer: carried });
+    };
+    drag("Train tidy", "Fix the rail", "Swap panes");
+    expect(grid()).toEqual([["Fix the rail", "*Train tidy"]]);
+    drag("Train tidy", "Fix the rail", "Move below");
+    expect(grid()).toEqual([["Fix the rail"], ["*Train tidy"]]);
+    await settled(await app.remount());
+    expect(grid()).toEqual([["Fix the rail"], ["*Train tidy"]]);
+    expect(app.environment("laptop").requests("runs.interrupt")).toEqual([]);
+    expect(screen.queryByLabelText("Swap panes")).toBeNull();
   });
 });
 
@@ -284,23 +309,23 @@ describe("the dividers", () => {
     await press(app, SPLIT_DOWN);
     const main = () => within(screen.getByRole("main"));
 
-    // jsdom measures every element as a 1280 by 800 window, so a group of two measures twice that: a pane's floor, 320
-    // pixels, is an eighth of a row of two (2560 pixels), and a row's, 200, an eighth of two rows (1600).
+    // jsdom measures every element as a 1280 by 800 window, so a group of two measures twice that: a pane's floor, 360
+    // pixels, is 14.0625% of a row of two (2560 pixels), and a row's, 220, is 13.75% of two rows (1600).
     const panesDivider = main().getByRole("separator", { name: "Resize the panes" });
     act(() => panesDivider.focus());
     await app.user.keyboard("{Home}");
-    await waitFor(() => expect(Number(panesDivider.getAttribute("aria-valuenow"))).toBe(12.5));
+    await waitFor(() => expect(Number(panesDivider.getAttribute("aria-valuenow"))).toBe(14.063));
     await app.user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(Number(panesDivider.getAttribute("aria-valuenow"))).toBe(17.5));
+    await waitFor(() => expect(Number(panesDivider.getAttribute("aria-valuenow"))).toBe(19.063));
     const rowsDivider = main().getByRole("separator", { name: "Resize the rows" });
     act(() => rowsDivider.focus());
     await app.user.keyboard("{End}");
-    await waitFor(() => expect(Number(rowsDivider.getAttribute("aria-valuenow"))).toBe(87.5));
+    await waitFor(() => expect(Number(rowsDivider.getAttribute("aria-valuenow"))).toBe(86.25));
 
     await settled(await app.remount());
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*·"]]);
-    await waitFor(() => expect(Number(main().getByRole("separator", { name: "Resize the panes" }).getAttribute("aria-valuenow"))).toBe(17.5));
-    expect(Number(main().getByRole("separator", { name: "Resize the rows" }).getAttribute("aria-valuenow"))).toBe(87.5);
+    await waitFor(() => expect(Number(main().getByRole("separator", { name: "Resize the panes" }).getAttribute("aria-valuenow"))).toBe(19.063));
+    expect(Number(main().getByRole("separator", { name: "Resize the rows" }).getAttribute("aria-valuenow"))).toBe(86.25);
     expect(await within(paneOf("Train tidy")).findByRole("region", { name: "Transcript" })).toBeDefined();
   });
 });
@@ -308,10 +333,13 @@ describe("the dividers", () => {
 describe("the caption", () => {
   it("shows the session's badge, its title renamed in place, run info, and close while the grid holds another pane", async () => {
     const app = await withTrain();
+    expect(within(panes()[0] as HTMLElement).queryByRole("button", { name: "Run info" })).toBeNull();
+    await press(app, SPLIT_RIGHT);
+    focusIn(paneOf("Train tidy"));
     const pane = paneOf("Train tidy");
     // The caption's badge, named for the environment laptop, then the status line's, named for its icon, laptop too.
     expect(within(pane).getAllByRole("img", { name: "laptop" }).map((badge) => badge.style.color)).toEqual(["var(--environment-amber)", "var(--environment-amber)"]);
-    expect(within(pane).queryByRole("button", { name: "Close the pane" })).toBeNull();
+    expect(within(pane).getByRole("button", { name: "Close the pane" })).toBeDefined();
 
     await app.user.click(within(pane).getByRole("button", { name: "Run info" }));
     expect(await screen.findByText("No run yet: the session's first message starts one.")).toBeDefined();
@@ -322,7 +350,7 @@ describe("the caption", () => {
     expect(document.activeElement).toBe(within(pane).getByRole("textbox", { name: "Rename “Train tidy”" }));
     await app.user.keyboard("Train tidier{Enter}");
     await waitFor(() => expect(app.environment("laptop").requests("sessions.rename").map((frame) => frame.params)).toEqual([expect.objectContaining({ sessionId: TRAIN, title: "Train tidier" })]));
-    await waitFor(() => expect(grid()).toEqual([["*Train tidier"]]));
+    await waitFor(() => expect(grid()).toEqual([["*Train tidier", "·"]]));
     expect(within(sidebar()).getByRole("button", { name: /Train tidier/ })).toBeDefined();
     expect(app.shown()).toEqual({ environmentId: LAPTOP_ID, sessionId: TRAIN });
 

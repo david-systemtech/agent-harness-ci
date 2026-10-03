@@ -77,12 +77,12 @@ const withOpen = async (title = "Train tidy", options: Parameters<typeof launch>
 };
 
 const header = () => screen.getByRole("banner");
-const gridLine = () => within(header()).queryByRole("status")?.textContent;
+const gridLine = () => document.querySelector('[data-sonner-toast]:not([data-removed="true"]) [data-title]')?.textContent;
 const panes = () => within(screen.getByRole("main")).getAllByRole("region", { name: "Session pane" });
 const surfaceOf = (pane: HTMLElement) => within(pane).queryByRole("region", { name: "New session" });
 
 /** A pane as the grid test reads it: its session's title, "+" for the new-session surface, "·" for neither. */
-const titleOf = (pane: HTMLElement) => within(pane).queryByRole("button", { name: /^Rename / })?.textContent ?? (surfaceOf(pane) === null ? "·" : "+");
+const titleOf = (pane: HTMLElement) => pane.querySelector('button[aria-label^="Rename "]')?.textContent ?? (surfaceOf(pane) === null ? "·" : "+");
 
 /** The grid, each row's panes left to right, the focused one starred. */
 const grid = () =>
@@ -397,12 +397,12 @@ describe("a new session in a new pane", () => {
     for (const name of ["desk", "laptop"]) expect(params(app, name, "sessions.create")).toEqual([]);
   });
 
-  it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in the grid's line", async () => {
+  it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in a toast", async () => {
     const app = await twoPanes();
     expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-    expect(gridLine()).toBe("A new session opens in a pane.");
+    await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
     expect(dropControl(headerControl(), () => header())).toBe(false);
-    expect(gridLine()).toBe("A new session opens in a pane.");
+    await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
     expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]);
 
     for (let split = 2; split < 8; split += 1) await app.user.keyboard(split % 2 === 0 ? SPLIT_DOWN : SPLIT_RIGHT);
@@ -410,12 +410,12 @@ describe("a new session in a new pane", () => {
     expect(gridLine()).toBeUndefined();
 
     await app.user.keyboard(NEW_IN_PANE);
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(dropControl(headerControl(), zone(() => paneOf("Train tidy"), "New session to the right"))).toBe(false);
     expect(dropControl(headingControl("desk"), zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(false);
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(dropControl(headingControl("desk"), () => heading("laptop"))).toBe(false);
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(panes()).toHaveLength(8);
     expect(surfaces()).toHaveLength(0);
 

@@ -6,6 +6,7 @@ import { usePresentation } from "../window-context.js";
 import { DropZones } from "./drop-zones.js";
 import { InGridPane, usePaneGrid } from "./grid.js";
 import { panesOf, resizeRow, resizeRows, sharesOf } from "./layout.js";
+import { classes } from "../ui/classes.js";
 import { EmptyPane, NewSessionPane, SessionPane } from "./session-pane.js";
 
 /**
@@ -20,10 +21,10 @@ import { EmptyPane, NewSessionPane, SessionPane } from "./session-pane.js";
  */
 
 /** The least a pane's width and a row's height may be, in pixels (chosen defaults): a composer and a few lines stay usable. */
-const PANE_LEAST = 320;
-const ROW_LEAST = 200;
+const PANE_LEAST = 360;
+const ROW_LEAST = 220;
 
-const DIVIDER = "bg-line outline-none hover:bg-beam focus-visible:bg-beam";
+const DIVIDER = "bg-transparent outline-none hover:bg-beam/30 focus-visible:bg-beam/30 data-[separator=active]:bg-beam/50";
 
 /**
  * What a group of the grid takes to hold `shares`, by panel id, and keep the
@@ -59,10 +60,10 @@ export const PaneGrid = () => {
   );
   const several = panesOf(layout).length > 1;
   return (
-    <Group orientation="vertical" {...heights} className="h-full">
+    <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
       {layout.rows.map((row, at) => (
         <Fragment key={row.id}>
-          {at > 0 && <Separator aria-label="Resize the rows" className={`h-px ${DIVIDER}`} />}
+          {at > 0 && <Separator aria-label="Resize the rows" className={`h-[7px] ${DIVIDER}`} />}
           <Panel id={row.id} minSize={ROW_LEAST}>
             <PaneRow row={row} place={at + 1} focused={layout.focused} several={several} />
           </Panel>
@@ -80,10 +81,10 @@ const PaneRow = ({ row, place, focused, several }: { readonly row: GridRow; read
     (shares) => setLayout((held) => resizeRow(held, row.id, shares)),
   );
   return (
-    <Group role="group" aria-label={`Row ${place}`} {...widths} className="h-full">
+    <Group key={row.panes.map((pane) => pane.id).join(" ")} role="group" aria-label={`Row ${place}`} {...widths} className="h-full">
       {row.panes.map((pane, at) => (
         <Fragment key={pane.id}>
-          {at > 0 && <Separator aria-label="Resize the panes" className={`w-px ${DIVIDER}`} />}
+          {at > 0 && <Separator aria-label="Resize the panes" className={`w-[7px] ${DIVIDER}`} />}
           <Panel id={pane.id} minSize={PANE_LEAST}>
             <GridPaneView pane={pane} focused={pane.id === focused} several={several} />
           </Panel>
@@ -100,7 +101,7 @@ const GridPaneView = ({ pane, focused, several }: { readonly pane: GridPane; rea
   return (
     <InGridPane id={pane.id}>
       <KeysAnswered answered={focused}>
-        <div className="relative flex h-full min-w-0 flex-col bg-abyss" onPointerDown={() => grid.focus(pane.id)} onFocus={() => grid.focus(pane.id)}>
+        <div data-grid-card={pane.id} className={classes("relative flex h-full min-w-0 flex-col overflow-hidden rounded-lg border bg-panel", focused && several ? "border-beam/55" : "border-hairline")} onPointerDown={() => grid.focus(pane.id)} onFocus={() => grid.focus(pane.id)}>
           {pane.session !== null ? (
             <SessionPane session={pane.session} {...contents} />
           ) : pane.newSession !== undefined ? (
