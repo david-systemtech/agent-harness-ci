@@ -36,6 +36,7 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
         },
       })], [maxLength]);
   const editor = useEditor({
+    shouldRerenderOnTransaction: true,
     extensions,
     content: value,
     editable: !readOnly,

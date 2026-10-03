@@ -1,6 +1,6 @@
 import "../../test/markdown-editor-dom.js";
-import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "../ui/markdown-editor.js";
 import { MarkdownField } from "./instruction-editor.js";
@@ -13,6 +13,27 @@ describe("instruction Markdown editing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Heading 2" }));
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("A habit");
     expect(change).toHaveBeenLastCalledWith("## A habit");
+  });
+  it("tracks toolbar state when the caret moves without changing Markdown", async () => {
+    vi.useFakeTimers();
+    try {
+      const change = vi.fn();
+      render(<MarkdownField value={"## Heading\n\nPlain text"} change={change} />);
+      const textbox = screen.getByRole("textbox");
+      const heading = screen.getByRole("button", { name: "Heading 2" });
+      act(() => textbox.focus());
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      const selection = window.getSelection();
+      selection?.collapse(textbox.querySelector("p"), 0);
+      fireEvent(document, new Event("selectionchange"));
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      expect(heading.getAttribute("aria-pressed")).toBe("false");
+      selection?.collapse(textbox.querySelector("h2"), 0);
+      fireEvent(document, new Event("selectionchange"));
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      expect(heading.getAttribute("aria-pressed")).toBe("true");
+      expect(change).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
   it("hides formatting and preserves prose when read-only changes", () => {
     const change = vi.fn();
