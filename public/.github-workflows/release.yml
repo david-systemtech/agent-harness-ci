@@ -491,7 +491,7 @@ jobs:
           import assert from "node:assert/strict";
           import { resolve } from "node:path";
           import { pathToFileURL } from "node:url";
-          const { tailscaleDetector, bindPlan } = await import(pathToFileURL(resolve(process.env.SERVER, "packages/environment/dist/serve/interfaces.js")));
+          const { tailscaleDetector, bindPlan } = await import(pathToFileURL(resolve(process.env.SERVER, "node_modules/@agent-harness/environment/dist/serve/interfaces.js")));
           const entry = (address) => ({ address, internal: false, family: address.includes(":") ? "IPv6" : "IPv4" });
           let interfaces = { utun0: [entry("100.64.0.8")], utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::1")] };
           let state;
