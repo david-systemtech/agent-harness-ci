@@ -132,7 +132,14 @@ export interface ElectronContents {
 export interface ElectronBrowserWindow extends ElectronWindow {
   addWebView(view: ElectronWebView): void;
   removeWebView(view: ElectronWebView): void;
-  on(name: "closed", listener: () => void): unknown;
+  minimize(): void;
+  maximize(): void;
+  unmaximize(): void;
+  close(): void;
+  isFocused(): boolean;
+  isMaximized(): boolean;
+  isFullScreen(): boolean;
+  on(name: "closed" | "focus" | "blur" | "maximize" | "unmaximize" | "enter-full-screen" | "leave-full-screen", listener: () => void): unknown;
   readonly webContents: ElectronContents;
   loadURL(url: string): Promise<void>;
 }
@@ -185,6 +192,9 @@ export interface ElectronWebView {
 
 /** The `BrowserWindow` options the desktop sets. */
 export interface WindowOptions {
+  titleBarStyle: "hidden";
+  frame?: boolean;
+  trafficLightPosition?: { readonly x: number; readonly y: number };
   title: string;
   width: number;
   height: number;

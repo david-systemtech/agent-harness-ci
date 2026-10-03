@@ -25,6 +25,7 @@ const scriptBanks = (desk: EnvironmentHandle, initial: BankRecord[] = []) => {
 };
 const open = async (more: Partial<ScriptedEnvironment> = {}, initial: BankRecord[] = []) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ id: "work", label: "Work" }, { id: "home", label: "Home" }], forges: { accounts: [{}] }, sessions: [{ title: "Work", repositoryIdentity: "https://github.com/david/harness" }], ...more }] }, { firstLaunch: true });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const desk = app.environment("desk");
   scriptBanks(desk, initial);
   await app.user.click(await screen.findByRole("button", { name: "Memory bank" }));

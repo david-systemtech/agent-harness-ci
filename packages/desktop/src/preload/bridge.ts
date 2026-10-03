@@ -15,12 +15,13 @@ import type {
   ShellSystem,
   ShellUpdate,
   ShellWindow,
+  ShellWindowState,
   ShellWebView,
   ShellDebuggerMessage,
   ShellWebViewState,
   ShellWebViewKey,
 } from "@agent-harness/client-runtime";
-import { channelOf, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
+import { channelOf, WINDOW_CHANNEL, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
 
 /**
  * The shell as the desktop gives it to its renderer: the members every
@@ -65,6 +66,14 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
   const ask = <T>(member: Answered, ...args: unknown[]): Promise<T> => ipc.invoke(channelOf(member), ...args) as Promise<T>;
   const tell = (member: Told, ...args: unknown[]): void => ipc.send(channelOf(member), ...args);
 
+  const windowListeners = new Set<(state: ShellWindowState) => void>();
+  ipc.on(WINDOW_CHANNEL, (_details, state) => {
+    if (typeof state !== "object" || state === null) return;
+    const value = state as ShellWindowState;
+    if (!["darwin", "win32", "linux"].includes(value.platform) || typeof value.focused !== "boolean" || typeof value.maximized !== "boolean" || typeof value.fullScreen !== "boolean") return;
+    for (const listener of [...windowListeners]) listener(value);
+  });
+
   const linkListeners = new Set<(url: string) => void>();
   const hand = (url: unknown) => {
     if (typeof url === "string") for (const listener of [...linkListeners]) listener(url);
@@ -102,6 +111,11 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
 
   return {
     window: {
+      minimize: () => tell("window.minimize"),
+      toggleMaximize: () => tell("window.toggleMaximize"),
+      close: () => tell("window.close"),
+      state: () => ask("window.state"),
+      onChange: (listener) => { windowListeners.add(listener); return () => void windowListeners.delete(listener); },
       setTitle: (text) => tell("window.setTitle", text),
       focus: () => tell("window.focus"),
       setBadge: (badge) => tell("window.setBadge", badge),

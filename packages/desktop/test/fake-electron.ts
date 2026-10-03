@@ -95,6 +95,10 @@ export interface FakeWindow extends ElectronBrowserWindow {
   readonly calls: Call[];
   readonly webContents: FakeContents;
   minimized: boolean;
+  maximized: boolean;
+  focused: boolean;
+  fullScreen: boolean;
+  emit(name: "focus" | "blur" | "maximize" | "unmaximize" | "enter-full-screen" | "leave-full-screen"): void;
 }
 
 export interface FakeProtocol extends ElectronProtocol {
@@ -276,7 +280,7 @@ const fakeContents = (): FakeContents => {
 };
 
 const fakeWindow = (options: WindowOptions): FakeWindow => {
-  const closed: (() => void)[] = [];
+  const events = listeners();
   let gone = false;
   const calls: Call[] = [];
   const record =
@@ -296,10 +300,23 @@ const fakeWindow = (options: WindowOptions): FakeWindow => {
       const at = window.children.indexOf(view);
       if (at !== -1) window.children.splice(at, 1);
     },
-    on: (_name, listener) => {
-      closed.push(listener);
+    on: events.on,
+    emit(name) {
+      if (name === "focus" || name === "blur") window.focused = name === "focus";
+      if (name === "maximize" || name === "unmaximize") window.maximized = name === "maximize";
+      if (name === "enter-full-screen" || name === "leave-full-screen") window.fullScreen = name === "enter-full-screen";
+      events.emit(name);
     },
-    close: () => { gone = true; closed.forEach((listener) => listener()); },
+    close: () => { calls.push(["close"]); gone = true; events.emit("closed"); },
+    minimize: () => { calls.push(["minimize"]); window.minimized = true; },
+    maximize: () => { calls.push(["maximize"]); window.emit("maximize"); },
+    unmaximize: () => { calls.push(["unmaximize"]); window.emit("unmaximize"); },
+    isFocused: () => window.focused,
+    isMaximized: () => window.maximized,
+    isFullScreen: () => window.fullScreen,
+    maximized: false,
+    focused: true,
+    fullScreen: false,
     minimized: false,
     webContents: fakeContents(),
     setTitle: record("setTitle"),
