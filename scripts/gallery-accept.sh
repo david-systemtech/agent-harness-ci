@@ -64,7 +64,7 @@ for item in files:
         sys.exit('Invalid or duplicate gallery filename.')
     if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or parsed.path != f'/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}' or parsed.query or parsed.fragment:
         sys.exit('Invalid gallery attachment origin.')
-    data = get(url)
+    data = get(url, limit=24*1024*1024)
     digest = item.get('sha256')
     if (version != head or digest is not None) and (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest) or hashlib.sha256(data).hexdigest() != digest):
         sys.exit('Gallery capture bytes do not match the reviewed manifest.')

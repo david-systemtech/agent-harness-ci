@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -20,6 +20,7 @@ const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 async function fixture(mode = "current") {
+  const image = mode === "large" ? PNG.sync.write({ width: 1400, height: 900, data: randomBytes(1400 * 900 * 4) }) : png;
   const folder = mkdtempSync(join(tmpdir(), "gallery-accept-"));
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
   mkdirSync(join(folder, "bin"));
@@ -32,8 +33,8 @@ async function fixture(mode = "current") {
     response.setHeader("content-type", "application/json");
     if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ head: { sha: "test-head", ref: "build/42-gallery" } }));
     else if (request.url?.includes("/comments")) {
-      const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
-      const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : png).digest("hex") }];
+      const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
+      const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
       if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
       const manifest = { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
@@ -46,14 +47,14 @@ async function fixture(mode = "current") {
       }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
-    else response.end(mode === "corrupt" ? Buffer.from("not an image") : png);
+    else response.end(mode === "corrupt" ? Buffer.from("not an image") : image);
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   cleanups.push(() => new Promise<void>((done) => server.close(() => done())));
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("no fixture address");
   base = `http://127.0.0.1:${address.port}`;
-  return { folder, requests, env: { ...process.env, GALLERY_TEST_ROOT: folder, GALLERY_TEST_HEAD: mode === "wrong-head" ? "another-head" : "test-head", PATH: `${folder}/bin:${process.env["PATH"]}`, FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project", FORGEJO_TOKEN: "token-for-tests" } };
+  return { folder, requests, image, env: { ...process.env, GALLERY_TEST_ROOT: folder, GALLERY_TEST_HEAD: mode === "wrong-head" ? "another-head" : "test-head", PATH: `${folder}/bin:${process.env["PATH"]}`, FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project", FORGEJO_TOKEN: "token-for-tests" } };
 }
 
 it("accepts the current head's attached capture into the baseline directory", async () => {
@@ -136,4 +137,12 @@ it.each(["spoofed", "unbound"])("keeps the genuine report when a later %s manife
   expect(f.requests).toContain("/api/packages/example/generic/window-gallery/test-head-123/window-empty.dark.png");
   expect(f.requests.some((url) => url.includes("test-head-999"))).toBe(false);
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+});
+
+
+it("accepts a valid capture larger than 4 MiB within the gallery report budget", async () => {
+  const f = await fixture("large");
+  expect(f.image.byteLength).toBeGreaterThan(4 * 1024 * 1024);
+  await run("bash", [script, "42"], { env: f.env });
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(f.image);
 });
