@@ -23,7 +23,7 @@ const RoutineHistory = ({ row }: { readonly row: RoutineRow }) => {
   return <div className="flex flex-col gap-2 border-t border-hairline pt-2 text-2xs text-ink-muted">
     {view.loading && <p role="status">Loading history…</p>}
     {view.error !== null && <p role="alert" className="text-signal">{view.error.message}</p>}
-    {!view.loading && view.entries.length === 0 && <p>No runs yet.</p>}
+    {view.fetchedAt !== null && view.error === null && !view.loading && view.entries.length === 0 && <p>No runs yet.</p>}
     {view.entries.map((entry) => <div key={entry.id} className="rounded-md bg-wash p-2">
       <p>{stamp(entry.dueAt)} · {entryWords(entry)}</p>
       {entry.kind === "firing" ? <><p className="whitespace-pre-wrap">{entry.text}</p><RoutineAction label="Open session" icon={<Play aria-hidden="true" />} onClick={() => { open(row.environmentId, entry.sessionId); settings.close(); }} /></> : entry.detail !== null && <p>{entry.detail}</p>}

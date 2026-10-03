@@ -160,3 +160,17 @@ it.each(["Account", "Model"])("preserves saved overrides when the unavailable %s
   await app.user.click(within(form).getByRole("button", { name: "Save" }));
   expect(app.environment("desk").requests("routines.update")[0]?.params).toMatchObject({ fields: { account: routine.definition.account, model: "custom-model", effort: "custom-effort" } });
 });
+
+it("shows a history fetch error without claiming the routine has never run", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, {}, (world) => {
+    const desk = world.environment("desk");
+    desk.wire.answer("routines.list", () => ({ result: { routines: [routineFixture()] } }));
+    desk.wire.answer("routines.history", () => ({ error: { code: "internal", message: "History unavailable.", data: {} } }));
+  });
+  act(() => app.shell.openDeepLink(settingsDeepLink("routines.routines")));
+  const pane = await screen.findByRole("region", { name: "Routines" });
+  const card = await within(pane).findByRole("region", { name: "Morning digest" });
+  await app.user.click(within(card).getByRole("button", { name: "History" }));
+  expect(await within(card).findByText("History unavailable.")).toBeDefined();
+  expect(within(card).queryByText("No runs yet.")).toBeNull();
+});
