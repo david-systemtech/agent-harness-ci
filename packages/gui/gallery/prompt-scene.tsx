@@ -76,7 +76,7 @@ export function PromptScene({ kind, ladder, state = "pending" }: { readonly kind
     const update = () => {
       const card = document.querySelector('[aria-label="Parked prompt"]');
       if (!clicked && card !== null) {
-        const action = card.querySelector<HTMLButtonElement>('button[aria-label="Keep planning"]');
+        const action = card.querySelector<HTMLButtonElement>('button[aria-label="Deny"], button[aria-label="Skip"], button[aria-label="Keep planning"]');
         if (action !== null) { clicked = true; action.click(); }
       }
       if (card?.querySelector('[role="status"]')?.textContent?.startsWith("Not answered:") === true) {
