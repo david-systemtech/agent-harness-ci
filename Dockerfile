@@ -27,6 +27,8 @@ ENV CI=true
 RUN corepack enable
 WORKDIR /opt/agent-harness
 COPY . .
+# Checkout builds stay at 0.0.0; release jobs supply their prepared version.
+ARG HARNESS_VERSION=0.0.0
 # Completed downloads survive failed builds and later checkouts on this
 # builder. Keep fetching and installing in one cache-mounted instruction:
 # if the cache is evicted, the next build fetches it again before going
@@ -39,6 +41,7 @@ RUN --mount=type=cache,id=agent-harness-pnpm-linux-amd64,target=/pnpm/store,shar
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store \
   && pnpm exec tsc -b packages/cli \
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod --config.confirmModulesPurge=false \
+  && node scripts/image-version.mjs "$HARNESS_VERSION" \
   && node scripts/image-sdk-cache.mjs check \
   && rm -rf .image-sdk-cache
 

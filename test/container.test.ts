@@ -12,7 +12,9 @@
  * a real build and run can show is the Container section of
  * `docs/agents/service-install-checklist.md`.
  */
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { installLines } from "../packages/client-runtime/src/setup/install-lines.js";
@@ -90,6 +92,44 @@ const imageUser = (): { name: string; uid: string; gid: string } => {
 };
 
 describe("the container image", () => {
+  it("stamps the CLI and environment manifests used by --version and discovery with the build's version", () => {
+    expect(instructions(dockerfile)).toContain("ARG HARNESS_VERSION=0.0.0");
+    const build = instructions(dockerfile).find((line) => line.startsWith("RUN --mount=type=cache")) ?? "";
+    const stamp = /node (scripts\/image-version\.mjs) "\$HARNESS_VERSION"/.exec(build);
+    expect(stamp).not.toBeNull();
+    expect(build.indexOf("--prod")).toBeLessThan(build.indexOf("node scripts/image-version.mjs"));
+    const scratch = mkdtempSync(join(tmpdir(), "image-version-"));
+    try {
+      for (const name of ["cli", "environment", "contracts"]) {
+        mkdirSync(join(scratch, "packages", name), { recursive: true });
+        writeFileSync(join(scratch, "packages", name, "package.json"), JSON.stringify({ name, version: "0.0.0", launcherProtocol: 1 }));
+      }
+      for (const version of ["1.2.3-beta.2", "0.0.0-ci.42", "0.0.0"]) {
+        execFileSync(process.execPath, [join(root, stamp?.[1] ?? "missing-stamp"), version], { cwd: scratch });
+        for (const name of ["cli", "environment", "contracts"]) {
+          expect(JSON.parse(readFileSync(join(scratch, "packages", name, "package.json"), "utf8"))).toEqual({ name, version, launcherProtocol: 1 });
+        }
+      }
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an invalid image version before changing any manifest", () => {
+    const scratch = mkdtempSync(join(tmpdir(), "image-version-invalid-"));
+    const manifest = join(scratch, "packages", "cli", "package.json");
+    try {
+      mkdirSync(join(scratch, "packages", "cli"), { recursive: true });
+      writeFileSync(manifest, '{"version":"0.0.0"}');
+      for (const version of ["v1.2.3", "1.2.3+build.7", "1.2.3-01", ""]) {
+        expect(() => execFileSync(process.execPath, [join(root, "scripts", "image-version.mjs"), version], { cwd: scratch, stdio: "pipe" })).toThrow();
+        expect(readFileSync(manifest, "utf8")).toBe('{"version":"0.0.0"}');
+      }
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it("fetches into a persistent cache before installing offline with the frozen lockfile", () => {
     const build = instructions(dockerfile).find((line) => line.startsWith("RUN --mount=type=cache"));
     expect(build).toBeDefined();
