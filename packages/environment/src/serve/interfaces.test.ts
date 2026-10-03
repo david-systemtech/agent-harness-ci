@@ -42,7 +42,7 @@ describe("the Tailscale detector", () => {
     expect(asked).toContain("/Applications/Tailscale.app/Contents/MacOS/Tailscale status --json");
   });
 
-  it("falls back on macOS to a non-internal Tailscale IPv4 on utun, never another VPN's addresses", async () => {
+  it("falls back on macOS to a non-internal CGNAT IPv4 on utun, excluding addresses outside the range", async () => {
     let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
       en0: [entry("100.64.0.5")],
       utun2: [entry("192.168.1.20"), entry("100.63.255.255"), entry("100.128.0.1"), entry("100.64.0.7", true), entry("fd7a:115c:a1e0::1")],
