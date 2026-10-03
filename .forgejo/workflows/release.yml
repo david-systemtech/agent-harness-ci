@@ -176,12 +176,12 @@ jobs:
       - name: The setup carries its server dependencies
         run: |
           set -euo pipefail
-          apt-get update && apt-get install -y --no-install-recommends p7zip-full
+          sevenzip=$(bash scripts/7zip.sh)
           rm -rf unpacked-setup unpacked-windows
-          7z x -y desktop/agent-harness-desktop-win32-x64-setup.exe -ounpacked-setup
+          "$sevenzip" x -y desktop/agent-harness-desktop-win32-x64-setup.exe -ounpacked-setup
           payload=$(find unpacked-setup -type f -name 'app-64.7z')
           test -f "$payload"
-          7z x -y "$payload" -ounpacked-windows
+          "$sevenzip" x -y "$payload" -ounpacked-windows
           test -f unpacked-windows/resources/server/node_modules/@agent-harness/contracts/package.json
 
       - name: Hand the desktop to the release job
