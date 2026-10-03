@@ -71,8 +71,10 @@ describe("on a fresh environment", () => {
     expect(within(field(permissions, "permissions.unattended.mode")).getByRole("combobox")).toBeDefined();
     expect(within(field(permissions, "permissions.unattended.bypassAcknowledgedAt")).getByText("The environment records it itself; nothing sets it.")).toBeDefined();
     expect(within(field(permissions, "permissions.parkedPrompt.ttl")).getByRole("textbox")).toBeDefined();
-    const containment = within(permissions).getByRole("radiogroup", { name: "permissions.containment.default" });
+    const containment = within(permissions).getByRole("radiogroup", { name: "Default process containment" });
     await waitFor(() => expect(within(containment).getByRole("radio", { name: "○ off: available" })).toBeDefined());
+    await app.user.click(within(containment).getByRole("radio", { name: "● no network: available" }));
+    await waitFor(() => expect(app.environment("desk").settings()["permissions.containment.default"]).toBe("workspace-no-network"));
     for (const name of ["Browser domains", "Paths", "Command patterns", "Hosts"]) expect(await section(permissions, name)).toBeDefined();
     expect(within(permissions).getByRole("form", { name: "Test the denylist" })).toBeDefined();
     expect(within(permissions).getByRole("button", { name: "Continue" })).toBeDefined();
@@ -240,7 +242,7 @@ describe("without admin", () => {
     expect(within(permissions).getByRole("button", { name: "Restore" }).hasAttribute("disabled")).toBe(true);
     expect(within(await section(permissions, "Paths")).getByRole("button", { name: "Restore presets" }).hasAttribute("disabled")).toBe(true);
     expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox").hasAttribute("disabled")).toBe(true);
-    for (const radio of within(within(permissions).getByRole("radiogroup", { name: "permissions.containment.default" })).getAllByRole("radio")) {
+    for (const radio of within(within(permissions).getByRole("radiogroup", { name: "Default process containment" })).getAllByRole("radio")) {
       expect(radio.hasAttribute("disabled")).toBe(true);
     }
 

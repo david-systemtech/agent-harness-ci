@@ -1,4 +1,6 @@
-import * as RadixToast from "@radix-ui/react-toast";
+import { Toast as RadixToast } from "radix-ui";
+import { ArrowRight, X } from "lucide-react";
+import { Tooltip } from "./tooltip.js";
 import type { ReactNode } from "react";
 import { Button } from "./button.js";
 import { OVERLAY, classes } from "./classes.js";
@@ -30,14 +32,14 @@ export const Toast = ({ title, description, action, open, onOpenChange, duration
       {description !== undefined && <RadixToast.Description className="text-ink-muted">{description}</RadixToast.Description>}
     </div>
     {action !== undefined && (
-      <RadixToast.Action altText={action.label} asChild>
+      <Tooltip content={action.label}><RadixToast.Action altText={action.label} asChild>
         <Button tone="primary" onClick={action.run}>
-          {action.label}
+          <ArrowRight aria-hidden="true" />{action.label}
         </Button>
-      </RadixToast.Action>
+      </RadixToast.Action></Tooltip>
     )}
-    <RadixToast.Close asChild>
-      <Button aria-label="Dismiss">×</Button>
-    </RadixToast.Close>
+    <Tooltip content="Dismiss notification · Escape"><RadixToast.Close asChild>
+      <Button aria-label="Dismiss" size="icon-xs"><X aria-hidden="true" /></Button>
+    </RadixToast.Close></Tooltip>
   </RadixToast.Root>
 );
