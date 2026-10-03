@@ -29,6 +29,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 const { onCleanup, tempDir } = useCleanups();
 
+const signal = (): { readonly promise: Promise<void>; readonly resolve: () => void } => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+
 describe("browser service shutdown", () => {
   it("joins a held replacement and queued rename updates before returning, and admits no folder work after close", async () => {
     const dataDir = tempDir();
@@ -60,8 +68,8 @@ describe("browser service shutdown", () => {
     // Status and renames still use the real extension-folder queue.
     await service.status();
     rmSync(join(dataDir, "extension", "current"), { recursive: true });
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
+    const entered = signal();
+    const release = signal();
     copying.before = () => {
       entered.resolve();
       return release.promise;
