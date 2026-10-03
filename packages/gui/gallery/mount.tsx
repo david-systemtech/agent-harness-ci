@@ -16,7 +16,10 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
   const world = { ...prepared, ...await startWorld(prepared, prepared.paired) };
   const root = createRoot(container);
   const Component = definition.default;
-  container.dataset["galleryGeometry"] = JSON.stringify(definition.geometry ?? []);
+  const geometry = typeof definition.geometry === "function"
+    ? definition.geometry({ width: window.innerWidth, height: window.innerHeight })
+    : definition.geometry ?? [];
+  container.dataset["galleryGeometry"] = JSON.stringify(geometry);
   const Ready = () => {
     useEffect(() => {
       if (Component !== undefined) {

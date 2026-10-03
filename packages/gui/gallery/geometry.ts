@@ -10,10 +10,13 @@ export function measureSceneGeometry(): string[] {
       const rect = element.getBoundingClientRect();
       return (["width", "height"] as const).flatMap((dimension) => {
         const expected = check[dimension];
-        if (expected === undefined) return [];
+        const minimum = dimension === "height" ? check.minimumHeight : undefined;
+        if (expected === undefined && minimum === undefined) return [];
         const actual = rect[dimension], tolerance = check.tolerance ?? 0.5;
-        return Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance ? []
-          : [`${check.selector}[${index}].${dimension}: got ${actual}, expected ${expected} ±${tolerance}`];
+        const matches = (expected === undefined || Math.abs(actual - expected) <= tolerance)
+          && (minimum === undefined || actual >= minimum - tolerance);
+        return Number.isFinite(actual) && matches ? []
+          : [`${check.selector}[${index}].${dimension}: got ${actual}, expected ${expected ?? `at least ${minimum}`} ±${tolerance}`];
       });
     });
   });
