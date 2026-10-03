@@ -164,6 +164,10 @@
             }
           ]
         },
+        "tailscaleInstalled": {
+          "description": "Whether a Tailscale CLI or macOS app is installed, even when its address could not be read; absent from an older environment or detector that cannot report installation.",
+          "type": "boolean"
+        },
         "lan": {
           "anyOf": [
             {
@@ -212,7 +216,7 @@
               "pattern": "^(?:[0.:]+|[0:]*:[fF]{4}:(?:0+\\.0+\\.0+\\.0+|0+:0+))$"
             }
           },
-          "description": "The LAN addresses the environment could bind, as its machine holds them now: every address of its network interfaces but loopback, link-local and Tailscale's; what network.bindLan may name."
+          "description": "The LAN addresses the environment could bind, as its machine holds them now: private IPv4 first, then unique-local IPv6, other IPv6 and other IPv4, preserving order within each group; excludes loopback, link-local, Tailscale, and addresses marked temporary or deprecated when that metadata is available; what network.bindLan may name."
         }
       },
       "required": [

@@ -1,3 +1,4 @@
+import { defaultAccountRepair, deferredDefaults } from "../state-import/default-account.js";
 import { readdir } from "node:fs/promises";
 import {
   CarryOverImportedPayload,
@@ -37,8 +38,8 @@ import { listAccountSessions } from "./sessions.js";
  * state import too (#1165): its last import, when it failed part way
  * (`state-import.finished` naming what failed), or when it started and never
  * finished, the environment having stopped under it, until a re-run
- * finishes. What a state import names to enter again is the Forges', Key
- * manager's and Memory bank's to check, not this one's.
+ * finishes. A deferred default Account is this step's sign-in action;
+ * other Re-enter items belong to their owning steps.
  */
 
 /** The Carry over step's state checks, by id. */
@@ -194,5 +195,17 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
     return answerOf(stateImport === null ? findings : [...findings, stateImport]);
   };
 
-  return { "carry-over.present": present, "carry-over.readable": readable, "carry-over.last-import": lastImport };
+  const defaultAccount = (): StateCheckAnswer => {
+    const findings: Finding[] = [];
+    for (const choice of deferredDefaults(options.reader)) {
+      const [mapping] = options.reader.all<{ target_id: string }>("SELECT target_id FROM state_import_items WHERE source_key = ? AND store = 'profiles' AND source_id = ?", choice.sourceKey, choice.sourceId);
+      const account = options.accounts().find((entry) => entry.id === mapping?.target_id);
+      findings.push({ line: `${defaultAccountRepair(account?.label ?? choice.label).label}. Open Accounts.`, target: account === undefined
+        ? { action: "sign-in-again", kind: "environment", id: options.stateImport.environmentId, label: "Accounts" }
+        : accountTarget("sign-in-again", account) });
+    }
+    return answerOf(findings);
+  };
+
+  return { "carry-over.default-account": defaultAccount, "carry-over.present": present, "carry-over.readable": readable, "carry-over.last-import": lastImport };
 };
