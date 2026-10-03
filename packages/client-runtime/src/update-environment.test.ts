@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { PROTOCOL_VERSION, type PendingUpdate } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { BYE_WAIT_MS } from "./connections/state-machine.js";
 import { createRuntimeWithSeams } from "./internal.js";
@@ -207,7 +207,79 @@ const blockedLocal = async (shell?: FakeShell) => {
 
 type BlockedLocal = Awaited<ReturnType<typeof blockedLocal>>;
 
+const IDLE_PENDING = {
+  state: "waiting", updateId: "0199aa00-0000-4000-8000-00000000000a", toVersion: CLIENT_VERSION, source: "desktop",
+  since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z", image: null,
+  waitsOn: { reason: "recent-activity", until: "2026-09-24T00:10:00.000Z" },
+} as const;
+
 describe("update-environment on a local environment blocked on an older protocol before any grant exchange", () => {
+  it("polls the installed CLI's idle hold, advances it now, and stops polling once hello agrees", async () => {
+    const shell = fakeShell();
+    let pending: PendingUpdate = IDLE_PENDING;
+    shell.answer("service.pendingUpdate", async () => pending);
+    shell.answer("service.applyUpdateNow", async () => { pending = { ...IDLE_PENDING, state: "draining", cause: "requested" }; });
+    const { runtime, wire, clock } = await blockedLocal(shell);
+    await runtime.connections.updateEnvironment(wire.environmentId);
+    expect(record(runtime).update).toMatchObject({ pending: IDLE_PENDING, restarting: false, canUpdateNow: true });
+    clock.advance(5000);
+    await flush();
+    expect(shell.calls.filter(([member]) => member === "service.pendingUpdate")).toHaveLength(2);
+    await runtime.connections.updateEnvironmentNow(wire.environmentId);
+    await flush();
+    expect(record(runtime).update).toMatchObject({ pending: { state: "draining" }, restarting: true, canUpdateNow: false });
+    expect(shell.calls.filter(([member]) => member === "service.applyUpdateNow")).toHaveLength(1);
+    wire.discovery({ protocolVersion: CLIENT_PROTOCOL, harnessVersion: CLIENT_VERSION, capabilities: ["self-update"] });
+    clock.advance(5000);
+    await wire.server.accept({ protocolVersion: CLIENT_PROTOCOL, capabilities: ["self-update"] });
+    await flush();
+    expect(record(runtime)).toMatchObject({ phase: "ready" });
+    expect(record(runtime).update).toBeUndefined();
+    const reads = shell.calls.filter(([member]) => member === "service.pendingUpdate").length;
+    clock.advance(5000);
+    await flush();
+    expect(shell.calls.filter(([member]) => member === "service.pendingUpdate")).toHaveLength(reads);
+  });
+
+  it("rechecks the hold before updating immediately and refuses when a run has started", async () => {
+    const shell = fakeShell();
+    let pending: PendingUpdate = IDLE_PENDING;
+    shell.answer("service.pendingUpdate", async () => pending);
+    const { runtime, wire, clock } = await blockedLocal(shell);
+    await runtime.connections.updateEnvironment(wire.environmentId);
+    expect(record(runtime).update?.canUpdateNow).toBe(true);
+    pending = { ...IDLE_PENDING, waitsOn: { reason: "run-running", until: null } };
+    await expect(runtime.connections.updateEnvironmentNow(wire.environmentId)).rejects.toThrow("no longer waiting only on the idle window");
+    expect(shell.calls.filter(([member]) => member === "service.applyUpdateNow")).toHaveLength(0);
+    clock.advance(5000);
+    await flush();
+    expect(record(runtime).update).toMatchObject({ pending, canUpdateNow: false });
+  });
+
+  it("clears a stale idle offer if progress cannot be read, and ignores a late read after retry", async () => {
+    const shell = fakeShell();
+    shell.answer("service.pendingUpdate", async () => IDLE_PENDING);
+    const { runtime, wire, clock } = await blockedLocal(shell);
+    await runtime.connections.updateEnvironment(wire.environmentId);
+    shell.answer("service.pendingUpdate", async () => { throw new Error("The installed CLI could not connect."); });
+    clock.advance(5000);
+    await flush();
+    expect(record(runtime).update).toMatchObject({ pending: null, error: "The installed CLI could not connect.", canUpdateNow: false });
+    let finish!: (pending: PendingUpdate) => void;
+    shell.answer("service.pendingUpdate", () => new Promise((resolve) => { finish = resolve; }));
+    clock.advance(5000);
+    await flush();
+    await runtime.connections.retryNow(wire.environmentId);
+    finish(IDLE_PENDING);
+    await flush();
+    expect(record(runtime)).toMatchObject({ phase: "blocked" });
+    expect(record(runtime).update).toBeUndefined();
+    const reads = shell.calls.filter(([member]) => member === "service.pendingUpdate").length;
+    clock.advance(5000);
+    await flush();
+    expect(shell.calls.filter(([member]) => member === "service.pendingUpdate")).toHaveLength(reads);
+  });
+
   it("exchanges the grant first, across the gap, then posts the route with that token, and connects with it once hello agrees", async () => {
     const { clock, wire, runtime } = await blockedLocal();
 

@@ -16,6 +16,12 @@ import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironme
  * makes unreachable.
  */
 
+const LOCAL_IDLE_UPDATE = {
+  state: "waiting", updateId: "0199aa00-0000-4000-8000-00000000000a", toVersion: "0.6.0", source: "desktop",
+  since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z", image: null,
+  waitsOn: { reason: "recent-activity", until: "2026-09-24T00:10:00.000Z" },
+} as const;
+
 /** The window with its two environments ready and no session open; each as `given` scripts it. */
 const opened = async (given: { readonly desk?: Partial<ScriptedEnvironment>; readonly laptop?: Partial<ScriptedEnvironment> } = {}, options: RenderOptions = {}) => {
   const app = await renderApp(
@@ -443,6 +449,40 @@ describe("Your machines' update controls", () => {
 
     expect(await within(desk).findByText("Updating desk to 0.6.0 once it is idle.")).toBeDefined();
     expect(scripted.wire.updatePosts()).toEqual([{ token: scripted.wire.credential()?.token, body: { version: "0.6.0" } }]);
+  });
+
+  it("shows the idle wait in the sidebar and empty workspace, then observes the restart", async () => {
+    const shell = fakeShell();
+    shell.answer("service.pendingUpdate", async () => LOCAL_IDLE_UPDATE);
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { shell, protocolVersion: PROTOCOL_VERSION + 1, version: "0.6.0" });
+    await app.user.click(await screen.findByRole("button", { name: "Update desk" }));
+    const sidebar = screen.getByRole("navigation", { name: "Sessions" });
+    await within(sidebar).findByText(/Waiting to update to 0.6.0.*idle.*until/);
+    const workspace = screen.getByRole("region", { name: "This machine" });
+    expect(within(workspace).getByText(/Waiting to update to 0.6.0.*idle.*until/)).toBeDefined();
+    expect(within(workspace).getByRole("button", { name: "Update immediately" }).hasAttribute("disabled")).toBe(false);
+    expect(within(sidebar).queryByText("Restarting for an update…")).toBeNull();
+    shell.answer("service.pendingUpdate", async () => ({ ...LOCAL_IDLE_UPDATE, state: "draining", cause: "idle" }));
+    await act(async () => { app.clock.advance(5000); });
+    await within(sidebar).findByText("Restarting for an update…");
+    expect(within(sidebar).queryByRole("button", { name: "Update immediately" })).toBeNull();
+  });
+
+  it("shows the idle deadline and offers an immediate local update across an older protocol", async () => {
+    const pending = LOCAL_IDLE_UPDATE;
+    let advanced = false;
+    const shell = fakeShell();
+    shell.answer("service.pendingUpdate", async () => advanced ? { ...pending, state: "draining", cause: "requested" } : pending);
+    shell.answer("service.applyUpdateNow", async () => { advanced = true; });
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { shell, protocolVersion: PROTOCOL_VERSION + 1, version: "0.6.0" });
+    const pane = await openMachines(app);
+    await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Update desk to 0.6.0" }));
+    const desk = card(pane, "desk");
+    await within(desk).findByText(/Waiting to update to 0.6.0.*idle.*until/);
+    expect(within(desk).queryByText("Restarting for an update…")).toBeNull();
+    await app.user.click(within(desk).getByRole("button", { name: "Update immediately" }));
+    await waitFor(() => expect(shell.calls.filter(([member]) => member === "service.applyUpdateNow")).toHaveLength(1));
+    await within(desk).findByText("Restarting for an update…");
   });
 
   it("says a refused offer of this client's version in one line, as the card's status", async () => {

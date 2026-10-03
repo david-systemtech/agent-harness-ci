@@ -1,3 +1,4 @@
+import { UpdateProgress } from "../connections/update-progress.js";
 import { clockTime, rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
 import { NETWORK_SETTINGS_KEYS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
 import { useId, useState, type ReactNode } from "react";
@@ -132,6 +133,7 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: M
       <Part title="Updates">
         <UpdateControls view={view} />
         <ClientOffer view={view} />
+        <UpdateProgress view={view} />
         {view.kind === "local" && <BundledServerOffer view={view} />}
         <Fold summary="Advanced" open={advanced} onOpenChange={setAdvanced}>
           <GenericEditor view={view} keys={ADVANCED_KEYS} saysWhyReadOnly={false} />

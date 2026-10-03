@@ -6,7 +6,7 @@ import { useOpenPairing } from "../connections/pairing.js";
 import { RunHereSwitch } from "../connections/run-here.js";
 import { phaseSentence } from "../connections/words.js";
 import { Button, Fold, Tooltip } from "../ui/index.js";
-import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /** First-run introduction (look.md §13.1), kept visible throughout local startup and retries. */
 export const Introduction = ({ home, onBegin, onLater }: {
@@ -14,6 +14,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
   readonly onBegin: () => void;
   readonly onLater: () => void;
 }) => {
+  const clock = useClock();
   const heading = useId();
   const service = useLocalService();
   const openPairing = useOpenPairing();
@@ -29,7 +30,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
   const stopped = !localReady && !service.starting && local?.phase === "service-down";
   const starting = !localReady && !failed && !off && !unavailable && (service.starting || local === undefined || ["starting", "connecting", "syncing", "draining", "updating"].includes(local.phase));
   const StateIcon = localReady ? Check : failed ? CircleAlert : starting ? LoaderCircle : Monitor;
-  const status = localReady ? "The environment on this machine is ready" : failed ? "The environment could not start on this machine." : off ? "This machine’s environment is turned off" : unavailable ? "This machine cannot start an environment" : stopped ? "The environment on this machine is not running" : local === undefined || service.starting || local.phase === "starting" ? "Starting the environment on this machine" : phaseSentence(local, false);
+  const status = localReady ? "The environment on this machine is ready" : failed ? "The environment could not start on this machine." : off ? "This machine’s environment is turned off" : unavailable ? "This machine cannot start an environment" : stopped ? "The environment on this machine is not running" : local === undefined || service.starting || local.phase === "starting" ? "Starting the environment on this machine" : phaseSentence(local, false, false, clock.now());
   const description = localReady ? "You can sign in and start a session here." : failed ? "Try again to get this machine ready for your first session." : off ? "Turn on this machine’s environment to run sessions here, or use another machine’s environment." : unavailable ? "You can pair with an environment on another machine." : stopped ? "Start it again to get this machine ready for your first session." : starting ? "This background service runs your agents and keeps your sessions available. This usually takes a few seconds." : "You can pair with another environment or set up later.";
   return <section aria-labelledby={heading} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-abyss text-ink">
     <header data-setup-frame className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline bg-panel px-4">

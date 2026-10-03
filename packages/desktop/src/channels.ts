@@ -35,6 +35,8 @@ export const ANSWERED = [
   "secrets.delete",
   "secrets.protection",
   "localGrant.read",
+  "service.pendingUpdate",
+  "service.applyUpdateNow",
   "service.install",
   "service.start",
   "service.status",
