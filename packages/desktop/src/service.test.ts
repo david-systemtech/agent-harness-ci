@@ -79,6 +79,32 @@ describe("service", () => {
     expect(stopped.state()).toMatchObject({ installed: true, running: false });
   });
 
+  it("reports the first error from a failed status command, including Node's missing-package cause before its stack and version", async () => {
+    const cause = "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@agent-harness/contracts' imported from /fixture/packages/cli/dist/cli.js";
+    const artefact = fakeArtefact("linux", { fails: { verb: "status", message: [
+      "(node:1) Warning: a runtime warning",
+      "node:internal/modules/package_json_reader:316",
+      "  throw new ERR_MODULE_NOT_FOUND(packageName);",
+      "        ^",
+      "",
+      cause,
+      "    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:316:9)",
+      "Node.js v24.21.0",
+    ].join("\r\n") } });
+    const { shell } = await start({ platform: carrying("linux", artefact), serviceWait: QUICK });
+    await expect(shell().service.status()).rejects.toThrow(`Could not read the service's status: ${cause}`);
+    await expect(shell().service.start()).rejects.toThrow(`Could not read the service's status: ${cause}`);
+  });
+
+  it.each([
+    ["\r\nNo user service manager.\r\nMore detail.\r\n", "No user service manager."],
+    ["\n \n", "`service status` exited with 1."],
+  ])("reports a status refusal or its exit code when there is no error heading", async (message, reason) => {
+    const artefact = fakeArtefact("linux", { fails: { verb: "status", message } });
+    const { shell } = await start({ platform: carrying("linux", artefact), serviceWait: QUICK });
+    await expect(shell().service.status()).rejects.toThrow(`Could not read the service's status: ${reason}`);
+  });
+
   // The one test whose wait runs out: it runs out whatever the runner's load, and what it asserts is the giving up.
   it("stops waiting when the environment does not answer, and says where to look", async () => {
     const artefact = fakeArtefact("linux", { startsAs: null });

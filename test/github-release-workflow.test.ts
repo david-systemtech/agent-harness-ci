@@ -76,7 +76,7 @@ describe("the public GitHub release workflow", () => {
     expect(job("desktop-macos").join("\n")).toContain('codesign --verify --deep --strict "$app"');
     expect(job("desktop-arch").join("\n")).toContain('grep -qx "pkgname = agent-harness-desktop"');
     expect(step("release", "The desktop jobs' builds")).toContain("merge-multiple: true");
-    expect(job("release")).toContain("    needs: [check, image, desktop-macos, desktop-windows, desktop-arch]");
+    expect(job("release")).toContain("    needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
   });
 
   it("hands the manifest writer every asset, the tag and exact ghcr image through the runner's shell", async () => {

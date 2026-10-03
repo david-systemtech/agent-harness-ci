@@ -64,6 +64,12 @@ const isStatusReport = (value: unknown): value is StatusReport => {
   );
 };
 
+/** Node prints a source excerpt before its error and a runtime version after the stack. */
+const firstErrorLine = (text: string): string | undefined => {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
+  return lines.find((line) => /^\w*Error(?: \[[^\]]+\])?:/.test(line)) ?? lines[0];
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts): ShellService => {
@@ -95,7 +101,7 @@ export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts
     } catch {
       report = undefined;
     }
-    if (!isStatusReport(report)) throw new Error(`Could not read the service's status: ${lastLine(ran.stderr) ?? `\`service status\` exited with ${ran.code}.`}`);
+    if (!isStatusReport(report)) throw new Error(`Could not read the service's status: ${firstErrorLine(ran.stderr) ?? `\`service status\` exited with ${ran.code}.`}`);
     return report;
   };
 

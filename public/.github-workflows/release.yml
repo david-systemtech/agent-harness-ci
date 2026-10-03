@@ -144,6 +144,7 @@ jobs:
           test -x "$app/Contents/MacOS/agent-harness"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Contents/Info.plist")" = agent-harness
           test -x "$app/Contents/Resources/server/node/bin/node"
+          test -f "$app/Contents/Resources/server/node_modules/@agent-harness/contracts/package.json"
           grep -q "\"version\": *\"${TAG#v}\"" "$app/Contents/Resources/server/packages/cli/package.json"
 
       - name: Keep the desktop build
@@ -196,6 +197,17 @@ jobs:
 
       - name: The setup is a Windows executable
         run: test "$(head -c 2 desktop/agent-harness-desktop-win32-x64-setup.exe)" = MZ
+
+      - name: The setup carries its server dependencies
+        run: |
+          set -euo pipefail
+          apt-get update && apt-get install -y --no-install-recommends p7zip-full
+          rm -rf unpacked-setup unpacked-windows
+          7z x desktop/agent-harness-desktop-win32-x64-setup.exe -ounpacked-setup
+          payload=$(find unpacked-setup -type f -name 'app-64.7z')
+          test -f "$payload"
+          7z x "$payload" -ounpacked-windows
+          test -f unpacked-windows/resources/server/node_modules/@agent-harness/contracts/package.json
 
       - name: Keep the desktop build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -252,6 +264,7 @@ jobs:
           grep -q "^MimeType=.*x-scheme-handler/agent-harness;" unpacked/usr/share/applications/agent-harness-desktop.desktop
           test -x unpacked/opt/agent-harness/agent-harness-desktop
           test -x unpacked/opt/agent-harness/resources/server/node/bin/node
+          test -f unpacked/opt/agent-harness/resources/server/node_modules/@agent-harness/contracts/package.json
           grep -q "\"version\": *\"${TAG#v}\"" unpacked/opt/agent-harness/resources/server/packages/cli/package.json
 
       - name: Keep the desktop build
@@ -262,8 +275,89 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  smoke-windows:
+    needs: [check, desktop-windows]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-win32-x64
+          path: desktop
+      - name: Run the installed server with its own Node
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $setup = Start-Process -FilePath (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path -ArgumentList '/S' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
+          $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
+          if (!(Test-Path (Join-Path $server "node_modules\@agent-harness\contracts\package.json"))) { throw 'The installed server lacks contracts' }
+          $node = Join-Path $server "node\node.exe"
+          $cli = Join-Path $server "packages\cli\dist\main.js"
+          $version = & $node $cli --version
+          if ($LASTEXITCODE -ne 0 -or $version -ne "agent-harness $env:VERSION") { throw "Unexpected version: $version" }
+          $status = (& $node $cli service status 2>&1 | Out-String)
+          $code = $LASTEXITCODE
+          Write-Output $status
+          if ($code -ne 3 -or $status -notmatch 'No service is installed') { throw "Unexpected service status (exit $code)" }
+          exit 0
+
+  smoke-macos:
+    needs: [check, desktop-macos]
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-darwin-arm64
+          path: desktop
+      - name: Run the unpacked server with its own Node
+        run: |
+          set -euo pipefail
+          ditto -x -k desktop/agent-harness-desktop-darwin-arm64.zip unzipped
+          codesign --verify --deep --strict "unzipped/agent-harness.app"
+          server=unzipped/agent-harness.app/Contents/Resources/server
+          test -f "$server/node_modules/@agent-harness/contracts/package.json"
+          test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
+          code=0
+          status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?
+          printf '%s\n' "$status"
+          test "$code" -eq 3
+          grep -q 'No service is installed' <<< "$status"
+
+  smoke-linux:
+    needs: [check, desktop-arch]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-linux-x64
+          path: desktop
+      - name: Run the unpacked server with its own Node
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libarchive-tools
+          mkdir unpacked
+          bsdtar -xf desktop/agent-harness-desktop-linux-x64.pacman -C unpacked
+          server=unpacked/opt/agent-harness/resources/server
+          test -f "$server/node_modules/@agent-harness/contracts/package.json"
+          test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
+          code=0
+          status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?
+          printf '%s\n' "$status"
+          test "$code" -eq 3
+          grep -q 'No service is installed' <<< "$status"
+
   release:
-    needs: [check, image, desktop-macos, desktop-windows, desktop-arch]
+    needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
