@@ -49,7 +49,7 @@ const CaptionBar = ({ marked, close, children }: CaptionProps & { readonly child
       }}
       onDragStart={(event) => {
         if (id === null || pressedControl.current || (event.target instanceof Element && event.target.closest("button, input, a") !== null)) return event.preventDefault();
-        event.dataTransfer.setData("text/plain", id);
+        event.dataTransfer.setData("application/x-agent-harness-pane", id);
         event.dataTransfer.effectAllowed = "move";
         grid.drag(id);
       }}

@@ -212,6 +212,8 @@ describe("a pane dragged by its caption", () => {
     expect(screen.queryByLabelText("Swap panes")).toBeNull();
     fireEvent.pointerDown(caption);
     expect(fireEvent.dragStart(caption, { dataTransfer: carry })).toBe(true);
+    // A drop back onto the source pane must not paste a pane id into its composer.
+    expect(carry.types).not.toContain("text/plain");
     expect(screen.getByLabelText("Swap panes")).toBeDefined();
     fireEvent.dragEnd(caption, { dataTransfer: carry });
   });
