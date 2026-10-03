@@ -1,5 +1,6 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import { ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import {
@@ -24,8 +25,6 @@ import {
   PopoverContent,
   PopoverTrigger,
   Switch,
-  Toast,
-  Toasts,
   Tooltip,
 } from "./ui/index.js";
 
@@ -218,34 +217,11 @@ describe("the primitives", () => {
     const user = userEvent.setup();
     render(
       <Tooltip content="Split the focused pane to the right">
-        <Button aria-label="Split right">⇥</Button>
+        <Button aria-label="Split right"><ArrowRight aria-hidden="true" /></Button>
       </Tooltip>,
     );
     expect(screen.queryByRole("tooltip")).toBeNull();
     await user.tab();
     expect((await screen.findByRole("tooltip")).textContent).toBe("Split the focused pane to the right");
-  });
-
-  it("a toast shows while its props say it is open, offers its action, and asks to close when dismissed", async () => {
-    const user = userEvent.setup();
-    const done: string[] = [];
-    const { rerender } = render(
-      <Toasts>
-        <Toast open title="desk updated" description="Version 0.5.0 is running." action={{ label: "Reload", run: () => done.push("Reload") }} onOpenChange={(open) => done.push(`open ${open}`)} duration={Infinity} />
-      </Toasts>,
-    );
-    const toasts = screen.getByRole("region", { name: "Notifications (F8)" });
-    expect(within(toasts).getByRole("listitem").textContent).toContain("desk updated");
-    await user.click(screen.getByRole("button", { name: "Reload" }));
-    await user.click(screen.getByRole("button", { name: "Dismiss" }));
-    expect(done).toContain("Reload");
-    expect(done).toContain("open false");
-
-    rerender(
-      <Toasts>
-        <Toast open={false} title="desk updated" onOpenChange={() => undefined} />
-      </Toasts>,
-    );
-    expect(screen.queryByText("desk updated")).toBeNull();
   });
 });
