@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 import { afterEach, expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
@@ -533,5 +534,34 @@ it("refuses symlinks before the scanner can follow anything outside the tree", (
   const f = fixture();
   symlinkSync("../private-file", join(f.source, "external-link")); f.commit();
   expect(() => f.publish()).toThrow();
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+
+it.each(["tEXt", "zTXt", "iTXt"])("blocks private text in PNG %s metadata", (kind) => {
+  const f = fixture();
+  f.write(".public-privacy.json", JSON.stringify({ deny: [{ id: "sample", pattern: "private-example" }], allow: [] }));
+  const image = readFileSync(join(root, "packages/gui/gallery/baselines/window-empty.dark.png"));
+  const text = Buffer.from("private-example");
+  const payload = kind === "tEXt" ? Buffer.concat([Buffer.from("Note\0"), text])
+    : kind === "zTXt" ? Buffer.concat([Buffer.from("Note\0\0"), deflateSync(text)])
+      : Buffer.concat([Buffer.from("Note\0\x01\0\0\0"), deflateSync(text)]);
+  const typeAndPayload = Buffer.concat([Buffer.from(kind), payload]);
+  const length = Buffer.alloc(4); length.writeUInt32BE(payload.length);
+  const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(typeAndPayload));
+  writeFileSync(join(f.source, "capture.png"), Buffer.concat([image.subarray(0, -12), length, typeAndPayload, checksum, image.subarray(-12)]));
+  f.commit();
+  expect(() => f.publish()).toThrow(/capture.png:.*sample/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+
+it("refuses corrupt PNG chunks before publishing", () => {
+  const f = fixture();
+  const image = readFileSync(join(root, "packages/gui/gallery/baselines/window-empty.dark.png"));
+  image[image.length - 1] = image[image.length - 1]! ^ 1;
+  writeFileSync(join(f.source, "capture.png"), image);
+  f.commit();
+  expect(() => f.publish()).toThrow(/Invalid PNG checksum/);
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
