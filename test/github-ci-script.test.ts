@@ -64,7 +64,7 @@ if 'forge.example.invalid' in url:
     with open(os.environ['FAKE_LOG'], 'a') as log: log.write('forgejo ' + json.dumps({'url':url, 'args':args}) + '\\n')
     out = pathlib.Path(value('-o'))
     if '/pulls/' in url:
-        out.write_text(json.dumps({'state':'open','head':{'sha':os.environ['FAKE_PR_SHA']}}))
+        out.write_text(json.dumps({'state':os.environ.get('FAKE_PR_STATE','open'),'merged':os.environ.get('FAKE_PR_MERGED')=='true','head':{'sha':os.environ['FAKE_PR_SHA']}}))
     elif url.endswith('/assets'):
         out.write_text(json.dumps({'browser_download_url':'https://forge.example.invalid/attachments/screenshot'}))
     elif value('-X') == 'PATCH':
@@ -110,7 +110,7 @@ elif stage == 'artifacts':
     out.write_text(json.dumps({'artifacts':[{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
 elif stage == 'archive':
     import zipfile
-    with zipfile.ZipFile(out,'w') as z: z.writestr('window-empty.dark.png', b'\\x89PNG\\r\\n\\x1a\\nfixture')
+    with zipfile.ZipFile(out,'w') as z: z.writestr('window-empty.dark.png', b'\\x89PNG\\r\\n\\x1a\\n' + b'x' * (int(os.environ.get('FAKE_PNG_SIZE','15')) - 8))
 elif stage == 'discovery':
     title = pathlib.Path(os.environ['FAKE_API_STATE'] + '-title').read_text()
     if mode == 'retry-truncated' and stage == target:
@@ -423,4 +423,30 @@ it("keeps screenshot work outside the blocking CI workflow", () => {
   expect(relayWorkflow).toContain("continue-on-error: true");
   expect(relayWorkflow).toContain("'packages/gui/**'");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
+});
+
+it.each(["stale", "closed", "merged"])("does not create a screenshot comment on a %s PR", async (state) => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    FAKE_PR_SHA: state === "stale" ? "a-different-head" : sha,
+    FAKE_PR_STATE: state === "closed" ? "closed" : "open", FAKE_PR_MERGED: String(state === "merged"),
+  });
+  expect(result.code).toBe(2);
+  expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
+  const mutations = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && (line.includes("POST") || line.includes("PATCH")));
+  expect(mutations).toEqual([]);
+});
+
+it("rejects a PNG payload above 1.5 MiB before posting, leaving ZIP overhead within the 2 MiB transport cap", async () => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    FAKE_PR_SHA: sha, FAKE_PNG_SIZE: String(1572864 + 1),
+  });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("gallery payload is too large");
+  expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
 });
