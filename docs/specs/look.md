@@ -13,7 +13,9 @@ Section numbers are stable: surface tickets #1343–#1375 cite §9–§15 and th
 foundations in §1–§8. Unless marked **fixed**, dimensions below are CSS pixels at
 text size 14 and root size 16px, represented as rem lengths and scaled by §3.
 One-pixel strokes, the 7px frame gaps, breakpoint thresholds and explicitly fixed
-measurements stay in pixels. Horizontal/vertical pairs mean x/y, not top/right.
+measurements stay in pixels. Viewport-bound formulas retain the units written
+in the formula, including fixed pixel caps and rem-based viewport margins.
+Horizontal/vertical pairs mean x/y, not top/right.
 Examples and gallery data use neutral invented names and values.
 
 ## 1. Surfaces
@@ -133,8 +135,8 @@ styling; dependencies must not create a second theme or duplicate overlay contex
 | Base multiplier | 0.6 | 0.8 | 1 | 1.4 | 1.8 | 2.2 | 2.6 |
 
 Base radius is 0.5rem. Ordinary controls/cards use lg; compact buttons md;
-dialogs and generic bubbles xl; checkbox fixed 4px; pills full. Composer is
-10px at preset. Machine output is square. Session user rows override the
+dialogs and generic bubbles xl; checkbox fixed 4px; pills full. Composer has a
+fixed 10px radius. Machine output is square. Session user rows override the
 generic bubble to lg. Controls use a transparent 1px border when no visible
 border is needed, so focus and invalid states do not change their dimensions.
 
@@ -587,7 +589,8 @@ reasons and snapshot refresh on reopening.
 Multi-pane caption follows §9: environment badge, workspace basename,
 ChevronRight, session title, pull-request state, Run info 24px icon and Close 24px.
 All titles truncate with full tooltip. Transcript, composer and status share
-the centred reading column: Comfortable 920px (preset), Wide 1280px, Full uncapped.
+the centred reading column: Comfortable fixed 920px (preset), Wide 80rem
+(1280px at preset), Full uncapped.
 Transcript x 16/y 14, row gap 12; composer/status x 12. Transcript scroller contains
 rows only; composer and status remain beneath it. A row has a 56px label/time
 spine, gap 8, body gap 4; user row reverses the spine to the right. Ordinary labels
@@ -647,7 +650,7 @@ waiting amber. “Show request” focuses its card. Window-wide parked asks are 
 
 Below transcript: activity seam; optional hand-off strip; workspace and Hand off
 row; pending cards; background-work and queue strip; composer; status. Composer
-outer x 12, top row y 6, shared column width. Card 10px radius, hairline-strong,
+outer x 12, top row y 6, shared column width. Card fixed 10px radius, hairline-strong,
 wash, focus 3px beam/50; file-drop 2px beam ring/offset 2 on abyss. Plain textarea,
 sm/relaxed, x 12/y 10, min 44 to max 35vh, transparent/no inner border, autosizing,
 spellcheck off; runtime draft handling remains unchanged. Workspace chip 22px,
@@ -816,7 +819,7 @@ may include the rich facts described in §9 and gui.md.
 
 Palette horizontally centred at top one-third (y 300 at 900px), xl/float,
 padding 0, overlay as dialogs. Compact default 384px from screenshot geometry;
-content may widen up to 620px, bounded by viewport−2rem. List max 352px, scroll
+content may widen up to a fixed 620px cap, bounded by viewport−2rem. List max 352px, scroll
 without horizontal overflow, no stock close X. Search wrapper padding 4,
 input 32 with 16px Search, input/30 fill/boundary, lg. Group labels xs/muted;
 rows sm/x 8/y 6/gap 8,16px concept icon, selected wash-strong. Disabled labels
@@ -843,7 +846,7 @@ approval must record the adopted values before a surface relies on them.
 ### 12.1 Dialog and navigation
 
 Settings overlays the visible session window, width min(1000px,100vw−3rem),
-height min(660px,100dvh−3rem), centred, xl/float/ring, padding 0/overflow-hidden.
+height min(660px,100dvh−3rem), with fixed 1000px/660px caps, centred, xl/float/ring, padding 0/overflow-hidden.
 At 1400×900 its CSS box is x 200..1200/y 120..780; a ring may paint one pixel
 outside. Header x 16/y 12, sm title,2xs muted explanation,24px Close. Say which
 changes apply to future runs; appearance changes paint immediately. Open focus
@@ -971,7 +974,7 @@ duplicate service operations. Leaving now keeps Set up available in Settings.
 
 ### 13.2 Rail, step card and footer
 
-Variant A uses a 280px rail, with independently scrolling steps; no alternative
+Variant A uses a fixed 280px rail, with independently scrolling steps; no alternative
 rail selector in the shipped window. Rail panel/hairline/lg, inset 10 with 16px
 top; heading/information x 10/bottom 14. Numbered step rows padding 8/gap 10,
 compact radius 6, minimum 50 high,2px between rows. Fixed 18px mono 11/20 number
@@ -1010,7 +1013,7 @@ with reason; steps 2–11 allow it. Continue on Account waits for a signed-in
 account; selecting later steps in the rail remains possible. On narrow screens
 wrap footer action groups as whole buttons and keep scroll height for content;
 never clip Continue/Finish below the viewport. Below enough width for rail plus
-card, expose the same numbered steps in a collapsible 280px-max drawer and retain
+card, expose the same numbered steps in a collapsible fixed 280px-max drawer and retain
 current step/Back; do not reduce field/control text to fit.
 
 ### 13.3 Account gate and close
