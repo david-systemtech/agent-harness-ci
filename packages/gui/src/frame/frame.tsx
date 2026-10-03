@@ -1,5 +1,3 @@
-import type { Layout, LayoutChangedMeta } from "react-resizable-panels";
-import { Group, Panel, Separator } from "react-resizable-panels";
 import { PaneGridProvider } from "../grid/grid.js";
 import { useKeyAction } from "../keys/key-dispatch.js";
 import { NewSessionSurfaces } from "../new-session/surfaces.js";
@@ -14,21 +12,12 @@ import { Header } from "./header.js";
 import { SessionPaneRegion } from "./session-pane-region.js";
 import { SidebarRegion } from "./sidebar-region.js";
 
-/** The sidebar's width before it is first moved, and the least and most it takes, in pixels (chosen defaults). */
-const SIDEBAR_PRESET = 280;
-const SIDEBAR_LEAST = 200;
-const SIDEBAR_MOST = 560;
-
-/** The layout's names for the two regions a divider parts. */
-const SIDEBAR = "sidebar";
-const SESSION_PANES = "session-panes";
-
 /**
  * The window's frame (docs/specs/gui.md, "The window and the sidebar"): the
  * header across the top, and below it the sidebar region beside the session
  * pane region, parted by a divider that resizes the sidebar. Where the
  * divider is left is presentation (`sidebarWidth`), kept as the sidebar's
- * share of the window; the sidebar keeps its width in pixels as the window
+ * width in pixels; the sidebar keeps that width as the window
  * is resized. Whether the sidebar is shown is presentation too
  * (`sidebarShown`), and `app.sidebar.toggle` (Mod+B) hides and shows it,
  * the session pane region taking the window's width while it is hidden.
@@ -41,13 +30,8 @@ const SESSION_PANES = "session-panes";
  * whole window.
  */
 export const Frame = () => {
-  const [sidebarWidth, setSidebarWidth] = usePresentation("sidebarWidth");
   const [sidebarShown, setSidebarShown] = usePresentation("sidebarShown");
   useKeyAction("app.sidebar.toggle", () => setSidebarShown((shown) => !shown));
-  const keep = (layout: Layout, { isUserInteraction }: LayoutChangedMeta) => {
-    const share = layout[SIDEBAR];
-    if (isUserInteraction && share !== undefined) setSidebarWidth(share);
-  };
   const { shown } = useSettings();
   const checklist = useChecklist();
   return (
@@ -63,25 +47,12 @@ export const Frame = () => {
                 {shown ? (
                   <SettingsView />
                 ) : (
-                  <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
-                    {sidebarShown && (
-                      <>
-                        <Panel
-                          id={SIDEBAR}
-                          defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
-                          minSize={SIDEBAR_LEAST}
-                          maxSize={SIDEBAR_MOST}
-                          groupResizeBehavior="preserve-pixel-size"
-                        >
-                          <SidebarRegion />
-                        </Panel>
-                        <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
-                      </>
-                    )}
-                    <Panel id={SESSION_PANES}>
+                  <div data-window-body className="flex min-h-0 min-w-0 flex-1 gap-[7px] p-[7px]">
+                    {sidebarShown && <SidebarRegion />}
+                    <div data-session-card className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-hairline bg-panel">
                       <SessionPaneRegion />
-                    </Panel>
-                  </Group>
+                    </div>
+                  </div>
                 )}
               </div>
             )}

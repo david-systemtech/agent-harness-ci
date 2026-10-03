@@ -1,4 +1,7 @@
 import { PRODUCT_NAME } from "@agent-harness/contracts";
+import { PanelLeft } from "lucide-react";
+import { useFirstKey } from "../keys/key-dispatch.js";
+import { IconButton } from "../ui/index.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { GridLine } from "../grid/grid.js";
 import { focusedPane } from "../grid/layout.js";
@@ -33,21 +36,26 @@ const FocusedEnvironment = () => {
  * asks button with its count (#405), and the Set up line while a step on
  * the home environment needs attention, and Settings (#1323).
  */
-export const Header = () => (
-  <header className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-panel px-3">
-    <span className="pr-2 text-sm font-semibold text-ink">{PRODUCT_NAME}</span>
-    <FocusedEnvironment />
-    <TerminalAction />
-    <BrowserAction />
-    <SidePanesMenu />
-    <HeaderNewSession />
-    <SplitActions />
-    <GridLine />
-    <span className="ml-auto flex items-center gap-2">
-      <RestartToUpdate />
-      <ParkedAsksButton />
-      <SetupLine />
-      <SettingsControl />
-    </span>
-  </header>
-);
+export const Header = () => {
+  const [sidebarShown, setSidebarShown] = usePresentation("sidebarShown");
+  const sidebarKeys = useFirstKey("app.sidebar.toggle");
+  return (
+    <header className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-panel px-3">
+      {!sidebarShown && <IconButton label="Show sidebar" {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => setSidebarShown(true)}><PanelLeft aria-hidden="true" /></IconButton>}
+      <span className="pr-2 text-sm font-semibold text-ink">{PRODUCT_NAME}</span>
+      <FocusedEnvironment />
+      <TerminalAction />
+      <BrowserAction />
+      <SidePanesMenu />
+      <HeaderNewSession />
+      <SplitActions />
+      <GridLine />
+      <span className="ml-auto flex items-center gap-2">
+        <RestartToUpdate />
+        <ParkedAsksButton />
+        <SetupLine />
+        <SettingsControl />
+      </span>
+    </header>
+  );
+};

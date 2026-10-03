@@ -125,7 +125,7 @@ export type LightOrDark = (typeof LIGHT_OR_DARK)[number];
 /** Every key the presentation holds, and its value. */
 export interface PresentationValues {
   /**
-   * The sidebar region's width as a share of the window, in percent, as the
+   * The sidebar region's integer width in pixels, as the
    * frame's divider last left it; null until it is first moved, when the
    * frame's preset width holds.
    */
@@ -354,7 +354,7 @@ const readPaneLayout = (stored: unknown): PaneLayout | undefined => {
 
 /** How each key's stored value is read back: undefined for a value this build cannot read, which takes the default. */
 const READERS: { readonly [K in PresentationKey]: (stored: unknown) => PresentationValues[K] | undefined } = {
-  sidebarWidth: (stored) => (stored === null || (typeof stored === "number" && stored > 0 && stored < 100) ? stored : undefined),
+  sidebarWidth: (stored) => stored === null ? null : typeof stored === "number" && Number.isFinite(stored) ? Math.round(Math.max(200, Math.min(460, stored))) : undefined,
   sidebarShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
   sidebarView: (stored) => SIDEBAR_VIEWS.find((view) => view === stored),
   collapsedHeadings: (stored) => {

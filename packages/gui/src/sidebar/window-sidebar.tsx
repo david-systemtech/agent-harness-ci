@@ -17,6 +17,9 @@ interface WindowSidebar {
   setFilter(text: string): void;
   /** Whether the filter is to take the focus once it is drawn: `/search` asked for it. */
   readonly filterFocus: boolean;
+  /** An explicit search keeps the field reachable even with eight or fewer sessions. */
+  readonly searchShown: boolean;
+  setSearchShown(shown: boolean): void;
   setFilterFocus(focus: boolean): void;
   /** The row being dragged from the sidebar; null while none is. */
   readonly dragged: SessionRow | null;
@@ -28,8 +31,9 @@ const WindowSidebarContext = createContext<WindowSidebar | null>(null);
 export const WindowSidebarProvider = ({ children }: { readonly children: ReactNode }) => {
   const [filter, setFilter] = useState("");
   const [filterFocus, setFilterFocus] = useState(false);
+  const [searchShown, setSearchShown] = useState(false);
   const [dragged, setDragged] = useState<SessionRow | null>(null);
-  const held = useMemo(() => ({ filter, setFilter, filterFocus, setFilterFocus, dragged, setDragged }), [filter, filterFocus, dragged]);
+  const held = useMemo(() => ({ filter, setFilter, filterFocus, setFilterFocus, searchShown, setSearchShown, dragged, setDragged }), [filter, filterFocus, searchShown, dragged]);
   return <WindowSidebarContext value={held}>{children}</WindowSidebarContext>;
 };
 
@@ -51,14 +55,17 @@ export const useSidebarFilter = (): readonly [string, (text: string) => void] =>
  * for a bare `/search`), and the focus there, to go on typing.
  */
 export const useSidebarSearch = (): ((text: string) => void) => {
-  const { setFilter, setFilterFocus } = useWindowSidebar();
+  const { setFilter, setFilterFocus, setSearchShown } = useWindowSidebar();
   const [, setShown] = usePresentation("sidebarShown");
   return (text) => {
     setShown(true);
+    setSearchShown(true);
     setFilter(text);
     setFilterFocus(true);
   };
 };
+
+export const useSidebarSearchShown = (): boolean => useWindowSidebar().searchShown;
 
 /** Gives the sidebar's filter, `field`, the focus once drawn when a search asked for it. */
 export const useFilterFocus = (field: RefObject<HTMLInputElement | null>): void => {

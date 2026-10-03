@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import type { EnvironmentBinding } from "@agent-harness/contracts";
+import { SETTINGS, type SettingsKey, type EnvironmentBinding } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderOptions, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -173,16 +173,16 @@ describe("the Your machines card in Set up", () => {
     const app = await opened();
     const laptop = app.environment("laptop");
     const updates = () => part("laptop", "Updates");
-    const field = (key: string) => within(updates()).getByRole("group", { name: key });
+    const field = (key: SettingsKey) => within(updates()).getByRole("group", { name: SETTINGS[key].label });
     expect(await within(updates()).findByRole("combobox", { name: "Channel" })).toBeDefined();
     expect(within(updates()).getByRole("button", { name: "Update now" })).toBeDefined();
-    expect(within(updates()).queryByRole("group", { name: "updates.idleWindowMinutes" })).toBeNull();
+    expect(within(updates()).queryByRole("group", { name: "Quiet time before updates in minutes" })).toBeNull();
 
     await app.user.click(within(updates()).getByRole("button", { name: "Advanced" }));
-    const advanced = ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"];
+    const advanced = ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"] as const;
     for (const key of advanced) expect(field(key)).toBeDefined();
     expect(within(updates()).getAllByRole("group")).toHaveLength(advanced.length);
-    const save = async (key: string, typed: string) => {
+    const save = async (key: SettingsKey, typed: string) => {
       const box = await within(field(key)).findByRole("textbox");
       await app.user.clear(box);
       await app.user.type(box, typed);
@@ -303,8 +303,8 @@ describe("the Your machines card in Set up", () => {
     expect(await within(reachability).findByRole("switch", { name: "Bind the tailnet address" })).toBeDefined();
     for (const control of within(reachability).getAllByRole("switch")) expect(control.hasAttribute("disabled"), control.getAttribute("aria-labelledby") ?? "").toBe(true);
     await app.user.click(within(part("laptop", "Updates")).getByRole("button", { name: "Advanced" }));
-    for (const key of ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]) {
-      expect(within(within(part("laptop", "Updates")).getByRole("group", { name: key })).getByRole("textbox").hasAttribute("disabled"), key).toBe(true);
+    for (const key of ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"] as const) {
+      expect(within(within(part("laptop", "Updates")).getByRole("group", { name: SETTINGS[key].label })).getByRole("textbox").hasAttribute("disabled"), key).toBe(true);
     }
 
     expect(within(card("desk")).queryByText(/^Read-only:/)).toBeNull();

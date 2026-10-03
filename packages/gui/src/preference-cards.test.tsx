@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { DEFAULT_THEME, denylistPresets, type Theme } from "@agent-harness/contracts";
+import { SETTINGS, type SettingsKey, DEFAULT_THEME, denylistPresets, type Theme } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -39,7 +39,7 @@ const cardOf = async (app: RenderedApp, step: string) => {
 };
 
 /** A key's group on a card, by the key. */
-const field = (card: HTMLElement, key: string) => within(card).getByRole("group", { name: key });
+const field = (card: HTMLElement, key: SettingsKey) => within(card).getByRole("group", { name: SETTINGS[key].label });
 
 /** A denylist section on the Permissions card, by its name, once the denylist is read. */
 const section = (card: HTMLElement, name: string) => within(within(card).getByRole("region", { name: "Denylist" })).findByRole("region", { name });
@@ -70,8 +70,10 @@ describe("on a fresh environment", () => {
     expect(within(field(permissions, "permissions.unattended.mode")).getByRole("combobox")).toBeDefined();
     expect(within(field(permissions, "permissions.unattended.bypassAcknowledgedAt")).getByText("The environment records it itself; nothing sets it.")).toBeDefined();
     expect(within(field(permissions, "permissions.parkedPrompt.ttl")).getByRole("textbox")).toBeDefined();
-    const containment = within(permissions).getByRole("radiogroup", { name: "permissions.containment.default" });
+    const containment = within(permissions).getByRole("radiogroup", { name: "Default process containment" });
     await waitFor(() => expect(within(containment).getByRole("radio", { name: "○ off: available" })).toBeDefined());
+    await app.user.click(within(containment).getByRole("radio", { name: "● no network: available" }));
+    await waitFor(() => expect(app.environment("desk").settings()["permissions.containment.default"]).toBe("workspace-no-network"));
     for (const name of ["Browser domains", "Paths", "Command patterns", "Hosts"]) expect(await section(permissions, name)).toBeDefined();
     expect(within(permissions).getByRole("form", { name: "Test the denylist" })).toBeDefined();
     expect(within(permissions).getByRole("button", { name: "Continue" })).toBeDefined();
@@ -238,7 +240,7 @@ describe("without admin", () => {
     expect(within(permissions).getByRole("button", { name: "Restore" }).hasAttribute("disabled")).toBe(true);
     expect(within(await section(permissions, "Paths")).getByRole("button", { name: "Restore presets" }).hasAttribute("disabled")).toBe(true);
     expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox").hasAttribute("disabled")).toBe(true);
-    for (const radio of within(within(permissions).getByRole("radiogroup", { name: "permissions.containment.default" })).getAllByRole("radio")) {
+    for (const radio of within(within(permissions).getByRole("radiogroup", { name: "Default process containment" })).getAllByRole("radio")) {
       expect(radio.hasAttribute("disabled")).toBe(true);
     }
 

@@ -1,7 +1,8 @@
 import { clockTime, confirmationOf, describeKey, parseTyped, valueWords, writerOf, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
-import { settingForm, type Confirmation, type MethodName, type SettingsKey } from "@agent-harness/contracts";
+import { SETTINGS, settingForm, type Confirmation, type MethodName, type SettingsKey } from "@agent-harness/contracts";
+import { Check, Save, SlidersHorizontal, X } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
-import { Button, Dialog, DialogClose, DialogContent, Input, Switch } from "../ui/index.js";
+import { Button, Dialog, DialogClose, DialogContent, Input, Select, Switch, Tooltip } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { useSettingsValues } from "./settings-values.js";
 
@@ -100,23 +101,24 @@ export const GenericEditor = ({ view, keys, saysWhyReadOnly = true }: GenericEdi
         : keys.map((key) => {
             const writer = writerOf(key);
             const writable = ready && writer !== null && runtime.capability(view.environmentId, writer).status === "present";
-            return <KeyField key={key} name={key} value={values[key]} writable={writable} line={lines.get(key)} save={(value) => save(key, value)} />;
+            return <SettingField key={key} name={key} value={values[key]} writable={writable} line={lines.get(key)} save={(value) => save(key, value)} />;
           })}
       <Dialog open={asking !== undefined} onOpenChange={(open) => !open && setAsking(undefined)}>
         {asking !== undefined && (
-          <DialogContent title={`Set ${asking.key} to ${valueWords(asking.value)}?`} description={asking.confirmation.sentence}>
+          <DialogContent title={`Set ${SETTINGS[asking.key].label} to ${valueWords(asking.value)}?`} description={asking.confirmation.sentence}>
             <div className="flex justify-end gap-2">
               <DialogClose asChild>
-                <Button>Cancel</Button>
+                <Button title="Cancel (Esc)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
               <Button
-                tone="danger"
+                variant="destructive"
+                title="Confirm this setting (Enter or Space)"
                 onClick={() => {
                   setAsking(undefined);
                   save(asking.key, asking.value, true);
                 }}
               >
-                Set it
+                <Check aria-hidden="true" data-icon="inline-start" />Set it
               </Button>
             </div>
           </DialogContent>
@@ -126,7 +128,7 @@ export const GenericEditor = ({ view, keys, saysWhyReadOnly = true }: GenericEdi
   );
 };
 
-interface KeyFieldProps {
+interface SettingFieldProps {
   readonly name: SettingsKey;
   readonly value: unknown;
   readonly writable: boolean;
@@ -135,18 +137,22 @@ interface KeyFieldProps {
   readonly save: (value: unknown) => void;
 }
 
-/** One key: its name, what it is for, its value drawn by its form, and why its last write did not save. */
-const KeyField = ({ name, value, writable, line, save }: KeyFieldProps) => {
+/** One setting: human label, smaller key detail, help, form and write failure. */
+export const SettingField = ({ name, value, writable, line, save }: SettingFieldProps) => {
   const label = useId();
   return (
-    <div role="group" aria-labelledby={label} className="flex flex-col gap-1.5 rounded-md border border-line p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span id={label} className="font-mono text-sm text-ink">
-          {name}
-        </span>
+    <div role="group" aria-labelledby={label} className="@container flex min-w-0 flex-col gap-1.5 rounded-lg border border-hairline p-3">
+      <div className="flex min-w-0 flex-col gap-3 @sm:flex-row @sm:items-center @sm:justify-between">
+        <div className="min-w-0">
+          <span id={label} className="flex items-center gap-1.5 text-xs font-medium text-ink">
+            <SlidersHorizontal aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
+            {SETTINGS[name].label}
+          </span>
+          <span className="block break-all font-mono text-2xs text-ink-faint">{name}</span>
+        </div>
         <FormControl name={name} label={label} value={value} writable={writable} save={save} />
       </div>
-      <p className="text-xs text-ink-muted">{describeKey(name)}</p>
+      <p className="text-2xs text-ink-muted">{describeKey(name)}</p>
       {writerOf(name) === null && <p className="text-xs text-ink-faint">The environment records it itself; nothing sets it.</p>}
       {line !== undefined && <p className="text-xs text-signal">{line}</p>}
     </div>
@@ -154,20 +160,21 @@ const KeyField = ({ name, value, writable, line, save }: KeyFieldProps) => {
 };
 
 /** A key's value drawn by its form (`settingForm`): a switch, a choice among its values, or typed text read as the key's. */
-const FormControl = ({ name, label, value, writable, save }: Omit<KeyFieldProps, "line"> & { readonly label: string }) => {
+const FormControl = ({ name, label, value, writable, save }: Omit<SettingFieldProps, "line"> & { readonly label: string }) => {
   const form = settingForm(name);
   switch (form.kind) {
     case "switch":
-      return <Switch aria-labelledby={label} checked={value === true} disabled={!writable} onCheckedChange={(on) => save(on)} />;
+      return <Tooltip content={`${SETTINGS[name].label} (Space to toggle)`}><Switch aria-labelledby={label} checked={value === true} disabled={!writable} onCheckedChange={(on) => save(on)} /></Tooltip>;
     case "choice": {
       const at = form.options.findIndex((option) => option === value);
       return (
-        <select
+        <Select
+          title={`${SETTINGS[name].label} (Arrow keys to choose)`}
           aria-labelledby={label}
           value={String(at)}
           disabled={!writable}
           onChange={(event) => save(form.options[Number(event.target.value)])}
-          className="h-8 rounded-md border border-line bg-inset px-2 text-sm text-ink outline-none focus-visible:border-beam disabled:text-ink-faint"
+          className="w-48 max-w-full"
         >
           {at < 0 && <option value="-1">{valueWords(value)}</option>}
           {form.options.map((option, index) => (
@@ -175,7 +182,7 @@ const FormControl = ({ name, label, value, writable, save }: Omit<KeyFieldProps,
               {valueWords(option)}
             </option>
           ))}
-        </select>
+        </Select>
       );
     }
     case "text":
@@ -184,7 +191,7 @@ const FormControl = ({ name, label, value, writable, save }: Omit<KeyFieldProps,
 };
 
 /** A value typed as JSON or words (`parseTyped`), saved with its button; what the key does not take is said, and nothing is sent. */
-const TypedValue = ({ name, label, value, writable, save }: Omit<KeyFieldProps, "line"> & { readonly label: string }) => {
+const TypedValue = ({ name, label, value, writable, save }: Omit<SettingFieldProps, "line"> & { readonly label: string }) => {
   const [text, setText] = useState(valueWords(value));
   const [refused, setRefused] = useState<string | undefined>(undefined);
   const submit = (event: FormEvent) => {
@@ -195,20 +202,21 @@ const TypedValue = ({ name, label, value, writable, save }: Omit<KeyFieldProps, 
     save(parsed.value);
   };
   return (
-    <form onSubmit={submit} className="flex flex-col items-end gap-1">
-      <div className="flex gap-2">
+    <form onSubmit={submit} className="flex max-w-full flex-col items-end gap-1">
+      <div className="flex max-w-full flex-wrap gap-2">
         <Input
           aria-labelledby={label}
+          title={`${SETTINGS[name].label} (Enter to save)`}
           value={text}
           disabled={!writable}
           onChange={(event) => {
             setText(event.target.value);
             setRefused(undefined);
           }}
-          className="w-48"
+          className="w-48 max-w-full"
         />
-        <Button type="submit" disabled={!writable || text.trim() === ""}>
-          Save
+        <Button type="submit" title={`Save ${SETTINGS[name].label} (Enter)`} disabled={!writable || text.trim() === ""}>
+          <Save aria-hidden="true" data-icon="inline-start" />Save
         </Button>
       </div>
       {refused !== undefined && <p className="text-xs text-signal">{refused}</p>}

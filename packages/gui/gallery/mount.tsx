@@ -5,13 +5,14 @@ import type { SceneRegistry } from "./scene-registry.js";
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../src/app.js";
+import { WindowProvider } from "../src/window-context.js";
 import { scenes } from "./scenes.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 export const mountGallery = async (container: HTMLElement, scene: string, ladder: LadderName = "dark", registry: SceneRegistry = scenes) => {
   const definition = registry[scene];
   if (!Object.hasOwn(registry, scene) || definition === undefined) throw new Error(`Unknown gallery scene: ${scene}`);
-  const prepared = await prepareWorld(definition.script ?? { environments: [] }, { presentation: { lightOrDark: ladder } });
+  const prepared = await prepareWorld(definition.script ?? { environments: [] }, { presentation: { ...definition.presentation, lightOrDark: ladder } });
   const world = { ...prepared, ...await startWorld(prepared, prepared.paired) };
   const root = createRoot(container);
   const Component = definition.default;
@@ -33,7 +34,7 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
     }, []);
     return null;
   };
-  root.render(<>{Component !== undefined ? <Component ladder={ladder} /> : <App runtime={world.runtime} presentation={world.presentation} clock={world.clock} version={world.version} macOS={world.macOS} shell={world.shell} />}<Ready /></>);
+  root.render(<>{Component !== undefined ? <WindowProvider runtime={world.runtime} presentation={world.presentation} clock={world.clock} version={world.version} shell={world.shell}><Component ladder={ladder} /></WindowProvider> : <App runtime={world.runtime} presentation={world.presentation} clock={world.clock} version={world.version} macOS={world.macOS} shell={world.shell} />}<Ready /></>);
   return {
     world,
     async close() {
