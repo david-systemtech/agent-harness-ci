@@ -55,11 +55,11 @@ export interface RowFacts {
 }
 
 /** Shared label spine; messages reverse it, keeping the bubble against the right edge. */
-export const TranscriptLine = ({ label, right = false, time, children }: { readonly label: ReactNode; readonly right?: boolean; readonly time?: string | undefined; readonly children: ReactNode }) => (
+export const TranscriptLine = ({ label, right = false, inset = right, time, children }: { readonly label: ReactNode; readonly right?: boolean; readonly inset?: boolean; readonly time?: string | undefined; readonly children: ReactNode }) => (
   <div className={classes("group/line flex min-w-0 gap-2 text-sm", right && "flex-row-reverse")}>
-    <div data-measure="transcript-spine" className="relative w-14 shrink-0 pt-2 text-right text-2xs leading-4 text-ink-faint">
+    <div data-measure="transcript-spine" className={classes("relative w-14 shrink-0 text-right text-2xs leading-4 text-ink-faint", inset && "pt-2")}>
       <span className={classes(time !== undefined && "group-hover/line:invisible")}>{label}</span>
-      {time !== undefined && <time dateTime={time} title={time} className="absolute top-2 right-0 hidden font-mono opacity-60 group-hover/line:block">{new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</time>}
+      {time !== undefined && <time dateTime={time} title={time} className={classes("absolute right-0 hidden font-mono opacity-60 group-hover/line:block", inset ? "top-2" : "top-0")}>{new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</time>}
     </div>
     <div className="flex min-w-0 flex-1 flex-col gap-1">{children}</div>
   </div>
@@ -70,7 +70,7 @@ export const TranscriptRowView = memo(({ row, facts }: { readonly row: Transcrip
   const user = row.kind === "user" && !environmentMessage(row.entry);
   const thinking = row.kind === "assistant" && row.entry.kind === "assistant-thinking";
   const label = user ? <span className="text-beam-text">you</span> : thinking ? <span className="text-sage">thinking</span> : row.kind === "turn" ? "end" : row.kind === "user" ? "environment" : "";
-  return <div data-row-id={row.id}><TranscriptLine label={label} right={user} time={row.kind === "user" ? row.entry.sentAt : row.kind === "turn" ? row.run.endedAt ?? undefined : undefined}><RowBody row={row} facts={facts} /></TranscriptLine></div>;
+  return <div data-row-id={row.id}><TranscriptLine label={label} right={user} inset={row.kind === "user" || row.kind === "turn"} time={row.kind === "user" ? row.entry.sentAt : row.kind === "turn" ? row.run.endedAt ?? undefined : undefined}><RowBody row={row} facts={facts} /></TranscriptLine></div>;
 }, (before, after) => {
   // The projection creates row wrappers on each delta. Settled speech and user messages
   // need no redraw when their entry fields and the facts they consume remain the same.
