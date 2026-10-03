@@ -82,7 +82,9 @@ docker compose logs environment
 
 For remote container pairing, run the published Compose file on a Linux host
 with Tailscale installed, signed in and running in kernel TUN mode (the default,
-with a `tailscale0` interface). Join the client machine to the same tailnet and
+with an interface whose name starts with `tailscale`, such as `tailscale0` or
+`tailscale1`). The detector takes a non-internal IPv4 address in `100.64.0.0/10`,
+checking the lowest-numbered interface first. Join the client machine to the same tailnet and
 allow TCP port 7433 in the tailnet policy and host firewall. The container
 shares the host network and discovers its Tailscale IPv4 address without a
 Tailscale CLI or daemon socket. Until the first client pairs, `docker compose
