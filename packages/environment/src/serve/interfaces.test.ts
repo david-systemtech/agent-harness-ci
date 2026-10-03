@@ -53,17 +53,39 @@ describe("the Tailscale detector", () => {
     expect(await detector.tailnetName()).toBeUndefined();
   });
 
+  it("discovers tailscale1 when it is the host's only tailnet interface", async () => {
+    const detector = tailscaleDetector(scripted({}).run, () => ({
+      tailscale1: [entry("fd7a:115c:a1e0::1"), entry("100.64.0.9")],
+    }));
+    expect(await detector.tailscaleAddress()).toBe("100.64.0.9");
+  });
+
+  it("prefers the lowest-numbered eligible interface, regardless of enumeration order", async () => {
+    let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
+      tailscale1: [entry("100.64.0.9")],
+      tailscale0: [entry("100.64.0.8")],
+    };
+    const detector = tailscaleDetector(scripted({}).run, () => interfaces);
+    expect(await detector.tailscaleAddress()).toBe("100.64.0.8");
+    interfaces = {
+      tailscale10: [entry("100.64.0.10")],
+      tailscale2: [entry("100.64.0.2")],
+      tailscale0: [entry("192.168.1.20")],
+    };
+    expect(await detector.tailscaleAddress()).toBe("100.64.0.2");
+  });
+
   it("takes only an IPv4 address, and the first when there are several", async () => {
     expect(await tailscaleDetector(scripted({ "tailscale ip -4": "not an address\n" }).run, () => ({})).tailscaleAddress()).toBeUndefined();
     expect(await tailscaleDetector(scripted({ "tailscale ip -4": "fd7a:115c:a1e0::1\n" }).run, () => ({})).tailscaleAddress()).toBeUndefined();
     expect(await tailscaleDetector(scripted({ "tailscale ip -4": "100.64.0.1\n100.64.0.2\n" }).run, () => ({})).tailscaleAddress()).toBe("100.64.0.1");
   });
 
-  it("uses only a non-internal IPv4 address in Tailscale's range on tailscale0, reading it anew", async () => {
+  it("uses only a non-internal IPv4 address in Tailscale's range on a tailscale interface, reading it anew", async () => {
     let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
       eth0: [entry("100.64.0.5")],
       tun0: [entry("100.64.0.6")],
-      tailscale0: [entry("192.168.1.20"), entry("100.63.255.255"), entry("100.128.0.1"), entry("100.64.0.7", true), entry("fd7a:115c:a1e0::1")],
+      tailscale1: [entry("192.168.1.20"), entry("100.63.255.255"), entry("100.128.0.1"), entry("100.64.0.7", true), entry("fd7a:115c:a1e0::1")],
     };
     const detector = tailscaleDetector(scripted({}).run, () => interfaces);
     expect(await detector.tailscaleAddress()).toBeUndefined();

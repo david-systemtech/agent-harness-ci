@@ -126,7 +126,7 @@
     },
     {
       "rule": "private-ip",
-      "path": "^docs/specs/env\\.md$",
+      "path": "^(?:docs/specs/env\\.md|README\\.md|scripts/compose\\.yaml)$",
       "value": "(?:100\\.64\\.0\\.0)"
     },
     {

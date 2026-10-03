@@ -705,6 +705,22 @@ describe("/setup", () => {
     expect(env.requests("setup.check")).toEqual([]);
   });
 
+  it("shows a pending scheduled read as checking with no attention header, then follows its first read", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+      "your-machines": { state: "pending", reason: "Waiting for the first release channel read." },
+    } })]);
+    await command(app, "/setup");
+    await app.waitFor("Your machines: checking — Waiting for the first release channel read.");
+    await app.waitFor("0 done, 0 need attention, 0 skipped, 1 checking");
+    expect(app.frame()).not.toContain("need attention (Your machines)");
+    env.setSetup({ "your-machines": { state: "done" } });
+    env.passSetup(["your-machines"]);
+    await app.waitFor("Your machines: done");
+    await app.waitFor("1 done, 0 need attention, 0 skipped");
+    expect(env.requests("setup.check")).toEqual([]);
+  });
+
   it("updates the open card from the environment's setup notices without another check", async () => {
     const { app, env } = await launch([desk({ capabilities: ["setup"] })]);
     await command(app, "/setup");
