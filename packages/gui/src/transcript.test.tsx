@@ -33,9 +33,33 @@ const fadeEnds = (word: HTMLElement) => {
 };
 
 /** The words of `element` still fading in, each as it arrived. */
-const fading = (element: HTMLElement | undefined) => [...(element?.querySelectorAll("span") ?? [])].filter((span) => span.style.animationName === "word-in").map((span) => span.textContent);
+const fading = (element: HTMLElement | undefined) => [...(element?.querySelectorAll("span") ?? [])].filter((span) => span.classList.contains("word-in")).map((span) => span.textContent);
 
 describe("streaming", () => {
+  it("labels message spines and shows a caret only while a reply is streaming", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Check the totals");
+    await within(transcript).findByRole("article", { name: "Your message" });
+    expect(within(transcript).getByText("you")).toBeDefined();
+    env.emit(session, "assistant.delta", { runId, itemId: "reply", fragments: [{ kind: "text", text: "Checking the totals. " }] });
+    const reply = await within(transcript).findByRole("article", { name: "Reply" });
+    expect(within(reply).getByRole("status", { name: "Reply streaming" })).toBeDefined();
+    env.emit(session, "assistant.text", { runId, itemId: "reply", text: "The totals agree.", aborted: false });
+    await waitFor(() => expect(within(reply).queryByRole("status", { name: "Reply streaming" })).toBeNull());
+    env.endRun(session, runId);
+    await within(transcript).findByRole("article", { name: "Turn ended" });
+    expect(within(transcript).getByText("end")).toBeDefined();
+  });
+
+  it("keeps very long replies prewrapped and searchable rather than parsing Markdown", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Read the long report");
+    env.emit(session, "assistant.text", { runId, itemId: "long", text: "# Report\n" + "Plain text. ".repeat(7400), aborted: false });
+    const reply = await within(transcript).findByRole("article", { name: "Reply" });
+    expect(within(reply).queryByRole("heading", { name: "Report" })).toBeNull();
+    expect(reply.textContent).toContain("# Report");
+  });
+
   it("draws Workspace check commands, running state and finished output from the shared projection", async () => {
     const { env, transcript, session } = await opened();
     const check = { terminalId: "0199a100-0000-4000-8000-000000000001", command: "pnpm lint", sourceRunId: null };
@@ -167,7 +191,7 @@ describe("reasoning", () => {
     const { app, env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
     env.emit(session, "assistant.thinking", { runId, itemId: "r-1", text: "The totals are summed twice.\n\nFix the second sum.", aborted: false });
-    const fold = await within(transcript).findByRole("button", { name: /^Reasoning/ });
+    const fold = await within(transcript).findByRole("button", { name: /^Thinking/ });
     expect(fold.getAttribute("aria-expanded")).toBe("true");
     expect(within(transcript).getByText("Fix the second sum.")).toBeDefined();
 
@@ -475,10 +499,10 @@ describe("display preferences", () => {
     const { app, env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
     env.emit(session, "assistant.thinking", { runId, itemId: "r-1", text: "Summed twice.", aborted: false });
-    await within(transcript).findByRole("button", { name: /^Reasoning/ });
+    await within(transcript).findByRole("button", { name: /^Thinking/ });
     // The column the rows stand in.
     const column = () => screen.getByRole("region", { name: "Transcript" }).firstElementChild as HTMLElement;
-    expect(transcript.style.fontSize).toBe("14px");
+    expect(transcript.style.fontSize).toBe("");
     expect(column().style.maxWidth).toBe("920px");
 
     act(() => {
@@ -487,16 +511,17 @@ describe("display preferences", () => {
       app.presentation.set("reasoningShown", false);
       app.presentation.set("streamingFade", false);
     });
-    expect(transcript.style.fontSize).toBe("17px");
-    expect(column().style.maxWidth).toBe("1280px");
+    expect(transcript.style.fontSize).toBe("");
+    expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(String(17 / 14));
+    expect(column().style.maxWidth).toBe("80rem");
     act(() => app.presentation.set("readingWidth", "full"));
     expect(column().style.maxWidth).toBe("none");
 
     const again = await app.remount();
     const reopened = await screen.findByRole("region", { name: "Transcript" });
-    expect(reopened.style.fontSize).toBe("17px");
+    expect(reopened.style.fontSize).toBe("");
     expect(column().style.maxWidth).toBe("none");
-    expect((await within(reopened).findByRole("button", { name: /^Reasoning/ })).getAttribute("aria-expanded")).toBe("false");
+    expect((await within(reopened).findByRole("button", { name: /^Thinking/ })).getAttribute("aria-expanded")).toBe("false");
     again.environment("desk").emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Looking at the par" }] });
     await waitFor(() => expect(lastReply(reopened)?.textContent).toBe("Looking at the par"));
     expect(fading(lastReply(reopened))).toEqual([]);

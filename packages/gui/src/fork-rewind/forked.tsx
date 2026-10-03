@@ -1,4 +1,5 @@
 import { forkedFrom, oneLine, type ForkedEntry } from "@agent-harness/client-runtime";
+import { GitFork } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Fold } from "../ui/index.js";
 import { useOpenInPane } from "../session/pane-line.js";
@@ -26,11 +27,12 @@ export const ForkedRow = ({ entry, children }: { readonly entry: ForkedEntry; re
   const link = (
     <button
       type="button"
+      title="Open source session (Enter or Space)"
       {...(entry.history !== undefined && { "aria-label": "Open source session" })}
       onClick={() => openInPane(environmentId, entry.fromSessionId)}
       className="flex min-w-0 items-center gap-1.5 self-start rounded-sm text-left text-[0.85em] text-cyan outline-none hover:underline focus-visible:outline-2 focus-visible:outline-beam"
     >
-      <span aria-hidden="true">⑂</span>
+      <GitFork aria-hidden="true" className="size-3 shrink-0" />
       <span className="min-w-0 truncate">
         <Marked text={entry.history === undefined ? words : "Open source"} />
       </span>
@@ -39,7 +41,7 @@ export const ForkedRow = ({ entry, children }: { readonly entry: ForkedEntry; re
   if (entry.history === undefined) return link;
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <Fold summary={<Marked text={words} />} open={expanded} onOpenChange={setExpanded}>
+      <Fold className="rounded-lg border border-hairline bg-wash px-3 py-2" summary={<><GitFork aria-hidden="true" className="size-3 shrink-0" /><Marked text={words} /></>} open={expanded} onOpenChange={setExpanded}>
         {children}
       </Fold>
       {link}

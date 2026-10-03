@@ -31,7 +31,8 @@ describe("the frame", () => {
   it("draws one session pane region, with no session open in it", async () => {
     await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Fix the rail" }] }] });
     const pane = within(screen.getByRole("main")).getByRole("region", { name: "Session pane" });
-    expect(pane.textContent).toBe("No session is open. Choose one from the sidebar.");
+    expect(within(pane).getByText("No session is open. Choose one from the sidebar.")).toBeDefined();
+    expect(within(pane).getByRole("heading", { name: PRODUCT_NAME })).toBeDefined();
   });
 
   it("resizes the sidebar by its divider, and keeps where the divider was left when the window opens again", async () => {

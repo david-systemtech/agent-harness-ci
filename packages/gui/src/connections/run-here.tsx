@@ -1,4 +1,5 @@
-import { Switch } from "../ui/index.js";
+import { Monitor } from "lucide-react";
+import { Switch, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { useLocalService } from "./local-service.js";
 
@@ -19,7 +20,8 @@ export const RunHereSwitch = () => {
   };
   return (
     <label className="flex items-center gap-2 text-sm text-ink">
-      <Switch checked={runHere} onCheckedChange={change} aria-label="Run an environment on this machine" />
+      <Tooltip content="Run an environment on this machine"><Switch checked={runHere} onCheckedChange={change} aria-label="Run an environment on this machine" /></Tooltip>
+      <Monitor aria-hidden="true" className="size-4 shrink-0" />
       <span>Run an environment on this machine</span>
     </label>
   );

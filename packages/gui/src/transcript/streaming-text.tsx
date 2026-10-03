@@ -110,6 +110,7 @@ const Fading = memo(({ batch, onDone }: { readonly batch: Batch; readonly onDone
       <span
         // A batch's words never change once it is made, so their places are their keys.
         key={index}
+        className="word-in"
         style={fadeStyle(index * batch.stagger)}
         onAnimationEnd={index === batch.words.length - 1 ? () => onDone(batch.key) : undefined}
       >
@@ -119,13 +120,11 @@ const Fading = memo(({ batch, onDone }: { readonly batch: Batch; readonly onDone
   </>
 ));
 
+// The stylesheet owns the animation so reduced-motion rules can stop an in-flight batch.
 const fadeStyle = (delay: number): CSSProperties => ({
-  animationName: "word-in",
-  animationDuration: `${WORD_MS}ms`,
-  animationTimingFunction: "ease-out",
-  animationFillMode: "both",
+  "--word-ms": `${WORD_MS}ms`,
   animationDelay: `${delay}ms`,
-});
+} as CSSProperties);
 
 export interface StreamingTextProps {
   readonly text: string;

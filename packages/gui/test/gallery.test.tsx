@@ -79,3 +79,20 @@ it("discovers a component scene and mounts its controls and geometry in each lad
     container.remove();
   }
 });
+
+it.each(["window-not-ready", "window-start-failed"])("renders %s with the measured welcome and readiness alert", async (scene) => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, scene);
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  expect(screen.getByRole("heading", { name: "agent-harness" })).toBeDefined();
+  expect(screen.getByRole("alert").textContent).toContain("Not ready to run");
+  const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+  expect(geometry).toContainEqual({ selector: "[data-welcome-tile]", width: 44, height: 44 });
+  if (scene === "window-start-failed") {
+    expect(screen.getByRole("status").textContent).not.toContain("remote method");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Pair instead" })).toBeDefined();
+  }
+});
