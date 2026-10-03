@@ -6,6 +6,7 @@ const unmapped = (colour: string) => ({ messageId: "unmapped" as const, data: { 
 
 ruleTester.run("no-unmapped-colour-class", rule, {
   valid: [
+    { filename: gui("app.tsx"), code: 'const a = <div className="bg-radial bg-conic decoration-slice decoration-clone underline-offset-2 underline-offset-auto" />;' },
     { filename: gui("app.tsx"), code: 'const a = <div className="bg-panel text-ink-muted border-line-strong shadow-scrim/40 bg-environment-red" />;' },
     { filename: gui("app.tsx"), code: 'const a = <div className="group-hover/menu:bg-scrim/50 dark:hover:bg-scrim/50 data-[state=open]:text-beam [&:nth-child(2)]:border-line!" />;' },
     { filename: gui("app.tsx"), code: 'const a = <div className="text-sm text-center text-pretty bg-cover bg-no-repeat bg-center border-2 border-dashed border-x-4 border-b border-t border-r border-bs ring-2 ring-inset shadow-lg shadow-none outline-offset-2 decoration-wavy decoration-2 fill-none stroke-2 from-10% via-50% to-90% divide-x-2" />;' },

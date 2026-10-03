@@ -225,7 +225,7 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   build and push to GHCR through `public/.github-workflows/release.yml`; a pull from the registry
   is the checklist's Release image section. Never build or run an image on
   the shared agent box, nor run the updater there.
-- Four local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
+- Five local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and
   `agent-harness/no-session-types-in-shell` (the shell interface module and
@@ -238,8 +238,11 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   their stylesheets included through ESLint's CSS language (`@eslint/css`)
   and their SVG assets and HTML documents through html-eslint's HTML language
   (`@html-eslint/eslint-plugin`); its two allowlisted modules are named in the
-  configuration.
-  `eslint.config.ts` scopes all four, and keeps the JavaScript rules to scripts.
+  configuration. The fifth, `agent-harness/no-unmapped-colour-class`,
+  refuses a colour utility whose name the GUI stylesheet maps to no token,
+  in those same packages' strings, CSS `@apply` and HTML/SVG classes; it
+  preserves non-colour overloads such as widths and font sizes.
+  `eslint.config.ts` scopes all five, and keeps the JavaScript rules to scripts.
 
 ## Merging
 

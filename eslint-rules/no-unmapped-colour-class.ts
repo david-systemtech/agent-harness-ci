@@ -11,11 +11,11 @@ const prefixes = [...COLOUR_UTILITIES].sort((a, b) => b.length - a.length);
 
 /** Overloaded colour prefixes also name sizes, alignment, geometry and styles in Tailwind 4. */
 const nonColours: Readonly<Record<string, RegExp>> = {
-  bg: /^(?:none|auto|cover|contain|fixed|local|scroll|(?:clip|origin)-(?:border|padding|content|text)|(?:no-)?repeat(?:-[xy]|-space|-round)?|(?:top|bottom|left|right|center)(?:-(?:top|bottom|left|right))?|(?:linear|radial|conic|gradient|blend|size|position)-.+)$/,
+  bg: /^(?:none|auto|cover|contain|fixed|local|scroll|radial|conic|(?:clip|origin)-(?:border|padding|content|text)|(?:no-)?repeat(?:-[xy]|-space|-round)?|(?:top|bottom|left|right|center)(?:-(?:top|bottom|left|right))?|(?:linear|radial|conic|gradient|blend|size|position)-.+)$/,
   text: /^(?:xs|sm|base|lg|xl|[2-9]xl|left|center|right|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip)$/,
   border: /^(?:solid|dashed|dotted|double|hidden|none|collapse|separate|spacing-.+)$/,
   divide: /^(?:[xy](?:-reverse|-\d+)?|solid|dashed|dotted|double|none)$/,
-  decoration: /^(?:solid|double|dotted|dashed|wavy|auto|from-font)$/,
+  decoration: /^(?:solid|double|dotted|dashed|wavy|auto|from-font|slice|clone)$/,
   outline: /^(?:solid|dashed|dotted|double|none|hidden|offset-\d+)$/,
   ring: /^inset$/,
   "ring-offset": /^\d+$/,
