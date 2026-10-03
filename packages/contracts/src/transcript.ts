@@ -111,6 +111,17 @@ export const ModelUsage = z
   .meta({ description: "One model's token spend in a run: input, output, cache reads and writes, cost and context window." });
 export type ModelUsage = z.infer<typeof ModelUsage>;
 
+/** The latest main request's input context, independent of cumulative token spend. */
+export const ContextReading = z.object({
+  model: z.string().min(1),
+  contextTokens: z.int().nonnegative().meta({ description: "Input tokens of the latest main request, including cache reads and writes; excludes output and delegated requests." }),
+  contextWindow: z.int().positive().nullable().meta({ description: "This model's context window, only when reported by the provider." }),
+}).meta({ description: "The latest main request's context, never cumulative token spend." });
+export type ContextReading = z.infer<typeof ContextReading>;
+
+export const ContextReportedPayload = ContextReading.extend({ runId: RunId }).meta({ description: "context.reported: replaces the run's latest main request context reading." });
+export type ContextReportedPayload = z.infer<typeof ContextReportedPayload>;
+
 /** An error a run ended with: a message for people and, when the provider gave one, its code. */
 export const RunError = z
   .object({
@@ -453,6 +464,7 @@ export const TRANSCRIPT_EVENT_TYPES = {
   "command.ran": unlisted(CommandRanPayload),
   "tasks.changed": unlisted(TasksChangedPayload),
   "usage.reported": unlisted(UsageReportedPayload),
+  "context.reported": unlisted(ContextReportedPayload),
   "plan.limit": unlisted(PlanLimitPayload),
   "session.provider-linked": unlisted(SessionProviderLinkedPayload),
   "session.forked": unlisted(SessionForkedPayload),
@@ -498,6 +510,8 @@ export const RunSummary = z
     cause: InterruptCause.nullable(),
     error: RunError.nullable(),
     usage: z.array(ModelUsage).nullable().meta({ description: "The latest token spend per model: run.ended's, else the last usage.reported." }),
+    contextWindows: z.record(z.string().min(1), z.int().positive()).optional().meta({ description: "Context windows learned from this run's context.reported readings, keyed by the reported model; retained when a later reading changes model or omits its scale." }),
+    context: ContextReading.nullable().optional().meta({ description: "The latest context.reported reading; absent in snapshots from environments without context readings." }),
     durationMs: z.int().nonnegative().nullable(),
   })
   .meta({ description: "One run of a session: its state, where it came from, its account, model, effort and mode, and how it ended." });

@@ -53,6 +53,19 @@
               }
             ],
             "description": "The model's name as a client shows it, when the adapter gives one."
+          },
+          "contextWindow": {
+            "description": "The context window only when the provider reports it; absent for static catalogue entries.",
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
