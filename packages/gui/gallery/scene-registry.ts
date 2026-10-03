@@ -11,6 +11,8 @@ export interface SceneGeometry {
   readonly viewport?: number;
   /** Require the whole element inside this scrollport and the capture viewport. */
   readonly visibleWithin?: string;
+  /** Require wrapping content to fit its own box, not only the enclosing control. */
+  readonly contentFits?: boolean;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;

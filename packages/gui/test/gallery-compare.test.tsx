@@ -76,6 +76,18 @@ it("has a baseline for every required scene, ladder and viewport", async () => {
   }
 });
 
+it("has inspected baselines at both widths for every scheduled 20px window ladder", () => {
+  const cases = captureCases(["window-scale-20"]);
+  expect(cases.length).toBeGreaterThan(0);
+  for (const { scene, ladder } of cases) {
+    for (const [width, height] of [[1400, 900], [1024, 768]] as const) {
+      const name = captureName(scene, width, ladder);
+      const baseline = PNG.sync.read(readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url)));
+      expect([baseline.width, baseline.height]).toEqual([width, height]);
+    }
+  }
+});
+
 it("reserves the generated narrow suffix so scenes cannot overwrite another capture", () => {
   expect(captureName("window-empty", 1400)).toBe("window-empty.dark");
   expect(captureName("window-empty", 1024)).toBe("window-empty-narrow.dark");
