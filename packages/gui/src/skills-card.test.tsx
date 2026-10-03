@@ -107,11 +107,11 @@ it("offers always-on per account with its size and changes only the chosen accou
     update({ ...skills, choices: [choice] });
     return accepted({ choice });
   });
-  const editor = await within(card()).findByRole("switch", { name: "Always-on unslop on editor" });
+  const editor = await within(card()).findByRole("switch", { name: "Every prompt unslop on editor" });
   expect(editor.getAttribute("aria-checked")).toBe("false");
-  const writer = within(card()).getByRole("switch", { name: "Always-on unslop on writer" });
+  const writer = within(card()).getByRole("switch", { name: "Every prompt unslop on writer" });
   expect(writer.getAttribute("aria-checked")).toBe("false");
-  expect(within(card()).getByText(/Always-on: 5924 characters, about 1481 tokens/)).toBeDefined();
+  expect(within(card()).getByText(/5924 characters · approximately 1481 tokens/)).toBeDefined();
   await app.user.click(editor);
   await waitFor(() => expect(editor.getAttribute("aria-checked")).toBe("true"));
   expect(writer.getAttribute("aria-checked")).toBe("false");

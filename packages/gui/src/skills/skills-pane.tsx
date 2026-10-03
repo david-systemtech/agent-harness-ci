@@ -1,11 +1,13 @@
 import type { SkillReadiness, SkillsView } from "@agent-harness/contracts";
 import { oneLine, type EnvironmentView } from "@agent-harness/client-runtime";
+import { Sparkles, Type, FileText, Layers } from "lucide-react";
 import { useMemo, useState } from "react";
 import { reachWords } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { focusedPane } from "../grid/layout.js";
+import { MissingSkillChoices } from "./missing-choices.js";
 import { MemberCard } from "./members.js";
-import { Input } from "../ui/index.js";
+import { Input, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { TrustedRepositories } from "./trust.js";
 import { AddSource, SourceCard } from "./sources.js";
@@ -42,8 +44,8 @@ const SkillsOn = ({ view }: { readonly view: EnvironmentView }) => {
         </p>
       )}
       <label className="flex flex-col gap-1 text-sm">
-        View skills for a session
-        <select
+        <span className="flex items-center gap-1"><Layers aria-hidden="true" className="size-3.5" />View skills for a session</span>
+        <Tooltip content="Skills session · Arrow keys"><select
           aria-label="Skills session"
           className="rounded-md border border-line bg-inset p-2 text-ink"
           value={sessionId ?? ""}
@@ -55,18 +57,24 @@ const SkillsOn = ({ view }: { readonly view: EnvironmentView }) => {
               {row.summary.title ?? row.summary.id}
             </option>
           ))}
-        </select>
+        </select></Tooltip>
       </label>
       {sessionId === undefined && <p className="text-sm text-ink-faint">Choose a session to check readiness in its account and workspace.</p>}
+      {read.result !== null &&
+        (sessionId === undefined ? (
+          <Members environmentId={environmentId} skills={read.result} say={say} />
+        ) : (
+          <SessionMembers environmentId={environmentId} sessionId={sessionId} skills={read.result} say={say} />
+        ))}
       <AddSource environmentId={environmentId} say={say} />
       {read.result?.sources.map((source) => (
         <SourceCard key={source.id} environmentId={environmentId} source={source} say={say} />
       ))}
-      <section aria-label="Own skills" className="flex flex-col gap-3">
-        <h3 className="font-semibold text-ink">Own skills</h3>
-        {read.result !== null && <p className="text-sm text-ink-muted">{read.result.ownDirectory}</p>}
-        <Input aria-label="Skill name" value={name} onChange={(event) => setName(event.target.value)} />
-        <Input aria-label="Skill description" value={description} onChange={(event) => setDescription(event.target.value)} />
+      <section aria-label="Own skills" className="flex flex-col gap-3 rounded-lg border border-hairline p-3">
+        <h3 className="text-xs font-semibold text-ink">Own skills</h3>
+      {read.result !== null && <p className="text-sm text-ink-muted">{read.result.ownDirectory}</p>}
+        <label className="flex flex-col gap-1 text-xs"><span className="flex items-center gap-1"><Type aria-hidden="true" className="size-3.5" />Skill name</span><Tooltip content="Skill name · Type to edit"><Input aria-label="Skill name" value={name} onChange={(event) => setName(event.target.value)} /></Tooltip></label>
+        <label className="flex flex-col gap-1 text-xs"><span className="flex items-center gap-1"><FileText aria-hidden="true" className="size-3.5" />Description</span><Tooltip content="Description · Type to edit"><Input aria-label="Skill description" value={description} onChange={(event) => setDescription(event.target.value)} /></Tooltip></label>
         <SkillButton
           environmentId={environmentId}
           method="skills.own.create"
@@ -86,12 +94,7 @@ const SkillsOn = ({ view }: { readonly view: EnvironmentView }) => {
         </SkillButton>
       </section>
       <TrustedRepositories environmentId={environmentId} say={say} />
-      {read.result !== null &&
-        (sessionId === undefined ? (
-          <Members environmentId={environmentId} skills={read.result} say={say} />
-        ) : (
-          <SessionMembers environmentId={environmentId} sessionId={sessionId} skills={read.result} say={say} />
-        ))}
+
     </>
   );
 };
@@ -108,7 +111,8 @@ const Members = ({
   readonly say: (line: string) => void;
 }) => (
   <>
-    {skills.members.length === 0 && <p className="text-sm text-ink-muted">No skills are in this set.</p>}
+    {skills.members.length === 0 && <div className="flex flex-col items-center gap-2 rounded-lg border border-hairline bg-panel p-6 text-center"><Sparkles aria-hidden="true" className="size-6 text-ink-muted" /><h3 className="text-xs font-medium">No skills are in this set.</h3><p className="max-w-md text-2xs text-ink-muted">Add a repository of procedures above, or create a skill in this environment. Each procedure holds a SKILL.md and is available on request.</p></div>}
+    <MissingSkillChoices skills={skills} />
     {skills.members.map((member) => (
       <MemberCard
         key={JSON.stringify([member.layer, member.path])}
