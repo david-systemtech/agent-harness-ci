@@ -198,12 +198,13 @@ base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
 api = f'{base}/api/v1/repos/{repository}'
+package_token = os.environ.get('PACKAGES_TOKEN') or os.environ['FORGEJO_TOKEN']
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 opener = urllib.request.build_opener(NoRedirect())
-def absolute_request(url, method='GET', data=None, content_type='application/json'):
+def absolute_request(url, method='GET', data=None, content_type='application/json', package=False):
     req = urllib.request.Request(url, data=data, method=method, headers={
-        'Authorization': 'token ' + os.environ['FORGEJO_TOKEN'], 'Content-Type': content_type})
+        'Authorization': 'token ' + (package_token if package else os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
     with opener.open(req, timeout=120) as response:
         reply = response.read()
         return json.loads(reply) if reply else None
@@ -264,11 +265,11 @@ try:
         name = scene['name'] + '.png'
         stage = f'capture storage {name}'
         download = f'{base}/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}'
-        try: absolute_request(download, 'PUT', images[name], 'image/png')
+        try: absolute_request(download, 'PUT', images[name], 'image/png', package=True)
         except urllib.error.HTTPError as error:
             if error.code != 409: raise
             # Reusing this report version is safe only when its bytes are identical.
-            req = urllib.request.Request(download, headers={'Authorization': 'token ' + os.environ['FORGEJO_TOKEN']})
+            req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
             with opener.open(req, timeout=120) as response:
                 if response.read(4*1024*1024+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
         captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})

@@ -16,6 +16,7 @@ jobs:
       - name: Expire unreferenced captures
         run: python3 scripts/gallery-retention.py
         env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
           FORGEJO_TOKEN: ${{ github.token }}
           FORGEJO_URL: ${{ github.server_url }}
           FORGEJO_REPOSITORY: ${{ github.repository }}

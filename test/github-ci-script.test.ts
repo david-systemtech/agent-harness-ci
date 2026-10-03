@@ -517,7 +517,7 @@ it("prints the failing capture job log when the gallery failed before producing 
 });
 
 /** Real relay and acceptance over an immutable generic-package HTTP peer. */
-async function storedGallery() {
+async function storedGallery(packagesToken = "token-for-tests") {
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
   await run("git", ["-C", f.checkout, "remote", "add", "origin", "https://forge.example.invalid/example/project.git"]);
@@ -527,6 +527,8 @@ async function storedGallery() {
   let base = "", failure = "";
   const server = createServer(async (request, response) => {
     const path = request.url ?? "";
+    const expected = path.startsWith("/api/packages/") || path.startsWith("/api/v1/packages/") ? packagesToken : "token-for-tests";
+    if (request.headers.authorization !== `token ${expected}`) { response.writeHead(401).end(); return; }
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const data = Buffer.concat(chunks);
@@ -557,7 +559,7 @@ async function storedGallery() {
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("no fixture address");
   base = `http://127.0.0.1:${address.port}`;
-  const env = { GH_CI_EVENT: "gallery", FAKE_GALLERY_ZIP: zip, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project" };
+  const env = { PACKAGES_TOKEN: packagesToken, GH_CI_EVENT: "gallery", FAKE_GALLERY_ZIP: zip, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project" };
   return {
     f, sha, comments, captures, env,
     fail: (stage: string) => { failure = stage; },
@@ -619,4 +621,13 @@ it("attaches discovered component captures in both ladders", async () => {
     expect(comment).toContain(`![${name}.png](https://forge.example.invalid/attachments/screenshot)`);
   }
   expect(comment).toContain("light and dark");
+});
+
+
+it("uses the owner package credential for captures while keeping comment requests on the repository token", async () => {
+  const g = await storedGallery("package-token-for-tests");
+  await g.capture(255);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments[0]!.body).toContain("<!-- window-gallery ");
 });

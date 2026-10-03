@@ -29,8 +29,10 @@ def main():
     opener = urllib.request.build_opener(NoRedirect())
 
     def request(path, method='GET'):
+        # Package APIs are owner-scoped; the workflow's repository token cannot use them.
+        token = (os.environ.get('PACKAGES_TOKEN') or os.environ['FORGEJO_TOKEN']) if path.startswith('/packages/') else os.environ['FORGEJO_TOKEN']
         req = urllib.request.Request(api + path, method=method, headers={
-            'Authorization': 'token ' + os.environ['FORGEJO_TOKEN']})
+            'Authorization': 'token ' + token})
         with opener.open(req, timeout=120) as response:
             data = response.read(4*1024*1024+1)
         if len(data) > 4*1024*1024:

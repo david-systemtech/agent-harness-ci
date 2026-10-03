@@ -21,8 +21,9 @@ async function fixture(failure = "") {
     packageVersion("unrelated", undefined, "server-release"), packageVersion("expired-second-page"),
   ];
   const server = createServer((request, response) => {
-    expect(request.headers.authorization).toBe("token token-for-tests");
     const url = new URL(request.url ?? "", base);
+    const expected = failure === "package-auth" && url.pathname.startsWith("/api/v1/packages/") ? "package-token-for-tests" : "token-for-tests";
+    if (request.headers.authorization !== `token ${expected}`) { response.writeHead(401).end(); return; }
     requests.push(url.pathname + url.search);
     response.setHeader("content-type", "application/json");
     const page = url.searchParams.get("page") ?? "1";
@@ -45,7 +46,7 @@ async function fixture(failure = "") {
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("no fixture address");
   base = `http://127.0.0.1:${address.port}`;
-  return { deleted, requests, env: { ...process.env, FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project", FORGEJO_TOKEN: "token-for-tests" } };
+  return { deleted, requests, env: { ...process.env, FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project", FORGEJO_TOKEN: "token-for-tests", PACKAGES_TOKEN: failure === "package-auth" ? "package-token-for-tests" : "token-for-tests" } };
 }
 
 it("expires old orphan versions while preserving every open PR manifest, its in-flight head, and recent captures", async () => {
@@ -67,12 +68,21 @@ it("runs cleanup daily and after a completed gallery report", () => {
   expect(workflow).toContain("cron:");
   expect(workflow).toContain("workflow_dispatch:");
   expect(workflow).toContain("python3 scripts/gallery-retention.py");
+  expect(workflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
+  expect(readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery.yml"), "utf8")).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(readFileSync(join(import.meta.dirname, "../.forgejo/scripts/github-ci.sh"), "utf8")).toContain("scripts/gallery-retention.py");
 });
 
 
 it("ignores manifest examples in discussion while preserving valid active manifests", async () => {
   const f = await fixture("malformed");
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
+});
+
+
+it("uses the package credential for inventory and deletion and the repository credential for PR protection", async () => {
+  const f = await fixture("package-auth");
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
 });

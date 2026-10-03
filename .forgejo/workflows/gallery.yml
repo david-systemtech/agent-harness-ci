@@ -26,6 +26,7 @@ jobs:
         env:
           GH_CI_EVENT: gallery
           GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
           FORGEJO_TOKEN: ${{ github.token }}
           FORGEJO_URL: ${{ github.server_url }}
           FORGEJO_REPOSITORY: ${{ github.repository }}
