@@ -15,6 +15,7 @@ import {
   type ContainmentBadge,
   type RunChoice,
 } from "@agent-harness/client-runtime";
+import { Box, Cpu, KeyRound, Shield } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
 import { useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
@@ -56,7 +57,7 @@ import { useModelChoice } from "./run-choices.js";
  */
 
 interface PickerButtonProps {
-  /** What the picker picks: its button is named for it and the value it shows (`Mode: ⏸ auto`). */
+  /** What the picker picks: its button is named for it and the value it shows (`Mode: auto`). */
   readonly name: string;
   /** The value the button shows, in words. */
   readonly value: string;
@@ -66,37 +67,46 @@ interface PickerButtonProps {
   /** The menu's items. */
   readonly items: () => ReactNode;
   /** The slash command that opens it. */
+  readonly warning?: string | undefined;
   readonly command: "account" | "model" | "mode" | "containment";
 }
 
-const TRIGGER = "h-6 min-w-0 shrink gap-1 px-1.5 text-xs font-normal text-ink-muted";
+const TRIGGER = "h-[22px] max-w-[240px] min-w-0 gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal text-ink-muted hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3";
+const PICKER_ICONS = { account: KeyRound, model: Cpu, mode: Shield, containment: Box };
+/** Text renderers keep their badges; the window draws icons beside these words. */
+export const modeLabel = (words: string): string => words.replace(/^[⏸⏵]+\s*/, "");
+const containmentLabel = (words: string): string => words.replace(/^[○◐●]\s*/, "");
 
 /**
  * A picker's button and its menu. While the connection cannot do what it
  * does, the button is dim with the reason in its tooltip and opens nothing:
  * a press says the reason on the pane's line.
  */
-const PickerButton = ({ name, value, offer, children, items, command }: PickerButtonProps) => {
+const PickerButton = ({ name, value, offer, children, items, command, warning }: PickerButtonProps) => {
   const [, say] = usePaneLine();
   const [open, setOpen] = useState(false);
   useSlashCommand(command, () => (offer.status === "absent" ? say(offer.message) : setOpen(true)), offer);
   const label = `${name}: ${value}`;
+  const Icon = PICKER_ICONS[command];
+  const content = <><Icon aria-hidden="true" /><span className="min-w-0 truncate">{children}</span></>;
   if (offer.status === "absent") {
     return (
-      <Tooltip content={offer.message}>
-        <Button aria-label={label} aria-disabled="true" className={classes(TRIGGER, "cursor-default text-ink-faint hover:bg-transparent")} onClick={() => say(offer.message)}>
-          {children}
+      <Tooltip content={`${label} · /${command} · ${offer.message}`}>
+        <Button aria-label={label} aria-disabled="true" className={classes(TRIGGER, name === "Account" ? "shrink" : "shrink-0", "cursor-default text-ink-faint hover:bg-transparent")} onClick={() => say(offer.message)}>
+          {content}
         </Button>
       </Tooltip>
     );
   }
   return (
     <Menu open={open} onOpenChange={setOpen}>
-      <MenuTrigger asChild>
-        <Button aria-label={label} className={TRIGGER}>
-          {children}
-        </Button>
-      </MenuTrigger>
+      <Tooltip content={`${label} · /${command} · Enter to open${warning === undefined ? "" : ` · ${warning}`}`}>
+        <MenuTrigger asChild>
+          <Button aria-label={label} className={classes(TRIGGER, name === "Account" ? "shrink" : "shrink-0")}>
+            {content}
+          </Button>
+        </MenuTrigger>
+      </Tooltip>
       <MenuContent align="start" className="max-h-96 max-w-md overflow-y-auto">
         {items()}
       </MenuContent>
@@ -228,6 +238,7 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
   const [, say] = usePaneLine();
   const session = useSessionName(environmentId, sessionId);
 
+  const unavailable = model !== undefined && catalogues.value !== null && !modelsOf(catalogues.value, accountId).some((entry) => entry.id === model.model);
   const words = model === undefined ? "default model" : model.effort !== null ? `${model.model} ${model.effort}` : model.model;
   const chosen = (id: string, effort: string | null) => {
     choose({ model: id, effort });
@@ -257,8 +268,8 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
     );
   };
   return (
-    <PickerButton name="Model" command="model" value={words} offer={listing} items={items}>
-      <span className={model === undefined ? "text-ink-faint" : "text-ink"}>{words}</span>
+    <PickerButton name="Model" command="model" value={words} offer={listing} items={items} warning={unavailable ? "This stored model is not listed for this account. Choose an available model for the next run." : undefined}>
+      <span className={unavailable ? "text-amber" : model === undefined ? "text-ink-faint" : "text-ink"}>{words}</span>
     </PickerButton>
   );
 };
@@ -290,7 +301,7 @@ export const ModePicker = ({ environmentId, sessionId, value, children }: ModePi
         note={!allowed ? aboveCeilingWords(picker.ceiling) : mode === own ? "this session" : undefined}
         under={mode === "bypassPermissions" ? BYPASS_SENTENCE : undefined}
       >
-        {MODE_BADGE_WORDS[mode]}
+        <Shield aria-hidden="true" className="mr-1 inline size-3" />{modeLabel(MODE_BADGE_WORDS[mode])}
       </Item>
     ));
   return (
@@ -316,7 +327,7 @@ export const ContainmentPicker = ({ environmentId, sessionId, containment }: Con
   const session = useSessionName(environmentId, sessionId);
   const environment = useEnvironmentName(environmentId);
   const report = permissions?.result?.containment;
-  const value = containment === undefined ? "containment not read yet" : containmentWords(containment.level, containment.isDefault);
+  const value = containment === undefined ? "containment not read yet" : containmentLabel(containmentWords(containment.level, containment.isDefault));
 
   const items = () => (
     <>
@@ -331,7 +342,7 @@ export const ContainmentPicker = ({ environmentId, sessionId, containment }: Con
             dim={unavailable !== undefined}
             note={unavailable !== undefined ? `not available here: ${unavailable}` : marked}
           >
-            {containmentWords(level, false)}
+            <Box aria-hidden="true" className="mr-1 inline size-3" />{containmentLabel(containmentWords(level, false))}
           </Item>
         );
       })}
