@@ -1,4 +1,4 @@
-import { BookOpen, PanelsTopLeft, FileDiff, Files, ListTodo } from "lucide-react";
+import { BookOpen, PanelRightClose, PanelRightOpen, PanelsTopLeft, FileDiff, Files, ListTodo } from "lucide-react";
 import { focusedPane } from "../grid/layout.js";
 import type { PaneSession } from "../presentation.js";
 import { MenuItem, Tooltip } from "../ui/index.js";
@@ -35,7 +35,7 @@ const ItemsFor = ({ session }: { readonly session: PaneSession }) => {
       </Tooltip>;
     })}
     {column.open.length > 0 && <Tooltip content={column.hidden ? "Show the side column" : "Hide the side column"}>
-      <MenuItem onSelect={() => change((held) => hideColumn(held, !held.hidden))}><Files aria-hidden="true" />{column.hidden ? "Show the side column" : "Hide the side column"}</MenuItem>
+      <MenuItem onSelect={() => change((held) => hideColumn(held, !held.hidden))}>{column.hidden ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}{column.hidden ? "Show the side column" : "Hide the side column"}</MenuItem>
     </Tooltip>}
   </>;
 };

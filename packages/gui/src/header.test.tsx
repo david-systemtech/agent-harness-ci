@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { PRODUCT_NAME, STEP_ORDER } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { openHeaderMenu } from "../test/header-actions.js";
 import { renderApp } from "../test/harness.js";
 
 describe("the single-line header", () => {
@@ -34,6 +35,17 @@ describe("the single-line header", () => {
     await app.user.click(menu.getByRole("menuitem", { name: "Tasks" }));
     expect(await screen.findByRole("region", { name: "Tasks" })).toBeDefined();
   });
+  it("opens More when a session context menu is already open", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Plan the next task" }] }] });
+    app.open("desk");
+    await screen.findByRole("region", { name: "Transcript" });
+    await app.user.pointer({ keys: "[MouseRight]", target: within(screen.getByRole("navigation", { name: "Sessions" })).getByRole("button", { name: /Plan the next task/ }) });
+    expect(await screen.findByRole("menu", { name: "Organise “Plan the next task”" })).toBeDefined();
+    const menu = await openHeaderMenu(app);
+    expect(within(menu).getByRole("menuitem", { name: "Terminal" })).toBeDefined();
+    expect(screen.queryByRole("menu", { name: "Organise “Plan the next task”" })).toBeNull();
+  });
+
   it("changes the client ladder through theme segments, including arrow keys, and keeps the choice on remount", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
     const theme = within(screen.getByRole("radiogroup", { name: "Theme" }));
