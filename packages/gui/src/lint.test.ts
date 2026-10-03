@@ -103,13 +103,15 @@ function glyphControls(file: string, code: string): string[] {
     if (ts.isParenthesizedExpression(node)) return contents(node.expression);
     if (ts.isConditionalExpression(node)) return alternatives([...contents(node.whenTrue), ...contents(node.whenFalse)]);
     if (ts.isBinaryExpression(node)) {
+      if (node.operatorToken.kind === ts.SyntaxKind.PlusToken) return alternatives(contents(node.left).flatMap((left) => contents(node.right).map((right) => left + right)));
       if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return alternatives(["", ...contents(node.right)]);
       if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) return alternatives([...contents(node.left), ...contents(node.right)]);
     }
     if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
       return node.children.reduce<string[]>((texts, child) => alternatives(texts.flatMap((text) => contents(child).map((next) => text + next))), [""]);
     }
-    return ["[nonliteral content]"];
+    // An icon always draws content; a dynamic label can be empty.
+    return ts.isJsxSelfClosingElement(node) ? ["[nonliteral content]"] : ["", "[nonliteral content]"];
   };
   const problems: string[] = [];
   const visit = (node: ts.Node) => {
@@ -136,6 +138,13 @@ it.each([...GLYPHS])("refuses %s as a control's whole content, even through wrap
     expect(glyphControls("fixture.tsx", code)).toEqual(["fixture.tsx:1"]);
   }
   expect(glyphControls("fixture.tsx", `<button><Plus /> Add</button><span>${glyph}</span><button>{"${glyph}  Add"}</button>`)).toEqual([]);
+});
+
+it("refuses glyphs beside dynamic labels that may be empty", () => {
+  for (const code of ['<button>{label + "+"}</button>', '<button>{label}+</button>', '<button>{"+" + label}</button>']) {
+    expect(glyphControls("fixture.tsx", code)).toEqual(["fixture.tsx:1"]);
+  }
+  expect(glyphControls("fixture.tsx", '<button>{label}<Plus /></button><button>{label + " Add"}</button>')).toEqual([]);
 });
 
 it("finds a lone glyph among many independently optional labels", () => {
