@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { sideColumnKey, type PaneSession, type SideColumn, type SidePane } from "../presentation.js";
 import { usePresentation } from "../window-context.js";
+import { DOCK_PANES } from "./panes.js";
 
 /**
  * A session's side column as presentation keeps it (docs/specs/gui.md, "The
@@ -16,18 +17,19 @@ export const NO_COLUMN: SideColumn = Object.freeze({ open: Object.freeze([]), sh
 /** How many sessions' columns are kept: the ones changed longest ago go first (a chosen default). */
 const KEPT = 200;
 
-/** Shows `pane`, opening it at the strip's end when it is not open, and the column with it. */
+/** Shows `pane`, adding it to the open panes when it is not open, and the column with it. */
 export const showPane = (column: SideColumn, pane: SidePane): SideColumn => ({
   open: column.open.includes(pane) ? column.open : [...column.open, pane],
   shown: pane,
   hidden: false,
 });
 
-/** Closes `pane`: the strip loses it, and the pane after it shows in its place, else the one before. */
+/** Closes `pane`: the rail loses it, and the pane after it shows in its place, else the one before. */
 export const closePane = (column: SideColumn, pane: SidePane): SideColumn => {
-  const at = column.open.indexOf(pane);
+  const ordered = DOCK_PANES.filter((kind) => column.open.includes(kind));
+  const at = ordered.indexOf(pane);
   if (at === -1) return column;
-  const open = column.open.filter((other) => other !== pane);
+  const open = ordered.filter((other) => other !== pane);
   const shown = column.shown === pane ? (open[at] ?? open[at - 1] ?? null) : column.shown;
   return { open, shown, hidden: open.length > 0 && column.hidden };
 };

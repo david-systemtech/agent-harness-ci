@@ -24,12 +24,23 @@ set -euo pipefail
 : "${GH_CI_TOKEN:?GH_CI_TOKEN is not set}" "${GROUP:?}" "${FORGEJO_RUN:=}"
 repo=${GH_CI_REPO:-david-systemtech/agent-harness-ci}
 api=https://api.github.com/repos/$repo
-sha=$(git rev-parse HEAD)
-id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 # A separate network job shares the transport, not the unit suite.
 event=${GH_CI_EVENT:-ci}
 case "$event" in ci | catalogue | gallery) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
+sha=$(git rev-parse HEAD)
+if [ "$event" = gallery ]; then
+  # This script and its sibling publisher stay checked out from the trusted base.
+  # Fetching objects for the public capture runner never checks out or runs PR code here.
+  [ "${GITHUB_EVENT_NAME:-}" = pull_request_target ] ||
+    { echo "::error::gallery publication requires a trusted pull_request_target workflow"; exit 1; }
+  [[ "${GH_CI_SHA:-}" =~ ^[0-9a-f]{40}$ ]] ||
+    { echo "::error::invalid gallery target sha"; exit 1; }
+  sha=$GH_CI_SHA
+  git fetch --quiet --no-tags origin "$sha"
+  git cat-file -e "$sha^{commit}"
+fi
+id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 
 # Each attempt has 120 s, enough for a 16 KB run reply at the site's measured 1.2 KB/s.
 # Retries start within 180 s; the last attempt can take another 120 s.
@@ -112,7 +123,7 @@ else
   elif [ -n "$part" ]; then rm -f "$part"; fi
 fi
 tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
-"$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="HEAD" . ||
+"$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="$sha" . ||
   { echo "::error::gitleaks found a secret; nothing was pushed to GitHub"; exit 1; }
 
 echo "Pushing $sha to $repo as ci/$id"
@@ -170,20 +181,135 @@ print(r.get("status") or "unknown", r.get("conclusion") or "-")')
   sleep 15
 done
 echo "GitHub run finished: $conclusion"
-if [ "$conclusion" = success ]; then
-  if [ "$event" = gallery ]; then
-    reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
-    artifact=$(printf '%s' "$reply" | python3 -c '
+# Failed comparisons still publish the captures, baseline and difference for review.
+if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == failure ]]; then
+  reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
+  artifact=$(printf '%s' "$reply" | python3 -c '
 import json,sys
 items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
-if len(items)!=1 or items[0]["size_in_bytes"]>2*1024*1024: sys.exit("missing or oversized gallery artifact")
+if not items: sys.exit(0)
+if len(items)!=1 or items[0]["size_in_bytes"]>32*1024*1024: sys.exit("oversized or duplicate gallery artifact")
 print(int(items[0]["id"]))')
-    # One small zip, even over the slow relay link; all attempts and their retries are bounded.
-    gh_api --fail -L --max-filesize 2097152 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
-    bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
+  if [ -z "$artifact" ]; then
+    echo "No gallery artifact was uploaded; reading the failed job logs."
+    [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
+  else
+    gh_api --fail -L --max-filesize 33554432 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
+    gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
+import pathlib,sys,zipfile
+archive=pathlib.Path(sys.argv[1])
+if archive.stat().st_size > 32*1024*1024: sys.exit('gallery zip is too large')
+with zipfile.ZipFile(archive) as z: print('report' if 'report.json' in z.namelist() else 'captures')
+PYFORMAT
+    )
+    if [ "$gallery_format" = captures ]; then
+      # A workflow rollout can finish an earlier capture-only artifact.
+      bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
+    else
+      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
+import hashlib, html, json, os, re, sys, urllib.error, urllib.parse, urllib.request, zipfile
+base = os.environ['FORGEJO_URL'].rstrip('/')
+repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
+if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
+api = f'{base}/api/v1/repos/{repository}'
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs): return None
+opener = urllib.request.build_opener(NoRedirect())
+def absolute_request(url, method='GET', data=None, content_type='application/json', token=None):
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        'Authorization': 'token ' + (token or os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
+    with opener.open(req, timeout=120) as response:
+        reply = response.read()
+        return json.loads(reply) if reply else None
+def request(path, method='GET', data=None, content_type='application/json'):
+    return absolute_request(api + path, method, data, content_type)
+current = request(f'/pulls/{pr}')
+if current['state'] != 'open' or current.get('merged') or current['head']['sha'] != head:
+    print('Gallery report rejected: the PR is closed, merged, or its head changed.', file=sys.stderr)
+    sys.exit(2)
+with zipfile.ZipFile(sys.argv[1]) as z:
+    entries = z.infolist()
+    if len(entries) > 602 or sum(f.filename.endswith('.png') for f in entries) > 600 or sum(f.file_size for f in entries) > 24*1024*1024: sys.exit('gallery payload is too large')
+    names = [f.filename for f in entries]
+    if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
+    report = json.loads(z.read('report.json'))
+    images = {n: z.read(n) for n in names if n.endswith('.png')}
+    for data in images.values():
+        if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
+    scenes = report['scenes']
+    if not scenes or len(scenes) > 200: sys.exit('invalid gallery scene list')
+    seen = set()
+    for scene in scenes:
+        name = scene['name']
+        if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)', name) or name in seen: sys.exit('invalid gallery scene name')
+        seen.add(name)
+        required = [name + '.png']
+        if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
+        if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+package_token = os.environ.get('PACKAGES_TOKEN')
+if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
+comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
+stage = 'uploads'
+try:
+    version = f'{head}-{comment}'
+    urls = {}
+    for name, data in sorted(images.items()):
+        stage = f'attachment {name}'
+        boundary = 'gallery-upload-boundary'
+        body = (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="{name}"\r\nContent-Type: image/png\r\n\r\n'.encode() + data + f'\r\n--{boundary}--\r\n'.encode())
+        asset = request(f'/issues/comments/{comment}/assets', 'POST', body, f'multipart/form-data; boundary={boundary}')
+        url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
+        if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): raise ValueError('invalid asset URL')
+        urls[name] = url
+    body = f'Window gallery for `{head}` (1400 × 900; narrow 1024 × 768; light and dark).\n'
+    geometry_failed = any(s['geometryFailures'] for s in scenes)
+    pixel_failed = any(s['pixelFailed'] for s in scenes)
+    body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
+    matched = sum(s['status'] == 'unchanged' for s in scenes)
+    body += f'\n{matched} scene{"" if matched == 1 else "s"} matched.\n'
+    for scene in scenes:
+        name = scene['name']
+        if scene['status'] == 'changed':
+            body += f'\n**{name}**\n\n| Baseline | Capture | Difference |\n| --- | --- | --- |\n'
+            body += '| ' + ' | '.join(f'![{kind} {name}]({urls[name+suffix]})' for kind,suffix in [('baseline','.baseline.png'),('capture','.png'),('difference','.difference.png')]) + ' |\n'
+        elif scene['status'] == 'new' or scene['geometryFailures']:
+            body += f'\n**{name}** ({scene["status"]})\n\n![capture {name}]({urls[name+".png"]})\n'
+        for failure in scene['geometryFailures']: body += f'\n- {html.escape(failure)}\n'
+    # The web attachment route can be behind SSO while the tracker API accepts tokens.
+    # Publish capture bytes through the generic package API too, so acceptance needs no browser cookie.
+    captures = []
+    for scene in scenes:
+        name = scene['name'] + '.png'
+        stage = f'capture storage {name}'
+        download = f'{base}/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}'
+        try: absolute_request(download, 'PUT', images[name], 'image/png', token=package_token)
+        except urllib.error.HTTPError as error:
+            if error.code != 409: raise
+            # Reusing this report version is safe only when its bytes are identical.
+            req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
+            with opener.open(req, timeout=120) as response:
+                if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
+        captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
+    manifest = {'head': head, 'version': version, 'captures': captures}
+    body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
+    stage = 'final report'
+    request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
+except Exception as error:
+    # Never include the API's response, credentials, or untrusted exception text.
+    reason = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+    failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.'
+    try: request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
+    except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
+    sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
+print(f'Gallery posted on pull request {pr}')
+PYGALLERY
+      # Cleanup failure must not invalidate a completed, downloadable report.
+      python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
+        echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."
+    fi
   fi
-  exit 0
 fi
+[ "$conclusion" != success ] || exit 0
 
 # Print the failed steps of each failed job, then fail.
 for _ in 1 2 3; do

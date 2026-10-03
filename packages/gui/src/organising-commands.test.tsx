@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RenderedApp, RenderOptions, ScriptedEnvironment } from "../test/harness.js";
-import { COPY, DESK_ID, FIX, G_OPS, SPARE, TRAIN, drawn, inUtc, region, row, settled, sidebar, two } from "../test/sidebar-fixtures.js";
+import { COPY, DESK_ID, FIX, G_OPS, SPARE, TRAIN, drawn, inUtc, region, row, rowWords, settled, sidebar, two } from "../test/sidebar-fixtures.js";
 
 /**
  * The organising slash commands in a session pane's composer
@@ -64,27 +64,27 @@ const listed = (dialog: HTMLElement, name: string) =>
 const under = (name: string) =>
   within(region(name))
     .getAllByRole("listitem")
-    .map((line) => line.textContent?.trim());
+    .map((line) => rowWords(line));
 
 describe("/pin, /archive and /settle", () => {
   it("toggle the pane's session as it stands, each sent once with its command id", async () => {
     const app = await opened(DESK.spare);
     const release = app.environment("desk").list.hold("sessions.pin");
     await send(app, "/pin");
-    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["▾ Pinned", "  Pinned one", "  Laptop pin", "  Spare ↻"]));
+    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["Pinned", "  Pinned one", "  Laptop pin", "  Spare Pending"]));
     expect(sent(app, "desk", "sessions.pin")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: SPARE }]);
     release();
-    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["▾ Pinned", "  Pinned one", "  Laptop pin", "  Spare"]));
+    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["Pinned", "  Pinned one", "  Laptop pin", "  Spare"]));
     await send(app, "/pin");
     await waitFor(() => expect(sent(app, "desk", "sessions.unpin")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: SPARE }]));
     expect(sent(app, "desk", "sessions.pin")).toHaveLength(1);
 
     await send(app, "/settle");
-    await waitFor(() => expect(drawn()).toContain("▸ Settled 2"));
+    await waitFor(() => expect(drawn()).toContain("Settled 2"));
     await send(app, "/settle");
     await waitFor(() => expect(sent(app, "desk", "sessions.unsettle")).toHaveLength(1));
     await send(app, "/archive");
-    await waitFor(() => expect(drawn()).toContain("▸ Archive 2"));
+    await waitFor(() => expect(drawn()).toContain("Archive 2"));
     await send(app, "/archive");
     await waitFor(() => expect(sent(app, "desk", "sessions.unarchive")).toHaveLength(1));
     expect(about(app, "desk", SPARE)).toEqual(["sessions.pin", "sessions.unpin", "sessions.settle", "sessions.unsettle", "sessions.archive", "sessions.unarchive"]);
@@ -151,7 +151,7 @@ describe("/snooze", () => {
     await screen.findByRole("region", { name: "Transcript" });
     await send(app, "/snooze 3h");
     await waitFor(() => expect(sent(app, "laptop", "sessions.snooze")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN, until: "2026-09-26T03:00:00.000Z" }]));
-    await waitFor(() => expect(under("Snoozed")).toContain("Train tidy 03:00 ?2"));
+    await waitFor(() => expect(under("Snoozed")).toContain("Train tidy 03:00 2 waiting"));
 
     await send(app, "/snooze whenever");
     expect(await screen.findByText(/^Not a time/)).toBeDefined();
@@ -231,7 +231,7 @@ describe("/search", () => {
 
     await send(app, "/search");
     await waitFor(() => expect(filter().value).toBe(""));
-    expect(drawn()).toContain("▾ Meadowstudios");
+    expect(drawn()).toContain("Meadowstudios");
     expect(document.activeElement).toBe(filter());
   });
 });

@@ -85,6 +85,7 @@ export const CAPABILITY_FLAGS = [
   "titleWrite",
   "transcriptDelete",
   "planUsage",
+  "contextReadings",
   "liveModels",
   "commands",
   "imageInput",
@@ -95,7 +96,7 @@ export const CAPABILITY_FLAGS = [
 export type AdapterCapabilityFlag = (typeof CAPABILITY_FLAGS)[number];
 export const AdapterCapabilityFlag = z.enum(CAPABILITY_FLAGS).meta({
   description:
-    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), withdraw (it can take back a message its provider holds), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed), containment (the adapter enforces a run's containment level through its provider's sandbox).",
+    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), withdraw (it can take back a message its provider holds), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, contextReadings (latest main request context), liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed), containment (the adapter enforces a run's containment level through its provider's sandbox).",
 });
 
 const flag = (description: string) => z.boolean().meta({ description });
@@ -129,6 +130,7 @@ export const AdapterCapabilities = z
     titleWrite: flag("A user title can be mirrored into the provider's own title field."),
     transcriptDelete: flag("The provider's transcript of a session can be deleted when the session is purged."),
     planUsage: flag("Plan usage can be read per window, with the account's identity."),
+    contextReadings: flag("Runs report the latest main request context independently of cumulative token spend.").optional(),
     liveModels: flag("The provider's models are listed live; without it the catalogue is the adapter's static list."),
     commands: flag("The provider's slash commands can be listed for an account and workspace without spending tokens."),
     imageInput: flag("A message can carry image attachments."),

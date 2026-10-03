@@ -24,8 +24,8 @@ export const SessionBrowserPicker = ({ environmentId, sessionId }: { readonly en
   const resolvedLabel = resolved === undefined ? undefined
     : picker.rows.find((row) => JSON.stringify(row.value) === JSON.stringify(resolved.browser))?.label
       ?? (resolved.browser.kind === "chrome" ? "My Chrome" : resolved.browser.kind === "headless" ? "Headless browser" : resolved.browser.kind === "dock" ? `${PRODUCT_NAME}'s built-in browser` : "None");
-  return <div className="flex flex-col gap-1">
-    <BrowserChoiceMenu rows={picker.rows} choose={(browser) => void choose(browser)} className="h-7 px-2 text-xs" offer={busy ? { status: "absent", message: "Changing the browser." } : capability} />
-    {resolved !== undefined && <span className="text-xs text-ink-faint">{run?.state === "running" ? "This run" : "Last run"}: {resolvedLabel}. {resolved.message}</span>}
+  return <div className="contents">
+    <BrowserChoiceMenu rows={picker.rows} choose={(browser) => void choose(browser)} detail={resolved === undefined ? undefined : `${run?.state === "running" ? "This run" : "Last run"}: ${resolvedLabel}. ${resolved.message}`} className="h-[22px] max-w-[240px] min-w-0 gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3" offer={busy ? { status: "absent", message: "Changing the browser." } : capability} />
+    {resolved !== undefined && <span className="sr-only">{run?.state === "running" ? "This run" : "Last run"}: {resolvedLabel}. {resolved.message}</span>}
   </div>;
 };

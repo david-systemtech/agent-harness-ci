@@ -309,10 +309,39 @@ jobs:
         with:
           name: desktop-win32-x64
           path: desktop
-      - name: Run the installed server with its own Node
+      - name: Run the installed server and every startup check as an ordinary Windows user
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $user = 'ah-smoke-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+          $password = ConvertTo-SecureString ('aA7!' + [Guid]::NewGuid().ToString('N')) -AsPlainText -Force
+          $credential = [PSCredential]::new("$env:COMPUTERNAME\$user", $password)
+          $work = Join-Path $env:PUBLIC ('agent-harness-smoke-' + [Guid]::NewGuid())
+          $created = $false
+          try {
+            $account = New-LocalUser -Name $user -Password $password -AccountNeverExpires -PasswordNeverExpires
+            $created = $true
+            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account.SID
+            New-Item -ItemType Directory -Path (Join-Path $work 'desktop') -Force | Out-Null
+            Copy-Item -LiteralPath (Resolve-Path 'desktop/agent-harness-desktop-win32-x64-setup.exe').Path -Destination (Join-Path $work 'desktop')
+            $smoke = @'
+          param([Parameter(Mandatory)][string] $Version)
+          $ErrorActionPreference = 'Stop'
+          $env:VERSION = $Version
+          $env:USERPROFILE = [Environment]::GetFolderPath('UserProfile')
+          $env:LOCALAPPDATA = [Environment]::GetFolderPath('LocalApplicationData')
+          $env:APPDATA = [Environment]::GetFolderPath('ApplicationData')
+          if (!$env:USERPROFILE -or !$env:LOCALAPPDATA -or !$env:APPDATA) { throw 'The smoke user profile did not load' }
+          $env:USERNAME = [Environment]::UserName
+          $env:USERDOMAIN = [Environment]::UserDomainName
+          $env:TEMP = Join-Path $env:LOCALAPPDATA 'Temp'
+          $env:TMP = $env:TEMP
+          New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+          $groups = (& "$env:SystemRoot\System32\whoami.exe" /groups | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $groups -notmatch 'S-1-16-(\d+)') { throw 'Could not read the smoke user token' }
+          if ([int]$Matches[1] -ge 12288) { throw 'The smoke child still has an elevated Windows token' }
+          Write-Output "Smoke user token mandatory level: $($Matches[1])"
           $PSNativeCommandUseErrorActionPreference = $false
           $setup = Start-Process -FilePath (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path -ArgumentList '/S' -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
@@ -326,13 +355,7 @@ jobs:
           $code = $LASTEXITCODE
           Write-Output $status
           if ($code -ne 3 -or $status -notmatch 'No service is installed') { throw "Unexpected service status (exit $code)" }
-          exit 0
 
-      - name: Start the packaged environment twice and run the Windows launcher entry
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $false
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
           $node = Join-Path $server "node\node.exe"
           $cli = Join-Path $server "packages\cli\dist\main.js"
@@ -414,6 +437,26 @@ jobs:
             }
           }
           exit 0
+          '@
+            $script = Join-Path $work 'smoke.ps1'
+            [IO.File]::WriteAllText($script, $smoke, [Text.UTF8Encoding]::new($false))
+            & icacls.exe $work /grant ('*{0}:(OI)(CI)F' -f $account.SID.Value) /T | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw 'Could not grant the smoke user access to its fixture' }
+            $stdout = Join-Path $work 'stdout.log'
+            $stderr = Join-Path $work 'stderr.log'
+            $arguments = '-NoProfile -NonInteractive -File "{0}" -Version "{1}"' -f $script, $env:VERSION
+            $child = Start-Process -FilePath (Join-Path $PSHOME 'pwsh.exe') -ArgumentList $arguments -Credential $credential -LoadUserProfile -UseNewEnvironment -WorkingDirectory $work -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
+            Get-Content -LiteralPath $stdout | Out-Host
+            Get-Content -LiteralPath $stderr | Out-Host
+            if ($child.ExitCode -ne 0) { throw "Ordinary-user smoke exited with $($child.ExitCode)" }
+          } finally {
+            try {
+              if ($created) { Remove-LocalUser -Name $user }
+            } finally {
+              if (Test-Path $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+              $password.Dispose()
+            }
+          }
 
   smoke-macos:
     needs: [check, desktop-macos]
@@ -448,7 +491,7 @@ jobs:
           import assert from "node:assert/strict";
           import { resolve } from "node:path";
           import { pathToFileURL } from "node:url";
-          const { tailscaleDetector, bindPlan } = await import(pathToFileURL(resolve(process.env.SERVER, "packages/environment/dist/serve/interfaces.js")));
+          const { tailscaleDetector, bindPlan } = await import(pathToFileURL(resolve(process.env.SERVER, "node_modules/@agent-harness/environment/dist/serve/interfaces.js")));
           const entry = (address) => ({ address, internal: false, family: address.includes(":") ? "IPv6" : "IPv4" });
           let interfaces = { utun0: [entry("100.64.0.8")], utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::1")] };
           let state;

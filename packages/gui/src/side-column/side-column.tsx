@@ -1,5 +1,6 @@
 import { directoryOf, outsideWorkspace, typedPath } from "@agent-harness/client-runtime";
-import { useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { BrowserPane } from "../browser/browser-pane.js";
 import { useBrowserPanes } from "../browser/browser-panes.js";
@@ -9,10 +10,11 @@ import type { SidePane } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { TerminalPane } from "../terminal/terminal-pane.js";
 import { useTerminalPanes } from "../terminal/terminal-panes.js";
-import { Button, Tooltip } from "../ui/index.js";
+import { IconButton } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { closePane, hideColumn, showPane, useSideColumn } from "./column.js";
+import { DockHeader, DockRail } from "./dock-header.js";
 import { DiffPane } from "./diff-pane.js";
 import { DocumentsPane } from "./documents-pane.js";
 import { FilesPane, WORKSPACE_TOP, type FilesPlace } from "./files-pane.js";
@@ -27,7 +29,7 @@ export interface SideColumnViewProps {
 /**
  * The side column beside a session pane (docs/specs/gui.md, "The seven panes
  * and the grid"): one of the session's open panes at a time, chosen from a
- * strip of their names, with a close for the one shown and a way to hide
+ * rail of icons, with a close for the one shown and a way to hide
  * the column. Which panes are open, the one shown and whether the column is
  * hidden are the session's presentation (`sideColumns`), so opening another
  * session in the pane shows that session's column. A pane that leaves the
@@ -87,66 +89,63 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
   useSlashCommand("documents", () => show("documents"), capabilityOf("documents"));
   useSlashCommand("tasks", () => show("tasks"), capabilityOf("tasks"));
 
+  const dockId = useId();
+  const host = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const owner = host.current?.parentElement;
+    if (!owner) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setNarrow((entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width) < 900);
+    });
+    observer.observe(owner);
+    return () => observer.disconnect();
+  }, []);
+
   const { shown } = column;
-  if (shown === null) return null;
-  return (
-    <aside aria-label="Side column" hidden={column.hidden} className="flex w-[38%] max-w-3xl min-w-72 shrink-0 flex-col border-l border-line bg-inset">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-hairline px-2">
-        <nav aria-label="Open panes" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+  const hide = () => change((held) => hideColumn(held, true));
+  return <div ref={host} className="contents">
+    {shown !== null && <>
+      {narrow && column.hidden && <IconButton label="Show the side column" keys="Enter / Space"
+        onClick={() => change((held) => hideColumn(held, false))}
+        className="absolute inset-y-[6px] right-0 z-30 h-auto w-[16px] rounded-l-md border-hairline bg-panel p-0"><ChevronLeft aria-hidden="true" /></IconButton>}
+      <aside aria-label="Side column" hidden={column.hidden} data-dock-sheet={narrow ? "" : undefined}
+        className={classes("flex min-w-[240px] shrink-0 border-l border-hairline bg-panel", narrow
+          ? "absolute inset-y-[6px] right-[6px] z-30 w-[min(480px,85%)] rounded-lg border shadow-xl shadow-scrim/40"
+          : "w-[38%] max-w-3xl")}>
+        <DockRail dockId={dockId} column={column} capability={capabilityOf} show={show} close={close}
+          newTerminal={() => { show("terminal"); terminals.ask({ environmentId, sessionId }, { kind: "new" }); }} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {narrow && <IconButton label="Close side sheet" keys="Enter / Space" onClick={hide}
+            className="h-[24px] w-full shrink-0 rounded-none border-b border-hairline p-0"><ChevronRight aria-hidden="true" /></IconButton>}
           {column.open.map((pane) => {
             const capability = capabilityOf(pane);
-            const name = (
-              <Button
-                key={pane}
-                aria-pressed={pane === shown}
-                aria-disabled={capability.status === "absent" ? true : undefined}
-                className={classes("h-7 px-2 text-xs", pane === shown && "bg-wash", capability.status === "absent" && "text-ink-faint")}
-                onClick={() => show(pane)}
-              >
-                {PANES[pane].label}
-              </Button>
-            );
-            return capability.status === "absent" ? (
-              <Tooltip key={pane} content={capability.message}>
-                {name}
-              </Tooltip>
-            ) : (
-              name
+            return (
+              <section key={pane} id={`${dockId}-${pane}`} aria-label={PANES[pane].label} hidden={pane !== shown} className="flex min-h-0 flex-1 flex-col">
+                <DockHeader pane={pane} hide={hide} />
+                {capability.status === "absent" && !PANES[pane].drawnWhileAbsent ? (
+                  <p className="px-3 py-2 text-sm text-ink-faint">{capability.message}</p>
+                ) : (
+                  <PaneBody
+                    pane={pane}
+                    environmentId={environmentId}
+                    sessionId={sessionId}
+                    onScreen={pane === shown && !column.hidden}
+                    files={files}
+                    goFiles={goFiles}
+                    source={(path) => {
+                      goFiles({ directory: directoryOf(path), file: path });
+                      show("files");
+                    }}
+                  />
+                )}
+              </section>
             );
           })}
-        </nav>
-        <Button aria-label={`Close ${PANES[shown].label}`} className="h-7 w-7 px-0 text-sm text-ink-muted" onClick={() => close(shown)}>
-          ×
-        </Button>
-        <Button aria-label="Hide the side column" className="h-7 w-7 px-0 text-sm text-ink-muted" onClick={() => change((held) => hideColumn(held, true))}>
-          »
-        </Button>
-      </div>
-      {column.open.map((pane) => {
-        const capability = capabilityOf(pane);
-        return (
-          <section key={pane} aria-label={PANES[pane].label} hidden={pane !== shown} className="flex min-h-0 flex-1 flex-col">
-            {capability.status === "absent" && !PANES[pane].drawnWhileAbsent ? (
-              <p className="px-3 py-2 text-sm text-ink-faint">{capability.message}</p>
-            ) : (
-              <PaneBody
-                pane={pane}
-                environmentId={environmentId}
-                sessionId={sessionId}
-                onScreen={pane === shown && !column.hidden}
-                files={files}
-                goFiles={goFiles}
-                source={(path) => {
-                  goFiles({ directory: directoryOf(path), file: path });
-                  show("files");
-                }}
-              />
-            )}
-          </section>
-        );
-      })}
-    </aside>
-  );
+        </div>
+      </aside>
+    </>}
+  </div>;
 };
 
 interface PaneBodyProps extends SideColumnViewProps {
