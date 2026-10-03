@@ -16,7 +16,8 @@ import {
   type UserMessageEntry,
 } from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
-import { useState } from "react";
+import { memo, useState, type ReactNode } from "react";
+import { Brain, Info, Terminal, TriangleAlert, Undo2 } from "lucide-react";
 import { ForkedRow } from "../fork-rewind/forked.js";
 import { MessageVerbs } from "../fork-rewind/message-verbs.js";
 import { UndoOnFold } from "../fork-rewind/rewound.js";
@@ -53,8 +54,38 @@ export interface RowFacts {
   readonly checkOutput?: ChecksView["runningOutput"];
 }
 
-/** One row of the transcript, drawn by its kind. */
-export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow; readonly facts: RowFacts }) => {
+/** Shared label spine; messages reverse it, keeping the bubble against the right edge. */
+export const TranscriptLine = ({ label, right = false, time, children }: { readonly label: ReactNode; readonly right?: boolean; readonly time?: string | undefined; readonly children: ReactNode }) => (
+  <div className={classes("group/line flex min-w-0 gap-2 text-sm", right && "flex-row-reverse")}>
+    <div data-measure="transcript-spine" className="relative w-14 shrink-0 pt-2 text-right text-2xs leading-4 text-ink-faint">
+      <span className={classes(time !== undefined && "group-hover/line:invisible")}>{label}</span>
+      {time !== undefined && <time dateTime={time} title={time} className="absolute top-2 right-0 hidden font-mono opacity-60 group-hover/line:block">{new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</time>}
+    </div>
+    <div className="flex min-w-0 flex-1 flex-col gap-1">{children}</div>
+  </div>
+);
+
+/** One row keeps its runtime identity for search and jump. */
+export const TranscriptRowView = memo(({ row, facts }: { readonly row: TranscriptRow; readonly facts: RowFacts }) => {
+  const user = row.kind === "user" && !environmentMessage(row.entry);
+  const thinking = row.kind === "assistant" && row.entry.kind === "assistant-thinking";
+  const label = user ? <span className="text-beam-text">you</span> : thinking ? <span className="text-sage">thinking</span> : row.kind === "turn" ? "end" : row.kind === "user" ? "environment" : "";
+  return <div data-row-id={row.id}><TranscriptLine label={label} right={user} time={row.kind === "user" ? row.entry.sentAt : row.kind === "turn" ? row.run.endedAt ?? undefined : undefined}><RowBody row={row} facts={facts} /></TranscriptLine></div>;
+}, (before, after) => {
+  // The projection creates row wrappers on each delta. Settled speech and user messages
+  // need no redraw when their entry fields and the facts they consume remain the same.
+  const left = before.row, right = after.row;
+  if (left.id !== right.id || left.kind !== right.kind) return false;
+  if (left.kind === "assistant" && right.kind === "assistant") {
+    return left.entry.text === right.entry.text && left.entry.streaming === right.entry.streaming && left.entry.kind === right.entry.kind
+      && before.facts.arrived(left.entry.sequence) === after.facts.arrived(right.entry.sequence);
+  }
+  if (left.kind === "user" && right.kind === "user") return left.entry === right.entry && before.facts.verbs === after.facts.verbs;
+  if (left.kind === "turn" && right.kind === "turn") return left.run === right.run;
+  return false;
+});
+
+const RowBody = ({ row, facts }: { readonly row: TranscriptRow; readonly facts: RowFacts }) => {
   const { arrived } = facts;
   switch (row.kind) {
     case "user":
@@ -84,7 +115,7 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       const status = checkStatus(entry);
       return (
         <article aria-label="Workspace check" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
-          <pre className="font-mono whitespace-pre-wrap break-words"><Marked text={`$ ${entry.command} · ${status}`} /></pre>
+          <div className="flex items-start gap-2"><Terminal aria-hidden="true" className="size-3.5 shrink-0" /><pre className={classes("font-mono whitespace-pre-wrap break-words", entry.state === "running" ? "text-cyan" : status === "passed" ? "text-mint" : "text-signal")}><Marked text={`$ ${entry.command} · ${status}`} /></pre></div>
           {entry.result !== null && status !== `exit ${entry.result.exitCode}` && <p>exit {entry.result.exitCode ?? "none"}</p>}
           {(live?.truncated ?? entry.result?.truncated) && <span>Earlier output omitted</span>}
           {entry.result?.failure != null && <p className="text-amber">{entry.result.failure}</p>}
@@ -95,8 +126,8 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
     case "command":
       return (
         <article aria-label="Command" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
-          <span className="font-mono">
-            <Marked text={`/${row.entry.name}${row.entry.args.length > 0 ? ` ${row.entry.args}` : ""}`} />
+          <span className="flex items-center gap-2 font-mono">
+            <Terminal aria-hidden="true" className="size-3.5 shrink-0" /><Marked text={`/${row.entry.name}${row.entry.args.length > 0 ? ` ${row.entry.args}` : ""}`} />
           </span>
           {row.entry.output !== null && row.entry.output.trim() !== "" && (
             <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words">
@@ -106,14 +137,12 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
         </article>
       );
     case "file-undo":
-      return <p className="text-[0.85em] text-ink-muted"><Marked text={fileUndoWords(row.entry)} /></p>;
+      return <Notice><Marked text={fileUndoWords(row.entry)} /></Notice>;
     case "turn":
       return <CostLine run={row.run} />;
     case "opaque":
       return (
-        <p className="text-[0.85em] text-ink-faint">
-          <Marked text={`${row.entry.type}: an event this version does not show`} />
-        </p>
+        <Notice><Marked text={`${row.entry.type}: an event this version does not show`} /></Notice>
       );
     case "rewound":
       return <RewoundFold row={row} facts={facts} />;
@@ -126,11 +155,11 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
         </ForkedRow>
       );
     case "update-interrupted":
-      return <p className="text-[0.85em] text-ink-muted"><Marked text={updateInterruptedText(row.entry)} /></p>;
+      return <Notice warning><Marked text={updateInterruptedText(row.entry)} /></Notice>;
     case "history-unreadable":
       // An imported session whose history the account's directory no longer gave (#579): one line saying so, and why.
       return (
-        <p className="text-[0.85em] text-ink-faint">The history could not be read: {row.entry.message}</p>
+        <Notice warning>The history could not be read: {row.entry.message}</Notice>
       );
   }
 };
@@ -150,10 +179,10 @@ const RewoundFold = ({ row, facts }: { readonly row: Extract<TranscriptRow, { ki
   return (
     <div className="flex min-w-0 items-start gap-2">
       <Fold
-        className="flex-1"
+        className="flex-1 rounded-lg border border-hairline bg-wash px-3 py-2"
         open={open}
         onOpenChange={setOpen}
-        summary={<Marked text={`Rewound: ${oneLine(row.entry.text, 160)} · ${cut} ${cut === 1 ? "prompt" : "prompts"} cut`} />}
+        summary={<><Undo2 aria-hidden="true" className="size-3 shrink-0" /><Marked text={`Rewound: ${oneLine(row.entry.text, 160)} · ${cut} ${cut === 1 ? "prompt" : "prompts"} cut`} /></>}
       >
         <div role="group" aria-label="What the rewind cut" className="flex flex-col gap-3 border-l border-hairline pl-3 opacity-60">
           <p className="text-[0.85em] text-ink-muted">Files are not restored: a rewind takes back the conversation, never what the agent changed.</p>
@@ -178,7 +207,7 @@ const UserMessage = ({ entry, focusable = false }: { readonly entry: UserMessage
     aria-label={environmentMessage(entry) ? "Environment message" : "Your message"}
     tabIndex={focusable ? 0 : undefined}
     className={classes(
-      "flex max-w-[85%] flex-col gap-1.5 rounded-lg px-3 py-2 text-ink outline-none focus-visible:outline-2 focus-visible:outline-beam",
+      "flex max-w-[80%] flex-col gap-1.5 rounded-lg px-3 py-2 text-sm leading-relaxed text-ink outline-none focus-visible:outline-2 focus-visible:outline-beam",
       environmentMessage(entry) ? "self-start border border-hairline" : "self-end bg-wash-user",
     )}
   >
@@ -208,7 +237,7 @@ const CostLine = ({ run }: { readonly run: RunSummary }) => {
   const completed = run.reason === "completed";
   const line = (completed ? facts : [endWords(run), ...facts]).join(" · ");
   return (
-    <div className={classes("text-[0.85em]", completed ? "text-ink-faint" : run.reason === "error" ? "text-signal" : "text-amber")}>
+    <article aria-label="Turn ended" className={classes("rounded-lg border px-3 py-2 text-2xs", completed ? "border-hairline bg-wash text-mint" : run.reason === "error" ? "border-signal/40 bg-signal/5 text-signal" : run.reason === "disposed" ? "border-hairline bg-wash text-ink-muted" : "border-hairline bg-wash text-amber")}>
       <p>
         <Marked text={line} />
       </p>
@@ -217,7 +246,7 @@ const CostLine = ({ run }: { readonly run: RunSummary }) => {
           <Marked text={oneLine(run.error.message, 300)} />
         </p>
       )}
-    </div>
+    </article>
   );
 };
 
@@ -225,7 +254,8 @@ const CostLine = ({ run }: { readonly run: RunSummary }) => {
 const AssistantText = ({ text, streaming, arrived }: { readonly text: string; readonly streaming: boolean; readonly arrived: boolean }) => (
   <article aria-label="Reply" className="text-ink">
     {streaming ? (
-      <div className="whitespace-pre-wrap break-words">
+      <div className="caret whitespace-pre-wrap break-words">
+        <span role="status" aria-label="Reply streaming" />
         <StreamingText text={text} arrived={arrived} />
       </div>
     ) : (
@@ -259,7 +289,7 @@ const Reasoning = ({ entry, arrived }: { readonly entry: AssistantEntry; readonl
       onOpenChange={setOpen}
       summary={
         <span className="flex min-w-0 gap-1.5">
-          <span className="font-medium text-sage">Reasoning</span>
+          <Brain aria-hidden="true" className={classes("size-3 shrink-0 text-sage", entry.streaming && "motion-safe:animate-pulse")} /><span className="sr-only">Thinking</span>
           {!open && preview !== "" && <span className="truncate">{preview}</span>}
         </span>
       }
@@ -347,4 +377,10 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
       <Marked text={verdict} />
     </article>
   );
+};
+
+/** A quiet transcript notice keeps its semantic tone beside its machine text. */
+const Notice = ({ warning = false, children }: { readonly warning?: boolean; readonly children: ReactNode }) => {
+  const Icon = warning ? TriangleAlert : Info;
+  return <div className={classes("flex items-start gap-2 font-mono text-2xs", warning ? "text-amber" : "text-ink-muted")}><Icon aria-hidden="true" className="size-3.5 shrink-0" /><p>{children}</p></div>;
 };
