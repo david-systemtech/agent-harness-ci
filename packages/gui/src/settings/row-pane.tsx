@@ -1,6 +1,9 @@
 import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
 import { FIRST_ROW, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useId, type ComponentType, type ReactNode } from "react";
+import { SearchX } from "lucide-react";
+import { Button } from "../ui/index.js";
+import { SettingsPane } from "./part.js";
 import { BrowserSettingsPane } from "../browser/settings-pane.js";
 import { AccessPane } from "../access/access-pane.js";
 import { AccountsPane } from "../accounts/accounts-pane.js";
@@ -130,21 +133,16 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
  * Permissions, Access, Service, About), the unbuilt row's hint, links and
  * keys on the others. Opening a step's home row checks that step.
  */
-export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
+export const RowPane = ({ row, filtered = false, clearSearch }: { readonly row: SettingsRowId; readonly filtered?: boolean; readonly clearSearch?: () => void }) => {
   const entry = settingsRow(row);
-  const heading = useId();
   const Built = BUILT_PANES[row];
   useCheckHomedSteps(row);
   return (
-    <section aria-labelledby={heading} className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
-      <header className="flex flex-col gap-2">
-        <h2 id={heading} className="text-lg font-semibold text-ink">
-          {entry.label}
-        </h2>
-        {row === "about.about" && <ClientBuild />}
-        {entry.scope === "environment" && <EnvironmentPicker />}
-      </header>
-      {Built === undefined ? <UnbuiltRow row={row} /> : <Built />}
+    <section aria-label={entry.label} className="min-w-0 flex-1 overflow-y-auto">
+      <SettingsPane title={entry.label} pinned={row === "about.about" ? <ClientBuild /> : undefined} actions={entry.scope === "environment" ? <EnvironmentPicker /> : undefined}>
+        {filtered && <Button title="Clear search" className="self-start" onClick={clearSearch}><SearchX aria-hidden="true" className="size-4" />Clear search</Button>}
+        {Built === undefined ? <UnbuiltRow row={row} /> : <Built />}
+      </SettingsPane>
     </section>
   );
 };

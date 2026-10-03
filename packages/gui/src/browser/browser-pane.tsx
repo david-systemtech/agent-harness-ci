@@ -7,6 +7,7 @@ import { useGridPaneId } from "../grid/grid.js";
 import { IconButton, Input, Tooltip } from "../ui/index.js";
 import { sideColumnKey } from "../presentation.js";
 import { usePresentation, useShell } from "../window-context.js";
+import { useSettings } from "../settings/settings-window.js";
 import { useBrowserPanes } from "./browser-panes.js";
 
 /** The native page occupies only the rectangle below the address line; controls stay in the renderer. */
@@ -19,6 +20,8 @@ export const BrowserPane = ({
   readonly sessionId: string;
   readonly onScreen: boolean;
 }) => {
+  const { shown: settingsShown } = useSettings();
+  const visible = onScreen && !settingsShown;
   const paneId = useGridPaneId();
   const panes = useBrowserPanes();
   const [partitions, setPartitions] = usePresentation("browserPartitions");
@@ -68,7 +71,7 @@ export const BrowserPane = ({
   }, [views, id]);
   useEffect(() => {
     if (!views || !id) return;
-    if (!onScreen) {
+    if (!visible) {
       views.hide(id);
       return;
     }
@@ -97,13 +100,13 @@ export const BrowserPane = ({
       cancelAnimationFrame(frame);
       views.hide(id);
     };
-  }, [views, id, onScreen]);
+  }, [views, id, visible]);
   useEffect(() => {
-    if (!views || !id || !onScreen) return;
+    if (!views || !id || !visible) return;
     return views.onKey((pressedId, key) => {
       if (pressedId === id && isToggle(key)) changeColumn((held) => hideColumn(held, true));
     });
-  }, [views, id, onScreen, isToggle, changeColumn]);
+  }, [views, id, visible, isToggle, changeColumn]);
   const navigate = () => {
     if (!views || !id) return;
     setError(undefined);
