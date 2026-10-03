@@ -171,6 +171,7 @@ const fixture = async (): Promise<Fixture> => {
   const git = (...args: string[]) => run("git", ["-C", checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
   await git("init", "-q");
   await git("commit", "-q", "--allow-empty", "-m", "a commit");
+  await git("remote", "add", "origin", checkout);
 
   const log = join(dir, "calls.log");
   writeFileSync(log, "");
@@ -211,8 +212,12 @@ exec ${git} "$@"
 };
 
 const relay = async (f: Fixture, env: NodeJS.ProcessEnv = {}) => {
+  const target = env["GH_CI_EVENT"] === "gallery" ? {
+    GITHUB_EVENT_NAME: "pull_request_target",
+    GH_CI_SHA: (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim(),
+  } : {};
   try {
-    const { stdout, stderr } = await run("bash", [script], { cwd: f.checkout, env: { ...f.env, ...env } });
+    const { stdout, stderr } = await run("bash", [script], { cwd: f.checkout, env: { ...f.env, ...target, ...env } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code: number; stdout: string; stderr: string };
@@ -430,6 +435,51 @@ it("runs gallery independently and preserves geometry failures as blocking check
   expect(relayWorkflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(relayWorkflow).toContain("'packages/gui/**'");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
+});
+
+it("relays a PR head as data without executing its credential-stealing script", async () => {
+  const f = await apiFixture();
+  const git = (...args: string[]) => run("git", ["-C", f.checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
+  const base = (await git("rev-parse", "HEAD")).stdout.trim();
+  const scripts = join(f.checkout, ".forgejo", "scripts");
+  mkdirSync(scripts, { recursive: true });
+  const stolen = join(f.checkout, "stolen");
+  writeFileSync(join(scripts, "github-ci.sh"), 'printf "%s" "$PACKAGES_TOKEN" > stolen\nexit 99\n');
+  await git("add", ".forgejo");
+  await git("commit", "-qm", "an untrusted change");
+  const head = (await git("rev-parse", "HEAD")).stdout.trim();
+  await git("checkout", "-q", base);
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", GH_CI_SHA: head, PACKAGES_TOKEN: "package-token-for-tests",
+    FAKE_PR_SHA: head, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests",
+    FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+  });
+  expect(result.code).toBe(0);
+  const dispatch = apiCalls(f).find((call) => call.stage === "dispatch");
+  expect(JSON.parse(dispatch?.args[dispatch.args.indexOf("-d") + 1] ?? "{}").client_payload.sha).toBe(head);
+  expect(readFileSync(f.log, "utf8")).toContain(`--log-opts=${head}`);
+  expect((await git("rev-parse", "HEAD")).stdout.trim()).toBe(base);
+  expect(existsSync(stolen)).toBe(false);
+  const workflow = readFileSync(join(root, ".forgejo", "workflows", "gallery.yml"), "utf8");
+  expect(workflow).toContain("pull_request_target:");
+  expect(workflow).not.toMatch(/^ {2}pull_request:/m);
+  expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}");
+  expect(workflow).toContain("GH_CI_SHA: ${{ github.event.pull_request.head.sha }}");
+});
+
+it.each([
+  ["pull_request", undefined, "trusted pull_request_target"],
+  ["pull_request_target", "HEAD; touch stolen", "invalid gallery target sha"],
+])("refuses unsafe gallery input before any network or credential-bearing publication (%s)", async (event, sha, error) => {
+  const f = await apiFixture();
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", GITHUB_EVENT_NAME: event,
+    ...(sha === undefined ? {} : { GH_CI_SHA: sha }), PACKAGES_TOKEN: "package-token-for-tests",
+  });
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain(error);
+  expect(calls(f)).toEqual([]);
+  expect(existsSync(join(f.checkout, "stolen"))).toBe(false);
 });
 
 it.each(["stale", "closed", "merged"])("does not create a screenshot comment on a %s PR", async (state) => {

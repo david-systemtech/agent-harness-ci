@@ -24,12 +24,23 @@ set -euo pipefail
 : "${GH_CI_TOKEN:?GH_CI_TOKEN is not set}" "${GROUP:?}" "${FORGEJO_RUN:=}"
 repo=${GH_CI_REPO:-david-systemtech/agent-harness-ci}
 api=https://api.github.com/repos/$repo
-sha=$(git rev-parse HEAD)
-id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 # A separate network job shares the transport, not the unit suite.
 event=${GH_CI_EVENT:-ci}
 case "$event" in ci | catalogue | gallery) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
+sha=$(git rev-parse HEAD)
+if [ "$event" = gallery ]; then
+  # This script and its sibling publisher stay checked out from the trusted base.
+  # Fetching objects for the public capture runner never checks out or runs PR code here.
+  [ "${GITHUB_EVENT_NAME:-}" = pull_request_target ] ||
+    { echo "::error::gallery publication requires a trusted pull_request_target workflow"; exit 1; }
+  [[ "${GH_CI_SHA:-}" =~ ^[0-9a-f]{40}$ ]] ||
+    { echo "::error::invalid gallery target sha"; exit 1; }
+  sha=$GH_CI_SHA
+  git fetch --quiet --no-tags origin "$sha"
+  git cat-file -e "$sha^{commit}"
+fi
+id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 
 # Each attempt has 120 s, enough for a 16 KB run reply at the site's measured 1.2 KB/s.
 # Retries start within 180 s; the last attempt can take another 120 s.
@@ -112,7 +123,7 @@ else
   elif [ -n "$part" ]; then rm -f "$part"; fi
 fi
 tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
-"$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="HEAD" . ||
+"$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="$sha" . ||
   { echo "::error::gitleaks found a secret; nothing was pushed to GitHub"; exit 1; }
 
 echo "Pushing $sha to $repo as ci/$id"
