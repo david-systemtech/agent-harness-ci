@@ -794,19 +794,75 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number) => {
+    capture: async (pixel: number, count = 1, changed = 0) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
 png=b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1400,900,8,6,0,0,0))+chunk(b'IDAT',zlib.compress((b'\\0'+bytes([pixel,pixel,pixel,255])*1400)*900))+chunk(b'IEND',b'')
 pathlib.Path(sys.argv[1]+'.png').write_bytes(png)
 with zipfile.ZipFile(sys.argv[1],'w') as z:
-    z.writestr('window-empty.dark.png',png)
-    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':'window-empty.dark','status':'new','pixelFailed':True,'geometryFailures':[]}]}))`, zip, String(pixel)]);
+    scenes=[]
+    for i in range(int(sys.argv[3])):
+        name='window-empty.dark' if int(sys.argv[3])==1 else f'scene-{i}.dark'
+        status='changed' if i<int(sys.argv[4]) else 'new'
+        z.writestr(name+'.png',png)
+        if status=='changed':
+            z.writestr(name+'.baseline.png',png)
+            z.writestr(name+'.difference.png',png)
+        scenes.append({'name':name,'status':status,'pixelFailed':True,'geometryFailures':[]})
+    z.writestr('geometry.json','{}')
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':scenes}))`, zip, String(pixel), String(count), String(changed)]);
       return readFileSync(`${zip}.png`);
     },
   };
 }
+
+it.each([[204, 0], [600, 0], [204, 198]])("publishes %i captures with %i changed triplets within the 600-PNG budget", async (count, changed) => {
+  const g = await storedGallery();
+  const image = await g.capture(255, count, changed);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(1);
+  const marker = /<!-- window-gallery (.*?) -->/.exec(g.comments[0]!.body)?.[1];
+  const manifest = JSON.parse(marker ?? "null") as { captures: { name: string; sha256: string }[] };
+  expect(manifest.captures).toHaveLength(count);
+  expect(manifest.captures.at(-1)).toMatchObject({ name: `scene-${count - 1}.dark.png`, sha256: createHash("sha256").update(image).digest("hex") });
+  expect(g.captures.size).toBe(count);
+});
+
+it.each([
+  ["count", "invalid gallery scene list"],
+  ["triplets", "gallery payload is too large"],
+  ["expanded", "gallery payload is too large"],
+  ["zip", "gallery zip is too large"],
+  ["scene-name", "invalid gallery scene name"],
+  ["duplicate", "invalid gallery scene name"],
+  ["incomplete", "incomplete gallery triplet"],
+  ["signature", "gallery entry is not a PNG"],
+])("rejects a %s report above 200 captures before publication", async (mode, error) => {
+  const g = await storedGallery();
+  await g.capture(255, 204, mode === "triplets" ? 204 : 0);
+  await run("python3", ["-c", `import json,pathlib,sys,zipfile
+path=pathlib.Path(sys.argv[1]); mode=sys.argv[2]
+with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
+report=json.loads(entries['report.json'])
+if mode=='count': report['scenes']=[dict(report['scenes'][0],name=f'scene-{i}.dark') for i in range(601)]
+if mode=='scene-name': report['scenes'][-1]['name']='../escape.dark'
+if mode=='duplicate': report['scenes'][-1]['name']=report['scenes'][0]['name']
+if mode=='incomplete': report['scenes'][-1]['status']='changed'
+if mode=='signature': entries['scene-203.dark.png']=b'not a PNG'
+if mode=='expanded': entries['scene-203.dark.png']+=b'x'*(24*1024*1024)
+entries['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED) as z:
+    for name,data in entries.items(): z.writestr(name,data)
+if mode=='zip':
+    with path.open('ab') as f: f.truncate(32*1024*1024+1)`, g.env.FAKE_GALLERY_ZIP, mode]);
+  const result = await relay(g.f, g.env);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(error);
+  expect(g.comments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+});
 
 it("finalizes a rerun on the same head and accepts its newly reviewed bytes while keeping the earlier manifest immutable", async () => {
   const g = await storedGallery();

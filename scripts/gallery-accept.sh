@@ -47,7 +47,7 @@ for comment in comments:
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
-        if not isinstance(files, list) or not files or len(files) > 200: continue
+        if not isinstance(files, list) or not files or len(files) > 600: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         manifest = candidate
 if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
@@ -55,7 +55,7 @@ version = manifest.get('version', head)
 if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
     sys.exit('Invalid gallery capture version.')
 files = manifest.get('captures', [])
-if not files or len(files) > 200: sys.exit('Invalid gallery capture list.')
+if not files or len(files) > 600: sys.exit('Invalid gallery capture list.')
 accepted = {}; total = 0
 for item in files:
     name, url = item['name'], item['api_url']

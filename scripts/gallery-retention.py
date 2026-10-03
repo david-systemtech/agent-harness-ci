@@ -80,7 +80,7 @@ def main():
             if not re.fullmatch(r'[A-Za-z0-9_-]+', head) or (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')):
                 continue
             captures = manifest.get('captures')
-            if not isinstance(captures, list) or not captures or len(captures) > 200:
+            if not isinstance(captures, list) or not captures or len(captures) > 600:
                 continue
             if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in captures):
                 continue
