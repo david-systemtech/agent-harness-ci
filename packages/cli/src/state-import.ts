@@ -71,6 +71,7 @@ const renderReport = (report: StateImportReport, inventory: StateImportAccountIn
   const lines = [report.dryRun ? "State import preview" : "State import applied", "", "Account inventory (before import)"];
   for (const entry of inventory?.accounts ?? []) {
     lines.push(`  ${entry.label} (${entry.accountId ?? entry.sourceId})`);
+    if (entry.sharedProjectsWith !== undefined) lines.push(`    Shared projects folder with ${entry.sharedProjectsWith}; sessions and memory offered once.`);
     if (entry.failure !== null) lines.push(`    Failed: ${entry.failure}`);
     const counts = entry.inventory;
     if (counts === null) continue;
@@ -86,6 +87,7 @@ const renderReport = (report: StateImportReport, inventory: StateImportAccountIn
   }
   for (const failure of inventory?.failed ?? []) lines.push(`  Failed: ${failure.label}: ${failure.message}`);
   for (const item of inventory?.later ?? []) lines.push(`  Later: ${item.label} (${item.provider})`);
+  for (const source of report.sharedProjects ?? []) lines.push(`  ${source.sourceId} shares a projects folder with ${source.ownerSourceId}; sessions and memory carry once, under the first source in source-id order.`);
   lines.push("", "Carried");
   for (const [kind, count] of Object.entries(report.carried)) lines.push(`  ${kind}: ${count}`);
   lines.push("", "Re-enter");

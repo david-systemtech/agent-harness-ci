@@ -1,3 +1,4 @@
+import { selectSharedSources } from "../state-import/shared-sources.js";
 import { ContractError, type CarryOverMemoryInventory, type CarryOverSessionsInventory, type CarryOverSkillsInventory, type CarryOverInventory, type SkillsCarryOverReport } from "@agent-harness/contracts";
 import { readDoesNotCarry } from "../adapters/claude/adopted-directory.js";
 import type { AccountRef, ProviderSessionInfo } from "../adapter/contract.js";
@@ -11,11 +12,14 @@ import { findDirectories, heldProviderSessions, importsArchived, listAccountSess
 
 /** An explicit, validated import source. The id may name a planned Account that does not exist yet. */
 export interface DirectorySource {
+  readonly excludedSessions?: readonly string[];
+  readonly excludedMemory?: readonly string[];
   readonly provider: string;
   readonly account: AccountRef & { readonly directory: string };
 }
 
 export interface DirectoryInventoryOptions {
+  readonly sharedSources?: () => readonly { readonly sourceId: string; readonly directory: string }[];
   readonly log: EventLog;
   readonly adapters: AdapterRegistry;
   readonly looks: DirectoryLooks;
@@ -41,7 +45,7 @@ export const directoryInventory = (options: DirectoryInventoryOptions) => {
   const reader: Reader = { all: (sql, ...params) => options.log.read(sql, ...params) };
   const { looks } = options;
   const memory = carryOverMemory({ reader, looks, autoMemory: options.autoMemory });
-  return async ({ provider, account }: DirectorySource): Promise<CarryOverInventory> => {
+  return async ({ provider, account, excludedSessions, excludedMemory }: DirectorySource): Promise<CarryOverInventory> => {
     const accountId = account.id;
     const adapter = options.adapters.get(provider);
     if (adapter === undefined) throw new ContractError({ code: "unsupported", message: `No adapter serves ${provider}.`, data: {} });
@@ -52,6 +56,13 @@ export const directoryInventory = (options: DirectoryInventoryOptions) => {
       if (error instanceof ContractError) throw error;
       throw new ContractError({ code: "internal", message: listingFailed(account, error), data: {} });
     }
+    if (provider === "claude" && excludedSessions === undefined && options.sharedSources !== undefined) {
+      const shared = await selectSharedSources(options.sharedSources(), (directory) => listAccountSessions(adapter, { ...account, directory }));
+      const selected = shared.sources.find((entry) => entry.directory === account.directory);
+      excludedSessions = selected?.excludedSessions;
+      excludedMemory = selected?.excludedMemory;
+    }
+    sessions = sessions.filter((session) => !excludedSessions?.includes(session.providerSessionId));
     const held = heldProviderSessions(reader, undefined, account.id);
     const directories = await findDirectories(
       sessions.map((session) => session.workingDirectory),
@@ -64,7 +75,7 @@ export const directoryInventory = (options: DirectoryInventoryOptions) => {
       missingDirectory: sessions.filter((session) => directories.get(session.workingDirectory)?.kind === "missing").length,
       new: sessions.filter((session) => !held.has(session.providerSessionId)).length,
     };
-    const mapped = await memory.map(accountId, account.directory);
+    const mapped = await memory.map(accountId, account.directory, excludedMemory);
     const planned = await memory.copy(mapped.mapped, true);
     const memoryCounts: CarryOverMemoryInventory = {
       folders: mapped.mapped.length + mapped.unmappable.length + mapped.failed.length,

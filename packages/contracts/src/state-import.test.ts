@@ -37,7 +37,7 @@ describe("the state import's methods", () => {
   });
 
   it("reports the four groups, what failed and the client-local values, and whether it was a dry run", () => {
-    expect(Object.keys(StateImportReport.shape)).toEqual(["carried", "reEnter", "later", "notCarried", "failed", "clientLocal", "dryRun"]);
+    expect(Object.keys(StateImportReport.shape)).toEqual(["carried", "sharedProjects", "reEnter", "later", "notCarried", "failed", "clientLocal", "dryRun"]);
   });
 });
 

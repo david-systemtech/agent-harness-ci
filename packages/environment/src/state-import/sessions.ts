@@ -1,15 +1,22 @@
+import type { reconcileImportedSessions } from "../sessions/import-dedupe.js";
+import { importedSessionSourceId } from "../carry-over/sessions.js";
+import { selectSharedSources } from "./shared-sources.js";
 import { ENVIRONMENT_STREAM_KIND, CarryOverImportedPayload, type StateImportFailure } from "@agent-harness/contracts";
 import type { AccountService } from "../accounts/account-service.js";
 import type { CarryOverService } from "../carry-over/methods.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { MethodContext, Undo } from "../serve/methods.js";
-import { derivedUuid, mappedTarget } from "./items.js";
+import type { ProviderSessionInfo } from "../adapter/contract.js";
+import { derivedUuid, mappedTarget, stateImportStream } from "./items.js";
 import { directoriesOf, type ImportPlan } from "./plan.js";
 
 /** Each listed directory runs the Carry over owner under the state import's shared coordinator.
  * Session mappings commit with their records; memory and skills still refresh on a fresh parent command.
  */
 export const carryListedSources = async (plan: ImportPlan, options: {
+  readonly environmentId: string;
+  readonly reconcileSessions: ReturnType<typeof reconcileImportedSessions>;
+  readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
   readonly log: EventLog;
   readonly accounts: AccountService;
   readonly carryOver: CarryOverService;
@@ -27,6 +34,29 @@ export const carryListedSources = async (plan: ImportPlan, options: {
     const primary = (entry: typeof a) => liveAccounts.some((account) => account.id === entry.accountId && account.directory.path === entry.directory) ? 0 : 1;
     return primary(a) - primary(b) || a.sourceId.localeCompare(b.sourceId, "en");
   });
+  const shared = await selectSharedSources(directories, options.listSessions);
+  const aliasSharedSessions = (repair: boolean): void => {
+    for (const group of shared.sharedSessions) {
+      const entries = group.sourceIds.flatMap((sourceId) => directories.find((entry) => entry.sourceId === sourceId && entry.accountId !== undefined) ?? []);
+      const owner = entries.find((entry) => entry.sourceId === group.ownerSourceId);
+      if (owner?.accountId === undefined) continue;
+      const commandId = derivedUuid("state-import.shared-session", importId, plan.sourceKey, group.ownerSourceId, group.providerSessionId, String(repair));
+      try {
+        log.command({ actor, commandId }, (tx) => {
+          const attribution = { tx, actor, commandId, correlationId: importId };
+          const targetId = (repair ? options.reconcileSessions(entries.map((entry) => entry.accountId!), group.providerSessionId, owner.accountId!, attribution) : undefined)
+            ?? mappedTarget(log, { sourceKey: plan.sourceKey, store: "provider-sessions", sourceId: importedSessionSourceId(owner.accountId!, group.providerSessionId) });
+          if (targetId !== undefined) for (const entry of entries) {
+            const key = { sourceKey: plan.sourceKey, store: "provider-sessions", sourceId: importedSessionSourceId(entry.accountId!, group.providerSessionId) };
+            if (mappedTarget(log, key) === targetId) continue;
+            log.append(stateImportStream(options.environmentId), [{ type: "state-import.item-carried", payload: { ...key, kind: "session", targetId, sourceDirectory: owner.directory, importId, origin: "import" } }], attribution);
+          }
+          return { aggregate: stateImportStream(options.environmentId), result: {} };
+        });
+      } catch { failures.push({ label: "Shared sessions", message: "Shared imported sessions could not be reconciled; retained history needs repair before retrying." }); }
+    }
+  };
+  aliasSharedSessions(true);
   const seen = new Set<string>();
   for (const entry of directories) {
     if (entry.accountId === undefined || !liveAccounts.some((account) => account.id === entry.accountId)) {
@@ -50,7 +80,7 @@ export const carryListedSources = async (plan: ImportPlan, options: {
     const undos: Undo[] = [];
     let accepted = false;
     try {
-      const carry = await carryOver.prepareSource(params, { ...caller, onUndo: (undo) => undos.push(undo) }, { directory: entry.directory, sourceKey: plan.sourceKey, importId });
+      const carry = await carryOver.prepareSource(params, { ...caller, onUndo: (undo) => undos.push(undo) }, { ...shared.sources.find((source) => source.sourceId === entry.sourceId), directory: entry.directory, sourceKey: plan.sourceKey, importId });
       const run = log.command({ actor, commandId }, (tx) => {
         const answer = carry(params, { ...caller, tx, actor, commandId });
         return answer.rejected === undefined ? answer : { aggregate: answer.aggregate, rejected: { code: answer.rejected.code, message: answer.rejected.message ?? "Carry over was refused.", data: answer.rejected.data ?? {} } };
@@ -65,5 +95,6 @@ export const carryListedSources = async (plan: ImportPlan, options: {
     }
     await options.afterSource?.(entry.sourceId);
   }
+  aliasSharedSessions(false);
   return failures;
 };

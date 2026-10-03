@@ -17,6 +17,7 @@ const opened = async (environment: Partial<ScriptedEnvironment> = {}, found = de
 };
 const report = (dryRun = false): StateImportReport => StateImportReport.parse({
   dryRun,
+  sharedProjects: [{ sourceId: "secondary", ownerSourceId: "primary" }],
   carried: { accounts: 2, archived: 3, pins: 4, groups: 5, forgeAccounts: 1, keyManagerConnections: 1, banks: 3, routines: 4, instructions: 5, skillSources: 6, alwaysOnSkills: 2, drafts: 1, devSites: 2 },
   reEnter: [{ label: "Forge token", step: "forges" }, { label: "Vault sign-in", step: "key-manager" }],
   later: [{ label: "Local model", provider: "local" }],
@@ -118,6 +119,7 @@ describe("State import on Carry over", () => {
     await screen.findByRole("region", { name: "State import" });
     await app.user.click(section().getByRole("button", { name: "Import" }));
     await section().findByRole("heading", { name: "Import report" });
+    expect(section().getByText(/secondary shares a projects folder with primary/)).toBeDefined();
     expect(section().getByText("Font size: 24 (source: 100)")).toBeDefined();
     const relaunched = await app.remount();
     expect(relaunched.presentation.values.read().textSize).toBe(24);

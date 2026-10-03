@@ -81,19 +81,19 @@ export const listAccountSessions = async (adapter: Adapter, account: AccountRef)
  * The provider sessions this environment holds, by id: every imported
  * session's, and every one a harness run was linked to (`runs`), so a
  * session a run continued, or began, is never imported again. A session
- * deleted but not yet purged is held; a purged one is not.
+ * deleted but not yet purged is held. State-import aliases remain held after purge; ordinary purged Sessions without a mapping do not.
  */
 /** Provider ids are Account-scoped; secondary directories of one Account share the same identity. */
 export const importedSessionSourceId = (accountId: string, providerSessionId: string): string => JSON.stringify([accountId, providerSessionId]);
 
 export const heldProviderSessions = (reader: Reader, sourceKey?: string, accountId?: string): ReadonlySet<string> =>
   new Set([
-    ...(sourceKey === undefined ? [] : reader.all<{ source_id: string }>("SELECT source_id FROM state_import_items WHERE source_key = ? AND kind = 'session'", sourceKey).flatMap((row) => {
+    ...reader.all<{ source_id: string }>("SELECT source_id FROM state_import_items WHERE (? IS NULL OR source_key = ?) AND kind = 'session'", sourceKey ?? null, sourceKey ?? null).flatMap((row) => {
       try {
         const key: unknown = JSON.parse(row.source_id);
         return Array.isArray(key) && key[0] === accountId && typeof key[1] === "string" ? [key[1]] : [];
       } catch { return []; }
-    })),
+    }),
     ...reader.all<{ id: string | null }>(
       `SELECT json_extract(origin, '$.providerSessionId') AS id FROM sessions WHERE json_extract(origin, '$.kind') = 'import' AND (? IS NULL OR json_extract(origin, '$.accountId') = ?)
        UNION SELECT provider_session_id AS id FROM runs WHERE provider_session_id IS NOT NULL AND (? IS NULL OR account_id = ?)`,

@@ -127,6 +127,7 @@ export type CarryOverInventory = z.infer<typeof CarryOverInventory>;
 export const StateImportAccountInventories = z.object({
   accounts: z.array(z.object({
     sourceId: z.string().min(1),
+    sharedProjectsWith: z.string().min(1).optional().meta({ description: "Source id owning the shared projects folder; its sessions and memory are offered once." }),
     label: z.string(),
     accountId: AccountId.nullable(),
     inventory: CarryOverInventory.nullable(),

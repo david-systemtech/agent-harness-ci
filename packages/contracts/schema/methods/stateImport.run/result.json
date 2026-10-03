@@ -102,6 +102,27 @@
       ],
       "description": "What a state import carried, counted per kind."
     },
+    "sharedProjects": {
+      "description": "Directories sharing a real projects folder; sessions and memory are carried once under the first source in source-id order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ownerSourceId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "sourceId",
+          "ownerSourceId"
+        ]
+      }
+    },
     "reEnter": {
       "type": "array",
       "items": {

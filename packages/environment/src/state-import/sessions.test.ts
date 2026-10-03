@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { registry, SessionSnapshot, type SessionCreatedPayload } from "@agent-harness/contracts";
@@ -241,4 +241,179 @@ it("deduplicates an already continued harness Session, preserves its edits, and 
   expect((await purgeSession(client, made.id)).receipt.status).toBe("accepted");
   await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(t.env.log.readStream({ kinds: ["session"] }).filter((event) => event.type === "session.created")).toHaveLength(1);
+});
+
+const sharedFixture = (count: number) => {
+  const f = fixture();
+  const directories = [f.winner, f.secondary, ...(count === 3 ? [tempDir()] : [])];
+  for (const [index, directory] of directories.entries()) {
+    writeFileSync(join(directory, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: `account-${index}@example.com` } }));
+    if (index > 0) {
+      rmSync(join(directory, "projects"), { recursive: true, force: true });
+      symlinkSync(join(f.winner, "projects"), join(directory, "projects"), "dir");
+    }
+  }
+  const memory = join(f.winner, "projects", "unmapped", "memory");
+  mkdirSync(memory, { recursive: true });
+  writeFileSync(join(memory, "MEMORY.md"), "Shared memory\n");
+  writeFileSync(join(f.source, "profiles.json"), JSON.stringify({ version: 2, profiles: directories.map((directory, index) => ({ id: `profile-${index}`, label: `Profile ${index}`, providerId: "claude", configDir: directory, publicEnv: {} })) }));
+  writeFileSync(join(f.source, "prefs.json"), JSON.stringify({ archivedSessions: directories.map((_, index) => `profile-${index}:${f.shared}`), pinnedSessions: [`profile-${count - 1}:${f.shared}`] }));
+  return { ...f, directories, memory };
+};
+
+it.each([2, 3])("offers shared sessions and memory once across %i accounts and imports one archived row", async (count) => {
+  const f = sharedFixture(count);
+  const transcript = join(f.winner, "projects", "fixture-project", `${f.shared}.jsonl`);
+  const bytes = readFileSync(transcript, "utf8");
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const preview = await client.request("carryOver.inventory", { source: "state-import" });
+  if (!("accounts" in preview)) throw new Error("Expected listed-source inventories.");
+  expect(preview.accounts.map((entry) => entry.inventory?.sessions.total)).toEqual([1, ...Array<number>(count - 1).fill(0)]);
+  expect(preview.accounts.flatMap((entry) => entry.inventory?.memory.unmappable ?? [])).toHaveLength(1);
+  const dry = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
+  expect(dry.result?.carried.archived).toBe(1);
+  const applied = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(applied.result?.failed).toEqual([]);
+  expect(applied.result?.carried.archived).toBe(1);
+  expect(applied.result?.carried.pins).toBe(1);
+  const rows = await client.request("sessions.list", {});
+  expect(rows.sessions).toHaveLength(1);
+  expect(rows.sessions[0]?.archivedAt).not.toBeNull();
+  expect(rows.sessions[0]?.pinnedAt).not.toBeNull();
+  const adopted = (await client.request("accounts.list", {})).accounts;
+  expect(adopted).toHaveLength(count);
+  const inventories = await Promise.all(adopted.map((account) => client.request("carryOver.inventory", { accountId: account.id })));
+  expect(inventories.flatMap((inventory) => "accountId" in inventory ? inventory.memory.unmappable : [])).toHaveLength(1);
+  expect(preview.accounts[1]?.sharedProjectsWith).toBe("profile-0");
+  expect(dry.result?.sharedProjects).toHaveLength(count - 1);
+  expect(applied.result?.sharedProjects).toEqual(dry.result?.sharedProjects);
+  expect(readFileSync(transcript, "utf8")).toBe(bytes);
+  expect(readFileSync(join(f.memory, "MEMORY.md"), "utf8")).toBe("Shared memory\n");
+});
+
+it("repairs existing triplicates on re-import, retaining pin and archive state across restart and purge", async () => {
+  const f = sharedFixture(3);
+  writeFileSync(join(f.source, "prefs.json"), "{}");
+  const originalProjects = join(f.winner, "projects");
+  for (const directory of f.directories.slice(1)) {
+    rmSync(join(directory, "projects"));
+    cpSync(originalProjects, join(directory, "projects"), { recursive: true });
+  }
+  const dataDir = tempDir();
+  const t = await startTestEnvironment({ ...f.options, dataDir });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const before = (await client.request("sessions.list", {})).sessions;
+  expect(before).toHaveLength(3);
+  const ownerAccount = (await client.request("accounts.list", {})).accounts.find((account) => account.directory.path === f.winner)!;
+  const ownerId = t.env.log.readStream({ kinds: ["session"] }).find((event) => event.type === "session.created" && (event.payload as SessionCreatedPayload).origin?.accountId === ownerAccount.id)!.streamId;
+  const duplicates = before.filter((session) => session.id !== ownerId);
+  await client.request("sessions.pin", { commandId: randomUUID(), sessionId: duplicates[0]!.id });
+  await client.request("sessions.archive", { commandId: randomUUID(), sessionId: duplicates[1]!.id });
+  for (const directory of f.directories.slice(1)) {
+    rmSync(join(directory, "projects"), { recursive: true });
+    symlinkSync(originalProjects, join(directory, "projects"), "dir");
+  }
+  const repair = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(repair.result?.failed).toEqual([]);
+  const after = (await client.request("sessions.list", {})).sessions;
+  expect(after).toHaveLength(1);
+  expect(after[0]?.id).toBe(ownerId);
+  expect(after[0]?.pinnedAt).not.toBeNull();
+  expect(after[0]?.archivedAt).not.toBeNull();
+  await t.close();
+  const restarted = await startTestEnvironment({ ...f.options, dataDir });
+  onCleanup(() => restarted.close());
+  const second = await restarted.client();
+  await second.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect((await second.request("sessions.list", {})).sessions).toHaveLength(1);
+  await deleteSession(second, after[0]!.id);
+  await purgeSession(second, after[0]!.id);
+  await second.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect((await second.request("sessions.list", {})).sessions).toHaveLength(0);
+});
+
+it("deduplicates links to a transcript even when the projects directories are distinct", async () => {
+  const f = sharedFixture(2);
+  const secondaryProjects = join(f.secondary, "projects");
+  rmSync(secondaryProjects);
+  mkdirSync(join(secondaryProjects, "fixture-project"), { recursive: true });
+  symlinkSync(join(f.winner, "projects", "fixture-project", `${f.shared}.jsonl`), join(secondaryProjects, "fixture-project", `${f.shared}.jsonl`), "file");
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const preview = await client.request("carryOver.inventory", { source: "state-import" });
+  if (!("accounts" in preview)) throw new Error("Expected listed-source inventories.");
+  expect(preview.accounts.map((entry) => entry.inventory?.sessions.total)).toEqual([1, 0]);
+  expect(preview.accounts[1]?.sharedProjectsWith).toBeUndefined();
+  expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result?.failed).toEqual([]);
+  expect((await client.request("sessions.list", {})).sessions).toHaveLength(1);
+});
+
+it("previews a deleted shared alias before a live row as one target and keeps the live row when repairing", async () => {
+  const f = sharedFixture(2);
+  writeFileSync(join(f.source, "prefs.json"), "{}");
+  rmSync(join(f.secondary, "projects"));
+  cpSync(join(f.winner, "projects"), join(f.secondary, "projects"), { recursive: true });
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const owner = (await client.request("accounts.list", {})).accounts.find((account) => account.directory.path === f.winner)!;
+  const ownerSession = t.env.log.readStream({ kinds: ["session"] }).find((event) => event.type === "session.created" && (event.payload as SessionCreatedPayload).origin?.accountId === owner.id)!.streamId;
+  await deleteSession(client, ownerSession);
+  const liveSession = (await client.request("sessions.list", {})).sessions[0]!.id;
+  rmSync(join(f.secondary, "projects"), { recursive: true });
+  symlinkSync(join(f.winner, "projects"), join(f.secondary, "projects"), "dir");
+  writeFileSync(join(f.source, "prefs.json"), JSON.stringify({ pinnedSessions: [`profile-0:${f.shared}`] }));
+  const dry = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
+  expect(dry.result?.carried.pins).toBe(1);
+  expect(dry.result?.notCarried).not.toContainEqual(expect.objectContaining({ label: "Ambiguous Session references" }));
+  expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result?.failed).toEqual([]);
+  const rows = (await client.request("sessions.list", {})).sessions;
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.id).toBe(liveSession);
+  expect(rows[0]?.pinnedAt).not.toBeNull();
+  const inventory = await client.request("carryOver.inventory", { accountId: owner.id });
+  if (!("accountId" in inventory)) throw new Error("Expected an Account inventory.");
+  expect(inventory.sessions.new).toBe(0);
+  const carried = await client.request("carryOver.run", { commandId: randomUUID(), accountId: owner.id, dryRun: false, skills: true });
+  expect(carried.result?.sessions).toMatchObject({ imported: 0, held: 1 });
+  expect((await client.request("sessions.list", {})).sessions.map((session) => session.id)).toEqual([liveSession]);
+});
+
+it("retains a live shared row when a deleted duplicate has continued history", async () => {
+  const f = sharedFixture(2);
+  writeFileSync(join(f.source, "prefs.json"), "{}");
+  rmSync(join(f.secondary, "projects"));
+  cpSync(join(f.winner, "projects"), join(f.secondary, "projects"), { recursive: true });
+  const boundary = fakeAdapter({ script: () => [{ type: "session.provider-linked", payload: { providerSessionId: f.shared } }, end()] });
+  Object.assign(f.adapter, { createRun: boundary.createRun.bind(boundary) });
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const store = createProviderTranscriptStore({ log: t.env.log, clock: manualClock() });
+  const seeded = createClaudeAdapter({ sessionStore: store });
+  Object.assign(f.adapter, { seedSessionStore: seeded.seedSessionStore?.bind(seeded) });
+  const client = await t.client();
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const owner = (await client.request("accounts.list", {})).accounts.find((account) => account.directory.path === f.winner)!;
+  const continuedId = t.env.log.readStream({ kinds: ["session"] }).find((event) => event.type === "session.created" && (event.payload as SessionCreatedPayload).origin?.accountId === owner.id)!.streamId;
+  await client.request("accounts.refresh", {});
+  expect((await client.request("runs.start", { commandId: randomUUID(), sessionId: continuedId, text: "Continue once" })).receipt.status).toBe("accepted");
+  await expect.poll(() => t.env.log.readStream({ kind: "session", id: continuedId }).some((event) => event.type === "run.ended"), { timeout: WAIT_MS }).toBe(true);
+  await deleteSession(client, continuedId);
+  const liveId = (await client.request("sessions.list", {})).sessions[0]!.id;
+  rmSync(join(f.secondary, "projects"), { recursive: true });
+  symlinkSync(join(f.winner, "projects"), join(f.secondary, "projects"), "dir");
+  expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result?.failed).toEqual([]);
+  const rows = (await client.request("sessions.list", {})).sessions;
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.id).toBe(liveId);
+  // The deleted continuation still has its normal restore grace period.
+  expect((await client.request("sessions.restore", { commandId: randomUUID(), sessionId: continuedId })).receipt.status).toBe("accepted");
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect((await client.request("sessions.list", {})).sessions.map((session) => session.id)).toEqual([continuedId]);
 });
