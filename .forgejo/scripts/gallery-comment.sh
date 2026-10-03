@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Attach the hosted gallery's small PNGs to a comment on the current PR head.
+# Attach the hosted gallery's PNGs to a comment on the current PR head.
 set -euo pipefail
 : "${FORGEJO_URL:?}" "${FORGEJO_REPOSITORY:?}" "${FORGEJO_PR:?}" "${FORGEJO_TOKEN:?}"
 [[ "$FORGEJO_PR" =~ ^[1-9][0-9]*$ ]] || exit 1
@@ -19,8 +19,8 @@ import json,sys
 with open(sys.argv[1]) as f: pr=json.load(f)
 if pr['state'] != 'open' or pr.get('merged') or pr['head']['sha'] != sys.argv[2]: sys.exit(2)
 PY
-# No extraction of paths from an untrusted archive. Match the hosted gallery's
-# 600 PNG / 24 MiB payload bounds, with ZIP headroom under the relay's 32 MiB cap.
+# No extraction of paths from an untrusted archive. Match the hosted gallery and report publisher:
+# 600 PNGs, 24 MiB expanded, 32 MiB ZIP including headers and compression overhead.
 python3 - "$archive" "$work" <<'PY'
 import pathlib,re,sys,zipfile
 archive=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
