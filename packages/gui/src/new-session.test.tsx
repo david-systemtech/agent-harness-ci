@@ -189,7 +189,81 @@ describe("New session in the focused pane", () => {
   });
 });
 
+describe("new-session readiness", () => {
+  it("welcomes the chosen account and keeps the send action inside the composer", async () => {
+    const app = await withOpen("Train tidy");
+    await app.user.keyboard("{Control>}n{/Control}");
+    const surface = surfaces()[0] as HTMLElement;
+    expect(within(surface).getByRole("heading", { name: "agent-harness" })).toBeDefined();
+    expect(within(surface).getByText("Start a session on laptop with Home.")).toBeDefined();
+    expect(within(surface).getByRole("list", { name: "Keyboard shortcuts" })).toBeDefined();
+    const send = within(surface).getByRole("button", { name: "Send" });
+    expect(send.querySelector("svg")).not.toBeNull();
+    expect(messageBox(surface).getAttribute("spellcheck")).toBe("false");
+    await typeOn(app, surface, "First line{Shift>}{Enter}{/Shift}Second line");
+    expect((messageBox(surface) as HTMLTextAreaElement).value).toBe("First line\nSecond line");
+    fireEvent.keyDown(messageBox(surface), { key: "Enter", code: "Enter", isComposing: true });
+    expect(params(app, "laptop", "sessions.create")).toEqual([]);
+  });
+
+  it("names the selected signed-out account when another account is already signed in", async () => {
+    const app = await launch({ laptop: { accounts: [HOME, { id: "adopted", label: "Adopted", status: { state: "signed-out", checkedAt: null, detail: null } }] } });
+    await app.user.click(headingControl("laptop"));
+    const surface = surfaces()[0] as HTMLElement;
+    await openChip(app, surface, "Account");
+    await app.user.click(await screen.findByRole("menuitem", { name: /^Adopted/ }));
+    expect(within(surface).getByRole("alert").textContent).toContain("Adopted on laptop is not signed in.");
+    expect(within(surface).getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("lists signed-out accounts and offers Sign in after one is chosen", async () => {
+    const app = await launch({ laptop: { accounts: [{ id: "adopted", label: "Adopted", status: { state: "signed-out", checkedAt: null, detail: null } }], models: [] } });
+    await app.user.click(headingControl("laptop"));
+    const surface = surfaces()[0] as HTMLElement;
+    await openChip(app, surface, "Account");
+    const option = await screen.findByRole("menuitem", { name: /^Adopted/ });
+    expect(option.textContent).toContain("signed out");
+    await app.user.click(option);
+    expect(within(surface).getByRole("button", { name: /^Account: Adopted/ })).toBeDefined();
+    expect(within(surface).getByRole("button", { name: "Sign in" })).toBeDefined();
+    expect(within(surface).getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it.each([{ accounts: [] }, { accounts: [{ id: "signed-out", label: "Adopted", status: { state: "signed-out", checkedAt: null, detail: null } }] }] as const)("explains missing sign-in and opens Accounts on the chosen environment", async ({ accounts }) => {
+    const app = await launch({ laptop: { accounts: [...accounts], models: [] } });
+    await app.user.click(headingControl("laptop"));
+    const surface = surfaces()[0] as HTMLElement;
+    const alert = await within(surface).findByRole("alert");
+    expect(within(alert).getByText("No account on laptop is signed in.")).toBeDefined();
+    await typeOn(app, surface, "Keep this draft");
+    expect(within(surface).getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    await app.user.keyboard("{Enter}");
+    expect(params(app, "laptop", "sessions.create")).toEqual([]);
+    await app.user.click(within(alert).getByRole("button", { name: "Sign in" }));
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    const accountsPane = await within(settings).findByRole("region", { name: "Accounts" });
+    expect((within(accountsPane).getByRole("combobox", { name: "Environment" }) as HTMLSelectElement).value).toBe(LAPTOP_ID);
+    await app.user.keyboard("{Escape}");
+    expect((messageBox(surfaces()[0] as HTMLElement) as HTMLTextAreaElement).value).toBe("Keep this draft");
+  });
+});
+
 describe("the chips", () => {
+  it("draws icon chips and exposes account and model dependencies in one popup", async () => {
+    const app = await withOpen("Train tidy");
+    await app.user.keyboard("{Control>}n{/Control}");
+    const surface = surfaces()[0] as HTMLElement;
+    for (const chip of within(within(surface).getByRole("group", { name: "Where it starts" })).getAllByRole("button")) {
+      expect(chip.querySelector("svg")).not.toBeNull();
+    }
+    await openChip(app, surface, "Model");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("group", { name: "Environment and account" })).toBeDefined();
+    expect(within(menu).getByRole("group", { name: "Models" })).toBeDefined();
+    expect(within(menu).getByRole("menuitem", { name: /^Home/ })).toBeDefined();
+    expect(within(menu).getByRole("menuitem", { name: /^Sonnet 5/ })).toBeDefined();
+  });
+
   it("are projections.newSession's presets; changing one re-runs the presets after it, and an environment no session can start on is greyed with its reason", async () => {
     const app = await withOpen("Fix the rail");
     await app.user.keyboard("{Control>}n{/Control}");
@@ -270,6 +344,21 @@ describe("the workspace chip", () => {
 });
 
 describe("the first send", () => {
+  it("labels the single send action Starting while creation is pending and ignores repeated sends", async () => {
+    const app = await withOpen("Train tidy");
+    await app.user.keyboard("{Control>}n{/Control}");
+    app.environment("laptop").wire.answer("sessions.create", () => new Promise(() => undefined));
+    const surface = surfaces()[0] as HTMLElement;
+    await typeOn(app, surface, "Start once");
+    await app.user.click(within(surface).getByRole("button", { name: "Send" }));
+    const starting = await within(surface).findByRole("button", { name: "Starting…" });
+    expect(starting.hasAttribute("disabled")).toBe(true);
+    expect(starting.querySelector("svg")).not.toBeNull();
+    await typeOn(app, surface, "{Enter}{Enter}");
+    expect(params(app, "laptop", "sessions.create")).toHaveLength(1);
+    expect(params(app, "laptop", "runs.start")).toEqual([]);
+  });
+
   it("keeps what is typed in the pane with no session until it, then starts the session, sends the text as its first message, and the pane shows it", async () => {
     const app = await withOpen("Train tidy");
     await app.user.keyboard("{Control>}n{/Control}");
