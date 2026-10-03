@@ -95,11 +95,19 @@ Tailscale and Docker Desktop are unsupported.
 
 For an environment running directly on macOS, detection tries `tailscale` on
 PATH, then `/Applications/Tailscale.app/Contents/MacOS/Tailscale` for `ip -4`
-and `status --json`. Without a CLI address it checks `utun*` interfaces for
-an IPv4 address in Tailscale's range. This fallback is a heuristic: another VPN
-using the same range on a generic macOS tunnel cannot be distinguished without
-a CLI answer. **Your machines** distinguishes a missing
-installation from an installed app whose address could not be read. LAN choices
+and `status --json`. Without a CLI address, a numbered `utun` interface must
+hold both a non-internal IPv4 address in `100.64.0.0/10` and a non-internal
+IPv6 address in [Tailscale's device prefix](https://tailscale.com/docs/concepts/ipv6),
+`fd7a:115c:a1e0::/48`. A CGNAT address belonging to another VPN, or a Tailscale
+IPv6 on a different tunnel, does not qualify. A readable CLI status saying
+Tailscale is stopped, signed out or otherwise not running vetoes the fallback.
+This corroboration works without either CLI but is address evidence, not proof
+of live connectivity: deliberately reused prefixes or retained dual-stack
+addresses with no readable status remain uncertain. With IPv6 disabled or no
+corroboration, the environment stays on loopback unless LAN binding is enabled.
+**Your machines** still distinguishes a missing installation from an installed
+app whose address could not be identified; pairing then uses a bound address,
+never an unidentified VPN's CGNAT address. LAN choices
 prefer private IPv4, then unique-local IPv6, then other IPv6; an IPv6 choice
 warns that its address may change.
 
