@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ForgeFetch } from "../src/forge/providers.js";
@@ -482,9 +482,16 @@ export const startFakeForge = async (): Promise<FakeForge> => {
   };
 };
 
-/** An origin nothing listens on: a port the fake forge took and let go. */
-export const unreachableOrigin = async (): Promise<string> => {
-  const forge = await startFakeForge();
-  await forge.close();
-  return forge.origin;
+/** An origin that drops every connection, keeping its port reserved until the caller's cleanup. */
+export const unreachableOrigin = async (onCleanup: (cleanup: () => Promise<void>) => void): Promise<string> => {
+  const server = createTcpServer((socket) => socket.resetAndDestroy());
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  onCleanup(() => new Promise<void>((resolve, reject) => {
+    if (!server.listening) return resolve();
+    server.close((error) => error ? reject(error) : resolve());
+  }));
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 };

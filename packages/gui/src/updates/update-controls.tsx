@@ -1,4 +1,3 @@
-import { ArrowUpCircle, Download, RefreshCw, X } from "lucide-react";
 import {
   drainAndUpdateDescription,
   drainAndUpdateQuestion,
@@ -13,11 +12,12 @@ import {
   type EnvironmentView,
 } from "@agent-harness/client-runtime";
 import { RELEASE_CHANNELS, type MethodName, type SettingsKey, type UpdateWhen } from "@agent-harness/contracts";
+import { ArrowUpCircle, ArrowDownToLine, CircleStop, Radio, RefreshCw, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { DialogFooter } from "../ui/dialog.js";
 import { useSettingsValues } from "../settings/settings-values.js";
-import { Button, Dialog, DialogClose, DialogContent, Select, Switch } from "../ui/index.js";
+import { Button, Dialog, DialogClose, DialogContent, Select, Switch, Tooltip } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { useUpdatesStatus } from "./use-updates-status.js";
 
@@ -75,17 +75,16 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
   };
 
   return (
-    <div className="flex flex-col gap-2 text-sm">
-      {version !== null && <p className="flex items-center gap-2 font-mono text-xs text-ink"><ArrowUpCircle aria-hidden="true" className="size-4" />{environmentVersionWords(version)}</p>}
+    <div className="flex flex-col gap-3 text-xs">
+      {version !== null && <p className="flex items-center gap-2 font-mono text-ink"><ArrowUpCircle aria-hidden="true" className="size-4" />{environmentVersionWords(version)}</p>}
       {ready && status.error !== null && <p className="text-signal">{updatesUnreadWords(status.error.message)}</p>}
       {values !== null && (
-        <div className="flex flex-col gap-2">
-          <span className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-wash p-3">
+        <div className="flex flex-col gap-3">
+          <span className="flex flex-wrap items-center gap-2">
             <span id={channelLabel} className="text-ink-muted">
-              Channel
+              <Radio aria-hidden="true" className="mr-1 inline size-4" />Channel
             </span>
-            <Select
-              title="Channel (Arrow keys)"
+            <Tooltip content="Channel · Arrow keys"><Select
               aria-labelledby={channelLabel}
               value={String(values["updates.channel"])}
               disabled={!admits("updates.settings.set")}
@@ -96,39 +95,37 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
                   {CHANNEL_WORDS[channel]}
                 </option>
               ))}
-            </Select>
+            </Select></Tooltip>
           </span>
-          <span className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-wash p-3">
+          <span className="flex flex-wrap items-center gap-2">
             <span id={autoUpdateLabel} className="text-ink-muted">
-              Auto-update
+              <RefreshCw aria-hidden="true" className="mr-1 inline size-4" />Auto-update
             </span>
-            <Switch
-              title="Auto-update (Space)"
+            <Tooltip content="Auto-update · Space"><Switch
               aria-labelledby={autoUpdateLabel}
               checked={values["updates.autoUpdate"] === true}
               disabled={!admits("updates.settings.set")}
               onCheckedChange={(on) => save("updates.autoUpdate", on)}
-            />
+            /></Tooltip>
           </span>
         </div>
       )}
       {typeof pinned === "string" && <p className="text-ink-muted">{pinnedWords(pinned)}</p>}
       {pending !== null && <p className="text-ink-muted">{pending}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button disabled={!admits("updates.apply")} onClick={() => update("idle")} title="Update now (Enter or Space)">
-          <Download aria-hidden="true" data-icon="inline-start" />Update now
-        </Button>
+        <Tooltip content="Update now · Enter / Space"><Button tone="primary" disabled={!admits("updates.apply")} onClick={() => update("idle")}>
+          <ArrowDownToLine aria-hidden="true" />Update now
+        </Button></Tooltip>
         {drainable !== null && (
-          <Button
+          <Tooltip content="Drain and update now · Enter / Space"><Button
             disabled={!admits("updates.apply")}
             onClick={() => {
               setSaid(undefined);
               setAsking(drainable.updateId);
             }}
-            title="Drain and update now… (Enter or Space)"
           >
-            <RefreshCw aria-hidden="true" data-icon="inline-start" />Drain and update now…
-          </Button>
+            <CircleStop aria-hidden="true" />Drain and update now…
+          </Button></Tooltip>
         )}
       </div>
       {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
@@ -136,12 +133,13 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
         {drainable !== null && (
           <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
             <DialogFooter>
-              <DialogClose asChild>
-                <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
-              </DialogClose>
-              <Button tone="danger" title="Drain and update (Enter or Space)" onClick={() => update("now")}>
-                <RefreshCw aria-hidden="true" data-icon="inline-start" />Drain and update
-              </Button>
+              <Tooltip content="Cancel · Enter / Space / Escape"><DialogClose asChild>
+                <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" />Cancel</Button>
+              </DialogClose></Tooltip>
+              <Tooltip content="Drain and update · Enter / Space"><Button tone="danger" onClick={() => update("now")}>
+                <CircleStop aria-hidden="true" />
+                Drain and update
+              </Button></Tooltip>
             </DialogFooter>
           </DialogContent>
         )}

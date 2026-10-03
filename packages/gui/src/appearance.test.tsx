@@ -47,9 +47,9 @@ describe("the Theme row's preferences", () => {
     const choice = within(row).getByRole("radiogroup", { name: "Light or dark" });
     const radio = (name: string) => within(choice).getByRole("radio", { name });
     expect(within(choice).getAllByRole("radio").map((each) => [each.closest("label")?.textContent, (each as HTMLInputElement).checked])).toEqual([
+      ["The OS's", true],
       ["Light", false],
       ["Dark", false],
-      ["The OS's", true],
     ]);
 
     await app.user.click(radio("Light"));
@@ -64,18 +64,43 @@ describe("the Theme row's preferences", () => {
     expect((radio("The OS's") as HTMLInputElement).checked).toBe(true);
   });
 
+  it("shows the applied value after an out-of-range or empty size is entered", async () => {
+    const app = await opened();
+    const row = await openTheme(app);
+    const size = () => within(row).getByRole("spinbutton", { name: "Text size" }) as HTMLInputElement;
+    for (const [typed, expected] of [["20", 20], ["100", 20], ["", 14]] as const) {
+      await app.user.clear(size());
+      if (typed !== "") await app.user.type(size(), typed);
+      await app.user.keyboard("{Enter}");
+      expect(size().value).toBe(String(expected));
+      expect(app.presentation.values.read().textSize).toBe(expected);
+    }
+  });
+
   it("sets the text size, the reading width, reasoning shown and the streaming fade, each at once, which the transcript reads", async () => {
     const app = await opened();
     const row = await openTheme(app);
-    const size = within(row).getByRole("combobox", { name: "Text size" });
-    expect(within(size).getByRole("option", { selected: true }).textContent).toBe("14 px");
-    expect(within(size).getAllByRole("option")).toHaveLength(14);
-    await app.user.selectOptions(size, "17 px");
-    expect(app.presentation.values.read().textSize).toBe(17);
+    const size = () => within(row).getByRole("spinbutton", { name: "Text size" });
+    expect((size() as HTMLInputElement).value).toBe("14");
+    expect(size().getAttribute("min")).toBe("11");
+    expect(size().getAttribute("max")).toBe("20");
+    await app.user.click(within(row).getByRole("button", { name: "Increase text size" }));
+    expect(app.presentation.values.read().textSize).toBe(15);
+    await app.user.clear(size());
+    await app.user.type(size(), "20");
+    await app.user.tab();
+    expect(app.presentation.values.read().textSize).toBe(20);
+    expect((within(row).getByRole("button", { name: "Increase text size" }) as HTMLButtonElement).disabled).toBe(true);
+    await app.user.click(within(row).getByRole("button", { name: "Reset text size" }));
+    expect(app.presentation.values.read().textSize).toBe(14);
+    await app.user.clear(size());
+    await app.user.type(size(), "11");
+    await app.user.tab();
+    expect((within(row).getByRole("button", { name: "Decrease text size" }) as HTMLButtonElement).disabled).toBe(true);
 
-    const width = within(row).getByRole("combobox", { name: "Reading width" });
-    expect(within(width).getAllByRole("option").map((option) => option.textContent)).toEqual(["Comfortable", "Wide", "The whole pane"]);
-    await app.user.selectOptions(width, "Wide");
+    const width = within(row).getByRole("radiogroup", { name: "Reading width" });
+    expect(within(width).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Comfortable", "Wide", "The whole pane"]);
+    await app.user.click(within(width).getByRole("radio", { name: "Wide" }));
     expect(app.presentation.values.read().readingWidth).toBe("wide");
 
     for (const [name, key] of [
