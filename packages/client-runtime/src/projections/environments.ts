@@ -1,6 +1,6 @@
 import type { CapabilityFlags, Ceiling, EnvironmentColour, EnvironmentIcon, Scope } from "@agent-harness/contracts";
 import { derived, type Observable } from "../observable.js";
-import { LOCAL_PLACEHOLDER_ID, type BlockedReason, type ConnectionKind, type ConnectionPhase, type ConnectionRecord } from "../connections/records.js";
+import { LOCAL_PLACEHOLDER_ID, type BlockedReason, type ConnectionKind, type ConnectionPhase, type ConnectionRecord, type ConnectionUpdate } from "../connections/records.js";
 import type { ConnectionAction } from "../connections/state-machine.js";
 import type { OutboxView } from "../outbox/overlay.js";
 
@@ -11,6 +11,7 @@ import type { OutboxView } from "../outbox/overlay.js";
  * environment.
  */
 export interface EnvironmentView {
+  readonly update?: ConnectionUpdate;
   readonly environmentId: string;
   readonly kind: ConnectionKind;
   /** The first environment in the sequence: the one whose group order merged groups follow. */
@@ -47,6 +48,7 @@ export const environmentsProjection = (records: Observable<readonly ConnectionRe
     list.map(
       (record, index): EnvironmentView => ({
         environmentId: record.environmentId,
+        ...(record.update !== undefined && { update: record.update }),
         kind: record.kind,
         primary: index === 0,
         name: record.environmentId === LOCAL_PLACEHOLDER_ID ? null : record.descriptor.name,

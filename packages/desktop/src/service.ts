@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
+import { readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import type { ShellPlatform, ShellService } from "@agent-harness/client-runtime";
-import { PRODUCT_NAME } from "@agent-harness/contracts";
-import { ARTEFACT_CLI_ENTRY, artefactNode } from "@agent-harness/contracts/launcher";
+import { PRODUCT_NAME, PendingUpdate } from "@agent-harness/contracts";
+import { ARTEFACT_CLI_ENTRY, artefactNode, RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
 import { oneAtATime } from "./commands.js";
 
 /**
@@ -32,6 +33,7 @@ export const SERVICE_WAIT: ServiceWait = { everyMs: 1000, forMs: 60_000 };
 
 export interface ServiceParts {
   readonly os: ShellPlatform;
+  readonly environmentDir: string;
   /** The unpacked server artefact; absent where the desktop carries none. */
   readonly server: string | undefined;
   readonly wait?: ServiceWait;
@@ -72,7 +74,7 @@ const firstErrorLine = (text: string): string | undefined => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts): ShellService => {
+export const bundledService = ({ os, server, environmentDir, wait = SERVICE_WAIT }: ServiceParts): ShellService => {
   const run = (args: readonly string[]): Promise<Ran> =>
     new Promise((resolve, reject) => {
       if (server === undefined) {
@@ -124,7 +126,29 @@ export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts
   /** One verb at a time, each after the one before has settled either way. */
   const inTurn = oneAtATime();
 
+  // The installed CLI speaks the running environment's protocol, even
+  // when the desktop's bundled CLI is newer. Resolve it afresh on each call.
+  const runInstalled = async (args: readonly string[]): Promise<string> => {
+    const state = JSON.parse(await readFile(join(environmentDir, "service-state.json"), "utf8")) as { activeVersion?: unknown };
+    const version = state.activeVersion;
+    if (typeof version !== "string" || !RELEASE_VERSION_PATTERN.test(version)) throw new Error("The service state names no active version.");
+    const root = join(environmentDir, "versions", version);
+    await access(join(root, ".complete"));
+    return new Promise((resolve, reject) => {
+      execFile(join(root, ...artefactNode(os)), [join(root, ...ARTEFACT_CLI_ENTRY), "update", ...args, "--data-dir", environmentDir],
+        { windowsHide: true, encoding: "utf8", timeout: 30_000 }, (error, stdout, stderr) => {
+          if (error === null) resolve(stdout);
+          else reject(new Error(`Could not update the local environment: ${firstErrorLine(stderr) ?? firstErrorLine(stdout) ?? error.message}`));
+        });
+    });
+  };
+
   return {
+    pendingUpdate: () => inTurn(async () => {
+      const report = JSON.parse(await runInstalled(["status", "--json"])) as { pending?: unknown };
+      return PendingUpdate.parse(report.pending);
+    }),
+    applyUpdateNow: () => inTurn(async () => { await runInstalled(["apply", "--now"]); }),
     install: () => inTurn(install),
     start: () => inTurn(start),
     status: () => inTurn(async () => {

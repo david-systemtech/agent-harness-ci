@@ -1,13 +1,18 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { discoverScenes, type SceneModule } from "../gallery/scene-registry.js";
 import { mountGallery } from "../gallery/mount.js";
 
+const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
+  vi.useRealTimers();
   await close?.();
   close = undefined;
   document.body.replaceChildren();
+  if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
+  else Object.defineProperty(document, "fonts", originalFonts);
 });
 
 it("renders the real empty window on a ready environment and marks the scene ready", async () => {
@@ -15,7 +20,8 @@ it("renders the real empty window on a ready environment and marks the scene rea
   document.body.append(container);
   const gallery = await mountGallery(container, "window-empty");
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("window-empty"));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe("window-empty");
   expect(screen.getByRole("region", { name: "Session pane" })).not.toBeNull();
   expect(screen.getByText("No session is open. Choose one from the sidebar.")).not.toBeNull();
   expect(screen.getByRole("button", { name: "New session on desk" })).not.toBeNull();
@@ -34,7 +40,8 @@ it("renders the session window with nine sessions and its sidebar geometry contr
   document.body.append(container);
   const gallery = await mountGallery(container, "window-session");
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("window-session"));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe("window-session");
   const sidebar = within(screen.getByRole("navigation", { name: "Sessions" }));
   expect(sidebar.getByRole("searchbox", { name: "Filter the sessions" })).toBeDefined();
   expect(sidebar.getAllByRole("listitem")).toHaveLength(9);
@@ -51,7 +58,8 @@ it("renders the scripted window in the requested light ladder", async () => {
   document.body.append(container);
   const gallery = await mountGallery(container, "window-empty", "light");
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("window-empty"));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe("window-empty");
   expect(document.documentElement.dataset["ladder"]).toBe("light");
   expect(gallery.world.presentation.values.read().lightOrDark).toBe("light");
 });
@@ -64,7 +72,8 @@ it("discovers a component scene and mounts its controls and geometry in each lad
     document.body.append(container);
     const gallery = await mountGallery(container, "sample-controls", ladder, registry);
     close = gallery.close;
-    await waitFor(() => expect(container.dataset["galleryReady"]).toBe("sample-controls"));
+    expect(await gallery.ready).toBe(true);
+    expect(container.dataset["galleryReady"]).toBe("sample-controls");
     expect(screen.getByRole("button", { name: "Add item" }).getAttribute("data-ladder")).toBe(ladder);
     expect(screen.getByRole("textbox", { name: "Item name" })).not.toBeNull();
     expect(screen.queryByRole("region", { name: "Session pane" })).toBeNull();
@@ -85,7 +94,8 @@ it.each(["window-not-ready", "window-start-failed"])("renders %s with the measur
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe(scene);
   expect(screen.getByRole("heading", { name: "agent-harness" })).toBeDefined();
   expect(screen.getByRole("alert").textContent).toContain("Not ready to run");
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
@@ -102,7 +112,8 @@ it.each(["dock-files", "dock-sheet"])("renders %s with retained Files and the me
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe(scene);
   const dock = within(await screen.findByRole("complementary", { name: "Side column" }));
   expect(dock.getByRole("tab", { name: "Files" }).getAttribute("aria-selected")).toBe("true");
   expect(await dock.findByRole("button", { name: /^README.md/ })).toBeDefined();
@@ -117,7 +128,8 @@ it("captures the loading browser dock, then restores Reload on Stop and completi
   document.body.append(container);
   const gallery = await mountGallery(container, "dock-browser-loading");
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("dock-browser-loading"));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe("dock-browser-loading");
   const dock = within(screen.getByRole("region", { name: "Browser" }));
   const stop = dock.getByRole("button", { name: "Stop" });
   expect(stop.querySelector("svg")).not.toBeNull();
@@ -132,12 +144,29 @@ it("captures the loading browser dock, then restores Reload on Stop and completi
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: '[aria-label="Stop"]', width: 24, height: 24 });
 });
 
-it.each(["dock-terminal", "dock-browser", "dock-preview"])("renders %s with pane content and geometry from the look contract", async (scene) => {
+it.each(["dock-terminal", "dock-browser", "dock-preview"])("renders %s after held fonts with pane content and geometry from the look contract", async (scene) => {
+  let releaseFonts!: () => void;
+  const fontsReady = new Promise<void>((resolve) => { releaseFonts = resolve; });
+  let requestedFonts!: () => void;
+  const fontsRequested = new Promise<void>((resolve) => { requestedFonts = resolve; });
+  Object.defineProperty(document, "fonts", { configurable: true, value: {
+    get ready() { requestedFonts(); return fontsReady; },
+  } });
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  await fontsRequested;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+  const readiness = gallery.ready;
+  // Fonts can stay pending beyond the old marker-polling deadline.
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(container.dataset["galleryReady"]).toBeUndefined();
+  expect(await Promise.race([readiness, Promise.resolve("pending")])).toBe("pending");
+  await act(async () => { releaseFonts(); });
+  expect(await readiness).toBe(true);
+  vi.useRealTimers();
+  expect(container.dataset["galleryReady"]).toBe(scene);
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
   expect(geometry).toContainEqual({ selector: "[data-dock-rail]", width: 40 });
   if (scene === "dock-terminal") {
