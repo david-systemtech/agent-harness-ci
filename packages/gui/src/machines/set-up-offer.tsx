@@ -34,7 +34,7 @@ export const SetUpOffer = ({ view, decline }: { readonly view: EnvironmentView; 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <p className="text-sm text-ink">Paired with {nameOf(view)}: set it up now?</p>
-      <Button tone="primary" onClick={() => void setUp(view.environmentId)} title="Set up this machine (Enter or Space)">
+      <Button variant="default" onClick={() => void setUp(view.environmentId)} title="Set up this machine (Enter or Space)">
         <ListChecks aria-hidden="true" data-icon="inline-start" />Set up this machine
       </Button>
       <Button onClick={decline} title="Not now (Enter or Space)"><X aria-hidden="true" data-icon="inline-start" />Not now</Button>

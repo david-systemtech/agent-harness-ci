@@ -46,7 +46,7 @@ export const CertificateCheck = ({ environmentId, address, trust, close }: Certi
         <div className="flex justify-end gap-2">
           <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
           <Button icon={ShieldCheck} label="Trust this certificate"
-            tone="primary"
+            variant="default"
             disabled={preview?.ok !== true}
             onClick={() => {
               if (preview?.ok === true) trust(preview.certificate.pem);

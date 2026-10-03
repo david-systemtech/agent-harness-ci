@@ -155,7 +155,7 @@ export const AddForge = ({ environmentId, environmentName, close, say, gh: paths
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
           <div className="flex justify-end gap-2">
             <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
-            <Button icon={Plus} label="Add" tone="primary" type="submit" disabled={sending}>
+            <Button icon={Plus} label="Add" variant="default" type="submit" disabled={sending}>
               Add
             </Button>
           </div>

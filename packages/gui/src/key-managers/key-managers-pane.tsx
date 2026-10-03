@@ -64,7 +64,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
       {!adding && (
         <div className="flex flex-wrap gap-2">
-          <Button ref={trigger} icon={Plus} label="Add a key manager" tone="primary" disabled={!writable} onClick={() => setAdding(true)}>
+          <Button ref={trigger} icon={Plus} label="Add a key manager" variant="default" disabled={!writable} onClick={() => setAdding(true)}>
             Add a key manager
           </Button>
         </div>

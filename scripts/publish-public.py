@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import zlib
 
 VERSION = '8.30.1'
 PINS = {
@@ -120,6 +121,51 @@ def export_tree(source, ref, tree):
     return policy
 
 
+def png_text(data):
+    """Scan PNG metadata, rather than random compressed pixel bytes; fail closed."""
+    def inflate(payload):
+        decoder = zlib.decompressobj()
+        text = decoder.decompress(payload, 1024 * 1024 + 1)
+        if len(text) > 1024 * 1024 or not decoder.eof or decoder.unused_data:
+            raise ValueError('Invalid or oversized compressed PNG metadata')
+        return text
+
+    offset, texts, first = 8, [], True
+    while offset + 12 <= len(data):
+        size = int.from_bytes(data[offset:offset + 4], 'big')
+        end = offset + 12 + size
+        if end > len(data):
+            break
+        kind = data[offset + 4:offset + 8]
+        payload = data[offset + 8:end - 4]
+        checksum = int.from_bytes(data[end - 4:end], 'big')
+        if zlib.crc32(kind + payload) != checksum:
+            raise ValueError('Invalid PNG checksum')
+        if first and (kind != b'IHDR' or size != 13):
+            raise ValueError('Invalid PNG header')
+        first = False
+        if kind == b'zTXt':
+            keyword, separator, rest = payload.partition(b'\0')
+            if not separator or not rest or rest[0] != 0:
+                raise ValueError('Invalid compressed PNG text')
+            texts.append(keyword + b'\0' + inflate(rest[1:]))
+        elif kind == b'iTXt':
+            keyword, separator, rest = payload.partition(b'\0')
+            fields = rest[2:].split(b'\0', 2)
+            if not separator or len(rest) < 2 or rest[0] not in (0, 1) or rest[1] != 0 or len(fields) != 3:
+                raise ValueError('Invalid international PNG text')
+            language, translated, text = fields
+            texts.append(b'\0'.join([keyword, language, translated, inflate(text) if rest[0] else text]))
+        elif kind not in (b'IHDR', b'IDAT', b'PLTE', b'tRNS', b'IEND'):
+            texts.append(payload)
+        if kind == b'IEND':
+            if size or end != len(data):
+                raise ValueError('Invalid PNG ending')
+            return b'\n'.join(texts).decode('utf-8', errors='replace')
+        offset = end
+    raise ValueError('Incomplete PNG')
+
+
 def privacy(tree, policy):
     rules = [(r['id'], re.compile(r['pattern'], re.I)) for r in policy['deny']]
     allowances = [(a['rule'], re.compile(a['path']), re.compile(a['value'], re.I)) for a in policy['allow']]
@@ -129,7 +175,8 @@ def privacy(tree, policy):
             continue
         path = file.relative_to(tree).as_posix()
         # Scan raw UTF-8 and null-padded ASCII terms (UTF-16/32), plus filenames.
-        content = file.read_bytes().decode('utf-8', errors='replace')
+        data = file.read_bytes()
+        content = png_text(data) if data.startswith(b'\x89PNG\r\n\x1a\n') else data.decode('utf-8', errors='replace')
         views = [path, content]
         if '\0' in content:
             views.append(content.replace('\0', ''))

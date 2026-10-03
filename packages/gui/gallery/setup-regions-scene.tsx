@@ -19,12 +19,14 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation";
+
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
-async function prepareRegion(kind: "browser" | "carry-over" | "bank-preview" | "authoring") {
-  const target: StepId = kind === "browser" ? "browser" : kind === "carry-over" ? "carry-over" : "memory-bank";
+async function prepareRegion(kind: SetupRegion) {
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" ? "account" : kind;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser"],
-    accounts: [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
+    accounts: kind === "account" || kind === "close-confirmation" ? [] : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
@@ -54,11 +56,11 @@ async function prepareRegion(kind: "browser" | "carry-over" | "bank-preview" | "
   const OpenStep = () => { const { choose } = useChecklist(); useEffect(() => choose(target), [choose]); return null; };
   const PreviewCard = () => <JoinPreview preview={joinPreview} />;
   const AuthoringCard = (props: StepCardProps) => <MintedSessionCard {...props} {...(sessionId !== undefined && { sessionId })} artefact={{ kind: "folder", path: "/banks/project-memory" }} />;
-  const cards = { ...STEP_CARDS, account: OpenStep, ...(kind === "bank-preview" ? { "memory-bank": PreviewCard } : kind === "authoring" ? { "memory-bank": AuthoringCard } : {}) };
+  const cards = { ...STEP_CARDS, ...(target !== "account" && { account: OpenStep }), ...(kind === "bank-preview" ? { "memory-bank": PreviewCard } : kind === "authoring" ? { "memory-bank": AuthoringCard } : {}) };
   return { holders, prepared, cards };
 }
 
-export function setupRegionScene(kind: "browser" | "carry-over" | "bank-preview" | "authoring") {
+export function setupRegionScene(kind: SetupRegion) {
   return function SetupRegion({ ladder }: { readonly ladder: LadderName }) {
     const [scene, setScene] = useState<Awaited<ReturnType<typeof prepareRegion>>>();
     useEffect(() => {
@@ -78,6 +80,10 @@ export function setupRegionScene(kind: "browser" | "carry-over" | "bank-preview"
       const advance = () => {
         const begin = document.querySelector<HTMLButtonElement>("[data-setup-begin]");
         if (!began && begin !== null && !begin.disabled) { began = true; begin.click(); }
+        if (kind === "close-confirmation" && !finished) {
+          const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close Set up"]');
+          if (close !== null) { finished = true; close.click(); }
+        }
         if (kind !== "browser" || finished) return;
         const done = document.querySelector<HTMLButtonElement>('section[aria-label="Done"] button');
         if (done !== null && !done.disabled) { finished = true; done.click(); }

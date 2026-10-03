@@ -42,7 +42,7 @@ describe("the primitives", () => {
     const submitted: string[] = [];
     render(
       <form onSubmit={(event) => (event.preventDefault(), submitted.push("form"))}>
-        <Button tone="primary" onClick={() => pressed.push("Send")}>
+        <Button variant="default" onClick={() => pressed.push("Send")}>
           Send
         </Button>
         <Button type="submit">Save</Button>
@@ -184,7 +184,7 @@ describe("the primitives", () => {
           <Button>Delete</Button>
         </DialogTrigger>
         <DialogContent title="Delete the session?" description="It can be restored for thirty days.">
-          <Button tone="danger">Delete it</Button>
+          <Button variant="destructive">Delete it</Button>
         </DialogContent>
       </Dialog>,
     );

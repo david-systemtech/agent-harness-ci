@@ -41,7 +41,7 @@ export const Answer = ({ dim, approves = false, greyed = false, describedBy, key
     <Button
       size="sm"
       aria-label={typeof children === "string" ? children : undefined}
-      tone={approves && !greyed ? "primary" : "quiet"}
+      variant={approves && !greyed ? "default" : "ghost"}
       aria-disabled={dim || greyed ? true : undefined}
       aria-describedby={describedBy}
       className="border border-line aria-disabled:cursor-default aria-disabled:border-hairline aria-disabled:bg-transparent aria-disabled:text-ink-faint"

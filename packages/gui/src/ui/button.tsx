@@ -2,8 +2,6 @@ import type { ComponentProps } from "react";
 import { cn } from "./classes.js";
 import { Tooltip } from "./tooltip.js";
 
-/** Compatibility for surfaces migrating to the window's six button variants. */
-export type ButtonTone = "primary" | "quiet" | "warning" | "danger";
 export type ButtonVariant = "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
 export type ButtonSize = "default" | "xs" | "sm" | "lg" | "icon" | "icon-xs" | "icon-sm" | "icon-lg";
 
@@ -25,19 +23,18 @@ const SIZES: Readonly<Record<ButtonSize, string>> = {
   "icon-sm": "size-7 rounded-md [&_svg]:size-3.5",
   "icon-lg": "size-9",
 };
-const TONES: Readonly<Record<ButtonTone, ButtonVariant>> = { primary: "default", quiet: "ghost", warning: "ghost", danger: "destructive" };
 
-export type ButtonProps = ComponentProps<"button"> & { readonly tone?: ButtonTone; readonly variant?: ButtonVariant; readonly size?: ButtonSize };
+export type ButtonProps = ComponentProps<"button"> & { readonly variant?: ButtonVariant; readonly size?: ButtonSize };
 
-/** Buttons are safe inside forms; an explicit variant takes precedence over the tone alias. */
-export const Button = ({ tone = "quiet", variant = TONES[tone], size = "default", type = "button", className, ...props }: ButtonProps) => (
+/** Buttons are safe inside forms; callers choose one of the window's six variants. */
+export const Button = ({ variant = "ghost", size = "default", type = "button", className, ...props }: ButtonProps) => (
   <button
     type={type}
     data-variant={variant}
     data-size={size}
     className={cn(
       "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent text-sm font-medium whitespace-nowrap outline-none transition-colors select-none active:not-aria-[haspopup]:translate-y-px focus-visible:border-beam focus-visible:ring-3 focus-visible:ring-beam/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-signal aria-invalid:ring-3 aria-invalid:ring-signal/20 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-      VARIANTS[variant], SIZES[size], tone === "warning" && variant === "ghost" && "text-amber", className,
+      VARIANTS[variant], SIZES[size], className,
     )}
     {...props}
   />

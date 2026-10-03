@@ -43,10 +43,8 @@ jobs:
       - run: pnpm --filter @agent-harness/gui build-gallery
       - name: Capture and check the gallery
         id: capture
-        # Finish artifact delivery even when geometry or the enabled pixel gate fails.
+        # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
-        env:
-          GALLERY_PIXEL_BLOCKING: ${{ vars.GALLERY_PIXEL_BLOCKING || 'false' }}
         run: pnpm --filter @agent-harness/gui capture-gallery
       - name: Optimise the PNGs losslessly
         run: |
@@ -64,7 +62,7 @@ jobs:
           compression-level: 9
           retention-days: 7
           if-no-files-found: error
-      - name: Enforce geometry and the enabled pixel gate
+      - name: Enforce geometry and the pixel gate
         if: steps.capture.outcome == 'failure'
         run: exit 1
   cleanup:

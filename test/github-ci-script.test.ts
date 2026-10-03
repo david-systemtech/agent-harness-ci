@@ -941,10 +941,11 @@ it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure
   expect(body).not.toContain("token-for-tests");
 });
 
-it("publishes and accepts all four captures per registered scene through a report manifest", async () => {
+it("publishes and accepts the required captures per registered scene through a report manifest", async () => {
   const g = await storedGallery();
-  const scenes = readdirSync(join(root, "packages/gui/gallery/scenes")).filter((name) => name.endsWith(".tsx")).map((name) => name.slice(0, -4));
-  const names = scenes.flatMap((scene) => [`${scene}.light`, `${scene}.dark`, `${scene}-narrow.light`, `${scene}-narrow.dark`]);
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { captureCases, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(captureCases(await sceneFiles("./packages/gui/gallery/scenes"))));'], { cwd: root });
+  const cases = JSON.parse(plan.stdout) as { scene: string; ladder: "light" | "dark" }[];
+  const names = cases.flatMap(({ scene, ladder }) => [`${scene}.${ladder}`, `${scene}-narrow.${ladder}`]);
   expect(names.length).toBeGreaterThan(200);
   await g.capture(255, names.length, names);
   const result = await relay(g.f, g.env);

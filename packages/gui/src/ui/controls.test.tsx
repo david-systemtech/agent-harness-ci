@@ -25,8 +25,9 @@ import { PrimitivesScene, geometry as primitivesGeometry } from "../../gallery/s
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 
 describe("window controls", () => {
-  it("keeps tone callers and lets an explicit variant choose the button's appearance", () => {
-    render(<><Button tone="primary">Send</Button><Button tone="danger" variant="outline" size="xs">Remove</Button></>);
+  it("draws explicit variants and defaults to the quiet ghost appearance", () => {
+    render(<><Button variant="default">Send</Button><Button variant="outline" size="xs">Remove</Button><Button>Cancel</Button></>);
+    expect(screen.getByRole("button", { name: "Cancel" }).getAttribute("data-variant")).toBe("ghost");
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("data-variant")).toBe("default");
     const remove = screen.getByRole("button", { name: "Remove" });
     expect(remove.getAttribute("data-variant")).toBe("outline");

@@ -8,6 +8,8 @@ export async function sceneFiles(directory: string): Promise<readonly string[]> 
     .map((file) => sceneName(file.name)).sort();
 }
 
+/** look.md §16 names the light subset; every other scene still gets the dark ladder. */
 export function captureCases(scenes: readonly string[]) {
-  return scenes.flatMap((scene) => (["light", "dark"] as const).map((ladder) => ({ scene, ladder, name: `${scene}.${ladder}` })));
+  const light = (scene: string) => /^(window-empty|window-not-ready|window-start-failed|primitives|session-conversation|session-tools|dock-diff|prompt-.*|composer-.*|status-line|context-usage|run-picker.*|palette-.*|dialogs|dialog-.*|notices|settings-accounts|settings-permissions|settings-theme|setup-introduction.*|setup-account|setup-appearance|setup-close-confirmation)$/.test(scene);
+  return scenes.flatMap((scene) => (light(scene) ? ["light", "dark"] as const : ["dark"] as const).map((ladder) => ({ scene, ladder, name: `${scene}.${ladder}` })));
 }

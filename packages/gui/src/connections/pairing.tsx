@@ -123,7 +123,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         </label>
         <Input title="Pairing link (paste; Enter to pair)" id={linkField} value={link} placeholder="http://desk:7433/pair#K7Q2M-XH4RT" onChange={(event) => setLink(event.target.value)} disabled={pairing} autoFocus={autoFocus} className="font-mono" />
         <div className="flex flex-wrap gap-2 pt-2">
-          <Button icon={Link} keys="Enter" type="submit" tone="primary" disabled={pairing}>Pair</Button>
+          <Button icon={Link} keys="Enter" type="submit" variant="default" disabled={pairing}>Pair</Button>
           {scanQr !== undefined && <Button icon={QrCode} disabled={pairing} onClick={() => void scan()}>Scan a QR</Button>}
         </div>
       </form>
@@ -141,7 +141,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         {said?.kind === "offer" && (
           <>
             <span>{said.line}</span>
-            <Button tone="primary" onClick={() => pair(said.input, { rePair: said.environmentId })}>
+            <Button variant="default" onClick={() => pair(said.input, { rePair: said.environmentId })}>
               Pair again
             </Button>
             <Button onClick={() => setSaid(undefined)}>Cancel</Button>

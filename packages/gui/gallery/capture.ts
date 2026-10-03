@@ -5,7 +5,8 @@ import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
 import { captureCases, sceneFiles } from "./capture-plan.js";
 import { measureSceneGeometry } from "./geometry.js";
-import { captureName, compareCapture, geometryFailures } from "./compare.js";
+import { waitForFloatingLayout } from "./floating-layout.js";
+import { captureName, compareCapture, geometryFailures, galleryFailed } from "./compare.js";
 import type { Measurement } from "./compare.js";
 
 // This executable starts a server and Chromium. Its only execution site is a hosted CI runner.
@@ -43,10 +44,7 @@ try {
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}`);
       await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
-      await page.evaluate(async () => {
-        await document.fonts.ready;
-        await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
-      });
+      await page.evaluate(waitForFloatingLayout);
       if (errors.length > 0) throw new Error(errors.join("\n"));
       const capturePath = resolve(output, `${name}.png`);
       await page.screenshot({ path: capturePath, animations: "disabled", caret: "hide", scale: "css" });
@@ -81,13 +79,13 @@ try {
     }
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
-  const pixelBlocking = process.env["GALLERY_PIXEL_BLOCKING"] === "true";
+  const pixelBlocking = true;
   await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, scenes: report }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);
   }
-  if (report.some((scene) => scene.geometryFailures.length > 0 || pixelBlocking && scene.pixelFailed)) process.exitCode = 1;
+  if (galleryFailed(report)) process.exitCode = 1;
 
 } finally {
   await browser?.close();

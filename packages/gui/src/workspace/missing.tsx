@@ -73,7 +73,7 @@ export const MissingWorkspace = ({ environmentId, sessionId, path, line }: Missi
         <p className="min-w-0 flex-1 text-sm text-amber">{workspaceGoneLine(path)}</p>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button icon={Folder} tone="primary" disabled={absent !== undefined} title={absent}>
+            <Button icon={Folder} variant="default" disabled={absent !== undefined} title={absent}>
               Choose a workspace
             </Button>
           </PopoverTrigger>

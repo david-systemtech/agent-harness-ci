@@ -175,7 +175,7 @@ const BulkAnswer = ({ decision, asks, shown, answers }: BulkAnswerProps) => {
       {named !== undefined && <AlertDialogContent title={bulkQuestion(decision, named.length)} description={passed === 0 ? "Only the permission prompts named in this confirmation are answered." : `${passed === 1 ? "The denylist prompt stays" : `The ${passed} denylist prompts stay`}: each is answered on its own.`}>
         <DialogFooter>
           <AlertDialogCancel asChild><Button icon={X} keys="Escape" onClick={() => setNamed(undefined)}>Cancel</Button></AlertDialogCancel>
-          <Button icon={decision === "allow" ? Check : X} tone={decision === "allow" ? "primary" : "danger"} onKeyDown={(event) => { if (decision === "allow" && event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) event.preventDefault(); }} keys={decision === "allow" ? "Space" : "Enter / Space"} onClick={confirm}>{verb} {named.length}</Button>
+          <Button icon={decision === "allow" ? Check : X} variant={decision === "allow" ? "default" : "destructive"} onKeyDown={(event) => { if (decision === "allow" && event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) event.preventDefault(); }} keys={decision === "allow" ? "Space" : "Enter / Space"} onClick={confirm}>{verb} {named.length}</Button>
         </DialogFooter>
       </AlertDialogContent>}
     </AlertDialog>

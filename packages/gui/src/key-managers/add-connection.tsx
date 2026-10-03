@@ -177,7 +177,7 @@ export const SignInForm = ({ environmentId, providers, name, send, close, say }:
       {line !== undefined && <p className="text-sm text-signal">{line}</p>}
       <div className="flex justify-end gap-2">
         <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
-        <Button icon={send === "Add" ? Plus : LogIn} label={send} tone="primary" type="submit" disabled={sending}>
+        <Button icon={send === "Add" ? Plus : LogIn} label={send} variant="default" type="submit" disabled={sending}>
           {send}
         </Button>
       </div>

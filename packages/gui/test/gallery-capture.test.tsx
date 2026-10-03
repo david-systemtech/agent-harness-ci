@@ -89,6 +89,17 @@ it.each([[1400, 920], [1024, 777]])("checks responsive scene geometry at viewpor
 });
 
 
+it("captures every scene in dark and the specified light subset without exceeding the report budget", () => {
+  expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "setup-account", "setup-appearance", "settings-banks", "dock-files"])).toEqual([
+    { scene: "settings-accounts", ladder: "light", name: "settings-accounts.light" }, { scene: "settings-accounts", ladder: "dark", name: "settings-accounts.dark" },
+    { scene: "settings-permissions", ladder: "light", name: "settings-permissions.light" }, { scene: "settings-permissions", ladder: "dark", name: "settings-permissions.dark" },
+    { scene: "settings-theme", ladder: "light", name: "settings-theme.light" }, { scene: "settings-theme", ladder: "dark", name: "settings-theme.dark" },
+    { scene: "setup-account", ladder: "light", name: "setup-account.light" }, { scene: "setup-account", ladder: "dark", name: "setup-account.dark" },
+    { scene: "setup-appearance", ladder: "light", name: "setup-appearance.light" }, { scene: "setup-appearance", ladder: "dark", name: "setup-appearance.dark" },
+    { scene: "settings-banks", ladder: "dark", name: "settings-banks.dark" }, { scene: "dock-files", ladder: "dark", name: "dock-files.dark" },
+  ]);
+});
+
 it("rejects a correctly sized control clipped by its scrolling pane", () => {
   const root = document.createElement("div");
   root.id = "root";
@@ -116,4 +127,11 @@ it("measures only the headless switch in the Browser defaults capture", () => {
   vi.spyOn(buttons[0]!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 24, 24));
   vi.spyOn(buttons[1]!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 32, 18.4));
   expect(measureSceneGeometry()).toEqual([]);
+});
+
+
+it.each([11, 20])("measures text size %i with the preset root scale and fixed desktop frame", async (size) => {
+  const { geometry } = size === 11 ? await import("../gallery/scenes/window-scale-11.js") : await import("../gallery/scenes/window-scale-20.js");
+  expect(geometry.find((check) => check.selector === "html")).toEqual({ selector: "html", fontSize: 16 * size / 14 });
+  expect(geometry.find((check) => check.selector === "[data-window-header]")).toEqual({ selector: "[data-window-header]", height: 44 });
 });
