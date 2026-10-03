@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
@@ -9,12 +10,13 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer } = await import(script) as {
+const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop } = await import(script) as {
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   openPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   stampPriorPackagedServer: (server: string, version: string) => void;
+  copyPackagedDesktop: (source: string, destination: string) => void;
 };
 
 /** The smoke's CDP boundary evaluates in a page exposing the preload's shell; no Electron or service manager runs. */
@@ -37,6 +39,33 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("preserves framework links and executable permissions in a self-contained app copy", () => {
+    const work = mkdtempSync(join(tmpdir(), "packaged-app-links-"));
+    try {
+      const source = join(work, "source.app");
+      const installed = join(work, "installed.app");
+      const framework = "Contents/Frameworks/ReactiveObjC.framework";
+      const root = join(source, framework);
+      mkdirSync(join(root, "Versions/A/Resources"), { recursive: true });
+      writeFileSync(join(root, "Versions/A/ReactiveObjC"), "framework executable for tests", { mode: 0o755 });
+      writeFileSync(join(root, "Versions/A/Resources/Info.plist"), "framework resources for tests");
+      symlinkSync("A", join(root, "Versions/Current"));
+      symlinkSync("Versions/Current/ReactiveObjC", join(root, "ReactiveObjC"));
+      symlinkSync("Versions/Current/Resources", join(root, "Resources"));
+      copyPackagedDesktop(source, installed);
+      const copied = join(installed, framework);
+      expect(readlinkSync(join(copied, "Versions/Current"))).toBe("A");
+      expect(readlinkSync(join(copied, "ReactiveObjC"))).toBe("Versions/Current/ReactiveObjC");
+      expect(readlinkSync(join(copied, "Resources"))).toBe("Versions/Current/Resources");
+      rmSync(source, { recursive: true });
+      expect(readFileSync(join(copied, "Resources/Info.plist"), "utf8")).toBe("framework resources for tests");
+      expect(readFileSync(join(copied, "ReactiveObjC"), "utf8")).toBe("framework executable for tests");
+      expect(statSync(join(copied, "ReactiveObjC")).mode & 0o111).toBe(0o111);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
   it("prepares an older runtime in the release layout without changing dependencies or the replacement", async () => {
     const build = fixtureBuild({ host: "darwin-arm64" });
     try {
