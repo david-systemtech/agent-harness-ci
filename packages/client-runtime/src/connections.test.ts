@@ -40,7 +40,7 @@ describe("hello", () => {
         icon: "server",
         colour: presetColour(t.env.id),
         harnessVersion: HARNESS_VERSION,
-        protocolVersion: 1,
+        protocolVersion: PROTOCOL_VERSION,
         capabilities: ["forge", "keyManagers", "managedTools", "fileUndo", "workspaceChecks", "banks", "setup", "stateImport"],
         lastSeen: platform.clock.now().toISOString(),
       },

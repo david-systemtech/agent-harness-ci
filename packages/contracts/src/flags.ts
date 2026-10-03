@@ -6,7 +6,8 @@ import { setOf } from "./primitives.js";
  * `hello`: one integer, bumped only on a breaking frame or schema change.
  * Adding a method or an optional field never bumps it.
  */
-export const PROTOCOL_VERSION = 1;
+// Protocol 2 adds the pending setup result state (#1326); protocol 1 readers refuse it.
+export const PROTOCOL_VERSION = 2;
 
 /**
  * A protocol version as a frame carries it. Any positive integer, not only
