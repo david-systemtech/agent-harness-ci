@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -13,7 +13,7 @@ const script = join(import.meta.dirname, "../scripts/gallery-accept.sh");
 const require = createRequire(new URL("../packages/gui/package.json", import.meta.url));
 const core = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
 const { PNG } = require(join(core, "lib/utilsBundle.js")) as {
-  PNG: { sync: { write(image: { width: number; height: number; data: Buffer }): Buffer } };
+  PNG: { sync: { write(image: { width: number; height: number; data: Buffer }, options?: { deflateLevel: number; filterType: number }): Buffer } };
 };
 const png = PNG.sync.write({ width: 1400, height: 900, data: Buffer.alloc(1400 * 900 * 4, 255) });
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -21,7 +21,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 
 async function fixture(mode = "current", count = 1) {
   let image = png;
-  if (mode === "large") image = PNG.sync.write({ width: 1400, height: 900, data: randomBytes(1400 * 900 * 4) });
+  if (mode === "large") image = PNG.sync.write({ width: 1400, height: 900, data: Buffer.alloc(1400 * 900 * 4, 255) }, { deflateLevel: 0, filterType: 0 });
   else if (mode === "total-large") image = Buffer.concat([png, Buffer.alloc(13 * 1024 * 1024)]);
   else if (mode === "response-large") image = Buffer.concat([png, Buffer.alloc(24 * 1024 * 1024)]);
   const folder = mkdtempSync(join(tmpdir(), "gallery-accept-"));
