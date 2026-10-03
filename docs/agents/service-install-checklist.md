@@ -145,7 +145,8 @@ platform as not run.
 3. `<folder>/bin/agent-harness preflight` prints one JSON line naming the release's version and `bundledClaudeCodeVersion`, and exits 0: SQLite, `node-pty` and the Claude binary loaded from the artefact.
 4. `<folder>/bin/agent-harness serve --data-dir <a new folder>` prints its discovery address; `<folder>/bin/agent-harness status` in another terminal names the release's version and `ready`.
 5. From a client paired with that environment, open a terminal and run `echo ok` in it: it prints `ok`. On macOS this spawns through `node-pty`'s `spawn-helper`, which the build makes executable; on Windows it runs through ConPTY from the prebuild's `conpty` folder.
-6. Stop `serve` with Ctrl-C: it drains and exits.
+6. Open Set up > Browser on each platform, including the installed Windows desktop and the unpacked macOS desktop. It offers a Load unpacked path ending in `extension/current`, with no missing-build refusal. The folder holds the release-version manifest, worker, options page and runtime scripts. Enable Developer mode in Chrome, choose Load unpacked with that path, open the options page and pair; the Browser step detects the extension and accepts its version. The release smoke jobs check the packaged and startup-created files with `scripts/check-packaged-extension.mjs`; loading and pairing in real Chrome remains this manual check.
+7. Stop `serve` with Ctrl-C: it drains and exits.
 
 ## Headless Linux (the install script)
 
