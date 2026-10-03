@@ -21,9 +21,9 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
   readonly maxLength?: number;
 }) => {
   const [link, setLink] = useState<string | null>(null);
-  const lastMarkdown = useRef(value);
-  const loadedMarkdown = useRef<string | null>(null);
   const [sourceEditing, setSourceEditing] = useState(false);
+  const firstLoad = useRef(true);
+  const lastMarkdown = useRef(value);
   const linkHandled = useRef(false);
   const extensions = useMemo(() => [StarterKit.configure({ heading: { levels: [2, 3] }, link: { openOnClick: false }, underline: false }),
       Markdown.configure({ html: false, tightLists: true, bulletListMarker: "-", transformPastedText: true, transformCopiedText: true }),
@@ -54,18 +54,17 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
   });
   useEffect(() => {
     if (editor === null) return;
-    if (editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
+    const editable = !readOnly && !sourceEditing;
+    if (editor.isEditable !== editable) editor.setEditable(editable, false);
     editor.view.dom.setAttribute("aria-readonly", String(readOnly));
-    if (lastMarkdown.current !== value) {
+    if (firstLoad.current || lastMarkdown.current !== value) {
+      firstLoad.current = false;
       lastMarkdown.current = value;
       editor.commands.setContent(value, { emitUpdate: false });
+      // Use source editing whenever the rich document would rewrite the original Markdown.
+      setSourceEditing(editor.storage.markdown.getMarkdown() !== value);
     }
-    if (loadedMarkdown.current !== value) {
-      loadedMarkdown.current = value;
-      // Use the original source when rich loading cannot preserve it.
-      if (editor.storage.markdown.getMarkdown() !== value) setSourceEditing(true);
-    }
-  }, [editor, readOnly, value]);
+  }, [editor, readOnly, sourceEditing, value]);
   useEffect(() => { if (readOnly) setLink(null); }, [readOnly]);
   if (editor === null) return null;
   if (sourceEditing) return <div data-markdown-editor className="overflow-hidden rounded-lg border border-hairline bg-panel">
@@ -73,6 +72,7 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
     <Textarea aria-label={label} aria-readonly={readOnly} readOnly={readOnly} value={value} maxLength={maxLength} className="min-h-32 rounded-none border-0 font-mono" onChange={(event) => {
       const markdown = event.target.value;
       if (readOnly || (maxLength !== undefined && markdown.length > maxLength && markdown.length >= value.length)) return;
+      lastMarkdown.current = markdown;
       change(markdown);
     }} />
   </div>;

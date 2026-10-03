@@ -45,8 +45,8 @@ export interface BuildSeams {
   readonly host?: string;
   /** Where the build lays out its artefacts before packing them; preset: a fresh folder in the system's temporary folder. It is removed at the end. */
   readonly work?: string;
-  /** Builds the CLI and every package it runs to `dist`; preset: `tsc -b packages/cli`. */
-  readonly compile?: (repoRoot: string) => Promise<void>;
+  /** Builds the CLI, its runtime packages, the bank validator and the extension to `dist`, stamping the extension with the release version. */
+  readonly compile?: (repoRoot: string, version: string) => Promise<void>;
   /** Preset: pnpm, from the workspace's lockfile (`pnpm.ts`). */
   readonly installDependencies?: InstallDependencies;
   /** Preset: `NODE_RUNTIME`. */
@@ -64,9 +64,10 @@ const run = promisify(execFile);
 /** The checkout this script is in: four folders above its own. */
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 
-const compileWorkspace = async (repoRoot: string): Promise<void> => {
+const compileWorkspace = async (repoRoot: string, version: string): Promise<void> => {
   await run("pnpm", ["exec", "tsc", "-b", "packages/cli"], { cwd: repoRoot });
   await run("pnpm", ["--filter", "@agent-harness/contracts", "build-validator"], { cwd: repoRoot });
+  await run("pnpm", ["--filter", "@agent-harness/extension", "build", "--version", version], { cwd: repoRoot });
 };
 
 /** The artefact `target` packed at `path`, as the manifest lists it. */
@@ -113,7 +114,7 @@ export const buildRelease = async (options: BuildOptions, seams: BuildSeams = {}
   const others = options.assets ?? [];
   checkOtherAssets(others, targets.map((target) => target.name));
   mkdirSync(options.out, { recursive: true });
-  await (seams.compile ?? compileWorkspace)(repoRoot);
+  await (seams.compile ?? compileWorkspace)(repoRoot, version);
   const packages = runtimePackages(repoRoot);
   const runtime = seams.nodeRuntime ?? NODE_RUNTIME;
   const work = seams.work ?? mkdtempSync(join(tmpdir(), "agent-harness-release-"));

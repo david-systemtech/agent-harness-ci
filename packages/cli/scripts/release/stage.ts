@@ -10,13 +10,13 @@ import { BuildError, type ArtefactTarget } from "./targets.js";
  * "The release"; #356), as it unpacks: `node/` (its own Node runtime),
  * `packages/cli/` (the CLI, whose `dist/main.js` the launcher runs and whose
  * `package.json` declares the version and launcher protocol), `node_modules/`
- * (every other workspace package the CLI runs, under its name, and their
+ * (every other shipped workspace package, including the browser extension, under its name, and their
  * production dependencies for this platform), and `bin/` (the
  * `agent-harness` command). It holds no link, so the same layout unpacks from
  * a zip on Windows, and every package names the release's version.
  */
 
-/** A workspace package the artefact carries: the CLI and every workspace package it depends on, at run time, however indirectly. */
+/** A workspace package the artefact carries: the CLI, the built browser extension, and their runtime workspace dependencies. */
 export interface RuntimePackage {
   readonly name: string;
   /** Its folder, relative to the workspace's root: `packages/cli`. */
@@ -49,9 +49,9 @@ interface Manifest {
 const readManifest = (path: string): Manifest => JSON.parse(readFileSync(path, "utf8")) as Manifest;
 
 /**
- * The workspace packages the CLI runs, the CLI first: those its
- * `dependencies` and `optionalDependencies` name with a `workspace:`
- * specifier, and theirs, from each package's own `package.json`.
+ * The shipped workspace packages, the CLI first: the CLI and the browser
+ * extension, plus their transitive runtime workspace dependencies. The
+ * extension is a runtime asset loaded by Chrome, so no CLI import reaches it.
  */
 export const runtimePackages = (repoRoot: string): RuntimePackage[] => {
   const directories = new Map<string, string>();
@@ -60,7 +60,7 @@ export const runtimePackages = (repoRoot: string): RuntimePackage[] => {
     if (entry.isDirectory() && existsSync(manifest)) directories.set(String(readManifest(manifest).name), `packages/${entry.name}`);
   }
   const found: RuntimePackage[] = [];
-  const queue = [PRODUCT_NAME];
+  const queue = [PRODUCT_NAME, "@agent-harness/extension"];
   for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
     const directory = directories.get(name);
     if (directory === undefined) throw new BuildError(`No workspace package is named ${name}.`);

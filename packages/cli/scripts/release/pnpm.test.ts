@@ -61,12 +61,13 @@ describe("the staged workspace's lockfile", () => {
     expect(() => trimLockfile(LOCKFILE, [".", "packages/cli", "packages/tui"])).toThrow(/pnpm-lock.yaml has no importer for packages\/tui/);
   });
 
-  it("keeps, of the workspace's own lockfile, an importer for every package the CLI runs and none for the GUI, the desktop or the browser package", () => {
+  it("keeps, of the workspace's own lockfile, an importer for every shipped package, including the extension, and none for the GUI", () => {
     const packages = runtimePackages(repoRoot).map((each) => each.directory);
     const trimmed = trimLockfile(readFileSync(join(repoRoot, "pnpm-lock.yaml"), "utf8"), [".", ...packages]);
     const importers = [...trimmed.matchAll(/^ {2}(\S[^:]*):/gm)].map((match) => match[1]).filter((key) => key === "." || key?.startsWith("packages/"));
     expect(importers.sort()).toEqual([".", ...packages].sort());
     expect(packages).toContain("packages/environment");
+    expect(packages).toContain("packages/extension");
     expect(packages).not.toContain("packages/gui");
   });
 });

@@ -366,6 +366,8 @@ jobs:
             Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
             New-Item -ItemType Directory -Path (Join-Path $work 'desktop') -Force | Out-Null
             Copy-Item -LiteralPath (Resolve-Path 'desktop/agent-harness-desktop-win32-x64-setup.exe').Path -Destination (Join-Path $work 'desktop')
+            New-Item -ItemType Directory -Path (Join-Path $work 'scripts') -Force | Out-Null
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-extension.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
             $smoke = @'
           param([Parameter(Mandatory)][string] $Version)
@@ -453,6 +455,8 @@ jobs:
               $defect = if ($attempt -eq 1) { 'first start' } else { 'second start/keychain read (#1381)' }
               $process = Start-Process -FilePath $node -ArgumentList "`"$cli`" serve --data-dir `"$dataDir`" --port $port" -PassThru -RedirectStandardOutput (Join-Path $dataDir "start-$attempt.log") -RedirectStandardError (Join-Path $dataDir "start-$attempt-error.log")
               Wait-Ready $defect
+              & $node scripts/check-packaged-extension.mjs $server $dataDir $env:VERSION
+              if ($LASTEXITCODE -ne 0) { throw 'Packaged browser extension check failed' }
               Stop-Tree
               $process = $null
             }
@@ -636,6 +640,7 @@ jobs:
               exit 1
             fi
             echo "$defect ready with release version $VERSION"
+            "$node" scripts/check-packaged-extension.mjs "$server" "$data_dir" "$VERSION"
             stop_environment
           done
 
@@ -733,6 +738,7 @@ jobs:
               exit 1
             fi
             echo "$defect ready with release version $VERSION"
+            "$node" scripts/check-packaged-extension.mjs "$server" "$data_dir" "$VERSION"
             if [ "$attempt" -eq 2 ]; then
               "$node" "$cli" update status --json --data-dir "$data_dir" > "$data_dir/update-status.json"
               "$node" -e 'const status = require(process.argv[1]); if (status.version !== process.env.VERSION || status.pending.state !== "current") throw new Error("A superseded channel image is still pending");' "$data_dir/update-status.json"
