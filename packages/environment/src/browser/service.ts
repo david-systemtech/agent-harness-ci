@@ -272,14 +272,22 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
 
   let listening: ExtensionListenerStatus | undefined;
   let state: FolderState = { shippedVersion: null, problem: "The environment has not made the extension's folder yet." };
+  let closed = false;
+  let ensuring: Promise<void> = Promise.resolve();
 
   const portFile = (): PortFile | null =>
     listening?.state === "listening"
       ? { port: listening.port, environmentId: options.environmentId, environmentName: options.name(), harnessVersion: options.harnessVersion }
       : null;
 
-  const ensure = async (): Promise<void> => {
-    state = await folder.ensure(portFile());
+  const ensure = (): Promise<void> => {
+    if (closed) return ensuring;
+    // Folder updates are serialized, so the latest promise also joins every
+    // earlier rename or status update. Close seals this queue before joining it.
+    ensuring = folder.ensure(portFile()).then((next) => {
+      state = next;
+    });
+    return ensuring;
   };
 
   const status = async (): Promise<BrowserStatus> => {
@@ -390,8 +398,13 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
       },
     },
     async close() {
+      closed = true;
       stopFollowing();
-      await Promise.all([listener.close(), headless.close()]);
+      try {
+        await Promise.all([listener.close(), headless.close()]);
+      } finally {
+        await ensuring;
+      }
     },
   };
 };
