@@ -64,7 +64,7 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
             ? ready && (
                 <p className="text-sm text-ink-faint">{unread === null ? "Reading the managed tools…" : `The managed tools could not be read: ${unread.message}`}</p>
               )
-            : rows.map((row) => (
+            : <div className="divide-y divide-hairline overflow-hidden rounded-lg border border-hairline">{rows.map((row) => (
                 <ToolRow
                   key={row.tool}
                   environmentId={environmentId}
@@ -75,7 +75,7 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
                   finished={finishedOf(row.tool)}
                   started={started}
                 />
-              ))}
+              ))}</div>}
           {drawn !== null && <ToolTerminal key={drawn.terminal.id} environmentId={environmentId} run={drawn} label={managedTool(drawn.tool).label} close={close} />}
         </>
       )}

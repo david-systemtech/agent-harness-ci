@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SessionSnapshot, registry, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
+import { AssistantDeltaPayload, SessionSnapshot, registry, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
@@ -7,6 +7,7 @@ import { end, fakeAdapter, gate, say, type FakeAdapter, type FakeAdapterOptions,
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { command, create, deleteSession, get, purgeSession, refusal, workspace } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
+import { DELTA_HOLD_BACK_MS } from "../adapter/delta-scrub.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { createProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { createCompactionSweep } from "./compaction.js";
@@ -313,28 +314,45 @@ describe("sessions.fork", () => {
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
   });
 
-  it("is allowed while the source runs", async () => {
+  it.each([
+    ["two chunks", ["Looking ", "now"]],
+    ["fragmented chunks", ["Look", "ing ", "n", "o", "w"]],
+  ])("is allowed while the source runs (%s)", async (_label, chunks) => {
     const held = gate();
     const t = await start();
+    // The trailing "w" can be held as a possible registered-value prefix.
+    onCleanup(t.scrub.register("word-for-tests", { owner: "test:fork" }));
     const client = await t.client();
     const source = await create(client);
     t.adapter.nextScripts.push(async function* () {
       yield { type: "session.provider-linked", payload: { providerSessionId: "provider-1" } } as const;
-      yield { type: "assistant.delta", payload: { itemId: "partial", fragments: [{ kind: "text", text: "Looking " }] } } as const;
-      yield { type: "assistant.delta", payload: { itemId: "partial", fragments: [{ kind: "text", text: "now" }] } } as const;
+      for (const text of chunks) {
+        yield { type: "assistant.delta", payload: { itemId: "partial", fragments: [{ kind: "text", text }] } } as const;
+      }
       await held.opened;
       yield say("Finished later");
       yield end();
     });
     await client.request("runs.start", { commandId: randomUUID(), sessionId: source.id, text: "Long work" });
-    await vi.waitFor(() => expect(events(t, source.id).filter((event) => event.type === "assistant.delta")).toHaveLength(2));
+    await vi.waitFor(() => {
+      // Drive the scrubber's held tail without opening the source run's gate.
+      t.clock.advance(DELTA_HOLD_BACK_MS);
+      const recorded = events(t, source.id)
+        .filter((event) => event.type === "assistant.delta")
+        .flatMap((event) => AssistantDeltaPayload.parse(event.payload).fragments)
+        .filter((fragment) => fragment.kind === "text")
+        .map((fragment) => fragment.text).join("");
+      expect(recorded).toBe("Looking now");
+    }, { timeout: 10_000 });
+    expect(ended(t, source.id)).toHaveLength(0);
     const id = randomUUID();
     const answer = await fork(client, { sessionId: source.id, id });
     expect(answer.receipt.status).toBe("accepted");
     const frozen = await snapshotOf(t, client, id);
     expect(frozen.items[0]).toMatchObject({ history: { items: [expect.objectContaining({ text: "Long work" }), expect.objectContaining({ text: "Looking now" })] } });
     held.open();
-    await vi.waitFor(() => expect(ended(t, source.id)).toHaveLength(1));
+    await vi.waitFor(() => expect(ended(t, source.id)).toHaveLength(1), { timeout: 10_000 });
+    expect(texts(await snapshotOf(t, client, source.id))).toContain("Finished later");
     expect((await snapshotOf(t, client, id)).items).toEqual(frozen.items);
   });
 

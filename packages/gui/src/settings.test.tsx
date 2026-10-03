@@ -326,7 +326,7 @@ describe("built and unbuilt row controls", () => {
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox");
     expect(within(ceiling).getAllByRole("option").map((option) => option.textContent)).toEqual(["plan", "acceptEdits", "auto", "bypassPermissions"]);
     const banks = await openRow(app, "Memory banks");
-    expect(within(banks).getByText("Memory banks holds no settings key.")).toBeDefined();
+    expect(await within(banks).findByText("Facts your agents keep")).toBeDefined();
     expect(within(banks).getByRole("button", { name: "Open the Memory bank step in Set up" })).toBeDefined();
   });
 

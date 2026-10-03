@@ -43,6 +43,18 @@ const pasteLink = async (app: RenderedApp, place: HTMLElement, link: string) => 
 const sidebar = () => screen.getByRole("navigation", { name: "Sessions", hidden: true });
 
 describe("pairing", () => {
+  it("labels pairing fields above their actions and gives actions icons and key hints", async () => {
+    const { app } = await onPairing();
+    const form = screen.getByRole("form", { name: "Pair by address and code" });
+    expect(within(form).getByLabelText("Address").tagName).toBe("INPUT");
+    expect(within(form).getByLabelText("Pairing code").tagName).toBe("INPUT");
+    const action = within(form).getByRole("button", { name: "Pair with the code" });
+    expect(action.querySelector("svg")).not.toBeNull();
+    act(() => action.focus());
+    expect(await screen.findByRole("tooltip")).toHaveProperty("textContent", "Pair with the code · Enter");
+    await app.user.keyboard("{Escape}");
+  });
+
   it("pairs from a pasted link, and the window goes on to the environment", async () => {
     const { app, pane, laptop } = await onPairing();
     await pasteLink(app, pane, laptop.wire.link);
