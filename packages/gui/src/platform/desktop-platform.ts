@@ -94,3 +94,9 @@ export const windowDesktopPlatform = (view: Window & typeof globalThis, shell: D
     webSocket: standardWebSocketFactory(view.WebSocket),
     reportError: (error) => view.console.error(describeFault(error)),
   });
+
+/** Strip the desktop invocation envelope while retaining the service's actionable cause. */
+export const desktopErrorMessage = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/^(?:Error:\s*|Error invoking remote method ['"][^'"]+['"]:\s*)+/i, "").replace(/\s+/g, " ").trim();
+};
