@@ -1,9 +1,10 @@
+import { LogIn } from "lucide-react";
+import { ActionButton as Button } from "./action-button.js";
 import { KEY_MANAGER_PROVIDER_WORDS, KEY_MANAGER_STATUS_ADVICE, cliHealthWords, statusWords, updateConnection, verifyConnection } from "@agent-harness/client-runtime";
 import type { KeyManagerProvider, KeyManagerStatusKind, ListedKeyManagerConnection } from "@agent-harness/contracts";
 import { useId, useState } from "react";
 import type { DrawnToolTerminal } from "../managed-tools/tool-terminal.js";
 import { ToolRow } from "../managed-tools/tool-row.js";
-import { Button } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { SignInForm } from "./add-connection.js";
 import { CertificateCheck } from "./certificate-check.js";
@@ -43,8 +44,8 @@ export const ProviderTile = ({ environmentId, environmentName, provider, connect
   const [line, say] = useState<string | undefined>(undefined);
   const name = KEY_MANAGER_PROVIDER_WORDS[provider];
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-base font-semibold text-ink">
+    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+      <h3 id={heading} className="text-xs font-semibold text-ink">
         {name}
       </h3>
       {connections.map((connection) => (
@@ -53,7 +54,7 @@ export const ProviderTile = ({ environmentId, environmentName, provider, connect
       {signingIn ? (
         <SignInForm environmentId={environmentId} providers={[provider]} name={`Sign in to ${name}`} send="Sign in" close={() => setSigningIn(false)} say={say} />
       ) : (
-        <Button tone={connections.length === 0 ? "primary" : "quiet"} className="self-start" disabled={!writable} onClick={() => setSigningIn(true)}>
+        <Button icon={LogIn} label={connections.length === 0 ? "Sign in" : "Sign in to another"} variant="outline" className="self-start" disabled={!writable} onClick={() => setSigningIn(true)}>
           {connections.length === 0 ? "Sign in" : "Sign in to another"}
         </Button>
       )}
@@ -114,7 +115,7 @@ const TileConnection = ({ environmentId, environmentName, connection, writable, 
     });
   };
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-2 border-t border-line pt-3">
+    <section aria-labelledby={heading} className="flex flex-col gap-2 border-t border-hairline pt-3">
       <h4 id={heading} className="text-sm font-semibold text-ink">
         {connection.label}
       </h4>
@@ -124,7 +125,7 @@ const TileConnection = ({ environmentId, environmentName, connection, writable, 
         {advice !== null && <span className="text-ink-muted"> {advice}</span>}
       </p>
       {fix !== null && (
-        <Button tone="primary" className="self-start" disabled={!writable || verifying} onClick={() => act(fix)}>
+        <Button icon={LogIn} label={FIX_WORDS[fix]} tone="primary" className="self-start" disabled={!writable || verifying} onClick={() => act(fix)}>
           {FIX_WORDS[fix]}
         </Button>
       )}
