@@ -4,7 +4,7 @@ import { Bold, File, Info, Plus } from "lucide-react";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { glyphOf } from "../../src/connections/environment-glyphs.js";
 import {
-  Alert, AlertDescription, AlertTitle, Badge, Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
+  Alert, AlertDescription, AlertTitle, Badge, Button, Card, CardContent, CardDescription, CardAction, CardFooter, CardHeader, CardTitle,
   Checkbox, CodeBlock, CopyButton, Empty, EmptyDescription, EmptyMedia, EmptyTitle, Field, Fold, IconButton, Input, Item, ItemActions,
   ItemContent, ItemDescription, ItemTitle, Kbd, KbdGroup, Progress, RadioGroup, RadioGroupItem, Select, Separator, Skeleton, Slider,
   Spinner, StatusDot, Swatch, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, Toggle, ToneBadge,
@@ -25,7 +25,7 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
     <h1 className="mb-3 text-lg font-medium">Window primitives</h1>
     <div className="grid grid-cols-3 gap-5">
       <Part title="Buttons">
-        {variants.map((variant) => <div key={variant} className="flex items-center gap-2"><Button variant={variant}><Plus aria-hidden="true" />{variant}</Button><Button variant={variant} disabled><Plus aria-hidden="true" />Disabled</Button><Button variant={variant} aria-expanded><Plus aria-hidden="true" />Expanded</Button></div>)}
+        {variants.map((variant) => <div key={variant} className="flex items-center gap-2"><Button variant={variant}><Plus aria-hidden="true" data-icon="inline-start" />{variant}</Button><Button variant={variant} disabled><Plus aria-hidden="true" />Disabled</Button><Button variant={variant} aria-expanded><Plus aria-hidden="true" />Expanded</Button></div>)}
         <div className="flex flex-wrap items-center gap-1">{sizes.map((size) => <IconButton key={size} label={`Size ${size}`} size={size} variant="outline"><Plus aria-hidden="true" /></IconButton>)}</div>
         <IconButton label="New session" keys="Ctrl+N" disabledReason="Sign in first"><Plus aria-hidden="true" /></IconButton>
       </Part>
@@ -40,8 +40,8 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
       </Part>
       <Part title="Choices">
         <div className="flex items-center gap-3"><Switch aria-label="Off" /><Switch aria-label="On" defaultChecked /><Switch aria-label="Disabled switch" defaultChecked disabled /><Switch aria-label="Small switch" size="sm" defaultChecked /></div>
-        <div className="flex items-center gap-3"><Checkbox aria-label="Unchecked" /><Checkbox aria-label="Checked" defaultChecked /><Checkbox aria-label="Mixed" defaultChecked="indeterminate" /><Checkbox aria-label="Disabled checkbox" defaultChecked disabled /></div>
-        <RadioGroup aria-label="Theme" defaultValue="dark" className="flex gap-3"><RadioGroupItem aria-label="Dark" value="dark" /><RadioGroupItem aria-label="Light" value="light" /><RadioGroupItem aria-label="Disabled radio" value="off" disabled /></RadioGroup>
+        <div className="flex items-center gap-6"><Checkbox aria-label="Unchecked" /><Checkbox aria-label="Checked" defaultChecked /><Checkbox aria-label="Mixed" defaultChecked="indeterminate" /><Checkbox aria-label="Disabled checkbox" defaultChecked disabled /></div>
+        <RadioGroup aria-label="Theme" defaultValue="dark" className="flex gap-6"><RadioGroupItem aria-label="Dark" value="dark" /><RadioGroupItem aria-label="Light" value="light" /><RadioGroupItem aria-label="Disabled radio" value="off" disabled /></RadioGroup>
         <div className="flex gap-2"><Toggle aria-label="Bold"><Bold aria-hidden="true" /></Toggle><Toggle aria-label="Bold selected" defaultPressed><Bold aria-hidden="true" /></Toggle><Toggle aria-label="Bold disabled" disabled variant="outline"><Bold aria-hidden="true" /></Toggle></div>
         <Slider aria-label="Text size" defaultValue={[14]} min={11} max={20} />
         <Slider aria-label="Disabled slider" disabled defaultValue={[50]} />
@@ -55,12 +55,12 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
         <KbdGroup><Kbd>Ctrl</Kbd><Kbd>N</Kbd></KbdGroup>
         <div className="flex items-center gap-2"><Spinner label="Loading" /><Skeleton className="h-4 w-32" /></div>
         <Progress aria-label="Starting" value={0} /><Progress aria-label="Halfway" value={50} /><Progress aria-label="Complete" value={100} /><Progress aria-label="Unknown progress" value={null} />
-        <Alert><AlertTitle>Information</AlertTitle><AlertDescription>Keep working in this window.</AlertDescription></Alert>
+        <Alert><Info aria-hidden="true" /><AlertTitle>Information</AlertTitle><AlertDescription>Keep working in this window.</AlertDescription></Alert>
         <Alert variant="warning"><AlertTitle>Needs attention</AlertTitle><AlertDescription>Check the connection.</AlertDescription></Alert>
         <Alert variant="destructive"><AlertTitle>Could not connect</AlertTitle><AlertDescription>Try again.</AlertDescription></Alert>
       </Part>
       <Part title="Cards and items">
-        <Card size="sm"><CardHeader><CardTitle>Project</CardTitle><Badge variant="secondary">Ready</Badge></CardHeader><CardDescription>Work with a coding agent.</CardDescription><CardContent><Item variant="outline" size="xs"><ItemContent><ItemTitle>Session</ItemTitle><ItemDescription>A short description</ItemDescription></ItemContent><ItemActions><IconButton label="Add session" size="icon-xs"><Plus aria-hidden="true" /></IconButton></ItemActions></Item></CardContent><CardFooter><Button variant="outline" size="xs"><Plus aria-hidden="true" />New session</Button></CardFooter></Card>
+        <Card size="sm"><CardHeader><CardTitle>Project</CardTitle><CardDescription>Work with a coding agent.</CardDescription><CardAction><Badge variant="secondary">Ready</Badge></CardAction></CardHeader><CardContent><Item variant="outline" size="xs"><ItemContent><ItemTitle>Session</ItemTitle><ItemDescription>A short description</ItemDescription></ItemContent><ItemActions><IconButton label="Add session" size="icon-xs"><Plus aria-hidden="true" /></IconButton></ItemActions></Item></CardContent><CardFooter><Button variant="outline" size="xs"><Plus aria-hidden="true" />New session</Button></CardFooter></Card>
         <Item variant="muted"><ItemContent><ItemTitle>Muted item</ItemTitle><ItemDescription>Supporting detail</ItemDescription></ItemContent></Item>
         <Empty><EmptyMedia><File aria-hidden="true" /></EmptyMedia><EmptyTitle>No files yet</EmptyTitle><EmptyDescription>Choose a project to see its files.</EmptyDescription></Empty>
       </Part>

@@ -20,7 +20,7 @@ export const Field = ({ label, children, description, error, className }: FieldP
       <span className="font-medium">{label}</span>
       {control === undefined ? children : cloneElement(control, { id: controlId, ...(describedBy === "" ? {} : { "aria-describedby": describedBy }) })}
     </label>
-    {description !== undefined && <p id={`${id}-help`} className="text-xs text-ink-muted">{description}</p>}
-    {error !== undefined && <p id={`${id}-error`} className="text-xs text-signal">{error}</p>}
+    {description !== undefined && <p id={`${id}-help`} className="text-sm text-ink-muted">{description}</p>}
+    {error !== undefined && <p id={`${id}-error`} className="text-sm text-signal">{error}</p>}
   </div>;
 };

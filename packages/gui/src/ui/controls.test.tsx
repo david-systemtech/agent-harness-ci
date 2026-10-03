@@ -1,7 +1,7 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { Plus } from "lucide-react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Button, IconButton } from "./button.js";
 import { Field } from "./field.js";
 import { Input } from "./input.js";
@@ -40,6 +40,7 @@ describe("window controls", () => {
     const action = screen.getByRole("button", { name: "New session" });
     expect(action.hasAttribute("disabled")).toBe(true);
     await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("group", { name: "New session · Ctrl+N · Sign in first" }));
     expect((await screen.findAllByText("New session · Ctrl+N · Sign in first")).length).toBeGreaterThan(0);
     await user.click(action);
     expect(calls).toEqual([]);
@@ -119,7 +120,7 @@ describe("window controls", () => {
     expect(await screen.findByRole("status")).toHaveProperty("textContent", "Copied");
     rerender(<CopyButton text="pnpm lint" copy={async () => { throw new Error("Clipboard is unavailable"); }} />);
     await user.click(screen.getByRole("button", { name: "Copy" }));
-    expect(await screen.findByRole("status")).toHaveProperty("textContent", "Could not copy");
+    expect(await screen.findByRole("status")).toHaveProperty("textContent", "Could not copy. Select the text and copy it manually.");
   });
   it("names feedback, code and colour without using decorations as announcements", () => {
     render(<><Badge>Available</Badge><ToneBadge tone="warning">Needs attention</ToneBadge><Alert><AlertTitle>Cannot connect</AlertTitle><AlertDescription>Try again</AlertDescription></Alert><Empty><EmptyTitle>No files</EmptyTitle><EmptyDescription>Choose a project</EmptyDescription></Empty><Spinner label="Connecting" /><StatusDot label="Ready" tone="success" /><Skeleton aria-label="Loading accounts" /><CodeBlock text="pnpm install" copy={async () => {}} /><Swatch token="beam" label="Accent" /><EnvironmentGlyph view={undefined} label="This machine" /></>);
@@ -140,5 +141,19 @@ describe("window controls", () => {
     expect(screen.getByRole("textbox", { name: "Disabled name" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("switch", { name: "On" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("button", { name: "Expanded details" }).getAttribute("aria-expanded")).toBe("true");
+  });
+  it("copies without one trailing newline and clears confirmation after 1500ms", async () => {
+    vi.useFakeTimers();
+    try {
+      const copied: string[] = [];
+      render(<CopyButton text={"pnpm install\n"} copy={async (text) => { copied.push(text); }} />);
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Copy" })); });
+      expect(copied).toEqual(["pnpm install"]);
+      expect(screen.getByRole("status").textContent).toBe("Copied");
+      act(() => vi.advanceTimersByTime(1499));
+      expect(screen.getByRole("status").textContent).toBe("Copied");
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("status").textContent).toBe("");
+    } finally { vi.useRealTimers(); }
   });
 });

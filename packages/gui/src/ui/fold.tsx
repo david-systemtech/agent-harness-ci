@@ -29,7 +29,7 @@ export const Fold = ({ summary, open, onOpenChange, children, className }: FoldP
         onClick={() => onOpenChange(!open)}
         className="flex min-w-0 items-center gap-1.5 self-start rounded-sm text-left text-[0.85em] text-ink-muted outline-none hover:text-ink focus-visible:outline-2 focus-visible:outline-beam"
       >
-        <ChevronRight aria-hidden="true" className={classes("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+        <ChevronRight aria-hidden="true" className={classes("size-3.5 shrink-0 transition-transform duration-100", open && "rotate-90")} />
         {summary}
       </button>
       {open && <div id={id}>{children}</div>}
