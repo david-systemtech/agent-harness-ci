@@ -12,6 +12,16 @@ describe("sidebar rows and headings (look §9.2)", () => {
     expect((await screen.findByRole("tooltip")).textContent).toContain("2 sessions");
   });
 
+  it("uses the singular count in row headings' tooltips", async () => {
+    const app = await renderApp({ environments: [desk({ groups: [], sessions: [{ title: "One pin", pinnedAt: "2026-09-24T00:00:00.000Z" }, { title: "Only active" }] })] });
+    await within(sidebar()).findByRole("button", { name: /Only active/ });
+    act(() => within(region("Pinned")).getByRole("button", { name: "Pinned" }).focus());
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Pinned · 1 session · Enter or Space to collapse");
+    await app.user.keyboard("{Escape}");
+    act(() => within(region("desk")).getByRole("heading").focus());
+    expect((await screen.findByRole("tooltip")).textContent).toBe("desk · 1 session");
+  });
+
   it("reveals the full row facts without inventing account attribution", async () => {
     const app = await renderApp({ environments: [desk({ sessions: [{ title: "Review the branch", workspace: { kind: "worktree", path: "/projects/review", repository: "/projects/app", branch: "topic/sidebar" }, model: "model-for-tests" }] })] });
     const button = await within(sidebar()).findByRole("button", { name: /Review the branch/ });
