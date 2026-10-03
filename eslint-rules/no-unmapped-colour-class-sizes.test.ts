@@ -17,6 +17,11 @@ vi.mock("node:fs", async (importOriginal) => {
           --text-retired: initial;
           /* --text-commented: 10px; */
         }
+        @theme static {
+          @keyframes pulse { from { --text-keyframe: 9px; opacity: 0; } to { opacity: 1; } }
+          --text-after-motion: 12px;
+          --text-last: 10px
+        }
         :root { --text-local: 10px; }
       `;
     }
@@ -29,10 +34,11 @@ const unmapped = (colour: string) => ({ messageId: "unmapped" as const, data: { 
 ruleTester.run("no-unmapped-colour-class declared sizes", rule, {
   valid: [
     { filename: gui("app.tsx"), code: 'const a = <div className="text-2xs text-ink-muted hover:text-2xs md:!text-2xs/6 data-[state=open]:text-caption! [&:nth-child(2)]:text-caption/normal" />;' },
+    { filename: gui("app.tsx"), code: 'const a = <div className="text-after-motion hover:text-last/6 text-ink-muted" />;' },
   ],
   invalid: [
     { filename: gui("app.tsx"), code: 'const a = <div className="text-2xs text-ink-muted hover:text-unknown-colour/50" />;', errors: [unmapped("hover:text-unknown-colour/50")] },
-    ...["bg-2xs", "border-caption", "text-2xs--line-height", "text-retired", "text-commented", "text-local"].map((colour) => ({ filename: gui("app.ts"), code: `const a = "${colour}";`, errors: [unmapped(colour)] })),
+    ...["bg-2xs", "border-caption", "text-2xs--line-height", "text-retired", "text-commented", "text-local", "text-keyframe"].map((colour) => ({ filename: gui("app.ts"), code: `const a = "${colour}";`, errors: [unmapped(colour)] })),
   ],
 });
 
