@@ -1,13 +1,14 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { compareCapture, geometryFailures } from "../gallery/compare.js";
+import { captureName, compareCapture, geometryFailures } from "../gallery/compare.js";
 
 const require = createRequire(new URL("../package.json", import.meta.url));
 const core = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
 const { PNG } = require(join(core, "lib/utilsBundle.js")) as {
-  PNG: { sync: { write(image: { width: number; height: number; data: Buffer }): Buffer } };
+  PNG: { sync: { read(bytes: Buffer): { width: number; height: number }; write(image: { width: number; height: number; data: Buffer }): Buffer } };
 };
 const image = (width = 100, height = 100, changed = 0) => {
   const data = Buffer.alloc(width * height * 4, 255);
@@ -16,7 +17,7 @@ const image = (width = 100, height = 100, changed = 0) => {
 };
 
 describe("gallery comparisons", () => {
-  it("shows a changed capture as a triplet and accepts the capture as its new baseline", () => {
+  it("detects changed pixels and produces a difference image", () => {
     const capture = image(100, 100, 20);
     const result = compareCapture(image(), capture);
     expect(result.status).toBe("changed");
@@ -52,4 +53,17 @@ it("allows at most 0.05 percent different pixels and rejects missing baselines a
   expect(compareCapture(image(), image(100, 100, 6)).pixelFailed).toBe(true);
   expect(compareCapture(undefined, image()).status).toBe("new");
   expect(compareCapture(image(), image(101, 100)).pixelFailed).toBe(true);
+});
+
+it("has a baseline at each capture viewport before pixels become blocking", () => {
+  for (const [name, width, height] of [["window-empty.dark", 1400, 900], ["window-empty-narrow.dark", 1024, 768]] as const) {
+    const baseline = PNG.sync.read(readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url)));
+    expect([baseline.width, baseline.height]).toEqual([width, height]);
+  }
+});
+
+it("reserves the generated narrow suffix so scenes cannot overwrite another capture", () => {
+  expect(captureName("window-empty", 1400)).toBe("window-empty.dark");
+  expect(captureName("window-empty", 1024)).toBe("window-empty-narrow.dark");
+  expect(() => captureName("window-empty-narrow", 1400)).toThrow("Invalid gallery scene name");
 });

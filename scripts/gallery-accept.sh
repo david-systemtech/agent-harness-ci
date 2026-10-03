@@ -4,7 +4,7 @@ set -euo pipefail
 [[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr>' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
 python3 - "$root" "$1" <<'PY'
-import json, os, pathlib, re, struct, subprocess, sys, urllib.parse, urllib.request
+import json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
 root = pathlib.Path(sys.argv[1]); number = sys.argv[2]
 remote = urllib.parse.urlsplit(subprocess.check_output(['git', '-C', str(root), 'remote', 'get-url', 'origin'], text=True).strip())
 base = os.environ.get('FORGEJO_URL', f'{remote.scheme}://{remote.netloc}').rstrip('/')
@@ -33,14 +33,14 @@ if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=T
     sys.exit('Check out the PR head before accepting its captures.')
 comments = []
 for page in range(1, 101):
-    batch = json.loads(get(f'{api}/issues/{number}/comments?limit=100&page={page}'))
+    batch = json.loads(get(f'{api}/issues/{number}/comments?limit=50&page={page}'))
     comments.extend(batch)
-    if len(batch) < 100: break
+    if len(batch) < 50: break
 manifest = None
 for comment in comments:
-    match = re.search(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
-    if match:
-        candidate = json.loads(match[1])
+    matches = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
+    if matches:
+        candidate = json.loads(matches[-1])
         if candidate.get('head') == head: manifest = candidate
 if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
 files = manifest.get('captures', [])
@@ -72,4 +72,11 @@ for name, data in accepted.items():
     if temporary.is_symlink(): sys.exit('A temporary baseline must not be a symlink.')
     temporary.write_bytes(data); temporary.replace(target)
     print(f'Accepted {name}')
+print('Commit and push the reviewed baselines, then wait for green gallery checks:')
+commands = [
+    ['git', '-C', str(root), 'add', '--', *[str((folder / name).relative_to(root)) for name in accepted]],
+    ['git', '-C', str(root), 'commit', '-m', f'gallery: accept reviewed captures (PR #{number})'],
+    ['git', '-C', str(root), 'push', 'origin', 'HEAD:' + pr['head']['ref']],
+]
+for command in commands: print(shlex.join(command))
 PY

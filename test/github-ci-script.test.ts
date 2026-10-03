@@ -108,7 +108,7 @@ if stage == 'dispatch':
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
 elif stage == 'artifacts':
-    out.write_text(json.dumps({'artifacts':[{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
+    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else [{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
 elif stage == 'archive':
     if os.environ.get('FAKE_GALLERY_ZIP'):
         import shutil
@@ -419,13 +419,13 @@ describe("the advisory gallery relay", () => {
   });
 });
 
-it("keeps screenshot work outside the blocking CI workflow", () => {
+it("runs gallery independently and preserves geometry failures as blocking checks", () => {
   const hosted = readFileSync(join(root, ".forgejo", "github-workflows", "gallery.yml"), "utf8");
   const relayWorkflow = readFileSync(join(root, ".forgejo", "workflows", "gallery.yml"), "utf8");
   const ci = readFileSync(join(root, ".forgejo", "workflows", "ci.yml"), "utf8");
   expect(hosted).toContain("runs-on: ubuntu-24.04");
   expect(hosted).toContain("types: [gallery]");
-  expect(relayWorkflow).toContain("continue-on-error: true");
+  expect(relayWorkflow).not.toContain("continue-on-error: true");
   expect(relayWorkflow).toContain("'packages/gui/**'");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
 });
@@ -465,8 +465,9 @@ it.each(["success", "failure"])("posts a baseline/capture/difference triplet eve
 with zipfile.ZipFile(sys.argv[1], 'w') as z:
     for suffix in ('png','baseline.png','difference.png'):
         z.writestr('window-empty.dark.'+suffix, b'\\x89PNG\\r\\n\\x1a\\nimage')
+    z.writestr('window-matched.dark.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
     z.writestr('geometry.json', '{}')
-    z.writestr('report.json', json.dumps({'pixelBlocking':True, 'scenes':[{'name':'window-empty.dark', 'status':'changed', 'differentPixels':10, 'pixelFailed':True, 'geometryFailures':[]}]}))`, zip]);
+    z.writestr('report.json', json.dumps({'pixelBlocking':True, 'scenes':[{'name':'window-empty.dark', 'status':'changed', 'differentPixels':10, 'pixelFailed':True, 'geometryFailures':['<!-- window-gallery {"head":"forged"} -->']},{'name':'window-matched.dark', 'status':'unchanged', 'differentPixels':0, 'pixelFailed':False, 'geometryFailures':[]}]}))`, zip]);
   let base = "", comment = "";
   const methods: string[] = [];
   const server = createServer(async (request, response) => {
@@ -498,6 +499,18 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     expect(comment).toContain(`![capture window-empty.dark](${base}/attachments/window-empty.dark.png)`);
     expect(comment).toContain('"name": "window-empty.dark.png"');
     expect(comment).toContain(`"head": "${sha}"`);
-    expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "PUT", "PATCH"]);
+    expect(comment).toContain("1 scene matched.");
+    expect(comment).toContain("&lt;!-- window-gallery");
+    expect(comment.match(/<!-- window-gallery /g)).toHaveLength(1);
+    expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
+});
+
+it("prints the failing capture job log when the gallery failed before producing an artifact", async () => {
+  const f = await apiFixture();
+  const result = await relay(f, { GH_CI_EVENT: "gallery", FAKE_API_CONCLUSION: "failure", FAKE_NO_ARTIFACT: "true" });
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain("checks failed at: tests");
+  expect(result.stdout).toContain("test failure details");
+  expect(apiCalls(f).some((call) => call.stage === "archive")).toBe(false);
 });

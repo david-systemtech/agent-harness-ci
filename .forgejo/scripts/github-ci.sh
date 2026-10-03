@@ -176,19 +176,24 @@ if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == fai
   artifact=$(printf '%s' "$reply" | python3 -c '
 import json,sys
 items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
-if len(items)!=1 or items[0]["size_in_bytes"]>32*1024*1024: sys.exit("missing or oversized gallery artifact")
+if not items: sys.exit(0)
+if len(items)!=1 or items[0]["size_in_bytes"]>32*1024*1024: sys.exit("oversized or duplicate gallery artifact")
 print(int(items[0]["id"]))')
-  gh_api --fail -L --max-filesize 33554432 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
-  if python3 - "$gl/gallery.zip" <<'PYLEGACY'
+  if [ -z "$artifact" ]; then
+    echo "No gallery artifact was uploaded; reading the failed job logs."
+    [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
+  else
+    gh_api --fail -L --max-filesize 33554432 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
+    if python3 - "$gl/gallery.zip" <<'PYLEGACY'
 import sys,zipfile
 with zipfile.ZipFile(sys.argv[1]) as z: sys.exit(0 if 'report.json' not in z.namelist() else 1)
 PYLEGACY
-  then
-    # A workflow rollout can finish an earlier capture-only artifact.
-    bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
-  else
-    python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
-import json, os, re, sys, urllib.error, urllib.parse, urllib.request, zipfile
+    then
+      # A workflow rollout can finish an earlier capture-only artifact.
+      bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
+    else
+      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
+import html, json, os, re, sys, urllib.error, urllib.parse, urllib.request, zipfile
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
@@ -238,6 +243,8 @@ body = f'Window gallery for `{head}` (1400 × 900; narrow 1024 × 768).\n'
 geometry_failed = any(s['geometryFailures'] for s in scenes)
 pixel_failed = any(s['pixelFailed'] for s in scenes)
 body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
+matched = sum(s['status'] == 'unchanged' for s in scenes)
+body += f'\n{matched} scene{"" if matched == 1 else "s"} matched.\n'
 for scene in scenes:
     name = scene['name']
     if scene['status'] == 'changed':
@@ -245,7 +252,7 @@ for scene in scenes:
         body += '| ' + ' | '.join(f'![{kind} {name}]({urls[name+suffix]})' for kind,suffix in [('baseline','.baseline.png'),('capture','.png'),('difference','.difference.png')]) + ' |\n'
     elif scene['status'] == 'new' or scene['geometryFailures']:
         body += f'\n**{name}** ({scene["status"]})\n\n![capture {name}]({urls[name+".png"]})\n'
-    for failure in scene['geometryFailures']: body += f'\n- {failure}\n'
+    for failure in scene['geometryFailures']: body += f'\n- {html.escape(failure)}\n'
 # The web attachment route can be behind SSO while the tracker API accepts tokens.
 # Publish capture bytes through the generic package API too, so acceptance needs no browser cookie.
 captures = []
@@ -265,6 +272,7 @@ body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
 request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
 print(f'Gallery posted on pull request {pr}')
 PYGALLERY
+    fi
   fi
 fi
 [ "$conclusion" != success ] || exit 0

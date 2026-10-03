@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
 import { scenes } from "./scenes.js";
-import { compareCapture, geometryFailures } from "./compare.js";
+import { captureName, compareCapture, geometryFailures } from "./compare.js";
 import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { Measurement, SceneChecks } from "./compare.js";
 
@@ -33,10 +33,10 @@ try {
   const report: { name: string; status: string; differentPixels: number; pixelFailed: boolean; geometryFailures: string[] }[] = [];
   const geometry: Record<string, readonly Measurement[]> = {};
   const definitions: Readonly<Record<string, Script & SceneChecks>> = scenes;
-  for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 768 }]) {
+  for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: "dark", reducedMotion: "reduce" });
     for (const [scene, checks] of Object.entries(definitions)) {
-      if (!/^[a-z0-9-]+$/.test(scene)) throw new Error(`Invalid gallery scene name: ${scene}`);
+      const name = captureName(scene, viewport.width);
       const page = await context.newPage();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
@@ -47,7 +47,6 @@ try {
         await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
       });
       if (errors.length > 0) throw new Error(errors.join("\n"));
-      const name = `${scene}${viewport.width === 1024 ? "-narrow" : ""}.dark`;
       const capturePath = resolve(output, `${name}.png`);
       await page.screenshot({ path: capturePath, animations: "disabled", caret: "hide", scale: "css" });
       const measured = await page.evaluate(() => {

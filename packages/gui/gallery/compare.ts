@@ -13,6 +13,11 @@ const pixelmatch = require(join(core, "lib/third_party/pixelmatch.js")) as (
   first: Buffer, second: Buffer, difference: Buffer, width: number, height: number, options: { threshold: number },
 ) => number;
 
+export function captureName(scene: string, width: 1400 | 1024): string {
+  if (!/^[a-z0-9-]+$/.test(scene) || scene.endsWith("-narrow")) throw new Error(`Invalid gallery scene name: ${scene}`);
+  return `${scene}${width === 1024 ? "-narrow" : ""}.dark`;
+}
+
 export function compareCapture(baseline: Buffer | undefined, capture: Buffer) {
   const actual = PNG.sync.read(capture);
   if (baseline === undefined) return { status: "new" as const, pixelFailed: true, differentPixels: actual.width * actual.height, difference: undefined };
