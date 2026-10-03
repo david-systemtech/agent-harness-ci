@@ -72,7 +72,7 @@ describe("Add a machine", () => {
     const checklist = await screen.findByRole("region", { name: "Set up" });
     expect(pickedIn(checklist)).toBe("laptop");
     const steps = within(checklist).getByRole("navigation", { name: "Set up steps" });
-    await waitFor(() => expect(within(steps).getByRole("button", { current: "step" }).textContent).toBe("Permissions"));
+    await waitFor(() => expect(within(steps).getByRole("button", { current: "step" }).getAttribute("aria-label")).toBe("Permissions"));
     expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
   });
 

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { discoverScenes, type SceneModule } from "../gallery/scene-registry.js";
 import { mountGallery } from "../gallery/mount.js";
@@ -27,6 +27,23 @@ it("renders the real empty window on a ready environment and marks the scene rea
 
 it("refuses an unknown scene rather than capturing a different window", async () => {
   await expect(mountGallery(document.createElement("div"), "missing-scene")).rejects.toThrow("Unknown gallery scene");
+});
+
+it("renders the session window with nine sessions and its sidebar geometry contract", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "window-session");
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("window-session"));
+  const sidebar = within(screen.getByRole("navigation", { name: "Sessions" }));
+  expect(sidebar.getByRole("searchbox", { name: "Filter the sessions" })).toBeDefined();
+  expect(sidebar.getAllByRole("listitem")).toHaveLength(9);
+  expect(await screen.findByRole("region", { name: "Transcript" })).toBeDefined();
+  expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(expect.arrayContaining([
+    { selector: "[data-sidebar-card]", width: 224 },
+    { selector: "[data-sidebar-caption]", height: 32 },
+    { selector: 'nav[aria-label="Sessions"] button[aria-label="New session"]', height: 28 },
+  ]));
 });
 
 it("renders the scripted window in the requested light ladder", async () => {

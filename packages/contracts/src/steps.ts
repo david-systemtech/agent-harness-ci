@@ -59,6 +59,21 @@ export const STEP_LABELS: { readonly [Id in (typeof STEP_ORDER)[number]]: string
   appearance: "Appearance",
 };
 
+/** The outcome each checklist step explains to the person setting up (docs/specs/look.md §13.2). */
+export const STEP_HINTS: { readonly [Id in (typeof STEP_ORDER)[number]]: string } = {
+  account: "Choose your agent’s account",
+  "carry-over": "Bring past work with you",
+  "your-machines": "Work here or elsewhere",
+  forges: "Open pull requests",
+  "key-manager": "Fetch keys when needed",
+  "memory-bank": "Keep a shared notebook",
+  skills: "Reuse working procedures",
+  instructions: "Guide every session",
+  browser: "See and use web pages",
+  permissions: "Choose when agents ask",
+  appearance: "Make the window feel right",
+};
+
 export const StepId = z.enum(STEP_ORDER).meta({
   description: `A step of the milestone-1 checklist, registered or not, each with the label every client names it by: ${STEP_ORDER.map((id) => `${id} (${STEP_LABELS[id]})`).join(", ")}.`,
 });

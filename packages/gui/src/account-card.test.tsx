@@ -79,14 +79,14 @@ describe("the Account card in Set up", () => {
     await waitFor(() => expect(within(step()).queryByRole("region", { name: /^Use the Claude Code sign-in/ })).toBeNull());
   });
 
-  it("holds Continue on first launch until an account is signed in, with no Skip for now, and the first account signed in with the code lets it go", async () => {
+  it("holds Continue on first launch until an account is signed in, with Skip for now disabled, and the first account signed in with the code lets it go", async () => {
     const app = await opened({ accounts: [{ label: "work", status: { state: "signed-out", checkedAt: null, detail: null } }] });
     const desk = app.environment("desk");
     const next = () => within(step()).getByRole("button", { name: "Continue" });
     const work = await within(step()).findByRole("region", { name: "work" });
     expect(next().hasAttribute("disabled")).toBe(true);
     expect(within(step()).getByText("Continue once an account is signed in.")).toBeDefined();
-    expect(within(step()).queryByRole("button", { name: "Skip for now" })).toBeNull();
+    expect(within(step()).getByRole("button", { name: "Skip for now" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
     const signing = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
