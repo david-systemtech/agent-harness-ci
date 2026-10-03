@@ -343,6 +343,8 @@ jobs:
           $groups = (& "$env:SystemRoot\System32\whoami.exe" /groups | Out-String)
           if ($LASTEXITCODE -ne 0 -or $groups -notmatch 'S-1-16-(\d+)') { throw 'Could not read the smoke user token' }
           if ([int]$Matches[1] -ge 12288) { throw 'The smoke child still has an elevated Windows token' }
+          Write-Output "Smoke user token mandatory level: $($Matches[1])"
+          $PSNativeCommandUseErrorActionPreference = $false
           Remove-Item Env:\AGENT_HARNESS_TOKEN -ErrorAction SilentlyContinue
           $plan = & (Join-Path $PSScriptRoot 'install.ps1') -DryRun -DataDir (Join-Path $PSScriptRoot 'headless-install') 6>&1
           if ($LASTEXITCODE -ne 0) { throw 'The anonymous headless install could not resolve a public release' }
@@ -350,8 +352,6 @@ jobs:
           Write-Output $planText
           if ($planText -notmatch 'https://github.com/david-systemtech/agent-harness/releases/download/') { throw 'The installer did not select public assets' }
           if ($planText -match 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/') { throw 'The installer still requires private access' }
-          Write-Output "Smoke user token mandatory level: $($Matches[1])"
-          $PSNativeCommandUseErrorActionPreference = $false
           $setup = Start-Process -FilePath (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path -ArgumentList '/S' -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"

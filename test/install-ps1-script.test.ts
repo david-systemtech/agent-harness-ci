@@ -628,7 +628,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     write(join(f.root, "install.ps1"), readFileSync(script, "utf8"));
     const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
     const start = workflow.indexOf("          Remove-Item Env:");
-    const end = workflow.indexOf("          Write-Output \"Smoke user token", start);
+    const end = workflow.indexOf("          $setup = Start-Process", start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const commands = workflow.slice(start, end).replaceAll("$PSScriptRoot", `'${f.root}'`);
