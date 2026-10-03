@@ -39,6 +39,22 @@ it("checks every control and fails missing geometry selectors", () => {
   expect(measureSceneGeometry()).toContain("input: no matching elements");
 });
 
+it("checks a content height floor with tolerance and rejects non-finite readings", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "main", minimumHeight: 768, tolerance: 0.1 }]);
+  root.innerHTML = "<main></main>";
+  document.body.append(root);
+  const bounds = vi.spyOn(root.firstElementChild!, "getBoundingClientRect");
+  for (const height of [767.9, 768, 869.75]) {
+    bounds.mockReturnValue(new DOMRect(0, 0, 1024, height));
+    expect(measureSceneGeometry()).toEqual([]);
+  }
+  for (const height of [767.8, Number.NaN, Number.POSITIVE_INFINITY]) {
+    bounds.mockReturnValue(new DOMRect(0, 0, 1024, height));
+    expect(measureSceneGeometry()).toEqual([`main[0].height: got ${height}, expected at least 768 ±0.1`]);
+  }
+});
 
 it.each([[1400, 920], [1024, 777]])("checks responsive scene geometry at viewport %i", (viewport, width) => {
   vi.stubGlobal("innerWidth", viewport);
