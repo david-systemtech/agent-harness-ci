@@ -1,10 +1,12 @@
 import { DEFAULT_CHOICE_WORDS, accountChoiceWords, effortChoices, familyChoices, familyWords, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
+import { Cpu, Gauge, KeyRound } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { GenericEditor, readOnlyLine } from "../settings/generic-editor.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
-import { Select } from "../ui/index.js";
+import { SettingsGroup } from "../settings/part.js";
+import { Select, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /** The three defaults the pane picks from lists; the fourth, the process idle time, is typed. */
@@ -36,7 +38,7 @@ const DefaultModelOn = ({ view }: { readonly view: EnvironmentView }) => {
 
   return (
     <>
-      <p className="text-sm text-ink-muted">{settingsRow("accounts.default-model").hint}</p>
+      <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.default-model").hint}</p>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>}
       {ready && writer.status === "absent" && <p className="text-sm text-amber">Read-only: {writer.message}</p>}
       {values === null ? (
@@ -44,7 +46,7 @@ const DefaultModelOn = ({ view }: { readonly view: EnvironmentView }) => {
       ) : (
         <>
           <DefaultChoices view={view} />
-          <GenericEditor view={view} keys={["providers.processIdleMinutes"]} saysWhyReadOnly={false} />
+          <SettingsGroup title="Provider process"><GenericEditor view={view} keys={["providers.processIdleMinutes"]} saysWhyReadOnly={false} /></SettingsGroup>
         </>
       )}
     </>
@@ -79,7 +81,7 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
   const family = valueOf("accounts.defaultModelFamily");
 
   return (
-    <>
+    <SettingsGroup title="New sessions">
       <DefaultChoice
         name="Default account"
         setting="accounts.defaultAccount"
@@ -105,7 +107,7 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
         save={save}
       />
       {line !== undefined && <p className="text-sm text-signal">{line}</p>}
-    </>
+    </SettingsGroup>
   );
 };
 
@@ -130,10 +132,12 @@ const DefaultChoice = ({ name, setting, value, options, writable, save }: Defaul
   const id = useId();
   const words = DEFAULT_CHOICE_WORDS[setting];
   const missing = value !== null && !options.some((option) => option.value === value) ? value : undefined;
+  const Icon = setting === "accounts.defaultAccount" ? KeyRound : setting === "accounts.defaultModelFamily" ? Cpu : Gauge;
+  const note = setting === "accounts.defaultAccount" ? "The account a new session starts on." : setting === "accounts.defaultModelFamily" ? "Use the strongest model in this family." : "How much reasoning the model uses.";
   return (
-    <div className="flex items-center justify-between gap-3 text-sm text-ink">
-      <label htmlFor={id}>{name}</label>
-      <Select id={id} value={value ?? ""} disabled={!writable} onChange={(event) => save(setting, event.target.value === "" ? null : event.target.value)}>
+    <div className="flex flex-wrap items-center gap-3 text-xs text-ink">
+      <div className="flex min-w-0 flex-1 items-start gap-2"><Icon aria-hidden="true" className="mt-0.5 size-4 text-ink-muted" /><div className="flex flex-col gap-0.5"><label htmlFor={id}>{name}</label><p className="text-2xs text-ink-faint">{note}</p></div></div>
+      <Tooltip content={`${name} · Arrow keys`}><Select className="max-w-[320px]" id={id} value={value ?? ""} disabled={!writable} onChange={(event) => save(setting, event.target.value === "" ? null : event.target.value)}>
         <option value="">{words.unset}</option>
         {missing !== undefined && <option value={missing}>{words.missing(missing)}</option>}
         {options.map((option) => (
@@ -141,7 +145,7 @@ const DefaultChoice = ({ name, setting, value, options, writable, save }: Defaul
             {option.words}
           </option>
         ))}
-      </Select>
+      </Select></Tooltip>
     </div>
   );
 };

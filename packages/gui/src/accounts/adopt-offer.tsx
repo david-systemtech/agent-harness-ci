@@ -1,6 +1,8 @@
 import { adoptAccount, ambientOffer, uuidv7 } from "@agent-harness/client-runtime";
+import { Download } from "lucide-react";
 import { useId, useMemo, useState, type FormEvent } from "react";
-import { Button, Input } from "../ui/index.js";
+import { Input } from "../ui/index.js";
+import { AccountAction } from "./action.js";
 import { useClock, useFollowed, useRuntime } from "../window-context.js";
 
 export interface AdoptOfferProps {
@@ -43,8 +45,8 @@ export const AdoptOffer = ({ environmentId, environment, writable, say }: AdoptO
   };
 
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-base font-semibold text-ink">
+    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3">
+      <h3 id={heading} className="text-sm font-medium text-ink">
         {offer}
       </h3>
       <form className="flex flex-wrap items-end gap-2" onSubmit={adopt}>
@@ -52,9 +54,9 @@ export const AdoptOffer = ({ environmentId, environment, writable, say }: AdoptO
           Label (the email it signs in as when empty)
           <Input value={label} disabled={!writable} onChange={(event) => setLabel(event.target.value)} className="w-64" />
         </label>
-        <Button tone="primary" type="submit" disabled={!writable || sending}>
+        <AccountAction icon={Download} variant="outline" type="submit" disabled={!writable || sending}>
           Adopt
-        </Button>
+        </AccountAction>
       </form>
     </section>
   );

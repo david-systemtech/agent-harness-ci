@@ -1,11 +1,13 @@
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountRecord } from "@agent-harness/contracts";
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { StepLinks } from "../settings/step-links.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
-import { Button } from "../ui/index.js";
+import { useSettingsValues } from "../settings/settings-values.js";
+import { AccountAction } from "./action.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AccountCard } from "./account-card.js";
 import { AdoptOffer } from "./adopt-offer.js";
@@ -42,8 +44,8 @@ export const AccountsPane = () => {
 
 const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => (
   <>
-    <p className="text-sm text-ink-muted">{settingsRow("accounts.accounts").hint}</p>
-    <AccountsList view={view} add="Add an account…" />
+    <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.accounts").hint}</p>
+    <AccountsList view={view} add="Add an account…" inlineSignIn />
     <StepLinks steps={CARRY_OVER} />
   </>
 );
@@ -52,6 +54,7 @@ export interface AccountsListProps {
   readonly view: EnvironmentView;
   /** What the button that adds an account, on the sign-in card, says. */
   readonly add: string;
+  readonly inlineSignIn?: boolean;
 }
 
 /**
@@ -63,10 +66,11 @@ export interface AccountsListProps {
  * adds an account on the sign-in card; what a command did in one line; and
  * a card per account.
  */
-export const AccountsList = ({ view, add }: AccountsListProps) => {
+export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListProps) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const listed = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
+  const { values } = useSettingsValues(environmentId);
   const { gauges } = useObservable(runtime.projections.usage);
   const [line, say] = useState<string | undefined>(undefined);
   const [signing, signIn] = useState<Signing | undefined>(undefined);
@@ -91,19 +95,19 @@ export const AccountsList = ({ view, add }: AccountsListProps) => {
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
       {ready && <AdoptOffer environmentId={environmentId} environment={nameOf(view)} writable={writable} say={say} />}
       <div className="flex flex-wrap gap-2">
-        <Button tone="primary" disabled={!writable} onClick={() => signIn({ account: null })}>
+        <AccountAction icon={Plus} variant="default" disabled={!writable || signing !== undefined} onClick={() => signIn({ account: null })}>
           {add}
-        </Button>
+        </AccountAction>
       </div>
+      {signing !== undefined && <SignInCard inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => signIn(undefined)} say={say} />}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {accounts === null
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the accounts…" : `The accounts could not be read: ${listed.error.message}`}</p>
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No account is held here.</p>
           : accounts.map((account) => (
-              <AccountCard key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signIn({ account })} remove={() => remove(account)} say={say} />
+              <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signing === undefined && signIn({ account })} remove={() => remove(account)} say={say} />
             ))}
-      {signing !== undefined && <SignInCard environmentId={environmentId} account={signing.account} close={() => signIn(undefined)} say={say} />}
       {removing !== undefined && <ConfirmRemove environmentId={environmentId} environment={nameOf(view)} account={removing} close={() => remove(undefined)} say={say} />}
     </>
   );
