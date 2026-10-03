@@ -76,9 +76,12 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      IMAGE_REFERENCE: ghcr.io/david-systemtech/agent-harness:${{ needs.check.outputs.version }}
     outputs:
       reference: ghcr.io/david-systemtech/agent-harness:${{ needs.check.outputs.version }}
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.publish.outputs.digest || steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -89,21 +92,40 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Build the image; push only on a tag
+      - name: Build the image locally
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64
-          push: ${{ needs.check.outputs.publish == 'true' }}
-          load: ${{ needs.check.outputs.publish != 'true' }}
+          push: false
+          load: true
           provenance: false
           sbom: false
           tags: ghcr.io/david-systemtech/agent-harness:${{ needs.check.outputs.version }}
+          build-args: |
+            HARNESS_VERSION=${{ needs.check.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/david-systemtech/agent-harness
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ needs.check.outputs.version }}
+
+      - name: Check the image's version
+        run: |
+          set -euo pipefail
+          reported=$(docker run --rm "$IMAGE_REFERENCE" --version)
+          if [ "$reported" != "agent-harness $VERSION" ]; then
+            echo "::error::image reports $reported, expected agent-harness $VERSION"
+            exit 1
+          fi
+      - name: Push the verified image on a tag
+        id: publish
+        if: needs.check.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_REFERENCE"
+          reference_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REFERENCE")
+          echo "digest=${reference_digest#*@}" >> "$GITHUB_OUTPUT"
 
   desktop-macos:
     needs: [check, image]

@@ -32,10 +32,10 @@ const DIGEST = `sha256:${"a".repeat(64)}`;
 const TOKEN = "token-for-tests";
 
 /** The build a job asks of the daemon, for the image named `tag`, with the labels after the source's. */
-const buildOf = (tag: string, ...labels: string[]) =>
+const buildOf = (tag: string, version: string, ...labels: string[]) =>
   [
     "docker build --pull --platform linux/amd64 --provenance=false --sbom=false",
-    `-f ${join(root, "Dockerfile")} -t ${tag}`,
+    `-f ${join(root, "Dockerfile")} -t ${tag} --build-arg HARNESS_VERSION=${version}`,
     `--label org.opencontainers.image.source=${SERVER}/david/agent-harness`,
     `--label org.opencontainers.image.revision=${SHA}`,
     ...labels.map((label) => `--label ${label}`),
@@ -55,6 +55,7 @@ fails() { case " \${FAKE_FAIL:-} " in *" $1 "*) return 0 ;; *) return 1 ;; esac;
 case $1 in
   build) fails build && { echo "ERROR: failed to solve" >&2; exit 1; } ;;
   image) [ "$2" = inspect ] && echo "\${FAKE_PLATFORM:-linux/amd64}" ;;
+  run) fails run && exit 1; echo "agent-harness $FAKE_VERSION" ;;
   login)
     cat > "$FAKE_STATE/login-stdin"
     fails login && { echo "Error response from daemon: unauthorized" >&2; exit 1; }
@@ -111,6 +112,7 @@ exit "\${FAKE_DOWNLOAD_EXIT:-0}"
       GITHUB_SHA: SHA,
       GITHUB_REF: ref,
       GITHUB_OUTPUT: outputs,
+      FAKE_VERSION: ref.startsWith("refs/tags/v") ? ref.slice("refs/tags/v".length) : "0.0.0",
       FAKE_LOG: log,
       FAKE_STATE: state,
       FAKE_PUSHED_DIGEST: DIGEST,
@@ -138,7 +140,7 @@ describe("a pull request's build", () => {
     const f = fixture("refs/pull/12/head");
     const local = `david/agent-harness:${SHA.slice(0, 12)}`;
     expect((await image(f, "build")).code).toBe(0);
-    expect(f.calls()).toEqual([buildOf(local), inspectOf(local), `docker image rm ${local}`]);
+    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker image rm ${local}`]);
     expect(f.outputs()).toBe("");
     expect(f.loginStdin()).toBeNull();
     expect(f.downloadSource()).toBeNull();
@@ -160,7 +162,7 @@ describe("a pull request's build", () => {
     const result = await image(f, "build", { FORGEJO_TOKEN: TOKEN, FAKE_DOWNLOAD_EXIT: "1" });
     expect(result.code).toBe(0);
     expect(result.stderr).toContain("SDK cache preparation failed; using npm");
-    expect(f.calls()).toEqual([buildOf(local), inspectOf(local), `docker image rm ${local}`]);
+    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker image rm ${local}`]);
     expect(result.stdout + result.stderr + f.calls().join("\n")).not.toContain(TOKEN);
   });
 
@@ -173,8 +175,9 @@ describe("a v tag's release image", () => {
     const f = fixture("refs/tags/v0.5.0");
     expect((await image(f, "publish", { PACKAGES_TOKEN: TOKEN })).code).toBe(0);
     expect(f.calls()).toEqual([
-      buildOf(released, "org.opencontainers.image.version=0.5.0"),
+      buildOf(released, "0.5.0", "org.opencontainers.image.version=0.5.0"),
       inspectOf(released),
+      `docker run --rm ${released} --version`,
       "docker login git.systemtech.dev:5526 -u david --password-stdin",
       `docker push ${released}`,
       "docker logout git.systemtech.dev:5526",
@@ -184,6 +187,15 @@ describe("a v tag's release image", () => {
     expect(f.calls().join("\n")).not.toContain(TOKEN);
     expect(f.outputs()).toBe(`reference=${released}\ndigest=${DIGEST}\n`);
     expect(f.downloadToken()).toBe(TOKEN);
+  });
+
+  it("refuses to publish when the image reports the checkout version instead of the release version", async () => {
+    const f = fixture("refs/tags/v0.5.0");
+    const result = await image(f, "publish", { PACKAGES_TOKEN: TOKEN, FAKE_VERSION: "0.0.0" });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("reports agent-harness 0.0.0, expected agent-harness 0.5.0");
+    expect(f.calls().some((call) => /^docker (login|push) /.test(call))).toBe(false);
+    expect(f.outputs()).toBe("");
   });
 
   it("tags a prerelease with its whole version, prerelease part and all", async () => {
@@ -228,7 +240,7 @@ describe("a v tag's release image", () => {
     const result = await image(f, "publish", { PACKAGES_TOKEN: TOKEN, FAKE_PLATFORM: "linux/arm64" });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("linux/arm64, not linux/amd64");
-    expect(f.calls()).toEqual([buildOf(released, "org.opencontainers.image.version=0.5.0"), inspectOf(released), `docker image rm ${released}`]);
+    expect(f.calls()).toEqual([buildOf(released, "0.5.0", "org.opencontainers.image.version=0.5.0"), inspectOf(released), `docker image rm ${released}`]);
     expect(f.outputs()).toBe("");
   });
 

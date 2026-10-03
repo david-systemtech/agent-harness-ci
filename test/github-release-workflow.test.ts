@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -45,15 +45,45 @@ describe("the public GitHub release workflow", () => {
   it("gates every publishing operation on the prepared run's publish flag, and latest on stability too", () => {
     expect(step("check", "The tag's release is not published yet")).toContain("if: steps.run.outputs.publish == 'true'");
     expect(step("image", "Authenticate to ghcr for a tag only")).toContain("if: needs.check.outputs.publish == 'true'");
-    const image = step("image", "Build the image; push only on a tag");
-    expect(image).toContain("push: ${{ needs.check.outputs.publish == 'true' }}");
-    expect(image).toContain("load: ${{ needs.check.outputs.publish != 'true' }}");
+    const image = step("image", "Build the image locally");
+    expect(image).toContain("push: false");
+    expect(image).toContain("load: true");
+    expect(step("image", "Push the verified image on a tag")).toContain("if: needs.check.outputs.publish == 'true'");
     expect(step("release", "Upload every asset to a draft release, then publish it")).toContain("if: needs.check.outputs.publish == 'true'");
     expect(step("release", "Point latest at the stable release's exact image")).toContain("if: needs.check.outputs.publish == 'true' && needs.check.outputs.prerelease == 'false'");
     expect(step("release", "Keep all artefacts, including for a dry run")).not.toContain("if:");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("packages: write");
     expect(workflow).toContain("password: ${{ github.token }}");
+  });
+
+  it.each(["1.2.3-beta.2", "0.0.0"])("checks the built image's reported version %s before any push", async (reported) => {
+    const build = step("image", "Build the image locally");
+    expect(build).toContain("HARNESS_VERSION=${{ needs.check.outputs.version }}");
+    const check = step("image", "Check the image's version");
+    const publish = step("image", "Push the verified image on a tag");
+    const imageSteps = job("image").join("\n");
+    expect(imageSteps.indexOf(check)).toBeLessThan(imageSteps.indexOf(publish));
+    scratch = mkdtempSync(join(tmpdir(), "release-image-version-"));
+    const bin = join(scratch, "bin");
+    mkdirSync(bin);
+    const log = join(scratch, "calls");
+    const output = join(scratch, "outputs");
+    writeFileSync(log, "");
+    writeFileSync(output, "");
+    writeFileSync(join(bin, "docker"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$CALLS"
+case "$1" in
+  run) echo "agent-harness $REPORTED" ;;
+  image) echo "$IMAGE_REFERENCE@sha256:fixture-digest" ;;
+esac
+`);
+    chmodSync(join(bin, "docker"), 0o755);
+    const commands = [check, publish].map((body) => body.split("        run: |\n")[1]?.replace(/^ {10}/gm, "") ?? "").join("\n");
+    const result = await run("bash", ["-euc", commands], { env: { ...process.env, PATH: `${bin}:${process.env["PATH"]}`, CALLS: log, REPORTED: reported, VERSION: "1.2.3-beta.2", IMAGE_REFERENCE: "example/image:1.2.3-beta.2", GITHUB_OUTPUT: output } }).then(() => 0, () => 1);
+    expect(result).toBe(reported === "0.0.0" ? 1 : 0);
+    expect(readFileSync(log, "utf8").includes("push example/image:1.2.3-beta.2")).toBe(reported !== "0.0.0");
+    expect(readFileSync(output, "utf8")).toBe(reported === "0.0.0" ? "" : "digest=sha256:fixture-digest\n");
   });
 
   it("builds three desktops on hosted runners, preserves the package checks, and transfers all three before assembling the release", () => {
