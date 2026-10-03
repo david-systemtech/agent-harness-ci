@@ -44,8 +44,13 @@ const MODELS: ScriptedEnvironment["models"] = [
 /** The part of the card under the list holding the defaults. */
 const defaults = () => within(step()).getByRole("region", { name: "Default account and model" });
 
-/** The option a picker has chosen, as it reads. */
-const chosen = (picker: HTMLElement) => within(picker).getByRole("option", { selected: true }).textContent;
+/** Choose a standing default through its staged popup. */
+const pickDefault = async (app: RenderedApp, name: string, value: string) => {
+  await app.user.click(await within(defaults()).findByRole("button", { name: new RegExp(`^${name}:`) }));
+  const picker = await screen.findByLabelText("New-session defaults");
+  await app.user.click(await within(picker).findByRole("menuitem", { name: value }));
+  await app.user.keyboard("{Escape}");
+};
 
 /** What desk was asked to write, in order. */
 const writes = (app: RenderedApp) => app.environment("desk").requests("settings.update").map((request) => request.params["values"]);
@@ -124,13 +129,13 @@ describe("the Account card in Set up", () => {
     expect(await within(card).findByText(/^Read-only: /)).toBeDefined();
     const personal = await within(card).findByRole("region", { name: "personal" });
     const offer = await within(card).findByRole("region", { name: /^Use the Claude Code sign-in/ });
-    await within(card).findByRole("combobox", { name: "Default account" });
+    await within(card).findByRole("button", { name: /^Default account:/ });
     for (const control of [
       within(card).getByRole("button", { name: "Sign in another account" }),
       within(offer).getByRole("button", { name: "Adopt" }),
       within(personal).getByRole("button", { name: "Sign in again" }),
       within(personal).getByRole("button", { name: "Remove…" }),
-      ...["Default account", "Model family", "Effort"].map((name) => within(card).getByRole("combobox", { name })),
+      ...["Default account", "Model family", "Effort"].map((name) => within(card).getByRole("button", { name: new RegExp(`^${name}:`) })),
     ]) {
       expect(control.hasAttribute("disabled"), control.textContent ?? "").toBe(true);
     }
@@ -194,16 +199,16 @@ describe("the Account card's defaults", () => {
   it("draws the default account, model family and effort under the list, each written through settings.update", async () => {
     const app = await opened({ accounts: [{ label: "personal" }, { label: "work" }], models: MODELS });
     const desk = app.environment("desk");
-    const account = await within(defaults()).findByRole("combobox", { name: "Default account" });
+    await within(defaults()).findByRole("button", { name: /^Default account:/ });
     expect(within(step()).getByRole("region", { name: "work" }).compareDocumentPosition(defaults()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The idle time is the row's, not the step card's.
     expect(within(defaults()).queryByRole("group", { name: "Stop idle agent processes after minutes" })).toBeNull();
 
-    await app.user.selectOptions(account, "work");
+    await pickDefault(app, "Default account", "work");
     await waitFor(() => expect(desk.settings()["accounts.defaultAccount"]).toBe("account-2"));
-    await app.user.selectOptions(within(defaults()).getByRole("combobox", { name: "Model family" }), "sonnet: claude-sonnet-5");
+    await pickDefault(app, "Model family", "claude-sonnet-5");
     await waitFor(() => expect(desk.settings()["accounts.defaultModelFamily"]).toBe("sonnet"));
-    await app.user.selectOptions(within(defaults()).getByRole("combobox", { name: "Effort" }), "medium");
+    await pickDefault(app, "Effort", "medium");
     await waitFor(() => expect(desk.settings()["accounts.defaultEffort"]).toBe("medium"));
     expect(writes(app)).toEqual([{ "accounts.defaultAccount": "account-2" }, { "accounts.defaultModelFamily": "sonnet" }, { "accounts.defaultEffort": "medium" }]);
   });
@@ -215,12 +220,12 @@ describe("the Account card's defaults", () => {
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
     await waitFor(() => expect(writes(app)).toEqual([{ "accounts.defaultModelFamily": "opus", "accounts.defaultEffort": "high" }]));
     expect(await within(defaults()).findByText("Model family set to opus at high effort, the strongest milo@example.test offers.")).toBeDefined();
-    await waitFor(() => expect(chosen(within(defaults()).getByRole("combobox", { name: "Model family" }))).toBe("opus: Claude Opus 5 (claude-opus-5)"));
-    expect(chosen(within(defaults()).getByRole("combobox", { name: "Effort" }))).toBe("high");
+    await within(defaults()).findByRole("button", { name: "Model family: Claude Opus 5" });
+    expect(within(defaults()).getByRole("button", { name: "Effort: high" })).toBeDefined();
 
     // Back to unset by hand, then a second account signed in: the card wrote its preset once.
-    await app.user.selectOptions(within(defaults()).getByRole("combobox", { name: "Model family" }), "The account's strongest model");
-    await app.user.selectOptions(within(defaults()).getByRole("combobox", { name: "Effort" }), "The model's own");
+    await pickDefault(app, "Model family", "The account's strongest model");
+    await pickDefault(app, "Effort", "The model's own");
     await waitFor(() => expect(desk.settings()["accounts.defaultEffort"]).toBeNull());
     await app.user.click(within(step()).getByRole("button", { name: "Sign in another account" }));
     await app.user.type(within(await screen.findByRole("dialog", { name: "Add an account on desk" })).getByRole("textbox", { name: "Label for the new account" }), "work{Enter}");
@@ -239,7 +244,7 @@ describe("the Account card's defaults", () => {
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
     expect(await within(step()).findByText("Adopted milo@example.test on desk.")).toBeDefined();
     await within(step()).findByRole("region", { name: "milo@example.test" });
-    await waitFor(() => expect(chosen(within(defaults()).getByRole("combobox", { name: "Effort" }))).toBe("medium"));
+    await within(defaults()).findByRole("button", { name: "Effort: medium" });
     expect(writes(app)).toEqual([]);
   });
 
