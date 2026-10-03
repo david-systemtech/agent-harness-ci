@@ -24,12 +24,23 @@ set -euo pipefail
 : "${GH_CI_TOKEN:?GH_CI_TOKEN is not set}" "${GROUP:?}" "${FORGEJO_RUN:=}"
 repo=${GH_CI_REPO:-david-systemtech/agent-harness-ci}
 api=https://api.github.com/repos/$repo
-sha=$(git rev-parse HEAD)
-id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 # A separate network job shares the transport, not the unit suite.
 event=${GH_CI_EVENT:-ci}
 case "$event" in ci | catalogue | gallery) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
+sha=$(git rev-parse HEAD)
+if [ "$event" = gallery ]; then
+  # This script and its sibling publisher stay checked out from the trusted base.
+  # Fetching objects for the public capture runner never checks out or runs PR code here.
+  [ "${GITHUB_EVENT_NAME:-}" = pull_request_target ] ||
+    { echo "::error::gallery publication requires a trusted pull_request_target workflow"; exit 1; }
+  [[ "${GH_CI_SHA:-}" =~ ^[0-9a-f]{40}$ ]] ||
+    { echo "::error::invalid gallery target sha"; exit 1; }
+  sha=$GH_CI_SHA
+  git fetch --quiet --no-tags origin "$sha"
+  git cat-file -e "$sha^{commit}"
+fi
+id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 
 # Each attempt has 120 s, enough for a 16 KB run reply at the site's measured 1.2 KB/s.
 # Retries start within 180 s; the last attempt can take another 120 s.
@@ -112,7 +123,7 @@ else
   elif [ -n "$part" ]; then rm -f "$part"; fi
 fi
 tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
-"$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="HEAD" . ||
+"$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="$sha" . ||
   { echo "::error::gitleaks found a secret; nothing was pushed to GitHub"; exit 1; }
 
 echo "Pushing $sha to $repo as ci/$id"
@@ -198,13 +209,12 @@ base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
 api = f'{base}/api/v1/repos/{repository}'
-package_token = os.environ.get('PACKAGES_TOKEN') or os.environ['FORGEJO_TOKEN']
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 opener = urllib.request.build_opener(NoRedirect())
-def absolute_request(url, method='GET', data=None, content_type='application/json', package=False):
+def absolute_request(url, method='GET', data=None, content_type='application/json', token=None):
     req = urllib.request.Request(url, data=data, method=method, headers={
-        'Authorization': 'token ' + (package_token if package else os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
+        'Authorization': 'token ' + (token or os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
     with opener.open(req, timeout=120) as response:
         reply = response.read()
         return json.loads(reply) if reply else None
@@ -233,6 +243,8 @@ with zipfile.ZipFile(sys.argv[1]) as z:
         required = [name + '.png']
         if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
         if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+package_token = os.environ.get('PACKAGES_TOKEN')
+if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
 comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
 stage = 'uploads'
 try:
@@ -267,13 +279,13 @@ try:
         name = scene['name'] + '.png'
         stage = f'capture storage {name}'
         download = f'{base}/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}'
-        try: absolute_request(download, 'PUT', images[name], 'image/png', package=True)
+        try: absolute_request(download, 'PUT', images[name], 'image/png', token=package_token)
         except urllib.error.HTTPError as error:
             if error.code != 409: raise
             # Reusing this report version is safe only when its bytes are identical.
             req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
             with opener.open(req, timeout=120) as response:
-                if response.read(4*1024*1024+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
+                if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
         captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
     manifest = {'head': head, 'version': version, 'captures': captures}
     body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
