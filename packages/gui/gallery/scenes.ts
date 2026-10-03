@@ -1,6 +1,4 @@
-import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { discoverScenes, type SceneModule } from "./scene-registry.js";
 
-/** One URL per scene. These scripts drive the same app and runtime as the GUI harness. */
-export const scenes: Readonly<Record<string, Script>> = {
-  "window-empty": { environments: [{ name: "desk", reach: "local", sessions: [] }] },
-};
+/** Each surface owns a scene file; adding one needs no registry edit. */
+export const scenes = discoverScenes(import.meta.glob<SceneModule>("./scenes/*.tsx", { eager: true }));
