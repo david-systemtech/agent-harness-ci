@@ -13,7 +13,8 @@ it("grid-two draws two real session captions with the workspace, branch, pull re
   expect(pane.getByRole("button", { name: "Pull request #12, open" })).toBeDefined();
   expect(pane.getByRole("button", { name: "Run info" }).closest("[data-caption-run-info]")?.getAttribute("title")).toBe("Run info · Ctrl+I");
   expect(screen.getAllByRole("button", { name: "Close the pane" })).toHaveLength(2);
-  expect(await screen.findByText("review")).toBeDefined();
+  const worktree = within(await screen.findByRole("note", { name: "Workspace: worktree ledger on review" }));
+  expect(worktree.getByText("review")).toBeDefined();
 });
 
 it("grid-drop reveals the real caption-drag targets with dashed labels", async () => {

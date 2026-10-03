@@ -19,7 +19,8 @@ export const presentation: Partial<PresentationValues> = { paneLayout: { focused
 
 /** docs/specs/look.md §9.3 and §10.1: gapped cards, multi-pane captions and compact controls. */
 export const geometry = [
-  { selector: "[data-grid-card]", width: 574, tolerance: 1 },
+  // The 245px sidebar and 7px separator leave equal cards in both capture sizes.
+  { selector: "[data-grid-card]", width: (window.innerWidth - 252) / 2, tolerance: 1 },
   { selector: "[data-pane-caption]", height: 32 },
   { selector: '[aria-label="Resize the panes"]', width: 7 },
   { selector: '[aria-label="Close the pane"]', width: 24, height: 24 },

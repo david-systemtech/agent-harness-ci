@@ -38,7 +38,8 @@ export default function GridDrop({ ladder }: { readonly ladder: LadderName }) {
 
 /** docs/specs/look.md §9.3: centre/right/bottom targets with dashed labels. */
 export const geometry = [
-  { selector: '[data-drop-zone][aria-label="Move to the right"]', width: 160, tolerance: 1 },
+  // The target occupies 28% of a card's content width, excluding its two borders.
+  { selector: '[data-drop-zone][aria-label="Move to the right"]', width: ((window.innerWidth - 252) / 2 - 2) * 0.28, tolerance: 1 },
   { selector: "[data-drop-label]" },
   { selector: "[data-pane-caption]", height: 32 },
 ];
