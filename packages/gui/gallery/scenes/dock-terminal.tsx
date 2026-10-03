@@ -4,7 +4,7 @@ import { geometry as dockGeometry, presentation as filesPresentation, script as 
 
 const session = filesPresentation.paneLayout!.rows[0]!.panes[0]!.session!;
 export const script: Script = { environments: [{ ...filesScript.environments[0]!, terminals: [{
-  id: "0199ee00-0000-4000-8000-000000000001", sessionId: session.sessionId,
+  id: "0199ee00-0000-4000-8000-000000000001", session: 0,
   output: "$ pnpm test\r\n\x1b[36mChecking receipt totals…\x1b[0m\r\n\x1b[32m12 checks passed\x1b[0m\r\n$ ",
 }] }] };
 export const presentation: Partial<PresentationValues> = {
