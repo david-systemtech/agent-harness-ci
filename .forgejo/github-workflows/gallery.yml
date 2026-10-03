@@ -41,21 +41,32 @@ jobs:
       # playwright's exact package version pins Chromium's revision. Never install it on the relay box.
       - run: pnpm --filter @agent-harness/gui exec playwright install --with-deps chromium
       - run: pnpm --filter @agent-harness/gui build-gallery
-      - run: pnpm --filter @agent-harness/gui capture-gallery
+      - name: Capture and check the gallery
+        id: capture
+        # Finish artifact delivery even when geometry or the enabled pixel gate fails.
+        continue-on-error: true
+        env:
+          GALLERY_PIXEL_BLOCKING: ${{ vars.GALLERY_PIXEL_BLOCKING || 'false' }}
+        run: pnpm --filter @agent-harness/gui capture-gallery
       - name: Optimise the PNGs losslessly
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
           optipng -o2 packages/gui/gallery-images/*.png
-          # 1.5 MiB of PNGs leaves room under the relay's 2 MiB ZIP cap.
-          test "$(du -cb packages/gui/gallery-images/*.png | tail -1 | cut -f1)" -le 1572864
-          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 30
+          # Leave room for ZIP headers under the relay's 32 MiB transport cap.
+          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 25165824
+          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 600
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: window-gallery
-          path: packages/gui/gallery-images/*.png
+          path: |
+            packages/gui/gallery-images/*.png
+            packages/gui/gallery-images/*.json
           compression-level: 9
           retention-days: 7
           if-no-files-found: error
+      - name: Enforce geometry and the enabled pixel gate
+        if: steps.capture.outcome == 'failure'
+        run: exit 1
   cleanup:
     needs: [gallery]
     if: always()

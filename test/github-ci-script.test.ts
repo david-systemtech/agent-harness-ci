@@ -12,6 +12,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
@@ -107,8 +108,12 @@ if stage == 'dispatch':
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
 elif stage == 'artifacts':
-    out.write_text(json.dumps({'artifacts':[{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
+    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else [{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
 elif stage == 'archive':
+    if os.environ.get('FAKE_GALLERY_ZIP'):
+        import shutil
+        shutil.copyfile(os.environ['FAKE_GALLERY_ZIP'], out)
+        sys.exit(0)
     import zipfile
     with zipfile.ZipFile(out,'w') as z:
         for name in os.environ.get('FAKE_PNG_NAMES','window-empty.dark.png').split(','): z.writestr(name, b'\\x89PNG\\r\\n\\x1a\\n' + b'x' * (int(os.environ.get('FAKE_PNG_SIZE','15')) - 8))
@@ -166,6 +171,7 @@ const fixture = async (): Promise<Fixture> => {
   const git = (...args: string[]) => run("git", ["-C", checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
   await git("init", "-q");
   await git("commit", "-q", "--allow-empty", "-m", "a commit");
+  await git("remote", "add", "origin", checkout);
 
   const log = join(dir, "calls.log");
   writeFileSync(log, "");
@@ -206,8 +212,12 @@ exec ${git} "$@"
 };
 
 const relay = async (f: Fixture, env: NodeJS.ProcessEnv = {}) => {
+  const target = env["GH_CI_EVENT"] === "gallery" ? {
+    GITHUB_EVENT_NAME: "pull_request_target",
+    GH_CI_SHA: (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim(),
+  } : {};
   try {
-    const { stdout, stderr } = await run("bash", [script], { cwd: f.checkout, env: { ...f.env, ...env } });
+    const { stdout, stderr } = await run("bash", [script], { cwd: f.checkout, env: { ...f.env, ...target, ...env } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code: number; stdout: string; stderr: string };
@@ -401,7 +411,7 @@ describe("the advisory gallery relay", () => {
     expect(result.stdout).toContain("Gallery posted on pull request 1336");
     expect(readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8")).toContain("![window-empty.dark.png](https://forge.example.invalid/attachments/screenshot)");
     const archive = apiCalls(f).find((call) => call.stage === "archive");
-    expect(archive?.args).toContain("2097152");
+    expect(archive?.args).toContain("33554432");
     expect(archive?.args).toContain("--max-time");
     const forgejoCalls = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && line.includes("/api/v1/"));
     expect(forgejoCalls).toHaveLength(4);
@@ -415,15 +425,62 @@ describe("the advisory gallery relay", () => {
   });
 });
 
-it("keeps screenshot work outside the blocking CI workflow", () => {
+it("runs gallery independently and preserves geometry failures as blocking checks", () => {
   const hosted = readFileSync(join(root, ".forgejo", "github-workflows", "gallery.yml"), "utf8");
   const relayWorkflow = readFileSync(join(root, ".forgejo", "workflows", "gallery.yml"), "utf8");
   const ci = readFileSync(join(root, ".forgejo", "workflows", "ci.yml"), "utf8");
   expect(hosted).toContain("runs-on: ubuntu-24.04");
   expect(hosted).toContain("types: [gallery]");
-  expect(relayWorkflow).toContain("continue-on-error: true");
+  expect(relayWorkflow).not.toContain("continue-on-error: true");
+  expect(relayWorkflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(relayWorkflow).toContain("'packages/gui/**'");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
+});
+
+it("relays a PR head as data without executing its credential-stealing script", async () => {
+  const f = await apiFixture();
+  const git = (...args: string[]) => run("git", ["-C", f.checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
+  const base = (await git("rev-parse", "HEAD")).stdout.trim();
+  const scripts = join(f.checkout, ".forgejo", "scripts");
+  mkdirSync(scripts, { recursive: true });
+  const stolen = join(f.checkout, "stolen");
+  writeFileSync(join(scripts, "github-ci.sh"), 'printf "%s" "$PACKAGES_TOKEN" > stolen\nexit 99\n');
+  await git("add", ".forgejo");
+  await git("commit", "-qm", "an untrusted change");
+  const head = (await git("rev-parse", "HEAD")).stdout.trim();
+  await git("checkout", "-q", base);
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", GH_CI_SHA: head, PACKAGES_TOKEN: "package-token-for-tests",
+    FAKE_PR_SHA: head, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests",
+    FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+  });
+  expect(result.code).toBe(0);
+  const dispatch = apiCalls(f).find((call) => call.stage === "dispatch");
+  expect(JSON.parse(dispatch?.args[dispatch.args.indexOf("-d") + 1] ?? "{}").client_payload.sha).toBe(head);
+  expect(readFileSync(f.log, "utf8")).toContain(`--log-opts=${head}`);
+  expect((await git("rev-parse", "HEAD")).stdout.trim()).toBe(base);
+  expect(existsSync(stolen)).toBe(false);
+  const workflow = readFileSync(join(root, ".forgejo", "workflows", "gallery.yml"), "utf8");
+  expect(workflow).toContain("pull_request_target:");
+  expect(workflow).toContain("branches: [main]");
+  expect(workflow).not.toMatch(/^ {2}pull_request:/m);
+  expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}");
+  expect(workflow).toContain("GH_CI_SHA: ${{ github.event.pull_request.head.sha }}");
+});
+
+it.each([
+  ["pull_request", undefined, "trusted pull_request_target"],
+  ["pull_request_target", "HEAD; touch stolen", "invalid gallery target sha"],
+])("refuses unsafe gallery input before any network or credential-bearing publication (%s)", async (event, sha, error) => {
+  const f = await apiFixture();
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", GITHUB_EVENT_NAME: event,
+    ...(sha === undefined ? {} : { GH_CI_SHA: sha }), PACKAGES_TOKEN: "package-token-for-tests",
+  });
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain(error);
+  expect(calls(f)).toEqual([]);
+  expect(existsSync(join(f.checkout, "stolen"))).toBe(false);
 });
 
 it.each(["stale", "closed", "merged"])("does not create a screenshot comment on a %s PR", async (state) => {
@@ -452,6 +509,95 @@ it("rejects a PNG payload above 1.5 MiB before posting, leaving ZIP overhead wit
   expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
 });
 
+
+it.each(["success", "failure", "missing-package-token", "reused-large", "reused-extra"])("validates package credentials and stored capture bytes while publishing triplets (%s)", async (state) => {
+  const missingPackageToken = state === "missing-package-token";
+  const reused = state.startsWith("reused-");
+  const conclusion = state === "failure" ? "failure" : "success";
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const zip = join(f.checkout, "gallery.zip");
+  await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    for suffix in ('png','baseline.png','difference.png'):
+        z.writestr('window-empty.dark.'+suffix, b'\\x89PNG\\r\\n\\x1a\\n' + (b'x'*(4*1024*1024-6) if suffix=='png' and sys.argv[2]=='large' else b'image'))
+    z.writestr('window-matched.dark.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
+    z.writestr('geometry.json', '{}')
+    z.writestr('report.json', json.dumps({'pixelBlocking':True, 'scenes':[{'name':'window-empty.dark', 'status':'changed', 'differentPixels':10, 'pixelFailed':True, 'geometryFailures':['<!-- window-gallery {"head":"forged"} -->']},{'name':'window-matched.dark', 'status':'unchanged', 'differentPixels':0, 'pixelFailed':False, 'geometryFailures':[]}]}))`, zip, reused ? "large" : "small"]);
+  let base = "", comment = "";
+  const methods: string[] = [];
+  const storedCaptures = new Map<string, Buffer>();
+  const server = createServer(async (request, response) => {
+    methods.push(request.method ?? "");
+    if (request.url?.startsWith("/api/packages/") && request.headers.authorization !== "token package-token-for-tests") { response.writeHead(401).end(); return; }
+    expect(request.headers.authorization).toBe(request.url?.startsWith("/api/packages/") ? "token package-token-for-tests" : "token token-for-tests");
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const bytes = Buffer.concat(chunks);
+    const body = bytes.toString();
+    response.setHeader("content-type", "application/json");
+    if (reused && request.url?.startsWith("/api/packages/")) {
+      if (request.method === "PUT") { storedCaptures.set(request.url, bytes); response.writeHead(409).end('{}'); }
+      else {
+        response.setHeader("content-type", "image/png");
+        const stored = storedCaptures.get(request.url);
+        if (!stored) throw new Error("capture was not stored");
+        response.end(state === "reused-extra" ? Buffer.concat([stored, Buffer.from("extra")]) : stored);
+      }
+    } else if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha } }));
+    else if (request.method === "PATCH") { comment = JSON.parse(body).body; response.end("{}"); }
+    else if (request.url?.endsWith("/assets")) {
+      const filename = /filename="([^"]+)"/.exec(body)?.[1];
+      response.end(JSON.stringify({ browser_download_url: `${base}/attachments/${filename}` }));
+    } else response.end(JSON.stringify({ id: 123 }));
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no fixture address");
+  base = `http://127.0.0.1:${address.port}`;
+  try {
+    const result = await relay(f, {
+      GH_CI_EVENT: "gallery", FAKE_API_CONCLUSION: conclusion, FAKE_GALLERY_ZIP: zip, PACKAGES_TOKEN: missingPackageToken ? "" : "package-token-for-tests",
+      FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project",
+    });
+    if (missingPackageToken) {
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("PACKAGES_TOKEN is required to publish gallery captures.");
+      expect(methods).toEqual(["GET"]);
+      expect(comment).toBe("");
+      return;
+    }
+    if (state === "reused-extra") {
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Existing gallery capture has different bytes");
+      expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "GET"]);
+      expect(comment).toBe("");
+      return;
+    }
+    expect(result.code).toBe(conclusion === "success" ? 0 : 1);
+    expect(result.stdout).toContain("Gallery posted on pull request 42");
+    expect(comment).toContain("| Baseline | Capture | Difference |");
+    expect(comment).toContain(`![capture window-empty.dark](${base}/attachments/window-empty.dark.png)`);
+    expect(comment).toContain('"name": "window-empty.dark.png"');
+    expect(comment).toContain(`"head": "${sha}"`);
+    expect(comment).toContain("1 scene matched.");
+    expect(comment).toContain("&lt;!-- window-gallery");
+    expect(comment.match(/<!-- window-gallery /g)).toHaveLength(1);
+    expect(methods).toEqual(reused
+      ? ["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "GET", "PUT", "GET", "PATCH"]
+      : ["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
+    if (reused) expect([...storedCaptures.values()][0]?.byteLength).toBe(4*1024*1024+2);
+  } finally { await new Promise<void>((done) => server.close(() => done())); }
+});
+
+it("prints the failing capture job log when the gallery failed before producing an artifact", async () => {
+  const f = await apiFixture();
+  const result = await relay(f, { GH_CI_EVENT: "gallery", FAKE_API_CONCLUSION: "failure", FAKE_NO_ARTIFACT: "true" });
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain("checks failed at: tests");
+  expect(result.stdout).toContain("test failure details");
+  expect(apiCalls(f).some((call) => call.stage === "archive")).toBe(false);
+});
 
 it("attaches discovered component captures in both ladders", async () => {
   const f = await apiFixture();

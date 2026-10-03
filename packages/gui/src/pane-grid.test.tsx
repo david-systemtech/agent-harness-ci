@@ -151,7 +151,7 @@ describe("eight panes", () => {
     await app.user.pointer({ keys: "[MouseRight]", target: row("Fix the rail") });
     const menu = await screen.findByRole("menu", { name: "Organise “Fix the rail”" });
     const item = within(menu).getByRole("menuitem", { name: /^Open in a new pane/ });
-    expect(item.textContent).toBe("Open in a new paneThe grid holds eight panes; close one first.");
+    expect(item.textContent).toBe("Open in a new paneOThe grid holds eight panes; close one first.");
     expect(item.getAttribute("aria-disabled")).toBe("true");
     await app.user.keyboard("{Escape}");
 
