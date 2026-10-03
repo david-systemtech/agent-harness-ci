@@ -37,6 +37,18 @@ describe("observables", () => {
     expect(seen).toEqual([2, 3]);
   });
 
+  it("notifies a derived value when an earlier source listener already read its new value", () => {
+    const source = writable(1);
+    const doubled = derived([source], (n) => n * 2);
+    const stopReader = source.subscribe(() => doubled.read());
+    const seen: number[] = [];
+    const stop = doubled.subscribe((value) => seen.push(value));
+    source.set(2);
+    expect(seen).toEqual([4]);
+    stop();
+    stopReader();
+  });
+
   it("derive from others and keep one reference between changes", () => {
     const a = writable(1);
     const b = writable("x");

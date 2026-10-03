@@ -83,6 +83,7 @@ describe("the browser dock", () => {
     expect(app.shell.calls.filter(([name]) => name === "webView.create")).toHaveLength(1);
     await app.user.keyboard("{Control>},{/Control}");
     await screen.findByRole("region", { name: "Settings" });
+    await waitFor(() => expect(app.shell.calls.at(-1)).toEqual(["webView.hide", "view-1"]));
     expect(app.shell.calls.some(([name]) => name === "webView.destroy")).toBe(false);
     await app.user.keyboard("{Escape}");
     await screen.findByRole("region", { name: "Browser" });

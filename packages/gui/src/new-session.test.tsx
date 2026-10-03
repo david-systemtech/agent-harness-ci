@@ -171,9 +171,12 @@ describe("New session in the focused pane", () => {
     expect(grid()).toEqual([["*+"]]);
     await chipsRead(() => surfaces()[0] as HTMLElement, TRAIN_CHIPS);
 
-    // Over Settings, the window goes back to the grid, the new surface's message box taking the focus.
+    // Settings contains keys; close it before adding a pane.
     await app.user.keyboard("{Control>},{/Control}");
     await screen.findByRole("region", { name: "Settings" });
+    await app.user.keyboard(NEW_IN_PANE);
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeDefined();
+    await app.user.keyboard("{Control>},{/Control}");
     await app.user.keyboard(NEW_IN_PANE);
     expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     expect(grid()).toEqual([["+", "*+"]]);

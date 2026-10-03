@@ -35,7 +35,7 @@ const rail = () => within(settings() as HTMLElement).getByRole("navigation", { n
 const rows = () =>
   within(rail())
     .queryAllByRole("button")
-    .map((row) => row.textContent);
+    .map((row) => row.getAttribute("aria-label"));
 
 /** Opens Settings with Mod+, as a person does. */
 const openSettings = async (app: RenderedApp) => {
@@ -44,6 +44,27 @@ const openSettings = async (app: RenderedApp) => {
 };
 
 describe("Settings", () => {
+  it("opens a named modal over the mounted session window and contains focus and background keys", async () => {
+    const app = await opened();
+    const background = screen.getByText("No session is open. Choose one from the sidebar.");
+    await openSettings(app);
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
+    expect(within(dialog).getByText("Changes apply to future runs. Appearance changes apply immediately.")).toBeDefined();
+    expect(background.isConnected).toBe(true);
+    expect(document.activeElement).toBe(within(dialog).getByRole("searchbox", { name: "Search settings" }));
+    await app.user.keyboard("{Control>}n{/Control}{Control>}\\{/Control}");
+    expect(screen.queryByRole("dialog", { name: "New session" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBe(dialog);
+    const close = within(dialog).getByRole("button", { name: "Close Settings" });
+    act(() => close.focus());
+    await app.user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+    expect(background.isConnected).toBe(true);
+  });
+
   it("gives dim rail rows a transparent hover background while active rows keep their wash", async () => {
     const app = await opened();
     await openSettings(app);
@@ -117,6 +138,19 @@ describe("Settings", () => {
     await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
     expect(settings()).toBeNull();
     expect(await screen.findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
+  });
+
+  it("keeps the selected pane when search filters its row out and offers Clear search", async () => {
+    const app = await opened();
+    await openSettings(app);
+    await openRow(app, "Accounts");
+    const search = within(rail()).getByRole("searchbox", { name: "Search settings" });
+    await app.user.type(search, "secrets");
+    expect(rows()).toEqual(["Key managers"]);
+    expect(within(pane("Accounts")).getByRole("heading", { name: "Accounts" })).toBeDefined();
+    await app.user.click(within(pane("Accounts")).getByRole("button", { name: "Clear search" }));
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(within(rail()).getByRole("button", { name: "Accounts" }).getAttribute("aria-current")).toBe("page");
   });
 
   it("finds a row by its old name as its search is typed at, across the bands: secrets finds Key managers, cerebro Memory banks", async () => {
@@ -243,6 +277,8 @@ describe("an unreachable environment", () => {
     const laptop = app.environment("laptop");
     laptop.discovery("nothing");
     laptop.server.drop();
+    await waitFor(() => expect(app.runtime.projections.environments.read().find((view) => view.name === "laptop")?.unreachableSince).not.toBeNull());
+
     expect(await within(service).findByText(/^Unreachable since \d\d:\d\d: the values this window last read, read-only\.$/)).toBeDefined();
     const cached = within(field(service, "sessions.autoSettleOnMerge")).getByRole("switch");
     expect(cached.getAttribute("aria-checked")).toBe("true");
@@ -431,7 +467,8 @@ describe("the command palette", () => {
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
     expect(await screen.findByRole("region", { name: "Memory banks" })).toBeDefined();
 
-    // Open or close Settings is the window's, listed with its key.
+    // The palette opens from the session window after closing the modal.
+    await app.user.keyboard("{Control>},{/Control}");
     await app.user.keyboard("{Control>}k{/Control}");
     expect(entriesUnder("Anywhere")).toContain("Open or close SettingsCtrl+,");
   });
