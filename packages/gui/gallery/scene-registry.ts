@@ -9,6 +9,8 @@ export interface SceneGeometry {
   readonly selector: string;
   /** Apply this measurement only at the named capture viewport width. */
   readonly viewport?: number;
+  /** Require the whole element inside this scrollport and the capture viewport. */
+  readonly visibleWithin?: string;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;

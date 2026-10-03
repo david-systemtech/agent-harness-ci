@@ -35,6 +35,8 @@ async function fixture(mode = "current") {
     else if (request.url?.includes("/comments")) {
       const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
       const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
+      if (mode === "scoped" || mode === "many-scoped") captures.push({ name: "settings-browser.light.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/settings-browser.light.png`, sha256: createHash("sha256").update(png).digest("hex") });
+      if (mode === "many-scoped") captures.push(...Array.from({ length: 238 }, (_, index) => ({ name: `scene-${index}.dark.png`, url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/scene-${index}.dark.png`, sha256: createHash("sha256").update(png).digest("hex") })));
       if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
       const manifest = { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
@@ -145,4 +147,33 @@ it("accepts a valid capture larger than 4 MiB within the gallery report budget",
   expect(f.image.byteLength).toBeGreaterThan(4 * 1024 * 1024);
   await run("bash", [script, "42"], { env: f.env });
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(f.image);
+});
+
+
+it("accepts only explicitly reviewed capture filenames and preserves unrelated baselines", async () => {
+  const f = await fixture("scoped");
+  const baselines = join(f.folder, "packages/gui/gallery/baselines");
+  mkdirSync(baselines, { recursive: true });
+  writeFileSync(join(baselines, "window-empty.dark.png"), "prior baseline");
+  const result = await run("bash", [script, "42", "settings-browser.light.png"], { env: f.env });
+  expect(readFileSync(join(baselines, "settings-browser.light.png"))).toEqual(png);
+  expect(readFileSync(join(baselines, "window-empty.dark.png"), "utf8")).toBe("prior baseline");
+  expect(f.requests.some((url) => url.endsWith("/window-empty.dark.png"))).toBe(false);
+  expect(result.stdout).not.toContain("window-empty.dark.png");
+});
+
+
+it.each(["missing.dark.png", "../settings-browser.light.png"])("refuses an unavailable or unsafe selection %s before downloading or writing", async (name) => {
+  const f = await fixture("scoped");
+  await expect(run("bash", [script, "42", name], { env: f.env })).rejects.toThrow();
+  expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+
+it("accepts a reviewed pane from a hosted report with more than 200 captures", async () => {
+  const f = await fixture("many-scoped");
+  await run("bash", [script, "42", "settings-browser.light.png"], { env: f.env });
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/settings-browser.light.png"))).toEqual(png);
+  expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(1);
 });

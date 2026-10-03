@@ -84,3 +84,20 @@ it.each([[1400, 920], [1024, 777]])("checks responsive scene geometry at viewpor
   button.remove();
   expect(measureSceneGeometry()).toEqual(["button: no matching elements", "button: no matching elements"]);
 });
+
+
+it("rejects a correctly sized control clipped by its scrolling pane", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "button", height: 32, visibleWithin: "section" }]);
+  root.innerHTML = "<section><button>Stop</button></section>";
+  document.body.append(root);
+  vi.spyOn(root.querySelector("section")!, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 100, 500, 400));
+  const button = vi.spyOn(root.querySelector("button")!, "getBoundingClientRect");
+  button.mockReturnValue(new DOMRect(20, 490, 80, 32));
+  expect(measureSceneGeometry()).toEqual(["button[0]: clipped outside section"]);
+  button.mockReturnValue(new DOMRect(20, 450, 80, 32));
+  expect(measureSceneGeometry()).toEqual([]);
+  button.mockReturnValue(new DOMRect(20, 110, 0, 0));
+  expect(measureSceneGeometry()).toContain("button[0]: clipped outside section");
+});
