@@ -72,6 +72,22 @@ describe("the Files pane", () => {
     expect(within(pane("Files")).queryByRole("button", { name: "README.md" })).toBeNull();
   });
 
+  it("shows sizes only after reading, even for filenames matching object properties", async () => {
+    const names = ["constructor", "toString", "__proto__"];
+    const { app } = await opened({ files: names, fileContents: Object.fromEntries(names.map((name) => [name, "ok\n"])) });
+    await write(app, "/files{Enter}");
+    await within(pane("Files")).findByRole("button", { name: "constructor" });
+    expect(rows()).toEqual(["__proto__", "constructor", "toString"]);
+    for (const name of names) {
+      await app.user.click(within(pane("Files")).getByRole("button", { name }));
+      await within(pane("Files")).findByRole("heading", { name: `${name} · 3 bytes` });
+      await app.user.click(within(pane("Files")).getByRole("button", { name: "Back to The workspace" }));
+      expect(within(pane("Files")).getByRole("button", { name: `${name} 3 bytes` })).toBeDefined();
+    }
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Refresh files" }));
+    await waitFor(() => expect(rows()).toEqual(["__proto__", "constructor", "toString"]));
+  });
+
   it("pins a file for reopening, numbers its lines and copies its complete text without the gutter", async () => {
     const { app } = await opened();
     await write(app, "/files src/app.tsx{Enter}");
@@ -87,6 +103,29 @@ describe("the Files pane", () => {
     await app.user.click(within(pane("Files")).getByRole("button", { name: "Unpin file" }));
     await app.user.click(within(pane("Files")).getByRole("button", { name: "Back to src/" }));
     expect(within(pane("Files")).queryByRole("button", { name: "Open pinned src/app.tsx" })).toBeNull();
+  });
+
+  it("keeps ten pins scrollable within a short pane and reopens the last one by keyboard", async () => {
+    const names = Array.from({ length: 10 }, (_, i) => `note-${i}.txt`);
+    const { app } = await opened({ files: names, fileContents: Object.fromEntries(names.map((name) => [name, "ok\n"])) });
+    await write(app, "/files{Enter}");
+    await within(pane("Files")).findByRole("button", { name: "note-0.txt" });
+    pane("Files").style.height = "220px";
+    for (const name of names) {
+      await app.user.click(within(pane("Files")).getByRole("button", { name }));
+      await within(pane("Files")).findByText("1 line");
+      await app.user.click(within(pane("Files")).getByRole("button", { name: "Pin file" }));
+      await app.user.click(within(pane("Files")).getByRole("button", { name: "Back to The workspace" }));
+    }
+    const pins = within(pane("Files")).getByRole("region", { name: "Pinned files" });
+    expect(within(pins).getAllByRole("button")).toHaveLength(10);
+    expect(getComputedStyle(pins).maxHeight).toBe("96px");
+    expect(getComputedStyle(pins).overflowY).toBe("auto");
+    expect(rows()).toEqual(names.map((name) => `${name} 3 bytes`));
+    act(() => within(pins).getByRole("button", { name: "Open pinned note-9.txt" }).focus());
+    await app.user.keyboard("{Enter}");
+    expect(await within(pane("Files")).findByRole("heading", { name: "note-9.txt · 3 bytes" })).toBeDefined();
+    expect(within(pane("Files")).getByRole("button", { name: "Unpin file" })).toBeDefined();
   });
 
   it("refuses whole-file copy for partial reads and for a clipped display", async () => {

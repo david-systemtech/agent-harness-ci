@@ -49,7 +49,7 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
   const runtime = useRuntime();
   // File-view shortcuts are pane-local presentation, independent of session organisation.
   const [savedFiles, setSavedFiles] = useState<readonly string[]>([]);
-  const [readSizes, setReadSizes] = useState<Readonly<Record<string, number>>>({});
+  const [readSizes, setReadSizes] = useState<ReadonlyMap<string, number>>(() => new Map());
   const listing = useObservable(useMemo(() => runtime.requests.cached(environmentId, "files.list", { sessionId }), [runtime, environmentId, sessionId]));
   const rows = useMemo(() => (listing.result === null ? null : browse(listing.result.files, place.directory, "")), [listing.result, place.directory]);
   const currentFile = place.file;
@@ -59,7 +59,7 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
         environmentId={environmentId}
         sessionId={sessionId}
         path={currentFile}
-        sized={(size) => setReadSizes((held) => ({ ...held, [currentFile]: size }))}
+        sized={(size) => setReadSizes((held) => new Map(held).set(currentFile, size))}
         pinned={savedFiles.includes(currentFile)}
         pin={() => setSavedFiles((held) => held.includes(currentFile) ? held.filter((path) => path !== currentFile) : [...held, currentFile])}
         back={() => go({ directory: place.directory, file: null })}
@@ -75,9 +75,9 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
           size="icon-xs" onClick={() => go({ directory: directoryOf(place.directory), file: null })}><ArrowLeft aria-hidden="true" /></IconButton>
         <Folder aria-hidden="true" className="size-3.5 shrink-0 text-beam-text" />
         <h3 title={directoryName(place.directory)} className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{directoryName(place.directory)}</h3>
-        <IconButton label="Refresh files" keys="Enter / Space" size="icon-xs" onClick={() => { setReadSizes({}); runtime.requests.refresh(environmentId, "files.list", { sessionId }); }}><RefreshCw aria-hidden="true" /></IconButton>
+        <IconButton label="Refresh files" keys="Enter / Space" size="icon-xs" onClick={() => { setReadSizes(new Map()); runtime.requests.refresh(environmentId, "files.list", { sessionId }); }}><RefreshCw aria-hidden="true" /></IconButton>
       </div>
-      {savedFiles.length > 0 && <div aria-label="Pinned files" className="flex shrink-0 flex-col border-b border-hairline p-1">
+      {savedFiles.length > 0 && <div role="region" aria-label="Pinned files" style={{ maxHeight: 96, overflowY: "auto" }} className="flex shrink-0 flex-col border-b border-hairline p-1">
         {savedFiles.map((path) => <Tooltip key={path} content={`Open pinned ${path} · Enter / Space`}><Button aria-label={`Open pinned ${path}`} size="xs" className="justify-start" onClick={() => go({ directory: directoryOf(path), file: path })}><Pin aria-hidden="true" /><span className="truncate font-mono">{path}</span></Button></Tooltip>)}
       </div>}
       {listing.result?.truncated === true && (
@@ -91,6 +91,7 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
         <ul aria-label={`In ${directoryName(place.directory)}`} className="min-h-0 flex-1 overflow-y-auto p-[6px]">
           {rows.map((row) => {
             const { icon: Icon, colour } = row.kind === "file" ? fileIcon(row.path) : { icon: row.kind === "up" ? CornerLeftUp : Folder, colour: "text-beam-text" };
+            const size = readSizes.get(row.path);
             return <li key={`${row.kind} ${row.path}`}>
               <Tooltip content={`${row.kind === "up" ? `Up to ${directoryName(row.path)}` : row.path} · Enter / Space to open`}>
                 <button type="button" aria-label={row.kind === "up" ? `Up to ${directoryName(row.path)}` : undefined}
@@ -98,7 +99,7 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
                   onClick={() => go(row.kind === "file" ? { directory: place.directory, file: row.path } : { directory: row.path, file: null })}>
                   <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${colour}`} />
                   <span className="min-w-0 flex-1 truncate">{row.name}</span>
-                  {row.kind === "file" && readSizes[row.path] !== undefined && <>{" "}<span className="shrink-0 font-mono text-2xs text-ink-faint">{formatBytes(readSizes[row.path]!)}</span></>}
+                  {row.kind === "file" && size !== undefined && <>{" "}<span className="shrink-0 font-mono text-2xs text-ink-faint">{formatBytes(size)}</span></>}
                   {row.kind === "dir" && <>{" "}<span className="shrink-0 font-mono text-2xs text-ink-faint">{`${String(row.files)} ${row.files === 1 ? "file" : "files"}`}</span></>}
                 </button>
               </Tooltip>
