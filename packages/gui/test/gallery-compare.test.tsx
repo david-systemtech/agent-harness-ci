@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { sceneFiles } from "../gallery/capture-plan.js";
 import { captureName, compareCapture, geometryFailures } from "../gallery/compare.js";
 
 const require = createRequire(new URL("../package.json", import.meta.url));
@@ -15,6 +16,13 @@ const image = (width = 100, height = 100, changed = 0) => {
   for (let i = 0; i < changed; i++) data.fill(0, i * 4, i * 4 + 3);
   return PNG.sync.write({ width, height, data });
 };
+
+it("plans distinct captures for every run-picker scene and viewport", async () => {
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter((scene) => scene.startsWith("run-picker"));
+  expect(scenes).toHaveLength(2);
+  const names = scenes.flatMap((scene) => [captureName(scene, 1400), captureName(scene, 1024)]);
+  expect(new Set(names).size).toBe(4);
+});
 
 describe("gallery comparisons", () => {
   it("detects changed pixels and produces a difference image", () => {

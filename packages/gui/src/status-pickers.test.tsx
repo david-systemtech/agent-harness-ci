@@ -175,7 +175,7 @@ describe("the model picker", () => {
   it("bounds narrow choices as a dialog and preserves the selection when going back", async () => {
     const previousWidth = globalThis.window.innerWidth;
     Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 480 });
-    onTestFinished(() => Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: previousWidth }));
+    onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: previousWidth }); });
     const { app } = await opened([desk({ models })]);
     const trigger = within(statusLine()).getByRole("button", { name: /^Model:/ });
     act(() => trigger.focus());

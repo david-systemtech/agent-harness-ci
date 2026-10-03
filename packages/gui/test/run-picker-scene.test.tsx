@@ -28,7 +28,7 @@ it.each(["light", "dark"] as const)("shows the run-picker columns and geometry i
 it("shows the same choices in a bounded narrow dialog with Back", async () => {
   const container = document.createElement("div");
   document.body.append(container);
-  const gallery = await mountGallery(container, "run-picker-narrow");
+  const gallery = await mountGallery(container, "run-picker-compact");
   close = gallery.close;
   const dialog = await screen.findByRole("dialog", { name: "Run choices" });
   expect(within(dialog).getByRole("button", { name: "Back to accounts" })).toBeDefined();
