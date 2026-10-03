@@ -34,20 +34,12 @@ export const EnvironmentGlyph = ({ view, label }: { readonly view: EnvironmentVi
     );
   }
   return (
-    <svg
+    <glyph.Icon
       role="img"
       aria-label={label ?? glyph.icon}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
       style={style}
       className={classes("size-3.5 shrink-0", accent)}
-    >
-      {glyph.drawing}
-    </svg>
+    />
   );
 };
 
