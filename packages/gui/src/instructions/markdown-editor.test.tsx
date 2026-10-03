@@ -57,6 +57,44 @@ describe("instruction Markdown editing", () => {
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("A habit");
     expect(change).toHaveBeenLastCalledWith("## A habit");
   });
+  it.each([
+    "| Action | Rule |\n| --- | --- |\n| Review | Always |",
+    "![Guide](https://example.test/guide.png)",
+  ])("preserves unsupported Markdown when another sentence changes: %s", (markdown) => {
+    const value = `A habit\n\n${markdown}`;
+    const change = vi.fn();
+    render(<MarkdownField value={value} change={change} />);
+    const textbox = screen.getByRole("textbox", { name: "Markdown body" });
+    expect(textbox).toHaveProperty("value", value);
+    expect(change).not.toHaveBeenCalled();
+    const edited = `A revised habit\n\n${markdown}`;
+    fireEvent.change(textbox, { target: { value: edited } });
+    expect(change).toHaveBeenLastCalledWith(edited);
+  });
+  it("preserves an unsupported document loaded after the editor mounts, including read-only changes", () => {
+    const change = vi.fn();
+    const view = render(<MarkdownField value="A habit" change={change} />);
+    const value = "![Guide](https://example.test/guide.png)";
+    view.rerender(<MarkdownField value={value} change={change} disabled />);
+    const textbox = screen.getByRole("textbox", { name: "Markdown body" });
+    expect(textbox).toHaveProperty("value", value);
+    expect(textbox).toHaveProperty("readOnly", true);
+    fireEvent.change(textbox, { target: { value: "An edit" } });
+    expect(change).not.toHaveBeenCalled();
+    view.rerender(<MarkdownField value={value} change={change} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: `${value}\n\nAn edit` } });
+    expect(change).toHaveBeenLastCalledWith(`${value}\n\nAn edit`);
+  });
+  it("enforces the Markdown limit in source editing while permitting oversized drafts to shrink", () => {
+    const value = "![Guide](https://example.test/guide.png)";
+    const change = vi.fn();
+    render(<MarkdownEditor value={value} change={change} maxLength={5} />);
+    const textbox = screen.getByRole("textbox");
+    fireEvent.change(textbox, { target: { value: `${value}!` } });
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.change(textbox, { target: { value: "![Guide](guide.png)" } });
+    expect(change).toHaveBeenLastCalledWith("![Guide](guide.png)");
+  });
   it("tracks toolbar state when the caret moves without changing Markdown", async () => {
     vi.useFakeTimers();
     try {

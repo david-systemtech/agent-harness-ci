@@ -1,7 +1,8 @@
 import { DENYLIST_SECTION_NAMES, editedSection, listWords, sectionHasPresets, sectionHolds, type DenylistEdit, type EnvironmentView } from "@agent-harness/client-runtime";
 import { DENYLIST_SECTIONS, type DenylistEntry, type DenylistSection } from "@agent-harness/contracts";
+import { FileCode, Pencil, Plus, RotateCcw, Save, ShieldAlert, Text, Trash2, X } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
-import { Button, Dialog, DialogClose, DialogContent, Input, Switch } from "../ui/index.js";
+import { Button, Dialog, DialogClose, DialogContent, Input, Switch, Tooltip } from "../ui/index.js";
 import { DenylistTest } from "./denylist-test.js";
 import { Part } from "../settings/part.js";
 import type { DenylistValues } from "./use-denylist.js";
@@ -78,18 +79,18 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
   };
 
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-md border border-line p-3">
-      <header className="flex items-center justify-between gap-3">
-        <h4 id={heading} className="text-sm font-semibold text-ink">
-          {name}
+    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <h4 id={heading} className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+          <ShieldAlert aria-hidden="true" className="size-4" />{name}
         </h4>
         {sectionHasPresets(section) && (
-          <Button disabled={!writable || writing} onClick={() => setRestoring(true)}>
-            Restore presets
+          <Button title="Restore presets (Enter or Space)" size="sm" disabled={!writable || writing} onClick={() => setRestoring(true)}>
+            <RotateCcw aria-hidden="true" data-icon="inline-start" />Restore presets
           </Button>
         )}
       </header>
-      <p className="text-xs text-ink-muted">{sectionHolds(section)}</p>
+      <p className="text-2xs text-ink-muted">{sectionHolds(section)}</p>
       {entries.length === 0 ? (
         <p className="text-sm text-ink-faint">No entry yet.</p>
       ) : (
@@ -136,10 +137,10 @@ export const RestorePresetsDialog = ({ open, sections, cancel, restore }: Restor
         >
           <div className="flex justify-end gap-2">
             <DialogClose asChild>
-              <Button>Cancel</Button>
+              <Button title="Cancel (Esc)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
             </DialogClose>
-            <Button tone="primary" onClick={restore}>
-              Restore
+            <Button title="Restore (Enter or Space)" tone="primary" onClick={restore}>
+              <RotateCcw aria-hidden="true" data-icon="inline-start" />Restore
             </Button>
           </div>
         </DialogContent>
@@ -157,17 +158,19 @@ interface EntryRowProps {
 
 /** An entry: whether it is enabled, its pattern, whether it is a preset and its note, then Edit and Remove. */
 const EntryRow = ({ entry, writable, send, edit }: EntryRowProps) => (
-  <li aria-label={entry.pattern} className="flex items-center gap-2 text-sm">
-    <Switch aria-label="Enabled" checked={entry.enabled} disabled={!writable} onCheckedChange={(enabled) => void send({ kind: "enable", id: entry.id, enabled })} />
-    <span className={`font-mono ${entry.enabled ? "text-ink" : "text-ink-faint"}`}>{entry.pattern}</span>
-    {entry.preset && <span className="text-xs text-ink-faint">preset</span>}
-    {entry.note !== "" && <span className="min-w-0 flex-1 truncate text-xs text-ink-muted">{entry.note}</span>}
+  <li aria-label={entry.pattern} className="flex flex-wrap items-start gap-2 rounded-md bg-wash px-2.5 py-2 text-xs">
+    <Tooltip content={`Enable ${entry.pattern} (Space to toggle)`}><Switch aria-label="Enabled" checked={entry.enabled} disabled={!writable} onCheckedChange={(enabled) => void send({ kind: "enable", id: entry.id, enabled })} /></Tooltip>
+    <div className="flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
+      <span className={`break-all font-mono ${entry.enabled ? "text-ink" : "text-ink-faint"}`}>{entry.pattern}</span>
+      {entry.preset && <span className="text-2xs text-ink-faint">preset</span>}
+      {entry.note !== "" && <span className="text-2xs text-ink-muted">{entry.note}</span>}
+    </div>
     <span className="ml-auto flex gap-1">
-      <Button disabled={!writable} onClick={edit}>
-        Edit
+      <Button title="Edit (Enter or Space)" size="xs" disabled={!writable} onClick={edit}>
+        <Pencil aria-hidden="true" data-icon="inline-start" />Edit
       </Button>
-      <Button disabled={!writable} onClick={() => void send({ kind: "remove", id: entry.id })}>
-        Remove
+      <Button title="Remove (Enter or Space)" size="xs" disabled={!writable} onClick={() => void send({ kind: "remove", id: entry.id })}>
+        <Trash2 aria-hidden="true" data-icon="inline-start" />Remove
       </Button>
     </span>
   </li>
@@ -191,13 +194,13 @@ const EntryForm = ({ entry, writing, send, close }: EntryFormProps) => {
   };
   return (
     <li aria-label={entry.pattern}>
-      <form onSubmit={submit} className="flex items-center gap-2">
-        <Input aria-label="Pattern" value={pattern} onChange={(event) => setPattern(event.target.value)} className="w-64 font-mono" />
-        <Input aria-label="Note" value={note} onChange={(event) => setNote(event.target.value)} className="min-w-0 flex-1" />
-        <Button type="submit" tone="primary" disabled={writing || pattern.trim() === ""}>
-          Save
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+        <label className="flex min-w-0 flex-1 basis-48 flex-col gap-1 text-2xs"><span className="flex items-center gap-1.5"><FileCode aria-hidden="true" className="size-3.5" />Pattern</span><Input aria-label="Pattern" title="Pattern (Enter to submit)" value={pattern} onChange={(event) => setPattern(event.target.value)} className="w-full font-mono" /></label>
+        <label className="flex min-w-0 flex-1 basis-48 flex-col gap-1 text-2xs"><span className="flex items-center gap-1.5"><Text aria-hidden="true" className="size-3.5" />Note</span><Input aria-label="Note" title="Note (Enter to submit)" value={note} onChange={(event) => setNote(event.target.value)} className="w-full" /></label>
+        <Button title="Save (Enter)" type="submit" tone="primary" disabled={writing || pattern.trim() === ""}>
+          <Save aria-hidden="true" data-icon="inline-start" />Save
         </Button>
-        <Button onClick={close}>Cancel</Button>
+        <Button title="Cancel (Enter or Space)" onClick={close}><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
       </form>
     </li>
   );
@@ -224,11 +227,11 @@ const AddEntry = ({ section, writable, writing, send }: AddEntryProps) => {
     });
   };
   return (
-    <form aria-label={`Add to ${section}`} onSubmit={submit} className="flex items-center gap-2">
-      <Input aria-label="New pattern" placeholder="Pattern" value={pattern} disabled={!writable} onChange={(event) => setPattern(event.target.value)} className="w-64 font-mono" />
-      <Input aria-label="New note" placeholder="Note" value={note} disabled={!writable} onChange={(event) => setNote(event.target.value)} className="min-w-0 flex-1" />
-      <Button type="submit" disabled={!writable || writing || pattern.trim() === ""}>
-        Add
+    <form aria-label={`Add to ${section}`} onSubmit={submit} className="flex flex-wrap items-end gap-2">
+      <label className="flex min-w-0 flex-1 basis-48 flex-col gap-1 text-2xs"><span className="flex items-center gap-1.5"><FileCode aria-hidden="true" className="size-3.5" />New pattern</span><Input aria-label="New pattern" title="New pattern (Enter to submit)" placeholder="Pattern" value={pattern} disabled={!writable} onChange={(event) => setPattern(event.target.value)} className="w-full font-mono" /></label>
+      <label className="flex min-w-0 flex-1 basis-48 flex-col gap-1 text-2xs"><span className="flex items-center gap-1.5"><Text aria-hidden="true" className="size-3.5" />New note</span><Input aria-label="New note" title="New note (Enter to submit)" placeholder="Note" value={note} disabled={!writable} onChange={(event) => setNote(event.target.value)} className="w-full" /></label>
+      <Button title="Add (Enter)" type="submit" disabled={!writable || writing || pattern.trim() === ""}>
+        <Plus aria-hidden="true" data-icon="inline-start" />Add
       </Button>
     </form>
   );

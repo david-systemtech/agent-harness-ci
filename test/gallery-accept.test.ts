@@ -42,6 +42,7 @@ async function fixture(mode = "current", captureCount = 1) {
         const name = `window-scene-${index}.dark.png`;
         captures.push({ ...captures[0]!, name, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}` });
       }
+      if (mode === "scoped") captures.push({ name: "settings-browser.light.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/settings-browser.light.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "duplicate") captures.push(captures[0]!);
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
@@ -160,7 +161,9 @@ it("accepts all 400 captures allowed by a reviewed gallery report", async () => 
   const f = await fixture("versioned", 400);
   await run("bash", [script, "42"], { env: f.env });
   expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(400);
-  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-399.dark.png"))).toEqual(png);
+  const baselines = join(f.folder, "packages/gui/gallery/baselines");
+  expect(readFileSync(join(baselines, "window-empty.dark.png"))).toEqual(png);
+  for (let index = 1; index < 400; index++) expect(readFileSync(join(baselines, `window-scene-${index}.dark.png`))).toEqual(png);
 });
 
 
@@ -207,4 +210,33 @@ it.each([
   const f = await fixture(mode, 204);
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining(error) });
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+
+it("accepts only explicitly reviewed capture filenames and preserves unrelated baselines", async () => {
+  const f = await fixture("scoped");
+  const baselines = join(f.folder, "packages/gui/gallery/baselines");
+  mkdirSync(baselines, { recursive: true });
+  writeFileSync(join(baselines, "window-empty.dark.png"), "prior baseline");
+  const result = await run("bash", [script, "42", "settings-browser.light.png"], { env: f.env });
+  expect(readFileSync(join(baselines, "settings-browser.light.png"))).toEqual(png);
+  expect(readFileSync(join(baselines, "window-empty.dark.png"), "utf8")).toBe("prior baseline");
+  expect(f.requests.some((url) => url.endsWith("/window-empty.dark.png"))).toBe(false);
+  expect(result.stdout).not.toContain("window-empty.dark.png");
+});
+
+
+it.each(["missing.dark.png", "../settings-browser.light.png"])("refuses an unavailable or unsafe selection %s before downloading or writing", async (name) => {
+  const f = await fixture("scoped");
+  await expect(run("bash", [script, "42", name], { env: f.env })).rejects.toThrow();
+  expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+
+it("accepts a reviewed pane from a hosted report with more than 200 captures", async () => {
+  const f = await fixture("scoped", 240);
+  await run("bash", [script, "42", "settings-browser.light.png"], { env: f.env });
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/settings-browser.light.png"))).toEqual(png);
+  expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(1);
 });

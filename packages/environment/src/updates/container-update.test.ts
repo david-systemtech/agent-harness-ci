@@ -10,7 +10,7 @@ import { fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { testLauncher } from "../../test/launcher.js";
 import { ARTEFACT, startFakeReleaseSource, type FakeReleaseSource } from "../../test/release-source.js";
-import { create, refusal } from "../../test/sessions.js";
+import { create, get, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { PRESET_IDLE_WINDOW_MS } from "../serve/run-registry.js";
 
@@ -170,6 +170,49 @@ describe("the ready update", () => {
     await t.close();
     const again = await start(fake, { dataDir, clock: t.clock });
     expect(await pendingOf(await again.client())).toMatchObject({ updateId, toVersion: TARGET, image: IMAGE });
+  });
+});
+
+describe("an in-place container upgrade", () => {
+  it.each(["request", "pin"] as const)("retains an intentional %s to an older version across an external upgrade", async (source) => {
+    const dataDir = join(tempDir(), "data");
+    const { fake, t, client } = await container({ dataDir });
+    busy(t);
+    if (source === "request") await apply(client, { version: TARGET, when: "idle" });
+    else {
+      await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.pinnedVersion": TARGET } });
+      await client.request("updates.check", {});
+    }
+    expect(await pendingOf(client)).toMatchObject({ source, toVersion: TARGET });
+    await t.close();
+
+    const again = await start(fake, { dataDir, harnessVersion: "0.6.0", clock: t.clock });
+    const reader = await again.client();
+    expect(await pendingOf(reader)).toMatchObject({ state: "waiting", source, toVersion: TARGET, image: IMAGE });
+    again.clock.advance(10 * MINUTE);
+    expect(await pendingOf(reader)).toMatchObject({ state: "ready", source, toVersion: TARGET });
+  });
+
+  it.each([TARGET, "0.6.0"])("discards a channel target superseded by running %s before the host can begin it, preserving user data", async (harnessVersion) => {
+    const dataDir = join(tempDir(), "data");
+    const { fake, t, client, updateId } = await pendingUpdate({ dataDir });
+    const { id } = await create(client, { title: "Saved work" });
+    await t.close();
+
+    const again = await start(fake, { dataDir, harnessVersion, clock: t.clock });
+    const reader = await again.client();
+    expect((await reader.request("updates.status", { hostUpdater: true })).pending).toEqual({ state: "current" });
+    expect(await get(reader, id)).toMatchObject({ id, title: "Saved work" });
+    again.clock.advance(25 * HOUR);
+    expect(await pendingOf(reader)).toEqual({ state: "current" });
+    expect((await begin(reader, updateId)).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "not_ready" } } });
+    expect(updateNotices(again).filter((notice) => notice.type === "environment.update-cancelled")).toEqual([
+      { type: "environment.update-cancelled", payload: { updateId, toVersion: TARGET, cause: "superseded" } },
+    ]);
+    await again.close();
+
+    const restarted = await start(fake, { dataDir, harnessVersion: RUNNING, clock: t.clock });
+    expect(await pendingOf(await restarted.client())).toEqual({ state: "current" });
   });
 });
 

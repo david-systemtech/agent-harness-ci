@@ -896,6 +896,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "workspace.kept", payload: workspaceKept },
       { type: "workspace.kept", payload: { ...workspaceKept, branch: null, reason: "git_failed" } },
       { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "connected" } },
+      { type: "environment.update-cancelled", payload: { updateId: uuid, toVersion: "0.2.0", cause: "superseded" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -906,7 +907,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.update-pending", payload: { updateId: uuid, toVersion: "0.2.0", source: "channel", since: at } },
       { type: "environment.update-started", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "now" } },
       { type: "environment.update-failed", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", stage: "trial", reason: "deadline" } },
-      { type: "environment.update-cancelled", payload: { updateId: uuid, toVersion: "0.2.0", cause: "superseded" } },
+      { type: "environment.update-cancelled", payload: { updateId: uuid, toVersion: "0.2.0", cause: "unknown" } },
       { type: "environment.renamed", payload: { name: "" } },
       { type: "environment.icon-set", payload: { icon: "phone" } },
       { type: "environment.colour-set", payload: { colour: "#ffbf00" } },

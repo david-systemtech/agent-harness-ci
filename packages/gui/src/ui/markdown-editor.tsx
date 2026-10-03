@@ -67,12 +67,15 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
   }, [editor, readOnly, sourceEditing, value]);
   useEffect(() => { if (readOnly) setLink(null); }, [readOnly]);
   if (editor === null) return null;
-  if (sourceEditing) return <Textarea aria-label={label} title={`${label} · Markdown source`} className="min-h-32 font-mono" value={value} readOnly={readOnly} maxLength={maxLength} onChange={(event) => {
-    const markdown = event.target.value;
-    if (readOnly || (maxLength !== undefined && markdown.length > maxLength && markdown.length >= value.length)) return;
-    lastMarkdown.current = markdown;
-    change(markdown);
-  }} />;
+  if (sourceEditing) return <div data-markdown-editor className="overflow-hidden rounded-lg border border-hairline bg-panel">
+    <p className="px-3 pt-2 text-2xs text-ink-muted">Markdown source</p>
+    <Textarea aria-label={label} aria-readonly={readOnly} readOnly={readOnly} value={value} maxLength={maxLength} className="min-h-32 rounded-none border-0 font-mono" onChange={(event) => {
+      const markdown = event.target.value;
+      if (readOnly || (maxLength !== undefined && markdown.length > maxLength && markdown.length >= value.length)) return;
+      lastMarkdown.current = markdown;
+      change(markdown);
+    }} />
+  </div>;
   const controls = [
     { name: "Heading 2", icon: Heading2, active: editor.isActive("heading", { level: 2 }), run: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), keys: "Mod+Alt+2" },
     { name: "Heading 3", icon: Heading3, active: editor.isActive("heading", { level: 3 }), run: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), keys: "Mod+Alt+3" },

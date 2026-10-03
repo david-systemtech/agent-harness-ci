@@ -20,7 +20,7 @@ it.each(["light", "dark"] as const)("shows the Permissions containment label abo
   const key = within(group).getByText("permissions.containment.default");
   expect(title.nextElementSibling).toBe(key);
   expect(key.className).toContain("font-mono text-2xs text-ink-faint");
-  await waitFor(() => expect(within(group).getByRole("radio", { name: "○ off: available" })).toBeDefined());
+  await waitFor(() => expect(within(group).getByRole("radio", { name: "off: available" })).toBeDefined());
   expect(container.dataset["galleryReady"]).toBe("permissions-containment");
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(geometry);
   for (const check of geometry) expect(container.querySelector(check.selector)).not.toBeNull();

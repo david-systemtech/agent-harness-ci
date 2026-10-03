@@ -733,7 +733,29 @@ jobs:
             fi
             echo "$defect ready with release version $VERSION"
             "$node" scripts/check-packaged-extension.mjs "$server" "$data_dir" "$VERSION"
+            if [ "$attempt" -eq 2 ]; then
+              "$node" "$cli" update status --json --data-dir "$data_dir" > "$data_dir/update-status.json"
+              "$node" -e 'const status = require(process.argv[1]); if (status.version !== process.env.VERSION || status.pending.state !== "current") throw new Error("A superseded channel image is still pending");' "$data_dir/update-status.json"
+            fi
             stop_environment
+            # Model a volume retained across an external upgrade, without relying on a live release channel.
+            "$node" --input-type=module - "$data_dir/environment.db" "$attempt" <<'NODE'
+          import { DatabaseSync } from 'node:sqlite';
+          import { randomUUID } from 'node:crypto';
+          const db = new DatabaseSync(process.argv[2]);
+          if (process.argv[3] === '1') {
+            const stream = db.prepare("SELECT stream_id, MAX(stream_version) AS version FROM events WHERE stream_kind = 'environment' GROUP BY stream_id").get();
+            if (!stream) throw new Error("No persisted environment stream");
+            const payload = { updateId: randomUUID(), toVersion: process.env.VERSION, source: "channel", since: new Date(0).toISOString(), deferUntil: new Date(86400000).toISOString(), image: { reference: 'registry.example.com/agent-harness:0.0.0', digest: 'sha256:' + '5'.repeat(64) } };
+            db.prepare("INSERT INTO events (event_id, stream_kind, stream_id, stream_version, type, occurred_at, actor, payload) VALUES (?, 'environment', ?, ?, 'environment.update-pending', ?, 'system:updates', ?)").run(randomUUID(), stream.stream_id, stream.version + 1, new Date().toISOString(), JSON.stringify(payload));
+          } else {
+            const pending = db.prepare("SELECT payload FROM events WHERE type = 'environment.update-pending' ORDER BY sequence DESC LIMIT 1").get();
+            const cancelled = db.prepare("SELECT payload FROM events WHERE type = 'environment.update-cancelled' ORDER BY sequence DESC LIMIT 1").get();
+            const outcome = cancelled && JSON.parse(cancelled.payload);
+            if (!pending || !outcome || outcome.updateId !== JSON.parse(pending.payload).updateId || !(outcome.cause === "superseded")) throw new Error("Channel withdrawal was not persisted");
+          }
+          db.close();
+          NODE
           done
 
   release:

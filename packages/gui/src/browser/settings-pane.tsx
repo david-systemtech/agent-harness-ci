@@ -1,11 +1,13 @@
 import { adminCall, rowKeys, uuidv7, LOCAL_PLACEHOLDER_ID, type EnvironmentView } from "@agent-harness/client-runtime";
+import { Circle, Globe, Plus, Unplug, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { useWindowAction } from "../keys/key-dispatch.js";
+import { useFirstKey, useWindowAction } from "../keys/key-dispatch.js";
 import { GenericEditor } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { Button } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { BrowserPairing } from "./browser-card.js";
+import { DevelopmentSites } from "./development-sites.js";
 import { BrowserDefaults } from "./defaults.js";
 import { BrowserHeadless } from "./headless.js";
 
@@ -20,6 +22,8 @@ const BrowserSettingsOn = ({ view }: { readonly view: EnvironmentView }) => {
   const browser = useObservable(useMemo(() => runtime.projections.browsers(view.environmentId, ""), [runtime, view.environmentId]));
   const local = useObservable(runtime.projections.environments).find((environment) => environment.kind === "local" && environment.environmentId !== LOCAL_PLACEHOLDER_ID);
   const [pairing, pair] = useState<number | null>(null);
+  const pairKeys = useFirstKey("app.browser.pair");
+  const unpairKeys = useFirstKey("app.browser.unpair");
   const startPairing = () => pair((held) => (held ?? -1) + 1);
   const pairedList = useRef<HTMLElement>(null);
   const pairingOffer = local === undefined
@@ -39,25 +43,26 @@ const BrowserSettingsOn = ({ view }: { readonly view: EnvironmentView }) => {
     if (answer.ok) runtime.requests.refresh(environmentId, "browser.chromes.list", {});
   };
   return (
-    <>
-      <section ref={pairedList} aria-label="Paired Chromes" className="flex flex-col gap-2">
-        <h3>Paired Chromes</h3>
+    <div className="flex min-w-0 flex-col gap-3.5 text-xs">
+      <section ref={pairedList} aria-label="Paired Chromes" className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
+        <h3 className="flex items-center gap-1.5 text-xs font-medium"><Globe aria-hidden="true" className="size-4" />Paired Chromes</h3>
         {browser.chromes.map((group) => (
           <section key={group.environmentId} aria-label={`Chromes on ${group.name}`} className="flex flex-col gap-2">
-            <h4>{group.name}</h4>
+            <h4 className="text-xs font-medium">{group.name}</h4>
             {group.stale && <p className="text-amber">Cached paired Chromes — stale. {group.error ?? `${group.name} cannot be reached.`}</p>}
             {group.chromes.map((chrome) => (
-              <div key={chrome.id} className="flex items-center gap-2">
-                <div className="flex flex-1 flex-col">
-                  <span>{chrome.name}</span>
-                  <span className="text-xs text-ink-faint">{chrome.connected ? "Connected" : "Disconnected"} · Last seen: {chrome.lastConnectedAt}</span>
+              <div key={chrome.id} className="flex flex-wrap items-center gap-2 border-b border-hairline py-2">
+                <div className="flex min-w-0 flex-1 basis-48 flex-col">
+                  <span className="flex items-center gap-1.5 text-xs"><Circle aria-hidden="true" className={`size-3 ${chrome.connected ? "text-mint" : "text-ink-faint"}`} />{chrome.name}</span>
+                  <span className="break-all font-mono text-2xs text-ink-faint">{chrome.connected ? "Connected" : "Disconnected"} · Last seen: {chrome.lastConnectedAt}</span>
                 </div>
                 <Button
+                  title={`Unpair ${chrome.name} (Enter or Space${unpairKeys === undefined ? "" : `; ${unpairKeys}`})`}
                   aria-label={`Unpair ${chrome.name}`}
                   disabled={runtime.capability(group.environmentId, "browser.chromes.unpair").status !== "present"}
                   onClick={() => void unpair(group.environmentId, chrome.id, chrome.name)}
                 >
-                  Unpair
+                  <Unplug aria-hidden="true" data-icon="inline-start" />Unpair
                 </Button>
               </div>
             ))}
@@ -65,18 +70,19 @@ const BrowserSettingsOn = ({ view }: { readonly view: EnvironmentView }) => {
           </section>
         ))}
       </section>
-      <Button disabled={pairingOffer.status === "absent"} onClick={startPairing}>Pair another Chrome</Button>
+      <Button title={`Pair another Chrome (Enter or Space${pairKeys === undefined ? "" : `; ${pairKeys}`})`} className="self-start" disabled={pairingOffer.status === "absent"} onClick={startPairing}><Plus aria-hidden="true" data-icon="inline-start" />Pair another Chrome</Button>
       {pairingOffer.status === "absent" && <p>{pairingOffer.message}</p>}
       {pairing !== null && local !== undefined && (
         <section aria-label="Pair another Chrome" className="flex flex-col gap-3">
-          <BrowserPairing environmentId={local.environmentId} accountsEnvironmentId={view.environmentId} another={pairing} />
-          <Button onClick={() => pair(null)}>Close pairing</Button>
+          <BrowserPairing environmentId={local.environmentId} accountsEnvironmentId={view.environmentId} another={pairing} showSites={false} />
+          <Button title="Close pairing (Enter or Space)" className="self-start" onClick={() => pair(null)}><X aria-hidden="true" data-icon="inline-start" />Close pairing</Button>
         </section>
       )}
+      <DevelopmentSites key={view.environmentId} environmentId={view.environmentId} />
       <BrowserHeadless view={view} status={browser.status} />
       <BrowserDefaults view={view} rows={browser.rows} />
-      <GenericEditor view={view} keys={rowKeys("access.browser").filter((key) => key !== "browser.reach" && key !== "browser.headless.allowRuns")} />
+      <GenericEditor view={view} keys={rowKeys("access.browser").filter((key) => key !== "browser.devSites" && key !== "browser.reach" && key !== "browser.headless.allowRuns")} />
       {line !== null && <p role="status">{line}</p>}
-    </>
+    </div>
   );
 };

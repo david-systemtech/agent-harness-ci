@@ -1,7 +1,8 @@
 import type { BrowserRow, EnvironmentView } from "@agent-harness/client-runtime";
 import { BrowserReach, PRODUCT_NAME, type BrowserReachChoice } from "@agent-harness/contracts";
+import { Globe } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { useWindowAction } from "../keys/key-dispatch.js";
+import { useFirstKey, useWindowAction } from "../keys/key-dispatch.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Select } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -17,6 +18,7 @@ export const BrowserDefaults = ({ view, rows }: { readonly view: EnvironmentView
   const [busy, setBusy] = useState(false);
   const [line, say] = useState<string | null>(null);
   useWindowAction("app.browser.default", () => form.current?.querySelector<HTMLSelectElement>("select:not(:disabled)")?.focus(), capability);
+  const keys = useFirstKey("app.browser.default");
   const reach = BrowserReach.safeParse(values?.["browser.reach"]).data ?? {};
   const options = rows.flatMap((row) => row.value?.kind === "chrome" ? [{ row, value: { chrome: { environmentId: row.value.environmentId, chromeId: row.value.chromeId } } }] : []);
   for (const option of [...options]) {
@@ -37,15 +39,15 @@ export const BrowserDefaults = ({ view, rows }: { readonly view: EnvironmentView
     setBusy(false);
   };
   return (
-    <section ref={form} aria-label="Per-account default browser" className="flex flex-col gap-2">
-      <h3>Per-account default browser</h3>
-      <p>Per-session: no Chrome until one is chosen in the session. Chrome always: this Chrome for every new session of the account.</p>
+    <section ref={form} aria-label="Per-account default browser" className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
+      <h3 className="flex items-center gap-1.5 text-xs font-medium"><Globe aria-hidden="true" className="size-4" />Per-account default browser</h3>
+      <p className="text-2xs text-ink-muted">Per-session: no Chrome until one is chosen in the session. Chrome always: this Chrome for every new session of the account.</p>
       {accounts.value?.map((account) => {
         const chosen = reach[account.id] ?? "per-session";
         const missing = chosen !== "per-session" && !options.some((option) => option.value.chrome.environmentId === chosen.chrome.environmentId && option.value.chrome.chromeId === chosen.chrome.chromeId);
         const drivable = chosen !== "per-session" && (chosen.chrome.environmentId === view.environmentId || environments.some((environment) => environment.kind === "local" && environment.environmentId === chosen.chrome.environmentId));
-        return <label key={account.id} className="flex flex-col gap-1">{account.label}
-          <Select aria-label={`Default browser for ${account.label}`} value={JSON.stringify(chosen)} disabled={capability.status === "absent" || values === null || busy}
+        return <label key={account.id} className="flex flex-col gap-1 text-xs">{account.label}
+          <Select title={`Default browser for ${account.label} (Arrow keys to choose${keys === undefined ? "" : `; ${keys}`})`} aria-label={`Default browser for ${account.label}`} value={JSON.stringify(chosen)} disabled={capability.status === "absent" || values === null || busy}
             onChange={(event) => {
               const choice = BrowserReach.parse({ [account.id]: JSON.parse(event.target.value) })[account.id];
               if (choice !== undefined) void choose(account.id, account.label, choice);
