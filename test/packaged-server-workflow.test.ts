@@ -47,8 +47,55 @@ describe("the public release's packaged server smoke tests", () => {
     expect(body).toContain("--version");
     expect(body).toContain("service status");
     expect(body).toContain("No service is installed");
-    expect(body).not.toMatch(/service (?:install|start)/);
+    expect(body).not.toContain("service start");
     expect(job(hosted, "release").split("\n").find((line) => line.includes("needs:"))).toContain(name);
+  });
+
+  it.each(["smoke-macos", "smoke-linux"])("requires two ready starts of the same environment in %s and cleans up on failure", (name) => {
+    const body = job(hosted, name);
+    expect(body).toContain('data_dir=$(mktemp -d)');
+    expect(body).toContain('for attempt in 1 2; do');
+    expect(body).toContain('serve --data-dir "$data_dir" --port "$port"');
+    expect(body).toContain('/.well-known/agent-harness/environment');
+    expect(body).toContain('discovery.harnessVersion !== process.env.VERSION');
+    expect(body).toContain('discovery.readiness !== "ready"');
+    expect(body).toContain('second start/keychain read (#1381)');
+    expect(body).toContain('trap cleanup EXIT');
+    expect(body).toContain('kill -KILL -- "-$pid"');
+    expect(body).toContain('service uninstall --data-dir "$data_dir"');
+  });
+
+  it("starts Windows twice in one data directory, then runs the generated entry directly and always uninstalls", () => {
+    const body = job(hosted, "smoke-windows");
+    expect(body).toContain('[IO.Path]::GetTempPath()');
+    expect(body).toContain('[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)');
+    expect(body).toContain('foreach ($attempt in 1, 2)');
+    expect(body).toContain('serve --data-dir');
+    expect(body).toContain('/.well-known/agent-harness/environment');
+    expect(body).toContain('$discovery.harnessVersion -eq $env:VERSION');
+    expect(body).toContain('$discovery.readiness -eq "ready"');
+    expect(body).toContain('second start/keychain read (#1381)');
+    expect(body).toContain('service install --data-dir');
+    expect(body).toContain('"launcher-entry.cmd"');
+    expect(body).toContain('-FilePath $env:ComSpec');
+    expect(body).toContain('/d /s /c');
+    expect(body).toContain('"$env:VERSION`n"');
+    expect(body).toContain('names no version');
+    expect(body).toContain('launcher-entry version check (#1382)');
+    expect(body).toContain('finally {');
+    expect(body).toContain('taskkill.exe /PID $process.Id /T /F');
+    expect(body).toContain('service uninstall --data-dir $dataDir');
+    expect(body).toContain('Remove-Item -LiteralPath $dataDir -Recurse -Force');
+  });
+
+  it("fails Windows staging at a stated 90-second bound, rather than allowing the four-minute copy", () => {
+    const body = job(hosted, "smoke-windows");
+    expect(body).toContain('$stagingLimitSeconds = 90');
+    expect(body).toContain('$stagingTimer = [Diagnostics.Stopwatch]::StartNew()');
+    expect(body).toContain('$process.WaitForExit($stagingLimitSeconds * 1000)');
+    expect(body).toContain('$stagingTimer.Elapsed.TotalSeconds -gt $stagingLimitSeconds');
+    expect(body).toContain('Windows staging (#1383) exceeded');
+    expect(body).toContain('Windows staging took');
   });
 
   it("waits for the silent per-user Windows setup and uses its installed Node and CLI", () => {

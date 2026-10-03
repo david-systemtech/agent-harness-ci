@@ -327,6 +327,93 @@ jobs:
           if ($code -ne 3 -or $status -notmatch 'No service is installed') { throw "Unexpected service status (exit $code)" }
           exit 0
 
+      - name: Start the packaged environment twice and run the Windows launcher entry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
+          $node = Join-Path $server "node\node.exe"
+          $cli = Join-Path $server "packages\cli\dist\main.js"
+          $dataDir = Join-Path ([IO.Path]::GetTempPath()) ("environment-smoke-" + [Guid]::NewGuid())
+          New-Item -ItemType Directory -Path $dataDir | Out-Null
+          $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+          $listener.Start()
+          $port = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          $process = $null
+          $serviceLog = Join-Path $dataDir "logs\service.log"
+          function Stop-Tree {
+            if ($null -ne $process -and !$process.HasExited) {
+              & taskkill.exe /PID $process.Id /T /F | Out-Host
+              if ($LASTEXITCODE -ne 0) { throw 'Could not kill the smoke process tree' }
+              if (!$process.WaitForExit(10000)) { throw 'The smoke process tree did not stop' }
+            }
+          }
+          function Show-Logs {
+            Get-ChildItem -LiteralPath $dataDir -Recurse -Filter '*.log' | ForEach-Object {
+              Write-Output $_.FullName
+              Get-Content -LiteralPath $_.FullName
+            }
+          }
+          function Wait-Ready([string] $defect) {
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            while ($timer.Elapsed.TotalSeconds -lt 120) {
+              if ((Test-Path $serviceLog) -and (Select-String -LiteralPath $serviceLog -SimpleMatch 'names no version' -Quiet)) {
+                throw 'launcher-entry version check (#1382): service log holds "names no version"'
+              }
+              if ($process.HasExited) { throw "$defect exited with $($process.ExitCode) before readiness" }
+              $discovery = $null
+              try {
+                $discovery = Invoke-RestMethod -Uri "http://127.0.0.1:$port/.well-known/agent-harness/environment" -TimeoutSec 2
+              } catch { }
+              if ($discovery.harnessVersion -eq $env:VERSION -and $discovery.readiness -eq "ready") {
+                Write-Output "$defect ready with release version $env:VERSION"
+                return
+              }
+              Start-Sleep -Milliseconds 500
+            }
+            throw "$defect failed to become ready with release version $env:VERSION within 120 seconds"
+          }
+          try {
+            foreach ($attempt in 1, 2) {
+              $defect = if ($attempt -eq 1) { 'first start' } else { 'second start/keychain read (#1381)' }
+              $process = Start-Process -FilePath $node -ArgumentList "`"$cli`" serve --data-dir `"$dataDir`" --port $port" -PassThru -RedirectStandardOutput (Join-Path $dataDir "start-$attempt.log") -RedirectStandardError (Join-Path $dataDir "start-$attempt-error.log")
+              Wait-Ready $defect
+              Stop-Tree
+              $process = $null
+            }
+            # Bound the first copy into versions, including service registration, to 90 seconds.
+            $stagingLimitSeconds = 90
+            $stagingTimer = [Diagnostics.Stopwatch]::StartNew()
+            $process = Start-Process -FilePath $node -ArgumentList "`"$cli`" service install --data-dir `"$dataDir`" --port $port" -PassThru -RedirectStandardOutput (Join-Path $dataDir "staging.log") -RedirectStandardError (Join-Path $dataDir "staging-error.log")
+            if (!$process.WaitForExit($stagingLimitSeconds * 1000) -or $stagingTimer.Elapsed.TotalSeconds -gt $stagingLimitSeconds) {
+              throw "Windows staging (#1383) exceeded the $stagingLimitSeconds-second bound"
+            }
+            $stagingTimer.Stop()
+            Write-Output "Windows staging took $($stagingTimer.Elapsed.TotalSeconds) seconds (bound: $stagingLimitSeconds seconds)"
+            if ($process.ExitCode -ne 0) { throw "Windows staging (#1383) exited with $($process.ExitCode)" }
+            $process = $null
+            # Exercise the LF-only pointer written by install, without Task Scheduler's interactive-token requirement.
+            [IO.File]::WriteAllText((Join-Path $dataDir "launcher-version"), "$env:VERSION`n", [Text.UTF8Encoding]::new($false))
+            $entry = Join-Path $dataDir "launcher-entry.cmd"
+            $process = Start-Process -FilePath $env:ComSpec -ArgumentList ('/d /s /c ""{0}""' -f $entry) -WorkingDirectory $dataDir -PassThru -RedirectStandardOutput (Join-Path $dataDir "entry.log") -RedirectStandardError (Join-Path $dataDir "entry-error.log")
+            Wait-Ready 'launcher-entry version check (#1382) and launcher start'
+            if ((Test-Path $serviceLog) -and (Select-String -LiteralPath $serviceLog -SimpleMatch 'names no version' -Quiet)) {
+              throw 'launcher-entry version check (#1382): service log holds "names no version"'
+            }
+          } catch {
+            Show-Logs
+            throw
+          } finally {
+            try { Stop-Tree } finally {
+              & $node $cli service uninstall --data-dir $dataDir
+              if ($LASTEXITCODE -ne 0) { throw 'Could not uninstall the smoke service' }
+              Remove-Item -LiteralPath $dataDir -Recurse -Force
+            }
+          }
+          exit 0
+
   smoke-macos:
     needs: [check, desktop-macos]
     runs-on: macos-latest
@@ -351,6 +438,62 @@ jobs:
           printf '%s\n' "$status"
           test "$code" -eq 3
           grep -q 'No service is installed' <<< "$status"
+
+      - name: Start the packaged environment twice
+        run: |
+          set -euo pipefail
+          # Each foreground serve owns a process group, including any children it starts.
+          set -m
+          server=unzipped/agent-harness.app/Contents/Resources/server
+          node="$server/node/bin/node"
+          cli="$server/packages/cli/dist/main.js"
+          data_dir=$(mktemp -d)
+          pid=
+          stop_environment() {
+            if [ -n "$pid" ]; then
+              kill -TERM -- "-$pid" 2>/dev/null || true
+              for tick in {1..100}; do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.1
+              done
+              kill -KILL -- "-$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+              pid=
+            fi
+          }
+          cleanup() {
+            result=$?
+            trap - EXIT
+            stop_environment
+            if ! "$node" "$cli" service uninstall --data-dir "$data_dir"; then result=1; fi
+            rm -rf "$data_dir"
+            exit "$result"
+          }
+          trap cleanup EXIT
+          port=$("$node" -e 'const s = require("node:net").createServer(); s.listen(0, "127.0.0.1", () => { console.log(s.address().port); s.close(); });')
+          for attempt in 1 2; do
+            defect="first start"
+            if [ "$attempt" -eq 2 ]; then defect="second start/keychain read (#1381)"; fi
+            "$node" "$cli" serve --data-dir "$data_dir" --port "$port" > "$data_dir/start-$attempt.log" 2>&1 &
+            pid=$!
+            ready=false
+            for tick in {1..120}; do
+              if ! kill -0 "$pid" 2>/dev/null; then break; fi
+              if curl --fail --silent --max-time 2 "http://127.0.0.1:$port/.well-known/agent-harness/environment" > "$data_dir/discovery.json" &&
+                "$node" -e 'const discovery = require(process.argv[1]); if (discovery.harnessVersion !== process.env.VERSION || discovery.readiness !== "ready") process.exit(1);' "$data_dir/discovery.json"; then
+                ready=true
+                break
+              fi
+              sleep 1
+            done
+            if [ "$ready" != true ]; then
+              cat "$data_dir/start-$attempt.log"
+              echo "::error::$defect failed to become ready with release version $VERSION"
+              exit 1
+            fi
+            echo "$defect ready with release version $VERSION"
+            stop_environment
+          done
 
   smoke-linux:
     needs: [check, desktop-arch]
@@ -377,6 +520,62 @@ jobs:
           printf '%s\n' "$status"
           test "$code" -eq 3
           grep -q 'No service is installed' <<< "$status"
+
+      - name: Start the packaged environment twice
+        run: |
+          set -euo pipefail
+          # Each foreground serve owns a process group, including any children it starts.
+          set -m
+          server=unpacked/opt/agent-harness/resources/server
+          node="$server/node/bin/node"
+          cli="$server/packages/cli/dist/main.js"
+          data_dir=$(mktemp -d)
+          pid=
+          stop_environment() {
+            if [ -n "$pid" ]; then
+              kill -TERM -- "-$pid" 2>/dev/null || true
+              for tick in {1..100}; do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.1
+              done
+              kill -KILL -- "-$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+              pid=
+            fi
+          }
+          cleanup() {
+            result=$?
+            trap - EXIT
+            stop_environment
+            if ! "$node" "$cli" service uninstall --data-dir "$data_dir"; then result=1; fi
+            rm -rf "$data_dir"
+            exit "$result"
+          }
+          trap cleanup EXIT
+          port=$("$node" -e 'const s = require("node:net").createServer(); s.listen(0, "127.0.0.1", () => { console.log(s.address().port); s.close(); });')
+          for attempt in 1 2; do
+            defect="first start"
+            if [ "$attempt" -eq 2 ]; then defect="second start/keychain read (#1381)"; fi
+            "$node" "$cli" serve --data-dir "$data_dir" --port "$port" > "$data_dir/start-$attempt.log" 2>&1 &
+            pid=$!
+            ready=false
+            for tick in {1..120}; do
+              if ! kill -0 "$pid" 2>/dev/null; then break; fi
+              if curl --fail --silent --max-time 2 "http://127.0.0.1:$port/.well-known/agent-harness/environment" > "$data_dir/discovery.json" &&
+                "$node" -e 'const discovery = require(process.argv[1]); if (discovery.harnessVersion !== process.env.VERSION || discovery.readiness !== "ready") process.exit(1);' "$data_dir/discovery.json"; then
+                ready=true
+                break
+              fi
+              sleep 1
+            done
+            if [ "$ready" != true ]; then
+              cat "$data_dir/start-$attempt.log"
+              echo "::error::$defect failed to become ready with release version $VERSION"
+              exit 1
+            fi
+            echo "$defect ready with release version $VERSION"
+            stop_environment
+          done
 
   release:
     needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]
