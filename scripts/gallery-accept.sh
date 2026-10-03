@@ -34,7 +34,6 @@ if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=T
 # Forgejo returns the entire per-issue comment thread; page and limit are ignored.
 comments = json.loads(get(f'{api}/issues/{number}/comments'))
 if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
-# Capture-only manifests share the relay archive's 600-PNG bound.
 manifest = None
 for comment in comments:
     # Only the reserved Forgejo Actions identity can supply relay reports.
@@ -48,6 +47,7 @@ for comment in comments:
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
+        # Captures share the publisher's 600-PNG ceiling; bytes are checked below.
         if not isinstance(files, list) or not files or len(files) > 600: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         manifest = candidate

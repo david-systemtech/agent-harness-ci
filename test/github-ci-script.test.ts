@@ -605,14 +605,22 @@ if kind=='truncated': path.write_bytes(b'PK')`, zip, kind]);
   if (kind === "truncated" || kind === "zip") expect(readFileSync(f.log, "utf8")).not.toContain("/api/v1/");
 });
 
-it("counts only PNGs against the 600-image limit when report JSON is present", async () => {
+it.each([
+  ["count", "gallery payload is too large"],
+  ["expanded", "gallery payload is too large"],
+  ["zip", "gallery zip is too large"],
+])("refuses an oversized report %s before publication", async (kind, message) => {
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
   const zip = join(f.checkout, "gallery.zip");
-  await run("python3", ["-c", `import sys,zipfile
-with zipfile.ZipFile(sys.argv[1], 'w') as z:
-    for i in range(601): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\n')
-    z.writestr('report.json', '{}')`, zip]);
+  await run("python3", ["-c", `import pathlib,sys,zipfile
+with zipfile.ZipFile(sys.argv[1], 'w', compression=zipfile.ZIP_DEFLATED) as z:
+    if sys.argv[2]=='count':
+        for i in range(601): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\n')
+    else: z.writestr('scene.dark.png', b'\\x89PNG\\r\\n\\x1a\\n'+b'x'*(24*1024*1024 if sys.argv[2]=='expanded' else 0))
+    z.writestr('report.json', '{}')
+if sys.argv[2]=='zip':
+    with pathlib.Path(sys.argv[1]).open('ab') as f: f.truncate(32*1024*1024+1)`, zip, kind]);
   const methods: string[] = [];
   const server = createServer((request, response) => {
     methods.push(request.method ?? "");
@@ -628,8 +636,8 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
       FORGEJO_URL: `http://127.0.0.1:${address.port}`, FORGEJO_REPOSITORY: "example/project",
     });
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("gallery payload is too large");
-    expect(methods).toEqual(["GET"]);
+    expect(result.stderr).toContain(message);
+    expect(methods).toEqual(kind === "zip" ? [] : ["GET"]);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
 
@@ -794,7 +802,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number, names = ["window-empty.dark"]) => {
+    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`)) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
@@ -810,6 +818,21 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
     },
   };
 }
+
+it("publishes and accepts a 204-capture report within the existing payload budgets", async () => {
+  const g = await storedGallery();
+  const image = await g.capture(255, 204);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.captures.size).toBe(204);
+  const manifest = /<!-- window-gallery (.*?) -->/.exec(g.comments[0]!.body)?.[1];
+  expect(manifest).toBeDefined();
+  expect((JSON.parse(manifest!) as { captures: unknown[] }).captures).toHaveLength(204);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  const baselines = join(g.f.checkout, "packages/gui/gallery/baselines");
+  expect(readdirSync(baselines)).toHaveLength(204);
+  for (let i = 0; i < 204; i++) expect(readFileSync(join(baselines, `scene-${i}.dark.png`))).toEqual(image);
+});
 
 it("finalizes a rerun on the same head and accepts its newly reviewed bytes while keeping the earlier manifest immutable", async () => {
   const g = await storedGallery();
@@ -846,7 +869,7 @@ it("publishes and accepts all four captures per registered scene through a repor
   const scenes = readdirSync(join(root, "packages/gui/gallery/scenes")).filter((name) => name.endsWith(".tsx")).map((name) => name.slice(0, -4));
   const names = scenes.flatMap((scene) => [`${scene}.light`, `${scene}.dark`, `${scene}-narrow.light`, `${scene}-narrow.dark`]);
   expect(names.length).toBeGreaterThan(200);
-  await g.capture(255, names);
+  await g.capture(255, names.length, names);
   const result = await relay(g.f, g.env);
   expect(result.code, result.stderr).toBe(0);
   expect(g.comments).toHaveLength(1);
