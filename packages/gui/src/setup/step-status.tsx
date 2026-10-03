@@ -15,6 +15,7 @@ import {
   type SetupActionPlan,
 } from "@agent-harness/client-runtime";
 import { managedTool, settingsRow, type SetupAction, type SetupTarget } from "@agent-harness/contracts";
+import { ExternalLink, Play, RefreshCw } from "lucide-react";
 import { useRef, useState } from "react";
 import { SignInCard } from "../accounts/sign-in-card.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -22,7 +23,7 @@ import { nameOf } from "../connections/words.js";
 import { ToolTerminal, type ShownRun } from "../managed-tools/tool-terminal.js";
 import { CopyLine } from "../settings/copy-line.js";
 import { useSettings } from "../settings/settings-window.js";
-import { Button } from "../ui/index.js";
+import { Button, Tooltip } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 import type { StepCardProps } from "./cards.js";
 import { useChecklist } from "./checklist-window.js";
@@ -158,22 +159,23 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
       {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, now)}</p>}
       <div className="flex flex-wrap gap-2">
         {offered.map((action) => (
-          <Button
-            key={action.key}
-            tone="primary"
-            disabled={sending || (actions?.[action.action]?.disabled ?? capabilityOf(action.plan)?.status === "absent")}
-            onClick={() => {
-              const own = actions?.[action.action];
-              if (own !== undefined) own.run(action.targets);
-              else if (action.plan.kind === "card" && cardAction !== undefined) void cardAction(action.plan.action, action.plan.targets);
-              else void run(action.plan);
-            }}
-          >
-            {action.words}
-          </Button>
+          <Tooltip key={action.key} content={`${action.words} · Tab, Enter`}>
+            <Button
+              variant="outline"
+              disabled={sending || (actions?.[action.action]?.disabled ?? capabilityOf(action.plan)?.status === "absent")}
+              onClick={() => {
+                const own = actions?.[action.action];
+                if (own !== undefined) own.run(action.targets);
+                else if (action.plan.kind === "card" && cardAction !== undefined) void cardAction(action.plan.action, action.plan.targets);
+                else void run(action.plan);
+              }}
+            >
+              <Play aria-hidden="true" />{action.words}
+            </Button>
+          </Tooltip>
         ))}
-        {!result?.actions.includes("check-again") && <Button onClick={() => void act(planSetupAction(step, "check-again"))}>Check now</Button>}
-        <Button onClick={() => leave(step.home, environmentId)}>Open {settingsRow(step.home).label}</Button>
+        {!result?.actions.includes("check-again") && <Tooltip content="Check now · Tab, Enter"><Button variant="outline" onClick={() => void act(planSetupAction(step, "check-again"))}><RefreshCw aria-hidden="true" />Check now</Button></Tooltip>}
+        <Tooltip content={`Open ${settingsRow(step.home).label} · Tab, Enter`}><Button variant="outline" onClick={() => leave(step.home, environmentId)}><ExternalLink aria-hidden="true" />Open {settingsRow(step.home).label}</Button></Tooltip>
       </div>
       {reasons.map((reason) => <p key={reason} className="text-sm text-ink-faint">{reason}</p>)}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}

@@ -697,7 +697,12 @@ describe("/setup", () => {
     await app.waitFor("Set up on desk: 7 of 9 done, 1 need attention (Permissions). Run it in the desktop window.");
     await command(app, "/setup");
     await app.waitFor(/Account.*done/);
+    await app.waitFor("Choose your agent’s account");
+    // Outcome hints make rows two lines; move to the steps below the fold.
+    for (let row = 0; row < 6; row++) await app.press(KEY.down);
     await app.waitFor(/Browser.*skipped/);
+    await app.waitFor("See and use web pages");
+    await app.press(KEY.down);
     await app.waitFor(/Permissions.*needs attention.*The denylist could not be read\./);
     await app.waitFor("7 done, 1 needs attention, 1 skipped");
     expect(app.frame()).not.toContain("Memory bank:");
@@ -724,6 +729,7 @@ describe("/setup", () => {
   it("updates the open card from the environment's setup notices without another check", async () => {
     const { app, env } = await launch([desk({ capabilities: ["setup"] })]);
     await command(app, "/setup");
+    for (let row = 0; row < 9; row++) await app.press(KEY.down);
     await app.waitFor(/Permissions.*done/);
     env.setSetup({ permissions: { state: "needs-attention", reason: "Containment is unavailable." } });
     env.passSetup(["permissions"]);
@@ -736,6 +742,7 @@ describe("/setup", () => {
     await app.press(KEY.esc);
     await app.waitFor("Nothing said yet.");
     await command(app, "/setup");
+    for (let row = 0; row < 9; row++) await app.press(KEY.down);
     await app.waitFor(/Permissions.*done/);
     expect(env.requests("setup.check")).toHaveLength(0);
   });

@@ -31,6 +31,7 @@ import {
 import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
+  STEP_HINTS,
   type AccountRecord,
   type ContainmentLevel,
   type ContainmentReport,
@@ -286,6 +287,7 @@ export const setupHeader = (view: SetupView, name: string): string | undefined =
 export const setupRows = (view: SetupView, now: Date): readonly PanelRow[] => view.steps.filter((step) => step.registered).map((step) => ({
   key: step.id,
   cells: [setupStepSpan(step, now)],
+  under: { text: `  ${STEP_HINTS[step.id]}`, dim: true },
   dim: step.result?.state === "skipped",
 }));
 
