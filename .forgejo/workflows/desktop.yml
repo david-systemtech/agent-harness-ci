@@ -74,6 +74,7 @@ jobs:
           grep -q "^MimeType=.*x-scheme-handler/agent-harness;" unpacked/usr/share/applications/agent-harness-desktop.desktop
           test -x unpacked/opt/agent-harness/agent-harness-desktop
           test -x unpacked/opt/agent-harness/resources/server/node/bin/node
+          test -f unpacked/opt/agent-harness/resources/server/node_modules/@agent-harness/contracts/package.json
           grep -q "\"version\": *\"${TAG#v}\"" unpacked/opt/agent-harness/resources/server/packages/cli/package.json
 
   macos:
@@ -109,6 +110,7 @@ jobs:
           test -x "$app/Contents/MacOS/agent-harness"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Contents/Info.plist")" = agent-harness
           test -x "$app/Contents/Resources/server/node/bin/node"
+          test -f "$app/Contents/Resources/server/node_modules/@agent-harness/contracts/package.json"
           grep -q "\"version\": *\"${TAG#v}\"" "$app/Contents/Resources/server/packages/cli/package.json"
 
   windows:
@@ -145,3 +147,14 @@ jobs:
       # What Linux can read of it: electron-builder fails the step above when Wine did not write the uninstaller.
       - name: The setup is a Windows executable
         run: test "$(head -c 2 desktop/agent-harness-desktop-win32-x64-setup.exe)" = MZ
+
+      - name: The setup carries its server dependencies
+        run: |
+          set -euo pipefail
+          apt-get update && apt-get install -y --no-install-recommends p7zip-full
+          rm -rf unpacked-setup unpacked-windows
+          7z x -y desktop/agent-harness-desktop-win32-x64-setup.exe -ounpacked-setup
+          payload=$(find unpacked-setup -type f -name 'app-64.7z')
+          test -f "$payload"
+          7z x -y "$payload" -ounpacked-windows
+          test -f unpacked-windows/resources/server/node_modules/@agent-harness/contracts/package.json

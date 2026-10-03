@@ -90,10 +90,10 @@ export type StateImportCarried = z.infer<typeof StateImportCarried>;
 
 const label = z.string().min(1).meta({ description: "What it is, for a person." });
 
-/** Something the person must enter again, with the step whose card takes it: an encrypted token the source's keychain alone can read. */
+/** Something the person must enter again, with the step whose card takes it: a sign-in or an encrypted token. */
 export const StateImportReEnter = z
-  .object({ label, step: StepId.meta({ description: "The step whose card takes it: Forges or Key manager." }) })
-  .meta({ description: "Something a state import could not carry because the source encrypted it: what, and the step that takes it again." });
+  .object({ label, step: StepId.meta({ description: "The step whose card takes it: Account, Forges, Key manager or Memory bank." }) })
+  .meta({ description: "Something a state import needs the person to enter again: what, and the step that takes it." });
 export type StateImportReEnter = z.infer<typeof StateImportReEnter>;
 
 /** A profile of a provider whose adapter arrives in milestone 2, carried with its sessions by a re-run then. */
@@ -224,8 +224,18 @@ export const StateImportItemCarriedPayload = z
   });
 export type StateImportItemCarriedPayload = z.infer<typeof StateImportItemCarriedPayload>;
 
-/** The event types of the `state-import` stream; neither is in the session list. */
+/** A source default waiting for its mapped Account to sign in; no credentials are carried. */
+export const StateImportDefaultAccountDeferredPayload = z.object({
+  importId,
+  sourceKey,
+  sourceId: z.string().min(1),
+  label,
+}).meta({ description: "The source default Account choice retained until its mapped Account signs in." });
+export type StateImportDefaultAccountDeferredPayload = z.infer<typeof StateImportDefaultAccountDeferredPayload>;
+
+/** The event types of the `state-import` stream; none is in the session list. */
 export const STATE_IMPORT_EVENT_TYPES = {
+  "state-import.default-account-deferred": { list: false, payload: StateImportDefaultAccountDeferredPayload },
   "state-import.started": { list: false, payload: StateImportStartedPayload },
   "state-import.item-carried": { list: false, payload: StateImportItemCarriedPayload },
 } as const satisfies Record<string, EventTypeEntry>;
@@ -233,4 +243,4 @@ export const STATE_IMPORT_EVENT_TYPES = {
 export type StateImportEventType = keyof typeof STATE_IMPORT_EVENT_TYPES;
 export const StateImportEventType = z
   .enum(Object.keys(STATE_IMPORT_EVENT_TYPES) as [StateImportEventType, ...StateImportEventType[]])
-  .meta({ description: "The event types of the state-import stream: state-import.started and state-import.item-carried." });
+  .meta({ description: "The event types of the state-import stream: started, item-carried and default-account-deferred." });

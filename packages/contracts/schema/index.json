@@ -2835,6 +2835,10 @@
       "title": "StateImportItemKind"
     },
     {
+      "path": "state-import/events/state-import.default-account-deferred.json",
+      "title": "StateImportDefaultAccountDeferredPayload"
+    },
+    {
       "path": "state-import/events/state-import.started.json",
       "title": "StateImportStartedPayload"
     },

@@ -96,8 +96,12 @@ export const stateImportSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ ...report, sharedProjects: [{ sourceId: "secondary", ownerSourceId: "primary" }] }, report, { ...finished, clientLocal: {}, dryRun: true }],
     invalid: [finished, { ...report, dryRun: "yes" }, { ...report, clientLocal: undefined }],
   },
-  "state-import/event-type.json": { valid: ["state-import.started", "state-import.item-carried"], invalid: ["state-import.finished", "state-import.carried", ""] },
+  "state-import/event-type.json": { valid: ["state-import.started", "state-import.item-carried", "state-import.default-account-deferred"], invalid: ["state-import.finished", "state-import.carried", ""] },
   "state-import/item-kind.json": { valid: ["instruction", "bank", "bank-default", "forge-account", "key-manager-connection", "dev-site", "page-policy", "account", "account-default", "session", "archive", "pin", "group", "group-membership", "draft", "routine", "skill-source", "skill-always-on"], invalid: ["instructions", "account-mapping", ""] },
+  "state-import/events/state-import.default-account-deferred.json": {
+    valid: [{ ...started, sourceId: "work", label: "Work" }],
+    invalid: [started, { ...started, sourceId: "", label: "Work" }, { ...started, sourceId: "work", label: "" }],
+  },
   "state-import/events/state-import.started.json": {
     valid: [started],
     invalid: [{ importId: commandId }, { ...started, importId: "not-a-uuid" }, { ...started, sourceKey: "" }],

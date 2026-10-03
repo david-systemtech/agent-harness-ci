@@ -3,8 +3,9 @@
   "title": "StateImportEventType",
   "type": "string",
   "enum": [
+    "state-import.default-account-deferred",
     "state-import.started",
     "state-import.item-carried"
   ],
-  "description": "The event types of the state-import stream: state-import.started and state-import.item-carried."
+  "description": "The event types of the state-import stream: started, item-carried and default-account-deferred."
 }

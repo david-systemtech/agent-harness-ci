@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { releaseVersionOfTag } from "@agent-harness/contracts";
 import type { Configuration } from "electron-builder";
+import { PACKAGED_SERVER } from "../../src/packaged.js";
 import { APP_SCHEME } from "../../src/schemes.js";
 import { bundleApp } from "./bundle.js";
 import { appManifest, builderConfig, nsisSchemeInclude } from "./config.js";
@@ -71,7 +72,7 @@ export const buildDesktop = async (options: DesktopBuildOptions, seams: DesktopB
   const log = seams.log ?? ((line: string) => console.log(line));
   mkdirSync(options.out, { recursive: true });
   const work = seams.work ?? mkdtempSync(join(tmpdir(), "agent-harness-desktop-build-"));
-  const folders = { app: join(work, "app"), server: join(work, "server"), output: join(work, "dist"), nsisInclude: join(work, "installer.nsh") };
+  const folders = { app: join(work, "app"), resources: join(work, "resources"), server: join(work, "resources", PACKAGED_SERVER), output: join(work, "dist"), nsisInclude: join(work, "installer.nsh") };
   try {
     log(`${target.platform}: unpacking the server artefact ${options.server}`);
     await stageServer(options.server, folders.server, target, version, host);

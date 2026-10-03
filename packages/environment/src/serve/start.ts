@@ -226,6 +226,7 @@ import { directoryInventory } from "../carry-over/directory-inventory.js";
 import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
+import { followDeferredDefaults } from "../state-import/default-account.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
 import { detectSource, type SourceMachine } from "../state-import/source/folders.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
@@ -1554,7 +1555,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
     startedAt: () => startedAt,
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({ ...boundBeside, tailnetFound, ...(interfaces.tailscaleInstalled !== undefined && { tailscaleInstalled: interfaces.tailscaleInstalled() }), lanAddresses: [...interfaces.lanAddresses()] }),
     lookAgain: async () => {
       if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
     },
@@ -1816,6 +1817,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     orientation: readOrientation,
   });
   const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
+  closers.push(followDeferredDefaults({ log, accounts, environmentId: record.id, onChange: () => settleSweep.settingsChanged(["accounts.defaultAccount"]) }));
   const sessionHandlers = sessionMethods({
       log,
       clock: now,

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportDefaultAccountDeferredPayload",
+  "type": "object",
+  "properties": {
+    "importId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The import: the command id of the stateImport.run that applied it, in lowercase."
+    },
+    "sourceKey": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source data folder's canonical path on the environment's machine: symbolic links resolved."
+    },
+    "sourceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What it is, for a person."
+    }
+  },
+  "required": [
+    "importId",
+    "sourceKey",
+    "sourceId",
+    "label"
+  ],
+  "description": "The source default Account choice retained until its mapped Account signs in."
+}

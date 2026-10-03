@@ -59,7 +59,7 @@ describe("the state-import stream", () => {
 
   it("carries state-import.started and state-import.item-carried, neither listed, beside the environment stream's notice", () => {
     expect(STATE_IMPORT_STREAM_KIND).toBe("state-import");
-    for (const type of ["state-import.started", "state-import.item-carried"]) {
+    for (const type of ["state-import.started", "state-import.item-carried", "state-import.default-account-deferred"]) {
       expect(eventTypeEntry("state-import", type), type).toMatchObject({ list: false });
       expect(isListEvent("state-import", type), type).toBe(false);
       expect(ENVIRONMENT_NOTICE_TYPES as readonly string[], type).not.toContain(type);

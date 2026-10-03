@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { BlockList, isIP, isIPv4, isIPv6 } from "node:net";
 import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
 import { promisify } from "node:util";
+import { findOnPath } from "../managed-tools/detection.js";
 
 /**
  * What the environment finds on its machine to bind beside loopback: the
@@ -12,6 +14,8 @@ import { promisify } from "node:util";
 export interface InterfaceDetector {
   /** The machine's Tailscale IPv4 address; undefined when Tailscale is absent, stopped or logged out. */
   tailscaleAddress(): Promise<string | undefined>;
+  /** Whether a CLI or the macOS app is installed; absent from older injected detectors. */
+  tailscaleInstalled?(): boolean;
   /** The machine's own name on the tailnet (`desk.tail1234.ts.net`), lower case; undefined when there is none. */
   tailnetName(): Promise<string | undefined>;
   /** The machine's LAN addresses as it holds them now: what `network.bindLan` may name (#574). */
@@ -29,7 +33,10 @@ const run = promisify(execFile);
 /** Runs `command` without blocking the event loop, killed after three seconds. */
 export const processRunner: CommandRunner = async (command, args) => {
   try {
-    return (await run(command, [...args], { encoding: "utf8", timeout: TAILSCALE_TIMEOUT_MS, windowsHide: true })).stdout;
+    return (await run(command, [...args], {
+      encoding: "utf8", timeout: TAILSCALE_TIMEOUT_MS, windowsHide: true,
+      ...(command === MACOS_TAILSCALE && { env: { ...process.env, TAILSCALE_BE_CLI: "1" } }),
+    })).stdout;
   } catch {
     return undefined;
   }
@@ -42,64 +49,93 @@ notLan.addSubnet("fe80::", 10, "ipv6");
 notLan.addSubnet("100.64.0.0", 10, "ipv4");
 notLan.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
 
+/** Preferred LAN choices: RFC 1918 IPv4, unique-local IPv6, other IPv6, then other IPv4. */
+const privateIpv4 = new BlockList();
+privateIpv4.addSubnet("10.0.0.0", 8, "ipv4");
+privateIpv4.addSubnet("172.16.0.0", 12, "ipv4");
+privateIpv4.addSubnet("192.168.0.0", 16, "ipv4");
+const uniqueLocalIpv6 = new BlockList();
+uniqueLocalIpv6.addSubnet("fc00::", 7, "ipv6");
+const lanRank = (address: string): number =>
+  isIPv4(address) ? (privateIpv4.check(address, "ipv4") ? 0 : 3) : (uniqueLocalIpv6.check(address, "ipv6") ? 1 : 2);
+
 /**
  * The LAN addresses among a machine's network interfaces (`os.networkInterfaces()`),
- * each once in their order: every address but loopback, link-local and
- * Tailscale's.
+ * each once, private IPv4 first, then unique-local and other IPv6, then
+ * other IPv4: every address but loopback, link-local and Tailscale's, and
+ * those marked temporary or deprecated when the reader exposes those flags.
  */
 export const lanAddressesOf = (interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>): string[] => [
   ...new Set(
     Object.values(interfaces)
       .flatMap((entries) => entries ?? [])
-      .filter((entry) => !entry.internal && !notLan.check(entry.address, isIPv6(entry.address) ? "ipv6" : "ipv4"))
+      .filter((entry: NetworkInterfaceInfo & { temporary?: boolean; deprecated?: boolean }) =>
+        !entry.internal && entry.temporary !== true && entry.deprecated !== true && !notLan.check(entry.address, isIPv6(entry.address) ? "ipv6" : "ipv4"))
       .map((entry) => entry.address),
   ),
-];
+].sort((left, right) => lanRank(left) - lanRank(right));
 
 /** The IPv4 range Tailscale assigns to its kernel interface. */
 const tailscaleIpv4 = new BlockList();
 tailscaleIpv4.addSubnet("100.64.0.0", 10, "ipv4");
 
+/** The app-bundle CLI on macOS, where installing the app need not put a CLI on PATH. */
+const MACOS_TAILSCALE = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+
+export interface DetectorOptions {
+  readonly platform?: NodeJS.Platform;
+  /** Installation reader at the filesystem boundary; checked anew for each status. */
+  readonly readInstalled?: () => boolean;
+}
+
 /**
- * The environment's detector: `tailscale ip -4` for the address and
- * `tailscale status --json` for the name, through `run`, and the machine's
- * network interfaces, read each time, for its LAN addresses. A machine
- * without a CLI answer falls back to a non-internal IPv4 address in
- * Tailscale's range on an interface whose name starts with `tailscale`,
- * lowest-numbered first: a Linux container sharing its host's network sees that
- * interface without a CLI or access to the host's daemon socket. The name
- * still needs the CLI; without it pairing uses the address.
+ * Reads the PATH CLI first, then the macOS app's CLI. Without a CLI
+ * address, reads a Tailscale-range IPv4 on any tailscale interface
+ * (Linux containers) or utun interface (macOS), lowest-numbered first.
+ * The name still needs a CLI; otherwise pairing uses the address.
  */
 export const tailscaleDetector = (
   runner: CommandRunner = processRunner,
   readInterfaces: () => NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces,
-): InterfaceDetector => ({
-  lanAddresses: () => lanAddressesOf(readInterfaces()),
-  async tailscaleAddress() {
-    const first = (await runner("tailscale", ["ip", "-4"]))?.split(/\r?\n/)[0]?.trim();
-    if (first !== undefined && isIPv4(first)) return first;
-    return Object.entries(readInterfaces())
-      .filter(([name]) => name.startsWith("tailscale"))
-      .sort(([left], [right]) => left.localeCompare(right, "en", { numeric: true }))
-      .flatMap(([, entries]) => entries ?? [])
-      .find((entry) => !entry.internal && isIPv4(entry.address) && tailscaleIpv4.check(entry.address, "ipv4"))?.address;
-  },
-  async tailnetName() {
-    const text = await runner("tailscale", ["status", "--json"]);
-    if (text === undefined) return undefined;
-    let status: unknown;
-    try {
-      status = JSON.parse(text);
-    } catch {
-      return undefined;
-    }
-    if (typeof status !== "object" || status === null) return undefined;
-    const { BackendState: state, Self: self } = status as { BackendState?: unknown; Self?: { DNSName?: unknown } };
-    if (state !== "Running" || typeof self?.DNSName !== "string") return undefined;
-    const name = self.DNSName.replace(/\.$/, "").toLowerCase();
-    return name === "" ? undefined : name;
-  },
-});
+  options: DetectorOptions = {},
+): InterfaceDetector => {
+  const platform = options.platform ?? process.platform;
+  const macos = platform === "darwin";
+  const command = async (args: readonly string[]) => {
+    const answer = await runner("tailscale", args);
+    return answer ?? (macos ? await runner(MACOS_TAILSCALE, args) : undefined);
+  };
+  return {
+    lanAddresses: () => lanAddressesOf(readInterfaces()),
+    tailscaleInstalled: options.readInstalled ?? (() =>
+      findOnPath("tailscale", process.env.PATH ?? "", { platform, ownResources: [], ...(process.env.PATHEXT !== undefined && { pathext: process.env.PATHEXT }) }) !== null ||
+      (macos && existsSync("/Applications/Tailscale.app"))),
+    async tailscaleAddress() {
+      const first = (await command(["ip", "-4"]))?.split(/\r?\n/)[0]?.trim();
+      if (first !== undefined && isIPv4(first)) return first;
+      return Object.entries(readInterfaces())
+        .filter(([name]) => name.startsWith("tailscale") || (macos && /^utun\d+$/.test(name)))
+        .sort(([left], [right]) => left.localeCompare(right, "en", { numeric: true }))
+        .flatMap(([, entries]) => entries ?? [])
+        .find((entry) => !entry.internal && isIPv4(entry.address) && tailscaleIpv4.check(entry.address, "ipv4"))?.address;
+    },
+    async tailnetName() {
+      const text = await command(["status", "--json"]);
+      if (text === undefined) return undefined;
+      let status: unknown;
+      try {
+        status = JSON.parse(text);
+      } catch {
+        return undefined;
+      }
+      if (typeof status !== "object" || status === null) return undefined;
+      const { BackendState: state, Self: self } = status as { BackendState?: unknown; Self?: { DNSName?: unknown } };
+      if (state !== "Running" || typeof self?.DNSName !== "string") return undefined;
+      const name = self.DNSName.replace(/\.$/, "").toLowerCase();
+      return name === "" ? undefined : name;
+    },
+  };
+};
 
 /** The loopback address the environment always binds. */
 export const LOOPBACK = "127.0.0.1";

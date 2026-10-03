@@ -89,6 +89,18 @@ describe("the Your machines card in Set up", () => {
     expect(within(part("laptop", "Reachability")).queryByText(TAILSCALE_WARNING)).toBeNull();
   });
 
+  it("distinguishes an installed but unreadable Tailscale from no installation on Check again", async () => {
+    const app = await opened({ laptop: { status: { binding: { ...LOOPBACK_ONLY, tailscaleInstalled: true } } } });
+    const reachability = () => part("laptop", "Reachability");
+    expect(await within(reachability()).findByText("Tailscale is installed, but its address could not be read. This machine is reachable only from itself. Check that Tailscale is running and signed in, then check again.")).toBeDefined();
+    app.environment("laptop").wire.answer("environment.status", () => ({ result: {
+      readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false,
+      binding: { ...LOOPBACK_ONLY, tailscaleInstalled: false },
+    } }));
+    await app.user.click(within(reachability()).getByRole("button", { name: "Check again" }));
+    expect(await within(reachability()).findByText("Tailscale is not installed. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.")).toBeDefined();
+  });
+
   it("says in place of the Tailscale warning that a Tailscale address installed since is found and binds at the machine's next start, until Check again finds it bound", async () => {
     const app = await opened();
     const laptop = app.environment("laptop");
@@ -109,6 +121,19 @@ describe("the Your machines card in Set up", () => {
     await app.user.click(within(reachability()).getByRole("button", { name: "Check again" }));
     expect(await within(reachability()).findByText("Reachable on the tailnet at 100.64.0.9.")).toBeDefined();
     expect(within(reachability()).queryByText(/^Tailscale address/)).toBeNull();
+  });
+
+  it("defaults to the first private IPv4 choice and warns when an IPv6 address is selected", async () => {
+    const app = await opened({ desk: { status: { binding: { ...DESK_BINDING, lanAddresses: ["192.168.1.20", "fd00::20", "2001:db8::1", "2001:db8::2"] } } } });
+    const reachability = () => part("desk", "Reachability");
+    expect(within(reachability()).getByRole("switch", { name: "Bind 192.168.1.20 on the LAN" })).toBeDefined();
+    const choice = within(reachability()).getByRole("combobox", { name: "LAN address" });
+    expect(within(choice).getAllByRole("option").map((option) => option.textContent)).toEqual(["192.168.1.20", "fd00::20", "2001:db8::1", "2001:db8::2"]);
+    expect(within(reachability()).queryByText("An IPv6 address may change. If it does, choose an address this machine still holds.")).toBeNull();
+    await app.user.selectOptions(choice, "2001:db8::1");
+    expect(within(reachability()).getByText("An IPv6 address may change. If it does, choose an address this machine still holds.")).toBeDefined();
+    await app.user.click(within(reachability()).getByRole("switch", { name: "Bind 2001:db8::1 on the LAN" }));
+    await waitFor(() => expect(app.environment("desk").requests("settings.update").at(-1)?.params).toMatchObject({ values: { "network.bindLan": "2001:db8::1" } }));
   });
 
   it("names the LAN address its switch would bind with the warning, writes network.bindLan and network.bindTailnet each through its own switch, and says both apply at the next start", async () => {
