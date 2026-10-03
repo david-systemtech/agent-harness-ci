@@ -96,3 +96,18 @@ it.each(["window-not-ready", "window-start-failed"])("renders %s with the measur
     expect(screen.getByRole("button", { name: "Pair instead" })).toBeDefined();
   }
 });
+
+it.each(["dock-files", "dock-narrow"])("renders %s with retained Files and the measured rail and header geometry", async (scene) => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, scene);
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  const dock = within(await screen.findByRole("complementary", { name: "Side column" }));
+  expect(dock.getByRole("tab", { name: "Files" }).getAttribute("aria-selected")).toBe("true");
+  expect(await dock.findByRole("button", { name: /^README.md/ })).toBeDefined();
+  const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+  expect(geometry).toContainEqual({ selector: "[data-dock-rail]", width: 40 });
+  expect(geometry).toContainEqual({ selector: "section:not([hidden]) > [data-dock-header]", height: 30 });
+  expect(geometry).toContainEqual({ selector: '[role="tab"]', width: 28, height: 28 });
+});

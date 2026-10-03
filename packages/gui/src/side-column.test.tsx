@@ -1,11 +1,11 @@
-import { act, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, screen, within } from "@testing-library/react";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
  * The side column beside the session pane (docs/specs/gui.md, "The seven
  * panes and the grid"; #408): one of the session's open panes at a time,
- * chosen from a strip of names; which panes are open is the session's, kept
+ * chosen from an icon rail; which panes are open is the session's, kept
  * in presentation, so opening another session in the pane shows that
  * session's column; a pane leaving the screen is hidden, never closed.
  * Driven through the harness over the scripted environment.
@@ -41,12 +41,12 @@ const column = () => screen.queryByRole("complementary", { name: "Side column" }
 
 /** The strip's names, each as it reads, and the one it shows. */
 const strip = () => {
-  const names = within(within(column() as HTMLElement).getByRole("navigation", { name: "Open panes" })).getAllByRole("button");
-  return { names: names.map((name) => name.textContent), shown: names.find((name) => name.getAttribute("aria-pressed") === "true")?.textContent };
+  const names = within(within(column() as HTMLElement).getByRole("tablist", { name: "Open panes" })).getAllByRole("tab");
+  return { names: names.map((name) => name.getAttribute("aria-label")), shown: names.find((name) => name.getAttribute("aria-selected") === "true")?.getAttribute("aria-label") };
 };
 
 /** The name in the strip that reads `name`. */
-const named = (name: string) => within(within(column() as HTMLElement).getByRole("navigation", { name: "Open panes" })).getByRole("button", { name });
+const named = (name: string) => within(within(column() as HTMLElement).getByRole("tablist", { name: "Open panes" })).getByRole("tab", { name });
 
 /** The panes on screen in the column, by name. */
 const onScreen = () =>
@@ -55,7 +55,67 @@ const onScreen = () =>
     .map((pane) => pane.getAttribute("aria-label"));
 
 describe("the side column", () => {
-  it("is not drawn while the session has no pane open, and shows one open pane at a time, chosen from a strip of names", async () => {
+  it("moves focus through dock tabs with arrows, Home and End, activates with Enter and closes on middle click", async () => {
+    const app = await opened();
+    await openPane(app, "Files");
+    await openPane(app, "Diff");
+    const rail = within(screen.getByRole("tablist", { name: "Open panes" }));
+    const files = rail.getByRole("tab", { name: "Files" });
+    const diff = rail.getByRole("tab", { name: "Diff" });
+    diff.focus();
+    await app.user.keyboard("{Home}");
+    expect(document.activeElement).toBe(files);
+    expect(diff.getAttribute("aria-selected")).toBe("true");
+    await app.user.keyboard("{Enter}");
+    expect(files.getAttribute("aria-selected")).toBe("true");
+    await app.user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(diff);
+    await app.user.keyboard("{ArrowUp}{End}");
+    expect(document.activeElement).toBe(diff);
+    fireEvent(diff, new MouseEvent("auxclick", { button: 1, bubbles: true }));
+    expect(rail.queryByRole("tab", { name: "Diff" })).toBeNull();
+    expect(files.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("floats below 900px of owning pane width and reopens its retained Files view from the edge handle", async () => {
+    const Original = globalThis.ResizeObserver;
+    let resize: ((width: number) => void) | undefined;
+    vi.stubGlobal("ResizeObserver", class extends Original {
+      constructor(callback: ResizeObserverCallback) {
+        super((entries, observer) => {
+          if (entries[0]?.target.hasAttribute("data-dock-owner")) {
+            resize = (width) => callback([{ ...entries[0]!, borderBoxSize: [{ inlineSize: width, blockSize: 800 }] }], observer);
+            resize(900);
+          } else callback(entries, observer);
+        });
+      }
+    });
+    onTestFinished(() => vi.unstubAllGlobals());
+    const app = await opened();
+    await openPane(app, "Files");
+    expect(column()?.hasAttribute("data-dock-sheet")).toBe(false);
+    await app.user.click(within(screen.getByRole("region", { name: "Files" })).getByRole("button", { name: /^src\// }));
+    act(() => resize?.(899));
+    expect(column()?.hasAttribute("data-dock-sheet")).toBe(true);
+    await app.user.click(screen.getByRole("button", { name: "Close side sheet" }));
+    expect(column()).toBeNull();
+    await app.user.click(screen.getByRole("button", { name: "Show the side column" }));
+    expect(within(screen.getByRole("region", { name: "Files" })).getByRole("heading", { name: "src/" })).toBeDefined();
+    act(() => resize?.(900));
+    expect(column()?.hasAttribute("data-dock-sheet")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Close side sheet" })).toBeNull();
+  });
+
+  it("opens another pane from the dock's own kind menu", async () => {
+    const app = await opened();
+    await openPane(app, "Files");
+    await app.user.click(screen.getByRole("button", { name: "Open a side pane" }));
+    await app.user.click(screen.getByRole("menuitem", { name: "Tasks" }));
+    expect(screen.getByRole("tab", { name: "Tasks" }).getAttribute("aria-selected")).toBe("true");
+    expect(onScreen()).toEqual(["Tasks"]);
+  });
+
+  it("is not drawn while the session has no pane open, and shows one open pane at a time, chosen from an icon rail", async () => {
     const app = await opened();
     expect(column()).toBeNull();
 
@@ -80,7 +140,7 @@ describe("the side column", () => {
 
     await app.remount();
     expect(await screen.findByRole("complementary", { name: "Side column" })).toBeDefined();
-    expect(strip()).toEqual({ names: ["Tasks", "Files"], shown: "Tasks" });
+    expect(strip()).toEqual({ names: ["Files", "Tasks"], shown: "Tasks" });
   });
 
   it("follows its session: another session opened in the pane shows that session's column, and the first's comes back with it", async () => {
@@ -121,6 +181,15 @@ describe("the side column", () => {
     expect(strip()).toEqual({ names: ["Files", "Diff"], shown: "Files" });
   });
 
+  it("shows the next tab in rail order after closing, even when panes were opened in another order", async () => {
+    const app = await opened();
+    await openPane(app, "Tasks");
+    await openPane(app, "Files");
+    await openPane(app, "Diff");
+    await app.user.click(screen.getByRole("button", { name: "Close Diff" }));
+    expect(strip()).toEqual({ names: ["Files", "Tasks"], shown: "Tasks" });
+  });
+
   it("closes a pane only from its close button, showing its neighbour; with none left the column goes", async () => {
     const app = await opened();
     await openPane(app, "Files");
@@ -144,7 +213,7 @@ describe("the side column", () => {
     expect(strip()).toEqual({ names: ["Diff"], shown: "Diff" });
     await app.user.keyboard("/tasks{Enter}");
     await app.user.keyboard("/files{Enter}");
-    expect(strip()).toEqual({ names: ["Diff", "Tasks", "Files"], shown: "Files" });
+    expect(strip()).toEqual({ names: ["Files", "Diff", "Tasks"], shown: "Files" });
   });
 
   it("draws a pane whose method the connection cannot call dim with the capability's reason", async () => {
