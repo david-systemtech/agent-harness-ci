@@ -1,3 +1,4 @@
+import "../test/markdown-editor-dom.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp } from "../test/harness.js";
@@ -33,17 +34,47 @@ describe("Instructions", () => {
     await app.user.click(await within(pane).findByRole("button", { name: "New instruction" }));
     const editor = await screen.findByRole("dialog", { name: "New instruction" });
     await app.user.type(within(editor).getByRole("textbox", { name: "Title" }), "My habits");
-    await app.user.type(within(editor).getByRole("textbox", { name: "Markdown body" }), "Read the tests.");
+    await app.user.click(within(editor).getByRole("textbox", { name: "Markdown body" }));
+    await app.user.paste("Read the tests.");
     await app.user.click(within(editor).getByRole("button", { name: "Save instruction" }));
     const row = await within(pane).findByRole("region", { name: "My habits" });
     expect(within(row).getByText("Read the tests.")).toBeDefined();
     await app.user.click(within(row).getByRole("button", { name: "Edit" }));
-    const edit = await screen.findByRole("dialog", { name: "Edit My habits" });
+    const edit = await screen.findByRole("region", { name: "Edit My habits" });
     await app.user.clear(within(edit).getByRole("textbox", { name: "Title" }));
     await app.user.type(within(edit).getByRole("textbox", { name: "Title" }), "Better habits");
-    await app.user.type(within(edit).getByRole("textbox", { name: "Markdown body" }), " Then read the code.");
+    await app.user.click(within(edit).getByRole("textbox", { name: "Markdown body" }));
+    fireEvent.keyDown(within(edit).getByRole("textbox", { name: "Markdown body" }), { key: "a", ctrlKey: true });
+    await app.user.paste("Read the tests. Then read the code.");
     await app.user.click(within(edit).getByRole("button", { name: "Save instruction" }));
     expect(await within(await within(pane).findByRole("region", { name: "Better habits" })).findByText("Read the tests. Then read the code.")).toBeDefined();
+  });
+  it("cancels inline editing with Escape while keeping Settings open", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    scriptInstructions(app.environment("desk"), [ownedInstruction()]);
+    const pane = await openInstructions(app);
+    const row = await within(pane).findByRole("region", { name: "Review habits" });
+    await app.user.click(within(row).getByRole("button", { name: "Edit" }));
+    const editor = await within(row).findByRole("region", { name: "Edit Review habits" });
+    await app.user.click(within(editor).getByRole("textbox", { name: "Title" }));
+    await app.user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeDefined();
+    expect(within(row).queryByRole("region", { name: "Edit Review habits" })).toBeNull();
+    expect(within(row).getByText("Read every comment.")).toBeDefined();
+  });
+  it("closes link editing with Escape before closing its instruction dialog", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    scriptInstructions(app.environment("desk"));
+    const pane = await openInstructions(app);
+    await app.user.click(await within(pane).findByRole("button", { name: "New instruction" }));
+    const editor = await screen.findByRole("dialog", { name: "New instruction" });
+    await app.user.click(within(editor).getByRole("button", { name: "Link" }));
+    expect(within(editor).getByRole("textbox", { name: "Link URL" })).toBeDefined();
+    await app.user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "New instruction" })).toBeDefined();
+    expect(within(editor).queryByRole("textbox", { name: "Link URL" })).toBeNull();
+    await app.user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "New instruction" })).toBeNull();
   });
   it("switches off without removing, selects account scope, moves a row and removes it", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
@@ -195,17 +226,15 @@ describe("Instructions", () => {
     const editor = await openEditor();
     const body = await within(editor).findByRole("textbox", { name: "Markdown body" });
     act(() => body.focus());
-    await app.user.keyboard("For this session only.");
-    await app.user.tab(); // Cancel
-    await app.user.tab(); // Clear
-    await app.user.tab(); // Save
+    await app.user.paste("For this session only.");
+    act(() => within(editor).getByRole("button", { name: "Save session instructions" }).focus());
     await app.user.keyboard("{Enter}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Instructions for Receipts" })).toBeNull());
     const reopened = await openEditor();
-    expect(((await within(reopened).findByRole("textbox", { name: "Markdown body" })) as HTMLTextAreaElement).value).toBe("For this session only.");
+    expect((await within(reopened).findByRole("textbox", { name: "Markdown body" })).textContent).toBe("For this session only.");
     await app.user.click(within(reopened).getByRole("button", { name: "Clear session instructions" }));
     const cleared = await openEditor();
-    expect(((await within(cleared).findByRole("textbox", { name: "Markdown body" })) as HTMLTextAreaElement).value).toBe("");
+    expect((await within(cleared).findByRole("textbox", { name: "Markdown body" })).textContent).toBe("");
   });
   it("lists the pane's native keyboard actions in the searchable shortcuts pane", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
@@ -232,10 +261,11 @@ describe("Instructions", () => {
     await app.user.click(await within(pane).findByRole("button", { name: "New instruction" }));
     const editor = await screen.findByRole("dialog", { name: "New instruction" });
     await app.user.type(within(editor).getByRole("textbox", { name: "Title" }), "Keep this draft");
-    await app.user.type(within(editor).getByRole("textbox", { name: "Markdown body" }), "The typed text.");
+    await app.user.click(within(editor).getByRole("textbox", { name: "Markdown body" }));
+    await app.user.paste("The typed text.");
     await app.user.click(within(editor).getByRole("button", { name: "Save instruction" }));
     expect(await within(editor).findByRole("status")).toHaveProperty("textContent", "Not saved: This instruction id is already used.");
-    expect((within(editor).getByRole("textbox", { name: "Markdown body" }) as HTMLTextAreaElement).value).toBe("The typed text.");
+    expect(within(editor).getByRole("textbox", { name: "Markdown body" }).textContent).toBe("The typed text.");
   });
   it("preserves typed session instructions while reconnecting and catching up", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
@@ -246,7 +276,8 @@ describe("Instructions", () => {
     await app.user.pointer({ keys: "[MouseRight]", target: sessionRow });
     await app.user.click(within(await screen.findByRole("menu", { name: "Organise “Receipts”" })).getByRole("menuitem", { name: "Session instructions…" }));
     const editor = await screen.findByRole("dialog", { name: "Instructions for Receipts" });
-    await app.user.type(await within(editor).findByRole("textbox", { name: "Markdown body" }), "Keep my unsaved draft.");
+    await app.user.click(await within(editor).findByRole("textbox", { name: "Markdown body" }));
+    await app.user.paste("Keep my unsaved draft.");
     const subscription = "resuming-instructions";
     environment.wire.answer("sessions.subscribeSession", (_params, request) => {
       environment.server.send({ type: "subscribed", id: request.id, subscription });
@@ -262,12 +293,12 @@ describe("Instructions", () => {
       app.clock.advance(5_000);
       await environment.server.request("sessions.subscribeSession");
     });
-    const body = within(editor).getByRole("textbox", { name: "Markdown body" }) as HTMLTextAreaElement;
-    expect(body.value).toBe("Keep my unsaved draft.");
-    expect(body.disabled).toBe(true);
+    const body = within(editor).getByRole("textbox", { name: "Markdown body" });
+    expect(body.textContent).toBe("Keep my unsaved draft.");
+    expect(body.getAttribute("contenteditable")).toBe("false");
     await act(async () => environment.server.send({ type: "synchronized", subscription, sequence: environment.events(environment.sessionId()).at(-1)?.sequence ?? 1 }));
-    await waitFor(() => expect(body.disabled).toBe(false));
-    expect(body.value).toBe("Keep my unsaved draft.");
+    await waitFor(() => expect(body.getAttribute("contenteditable")).toBe("true"));
+    expect(body.textContent).toBe("Keep my unsaved draft.");
   });
   it("reads an unopened session's instructions after its stream catches up", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Unopened" }] }] });
@@ -293,6 +324,6 @@ describe("Instructions", () => {
       for (const event of environment.events(environment.sessionId())) environment.server.send({ type: "event", subscription, sequence: event.sequence, event });
       environment.server.send({ type: "synchronized", subscription, sequence: 101 });
     });
-    await waitFor(() => expect((within(editor).getByRole("textbox", { name: "Markdown body" }) as HTMLTextAreaElement).value).toBe("Already set by another client."));
+    await waitFor(() => expect(within(editor).getByRole("textbox", { name: "Markdown body" }).textContent).toBe("Already set by another client."));
   });
 });
