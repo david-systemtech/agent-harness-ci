@@ -10,8 +10,9 @@ import { Introduction } from "./introduction.js";
 
 /**
  * Set up as the whole window (docs/specs/gui.md, "Set up in the window";
- * ADR 0016): on first launch, from the first frame while
- * the first-launch mark is unset, the full checklist takes the window;
+ * ADR 0016): on first launch, the introduction takes the window from the
+ * first frame while the mark is unset. Begin set up opens the full checklist
+ * once the home environment is ready;
  * finishing or closing it sets the mark, and the Set up pane's "Open the
  * full checklist", a step's link and Re-run bring it back. Whether it is
  * shown and the step whose card it shows live as long as the window does;
