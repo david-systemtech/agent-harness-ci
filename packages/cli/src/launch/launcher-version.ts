@@ -12,7 +12,7 @@ import { writeFileDurably, type DurableFs } from "./durable.js";
 /** The launcher version file's name in the data directory. */
 export const LAUNCHER_VERSION_FILE = "launcher-version";
 
-/** Writes `version` as the launcher version file in `dataDir`, durably. */
-export const writeLauncherVersion = (dataDir: string, version: string, fs?: DurableFs): void =>
-  writeFileDurably(join(dataDir, LAUNCHER_VERSION_FILE), `${version}\n`, fs);
+/** Writes `version` durably, with CRLF on Windows for the batch entry, LF elsewhere. */
+export const writeLauncherVersion = (dataDir: string, version: string, fs?: DurableFs, platform: NodeJS.Platform = process.platform): void =>
+  writeFileDurably(join(dataDir, LAUNCHER_VERSION_FILE), `${version}${platform === "win32" ? "\r\n" : "\n"}`, fs, platform);
 
