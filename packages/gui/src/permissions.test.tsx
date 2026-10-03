@@ -61,7 +61,7 @@ const entries = (region: HTMLElement) =>
 
 /** The containment default's levels, each as its radio is named and described, and whether it is chosen. */
 const levels = (region: HTMLElement) =>
-  within(within(region).getByRole("radiogroup", { name: "permissions.containment.default" }))
+  within(within(region).getByRole("radiogroup", { name: "Default process containment" }))
     .getAllByRole("radio")
     .map((radio) => {
       const input = radio as HTMLInputElement;
@@ -136,7 +136,7 @@ describe("the permission settings", () => {
         ["● no network: not available here: bwrap is not on PATH: install bubblewrap.", false],
       ]),
     );
-    const group = within(permissions).getByRole("radiogroup", { name: "permissions.containment.default" });
+    const group = within(permissions).getByRole("radiogroup", { name: "Default process containment" });
     expect(within(group).getByText("How new sessions restrict agent processes and network access. The environment reports which restrictions this machine supports.")).toBeDefined();
     const workspace = within(group).getByRole("radio", { name: /^◐ workspace/ });
     expect(workspace.closest("label")?.className).toMatch(/text-ink-muted/);

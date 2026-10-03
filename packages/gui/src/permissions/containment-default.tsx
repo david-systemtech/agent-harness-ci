@@ -1,5 +1,5 @@
 import { availabilityWords, containmentWords, describeKey, type EnvironmentView } from "@agent-harness/client-runtime";
-import { CONTAINMENT_LEVELS, type ContainmentLevel } from "@agent-harness/contracts";
+import { CONTAINMENT_LEVELS, SETTINGS, type ContainmentLevel } from "@agent-harness/contracts";
 import { useId, useMemo, useState } from "react";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -34,9 +34,10 @@ export const ContainmentDefault = ({ view, writable }: { readonly view: Environm
 
   return (
     <div role="radiogroup" aria-labelledby={label} aria-describedby={hint} className="flex flex-col gap-1.5 rounded-md border border-line p-3">
-      <span id={label} className="font-mono text-sm text-ink">
-        {KEY}
+      <span id={label} className="text-xs font-medium text-ink">
+        {SETTINGS[KEY].label}
       </span>
+      <span className="break-all font-mono text-2xs text-ink-faint">{KEY}</span>
       <p id={hint} className="text-xs text-ink-muted">
         {describeKey(KEY)}
       </p>

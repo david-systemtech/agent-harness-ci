@@ -5,6 +5,7 @@ import type { SceneRegistry } from "./scene-registry.js";
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../src/app.js";
+import { WindowProvider } from "../src/window-context.js";
 import { scenes } from "./scenes.js";
 import { prepareWorld, startWorld } from "./world.js";
 
@@ -33,7 +34,7 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
     }, []);
     return null;
   };
-  root.render(<>{Component !== undefined ? <Component ladder={ladder} /> : <App runtime={world.runtime} presentation={world.presentation} clock={world.clock} version={world.version} macOS={world.macOS} shell={world.shell} />}<Ready /></>);
+  root.render(<>{Component !== undefined ? <WindowProvider runtime={world.runtime} presentation={world.presentation} clock={world.clock} version={world.version} shell={world.shell}><Component ladder={ladder} /></WindowProvider> : <App runtime={world.runtime} presentation={world.presentation} clock={world.clock} version={world.version} macOS={world.macOS} shell={world.shell} />}<Ready /></>);
   return {
     world,
     async close() {
