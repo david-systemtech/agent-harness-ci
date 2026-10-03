@@ -324,7 +324,7 @@ describe("built and unbuilt row controls", () => {
     expect(within(again).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("radiogroup");
-    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["plan", "acceptEdits", "auto", "bypassPermissions"]);
+    expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Plan only", "Accept file edits", "Automatic review", "Bypass permissions"]);
     const banks = await openRow(app, "Memory banks");
     expect(await within(banks).findByText("Facts your agents keep")).toBeDefined();
     expect(within(banks).getByRole("button", { name: "Open the Memory bank step in Set up" })).toBeDefined();
@@ -351,7 +351,7 @@ describe("built and unbuilt row controls", () => {
     await waitFor(() => expect(desk.settings()["sessions.transcriptCompactAfterDays"]).toBe(45));
 
     const permissions = await openRow(app, "Permissions");
-    await app.user.click(await within(field(permissions, "permissions.unattended.mode")).findByRole("radio", { name: "bypassPermissions" }));
+    await app.user.click(await within(field(permissions, "permissions.unattended.mode")).findByRole("radio", { name: "Bypass permissions" }));
     const confirm = await screen.findByRole("dialog", { name: "Set Unattended permission mode to bypassPermissions?" });
     expect(within(confirm).getByText(BYPASS_SENTENCE)).toBeDefined();
     await app.user.click(within(confirm).getByRole("button", { name: "Set it" }));
