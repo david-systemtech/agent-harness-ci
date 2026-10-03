@@ -15,6 +15,7 @@ import {
 import { RELEASE_CHANNELS, type MethodName, type SettingsKey, type UpdateWhen } from "@agent-harness/contracts";
 import { useEffect, useId, useState } from "react";
 import { nameOf } from "../connections/words.js";
+import { DialogFooter } from "../ui/dialog.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Button, Dialog, DialogClose, DialogContent, Select, Switch } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -134,14 +135,14 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
       <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
         {drainable !== null && (
           <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <DialogClose asChild>
-                <Button title="Cancel (Enter or Space)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
+                <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
               <Button tone="danger" title="Drain and update (Enter or Space)" onClick={() => update("now")}>
                 <RefreshCw aria-hidden="true" data-icon="inline-start" />Drain and update
               </Button>
-            </div>
+            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>
