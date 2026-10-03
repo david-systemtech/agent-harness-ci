@@ -37,8 +37,10 @@ const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
     <>
       <p className="text-sm text-ink">
         Each installs the environment from {nameOf(view)}'s release, {status.result.version}, on its channel, {channel.data}, and ends by printing the new machine's pairing link, QR
-        and code, for Pair with it. Set AGENT_HARNESS_TOKEN to a Forgejo token with read:repository first: the line hands it to curl on its standard input, never on a
-        command line.
+        and code, for Pair with it.{" "}
+        {status.result.releaseSource.kind === "github"
+          ? "Public releases download without credentials; the container pulls its release's public ghcr.io image without a registry login."
+          : "Set AGENT_HARNESS_TOKEN to a Forgejo token with read:repository first: the line hands it to curl on its standard input, never on a command line."}
       </p>
       <Field label="Name (optional)">
         <Input value={name} placeholder="The new machine's hostname" onChange={(event) => setName(event.target.value)} />
@@ -49,7 +51,7 @@ const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
       <p className="text-sm text-ink-muted">
         Until a client first pairs with it, the container prints its pairing link, QR and code to its log at each start, which the last line shows. Its first start takes the
         channel and the name from the line that starts it; a later start keeps them, and its card changes either once paired. It never updates itself: the host-side updater
-        does, from the host.
+        does, from the host. Keep compose.yaml and host-updater.sh together, and schedule host-updater.sh on the host every five minutes as its documentation describes.
       </p>
       <p className="text-sm">
         <ExternalLink url={lines.updaterDocs}>The host-side updater's documentation</ExternalLink>

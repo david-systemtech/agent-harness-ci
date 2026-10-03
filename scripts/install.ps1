@@ -8,8 +8,7 @@
 # versions directory, the version's sentinel written last. Then it runs the
 # version's `service install` (the Task Scheduler logon task) and `service
 # start`, waits for the environment's health URL to say ready, sets the channel
-# with `update settings`, hands its token to the environment with `update
-# credential --stdin`, and ends with the link, QR and code of `pair --preset
+# with `update settings`, and ends with the link, QR and code of `pair --preset
 # own-client` (my own client's grant) on the tailnet address (or the Tailscale
 # warning when only loopback is bound) and the shim's Path line.
 #
@@ -26,11 +25,8 @@
 # written by the C runtime's rules, so a double quote in -Name or a trailing
 # backslash on -DataDir reaches the verb as it was given.
 #
-# The repository is private, so the releases API and the downloads need a read
-# token: AGENT_HARNESS_TOKEN, a Forgejo access token with the read:repository
-# scope (git.systemtech.dev: Settings > Applications). It goes to curl.exe and
-# to `update credential` on stdin, never on a command line, and the script
-# takes it out of the environment its commands inherit while it runs.
+# Releases and downloads are public on GitHub. No credential is needed or sent.
+# AGENT_HARNESS_TOKEN is withheld from child processes and restored for the caller.
 #
 # A release publishes agent-harness-win32-<arch>.zip (Node's names), holding the
 # version's node\node.exe and packages\cli\dist\main.js, and beside it
@@ -60,8 +56,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
 $ProductName = 'agent-harness'
-$Forge = 'https://git.systemtech.dev:5526'
-$Repository = 'david/agent-harness'
+$ReleaseApi = 'https://api.github.com/repos/david-systemtech/agent-harness/releases'
 # The environment's port when none is given, and the address it answers on for this machine.
 $DefaultPort = '7433'
 $Loopback = '127.0.0.1'
@@ -89,7 +84,6 @@ Windows user, starts it and prints a pairing for your client.
                    (INSTALL_DRY_RUN=1 does the same)
 
 Environment:
-  AGENT_HARNESS_TOKEN    a Forgejo token with read:repository scope (required: the repository is private)
   INSTALL_READY_TIMEOUT  seconds to wait for the environment to say ready (preset 60)
 "@
 
@@ -180,10 +174,9 @@ function Get-AssetUrl($Release, [string]$AssetName) {
   return $null
 }
 
-# curl.exe to the forge, with the token read from stdin as a config line, so it
-# never shows in a process listing; answers whether it succeeded.
+# Fetch public releases and assets anonymously; answers whether curl.exe succeeded.
 function Invoke-Forge([string[]]$Arguments) {
-  ('header = "Authorization: token ' + $run.Token + '"') | & curl.exe -K - -fsSL @Arguments
+  & curl.exe -fsSL @Arguments
   return $LASTEXITCODE -eq 0
 }
 
@@ -245,10 +238,9 @@ function New-Cli([string]$Folder) {
   }
 }
 
-# Runs a verb of $Cli, the options every verb takes after its own when $WithTarget,
-# and $Stdin on its standard input when given; in a dry run, prints it as a line of
-# the plan instead. A verb that fails ends the run with its exit code.
-function Invoke-Verb([hashtable]$Cli, [string[]]$Arguments, [switch]$WithTarget, [string]$Stdin) {
+# Runs a verb of $Cli, adding the target options when $WithTarget.
+# In a dry run, prints the command instead. A failed verb ends the run with its exit code.
+function Invoke-Verb([hashtable]$Cli, [string[]]$Arguments, [switch]$WithTarget) {
   $words = @($Arguments)
   if ($WithTarget) { $words += $targetOptions }
   if ($dry) {
@@ -256,7 +248,7 @@ function Invoke-Verb([hashtable]$Cli, [string[]]$Arguments, [switch]$WithTarget,
     return
   }
   $native = @(Get-NativeWords (@($Cli.Entry) + $words))
-  if ($PSBoundParameters.ContainsKey('Stdin')) { $Stdin | & $Cli.Node @native } else { & $Cli.Node @native }
+  & $Cli.Node @native
   if ($LASTEXITCODE -ne 0) {
     $code = $LASTEXITCODE
     Stop-Install "``$ProductName $($Arguments -join ' ')`` failed with exit code $code; nothing after it ran." $code
@@ -300,20 +292,20 @@ function Test-Running([hashtable]$Cli) {
 # Finds the release to install, the channel's newest or the one -Version names, and
 # answers its tag and version and the download URLs of the artefact and its digest.
 function Resolve-Release {
-  $api = "$Forge/api/v1/repos/$Repository/releases"
+  $api = $ReleaseApi
   if ($Version) {
     # Read by its tag, as the environment reads a pin; a draft there is none.
     $releaseUrl = "$api/tags/v$Version"
     $text = Get-ForgeText $releaseUrl
     if ($null -eq $text) {
-      Stop-Install "could not read release v$Version from ${releaseUrl}: no such release is published, or AGENT_HARNESS_TOKEN cannot read it."
+      Stop-Install "could not read release v$Version from ${releaseUrl}: no such public release is published, or GitHub could not be reached."
     }
     $release = Select-NewestRelease (ConvertFrom-Json $text) 'any'
     if ($null -eq $release -or [string]$release.tag_name -cne "v$Version") { Stop-Install "release v$Version is a draft, not published; nothing was installed." }
   } else {
-    $listing = "${api}?limit=$ReleaseListLimit"
+    $listing = "${api}?per_page=$ReleaseListLimit"
     $text = Get-ForgeText $listing
-    if ($null -eq $text) { Stop-Install "could not read the releases from $listing; check AGENT_HARNESS_TOKEN." }
+    if ($null -eq $text) { Stop-Install "could not read the releases from $listing; check connectivity and the GitHub API rate limit." }
     $listed = ConvertFrom-Json $text
     $release = Select-NewestRelease $listed $Channel
     if ($null -eq $release) { Stop-Install "no release is published on the $Channel channel." }
@@ -427,14 +419,12 @@ function Invoke-Install {
   $readyTimeout = [int]$readyTimeout
   $dry = $DryRun.IsPresent -or $env:INSTALL_DRY_RUN -eq '1'
 
-  if (-not $env:AGENT_HARNESS_TOKEN) {
-    Stop-Usage 'Set AGENT_HARNESS_TOKEN to a Forgejo token with read:repository scope: the repository is private.'
+  # Withhold any inherited private forge token; restore it for a script block's caller.
+  if (Test-Path Env:\AGENT_HARNESS_TOKEN) {
+    $run.Token = $env:AGENT_HARNESS_TOKEN
+    Remove-Item Env:\AGENT_HARNESS_TOKEN
+    $run.TokenTaken = $true
   }
-  # The token reaches curl.exe and `update credential` on stdin only, never a command's
-  # environment; the run's end puts it back, for a script block run in a session.
-  $run.Token = $env:AGENT_HARNESS_TOKEN
-  Remove-Item Env:\AGENT_HARNESS_TOKEN
-  $run.TokenTaken = $true
 
   if ($env:OS -ne 'Windows_NT') { Stop-Install 'this script installs on Windows; install.sh installs on Linux and macOS.' }
   if (Test-Elevated) {
@@ -491,7 +481,6 @@ function Invoke-Install {
   if (-not $running) { Invoke-Verb $cli @('service', 'start') }
   Wait-Ready
   Invoke-Verb $cli @('update', 'settings', '--channel', $Channel) -WithTarget
-  Invoke-Verb $cli @('update', 'credential', '--stdin') -WithTarget -Stdin $run.Token
   if ($running -and $Version) { Invoke-Verb $cli @('update', 'apply', '--version', $Version) -WithTarget }
 
   if ($dry) {

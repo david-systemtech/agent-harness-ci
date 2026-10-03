@@ -166,29 +166,28 @@ published beside it, unpacks it into the data directory's
 `versions/<version>` with the `.complete` sentinel written last, runs that
 version's `service install` and `service start`, waits up to 60 seconds for
 `http://127.0.0.1:<port>/health` to say ready (else it fails naming
-`logs/service.log`), sets the channel with `update settings`, hands its token to
-the environment with `update credential --stdin`, and ends with `pair`'s link,
+`logs/service.log`), sets the channel with `update settings`, and ends with `pair`'s link,
 QR and code, or the Tailscale warning when the environment binds only loopback,
 then the shim's path line. Over a running service it downloads and unpacks
 nothing: the shim's `service install` repairs the definition and the entry,
 and `--version` becomes an `update apply`. Run it as an ordinary user logged in
-over SSH on a Linux box with Tailscale up and no Node on the `PATH`; `<token>`
-is a Forgejo token with `read:repository`.
+over SSH on a Linux box with Tailscale up and no Node on the `PATH`. Public
+GitHub releases need no credential.
 
-1. `AGENT_HARNESS_TOKEN=<token> sh install.sh --channel stable --name "Checklist headless" --dry-run`. It names the channel's newest release, the download, its digest and the version's folder, lists the commands it would run, and changes nothing.
-2. The same without `--dry-run`. It prints "Verified the SHA-256", unpacks into `~/.local/state/agent-harness/versions/<version>`, installs and starts the service, waits for ready, and ends with a pairing link on the machine's tailnet name, an ASCII QR and a code, then an `export PATH=` line for `~/.local/state/agent-harness/bin`. A `ps -ef` taken during the run shows the token on no command line.
-3. Pair a client from that link, QR or code: the machine becomes a card named "Checklist headless". After adding the path line to the profile, `agent-harness update status` shows the channel `stable` and a check that read the channel, so the token reached the environment as the forge account for the release origin.
+1. `sh install.sh --channel stable --name "Checklist headless" --dry-run`. It names the channel's newest release, the download, its digest and the version's folder, lists the commands it would run, and changes nothing.
+2. The same without `--dry-run`. It prints "Verified the SHA-256", unpacks into `~/.local/state/agent-harness/versions/<version>`, installs and starts the service, waits for ready, and ends with a pairing link on the machine's tailnet name, an ASCII QR and a code, then an `export PATH=` line for `~/.local/state/agent-harness/bin`. No token is requested or stored.
+3. Pair a client from that link, QR or code: the machine becomes a card named "Checklist headless". After adding the path line to the profile, `agent-harness update status` shows the channel `stable` and a check that read the channel, with public GitHub releases read anonymously.
 4. Run step 2's line again. It says the service is running and downloads nothing, `versions/` is unchanged, `service install` says it rewrote only its own files, and it ends with a new pairing.
 5. Run it again with `--version <another published version>`. It asks for that version through `update apply`: `agent-harness service status` shows the pending update, and the version switches once the environment is idle.
 6. `sudo tailscale down`, `agent-harness service uninstall`, then step 2's line again: it reuses the unpacked version and ends with "No Tailscale address found. This machine is reachable only from itself." and no pairing. `sudo tailscale up` afterwards.
-7. `sudo AGENT_HARNESS_TOKEN=<token> sh install.sh`: it refuses as root, before any download.
+7. `sudo sh install.sh`: it refuses as root, before any download.
 8. With lingering off, `agent-harness service status` says so; after `sudo loginctl enable-linger <user>`, the service stays up when the SSH session ends.
 9. `agent-harness service uninstall` leaves no unit behind.
 
 Then the headless path from a client, as the Set up spec gives it (#577), on a
 fresh box or after step 9:
 
-10. Install by the script: on a desktop client, Settings, Your machines, Add a machine, Install on another machine: type the name "Checklist headless" and Copy the macOS and Linux line. It names this client's machine's channel and its release. With `AGENT_HARNESS_TOKEN` exported on the headless box, paste the line there: it installs as step 2 does and ends with a pairing whose lines read `Preset: My own client`, every scope and `Ceiling: bypassPermissions`.
+10. Install by the script: on a desktop client, Settings, Your machines, Add a machine, Install on another machine: type the name "Checklist headless" and Copy the macOS and Linux line. It names this client's machine's channel and its release. With no credential configured on the headless box, paste the line there: it installs as step 2 does and ends with a pairing whose lines read `Preset: My own client`, every scope and `Ceiling: bypassPermissions`.
 11. Pair from a client as My own client: paste that link into Add a machine's Pair with it. The machine becomes a card, "Checklist headless", saying "Paired with Checklist headless: set it up now?", and its Access row lists this client's session with every scope, up to bypassPermissions.
 12. Set up this machine, on that card: the full checklist opens on the new machine, its picker naming it, at its first step needing attention (its first step when none does).
 13. Quit every client for over an hour, then open one: the Set up pane on the new machine shows each step checked within the last hour, so its checks ran hourly with no client connected; `/setup` in a terminal UI on that machine reads the same results.
@@ -212,13 +211,12 @@ downloads `agent-harness-win32-x64.zip` with `curl.exe`, checks it against its
 `.sha256`, unpacks it into `%LOCALAPPDATA%\agent-harness\versions\<version>`
 with .NET's zip reader (the sentinel last), and runs each verb as the version's
 own `node\node.exe packages\cli\dist\main.js`. It refuses an elevated shell,
-as `whoami /groups` shows its mandatory label. `<token>` is a Forgejo token
-with `read:repository`, set in the session first:
-`$env:AGENT_HARNESS_TOKEN = '<token>'`.
+as `whoami /groups` shows its mandatory label. Public GitHub releases need
+no credential.
 
 1. From an ordinary (not elevated) PowerShell, `powershell -ExecutionPolicy Bypass -File install.ps1 -Channel stable -Name "Checklist Windows" -DryRun`. It names the release, the zip, its digest and the version's folder, lists the commands it would run, and changes nothing.
-2. The same without `-DryRun`. It prints "Verified the SHA-256", unpacks, installs the logon task and starts it (no console window opens), waits for ready, and ends with a pairing link on the tailnet name, a readable QR and a code, then the PowerShell line that puts `%LOCALAPPDATA%\agent-harness\bin` first on the user Path. Record how long the unpack took (the zip holds about 14,700 entries), and whether any path in it was too long for the unpack. `Get-CimInstance Win32_Process | Select-Object CommandLine` taken during the run shows the token on no command line.
-3. After running the Path line and signing out and back in, `agent-harness update status` shows the channel `stable`, so the token reached the environment. `$env:AGENT_HARNESS_TOKEN` still holds the token in the session that ran step 2.
+2. The same without `-DryRun`. It prints "Verified the SHA-256", unpacks, installs the logon task and starts it (no console window opens), waits for ready, and ends with a pairing link on the tailnet name, a readable QR and a code, then the PowerShell line that puts `%LOCALAPPDATA%\agent-harness\bin` first on the user Path. Record how long the unpack took (the zip holds about 14,700 entries), and whether any path in it was too long for the unpack. No token is requested or stored.
+3. After running the Path line and signing out and back in, `agent-harness update status` shows the channel `stable`, with public GitHub releases read anonymously.
 4. Run step 2's line again: it says the service is running, downloads nothing, leaves `versions` as it was, `service install` says it rewrote only its own files, and it ends with a new pairing.
 5. Again with `-Version <another published version>`: it asks for that version through `update apply`, and `agent-harness service status` shows the pending update.
 6. As a script block from the downloaded text, in a session that stays open: `& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Channel nightly`. It prints the usage, the window stays open, and `$LASTEXITCODE` is 2.
@@ -338,3 +336,17 @@ Docker tests and this manual check.
 5. `docker logout git.systemtech.dev:5526`, then ask for an update: the tick logs `pull-failed` once, and the container keeps running untouched; the next ticks log nothing more. `docker login` again and the next tick updates.
 6. `AGENT_HARNESS_UPDATER=0` on the crontab line or in the unit: ticks log nothing and call nothing.
 7. Ask for an update while a run is under way, and reboot the host during its stop. After the reboot the container is stopped; the next tick logs the update cut short at its `stop` step and `abandoned`, the older version runs again, `update status` shows the update failed, and `.host-updater.update` is gone. Ask again, and reboot during the watch: the next tick logs the update cut short at its `watch` step, watches to ten minutes from the target's ready, and logs `updated`.
+
+## Public headless install recipes (#1484)
+
+The release smoke jobs resolve an anonymous dry-run install on Linux, macOS
+and an ordinary Windows user before publishing. The public GitHub API and
+asset URLs must be selected without a token or credential command. The
+container recipe downloads compose.yaml and host-updater.sh from one version,
+uses that compose file's public ghcr.io image and needs no registry login.
+
+Full service installation and updater scheduling were not run for #1484 on
+Linux, macOS or Windows; the agent lane uses scripted service managers and
+runs no containers. Repeat the platform steps above with the next release,
+then copy the container recipe on a Linux host and schedule the downloaded
+updater every five minutes as docs/host-updater.md describes.
