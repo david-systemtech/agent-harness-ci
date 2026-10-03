@@ -217,6 +217,7 @@ export const ModelEntry = z
     tier: z.int().meta({ description: "An ordinal the adapter supplies: higher is stronger; a family it cannot place ranks below every known one." }),
     efforts: z.array(z.string().min(1)).meta({ description: "The reasoning efforts the model takes, weakest first; empty when it takes none." }),
     label: z.string().min(1).nullable().meta({ description: "The model's name as a client shows it, when the adapter gives one." }),
+    contextWindow: z.int().positive().nullable().optional().meta({ description: "The context window only when the provider reports it; absent for static catalogue entries." }),
   })
   .meta({ description: "One model of an account's catalogue: its id, family, ordinal tier and efforts." });
 export type ModelEntry = z.infer<typeof ModelEntry>;

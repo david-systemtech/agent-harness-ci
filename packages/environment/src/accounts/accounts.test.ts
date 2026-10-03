@@ -718,13 +718,13 @@ describe("models.list and commands.list", () => {
     expect(await refusal(client.request("models.list", { accountId: "nobody" }))).toMatchObject({ code: "not_found" });
   });
 
-  it("flags a catalogue live when the provider enumerates it", async () => {
-    const live = { ...fakeAdapter(), models: async () => ({ live: true, models: [{ id: "fable", family: "fable", tier: 4, efforts: ["high"], label: "Fable" }] }) } as FakeAdapter;
+  it("flags a catalogue live and carries only a provider-reported context window", async () => {
+    const live = { ...fakeAdapter(), models: async () => ({ live: true, models: [{ id: "fable", family: "fable", tier: 4, efforts: ["high"], label: "Fable", contextWindow: 4096 }] }) } as FakeAdapter;
     const t = await startTestEnvironment({ accounts: [{ id: "claude-max", provider: "fake" }], adapter: live });
     onCleanup(() => t.close());
     const client = await t.client();
     expect(await client.request("models.list", {})).toEqual({
-      catalogues: [{ accountId: "claude-max", live: true, models: [{ id: "fable", family: "fable", tier: 4, efforts: ["high"], label: "Fable" }] }],
+      catalogues: [{ accountId: "claude-max", live: true, models: [{ id: "fable", family: "fable", tier: 4, efforts: ["high"], label: "Fable", contextWindow: 4096 }] }],
     });
   });
 

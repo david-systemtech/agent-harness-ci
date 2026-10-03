@@ -23,6 +23,7 @@ import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker } from "./pickers.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
+import { SessionContextMeter } from "./context-meter.js";
 import { WindowReading } from "./window-reading.js";
 
 export interface StatusLineProps {
@@ -101,6 +102,7 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
         </ModePicker>
         <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />
+        <SessionContextMeter environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model?.model ?? null} />
         <Gauge readings={readingsOf(gaugeOf(usage.gauges, environmentId, facts.accountId))} />
       </div>
       <div className="flex min-w-0 items-center gap-2">
