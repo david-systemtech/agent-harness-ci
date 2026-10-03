@@ -43,12 +43,12 @@ const opened = async (given: Partial<ScriptedEnvironment> = {}, local = true, in
 };
 
 describe("the Browser card in Set up", () => {
-  it("shows the unpacked folder and exact walkthrough, copies it, and ticks Load on extension.seen", async () => {
+  it("shows the unpacked folder and exact walkthrough, copies it, and marks installation connected on extension.seen", async () => {
     const { app, desk, status } = await opened();
     expect(await within(card()).findByText(status.folder.path)).toBeDefined();
     expect(within(card()).queryAllByRole("checkbox")).toHaveLength(0);
     expect(within(card()).getByText("Open chrome://extensions. Turn on Developer mode. Click Load unpacked and choose this folder.")).toBeDefined();
-    await app.user.click(within(card()).getByRole("button", { name: "Copy" }));
+    await app.user.click(within(card()).getByRole("button", { name: "Copy extension folder (Enter or Space)" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", status.folder.path]);
     expect(within(card()).getByRole("img", { name: "1. Load the extension: pending" })).toBeDefined();
     status.unpairedConnected = true;
@@ -57,7 +57,7 @@ describe("the Browser card in Set up", () => {
   });
   it("mints a code on opening, counts down on the environment clock, and renews it on expiry", async () => {
     const { app, desk } = await opened();
-    expect(await within(card()).findByText("ABCD2345")).toBeDefined();
+    expect(await within(card()).findByDisplayValue("ABCD2345")).toBeDefined();
     expect(within(card()).getByText("Type this code on the extension's options page.")).toBeDefined();
     expect(within(card()).getByText("Listening on 127.0.0.1:47615.")).toBeDefined();
     expect(within(card()).getByRole("timer").textContent).toBe("5m 0s left to pair.");
@@ -65,15 +65,15 @@ describe("the Browser card in Set up", () => {
     await waitFor(() => expect(within(card()).getByRole("timer").textContent).toBe("3m 59s left to pair."));
     desk.wire.answer("browser.pairing.code", () => ({ result: { code: "EFGH6789", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
     act(() => app.clock.advance(239_000));
-    expect(await within(card()).findByText("EFGH6789")).toBeDefined();
-    expect(within(card()).queryByText("ABCD2345")).toBeNull();
+    expect(await within(card()).findByDisplayValue("EFGH6789")).toBeDefined();
+    expect(within(card()).queryByDisplayValue("ABCD2345")).toBeNull();
     expect(within(card()).getByRole("timer").textContent).toBe("5m 0s left to pair.");
     expect(desk.requests("browser.pairing.code")).toHaveLength(2);
   });
 
-  it("ticks Pair with the Chrome's name on chrome.updated and keeps Load ticked after pairing closes the unpaired socket", async () => {
+  it("marks Chrome paired on chrome.updated and keeps installation connected after pairing closes the unpaired socket", async () => {
     const { desk, status, pair } = await opened();
-    await within(card()).findByText("ABCD2345");
+    await within(card()).findByDisplayValue("ABCD2345");
     status.unpairedConnected = true;
     act(() => desk.notice("extension.seen", { protocolVersion: PROTOCOL_VERSION, extensionVersion: "0.1.0" }));
     await waitFor(() => expect(within(card()).getByRole("img", { name: "1. Load the extension: complete" })).toBeDefined());
@@ -98,7 +98,7 @@ describe("the Browser card in Set up", () => {
     await waitFor(() => expect(desk.settings()["browser.devSites"]).toEqual([]));
   });
 
-  it("keeps persisted hosts on revisit and labels the tick as this visit's save acknowledgement", async () => {
+  it("keeps persisted hosts on revisit and labels this visit's save acknowledgement", async () => {
     const { app } = await opened({ settings: { "browser.devSites": ["app.example.test"] } });
     const savedThisVisit = () => within(card()).getByRole("img", { name: /3\. Sites you are developing:/ }).getAttribute("aria-label");
     const sites = await within(card()).findByRole("textbox", { name: "Sites you are developing" });
@@ -160,7 +160,7 @@ describe("the Browser card in Set up", () => {
     expect(await within(card()).findByText("Work Chrome: Open chrome://extensions and click Reload.")).toBeDefined();
     expect(screen.getByRole("region", { name: "Set up" })).toBeDefined();
     await app.user.click(within(card()).getByRole("button", { name: "Pair another" }));
-    expect(await within(card()).findByText("ABCD2345")).toBeDefined();
+    expect(await within(card()).findByDisplayValue("ABCD2345")).toBeDefined();
     desk.wire.answer("browser.chromes.unpair", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { chrome: chromeOf(app.clock.now().toISOString()) } } }));
     await app.user.click(within(card()).getByRole("button", { name: "Unpair: Work Chrome" }));
     expect(await within(card()).findByText("Unpaired Work Chrome.")).toBeDefined();
@@ -172,7 +172,7 @@ describe("the Browser card in Set up", () => {
 
   it("shows the local listener's port-in-use sentence and a folder problem", async () => {
     const { desk, status } = await opened();
-    await within(card()).findByText("ABCD2345");
+    await within(card()).findByDisplayValue("ABCD2345");
     status.listener = { state: "not-listening", reason: "port-in-use", message: "The extension listener could not bind: every port is in use." };
     status.folder.problem = "The shipped extension could not be copied.";
     act(() => desk.notice("extension.seen", { protocolVersion: PROTOCOL_VERSION, extensionVersion: "0.1.0" }));
@@ -219,7 +219,7 @@ describe("the Browser card in Set up", () => {
 
   it("opens an already paired Chrome with a live code, and Pair another preserves unsaved development hosts", async () => {
     const { app, desk } = await opened({ setup: { browser: { actions: ["pair-another"] } } }, true, true);
-    expect(await within(card()).findByText("ABCD2345")).toBeDefined();
+    expect(await within(card()).findByDisplayValue("ABCD2345")).toBeDefined();
     expect(within(card()).getByText("Type this code on the extension's options page.")).toBeDefined();
     const sites = within(card()).getByRole("textbox", { name: "Sites you are developing" });
     await app.user.type(sites, "app.example.test");

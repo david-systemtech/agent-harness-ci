@@ -394,6 +394,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       retryNow: (environmentId) => registry.retryNow(environmentId),
       startService: (environmentId) => registry.startService(environmentId),
       updateEnvironment: (environmentId) => registry.updateEnvironment(environmentId),
+      updateEnvironmentNow: (environmentId) => registry.updateEnvironmentNow(environmentId),
       credential: (environmentId) => registry.credential(environmentId),
     },
     preferences: registry.preferences,

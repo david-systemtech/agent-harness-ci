@@ -172,7 +172,7 @@ describe("a pairing code by preset", () => {
 
   it("mints my own client's, preset, with every scope and bypassPermissions explicit, and shows what it grants beside it with its countdown", async () => {
     const { app, part, laptop } = await pairingOn();
-    expect((within(part).getByRole("radio", { name: "My own client" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(part).getByRole("radio", { name: "My own client" }).getAttribute("aria-checked")).toBe("true");
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
     const code = await minted(part);
     expect(laptop.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
@@ -198,7 +198,7 @@ describe("a pairing code by preset", () => {
     const { app, part, laptop } = await pairingOn();
     await app.user.click(within(part).getByRole("radio", { name: "Custom" }));
     const scopes = within(part).getByRole("group", { name: "Scopes" });
-    expect((within(scopes).getByRole("checkbox", { name: "read" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(scopes).getByRole("checkbox", { name: "read" }).getAttribute("aria-checked")).toBe("true");
     await app.user.click(within(scopes).getByRole("checkbox", { name: "read" }));
     expect(within(part).getByText("A pairing code grants at least one scope.")).toBeDefined();
     expect(within(part).getByRole("button", { name: "Make a pairing code" }).hasAttribute("disabled")).toBe(true);
@@ -216,7 +216,7 @@ describe("a pairing code by preset", () => {
     const own = within(part).getByRole("radio", { name: "My own client" }) as HTMLInputElement;
     await waitFor(() => expect(own.disabled).toBe(true));
     expect(within(part).getByText("Above this client's own ceiling on laptop, acceptEdits: a pairing code grants at most its minter's.")).toBeDefined();
-    expect((within(part).getByRole("radio", { name: "A program" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(part).getByRole("radio", { name: "A program" }).getAttribute("aria-checked")).toBe("true");
     const offered = within(within(part).getByRole("combobox", { name: "Ceiling" })).getAllByRole("option") as HTMLOptionElement[];
     expect(offered.map((option) => [option.value, option.disabled])).toEqual([
       ["plan", false],

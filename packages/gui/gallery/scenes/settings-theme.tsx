@@ -2,8 +2,7 @@ import { appearanceScene } from "../appearance-scene.js";
 import { settingsGeometry } from "../settings-scene.js";
 import type { SceneViewport } from "../scene-registry.js";
 
-export default appearanceScene("appearance.theme", '[aria-label="Dark ladder"]');
-export const readySelector = '[data-appearance-ready="appearance.theme"]';
+export const { script, presentation, activate, readySelector } = appearanceScene("appearance.theme", '[aria-label="Dark ladder"]');
 /** look.md §12.1, §12.3 and §5.1: bounded Settings, stepper and seed swatches. */
 export const geometry = (viewport: SceneViewport) => [
   ...settingsGeometry(viewport),
