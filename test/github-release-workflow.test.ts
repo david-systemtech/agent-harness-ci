@@ -109,6 +109,15 @@ esac
     expect(job("release")).toContain("    needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
   });
 
+  it("checks persisted channel targets on the packaged Linux server's second start", () => {
+    const smoke = step("smoke-linux", "Start the packaged environment twice");
+    expect(smoke).toContain('environment.update-pending');
+    expect(smoke).toContain('source: "channel"');
+    expect(smoke).toContain('cause === "superseded"');
+    expect(smoke).toContain('update status --json --data-dir "$data_dir"');
+    expect(smoke).toContain('status.pending.state !== "current"');
+  });
+
   it("hands the manifest writer every asset, the tag and exact ghcr image through the runner's shell", async () => {
     scratch = mkdtempSync(join(tmpdir(), "github-release-workflow-"));
     const log = join(scratch, "args");

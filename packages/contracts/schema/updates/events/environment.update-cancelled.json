@@ -18,9 +18,10 @@
       "type": "string",
       "enum": [
         "requested",
-        "settings"
+        "settings",
+        "superseded"
       ],
-      "description": "Why a pending update was withdrawn: requested (updates.cancel) or settings (for an update the channel called for, auto-update was turned off, the channel changed, or a pin names another version; for an update the pin called for, it was unpinned or pinned to another version)."
+      "description": "Why a pending update was withdrawn: requested (updates.cancel) or settings (for an update the channel called for, auto-update was turned off, the channel changed, or a pin names another version; for an update the pin called for, it was unpinned or pinned to another version), or superseded (the running release reached or passed the stored channel target)."
     }
   },
   "required": [

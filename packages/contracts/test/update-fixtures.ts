@@ -186,7 +186,7 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
   "updates/update-source.json": { valid: ["channel", "pin", "request", "desktop"], invalid: ["cron", ""] },
   "updates/update-cause.json": { valid: ["idle", "cap", "requested"], invalid: ["now", ""] },
   "updates/update-failure-stage.json": { valid: ["switch", "trial", "crash-loop"], invalid: ["preflight", ""] },
-  "updates/update-cancel-cause.json": { valid: ["requested", "settings"], invalid: ["superseded", ""] },
+  "updates/update-cancel-cause.json": { valid: ["requested", "settings", "superseded"], invalid: ["unknown", ""] },
   "updates/events/environment.update-pending.json": {
     valid: [{ updateId, toVersion: "0.5.0", source: "pin", since: at, deferUntil: later }],
     invalid: [{ updateId, toVersion: "0.5.0", source: "pin", since: at }, { updateId, toVersion: "", source: "pin", since: at, deferUntil: later }],
@@ -211,7 +211,7 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "updates/events/environment.update-cancelled.json": {
-    valid: [{ updateId, toVersion: "0.5.0", cause: "settings" }],
+    valid: [{ updateId, toVersion: "0.5.0", cause: "settings" }, { updateId, toVersion: "0.5.0", cause: "superseded" }],
     invalid: [{ updateId, toVersion: "0.5.0" }, { updateId, cause: "requested" }],
   },
   "updates/settings-patch.json": {
