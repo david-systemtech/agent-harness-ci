@@ -64,6 +64,7 @@ interface Entry {
   readonly name: string;
   readonly icon: LucideIcon;
   readonly metadata?: ReactNode;
+  readonly swatch?: ReactNode;
   /** What is said beside its name: a slash command's description, a Settings row's old names, a session's environment. */
   readonly detail?: string;
   /** Its GUI keys in force, as this platform reads them. */
@@ -219,16 +220,21 @@ const SessionsPage = ({ query, close }: { readonly query: string; readonly close
   const environments = useObservable(runtime.projections.environments);
   const rows = useObservable(useMemo(() => runtime.projections.search(query), [runtime, query]));
   const [, setLayout] = usePresentation("paneLayout");
-  const entryOf = (row: SessionRow): Entry => ({
-    value: `${row.environmentId}/${row.summary.id}`,
-    name: row.summary.title,
-    icon: MessageSquare,
-    metadata: <SessionMetadata row={row} />,
-    detail: environments.find((environment) => environment.environmentId === row.environmentId)?.name ?? THIS_MACHINE,
-    keys: [],
-    offer: PRESENT,
-    choose: () => close(() => setLayout((held) => showSession(held, held.focused, { environmentId: row.environmentId, sessionId: row.summary.id }))),
-  });
+  const entryOf = (row: SessionRow): Entry => {
+    const environment = environments.find((view) => view.environmentId === row.environmentId);
+    const name = environment?.name ?? THIS_MACHINE;
+    return {
+      value: `${row.environmentId}/${row.summary.id}`,
+      name: row.summary.title,
+      icon: MessageSquare,
+      metadata: <SessionMetadata row={row} />,
+      detail: name,
+      swatch: <span role="img" aria-label={`${name} colour`} className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: environmentColour(environment?.colour ?? null) ?? "var(--cyan)" }} />,
+      keys: [],
+      offer: PRESENT,
+      choose: () => close(() => setLayout((held) => showSession(held, held.focused, { environmentId: row.environmentId, sessionId: row.summary.id }))),
+    };
+  };
   return (
     <>
       <Command.Empty className="px-3 py-6 text-center text-sm text-ink-faint">No session matches that.</Command.Empty>
@@ -274,7 +280,7 @@ const PaletteEntry = ({ entry }: { readonly entry: Entry }) => {
         <span className="flex w-full items-center gap-2">
           <Icon aria-hidden="true" data-measure="palette-row-icon" className="size-4 shrink-0" />
           <span className={`min-w-0 flex-1 truncate ${absent !== undefined ? "line-through" : ""}`}>{entry.name}</span>
-          {entry.detail !== undefined && <span className="max-w-[35%] truncate text-2xs text-ink-faint">{entry.detail}</span>}
+          {entry.detail !== undefined && <span className="flex max-w-[35%] items-center gap-1 text-2xs text-ink-faint">{entry.swatch}<span className="truncate">{entry.detail}</span></span>}
           {entry.keys.map((key) => (
             <Kbd key={key} className="shrink-0">
               {key}
@@ -312,18 +318,14 @@ const headingOf = (action: ListedAction): Heading => {
 /** Age is measured on the owning environment's clock; worktree branches are recorded facts. */
 const SessionMetadata = ({ row }: { readonly row: SessionRow }) => {
   const runtime = useRuntime();
-  const environments = useObservable(runtime.projections.environments);
-  const environment = environments.find((view) => view.environmentId === row.environmentId);
   const { summary } = row;
   const at = summary.lastActivityAt ?? summary.createdAt;
   const minutes = Math.max(0, Math.floor((runtime.environmentNow(row.environmentId).getTime() - Date.parse(at)) / 60_000));
   const age = minutes < 1 ? "just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
-  const name = environment?.name ?? THIS_MACHINE;
   return <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pl-6 font-mono text-2xs text-ink-faint">
     <time dateTime={at} title={at}>{age}</time>
     <span className="min-w-0 max-w-full truncate" title={summary.workspace.path}>{summary.workspace.path}</span>
     {summary.workspace.kind === "worktree" && <span className="flex min-w-0 max-w-full items-center gap-1"><GitBranch aria-hidden="true" className="size-3 shrink-0" /><span className="truncate" title={summary.workspace.branch}>{summary.workspace.branch}</span></span>}
-    <span role="img" aria-label={`${name} colour`} className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: environmentColour(environment?.colour ?? null) ?? "var(--cyan)" }} />
   </span>;
 };
 
