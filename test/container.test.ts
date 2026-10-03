@@ -166,7 +166,9 @@ describe("the published compose file", () => {
       .flatMap((line) => line.split(/\s+/));
     expect(installed).not.toContain("tailscale");
     const header = composeHeader();
-    expect(header).toContain("tailscale0");
+    expect(header).toContain("name starts with tailscale (tailscale0, tailscale1, ...)");
+    expect(header).toContain("100.64.0.0/10");
+    expect(header).toContain("lowest-numbered interface first");
     expect(header).toContain("kernel TUN mode");
     expect(header).toContain("same tailnet");
   });

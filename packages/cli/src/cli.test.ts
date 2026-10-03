@@ -1,4 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { Server, request } from "node:http";
+import type { NetworkInterfaceInfo } from "node:os";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,7 +14,7 @@ import {
   type LauncherQuery,
   type LauncherReply,
 } from "@agent-harness/contracts";
-import { HARNESS_VERSION, NO_LAUNCHER, createRunRegistry, systemClock, type ContainerDetector, type ContainmentProbe } from "@agent-harness/environment";
+import { HARNESS_VERSION, NO_LAUNCHER, createRunRegistry, systemClock, tailscaleDetector, type ContainerDetector, type ContainmentProbe } from "@agent-harness/environment";
 import { renderUnicodeCompact } from "uqr";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
@@ -221,10 +223,32 @@ describe("agent-harness serve", () => {
     expect(await running).toBe(0);
   });
 
-  it("in a declared container no client has paired with, prints pair's link, QR and code after the discovery address, for its log (#349)", async () => {
+  it.each([undefined, "tailscale0", "tailscale1"])("in a declared container, prints a working pairing link, QR and code with kernel interface %s", async (interfaceName) => {
     const cli = harness({ inContainer: () => true, declared: () => true });
+    const tailnetAddress = "100.64.0.9";
+    let context = cli.context;
+    if (interfaceName !== undefined) {
+      const entry: NetworkInterfaceInfo = { address: tailnetAddress, family: "IPv4", internal: false, netmask: "255.192.0.0", cidr: "100.64.0.9/10", mac: "00:00:00:00:00:00" };
+      context = { ...cli.context, environment: { ...cli.context.environment, interfaces: tailscaleDetector(async () => undefined, () => ({ [interfaceName]: [entry] })) } };
+      // At the OS socket boundary, bind a loopback alias in place of the
+      // scripted tailnet address; report the requested address to the environment.
+      const listen = Server.prototype.listen;
+      const spy = vi.spyOn(Server.prototype, "listen").mockImplementation(function (this: Server, ...args) {
+        const options = args[0];
+        if (typeof options === "object" && options !== null && "host" in options && options.host === tailnetAddress) {
+          const address = this.address.bind(this);
+          vi.spyOn(this, "address").mockImplementation(() => {
+            const bound = address();
+            return typeof bound === "object" && bound !== null ? { ...bound, address: tailnetAddress } : bound;
+          });
+          args[0] = { ...options, host: "127.0.0.2" };
+        }
+        return Reflect.apply(listen, this, args);
+      });
+      cleanups.push(() => spy.mockRestore());
+    }
     const dataDir = join(tempDir(), "data");
-    const exit = runCli(["serve", "--data-dir", dataDir, "--port", "0"], cli.context);
+    const exit = runCli(["serve", "--data-dir", dataDir, "--port", "0"], context);
     await vi.waitFor(() => expect(cli.out()).toMatch(/Code: .+\n[^]*\n$/), SERVE_WAIT);
 
     const [address = "", intro, ...pairing] = cli.out().split("\n");
@@ -232,15 +256,24 @@ describe("agent-harness serve", () => {
     expect(intro).toBe(`No client has paired with this environment yet. Pair one with this code, or run agent-harness pair --preset own-client --data-dir ${dataDir} in the container for a new one.`);
     const printed = pairing.join("\n");
     const link = /http:\/\/\S+\/pair#\S+/.exec(printed)?.[0] ?? "";
+    const port = new URL(address).port;
+    expect(parsePairingLink(link)?.origin).toBe(`http://${interfaceName === undefined ? "127.0.0.1" : tailnetAddress}:${port}`);
     const code = parsePairingLink(link)?.code ?? "";
     expect(printed).toContain(renderUnicodeCompact(link, { border: 2 }));
     expect(printed).toContain(`Code: ${formatPairingCode(code)}`);
-    const exchanged = await fetch(`${new URL(address).origin}${PAIR_PATH}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code, kind: "web", label: "phone", protocolVersion: PROTOCOL_VERSION }),
+    const origin = interfaceName === undefined ? new URL(address).origin : `http://127.0.0.2:${port}`;
+    const exchanged = await new Promise<number>((resolve, reject) => {
+      const req = request(`${origin}${PAIR_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", host: new URL(link).host },
+      }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode ?? 0));
+      });
+      req.on("error", reject);
+      req.end(JSON.stringify({ code, kind: "web", label: "phone", protocolVersion: PROTOCOL_VERSION }));
     });
-    expect(exchanged.status).toBe(200);
+    expect(exchanged).toBe(200);
 
     cli.stop();
     expect(await exit).toBe(0);
