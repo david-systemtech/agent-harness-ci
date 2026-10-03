@@ -6,6 +6,8 @@ import type { PresentationValues } from "../src/presentation.js";
 /** Every matching element must have these dimensions; missing selectors fail capture. */
 export interface SceneGeometry {
   readonly selector: string;
+  /** Apply this measurement only at the named capture viewport width. */
+  readonly viewport?: number;
   readonly width?: number;
   readonly height?: number;
   readonly tolerance?: number;

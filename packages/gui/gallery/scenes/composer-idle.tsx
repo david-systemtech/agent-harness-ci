@@ -7,8 +7,10 @@ export const script: Script = { environments: windowScript.environments.map((env
 
 /** look.md §10.4: shared 920px column, x12 card inset, 44px field, 22px chips and 28px actions. */
 export const geometry: readonly SceneGeometry[] = [
-  { selector: "[data-composer-column]", width: 920 },
-  { selector: "[data-composer-card]", width: 896 },
+  { selector: "[data-composer-column]", width: 920, viewport: 1400 },
+  { selector: "[data-composer-column]", width: 777, viewport: 1024 },
+  { selector: "[data-composer-card]", width: 896, viewport: 1400 },
+  { selector: "[data-composer-card]", width: 753, viewport: 1024 },
   { selector: '[aria-label="Message"]', height: 44 },
   { selector: '[aria-label="Attach files"]', width: 28, height: 28 },
   { selector: '[aria-label="Send"]', width: 28, height: 28 },

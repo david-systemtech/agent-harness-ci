@@ -21,6 +21,12 @@ it.each(["composer-idle", "composer-running", "composer-slash"])("draws %s with 
   expect(screen.getByRole("button", { name: "Recent folders" })).toBeDefined();
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
   expect(geometry).toContainEqual({ selector: '[aria-label="Message"]', height: 44 });
+  expect(geometry).toEqual(expect.arrayContaining([
+    { selector: "[data-composer-column]", width: 920, viewport: 1400 },
+    { selector: "[data-composer-column]", width: 777, viewport: 1024 },
+    { selector: "[data-composer-card]", width: 896, viewport: 1400 },
+    { selector: "[data-composer-card]", width: 753, viewport: 1024 },
+  ]));
   expect(geometry).toContainEqual({ selector: '[aria-label="Attach files"]', width: 28, height: 28 });
   for (const check of geometry) expect(document.querySelector(check.selector)).not.toBeNull();
   if (scene === "composer-running") {
