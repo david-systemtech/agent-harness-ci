@@ -909,6 +909,61 @@
             ],
             "description": "The latest token spend per model: run.ended's, else the last usage.reported."
           },
+          "contextWindows": {
+            "description": "Context windows learned from this run's context.reported readings, keyed by the reported model; retained when a later reading changes model or omits its scale.",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "context": {
+            "description": "The latest context.reported reading; absent in snapshots from environments without context readings.",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "contextTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "Input tokens of the latest main request, including cache reads and writes; excludes output and delegated requests."
+                  },
+                  "contextWindow": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "This model's context window, only when reported by the provider."
+                  }
+                },
+                "required": [
+                  "model",
+                  "contextTokens",
+                  "contextWindow"
+                ],
+                "description": "The latest main request's context, never cumulative token spend."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "durationMs": {
             "anyOf": [
               {
@@ -4210,6 +4265,61 @@
                             }
                           ],
                           "description": "The latest token spend per model: run.ended's, else the last usage.reported."
+                        },
+                        "contextWindows": {
+                          "description": "Context windows learned from this run's context.reported readings, keyed by the reported model; retained when a later reading changes model or omits its scale.",
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "additionalProperties": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "context": {
+                          "description": "The latest context.reported reading; absent in snapshots from environments without context readings.",
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "model": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "contextTokens": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991,
+                                  "description": "Input tokens of the latest main request, including cache reads and writes; excludes output and delegated requests."
+                                },
+                                "contextWindow": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "This model's context window, only when reported by the provider."
+                                }
+                              },
+                              "required": [
+                                "model",
+                                "contextTokens",
+                                "contextWindow"
+                              ],
+                              "description": "The latest main request's context, never cumulative token spend."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "durationMs": {
                           "anyOf": [
@@ -8128,6 +8238,61 @@
                                 }
                               ],
                               "description": "The latest token spend per model: run.ended's, else the last usage.reported."
+                            },
+                            "contextWindows": {
+                              "description": "Context windows learned from this run's context.reported readings, keyed by the reported model; retained when a later reading changes model or omits its scale.",
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "additionalProperties": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "context": {
+                              "description": "The latest context.reported reading; absent in snapshots from environments without context readings.",
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "model": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "contextTokens": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991,
+                                      "description": "Input tokens of the latest main request, including cache reads and writes; excludes output and delegated requests."
+                                    },
+                                    "contextWindow": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "This model's context window, only when reported by the provider."
+                                    }
+                                  },
+                                  "required": [
+                                    "model",
+                                    "contextTokens",
+                                    "contextWindow"
+                                  ],
+                                  "description": "The latest main request's context, never cumulative token spend."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "durationMs": {
                               "anyOf": [

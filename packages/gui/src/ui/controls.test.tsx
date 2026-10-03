@@ -170,7 +170,7 @@ describe("window controls", () => {
     expect(screen.getByRole("heading", { name: "Window primitives" })).toBeTruthy();
     expect(container.dataset["galleryGeometry"]).toContain("input[data-geometry=input]");
     const buttons = new Set<Element>(within(container).getAllByRole("button"));
-    for (const expectation of primitivesGeometry.filter((item) => item.selector.startsWith("button"))) {
+    for (const expectation of primitivesGeometry({ width: window.innerWidth, height: window.innerHeight }).filter((item) => item.selector.startsWith("button"))) {
       const measured = [...container.querySelectorAll(expectation.selector)];
       expect(measured.length).toBeGreaterThan(0);
       expect(measured.every((element) => buttons.has(element))).toBe(true);

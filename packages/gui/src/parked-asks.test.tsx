@@ -1,3 +1,4 @@
+import { openHeaderMenu } from "../test/header-actions.js";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { describe, expect, it } from "vitest";
@@ -41,7 +42,12 @@ const asksButton = () => screen.getByRole("button", { name: /^Parked asks/, hidd
 
 /** Opens the view from the header, and gives it. */
 const openView = async (app: RenderedApp) => {
-  await app.user.click(asksButton());
+  const chip = screen.queryByRole("button", { name: /^Parked asks/ });
+  if (chip !== null) await app.user.click(chip);
+  else {
+    const menu = await openHeaderMenu(app);
+    await app.user.click(within(menu).getByRole("menuitem", { name: "Parked asks" }));
+  }
   return screen.findByRole("dialog", { name: "Parked asks" });
 };
 
@@ -54,11 +60,11 @@ const answersSent = (env: EnvironmentHandle) => env.requests("permissions.prompt
 describe("the Parked asks button", () => {
   it("counts the parked prompts across every environment, and opens the view", async () => {
     const { app, desk, laptop } = await twoEnvironments();
-    expect(asksButton().getAttribute("aria-label")).toBe("Parked asks");
+    expect(screen.queryByRole("button", { name: /^Parked asks/ })).toBeNull();
     park(app, desk, 0);
     park(app, laptop, 0, { kind: "question", summary: "Which database?" });
     await waitFor(() => expect(asksButton().getAttribute("aria-label")).toBe("Parked asks, 2 waiting"));
-    expect(asksButton().textContent).toBe("Parked asks2");
+    expect(asksButton().textContent).toBe("2 waiting");
 
     const view = await openView(app);
     expect(rows(view)).toHaveLength(2);
@@ -119,7 +125,7 @@ describe("answering from the view", () => {
     await app.user.click(within(rows(view)[0] as HTMLElement).getByRole("button", { name: "Deny" }));
     await waitFor(() => expect(answersSent(laptop)).toEqual([{ commandId: expect.any(String), promptId: second, sessionId: laptop.sessionId(0), decision: "deny" }]));
     await waitFor(() => expect(within(view).getByText("Nothing is waiting on you.")).toBeDefined());
-    await waitFor(() => expect(asksButton().getAttribute("aria-label")).toBe("Parked asks"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Parked asks/, hidden: true })).toBeNull());
   });
 
   it("opens a question's or a plan's session in the focused pane, closing the view; any row opens its session so", async () => {

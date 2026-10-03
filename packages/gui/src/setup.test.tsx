@@ -76,7 +76,7 @@ it("shows a pending scheduled read as neutral checking and leaves it out of the 
   const dot = await within(steps()).findByRole("img", { name: "Your machines: checking" });
   expect(dot.className).toContain("bg-ink-faint");
   await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
-  expect(await screen.findByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" })).toBeDefined();
+  expect(await screen.findByRole("button", { name: "Set up: 1 needs attention" })).toBeDefined();
   const pane = await setupPane(app);
   expect(await within(pane).findByText("0 done, 1 needs attention, 0 skipped, 1 checking")).toBeDefined();
 });
@@ -764,7 +764,7 @@ describe("a result this window did not ask for", () => {
     expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
     // A re-check that finds nothing new is never heard, so the line says since when it is unchanged rather than how old it is.
     expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", `The denylist lost 2 presets. (unchanged since ${passed})`]);
-    expect(screen.getByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Set up: 1 needs attention" })).toBeDefined();
     expect(screen.queryByText("Checking…")).toBeNull();
     expect(desk.requests("setup.check")).toHaveLength(asked);
   });
@@ -798,7 +798,7 @@ describe("the header's Set up line", () => {
   it("shows in amber alone while a step needs attention on the home environment, opens the Set up pane on it, and goes once none does", async () => {
     const app = await twoEnvironments();
     const header = screen.getByRole("banner");
-    const line = await within(header).findByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" });
+    const line = await within(header).findByRole("button", { name: "Set up: 1 needs attention" });
     // Tailwind's stylesheet order, rather than className order, decides between conflicting colours.
     expect([...line.classList].filter((name) => TOKEN_NAMES.some((token) => name === `text-${token}`))).toEqual(["text-amber"]);
     // laptop's Appearance needs attention too, but laptop is not the home environment.
@@ -810,7 +810,7 @@ describe("the header's Set up line", () => {
     app.environment("desk").setSetup({ permissions: {} });
     await app.user.click(within(pane).getByRole("button", { name: "Re-run" }));
     expect(await within(pane).findByText("Every step desk checks passes.")).toBeDefined();
-    expect(within(header).queryByRole("button", { name: /^Set up on/ })).toBeNull();
+    expect(within(header).queryByRole("button", { name: /^Set up:/ })).toBeNull();
   });
 });
 

@@ -236,6 +236,19 @@ describe("the Diff pane", () => {
     expect(sent(env, "diffs.workingTree")).toEqual([{ sessionId: session }]);
   });
 
+  it("names both diff sections and gives refresh an icon and its activation keys", async () => {
+    const { app } = await opened({ sessionDiff: { files: [{ path: "src/a.ts", diff: EDIT, changes: [] }] }, workingTree: { diff: TREE } });
+    await write(app, "/diff{Enter}");
+    const session = await within(pane("Diff")).findByRole("group", { name: "What this session changed" });
+    const tree = within(pane("Diff")).getByRole("group", { name: "The working tree against HEAD" });
+    await within(session).findByText((_, element) => element?.textContent === "+const total = 2;");
+    expect(within(tree).getByText((_, element) => element?.textContent === "+new line")).toBeDefined();
+    const refresh = within(pane("Diff")).getByRole("button", { name: "Read again" });
+    expect(refresh.querySelector("svg")).not.toBeNull();
+    act(() => refresh.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Enter or Space");
+  });
+
   it("says a diff the environment cut is cut, and why the working tree has none", async () => {
     const { app } = await opened({
       sessionDiff: { files: [{ path: "src/a.ts", diff: EDIT, changes: [] }], truncated: true },
@@ -315,6 +328,30 @@ describe("the Tasks pane", () => {
     expect(within(within(pane("Tasks")).getByRole("article", { name: "Explore: Look into d" })).queryByRole("button", { name: "Stop" })).toBeNull();
   });
 
+  it("ticks elapsed task time, freezes settled time and explains the Stop reason with keys", async () => {
+    const { app, ledger } = await withTasks({}, task("b", "running", 2));
+    const card = within(pane("Tasks")).getByRole("article", { name: "Explore: Look into b" });
+    const startedAt = new Date(app.clock.now().getTime() - 2000).toISOString();
+    ledger(task("b", "running", 2, { startedAt }));
+    expect(await within(card).findByText("2s")).toBeDefined();
+    expect(card.querySelector("[data-task-status] svg")).not.toBeNull();
+    const stop = within(card).getByRole("button", { name: "Stop" });
+    expect(stop.querySelector("svg")).not.toBeNull();
+    act(() => app.clock.advance(1000));
+    expect(within(card).getByText("3s")).toBeDefined();
+    await app.user.click(stop);
+    act(() => stop.blur());
+    act(() => within(card).getByRole("button", { name: "Stopping…" }).focus());
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("The task is stopping.");
+    expect(tooltip.textContent).toContain("Enter or Space");
+    act(() => stop.blur());
+    ledger(task("b", "completed", 2, { startedAt, endedAt: app.clock.now().toISOString() }));
+    await app.user.click(await within(pane("Tasks")).findByRole("button", { name: "1 finished" }));
+    act(() => app.clock.advance(2000));
+    expect(within(within(pane("Tasks")).getByRole("article", { name: "Explore: Look into b" })).getByText("3s")).toBeDefined();
+  });
+
   it("stops a live task with runs.stopTask, Stopping… until it settles, then folds it with the finished", async () => {
     const { app, env, runId, ledger } = await withTasks({}, task("b", "running", 2), task("c", "running", 3));
     await waitFor(() => expect(listed("Live work")).toHaveLength(2));
@@ -360,6 +397,26 @@ describe("the Tasks pane", () => {
 
     await app.user.click(within(pane("Tasks")).getByRole("button", { name: "Back to the tasks" }));
     expect(listed("Live work")).toHaveLength(2);
+  });
+
+  it("keeps the agent transcript visible when reading it again fails, under an explained Back control", async () => {
+    const { app, env } = await withTasks({ provider: { subagentTranscripts: true }, subagentTranscripts: {
+      "call-b": [{ type: "assistant", uuid: "a1", message: { role: "assistant", content: "The parser is in src/parser.ts." } }],
+    } }, task("b", "running", 2));
+    await app.user.click(onTask("Explore: Look into b", "Open"));
+    const output = await within(pane("Tasks")).findByRole("group", { name: "The agent's transcript" });
+    expect(within(output).getByText("The parser is in src/parser.ts.")).toBeDefined();
+    expect(within(pane("Tasks")).queryByRole("textbox", { name: "Message" })).toBeNull();
+    const back = within(pane("Tasks")).getByRole("button", { name: "Back to the tasks" });
+    expect(back.querySelector("svg")).not.toBeNull();
+    act(() => back.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Enter or Space");
+    env.wire.answer("sessions.subagentTranscript", () => ({ error: { code: "conflict", message: "The stored transcript is unavailable.", data: {} } }));
+    await app.user.click(within(pane("Tasks")).getByRole("button", { name: "Read again" }));
+    expect(await within(pane("Tasks")).findByText("Not read: The stored transcript is unavailable.")).toBeDefined();
+    expect(within(output).getByText("The parser is in src/parser.ts.")).toBeDefined();
+    await app.user.click(back);
+    expect(listed("Live work")).toHaveLength(1);
   });
 
   it("draws Open dim with the adapter's reason where it cannot read an agent's transcript, and a press says why", async () => {

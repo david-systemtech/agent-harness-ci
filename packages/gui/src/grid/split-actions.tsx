@@ -1,5 +1,4 @@
 import { useKeyAction } from "../keys/key-dispatch.js";
-import { Button } from "../ui/index.js";
 import { usePaneGrid } from "./grid.js";
 
 /**
@@ -15,14 +14,5 @@ export const SplitActions = () => {
   const grid = usePaneGrid();
   useKeyAction("app.pane.splitRight", () => grid.split("right"), grid.adding);
   useKeyAction("app.pane.splitDown", () => grid.split("down"), grid.adding);
-  return (
-    <>
-      <Button className="h-7 px-2 text-xs" onClick={() => grid.split("right")}>
-        Split right
-      </Button>
-      <Button className="h-7 px-2 text-xs" onClick={() => grid.split("down")}>
-        Split down
-      </Button>
-    </>
-  );
+  return null;
 };

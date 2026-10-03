@@ -1,6 +1,7 @@
 import type { SessionRow } from "@agent-harness/client-runtime";
 import { ACTION_GROUPS, SETTINGS_ROWS, isCommandId, type ActionId, type ListedAction } from "@agent-harness/contracts";
 import { Command } from "cmdk";
+import { ArrowDownToLine, ArrowUpFromLine, BookOpen, CircleStop, Cpu, FileText, Folder, GitBranch, GitFork, History, Info, Keyboard, ListChecks, MessageSquare, PanelLeft, Paperclip, Search, SendHorizontal, Settings2, Shield, SquareSplitHorizontal, SquareSplitVertical, SquareTerminal, Undo2, Globe, type LucideIcon } from "lucide-react";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { showSession } from "../grid/layout.js";
@@ -9,13 +10,16 @@ import { KeyContext, useEveryWiredAction, useIsKeyOf, useKeyAction, useKeyMap, u
 import { keysInForce } from "../keys/key-map.js";
 import { dimReason } from "../settings/rail.js";
 import { useSettings } from "../settings/settings-window.js";
+import { environmentColour } from "../theme/paint.js";
+import { CommandInput, CommandList } from "../ui/command.js";
+import { Kbd } from "../ui/kbd.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /**
  * The command palette (docs/specs/gui.md, "The window and the sidebar";
  * stories 4 and 9; #406), opened over the window by Mod+K (`app.palette`),
  * over cmdk. Its first page lists every action the window has wired
- * (`useEveryWiredAction`), in the shared list's groups and order, each with
+ * (`useEveryWiredAction`), in the window's presentation groups and registry order, each with
  * its GUI keys in force (this client's remaps read over the defaults), the
  * slash commands the window wires last among them; its last entry opens the
  * sessions page, which finds a session on every environment through
@@ -58,6 +62,9 @@ interface Entry {
   /** cmdk's value for it: unique on its page. */
   readonly value: string;
   readonly name: string;
+  readonly icon: LucideIcon;
+  readonly metadata?: ReactNode;
+  readonly swatch?: ReactNode;
   /** What is said beside its name: a slash command's description, a Settings row's old names, a session's environment. */
   readonly detail?: string;
   /** Its GUI keys in force, as this platform reads them. */
@@ -108,7 +115,7 @@ const Palette = ({ listed, close }: PaletteProps) => {
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
-      className="fixed inset-0 z-40 flex items-start justify-center bg-wash-strong px-4 pt-[12vh]"
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-scrim/10 px-4 pt-[33.333vh] pb-4 backdrop-blur-[4px]"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -123,28 +130,29 @@ const Palette = ({ listed, close }: PaletteProps) => {
         shouldFilter={false}
         vimBindings={false}
         loop
-        className="flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-line-strong bg-float text-ink"
+        data-measure="palette"
+        className="flex w-[384px] max-w-[min(620px,100%)] shrink-0 flex-col overflow-hidden rounded-xl bg-float text-ink ring-1 ring-ink/10"
       >
         <KeyContext context="picker" conditions={{ "picker.queryEmpty": () => query.length === 0 }}>
           <PickerKeys move={(key) => press(key === 0 ? "ArrowUp" : "ArrowDown")} choose={() => press("Enter")} leave={() => close()} back={back} />
-          <Command.Input
+          <CommandInput
             autoFocus
             value={query}
             onValueChange={setQuery}
             placeholder={PLACEHOLDERS[page]}
-            className="h-11 w-full border-b border-hairline bg-transparent px-4 text-sm text-ink outline-none placeholder:text-ink-faint"
+            title={`${LABELS[page]} — use the arrow keys to move and Enter to choose`}
           />
           {/* A press on the list leaves the focus in the query, so what is typed after choosing a page, or a dim entry, filters. */}
-          <Command.List
+          <CommandList
             onMouseDown={(event) => event.preventDefault()}
-            className="max-h-96 overflow-y-auto p-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-ink-faint"
+            className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-ink-muted"
           >
             {page === "root" ? (
               <FirstPage listed={listed} query={query.trim()} close={close} toSessions={() => setPage("sessions")} />
             ) : (
               <SessionsPage query={query.trim()} close={close} />
             )}
-          </Command.List>
+          </CommandList>
         </KeyContext>
       </Command>
     </div>
@@ -152,8 +160,8 @@ const Palette = ({ listed, close }: PaletteProps) => {
 };
 
 /**
- * The first page: the listed actions the query matches, in the shared list's
- * groups and order; the rows of Settings it matches, by label and old names
+ * The first page: the listed actions the query matches, in presentation
+ * groups and registry order within each; the rows of Settings it matches, by label and old names
  * (docs/specs/gui.md, "Settings": opened from the palette), a placeholder row
  * dim with its reason; and last, whatever is typed, the way to the sessions
  * page, so a session's title typed here is one Enter from its page.
@@ -168,28 +176,27 @@ const FirstPage = ({ listed, query, close, toSessions }: PaletteProps & { readon
     return {
       value: action.id,
       name: NAMES[action.id] ?? (command ? `/${action.id.slice("command.".length)}` : action.description),
+      icon: iconOf(action.id),
       ...(command && { detail: action.description }),
       keys: keysInForce(action, map).map((key) => keyLabel(key, macOS)),
       offer: wiredAction.offer,
       choose: () => close(wiredAction.run),
     };
   };
-  const groups = ACTION_GROUPS.map(
-    (group): EntryGroup => ({
-      heading: group.title,
-      entries: (group.actions as readonly ListedAction[])
-        .flatMap((action) => {
-          const wiredAction = wired.findLast((candidate) => candidate.id === action.id);
-          return wiredAction === undefined || !listed.has(action.id) || answeredByPalette(action) ? [] : [entryOf(action, wiredAction)];
-        })
-        .filter((entry) => matches(entry, query)),
-    }),
-  );
+  const entries = ACTION_GROUPS.flatMap((group) => (group.actions as readonly ListedAction[]).flatMap((action) => {
+    const wiredAction = wired.findLast((candidate) => candidate.id === action.id);
+    return wiredAction === undefined || !listed.has(action.id) || answeredByPalette(action) ? [] : [{ action, entry: entryOf(action, wiredAction) }];
+  })).filter(({ entry }) => matches(entry, query));
+  const groups = (["Session", "Configure", "Settings", "Inspect"] as const).map((heading): EntryGroup => ({
+    heading,
+    entries: entries.filter(({ action }) => headingOf(action) === heading).map(({ entry }) => entry),
+  }));
   const rows = SETTINGS_ROWS.map((row): Entry => {
     const dim = dimReason(row);
     return {
       value: `settings ${row.id}`,
       name: row.label,
+      icon: Settings2,
       detail: row.terms.join(", "),
       keys: [],
       offer: dim === undefined ? PRESENT : { status: "absent", message: dim },
@@ -199,11 +206,12 @@ const FirstPage = ({ listed, query, close, toSessions }: PaletteProps & { readon
   const sessions: Entry = {
     value: "sessions",
     name: query === "" ? "Sessions on every environment…" : `Sessions on every environment matching “${query}”`,
+    icon: History,
     keys: [],
     offer: PRESENT,
     choose: toSessions,
   };
-  return <Groups groups={[...groups, { heading: "Settings", entries: rows }, { heading: "Sessions", entries: [sessions] }]} />;
+  return <Groups groups={[...groups.map((group) => group.heading === "Settings" ? { ...group, entries: [...group.entries, ...rows] } : group), { heading: "Sessions", entries: [sessions] }]} />;
 };
 
 /** The sessions page: `projections.search`'s rows on every environment, in the sidebar's order; one chosen opens in the focused pane. */
@@ -212,14 +220,21 @@ const SessionsPage = ({ query, close }: { readonly query: string; readonly close
   const environments = useObservable(runtime.projections.environments);
   const rows = useObservable(useMemo(() => runtime.projections.search(query), [runtime, query]));
   const [, setLayout] = usePresentation("paneLayout");
-  const entryOf = (row: SessionRow): Entry => ({
-    value: `${row.environmentId}/${row.summary.id}`,
-    name: row.summary.title,
-    detail: environments.find((environment) => environment.environmentId === row.environmentId)?.name ?? THIS_MACHINE,
-    keys: [],
-    offer: PRESENT,
-    choose: () => close(() => setLayout((held) => showSession(held, held.focused, { environmentId: row.environmentId, sessionId: row.summary.id }))),
-  });
+  const entryOf = (row: SessionRow): Entry => {
+    const environment = environments.find((view) => view.environmentId === row.environmentId);
+    const name = environment?.name ?? THIS_MACHINE;
+    return {
+      value: `${row.environmentId}/${row.summary.id}`,
+      name: row.summary.title,
+      icon: MessageSquare,
+      metadata: <SessionMetadata row={row} />,
+      detail: name,
+      swatch: <span role="img" aria-label={`${name} colour`} className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: environmentColour(environment?.colour ?? null) ?? "var(--cyan)" }} />,
+      keys: [],
+      offer: PRESENT,
+      choose: () => close(() => setLayout((held) => showSession(held, held.focused, { environmentId: row.environmentId, sessionId: row.summary.id }))),
+    };
+  };
   return (
     <>
       <Command.Empty className="px-3 py-6 text-center text-sm text-ink-faint">No session matches that.</Command.Empty>
@@ -252,25 +267,66 @@ const PickerKeys = ({ move, choose, leave, back }: { readonly move: (key: number
 /** An entry: its name, what is said beside it and its keys; dim with its reason under it while it cannot be done. */
 const PaletteEntry = ({ entry }: { readonly entry: Entry }) => {
   const absent = entry.offer.status === "absent" ? entry.offer.message : undefined;
+  const Icon = entry.icon;
   return (
     <Command.Item
       value={entry.value}
       disabled={absent !== undefined}
       onSelect={entry.choose}
-      className="flex cursor-default select-none flex-col gap-0.5 rounded-sm px-2 py-1.5 text-sm data-[disabled=true]:text-ink-faint data-[selected=true]:bg-wash-strong"
+      title={`${entry.name} — ${entry.keys.length > 0 ? entry.keys.join(" or ") : "Enter"}${absent !== undefined ? `: ${absent}` : ""}`}
+      className="cursor-default select-none rounded-md text-sm data-[disabled=true]:text-ink-faint data-[selected=true]:bg-wash-strong"
     >
-      <span className="flex w-full items-center gap-2">
-        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-        {entry.detail !== undefined && <span className="shrink-0 text-xs text-ink-faint">{entry.detail}</span>}
-        {entry.keys.map((key) => (
-          <kbd key={key} className="shrink-0 rounded border border-line px-1 font-mono text-xs text-ink-muted">
-            {key}
-          </kbd>
-        ))}
+      <span className="flex w-full flex-col gap-0.5 px-2 py-1.5">
+        <span className="flex w-full items-center gap-2">
+          <Icon aria-hidden="true" data-measure="palette-row-icon" className="size-4 shrink-0" />
+          <span className={`min-w-0 flex-1 truncate ${absent !== undefined ? "line-through" : ""}`}>{entry.name}</span>
+          {entry.detail !== undefined && <span className="flex max-w-[35%] items-center gap-1 text-2xs text-ink-faint">{entry.swatch}<span className="truncate">{entry.detail}</span></span>}
+          {entry.keys.map((key) => (
+            <Kbd key={key} className="shrink-0">
+              {key}
+            </Kbd>
+          ))}
+        </span>
+        {entry.metadata}
+        {absent !== undefined && <span className="pl-6 text-2xs">{absent}</span>}
       </span>
-      {absent !== undefined && <span className="text-xs">{absent}</span>}
     </Command.Item>
   );
+};
+
+/** Concept icons apply to both keyed actions and their slash-command routes. */
+const ICONS: Readonly<Record<string, LucideIcon>> = {
+  "app.interrupt": CircleStop, "app.find": Search, "app.session.new": MessageSquare, "app.session.newInPane": MessageSquare,
+  "app.sidebar.toggle": PanelLeft, "app.terminal.toggle": SquareTerminal, "app.browser.choose": Globe, "app.browser.toggle": Globe,
+  "app.pane.splitRight": SquareSplitHorizontal, "app.pane.splitDown": SquareSplitVertical, "app.settings.toggle": Settings2, "app.runInfo.toggle": Info,
+  "composer.send": SendHorizontal, "composer.paste": Paperclip, "composer.readNow": ArrowDownToLine, "composer.withdrawLast": ArrowUpFromLine,
+  "command.model": Cpu, "command.mode": Shield, "command.attach": Paperclip, "command.fork": GitFork, "command.rewind": Undo2,
+  "command.undo": Undo2, "command.check": ListChecks, "command.tasks": ListChecks, "command.search": Search,
+  "command.terminal": SquareTerminal, "command.files": Folder, "command.documents": BookOpen, "command.diff": FileText,
+};
+const iconOf = (id: ActionId): LucideIcon => ICONS[id] ?? (isCommandId(id) ? Settings2 : Keyboard);
+
+type Heading = "Session" | "Configure" | "Settings" | "Inspect";
+/** Presentation groups preserve registry order within each group and retain every wired action. */
+const headingOf = (action: ListedAction): Heading => {
+  if (action.id === "app.settings.toggle" || action.id === "command.settings") return "Settings";
+  if (/^(transcript\.find|app\.(find|runInfo\.)|command\.(diff|check|tasks|search|files|documents)$)/.test(action.id)) return "Inspect";
+  if (/^(app\.(sidebar\.|browser\.choose)|command\.(model|mode|account|containment|handoff)$)/.test(action.id)) return "Configure";
+  return "Session";
+};
+
+/** Age is measured on the owning environment's clock; worktree branches are recorded facts. */
+const SessionMetadata = ({ row }: { readonly row: SessionRow }) => {
+  const runtime = useRuntime();
+  const { summary } = row;
+  const at = summary.lastActivityAt ?? summary.createdAt;
+  const minutes = Math.max(0, Math.floor((runtime.environmentNow(row.environmentId).getTime() - Date.parse(at)) / 60_000));
+  const age = minutes < 1 ? "just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.floor(minutes / 60)}h ago` : `${Math.floor(minutes / 1440)}d ago`;
+  return <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 pl-6 font-mono text-2xs text-ink-faint">
+    <time dateTime={at} title={at}>{age}</time>
+    <span className="min-w-0 max-w-full truncate" title={summary.workspace.path}>{summary.workspace.path}</span>
+    {summary.workspace.kind === "worktree" && <span className="flex min-w-0 max-w-full items-center gap-1"><GitBranch aria-hidden="true" className="size-3 shrink-0" /><span className="truncate" title={summary.workspace.branch}>{summary.workspace.branch}</span></span>}
+  </span>;
 };
 
 /**
