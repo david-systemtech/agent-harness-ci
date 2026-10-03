@@ -79,6 +79,23 @@ describe("service", () => {
     expect(stopped.state()).toMatchObject({ installed: true, running: false });
   });
 
+  it.each([
+    ["install", "stderr"], ["install", "stdout"], ["start", "stderr"], ["start", "stdout"],
+  ] as const)("reports the first error when %s crashes on %s, before its stack and runtime version", async (verb, stream) => {
+    const cause = "Error: EACCES: permission denied, copying the server artefact";
+    const artefact = fakeArtefact("linux", { installed: verb === "start", fails: { verb, stream, message: [
+      "node:internal/fs/cp/cp-sync:91",
+      "  throw error;",
+      "",
+      cause,
+      "    at copyFileSync (node:fs:3091:11)",
+      "Node.js v24.21.0",
+    ].join("\n") } });
+    const { shell } = await start({ platform: carrying("linux", artefact), serviceWait: QUICK });
+    const prefix = verb === "install" ? "Could not install the environment on this machine: " : "Could not start the environment on this machine: ";
+    await expect(shell().service[verb]()).rejects.toThrow(`${prefix}${cause}`);
+  });
+
   it("reports the first error from a failed status command, including Node's missing-package cause before its stack and version", async () => {
     const cause = "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@agent-harness/contracts' imported from /fixture/packages/cli/dist/cli.js";
     const artefact = fakeArtefact("linux", { fails: { verb: "status", message: [
