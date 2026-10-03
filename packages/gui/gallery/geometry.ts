@@ -4,6 +4,7 @@ import type { SceneGeometry } from "./scene-registry.js";
 export function measureSceneGeometry(): string[] {
   const checks: readonly SceneGeometry[] = JSON.parse(document.getElementById("root")?.dataset["galleryGeometry"] ?? "[]");
   return checks.flatMap((check) => {
+    if (check.viewport !== undefined && check.viewport !== window.innerWidth) return [];
     const elements = Array.from(document.querySelectorAll(check.selector));
     if (elements.length === 0) return [`${check.selector}: no matching elements`];
     return elements.flatMap((element, index) => {

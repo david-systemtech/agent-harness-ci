@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
 import { measureSceneGeometry } from "../gallery/geometry.js";
 
-afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
 
 it("finds added scene files without loading renderer code and plans both ladders", async () => {
   const directory = await mkdtemp(join(tmpdir(), "gallery-scenes-"));
@@ -37,4 +37,23 @@ it("checks every control and fails missing geometry selectors", () => {
   expect(measureSceneGeometry()).toEqual(["button[1].height: got 36, expected 32 ±0.5"]);
   root.querySelector("input")?.remove();
   expect(measureSceneGeometry()).toContain("input: no matching elements");
+});
+
+
+it.each([[1400, 920], [1024, 777]])("checks responsive scene geometry at viewport %i", (viewport, width) => {
+  vi.stubGlobal("innerWidth", viewport);
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([
+    { selector: "button", width: 920, viewport: 1400 },
+    { selector: "button", width: 777, viewport: 1024 },
+    { selector: "button", height: 28 },
+  ]);
+  root.innerHTML = "<button>Send</button>";
+  document.body.append(root);
+  const button = root.querySelector("button")!;
+  vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, width, 28));
+  expect(measureSceneGeometry()).toEqual([]);
+  button.remove();
+  expect(measureSceneGeometry()).toEqual(["button: no matching elements", "button: no matching elements"]);
 });

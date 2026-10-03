@@ -73,23 +73,23 @@ describe("the mode picker", () => {
   it("greys the modes above the connection's ceiling with the ceiling named, sets permissions.mode.set, and shows the clamp its answer gives", async () => {
     const { app, env, session } = await opened([desk({ hello: { ceiling: "auto" } })]);
     const menu = await openPicker(app, "Mode");
-    const bypass = within(menu).getByRole("menuitem", { name: /^⏵⏵ BYPASS/ });
+    const bypass = within(menu).getByRole("menuitem", { name: /^BYPASS/ });
     expect(bypass.textContent).toContain("above this connection's ceiling (auto)");
     expect(bypass.textContent).toContain(BYPASS);
-    expect(within(menu).getByRole("menuitem", { name: /^⏵⏵ accept edits/ }).textContent).toContain("this session");
-    expect(within(menu).getByRole("menuitem", { name: /^⏸ auto/ }).textContent).not.toContain("above");
+    expect(within(menu).getByRole("menuitem", { name: /^accept edits/ }).textContent).toContain("this session");
+    expect(within(menu).getByRole("menuitem", { name: /^auto/ }).textContent).not.toContain("above");
 
     await app.user.click(bypass);
     await waitFor(() => expect(paneLine()).toBe("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto)."));
     expect(sent(env, "permissions.mode.set")).toEqual([expect.objectContaining({ sessionId: session, mode: "bypassPermissions" })]);
-    expect(await within(statusLine()).findByRole("button", { name: "Mode: ⏸ auto" })).toBeTruthy();
+    expect(await within(statusLine()).findByRole("button", { name: "Mode: auto" })).toBeTruthy();
   });
 
   it("sets a mode within the ceiling and says it", async () => {
     const { app } = await opened();
-    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^⏸ plan/ }));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
     await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
-    expect(await within(statusLine()).findByRole("button", { name: "Mode: ⏸ plan" })).toBeTruthy();
+    expect(await within(statusLine()).findByRole("button", { name: "Mode: plan" })).toBeTruthy();
   });
 });
 
@@ -104,20 +104,20 @@ describe("the containment picker", () => {
 
   it("greys a level the environment cannot enforce with its reason, marks the default, and sets the one chosen", async () => {
     const { app, env, session } = await opened([desk({ containment: unenforceable })]);
-    await within(statusLine()).findByRole("button", { name: "Containment: ◐ workspace (default)" });
+    await within(statusLine()).findByRole("button", { name: "Containment: workspace (default)" });
     const menu = await openPicker(app, "Containment");
-    expect(within(menu).getByRole("menuitem", { name: /^● no network/ }).textContent).toContain("not available here: No network namespace can be made here.");
-    expect(within(menu).getByRole("menuitem", { name: /^◐ workspace/ }).textContent).toContain("the default");
+    expect(within(menu).getByRole("menuitem", { name: /^no network/ }).textContent).toContain("not available here: No network namespace can be made here.");
+    expect(within(menu).getByRole("menuitem", { name: /^workspace/ }).textContent).toContain("the default");
 
-    await app.user.click(within(menu).getByRole("menuitem", { name: /^○ off/ }));
+    await app.user.click(within(menu).getByRole("menuitem", { name: /^off/ }));
     await waitFor(() => expect(paneLine()).toBe("Containment: off, from the next run of Receipts."));
     expect(sent(env, "permissions.containment.set")).toEqual([expect.objectContaining({ sessionId: session, level: "off" })]);
-    expect(await within(statusLine()).findByRole("button", { name: "Containment: ○ off" })).toBeTruthy();
+    expect(await within(statusLine()).findByRole("button", { name: "Containment: off" })).toBeTruthy();
   });
 
   it("says in one line that a level the environment cannot enforce was refused", async () => {
     const { app } = await opened([desk({ containment: unenforceable })]);
-    await app.user.click(within(await openPicker(app, "Containment")).getByRole("menuitem", { name: /^● no network/ }));
+    await app.user.click(within(await openPicker(app, "Containment")).getByRole("menuitem", { name: /^no network/ }));
     await waitFor(() => expect(paneLine()).toBe("workspace-no-network cannot be enforced on desk: No network namespace can be made here."));
   });
 });
@@ -294,7 +294,7 @@ describe("a picker the connection cannot use", () => {
     const mode = await within(statusLine()).findByRole("button", { name: /^Mode: / });
     expect(mode.getAttribute("aria-disabled")).toBe("true");
     act(() => mode.focus());
-    expect((await screen.findByRole("tooltip")).textContent).toBe("This client was paired with desk without the runs:drive scope.");
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Mode: accept edits · /mode · This client was paired with desk without the runs:drive scope.");
     await app.user.click(mode);
     await waitFor(() => expect(paneLine()).toBe("This client was paired with desk without the runs:drive scope."));
     expect(screen.queryByRole("menu")).toBeNull();
@@ -310,7 +310,7 @@ describe("the slash commands", () => {
     act(() => box.focus());
     await app.user.keyboard("/mode{Enter}");
     // A picker's menu is named by its button.
-    expect(await screen.findByRole("menu", { name: "Mode: ⏵⏵ accept edits" })).toBeTruthy();
+    expect(await screen.findByRole("menu", { name: "Mode: accept edits" })).toBeTruthy();
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 

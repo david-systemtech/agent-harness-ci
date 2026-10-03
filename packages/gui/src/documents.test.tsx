@@ -63,7 +63,7 @@ const grants = (shell: FakeShell) =>
 
 /** The name in the side column's strip that reads `name`. */
 const named = (name: string) =>
-  within(within(screen.getByRole("complementary", { name: "Side column" })).getByRole("navigation", { name: "Open panes" })).getByRole("button", { name });
+  within(within(screen.getByRole("complementary", { name: "Side column" })).getByRole("tablist", { name: "Open panes" })).getByRole("tab", { name });
 
 /** The Preview pane's frame of `path`; null while none is drawn. */
 const frame = (path: string) => screen.queryByTitle(`Preview of ${path}`);
@@ -184,6 +184,8 @@ describe("the Preview pane", () => {
     env.writeFile(session, runId, "src/app.ts", "export {};\n");
     const transcript = screen.getByRole("region", { name: "Transcript" });
     const tile = await within(transcript).findByRole("button", { name: "Preview site/index.html" });
+    expect(tile.querySelector("svg")).not.toBeNull();
+    expect(tile.getAttribute("title")).toContain("Enter or Space");
     // One tile a document, however many of the run's calls wrote it; none for a file that is no document.
     expect(within(transcript).getAllByRole("button", { name: /^Preview / })).toHaveLength(1);
 
