@@ -115,7 +115,8 @@ elif stage == 'archive':
         shutil.copyfile(os.environ['FAKE_GALLERY_ZIP'], out)
         sys.exit(0)
     import zipfile
-    with zipfile.ZipFile(out,'w') as z: z.writestr('window-empty.dark.png', b'\\x89PNG\\r\\n\\x1a\\n' + b'x' * (int(os.environ.get('FAKE_PNG_SIZE','15')) - 8))
+    with zipfile.ZipFile(out,'w') as z:
+        for name in os.environ.get('FAKE_PNG_NAMES','window-empty.dark.png').split(','): z.writestr(name, b'\\x89PNG\\r\\n\\x1a\\n' + b'x' * (int(os.environ.get('FAKE_PNG_SIZE','15')) - 8))
 elif stage == 'discovery':
     title = pathlib.Path(os.environ['FAKE_API_STATE'] + '-title').read_text()
     if mode == 'retry-truncated' and stage == target:
@@ -513,4 +514,20 @@ it("prints the failing capture job log when the gallery failed before producing 
   expect(result.stdout).toContain("checks failed at: tests");
   expect(result.stdout).toContain("test failure details");
   expect(apiCalls(f).some((call) => call.stage === "archive")).toBe(false);
+});
+
+it("attaches discovered component captures in both ladders", async () => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const result = await relay(f, {
+    FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests",
+    FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    FAKE_PNG_NAMES: "window-empty.light.png,window-empty.dark.png,primitives.light.png,primitives.dark.png",
+  });
+  expect(result.code).toBe(0);
+  const comment = readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8");
+  for (const name of ["window-empty.light", "window-empty.dark", "primitives.light", "primitives.dark"]) {
+    expect(comment).toContain(`![${name}.png](https://forge.example.invalid/attachments/screenshot)`);
+  }
+  expect(comment).toContain("light and dark");
 });

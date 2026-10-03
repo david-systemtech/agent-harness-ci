@@ -65,5 +65,7 @@ it("has a baseline at each capture viewport before pixels become blocking", () =
 it("reserves the generated narrow suffix so scenes cannot overwrite another capture", () => {
   expect(captureName("window-empty", 1400)).toBe("window-empty.dark");
   expect(captureName("window-empty", 1024)).toBe("window-empty-narrow.dark");
+  expect(captureName("window-empty", 1400, "light")).toBe("window-empty.light");
+  expect(captureName("window-empty", 1024, "light")).toBe("window-empty-narrow.light");
   expect(() => captureName("window-empty-narrow", 1400)).toThrow("Invalid gallery scene name");
 });

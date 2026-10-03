@@ -63,7 +63,7 @@ const root = () => document.documentElement;
 const paintedAgainst = (theme: Theme, ladder: LadderName) => {
   const expected = cssVariables(derive(theme)[ladder]);
   const actual = Object.fromEntries(Object.keys(expected).map((name) => [name, root().style.getPropertyValue(name)]));
-  return { actual: { ...actual, colorScheme: root().style.colorScheme }, expected: { ...expected, colorScheme: ladder } };
+  return { actual: { ...actual, colorScheme: root().style.colorScheme, ladder: root().dataset["ladder"] }, expected: { ...expected, colorScheme: ladder, ladder } };
 };
 
 /** The root carries `theme`'s `ladder`: every token and environment colour, and the browser's own controls drawn in that ladder. */
@@ -118,6 +118,19 @@ const beforeConnecting = async (theme: Theme, options: { readonly cachedTheme?: 
 };
 
 beforeEach(() => document.documentElement.removeAttribute("style"));
+
+describe("the window's text scale", () => {
+  it("paints the saved size before connecting and scales the root when the preference changes", async () => {
+    const app = await renderApp({ environments: [] }, { presentation: { textSize: 17 } });
+    expect(root().style.getPropertyValue("--font-scale")).toBe(String(17 / 14));
+    act(() => app.presentation.set("textSize", 14));
+    expect(root().style.getPropertyValue("--font-scale")).toBe("1");
+    act(() => app.presentation.set("textSize", 24));
+    expect(root().style.getPropertyValue("--font-scale")).toBe(String(20 / 14));
+    act(() => app.presentation.set("textSize", 11));
+    expect(root().style.getPropertyValue("--font-scale")).toBe(String(11 / 14));
+  });
+});
 
 describe("the first frame", () => {
   it("paints the cached theme's tokens before the environment answers, in the ladder the OS prefers, and hands its Canvas to the window", async () => {

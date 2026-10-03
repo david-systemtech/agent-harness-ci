@@ -78,6 +78,9 @@ export const lanAddressesOf = (interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>):
 /** The IPv4 range Tailscale assigns to its kernel interface. */
 const tailscaleIpv4 = new BlockList();
 tailscaleIpv4.addSubnet("100.64.0.0", 10, "ipv4");
+/** Tailscale's device IPv6 prefix corroborates a CGNAT address on a generic macOS tunnel. */
+const tailscaleIpv6 = new BlockList();
+tailscaleIpv6.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
 
 /** The app-bundle CLI on macOS, where installing the app need not put a CLI on PATH. */
 const MACOS_TAILSCALE = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
@@ -91,7 +94,8 @@ export interface DetectorOptions {
 /**
  * Reads the PATH CLI first, then the macOS app's CLI. Without a CLI
  * address, reads a Tailscale-range IPv4 on any tailscale interface
- * (Linux containers) or utun interface (macOS), lowest-numbered first.
+ * (Linux containers) or a utun interface holding a Tailscale IPv6 address
+ * (macOS), lowest-numbered first. CGNAT alone cannot identify a generic VPN.
  * The name still needs a CLI; otherwise pairing uses the address.
  */
 export const tailscaleDetector = (
@@ -113,8 +117,21 @@ export const tailscaleDetector = (
     async tailscaleAddress() {
       const first = (await command(["ip", "-4"]))?.split(/\r?\n/)[0]?.trim();
       if (first !== undefined && isIPv4(first)) return first;
+      if (macos) {
+        // A retained kernel address cannot override a backend that says it is off.
+        const text = await command(["status", "--json"]);
+        try {
+          const status: unknown = text === undefined ? undefined : JSON.parse(text);
+          if (typeof status === "object" && status !== null && "BackendState" in status &&
+            typeof status.BackendState === "string" && status.BackendState !== "Running") return undefined;
+        } catch {
+          // An unreadable CLI leaves ownership to the interface corroboration below.
+        }
+      }
       return Object.entries(readInterfaces())
-        .filter(([name]) => name.startsWith("tailscale") || (macos && /^utun\d+$/.test(name)))
+        .filter(([name, entries]) => name.startsWith("tailscale") ||
+          (macos && /^utun\d+$/.test(name) && entries?.some((entry) =>
+            !entry.internal && isIPv6(entry.address) && tailscaleIpv6.check(entry.address, "ipv6"))))
         .sort(([left], [right]) => left.localeCompare(right, "en", { numeric: true }))
         .flatMap(([, entries]) => entries ?? [])
         .find((entry) => !entry.internal && isIPv4(entry.address) && tailscaleIpv4.check(entry.address, "ipv4"))?.address;

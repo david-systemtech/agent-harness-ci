@@ -1,4 +1,4 @@
-import type { CSSSourceCode, CSSSyntaxElement } from "@eslint/css";
+import { CSSLanguage, type CSSSourceCode, type CSSSyntaxElement } from "@eslint/css";
 import type { TSESTree } from "@typescript-eslint/utils";
 import { readFileSync } from "node:fs";
 import { createRule } from "./create-rule.js";
@@ -7,6 +7,26 @@ import { COLOUR_UTILITIES } from "./no-literal-colour.js";
 /** The stylesheet is the authority: a token with no Tailwind mapping paints nothing. */
 const stylesheet = readFileSync(new URL("../packages/gui/src/styles.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const mapped = new Set([...stylesheet.matchAll(/--color-([\w-]+)\s*:\s*var\(--[\w-]+\)/g)].map((match) => match[1]));
+/** Custom font sizes belong to text utilities only; companion line-height declarations are not sizes. */
+const textSizes = new Set<string>();
+const parsed = new CSSLanguage().parse({ body: stylesheet, path: "styles.css", physicalPath: "styles.css", bom: false }, {
+  languageOptions: {
+    tolerant: true,
+    // Tailwind's theme holds declarations and nested at-rules, like a CSS declaration block.
+    customSyntax: { atrule: { theme: { parse: { prelude: null, block() { return this.Block(true); } } } } },
+  },
+});
+if (!parsed.ok) throw new Error("Cannot parse the GUI stylesheet's theme sizes.");
+for (const theme of parsed.ast.children) {
+  if (theme.type !== "Atrule" || theme.name !== "theme" || !theme.block) continue;
+  for (const declaration of theme.block.children) {
+    if (declaration.type !== "Declaration") continue;
+    const name = /^--text-([\w-]+)$/.exec(declaration.property)?.[1];
+    if (!name || name.includes("--")) continue;
+    if (declaration.value.type === "Raw" && declaration.value.value.trim().toLowerCase() === "initial") textSizes.delete(name);
+    else textSizes.add(name);
+  }
+}
 const prefixes = [...COLOUR_UTILITIES].sort((a, b) => b.length - a.length);
 
 /** Overloaded colour prefixes also name sizes, alignment, geometry and styles in Tailwind 4. */
@@ -51,6 +71,7 @@ const isUnmapped = (candidate: string): boolean => {
   if (!prefix) return false;
   const value = utility.slice(prefix.length + 1);
   if (!value || value.startsWith("[") || value.startsWith("(")) return false;
+  if (prefix === "text" && textSizes.has(value)) return false;
   if (mapped.has(value) || /^(?:transparent|current|inherit)$/.test(value)) return false;
   // Widths and gradient stop positions, including mask stops, are numbers rather than colours.
   if (/^(?:border(?:-(?:x|y|s|e|t|r|b|l|bs|be))?|divide|decoration|outline|ring|inset-ring|ring-offset|stroke|from|via|to|mask-.+-(?:from|to))$/.test(prefix) && /^\d+(?:\.\d+)?%?$/.test(value)) return false;

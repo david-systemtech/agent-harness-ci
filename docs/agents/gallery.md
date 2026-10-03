@@ -10,4 +10,4 @@ Use this recipe when a deliberate GUI change produces reviewed pixel differences
 
 Captures run on hosted CI. Local acceptance downloads existing captures and launches no browser. If the script reports no captures for the current head, wait for its gallery run and comment before retrying.
 
-Pixel differences remain advisory until the shell wave (#1343–#1347) lands, then the hosted `GALLERY_PIXEL_BLOCKING` variable enables the pixel gate. Geometry failures block throughout. Each scene has a 1400 × 900 capture and a 1024 × 768 narrow capture; scene names reserve the generated `-narrow` suffix.
+Pixel differences remain advisory until the shell wave (#1343–#1347) lands, then the hosted `GALLERY_PIXEL_BLOCKING` variable enables the pixel gate. Geometry failures block throughout. Each discovered scene has light and dark captures at 1400 × 900 and 1024 × 768; scene names reserve the generated `-narrow` suffix.

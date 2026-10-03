@@ -13,9 +13,9 @@ const pixelmatch = require(join(core, "lib/third_party/pixelmatch.js")) as (
   first: Buffer, second: Buffer, difference: Buffer, width: number, height: number, options: { threshold: number },
 ) => number;
 
-export function captureName(scene: string, width: 1400 | 1024): string {
+export function captureName(scene: string, width: 1400 | 1024, ladder: "light" | "dark" = "dark"): string {
   if (!/^[a-z0-9-]+$/.test(scene) || scene.endsWith("-narrow")) throw new Error(`Invalid gallery scene name: ${scene}`);
-  return `${scene}${width === 1024 ? "-narrow" : ""}.dark`;
+  return `${scene}${width === 1024 ? "-narrow" : ""}.${ladder}`;
 }
 
 export function compareCapture(baseline: Buffer | undefined, capture: Buffer) {
@@ -47,8 +47,6 @@ export type GeometryExpectation = {
   readonly viewport?: number;
 } & ({ readonly expected: number | string; readonly tolerance?: number } | { readonly maximum: number });
 
-/** Scene scripts may carry these checks alongside their environment world. */
-export interface SceneChecks { readonly geometry?: readonly GeometryExpectation[] }
 
 export function geometryFailures(measured: readonly Measurement[], expectations: readonly GeometryExpectation[]): string[] {
   return expectations.flatMap((expectation) => {

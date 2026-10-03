@@ -3,10 +3,10 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
-import { scenes } from "./scenes.js";
+import { captureCases, sceneFiles } from "./capture-plan.js";
+import { measureSceneGeometry } from "./geometry.js";
 import { captureName, compareCapture, geometryFailures } from "./compare.js";
-import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
-import type { Measurement, SceneChecks } from "./compare.js";
+import type { Measurement } from "./compare.js";
 
 // This executable starts a server and Chromium. Its only execution site is a hosted CI runner.
 if (process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"] !== "github-hosted") {
@@ -32,15 +32,16 @@ try {
   browser = await chromium.launch();
   const report: { name: string; status: string; differentPixels: number; pixelFailed: boolean; geometryFailures: string[] }[] = [];
   const geometry: Record<string, readonly Measurement[]> = {};
-  const definitions: Readonly<Record<string, Script & SceneChecks>> = scenes;
+  const names = await sceneFiles(resolve(import.meta.dirname, "scenes"));
+  if (names.length === 0) throw new Error("The gallery has no scenes.");
   for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const) {
-    const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: "dark", reducedMotion: "reduce" });
-    for (const [scene, checks] of Object.entries(definitions)) {
-      const name = captureName(scene, viewport.width);
+    for (const { scene, ladder } of captureCases(names)) {
+      const name = captureName(scene, viewport.width, ladder);
+      const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, reducedMotion: "reduce" });
       const page = await context.newPage();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
-      await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=dark`);
+      await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}`);
       await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
       await page.evaluate(async () => {
         await document.fonts.ready;
@@ -64,10 +65,10 @@ try {
         ];
       });
       geometry[name] = measured;
-      const failures = geometryFailures(measured, [
-        { measure: "$window", property: "overflow", maximum: 0 },
-        ...(checks.geometry ?? []).filter((check) => check.viewport === undefined || check.viewport === viewport.width),
-      ]);
+      const failures = [
+        ...await page.evaluate(measureSceneGeometry),
+        ...geometryFailures(measured, [{ measure: "$window", property: "overflow", maximum: 0 }]),
+      ];
       const baselinePath = resolve(import.meta.dirname, "baselines", `${name}.png`);
       let baseline: Buffer | undefined;
       try { baseline = await readFile(baselinePath); }
@@ -76,9 +77,8 @@ try {
       if (baseline !== undefined && compared.status === "changed") await copyFile(baselinePath, resolve(output, `${name}.baseline.png`));
       if (compared.difference !== undefined) await writeFile(resolve(output, `${name}.difference.png`), compared.difference);
       report.push({ name, status: compared.status, differentPixels: compared.differentPixels, pixelFailed: compared.pixelFailed, geometryFailures: failures });
-      await page.close();
+      await context.close();
     }
-    await context.close();
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
   const pixelBlocking = process.env["GALLERY_PIXEL_BLOCKING"] === "true";

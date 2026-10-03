@@ -40,8 +40,13 @@ manifest = None
 for comment in comments:
     matches = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
     if matches:
-        candidate = json.loads(matches[-1])
-        if candidate.get('head') == head: manifest = candidate
+        try: candidate = json.loads(matches[-1])
+        except json.JSONDecodeError: continue
+        if not isinstance(candidate, dict) or candidate.get('head') != head: continue
+        files = candidate.get('captures')
+        if not isinstance(files, list) or not files or len(files) > 200: continue
+        if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
+        manifest = candidate
 if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
 files = manifest.get('captures', [])
 if not files or len(files) > 200: sys.exit('Invalid gallery capture list.')

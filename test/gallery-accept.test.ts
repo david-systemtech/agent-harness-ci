@@ -37,7 +37,9 @@ async function fixture(mode = "current") {
       const manifest = { body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", captures }) + ' -->' };
       if (mode === "marker") manifest.body = '<!-- window-gallery {"head":"test-head","captures":[]} -->\n' + manifest.body;
       const page = new URL(request.url, base).searchParams.get("page");
-      response.end(JSON.stringify(mode === "paged" && page === "1" ? Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })) : [manifest]));
+      const invalid = mode === "invalid-json" ? "{broken" : mode === "non-object" ? "[]" : mode === "invalid-shape" ? '{"head":"test-head","captures":null}' : undefined;
+      const comments = invalid === undefined ? [manifest] : [{ body: `<!-- window-gallery ${invalid} -->` }, manifest, { body: `<!-- window-gallery ${invalid} -->` }];
+      response.end(JSON.stringify(mode === "paged" && page === "1" ? Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })) : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
     else response.end(mode === "corrupt" ? Buffer.from("not an image") : png);
   });
@@ -92,5 +94,12 @@ it("refuses a different working-tree head before reading comments or writing bas
 it("uses the final current-head manifest after a marker in reported failure text", async () => {
   const f = await fixture("marker");
   await run("bash", [script, "42"], { env: f.env });
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+});
+
+it.each(["invalid-json", "non-object", "invalid-shape"])("ignores %s markers in other comments while accepting the current capture report", async (mode) => {
+  const f = await fixture(mode);
+  const result = await run("bash", [script, "42"], { env: f.env });
+  expect(result.stdout).toContain("Accepted window-empty.dark.png");
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
 });

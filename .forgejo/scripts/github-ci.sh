@@ -239,7 +239,7 @@ for name, data in sorted(images.items()):
     url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
     if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): sys.exit('invalid asset URL')
     urls[name] = url
-body = f'Window gallery for `{head}` (1400 × 900; narrow 1024 × 768).\n'
+body = f'Window gallery for `{head}` (1400 × 900; narrow 1024 × 768; light and dark).\n'
 geometry_failed = any(s['geometryFailures'] for s in scenes)
 pixel_failed = any(s['pixelFailed'] for s in scenes)
 body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
