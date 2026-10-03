@@ -10,6 +10,7 @@ import { cssVariables, type Ladder, type LadderName } from "@agent-harness/theme
 export const paintLadder = (root: HTMLElement, ladder: Ladder, name: LadderName): void => {
   for (const [variable, value] of Object.entries(cssVariables(ladder))) root.style.setProperty(variable, value);
   root.style.colorScheme = name;
+  root.dataset["ladder"] = name;
 };
 
 /**

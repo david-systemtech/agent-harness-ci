@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { request } from "node:http";
+import type { NetworkInterfaceInfo } from "node:os";
 import { join } from "node:path";
 import { DISCOVERY_PATH, DiscoveryDocument, HEALTH_PATH, PROTOCOL_VERSION, type SettingsPatch, type SnapshotFrame } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -8,7 +9,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ByeError, connectClient, openSocket, type WireClient } from "../../test/wire-client.js";
 import type { Address } from "./http.js";
-import type { InterfaceDetector } from "./interfaces.js";
+import { tailscaleDetector, type InterfaceDetector } from "./interfaces.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
@@ -135,6 +136,16 @@ describe("binding", () => {
     expect(await binding(t)).toMatchObject({ tailnet: null, tailnetFound: null, tailscaleInstalled: true });
     installed = false;
     expect(await binding(t)).toMatchObject({ tailscaleInstalled: false });
+  });
+
+  it("keeps an unidentified Mac VPN local-only in status, discovery and pairing even with Tailscale installed", async () => {
+    const interfaces = tailscaleDetector(async () => undefined, () => ({
+      utun4: [{ address: "100.64.0.9", internal: false, family: "IPv4" } as NetworkInterfaceInfo],
+    }), { platform: "darwin", readInstalled: () => true });
+    const t = await start({ interfaces });
+    expect(await binding(t)).toMatchObject({ tailnet: null, tailnetFound: null, tailscaleInstalled: true });
+    expect(await discovery(t.address)).toMatchObject({ authPolicy: "local-only" });
+    expect((await t.createPairing()).link).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${t.address.port}/pair#`));
   });
 
   it("says on environment.status a Tailscale address found since its start, which it binds only at its next start, looking again at each status (#861)", async () => {
