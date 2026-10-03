@@ -45,7 +45,7 @@ const AboutOn = ({ view }: { readonly view: EnvironmentView }) => {
         ))}
       <Part title="Updates">
         <UpdateControls view={view} />
-        {status.result !== null && <p className="text-sm text-ink">{bundledClaudeCodeWords(status.result.bundledClaudeCodeVersion)}</p>}
+        {status.result !== null && <p className="font-mono text-xs text-ink-muted">{bundledClaudeCodeWords(status.result.bundledClaudeCodeVersion)}</p>}
       </Part>
       <ManagedTools view={view} />
     </>
