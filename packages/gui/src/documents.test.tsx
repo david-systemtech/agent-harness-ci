@@ -63,7 +63,7 @@ const grants = (shell: FakeShell) =>
 
 /** The name in the side column's strip that reads `name`. */
 const named = (name: string) =>
-  within(within(screen.getByRole("complementary", { name: "Side column" })).getByRole("navigation", { name: "Open panes" })).getByRole("button", { name });
+  within(within(screen.getByRole("complementary", { name: "Side column" })).getByRole("tablist", { name: "Open panes" })).getByRole("tab", { name });
 
 /** The Preview pane's frame of `path`; null while none is drawn. */
 const frame = (path: string) => screen.queryByTitle(`Preview of ${path}`);

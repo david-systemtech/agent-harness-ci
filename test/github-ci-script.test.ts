@@ -497,18 +497,167 @@ it.each(["stale", "closed", "merged"])("does not create a screenshot comment on 
   expect(mutations).toEqual([]);
 });
 
-it("rejects a PNG payload above 1.5 MiB before posting, leaving ZIP overhead within the 2 MiB transport cap", async () => {
+it("publishes all 34 captures from seventeen scenes without rebuilding the artifact", async () => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const names = Array.from({ length: 17 }, (_, index) => [`scene-${index}.light.png`, `scene-${index}.dark.png`]).flat();
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests",
+    FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    FAKE_PR_SHA: sha, FAKE_PNG_NAMES: names.join(","), FAKE_PNG_SIZE: "100000",
+  });
+  expect(result.code).toBe(0);
+  const comment = readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8");
+  expect(comment.match(/!\[/g)).toHaveLength(34);
+  for (const name of names) expect(comment).toContain(`![${name}](`);
+});
+
+it("rejects a PNG payload above 24 MiB before posting, leaving ZIP overhead within the 32 MiB transport cap", async () => {
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
   const result = await relay(f, {
     GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
-    FAKE_PR_SHA: sha, FAKE_PNG_SIZE: String(1572864 + 1),
+    FAKE_PR_SHA: sha, FAKE_PNG_SIZE: String(24*1024*1024 + 1),
   });
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("gallery payload is too large");
   expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
 });
 
+
+it.each([
+  ["too-many", "gallery payload is too large"],
+  ["compressed-payload", "gallery payload is too large"],
+  ["large-zip", "gallery zip is too large"],
+  ["unexpected", "unexpected gallery entry"],
+  ["traversal", "unexpected gallery entry"],
+  ["duplicate", "unexpected gallery entry"],
+  ["not-png", "gallery entry is not a PNG"],
+  ["empty", "gallery payload is too large"],
+])("rejects an invalid capture-only gallery before any publication (%s)", async (mode, error) => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const zip = join(f.checkout, "gallery.zip");
+  await run("python3", ["-c", `import sys,zipfile
+mode=sys.argv[2]
+with zipfile.ZipFile(sys.argv[1], 'w', compression=zipfile.ZIP_DEFLATED if mode=='compressed-payload' else zipfile.ZIP_STORED) as z:
+    if mode=='empty': pass
+    elif mode=='too-many':
+        for i in range(601): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
+    else:
+        size=(24*1024*1024+1 if mode=='compressed-payload' else 32*1024*1024+1 if mode=='large-zip' else 15)
+        name=('geometry.json' if mode=='unexpected' else '../escape.dark.png' if mode=='traversal' else 'window-empty.dark.png')
+        data=(b'not a PNG' if mode=='not-png' else b'\\x89PNG\\r\\n\\x1a\\n'+b'x'*(size-8))
+        z.writestr(name, data)
+        if mode=='duplicate': z.writestr(name, data)
+`, zip, mode]);
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    FAKE_PR_SHA: sha, FAKE_GALLERY_ZIP: zip,
+  });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(error);
+  expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
+  const mutations = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && (line.includes("POST") || line.includes("PATCH")));
+  expect(mutations).toEqual([]);
+});
+
+
+it.each([
+  ["empty", "gallery payload is too large"],
+  ["count", "gallery payload is too large"],
+  ["expanded", "gallery payload is too large"],
+  ["zip", "gallery zip is too large"],
+  ["path", "unexpected gallery entry"],
+  ["duplicate", "unexpected gallery entry"],
+  ["signature", "gallery entry is not a PNG"],
+  ["truncated", "File is not a zip file"],
+])("refuses a %s archive before creating a gallery comment", async (kind, message) => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const zip = join(f.checkout, "gallery.zip");
+  await run("python3", ["-c", `import pathlib,sys,zipfile
+path=pathlib.Path(sys.argv[1]); kind=sys.argv[2]
+png=b'\\x89PNG\\r\\n\\x1a\\n'
+with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+    if kind=='count':
+        for i in range(601): z.writestr(f'scene-{i}.dark.png', png)
+    elif kind=='expanded': z.writestr('scene.dark.png', png+b'x'*(24*1024*1024+1-len(png)))
+    elif kind=='path': z.writestr('../scene.dark.png', png)
+    elif kind=='duplicate':
+        z.writestr('scene.dark.png', png); z.writestr('scene.dark.png', png)
+    elif kind=='signature': z.writestr('scene.dark.png', b'not a PNG')
+    elif kind!='empty': z.writestr('scene.dark.png', png)
+if kind=='zip':
+    with path.open('ab') as f: f.truncate(32*1024*1024+1)
+if kind=='truncated': path.write_bytes(b'PK')`, zip, kind]);
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests",
+    FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    FAKE_PR_SHA: sha, FAKE_GALLERY_ZIP: zip,
+  });
+  expect(result.code).not.toBe(0);
+  expect(result.stderr).toContain(message);
+  expect(result.stderr).not.toContain("urllib");
+  expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
+  const mutations = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && (line.includes("POST") || line.includes("PATCH")));
+  expect(mutations).toEqual([]);
+  if (kind === "truncated" || kind === "zip") expect(readFileSync(f.log, "utf8")).not.toContain("/api/v1/");
+});
+
+it("counts only PNGs against the 600-image limit when report JSON is present", async () => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const zip = join(f.checkout, "gallery.zip");
+  await run("python3", ["-c", `import sys,zipfile
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    for i in range(601): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\n')
+    z.writestr('report.json', '{}')`, zip]);
+  const methods: string[] = [];
+  const server = createServer((request, response) => {
+    methods.push(request.method ?? "");
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ state: "open", merged: false, head: { sha } }));
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no fixture address");
+  try {
+    const result = await relay(f, {
+      GH_CI_EVENT: "gallery", FAKE_GALLERY_ZIP: zip, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests",
+      FORGEJO_URL: `http://127.0.0.1:${address.port}`, FORGEJO_REPOSITORY: "example/project",
+    });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("gallery payload is too large");
+    expect(methods).toEqual(["GET"]);
+  } finally { await new Promise<void>((done) => server.close(() => done())); }
+});
+
+it("the hosted gallery admits growth within the relay limits and rejects excess count or expanded bytes", async () => {
+  const f = await fixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const guards = /# Leave room for ZIP headers[^\n]*\n([\s\S]*?)\n {6}- uses:/.exec(hosted)?.[1];
+  if (!guards) throw new Error("no hosted gallery limits");
+  // The hosted job uses GNU du; macOS's du has no byte-count option.
+  if (process.platform === "darwin") writeFileSync(join(f.bin, "du"), `#!/usr/bin/env python3
+import pathlib,sys
+sizes=[pathlib.Path(p).stat().st_size for p in sys.argv[1:] if not p.startswith('-')]
+print(str(sum(sizes))+'\\ttotal')
+`, { mode: 0o755 });
+  const check = () => run("bash", ["-e", "-c", guards], { cwd: f.checkout, env: { ...process.env, ...f.env } });
+  for (let i = 0; i < 600; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  writeFileSync(join(images, "report.json"), "{}");
+  writeFileSync(join(images, "geometry.json"), "{}");
+  await expect(check()).resolves.toBeDefined();
+  const extra = join(images, "scene-600.dark.png");
+  writeFileSync(extra, "image");
+  await expect(check()).rejects.toMatchObject({ code: 1 });
+  rmSync(extra);
+  writeFileSync(join(images, "scene-0.dark.png"), Buffer.alloc(24*1024*1024+1));
+  await expect(check()).rejects.toMatchObject({ code: 1 });
+});
 
 it.each(["success", "failure", "missing-package-token", "reused-large", "reused-extra"])("validates package credentials and stored capture bytes while publishing triplets (%s)", async (state) => {
   const missingPackageToken = state === "missing-package-token";
@@ -569,9 +718,11 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     }
     if (state === "reused-extra") {
       expect(result.code).toBe(1);
-      expect(result.stderr).toContain("Existing gallery capture has different bytes");
-      expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "GET"]);
-      expect(comment).toBe("");
+      expect(result.stderr).toContain("Gallery upload failed during capture storage window-empty.dark.png (ValueError)");
+      expect(methods.filter((method) => method !== "GET")).toEqual(["POST", "POST", "POST", "POST", "POST", "PUT", "PATCH"]);
+      expect(comment).toContain("Gallery upload failed");
+      expect(comment).not.toContain("Uploading captures");
+      expect(comment).not.toContain("<!-- window-gallery ");
       return;
     }
     expect(result.code).toBe(conclusion === "success" ? 0 : 1);
@@ -583,9 +734,7 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     expect(comment).toContain("1 scene matched.");
     expect(comment).toContain("&lt;!-- window-gallery");
     expect(comment.match(/<!-- window-gallery /g)).toHaveLength(1);
-    expect(methods).toEqual(reused
-      ? ["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "GET", "PUT", "GET", "PATCH"]
-      : ["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
+    expect(methods.filter((method) => method !== "GET")).toEqual(["POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
     if (reused) expect([...storedCaptures.values()][0]?.byteLength).toBe(4*1024*1024+2);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
@@ -599,18 +748,135 @@ it("prints the failing capture job log when the gallery failed before producing 
   expect(apiCalls(f).some((call) => call.stage === "archive")).toBe(false);
 });
 
-it("attaches discovered component captures in both ladders", async () => {
+/** Real relay and acceptance over an immutable generic-package HTTP peer. */
+async function storedGallery(packagesToken = "token-for-tests") {
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const zip = join(f.checkout, "gallery.zip");
+  const captures = new Map<string, Buffer>();
+  const comments: { id: number; body: string }[] = [];
+  let base = "", failure = "";
+  const server = createServer(async (request, response) => {
+    const path = request.url ?? "";
+    const expected = path.startsWith("/api/packages/") || path.startsWith("/api/v1/packages/") ? packagesToken : "token-for-tests";
+    if (request.headers.authorization !== `token ${expected}`) { response.writeHead(401).end(); return; }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const data = Buffer.concat(chunks);
+    response.setHeader("content-type", "application/json");
+    if (request.method === "GET" && path.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha, ref: "build/42-gallery" } }));
+    else if (request.method === "GET" && path.includes("/comments")) response.end(JSON.stringify(comments));
+    else if (request.method === "POST" && path.endsWith("/comments")) {
+      const comment = { id: comments.length + 1, user: { id: -2 }, body: (JSON.parse(data.toString()) as { body: string }).body };
+      comments.push(comment); response.end(JSON.stringify(comment));
+    } else if (request.method === "PATCH") {
+      const id = Number(path.split("/").at(-1));
+      comments[id - 1]!.body = (JSON.parse(data.toString()) as { body: string }).body;
+      response.end("{}");
+    } else if (request.method === "POST" && path.endsWith("/assets")) {
+      if (failure === "attachment") { response.writeHead(503).end(); return; }
+      response.end(JSON.stringify({ browser_download_url: failure === "asset-url" ? "https://elsewhere.example.invalid/capture" : `${base}/attachments/capture-${comments.length}` }));
+    } else if (path.startsWith("/api/packages/")) {
+      if (request.method === "PUT") {
+        if (failure === "package") { response.writeHead(503).end(); return; }
+        if (captures.has(path)) { response.writeHead(409).end(); return; }
+        captures.set(path, data); response.writeHead(201).end();
+      } else if (captures.has(path)) response.end(captures.get(path));
+      else response.writeHead(404).end();
+    } else response.end("[]");
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  cleanups.push(() => { server.close(); });
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no fixture address");
+  base = `http://127.0.0.1:${address.port}`;
+  const env = { PACKAGES_TOKEN: packagesToken, GH_CI_EVENT: "gallery", FAKE_GALLERY_ZIP: zip, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project" };
+  return {
+    f, sha, comments, captures, env,
+    fail: (stage: string) => { failure = stage; },
+    capture: async (pixel: number) => {
+      await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
+pixel=int(sys.argv[2])
+def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
+png=b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1400,900,8,6,0,0,0))+chunk(b'IDAT',zlib.compress((b'\\0'+bytes([pixel,pixel,pixel,255])*1400)*900))+chunk(b'IEND',b'')
+pathlib.Path(sys.argv[1]+'.png').write_bytes(png)
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+    z.writestr('window-empty.dark.png',png)
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':'window-empty.dark','status':'new','pixelFailed':True,'geometryFailures':[]}]}))`, zip, String(pixel)]);
+      return readFileSync(`${zip}.png`);
+    },
+  };
+}
+
+it("finalizes a rerun on the same head and accepts its newly reviewed bytes while keeping the earlier manifest immutable", async () => {
+  const g = await storedGallery();
+  const first = await g.capture(255);
+  expect((await relay(g.f, g.env)).code).toBe(0);
+  const second = await g.capture(0);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(2);
+  expect(g.comments[1]!.body).not.toContain("Uploading captures");
+  expect([...g.captures.values()]).toEqual([first, second]);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  expect(readFileSync(join(g.f.checkout, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(second);
+});
+
+it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure report when the %s upload fails", async (stage) => {
+  const g = await storedGallery();
+  await g.capture(255);
+  g.fail(stage);
+  const result = await relay(g.f, g.env);
+  expect(result.code).toBe(1);
+  expect(g.comments).toHaveLength(1);
+  const body = g.comments[0]!.body;
+  expect(body).toContain("Gallery upload failed");
+  expect(body).toContain(stage === "asset-url" ? "ValueError" : "HTTP 503");
+  expect(body).toContain("Rerun the gallery job");
+  expect(body).not.toContain("Uploading captures");
+  expect(body).not.toContain("<!-- window-gallery ");
+  expect(body).not.toContain("token-for-tests");
+});
+
+it("attaches every registered scene in both ladders, including the Settings scenes", async () => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const scenes = new Set([
+    ...readdirSync(join(root, "packages/gui/gallery/scenes")).filter((name) => name.endsWith(".tsx")).map((name) => name.slice(0, -4)),
+    "settings-accounts", "settings-search",
+  ]);
+  const images = [...scenes].flatMap((scene) => [`${scene}.light.png`, `${scene}.dark.png`]);
+  expect(images.length).toBeGreaterThanOrEqual(32);
   const result = await relay(f, {
     FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests",
     FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
-    FAKE_PNG_NAMES: "window-empty.light.png,window-empty.dark.png,primitives.light.png,primitives.dark.png",
+    FAKE_PNG_NAMES: images.join(","), FAKE_PNG_SIZE: String(64 * 1024),
   });
   expect(result.code).toBe(0);
   const comment = readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8");
-  for (const name of ["window-empty.light", "window-empty.dark", "primitives.light", "primitives.dark"]) {
-    expect(comment).toContain(`![${name}.png](https://forge.example.invalid/attachments/screenshot)`);
+  for (const name of images) {
+    expect(comment).toContain(`![${name}](https://forge.example.invalid/attachments/screenshot)`);
   }
   expect(comment).toContain("light and dark");
+});
+
+
+it("uses the owner package credential for captures while keeping comment requests on the repository token", async () => {
+  const g = await storedGallery("package-token-for-tests");
+  await g.capture(255);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments[0]!.body).toContain("<!-- window-gallery ");
+});
+
+
+it("runs cleanup daily and after a completed gallery report", () => {
+  const workflow = readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery-retention.yml"), "utf8");
+  expect(workflow).toContain("cron:");
+  expect(workflow).toContain("workflow_dispatch:");
+  expect(workflow).toContain("ref: ${{ github.event.repository.default_branch }}");
+  expect(workflow).toContain("python3 scripts/gallery-retention.py");
+  expect(workflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
+  expect(readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery.yml"), "utf8")).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
+  expect(readFileSync(join(import.meta.dirname, "../.forgejo/scripts/github-ci.sh"), "utf8")).toContain("scripts/gallery-retention.py");
 });

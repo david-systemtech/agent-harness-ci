@@ -1,9 +1,10 @@
+import { FileDiff, Files, Globe, ListTodo, NotebookText, PanelsTopLeft, SquareTerminal, type LucideIcon } from "lucide-react";
 import type { CapabilityAnswer, CapabilityName, Runtime } from "@agent-harness/client-runtime";
 import type { SidePane } from "../presentation.js";
 
 /**
  * The side column's panes (docs/specs/gui.md, "The seven panes and the
- * grid"): each one's name in the strip and what it needs, whose capability
+ * grid"): each one's icon and name in the rail and what it needs, whose capability
  * says whether it can draw. The terminal opens one over the environment's
  * `terminal`-scoped methods, and Files and Diff list over them; Documents
  * and Tasks list the session's own projections, which need none, and their
@@ -12,8 +13,9 @@ import type { SidePane } from "../presentation.js";
  */
 
 interface PaneKind {
-  /** Its name in the strip and the header's menu. */
+  /** Its name in the rail and the header's menu. */
   readonly label: string;
+  readonly icon: LucideIcon;
   /** What it needs, asked in order: the first one absent is why it cannot draw. None for one that lists what the runtime already holds. */
   readonly needs: readonly CapabilityName[];
   /**
@@ -24,13 +26,13 @@ interface PaneKind {
 }
 
 export const PANES: Readonly<Record<SidePane, PaneKind>> = {
-  terminal: { label: "Terminal", needs: ["terminals.open"], drawnWhileAbsent: true },
-  files: { label: "Files", needs: ["files.list"], drawnWhileAbsent: false },
-  diff: { label: "Diff", needs: ["diffs.session"], drawnWhileAbsent: false },
-  documents: { label: "Documents", needs: [], drawnWhileAbsent: false },
-  tasks: { label: "Tasks", needs: [], drawnWhileAbsent: false },
-  browser: { label: "Browser", needs: ["shell.webView"], drawnWhileAbsent: false },
-  preview: { label: "Preview", needs: ["shell.preview", "files.read"], drawnWhileAbsent: false },
+  terminal: { icon: SquareTerminal, label: "Terminal", needs: ["terminals.open"], drawnWhileAbsent: true },
+  files: { icon: Files, label: "Files", needs: ["files.list"], drawnWhileAbsent: false },
+  diff: { icon: FileDiff, label: "Diff", needs: ["diffs.session"], drawnWhileAbsent: false },
+  documents: { icon: NotebookText, label: "Documents", needs: [], drawnWhileAbsent: false },
+  tasks: { icon: ListTodo, label: "Tasks", needs: [], drawnWhileAbsent: false },
+  browser: { icon: Globe, label: "Browser", needs: ["shell.webView"], drawnWhileAbsent: false },
+  preview: { icon: PanelsTopLeft, label: "Preview", needs: ["shell.preview", "files.read"], drawnWhileAbsent: false },
 };
 
 const PRESENT: CapabilityAnswer = { status: "present" };
@@ -43,3 +45,6 @@ export const paneCapability = (runtime: Runtime, environmentId: string, pane: Si
   }
   return PRESENT;
 };
+
+/** The measured order for the rail and the neighbour shown after closing a pane. */
+export const DOCK_PANES: readonly SidePane[] = ["terminal", "browser", "files", "diff", "documents", "tasks", "preview"];
