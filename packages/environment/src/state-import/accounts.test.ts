@@ -47,7 +47,7 @@ it("chooses the latest duplicate's directory, maps all source scopes and the act
   writeFileSync(join(source, "prefs.json"), JSON.stringify({ activeProfileId: "older" }));
   writeFileSync(join(source, "agent-prompts.json"), JSON.stringify({ version: 1, prompts: [{ id: "work", name: "Work", markdown: "Check changes.", enabled: false, scope: { kind: "profiles", profileIds: ["older", "newer"] } }] }));
   const base = createClaudeAdapter({ executablePath: "unused-fixture-binary", hostEnv: { HOME: tempDir() }, runCommand: async () => { throw new Error("No provider process during import."); } });
-  const adapter = { ...base, listSessions: async (account: { directory: string | null }) => [{ providerSessionId: randomUUID(), workingDirectory: tempDir(), summary: "Source use", customTitle: null, firstPrompt: "Hello", tag: null, createdAt: null, lastModified: account.directory === newer ? "2026-09-02T00:00:00.000Z" : "2026-09-01T00:00:00.000Z" }] };
+  const adapter = { ...base, status: async () => signedInAs("shared@example.com"), models: fakeAdapter().models, listSessions: async (account: { directory: string | null }) => [{ providerSessionId: randomUUID(), workingDirectory: tempDir(), summary: "Source use", customTitle: null, firstPrompt: "Hello", tag: null, createdAt: null, lastModified: account.directory === newer ? "2026-09-02T00:00:00.000Z" : "2026-09-01T00:00:00.000Z" }] };
   const t = await startTestEnvironment({ otherAdapters: [adapter], accounts: [], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
   onCleanup(() => t.close());
   const client = await t.client();
@@ -56,6 +56,7 @@ it("chooses the latest duplicate's directory, maps all source scopes and the act
   const { accounts } = await client.request("accounts.list", {});
   expect(accounts).toMatchObject([{ label: "Newest", directory: { path: newer } }]);
   const id = accounts[0]?.id;
+  await client.request("accounts.refresh", { accountId: id! });
   expect(await client.request("instructions.list", {})).toMatchObject({ instructions: [{ title: "Work", enabled: false, scope: [id] }] });
   expect(await client.request("settings.get", { keys: ["accounts.defaultAccount"] })).toEqual({ values: { "accounts.defaultAccount": id } });
   await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultAccount": null } });
@@ -198,7 +199,7 @@ it("fails unreadable identities, invalid labels, unresolved scopes and defaults 
     { id: "unresolved", name: "Unresolved", markdown: "Never widen", enabled: true, scope: { kind: "profiles", profileIds: ["good", "missing"] } },
   ] }));
   const base = createClaudeAdapter({ executablePath: "unused-fixture-binary", hostEnv: { HOME: tempDir() }, runCommand: async () => { throw new Error("No process."); } });
-  const t = await startTestEnvironment({ otherAdapters: [base], accounts: [{ id: "existing", provider: "claude", directory: tempDir() }], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  const t = await startTestEnvironment({ otherAdapters: [{ ...base, status: async (account) => signedInAs(account.id === "existing" ? "existing@example.com" : "repaired@example.com"), models: fakeAdapter().models }], accounts: [{ id: "existing", provider: "claude", directory: tempDir() }], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
   onCleanup(() => t.close());
   const client = await t.client();
   await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultAccount": "existing" } });
@@ -217,6 +218,7 @@ it("fails unreadable identities, invalid labels, unresolved scopes and defaults 
   const repaired = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(repaired.result?.carried.accounts).toBe(2);
   expect(repaired.result?.failed).toHaveLength(1);
+  await client.request("accounts.refresh", {});
   const { accounts } = await client.request("accounts.list", {});
   expect(await client.request("settings.get", { keys: ["accounts.defaultAccount"] })).toEqual({ values: { "accounts.defaultAccount": accounts.find((entry) => entry.label === "Identity")?.id } });
   expect((await client.request("instructions.list", {})).instructions).toHaveLength(1);

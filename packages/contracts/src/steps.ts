@@ -290,13 +290,14 @@ export const STEP_REGISTRY = [
         holds: "Every adopted account with something to carry has been imported, and its last import finished.",
         actions: ["import-again"],
       },
+      { id: "carry-over.default-account", holds: "No imported default Account is waiting for sign-in.", actions: ["sign-in-again"] },
     ],
     links: [{ row: "knowledge.skills" }, { row: "knowledge.banks" }],
     skippable: true,
     skip: "carry-over.present",
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: ["account.updated", "carry-over.imported", "state-import.finished"],
+    triggers: ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed"],
   },
   {
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:

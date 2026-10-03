@@ -225,6 +225,7 @@ import { directoryInventory } from "../carry-over/directory-inventory.js";
 import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
+import { followDeferredDefaults } from "../state-import/default-account.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
 import { detectSource, type SourceMachine } from "../state-import/source/folders.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
@@ -1811,6 +1812,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     orientation: readOrientation,
   });
   const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
+  closers.push(followDeferredDefaults({ log, accounts, environmentId: record.id, onChange: () => settleSweep.settingsChanged(["accounts.defaultAccount"]) }));
   const sessionHandlers = sessionMethods({
       log,
       clock: now,

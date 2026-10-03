@@ -23,12 +23,12 @@
         "permissions",
         "appearance"
       ],
-      "description": "The step whose card takes it: Forges or Key manager."
+      "description": "The step whose card takes it: Account, Forges, Key manager or Memory bank."
     }
   },
   "required": [
     "label",
     "step"
   ],
-  "description": "Something a state import could not carry because the source encrypted it: what, and the step that takes it again."
+  "description": "Something a state import needs the person to enter again: what, and the step that takes it."
 }

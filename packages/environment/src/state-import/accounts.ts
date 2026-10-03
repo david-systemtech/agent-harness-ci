@@ -5,7 +5,8 @@ import { identityKey } from "../accounts/account-store.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
 import type { MethodHandler } from "../serve/methods.js";
 import type { EventLog } from "../event-log/event-log.js";
-import { derivedUuid, mappedDirectory, mappedTarget, type ImportItem } from "./items.js";
+import { deferredDefaults } from "./default-account.js";
+import { derivedUuid, mappedDirectory, mappedTarget, stateImportStream, type ImportItem } from "./items.js";
 import type { SourceProfile, SourceProfiles } from "./source/profiles.js";
 
 export const PROFILES_STORE = "profiles";
@@ -116,13 +117,19 @@ export const planAccounts = async (records: SourceProfiles, options: PlanAccount
   return { items, listed, failed, accountIds };
 };
 
-/** The active profile is carried once; a failed mapping leaves the current default untouched. */
-export const defaultAccountItem = (sourceId: string, options: PlanAccountsOptions & { readonly updateSettings: MethodHandler<"settings.update"> }): ImportItem => ({
+/** The active profile is carried once, retaining a signed-out or later-provider choice until sign-in. */
+export const defaultAccountItem = (sourceId: string, options: PlanAccountsOptions & { readonly updateSettings: MethodHandler<"settings.update">; readonly label: string; readonly environmentId: string; readonly importId: string; readonly deferredProvider: boolean }): ImportItem => ({
   sourceKey: options.sourceKey, store: "preferences", sourceId: "active-profile", kind: "account-default", label: "Default Account",
   apply: (context) => {
     const accountId = mappedTarget(options.log, { sourceKey: options.sourceKey, store: PROFILES_STORE, sourceId });
-    if (accountId === undefined || !options.accounts.list().some((entry) => entry.id === accountId)) return { aggregate: { kind: "account", id: accountId ?? derivedUuid("state-import.active", options.sourceKey) }, rejected: { code: "conflict", message: "The active profile has no live mapped Account; the harness default is preserved.", data: { reason: "account_unresolved" } } };
-    const answer = options.updateSettings({ commandId: context.commandId, values: { "accounts.defaultAccount": accountId } }, context);
-    return answer.rejected !== undefined ? answer : { ...answer, result: { targetId: accountId } };
+    const account = options.accounts.list().find((entry) => entry.id === accountId);
+    if (!options.deferredProvider && account === undefined) return { aggregate: { kind: "account", id: accountId ?? derivedUuid("state-import.active", options.sourceKey) }, rejected: { code: "conflict", message: "The active profile has no live mapped Account; the harness default is preserved.", data: { reason: "account_unresolved" } } };
+    if (options.deferredProvider || account?.status.state !== "signed-in") {
+      const held = deferredDefaults({ all: (sql, ...params) => options.log.read(sql, ...params) }).some((choice) => choice.sourceKey === options.sourceKey);
+      if (!held) options.log.append(stateImportStream(options.environmentId), [{ type: "state-import.default-account-deferred", payload: { importId: options.importId, sourceKey: options.sourceKey, sourceId, label: options.label } }], { tx: context.tx, actor: context.actor, commandId: context.commandId, correlationId: options.importId });
+      return { aggregate: stateImportStream(options.environmentId), result: { targetId: accountId ?? sourceId, deferred: true } };
+    }
+    const answer = options.updateSettings({ commandId: context.commandId, values: { "accounts.defaultAccount": account.id } }, context);
+    return answer.rejected !== undefined ? answer : { ...answer, result: { targetId: account.id } };
   },
 });
