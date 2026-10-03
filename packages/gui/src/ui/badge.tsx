@@ -4,7 +4,7 @@ import { cn } from "./classes.js";
 
 const VARIANTS: Readonly<Record<ButtonVariant, string>> = {
   default: "bg-beam text-beam-ink", secondary: "bg-raised text-ink", destructive: "bg-signal/10 text-signal dark:bg-signal/20",
-  outline: "border-hairline text-ink", ghost: "text-ink", link: "text-beam-text underline-offset-4",
+  outline: "border-hairline text-ink", ghost: "text-ink", link: "text-beam-text underline-offset-4 hover:underline",
 };
 export const Badge = ({ className, variant = "default", ...props }: ComponentProps<"span"> & { readonly variant?: ButtonVariant }) => <span className={cn("inline-flex h-5 w-fit shrink-0 items-center gap-1 rounded-4xl border border-transparent px-2 text-xs font-medium whitespace-nowrap [&_svg]:size-3", VARIANTS[variant], className)} {...props} />;
 export type StatusTone = "neutral" | "info" | "thinking" | "success" | "warning" | "danger";

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { Plus } from "lucide-react";
 import { describe, expect, it } from "vitest";
@@ -44,6 +44,24 @@ describe("window controls", () => {
     await user.click(action);
     expect(calls).toEqual([]);
   });
+  it("skips a disabled icon action with no explanation in the tab order", async () => {
+    const user = userEvent.setup();
+    render(<><IconButton label="Copy" disabled><Plus aria-hidden="true" /></IconButton><Button>Continue</Button></>);
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Continue" }));
+  });
+
+  it("keeps implicit labels for composite field children", async () => {
+    const user = userEvent.setup();
+    const Control = () => <Input />;
+    render(<><Field label="Fragment"><><Input /><span>Optional</span></></Field><Field label="Composite"><Control /></Field><Field label="Several">{[<Input key="input" />, <span key="hint">Optional</span>]}</Field></>);
+    for (const name of ["Fragment", "Composite", "Several"]) {
+      const input = screen.getByRole("textbox", { name: new RegExp(name) });
+      await user.click(screen.getByText(name));
+      expect(document.activeElement).toBe(input);
+    }
+  });
+
   it("labels native text controls and preserves select options, values and disabled state", async () => {
     const user = userEvent.setup();
     render(<><Field label="Name" description="Shown in the window" error="Choose a name"><Input aria-invalid /></Field><Field label="Notes"><Textarea /></Field><Field label="Effort"><Select defaultValue="medium"><option value="medium">Medium</option><option value="high">High</option><option value="off" disabled>Off</option></Select></Field></>);
@@ -73,13 +91,13 @@ describe("window controls", () => {
     const user = userEvent.setup();
     const values: number[][] = [];
     render(<><Tabs defaultValue="one"><TabsList aria-label="Details"><TabsTrigger value="one">Files</TabsTrigger><TabsTrigger value="two">Tasks</TabsTrigger></TabsList><TabsContent value="one">File list</TabsContent><TabsContent value="two">Task list</TabsContent></Tabs><Toggle aria-label="Bold"><Plus aria-hidden="true" /></Toggle><Slider aria-label="Text size" defaultValue={[14]} min={11} max={20} onValueChange={(next) => values.push(next)} /></>);
-    screen.getByRole("tab", { name: "Files" }).focus();
+    act(() => screen.getByRole("tab", { name: "Files" }).focus());
     await user.keyboard("{ArrowRight}");
     expect(screen.getByRole("tab", { name: "Tasks" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tabpanel").textContent).toBe("Task list");
     await user.click(screen.getByRole("button", { name: "Bold" }));
     expect(screen.getByRole("button", { name: "Bold" }).getAttribute("aria-pressed")).toBe("true");
-    screen.getByRole("slider", { name: "Text size" }).focus();
+    act(() => screen.getByRole("slider", { name: "Text size" }).focus());
     await user.keyboard("{ArrowRight}");
     expect(values).toEqual([[15]]);
     expect(screen.getByRole("slider", { name: "Text size" }).getAttribute("aria-valuenow")).toBe("15");

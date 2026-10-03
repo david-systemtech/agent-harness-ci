@@ -54,5 +54,5 @@ export const IconButton = ({ label, keys, disabledReason, disabled, size = "icon
   const off = disabled === true || disabledReason !== undefined;
   const description = [label, keys, disabledReason].filter(Boolean).join(" · ");
   const action = <Button {...props} size={size} aria-label={label} disabled={off} />;
-  return <Tooltip content={description}>{off ? <span tabIndex={0} aria-label={description} className="inline-flex rounded-lg focus-visible:outline-2 focus-visible:outline-beam">{action}</span> : action}</Tooltip>;
+  return <Tooltip content={description}>{disabledReason !== undefined ? <span tabIndex={0} aria-label={description} className="inline-flex rounded-lg focus-visible:outline-2 focus-visible:outline-beam">{action}</span> : action}</Tooltip>;
 };
