@@ -85,7 +85,7 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
           <div className="flex justify-end gap-2">
             <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
-            <Button icon={LogIn} label="Sign in" tone="primary" type="submit" disabled={sending}>
+            <Button icon={LogIn} label="Sign in" variant="default" type="submit" disabled={sending}>
               Sign in
             </Button>
           </div>
@@ -156,7 +156,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
           <div className="flex justify-end gap-2">
             <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
-            <Button icon={Pencil} label="Save" tone="primary" type="submit" disabled={sending}>
+            <Button icon={Pencil} label="Save" variant="default" type="submit" disabled={sending}>
               Save
             </Button>
           </div>
@@ -180,7 +180,7 @@ export const ConfirmSignOut = ({ environmentId, connection, close, say }: Connec
             <Button icon={X} label="Cancel">Cancel</Button>
           </DialogClose>
           <Button icon={LogOut} label="Sign out"
-            tone="danger"
+            variant="destructive"
             onClick={() => {
               close();
               void signOutConnection(sender, environmentId, connection).then((out) => say(out.line));
@@ -221,11 +221,11 @@ export const ConfirmRemove = ({ environmentId, connection, close, say }: Connect
             <Button icon={X} label="Cancel">Cancel</Button>
           </DialogClose>
           {refused?.referenced === true ? (
-            <Button icon={Trash2} label="Remove anyway" tone="danger" disabled={sending} onClick={() => remove(true)}>
+            <Button icon={Trash2} label="Remove anyway" variant="destructive" disabled={sending} onClick={() => remove(true)}>
               Remove anyway
             </Button>
           ) : (
-            <Button icon={Trash2} label="Remove" tone="danger" disabled={sending} onClick={() => remove(false)}>
+            <Button icon={Trash2} label="Remove" variant="destructive" disabled={sending} onClick={() => remove(false)}>
               Remove
             </Button>
           )}

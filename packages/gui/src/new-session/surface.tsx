@@ -167,7 +167,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
               />
               <div className="flex items-center gap-2 px-2 pb-2">
                 <span className="ml-auto hidden text-2xs text-ink-faint @[640px]:block">{sendKey ?? "Unbound"} send / {newlineKey ?? "Unbound"} newline</span>
-                <IconButton label={starting ? "Starting…" : "Send"} {...(sendKey === undefined ? {} : { keys: sendKey })} {...(notReady === undefined ? {} : { disabledReason: notReady })} tone="primary" disabled={starting || text.trim().length === 0} className="ml-auto" onClick={() => void start()}>
+                <IconButton label={starting ? "Starting…" : "Send"} {...(sendKey === undefined ? {} : { keys: sendKey })} {...(notReady === undefined ? {} : { disabledReason: notReady })} variant="default" disabled={starting || text.trim().length === 0} className="ml-auto" onClick={() => void start()}>
                   {starting ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <SendHorizontal aria-hidden="true" />}
                 </IconButton>
               </div>

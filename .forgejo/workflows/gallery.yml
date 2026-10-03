@@ -1,4 +1,4 @@
-# Geometry failures block immediately. Pixels remain advisory until the shell wave lands.
+# Geometry failures, missing baselines and pixel differences block.
 # Gallery runs independently of ci / ci.
 name: gallery
 on:

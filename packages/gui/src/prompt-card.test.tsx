@@ -105,6 +105,39 @@ const sentAnswers = async (env: EnvironmentHandle, count: number) => {
 };
 
 describe("an approval", () => {
+  it.each([
+    { action: "Deny", decision: "deny", remember: undefined },
+    { action: "Allow once", decision: "allow", remember: undefined },
+    { action: "Allow for this session", decision: "allow", remember: "session" },
+  ])("keeps $action and its note outside a long request, including after refusal", async ({ action, decision, remember }) => {
+    const { app, env, session } = await opened();
+    const command = Array.from({ length: 40 }, (_, at) => `printf 'Check ${at + 1}'`).join("\n");
+    const promptId = await park(env, session, { input: { command } });
+    const request = within(card() as HTMLElement).getByRole("region", { name: "Permission request" });
+    const decisions = within(card() as HTMLElement).getByRole("group", { name: "Permission decision" });
+    expect(within(request).getByLabelText("Arguments").textContent).toContain("$ printf 'Check 1'");
+    expect(within(request).getByLabelText("Arguments").textContent).toContain("printf 'Check 40'");
+    expect(within(request).queryByRole("textbox", { name: "Note" })).toBeNull();
+    expect(within(request).queryByRole("button", { name: action })).toBeNull();
+    await app.user.type(within(decisions).getByRole("textbox", { name: "Note" }), "Keep the receipts");
+    await app.user.click(button("Hide request"));
+    await app.user.click(button("Show request"));
+    expect(within(card() as HTMLElement).getByRole("textbox", { name: "Note" })).toHaveProperty("value", "Keep the receipts");
+
+    env.wire.answer("permissions.prompts.answer", () => ({ error: { code: "conflict", message: "Try the decision again.", data: {} } }));
+    await app.user.click(button(action));
+    await waitFor(() => expect(within(card() as HTMLElement).getByRole("status").textContent).toContain("Try the decision again."));
+    const returned = within(card() as HTMLElement).getByRole("group", { name: "Permission decision" });
+    expect(within(returned).getByRole("textbox", { name: "Note" })).toHaveProperty("value", "Keep the receipts");
+    expect(within(returned).getByRole("status")).toBeTruthy();
+    expect(within(card() as HTMLElement).getByRole("region", { name: "Permission request" }).textContent).toContain("printf 'Check 40'");
+    await app.user.click(within(returned).getByRole("button", { name: action }));
+    expect(await sentAnswers(env, 2)).toEqual(Array.from({ length: 2 }, () => ({
+      commandId: expect.any(String), promptId, sessionId: session, decision,
+      ...(remember !== undefined && { remember }), message: "Keep the receipts",
+    })));
+  });
+
   it("waits oldest first, 1 of N, and is allowed once by a click, and for this session by the other", async () => {
     const { app, env, transcript, session } = await opened();
     const first = await park(env, session, { summary: "Bash: rm -rf build" });
@@ -318,6 +351,44 @@ describe("a plan", () => {
     act(() => shown.focus());
     await press(app, MOD_ENTER);
     expect(await sentAnswers(env, 1)).toEqual([{ commandId: expect.any(String), promptId, sessionId: session, decision: "allow" }]);
+  });
+
+  it("retains a long plan and its note through scrolling, collapse and a refused decision, with the same keyboard gates", async () => {
+    const { app, env, session } = await opened();
+    const promptId = await park(env, session, {
+      ...plan("acceptEdits"),
+      plan: "## Steps\n\n" + Array.from({ length: 32 }, (_, at) => `${at + 1}. Check the recorded total.`).join("\n"),
+    });
+    const shown = card() as HTMLElement;
+    const body = within(shown).getByLabelText("Plan body");
+    Object.defineProperties(body, {
+      scrollHeight: { configurable: true, value: 800 },
+      clientHeight: { configurable: true, value: 160 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    act(() => body.dispatchEvent(new Event("scroll")));
+    expect(within(shown).getByText("Scroll to read the plan")).toBeDefined();
+    await app.user.type(within(shown).getByRole("textbox", { name: "Note" }), "Keep the receipt checks");
+    body.scrollTop = 640;
+    act(() => body.dispatchEvent(new Event("scroll")));
+    expect(within(shown).queryByText("Scroll to read the plan")).toBeNull();
+    await app.user.click(button("Hide request"));
+    await app.user.click(button("Show request"));
+    expect(within(shown).getByRole("textbox", { name: "Note" })).toHaveProperty("value", "Keep the receipt checks");
+    act(() => button("Approve · continue in acceptEdits").focus());
+    await press(app, "{Enter}");
+    expect(answersSent(env)).toEqual([]);
+    await app.user.click(button("Approve · continue in auto"));
+    expect(answersSent(env)).toEqual([]);
+    const elsewhere = env.answerElsewhere(session, promptId, { heard: false });
+    act(() => shown.focus());
+    await press(app, MOD_ENTER);
+    await waitFor(() => expect(within(card() as HTMLElement).getByRole("status").textContent).toBe("Not answered: The prompt was already answered."));
+    expect(within(card() as HTMLElement).getByRole("textbox", { name: "Note" })).toHaveProperty("value", "Keep the receipt checks");
+    expect(within(within(card() as HTMLElement).getByLabelText("Plan body")).getAllByRole("listitem")).toHaveLength(32);
+    expect((await sentAnswers(env, 1))[0]).toEqual(expect.objectContaining({ promptId, decision: "allow", message: "Keep the receipt checks" }));
+    elsewhere.hear();
+    await waitFor(() => expect(card()).toBeNull());
   });
 
   it("sends the mode an approval names, and Esc keeps planning", async () => {

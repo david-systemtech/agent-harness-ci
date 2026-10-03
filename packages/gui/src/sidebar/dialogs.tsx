@@ -103,7 +103,7 @@ const SnoozeDialog = ({ row, close }: { readonly row: SessionRow; close(): void 
           <DialogClose asChild>
             <Button icon={X} keys="Escape">Cancel</Button>
           </DialogClose>
-          <Button icon={Clock} type="submit" tone="primary" disabled={!(at instanceof Date)}>
+          <Button icon={Clock} type="submit" variant="default" disabled={!(at instanceof Date)}>
             Snooze
           </Button>
         </Actions>
@@ -217,7 +217,7 @@ const NewGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): voi
           <DialogClose asChild>
             <Button icon={X} keys="Escape">Cancel</Button>
           </DialogClose>
-          <Button type="submit" tone="primary" disabled={name === ""}>
+          <Button type="submit" variant="default" disabled={name === ""}>
             Move
           </Button>
         </Actions>
@@ -293,7 +293,7 @@ const DeleteDialog = ({ row, close }: { readonly row: SessionRow; close(): void 
         {checked !== "checking" && (live === "running" || live === "parked" || live === "starting" || (live === undefined && checked === "live")) && <p className="text-sm text-amber">A run is live on this session. Deleting it stops the run.</p>}
         <Actions>
           <AlertDialogCancel asChild><Button icon={X} keys="Escape" onClick={close}>Keep it</Button></AlertDialogCancel>
-          <Button icon={Trash2} tone="danger" disabled={checked === "checking" || checked === "failed"} onClick={remove}>Delete</Button>
+          <Button icon={Trash2} variant="destructive" disabled={checked === "checking" || checked === "failed"} onClick={remove}>Delete</Button>
         </Actions>
       </AlertDialogContent>
     </AlertDialog>
@@ -314,7 +314,7 @@ const DeleteGroupDialog = ({ group, close }: { readonly group: MergedGroupHeadin
       <AlertDialogContent title={`Delete the group ${quoted(group.name)}?`} description={`On ${on}. Its sessions stay, in no group.`}>
         <Actions>
           <AlertDialogCancel asChild><Button icon={X} keys="Escape" onClick={close}>Keep it</Button></AlertDialogCancel>
-          <Button icon={Trash2} tone="danger" onClick={remove}>Delete</Button>
+          <Button icon={Trash2} variant="destructive" onClick={remove}>Delete</Button>
         </Actions>
       </AlertDialogContent>
     </AlertDialog>

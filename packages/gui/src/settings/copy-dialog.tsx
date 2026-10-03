@@ -1,6 +1,8 @@
 import type { CopyReport } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
-import { Button, Dialog, DialogContent } from "../ui/index.js";
+import { Copy } from "lucide-react";
+import { DialogAction as Button } from "../ui/dialog-action.js";
+import { Dialog, DialogContent } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 export interface CopyDialogProps<R> {
@@ -70,7 +72,7 @@ export const CopyDialog = <R,>({ environmentId, title, description, close, copy,
         )}
         <div className="flex justify-end gap-2">
           <Button onClick={close}>{lines.length > 0 ? "Done" : "Cancel"}</Button>
-          <Button tone="primary" disabled={ticked.size === 0 || sending} onClick={send}>
+          <Button icon={Copy} variant="default" disabled={ticked.size === 0 || sending} onClick={send}>
             Copy
           </Button>
         </div>

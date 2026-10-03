@@ -79,7 +79,7 @@ export const ServiceVerbs = ({ view, writable }: { readonly view: EnvironmentVie
               <DialogClose asChild>
                 <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
-              <Button tone="danger" title={`${asking.confirm} (Enter or Space)`} onClick={() => run(asking)}>
+              <Button variant="destructive" title={`${asking.confirm} (Enter or Space)`} onClick={() => run(asking)}>
                 <asking.icon aria-hidden="true" data-icon="inline-start" />{asking.confirm}
               </Button>
             </DialogFooter>

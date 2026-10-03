@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ShellPlatform, ShellSecrets } from "@agent-harness/client-runtime";
+import type { SecretAccess, ShellPlatform, ShellSecrets } from "@agent-harness/client-runtime";
 import type { ElectronSafeStorage } from "./electron.js";
 
 /**
@@ -10,7 +10,9 @@ import type { ElectronSafeStorage } from "./electron.js";
  * desktop's data directory, `secrets/<name>.secret`, encrypted by Electron's
  * `safeStorage` under the key the OS keeps for the app: the macOS Keychain,
  * Windows' DPAPI, a Linux secret service. Each file is written whole and
- * renamed into place, readable by its owner alone.
+ * renamed into place, readable by its owner alone. On macOS all availability,
+ * encryption and decryption use the async provider: Keychain approval waits
+ * on a worker thread, including reading ciphertext kept by synchronous storage.
  *
  * On Linux with no secret service answering, Chromium chooses its
  * `basic_text` store and `safeStorage` refuses to encrypt unless asked to use
@@ -33,6 +35,32 @@ const reasonOf = (error: unknown): string => (error instanceof Error ? error.mes
 
 export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts): Required<ShellSecrets> => {
   let unprotected = false;
+  let state: SecretAccess = null;
+  let pending = 0;
+  let denied = false;
+  const listeners = new Set<(state: SecretAccess) => void>();
+  const publish = () => {
+    const next = pending > 0 ? "waiting" : denied ? "denied" : null;
+    if (next === state) return;
+    state = next;
+    for (const listener of [...listeners]) listener(state);
+  };
+  const macKeychain = async <T>(operation: () => Promise<T>): Promise<T> => {
+    pending++;
+    denied = false;
+    publish();
+    try {
+      const answer = await operation();
+      denied = false;
+      return answer;
+    } catch (error) {
+      denied = true;
+      throw error;
+    } finally {
+      pending--;
+      publish();
+    }
+  };
   /** Whether `safeStorage` encrypts now: on Linux with no secret service, once it takes Chromium's fixed key. */
   const encrypts = (): boolean => {
     if (safeStorage.isEncryptionAvailable()) return true;
@@ -56,24 +84,30 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
   return {
     async get(name) {
       const file = fileOf(name);
-      // A token that cannot be read is none, never a rejection the runtime has no answer for: it blocks the connection as
-      // revoked, and pairing again replaces the token.
+      // An absent file is no token. Refused macOS access rejects so the runtime retries without revoking or deleting it.
       try {
         const kept = await readFile(file);
+        if (os === "darwin") return await macKeychain(async () => (await safeStorage.decryptStringAsync(kept)).result);
         if (!encrypts()) throw new Error("the OS keeps no key for this app now");
         return safeStorage.decryptString(kept);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-        report(new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}): pair that environment again.`));
+        const retry = os === "darwin" ? "The saved token is kept; allow Keychain access and retry. If access stays unavailable, restart this desktop. If the saved token still cannot be read, pair that environment again." : "Pair that environment again.";
+        const unreadable = new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}). ${retry}`);
+        report(unreadable);
+        if (os === "darwin") throw unreadable;
         return undefined;
       }
     },
     async set(name, secret) {
       const file = fileOf(name);
-      if (!encrypts()) {
+      if (os !== "darwin" && !encrypts()) {
         throw new Error("This desktop cannot keep a client session token: the OS keeps no key for it (safeStorage cannot encrypt). Unlock or set up the system keychain, then pair again.");
       }
-      const encrypted = safeStorage.encryptString(secret);
+      const encrypted = os === "darwin" ? await macKeychain(async () => {
+        if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("This desktop cannot keep a client session token: unlock or set up the system keychain, then pair again.");
+        return safeStorage.encryptStringAsync(secret);
+      }) : safeStorage.encryptString(secret);
       await mkdir(dir, { recursive: true, mode: 0o700 });
       if (os !== "win32") await chmod(dir, 0o700);
       const next = `${file}.${randomUUID()}.next`;
@@ -88,7 +122,14 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
     async delete(name) {
       await rm(fileOf(name), { force: true });
     },
+    async access() { return state; },
+    onAccess(listener) {
+      listeners.add(listener);
+      listener(state);
+      return () => void listeners.delete(listener);
+    },
     async protection() {
+      if (os === "darwin") return await safeStorage.isAsyncEncryptionAvailable() ? "os" : "none";
       if (!encrypts()) return "none";
       return unprotected ? "unprotected" : "os";
     },

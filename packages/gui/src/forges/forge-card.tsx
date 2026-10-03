@@ -139,7 +139,7 @@ const ConfirmRemove = ({ environmentId, account, close, say }: Omit<ForgeCardPro
           <DialogClose asChild>
             <Button icon={X} label="Cancel">Cancel</Button>
           </DialogClose>
-          <Button icon={Trash2} label="Remove" tone="danger" disabled={sending} onClick={remove}>
+          <Button icon={Trash2} label="Remove" variant="destructive" disabled={sending} onClick={remove}>
             Remove
           </Button>
         </div>

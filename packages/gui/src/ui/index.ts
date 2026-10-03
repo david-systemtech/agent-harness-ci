@@ -3,7 +3,7 @@
  * Radix-based controls every surface draws with. Each takes props, holds no
  * store, and draws only the theme's tokens.
  */
-export { Button, IconButton, type ButtonProps, type ButtonTone, type ButtonSize, type ButtonVariant, type IconButtonProps } from "./button.js";
+export { Button, IconButton, type ButtonProps, type ButtonSize, type ButtonVariant, type IconButtonProps } from "./button.js";
 export {
   ContextMenu,
   ContextMenuContent,

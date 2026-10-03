@@ -151,7 +151,7 @@ const SignInAgain = ({ environmentId, account, close, say }: Omit<ForgeCardProps
       </Field>
       {refused !== undefined && <p className="text-sm text-signal">{refused}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button icon={LogIn} label="Sign in again" tone="primary" type="submit" disabled={sending}>
+        <Button icon={LogIn} label="Sign in again" variant="default" type="submit" disabled={sending}>
           Sign in again
         </Button>
         <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>

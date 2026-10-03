@@ -75,7 +75,7 @@ const SessionItem = ({ session, own, writable, setCeiling, revoke }: SessionItem
             </option>
           ))}
         </Select>
-        <Button tone="danger" disabled={!writable} onClick={() => revoke(session)} title="Revoke… (Enter or Space)">
+        <Button variant="destructive" disabled={!writable} onClick={() => revoke(session)} title="Revoke… (Enter or Space)">
           <KeyRound aria-hidden="true" data-icon="inline-start" />Revoke…
         </Button>
       </div>

@@ -34,6 +34,29 @@ describe.each(workflows)("the %s release's packed servers", (_name, workflow) =>
 });
 
 describe("the public release's packaged server smoke tests", () => {
+  it("checks a packaged macOS replacement with a kept credential separately from fresh server starts", () => {
+    const body = job(hosted, "smoke-macos");
+    expect(body).toContain("- name: Replace the packaged desktop with an existing client credential");
+    expect(body).toContain("uses: actions/checkout@");
+    expect(body).toContain('"$server/node/bin/node" scripts/macos-desktop-update-smoke.mjs');
+    expect(body).toContain('"unzipped/agent-harness.app"');
+  });
+
+  it.each(["smoke-windows", "smoke-macos", "smoke-linux"])("checks packaged and materialized extension assets after readiness in %s", (name) => {
+    const body = job(hosted, name);
+    const check = "scripts/check-packaged-extension.mjs";
+    expect(body).toMatch(/uses: actions\/checkout@[a-f0-9]{40}/);
+    expect(body).toContain(check);
+    expect(body.lastIndexOf(check)).toBeGreaterThan(body.indexOf(name === "smoke-windows" ? "Wait-Ready $defect" : 'if [ "$ready" != true ]'));
+    expect(body).toContain(name === "smoke-windows"
+      ? '& $node scripts/check-packaged-extension.mjs $server $dataDir $env:VERSION'
+      : '"$node" scripts/check-packaged-extension.mjs "$server" "$data_dir" "$VERSION"');
+    if (name === "smoke-windows") {
+      expect(body).toContain("if ($LASTEXITCODE -ne 0) { throw 'Packaged browser extension check failed' }");
+      expect(body).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-extension.mjs').Path -Destination (Join-Path $work 'scripts')");
+    }
+  });
+
   it("exercises Mac tunnel ownership with the packaged environment and its bundled Node", () => {
     const body = job(hosted, "smoke-macos");
     expect(body).toContain("- name: Verify packaged macOS tunnel ownership");

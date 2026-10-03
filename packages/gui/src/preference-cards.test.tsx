@@ -241,7 +241,7 @@ describe("without admin", () => {
     expect(within(permissions).getAllByText(/^Read-only:/)).toHaveLength(1);
     expect(within(permissions).getByRole("button", { name: "Restore" }).hasAttribute("disabled")).toBe(true);
     expect(within(await section(permissions, "Paths")).getByRole("button", { name: "Restore presets" }).hasAttribute("disabled")).toBe(true);
-    expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("radio", { name: "plan" }).hasAttribute("disabled")).toBe(true);
+    expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("radio", { name: "Plan only" }).hasAttribute("disabled")).toBe(true);
     for (const radio of within(within(permissions).getByRole("radiogroup", { name: "Default process containment" })).getAllByRole("radio")) {
       expect(radio.hasAttribute("disabled")).toBe(true);
     }

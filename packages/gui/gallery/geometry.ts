@@ -26,7 +26,7 @@ export function measureSceneGeometry(): string[] {
           visibility.push(`${check.selector}[${index}]: clipped outside ${check.visibleWithin}`);
         }
       }
-      return [...visibility, ...(["width", "height", "paddingLeft", "paddingTop", "fontSize", "maxWidth"] as const).flatMap((dimension) => {
+      return [...visibility, ...(["width", "height", "paddingLeft", "paddingTop", "fontSize", "maxWidth", "maxHeight"] as const).flatMap((dimension) => {
         const expected = check[dimension];
         const minimum = dimension === "height" ? check.minimumHeight : undefined;
         if (expected === undefined && minimum === undefined) return [];

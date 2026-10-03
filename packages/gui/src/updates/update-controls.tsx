@@ -113,7 +113,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
       {typeof pinned === "string" && <p className="text-ink-muted">{pinnedWords(pinned)}</p>}
       {pending !== null && <p className="text-ink-muted">{pending}</p>}
       <div className="flex flex-wrap gap-2">
-        <Tooltip content="Update now · Enter / Space"><Button tone="primary" disabled={!admits("updates.apply")} onClick={() => update("idle")}>
+        <Tooltip content="Update now · Enter / Space"><Button variant="default" disabled={!admits("updates.apply")} onClick={() => update("idle")}>
           <ArrowDownToLine aria-hidden="true" />Update now
         </Button></Tooltip>
         {drainable !== null && (
@@ -136,7 +136,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
               <Tooltip content="Cancel · Enter / Space / Escape"><DialogClose asChild>
                 <Button><X aria-hidden="true" />Cancel</Button>
               </DialogClose></Tooltip>
-              <Tooltip content="Drain and update · Enter / Space"><Button tone="danger" onClick={() => update("now")}>
+              <Tooltip content="Drain and update · Enter / Space"><Button variant="destructive" onClick={() => update("now")}>
                 <CircleStop aria-hidden="true" />
                 Drain and update
               </Button></Tooltip>

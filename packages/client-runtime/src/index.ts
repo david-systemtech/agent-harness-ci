@@ -48,6 +48,7 @@ export {
   type ShellPlatform,
   type ShellPreview,
   type ShellSecrets,
+  type SecretAccess,
   type ShellService,
   type ShellStagedBuild,
   type ShellSystem,

@@ -367,8 +367,8 @@ interface SendOrStopProps {
 const SendOrStop = ({ stops, sends, stopping, interrupt, send, stop }: SendOrStopProps) => {
   const sendKey = useFirstKey("composer.send");
   const stopKey = useFirstKey("app.interrupt");
-  if (!stops) return <IconButton label="Send" {...(sendKey === undefined ? {} : { keys: sendKey })} tone="primary" disabled={!sends} className="ml-auto" onClick={send}><SendHorizontal aria-hidden="true" /></IconButton>;
-  if (stopping) return <IconButton label="Stopping…" {...(stopKey === undefined ? {} : { keys: stopKey })} tone="danger" disabled className="ml-auto"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /></IconButton>;
+  if (!stops) return <IconButton label="Send" {...(sendKey === undefined ? {} : { keys: sendKey })} variant="default" disabled={!sends} className="ml-auto" onClick={send}><SendHorizontal aria-hidden="true" /></IconButton>;
+  if (stopping) return <IconButton label="Stopping…" {...(stopKey === undefined ? {} : { keys: stopKey })} variant="destructive" disabled className="ml-auto"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /></IconButton>;
   const absent = interrupt?.status === "absent" ? interrupt.message : interrupt === undefined ? "The run has not started yet." : undefined;
-  return <IconButton label="Stop" {...(stopKey === undefined ? {} : { keys: stopKey })} tone="danger" {...(absent === undefined ? {} : { disabledReason: absent })} className="ml-auto" onClick={stop}><CircleStop aria-hidden="true" /></IconButton>;
+  return <IconButton label="Stop" {...(stopKey === undefined ? {} : { keys: stopKey })} variant="destructive" {...(absent === undefined ? {} : { disabledReason: absent })} className="ml-auto" onClick={stop}><CircleStop aria-hidden="true" /></IconButton>;
 };

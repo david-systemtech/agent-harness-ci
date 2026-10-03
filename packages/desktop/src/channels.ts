@@ -11,6 +11,8 @@
  */
 export const SHELL_GLOBAL = "desktopShell";
 
+export const SECRET_ACCESS_CHANNEL = "shell:secrets.accessChanged";
+
 export const WINDOW_CHANNEL = "shell:window.changed";
 
 /** The members the renderer awaits, each answered through `ipcMain.handle`. */
@@ -34,6 +36,7 @@ export const ANSWERED = [
   "secrets.set",
   "secrets.delete",
   "secrets.protection",
+  "secrets.access",
   "localGrant.read",
   "service.applyUpdateNow",
   "service.install",

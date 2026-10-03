@@ -63,10 +63,16 @@ it("allows at most 0.05 percent different pixels and rejects missing baselines a
   expect(compareCapture(image(), image(101, 100)).pixelFailed).toBe(true);
 });
 
-it("has a baseline for each ladder and viewport before pixels become blocking", () => {
-  for (const [name, width, height] of [["window-empty.dark", 1400, 900], ["window-empty-narrow.dark", 1024, 768], ["window-empty.light", 1400, 900], ["window-empty-narrow.light", 1024, 768]] as const) {
-    const baseline = PNG.sync.read(readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url)));
-    expect([baseline.width, baseline.height]).toEqual([width, height]);
+it("has a baseline for every required scene, ladder and viewport", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  for (const { scene, ladder } of captureCases(scenes)) {
+    for (const [width, height] of [[1400, 900], [1024, 768]] as const) {
+      const name = captureName(scene, width, ladder);
+      const baseline = readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url));
+      expect(baseline.subarray(0, 8).toString("hex"), name).toBe("89504e470d0a1a0a");
+      expect(baseline.subarray(12, 16).toString("ascii"), name).toBe("IHDR");
+      expect([baseline.readUInt32BE(16), baseline.readUInt32BE(20)], name).toEqual([width, height]);
+    }
   }
 });
 
@@ -96,5 +102,18 @@ it("gives every discovered scene a valid, distinct capture name at both viewport
   const names = captureCases(scenes).flatMap(({ scene, ladder }) =>
     ([1400, 1024] as const).map((width) => captureName(scene, width, ladder)),
   );
-  expect(new Set(names).size).toBe(scenes.length * 4);
+  expect(new Set(names).size).toBe(names.length);
+  expect(names.length).toBeLessThanOrEqual(400);
+  for (const scene of scenes) {
+    expect(names).toContain(captureName(scene, 1400));
+    expect(names).toContain(captureName(scene, 1024));
+  }
+});
+
+it("blocks missing and changed baselines as well as geometry faults", async () => {
+  const { galleryFailed } = await import("../gallery/compare.js");
+  expect(galleryFailed([{ ...compareCapture(undefined, image()), geometryFailures: [] }])).toBe(true);
+  expect(galleryFailed([{ ...compareCapture(image(), image(100, 100, 6)), geometryFailures: [] }])).toBe(true);
+  expect(galleryFailed([{ ...compareCapture(image(), image()), geometryFailures: ["header.height: got 48, expected 44"] }])).toBe(true);
+  expect(galleryFailed([{ ...compareCapture(image(), image()), geometryFailures: [] }])).toBe(false);
 });
