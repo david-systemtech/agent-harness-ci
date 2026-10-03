@@ -1,3 +1,5 @@
+import { DialogFooter } from "../ui/dialog.js";
+import { KeyRound, X } from "lucide-react";
 import type { ClientSessionSummary } from "@agent-harness/client-runtime";
 import { Button, Dialog, DialogClose, DialogContent } from "../ui/index.js";
 
@@ -20,20 +22,21 @@ export interface ConfirmRevokeProps {
  */
 export const ConfirmRevoke = ({ environment, session, own, close, revoke }: ConfirmRevokeProps) => (
   <Dialog open onOpenChange={(open) => !open && close()}>
-    <DialogContent title={`Revoke ${session.label} on ${environment}?`} description="Its sockets close and its token is refused from then on; the client has to pair again to reach it.">
+    <DialogContent showClose={false} data-revoke-confirmation title={`Revoke ${session.label} on ${environment}?`} description="Its sockets close and its token is refused from then on; the client has to pair again to reach it.">
+      <div className="mb-2 flex size-10 items-center justify-center rounded-md bg-signal/10 text-signal"><KeyRound aria-hidden="true" className="size-6" /></div>
       {own && (
-        <p className="text-sm text-signal">
+        <p className="rounded-lg bg-signal/10 p-3 text-sm text-signal">
           This is this client&apos;s own session: this window loses {environment} as soon as it is revoked, until it pairs with {environment} again.
         </p>
       )}
-      <div className="flex justify-end gap-2">
+      <DialogFooter>
         <DialogClose asChild>
-          <Button>Cancel</Button>
+          <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
         </DialogClose>
-        <Button tone="danger" onClick={revoke}>
-          Revoke
+        <Button tone="danger" onClick={revoke} title="Revoke (Enter or Space)">
+          <KeyRound aria-hidden="true" data-icon="inline-start" />Revoke
         </Button>
-      </div>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
 );

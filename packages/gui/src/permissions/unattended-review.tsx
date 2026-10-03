@@ -1,5 +1,6 @@
 import { NOTHING_TO_REVIEW, markReviewSeen, reviewCountsWords, reviewDenialWords, reviewRanWords, reviewRunWords, type EnvironmentView } from "@agent-harness/client-runtime";
 import type { ResultOf, ReviewRun } from "@agent-harness/contracts";
+import { CheckCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useWrittenOver } from "../settings/settings-values.js";
 import { Button } from "../ui/index.js";
@@ -58,8 +59,8 @@ export const UnattendedReview = ({ view }: { readonly view: EnvironmentView }) =
         </ul>
       )}
       <div className="flex items-center gap-3">
-        <Button disabled={!ready || seen.status === "absent" || marking || listed === null || listed.runs.length === 0} onClick={() => listed !== null && mark(listed)}>
-          Mark seen
+        <Button title="Mark seen (Enter or Space)" disabled={!ready || seen.status === "absent" || marking || listed === null || listed.runs.length === 0} onClick={() => listed !== null && mark(listed)}>
+          <CheckCheck aria-hidden="true" data-icon="inline-start" />Mark seen
         </Button>
         {ready && seen.status === "absent" && <p className="text-xs text-ink-faint">{seen.message}</p>}
       </div>
@@ -75,7 +76,7 @@ const RunItem = ({ environmentId, run }: { readonly environmentId: string; reado
   const list = useObservable(runtime.projections.sessionList);
   const title = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === run.sessionId)?.summary.title ?? run.sessionId;
   return (
-    <li className="flex flex-col gap-0.5 text-sm">
+    <li className="flex flex-col gap-0.5 rounded-lg border border-hairline p-3 text-xs">
       <p className="text-ink">
         <span className="text-ink-faint">{reviewRanWords(run, clock.now())} </span>
         <span className="font-semibold">{title}</span> · {reviewRunWords(run)}

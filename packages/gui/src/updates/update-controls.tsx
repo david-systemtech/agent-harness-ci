@@ -12,9 +12,10 @@ import {
   type EnvironmentView,
 } from "@agent-harness/client-runtime";
 import { RELEASE_CHANNELS, type MethodName, type SettingsKey, type UpdateWhen } from "@agent-harness/contracts";
-import { ArrowDownToLine, CircleStop, Radio, RefreshCw, X } from "lucide-react";
+import { ArrowUpCircle, ArrowDownToLine, CircleStop, Radio, RefreshCw, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { nameOf } from "../connections/words.js";
+import { DialogFooter } from "../ui/dialog.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Button, Dialog, DialogClose, DialogContent, Select, Switch, Tooltip } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -75,7 +76,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
 
   return (
     <div className="flex flex-col gap-3 text-xs">
-      {version !== null && <p className="font-mono text-ink">{environmentVersionWords(version)}</p>}
+      {version !== null && <p className="flex items-center gap-2 font-mono text-ink"><ArrowUpCircle aria-hidden="true" className="size-4" />{environmentVersionWords(version)}</p>}
       {ready && status.error !== null && <p className="text-signal">{updatesUnreadWords(status.error.message)}</p>}
       {values !== null && (
         <div className="flex flex-col gap-3">
@@ -130,16 +131,16 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
       {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
       <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
         {drainable !== null && (
-          <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
-            <div className="flex justify-end gap-2">
-              <Tooltip content="Cancel · Esc"><DialogClose asChild>
+          <DialogContent showClose={false} title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
+            <DialogFooter>
+              <Tooltip content="Cancel · Enter / Space / Escape"><DialogClose asChild>
                 <Button><X aria-hidden="true" />Cancel</Button>
               </DialogClose></Tooltip>
               <Tooltip content="Drain and update · Enter / Space"><Button tone="danger" onClick={() => update("now")}>
                 <CircleStop aria-hidden="true" />
                 Drain and update
               </Button></Tooltip>
-            </div>
+            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>

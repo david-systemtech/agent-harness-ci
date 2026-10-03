@@ -1,5 +1,7 @@
 import { COUNTDOWN_TICK_MS, adminCall, clockTime, grantWords, ttlWords, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
 import { formatPairingCode, parsePairingLink, type Ceiling, type MintedPairing, type Scope } from "@agent-harness/contracts";
+import { KeyRound } from "lucide-react";
+import { CopyLine } from "../settings/copy-line.js";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { encode } from "uqr";
 import { Button } from "../ui/index.js";
@@ -23,7 +25,7 @@ const PairingQr = ({ link }: { readonly link: string }) => {
       viewBox={`0 0 ${data.length} ${data.length}`}
       shapeRendering="crispEdges"
       fill="currentColor"
-      className="size-44 shrink-0 rounded-sm"
+      className="size-44 shrink-0 rounded-lg border border-hairline"
       style={{ color: "light-dark(var(--ink), var(--abyss))", backgroundColor: "light-dark(var(--abyss), var(--ink))" }}
     >
       {data.flatMap((line, y) => line.flatMap((dark, x) => (dark ? [<rect key={`${x},${y}`} data-module="" x={x} y={y} width={1} height={1} />] : [])))}
@@ -112,9 +114,9 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
           <PairingQr link={live.pairing.link} />
           <div className="flex min-w-0 flex-col gap-1 text-sm text-ink">
             <p className="text-ink-muted">Open the link on the other client, scan the QR there, or type the address and code.</p>
-            <code className="font-mono text-xs break-all select-all">{live.pairing.link}</code>
-            {origin !== undefined && <p>Address: {origin.replace(/^http:\/\//, "")}</p>}
-            <p>Code: {formatPairingCode(live.pairing.code)}</p>
+            <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />
+            {origin !== undefined && <p className="font-mono text-xs">Address: {origin.replace(/^http:\/\//, "")}</p>}
+            <CopyLine label="Pairing code" text={formatPairingCode(live.pairing.code)} copyLabel="Copy pairing code" />
             <p>{grantWords(live.pairing.scopes, live.pairing.ceiling)}</p>
             <p className="text-ink-muted">Expires at {clockTime(live.until.toISOString())}, for one use.</p>
             <p role="timer" className="text-ink-muted">
@@ -126,8 +128,8 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
       {minted !== undefined && expired && <p className="text-sm text-ink-muted">This code expired at {clockTime(minted.until.toISOString())}: make another.</p>}
       {refused !== undefined && <p className="text-sm text-signal">{refused}</p>}
       <div>
-        <Button disabled={!writable} onClick={() => void mint()}>
-          {action}
+        <Button variant="outline" title={`${action} (Enter or Space)`} disabled={!writable} onClick={() => void mint()}>
+          <KeyRound aria-hidden="true" data-icon="inline-start" />{action}
         </Button>
       </div>
     </>
