@@ -38,6 +38,14 @@ These early builds are not signed. If the browser flags the download as
 uncommon, choose to keep it. If Windows shows **Windows protected your
 PC**, choose **More info**, then **Run anyway**.
 
+Uninstall from **Settings > Apps**, or run the installed
+`Uninstall agent-harness.exe /S`. This stops and unregisters your local
+environment task. Updates keep the task installed. Your environment data
+(accounts, sessions, settings, logs and installed server versions) and desktop
+preferences remain in `%LOCALAPPDATA%\agent-harness` for a later reinstall.
+After uninstalling, remove that folder in Explorer if you also want to delete
+this retained data.
+
 ### macOS (Apple silicon)
 
 Download `agent-harness-desktop-darwin-arm64.zip`, unzip it, and move

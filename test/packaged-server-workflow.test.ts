@@ -77,7 +77,7 @@ describe("the public release's packaged server smoke tests", () => {
 
   it("starts Windows twice in one data directory, then runs the generated entry directly and always uninstalls", () => {
     const body = job(hosted, "smoke-windows");
-    expect(body).toContain('[IO.Path]::GetTempPath()');
+    expect(body).toContain('Join-Path $env:LOCALAPPDATA "agent-harness"');
     expect(body).toContain('[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)');
     expect(body).toContain('foreach ($attempt in 1, 2)');
     expect(body).toContain('serve --data-dir');
@@ -94,7 +94,14 @@ describe("the public release's packaged server smoke tests", () => {
     expect(body).toContain('launcher-entry version check (#1382)');
     expect(body).toContain('finally {');
     expect(body).toContain('taskkill.exe /PID $process.Id /T /F');
-    expect(body).toContain('service uninstall --data-dir $dataDir');
+    expect(body).not.toContain('service uninstall --data-dir $dataDir');
+    expect(body).toContain('"Uninstall agent-harness.exe"');
+    expect(body).toContain('$uninstall.ExitCode -ne 0');
+    expect(body).toContain('Get-ScheduledTask -TaskName agent-harness');
+    expect(body).toContain("throw 'Desktop uninstall left the environment task registered'");
+    expect(body).toContain("throw 'Desktop uninstall deleted personal environment data'");
+    expect(body).toContain("throw 'Desktop uninstall left service launch scripts behind'");
+    expect(body).toContain("throw 'Desktop uninstall left app resources behind'");
     expect(body).toContain('Remove-Item -LiteralPath $dataDir -Recurse -Force');
   });
 
