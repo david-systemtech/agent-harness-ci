@@ -1,14 +1,15 @@
-import { UpdateProgress } from "../connections/update-progress.js";
+import { KeyRound } from "lucide-react";
 import { clockTime, rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
 import { NETWORK_SETTINGS_KEYS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
 import { useId, useState, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { Remedy } from "../connections/remedy.js";
+import { UpdateProgress } from "../connections/update-progress.js";
 import { THIS_MACHINE, nameOf } from "../connections/words.js";
 import { GenericEditor, lackingLines, readOnlyLine, writersOf } from "../settings/generic-editor.js";
 import { useSettings } from "../settings/settings-window.js";
 import { useChecklist } from "../setup/checklist-window.js";
-import { Button, Fold } from "../ui/index.js";
+import { Badge, Button, Fold } from "../ui/index.js";
 import { BundledServerOffer, ClientOffer } from "../updates/offers.js";
 import { UpdateControls } from "../updates/update-controls.js";
 import { useRuntime } from "../window-context.js";
@@ -45,11 +46,11 @@ const serviceDownWords = (view: EnvironmentView): string | undefined => {
 export const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
   const heading = useId();
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-2">
-      <h4 id={heading} className="text-xs font-semibold text-ink-muted">
+    <section aria-labelledby={heading} className="overflow-hidden rounded-lg border border-hairline">
+      <h4 id={heading} className="border-b border-hairline px-3 py-2 text-xs font-medium text-ink">
         {title}
       </h4>
-      {children}
+      <div className="flex flex-col gap-3 p-3">{children}</div>
     </section>
   );
 };
@@ -90,14 +91,16 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: M
   const admits = (method: MethodName) => runtime.capability(view.environmentId, method).status === "present";
   const lacking = view.phase === "ready" ? lackingLines(runtime, view.environmentId, SENT) : [];
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <header className="flex flex-wrap items-center gap-2">
+    <section data-machine-card aria-labelledby={heading} className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-hairline bg-panel p-3">
+      <header className="flex flex-wrap items-center gap-2 [&>svg]:size-4">
+        <EnvironmentMark view={view} />
         <h3 id={heading} className="text-sm font-semibold text-ink">
           {view.name ?? THIS_MACHINE}
         </h3>
-        <EnvironmentMark view={view} />
-        {view.kind === "local" && view.name !== null && <span className="text-xs text-ink-faint">{THIS_MACHINE}</span>}
-        {view.primary && <span className="text-xs text-ink-faint">Primary</span>}
+
+        {view.kind === "local" && view.name !== null && <Badge variant="secondary">{THIS_MACHINE}</Badge>}
+        {view.phase === "ready" && <Badge variant="secondary">Ready</Badge>}
+        {view.primary && <Badge variant="outline">Primary</Badge>}
       </header>
       {offer}
       {namesake !== undefined && <p className="text-sm text-amber">Another of your machines is named {namesake.name} too: rename one to tell them apart.</p>}
@@ -119,7 +122,7 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: M
           Read-only: {line}
         </p>
       ))}
-      <LookEditor view={view} writable={LOOK_COMMANDS.every(admits)} />
+      <Part title="Identity"><LookEditor view={view} writable={LOOK_COMMANDS.every(admits)} /></Part>
       <Part title="Reachability">
         <Reachability view={view} writable={admits("settings.update")} />
       </Part>
@@ -157,7 +160,7 @@ const ManageAccess = ({ view }: { readonly view: EnvironmentView }) => {
   const manage = () => (checklist.shown ? checklist.leave("environments.access", view.environmentId) : open("environments.access", view.environmentId));
   return (
     <div>
-      <Button onClick={manage}>Manage access</Button>
+      <Button onClick={manage} title="Manage access (Enter or Space)"><KeyRound aria-hidden="true" data-icon="inline-start" />Manage access</Button>
     </div>
   );
 };

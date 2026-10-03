@@ -984,3 +984,23 @@ it("runs cleanup daily and after a completed gallery report", () => {
   expect(readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery.yml"), "utf8")).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(readFileSync(join(import.meta.dirname, "../.forgejo/scripts/github-ci.sh"), "utf8")).toContain("scripts/gallery-retention.py");
 });
+
+it("publishes more than fifty gallery scenes across both themes and viewports", async () => {
+  const g = await storedGallery();
+  await run("python3", ["-c", `import json,sys,zipfile
+scenes=[]
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    for index in range(52):
+        for viewport in ('', '-narrow'):
+            for theme in ('light', 'dark'):
+                name=f'scene-{index}{viewport}.{theme}'
+                z.writestr(name+'.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
+                scenes.append({'name':name, 'status':'new', 'pixelFailed':False, 'geometryFailures':[]})
+    z.writestr('report.json', json.dumps({'pixelBlocking':False, 'scenes':scenes}))`, g.env.FAKE_GALLERY_ZIP]);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.captures.size).toBe(208);
+  expect(g.comments).toHaveLength(1);
+  expect(g.comments[0]!.body).toContain('"name": "scene-51-narrow.dark.png"');
+  expect(g.comments[0]!.body).not.toContain("Uploading captures");
+});
