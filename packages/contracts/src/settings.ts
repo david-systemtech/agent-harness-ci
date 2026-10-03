@@ -138,7 +138,7 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
 const SESSIONS_PLACE = { id: "your-machines", row: "environments.service" } as const;
 const DEFAULT_MODEL_PLACE = { id: "account", row: "accounts.default-model" } as const;
 
-export const SETTINGS = {
+const SETTING_DEFINITIONS = {
   "sessions.autoSettleAfterIdle": setting({
     schema: AutoSettleAfterIdle,
     preset: { amount: 14, unit: "days" },
@@ -190,6 +190,150 @@ export const SETTINGS = {
     step: { id: "instructions", row: "knowledge.instructions" },
   }),
 } as const;
+
+/** The words shown by settings editors, kept separate from the wire schemas. */
+interface SettingWords {
+  readonly label: string;
+  readonly description: string;
+}
+
+const SETTING_WORDS = {
+  "sessions.autoSettleAfterIdle": {
+    label: "Settle idle sessions",
+    description: "Move quiet sessions out of the active list after this long. Choose none to keep them active until you settle them yourself.",
+  },
+  "sessions.autoSettleOnMerge": {
+    label: "Settle sessions after merge",
+    description: "Move a session out of the active list when one of its pull requests merges after its latest activity or return to the active list.",
+  },
+  "sessions.transcriptCompactAfterDays": {
+    label: "Compact quiet transcripts after days",
+    description: "After this many days without activity, keep a transcript summary in place of its detailed history. Session organisation is kept.",
+  },
+  "accounts.defaultAccount": {
+    label: "Default account",
+    description: "The account to use when a session has no account of its own. Choose none to use the first available account.",
+  },
+  "accounts.defaultModelFamily": {
+    label: "Default model",
+    description: "The model family to use when a run or session has no model of its own. Choose none to use the account's strongest model.",
+  },
+  "accounts.defaultEffort": {
+    label: "Default thinking effort",
+    description: "How much thinking to request when a run has no effort of its own. Choose none to use the model's default.",
+  },
+  "providers.processIdleMinutes": {
+    label: "Stop idle agent processes after minutes",
+    description: "Keep an agent process ready between runs for this many minutes. A later run starts it again when needed.",
+  },
+  "permissions.defaultCeiling": {
+    label: "Maximum permission mode",
+    description: "The most permissive mode a session may use. A session can choose a stricter mode.",
+  },
+  "permissions.unattended.mode": {
+    label: "Unattended permission mode",
+    description: "The permission mode for scheduled or programmatic runs unless they choose their own. Bypassing permission checks requires your acknowledgement.",
+  },
+  "permissions.unattended.bypassAcknowledgedAt": {
+    label: "Permission bypass acknowledged",
+    description: "When you last accepted the warning about running unattended without permission checks. Recorded automatically when you accept it.",
+  },
+  "permissions.parkedPrompt.ttl": {
+    label: "Unanswered permission timeout",
+    description: "How long a permission question can wait before it is denied and the run continues. Choose never to wait until you answer; provider time limits may still apply.",
+  },
+  "permissions.containment.default": {
+    label: "Default process containment",
+    description: "How new sessions restrict agent processes and network access. The environment reports which restrictions this machine supports.",
+  },
+  "updates.autoUpdate": {
+    label: "Automatic updates",
+    description: "Update this environment to the newest release in its channel. Updates pause while a specific version is pinned.",
+  },
+  "updates.channel": {
+    label: "Update channel",
+    description: "Follow stable releases or include beta releases. A pinned version takes priority over the channel.",
+  },
+  "updates.pinnedVersion": {
+    label: "Pinned version",
+    description: "Keep this environment on a specific version. Choose none to return to the automatic update setting.",
+  },
+  "updates.idleWindowMinutes": {
+    label: "Quiet time before updates in minutes",
+    description: "Wait this many minutes without a run starting or ending before updating. A run waiting on a question counts as busy during this time.",
+  },
+  "updates.deferralCapHours": {
+    label: "Maximum update delay in hours",
+    description: "Let busy work delay a pending update for at most this many hours. After that, finish current work and update before accepting more.",
+  },
+  "appearance.theme": {
+    label: "Theme",
+    description: "The window's colour palette. Changes appear immediately on clients using this environment's theme.",
+  },
+  "browser.devSites": {
+    label: "Development sites",
+    description: "Sites where agents may run page scripts and read the full page. Each entry is an allowed origin or host pattern.",
+  },
+  "browser.evaluateEverywhere": {
+    label: "Run scripts on any site",
+    description: "Allow agents to run page scripts beyond your development sites, subject to browser permissions.",
+  },
+  "browser.deepReadEverywhere": {
+    label: "Read full pages on any site",
+    description: "Allow agents to read full page content beyond your development sites, subject to browser permissions.",
+  },
+  "browser.reach": {
+    label: "Browser choice by account",
+    description: "Choose whether each account's new sessions ask for a browser or always use a connected browser. Unlisted accounts choose per session.",
+  },
+  "browser.headless.allowRuns": {
+    label: "Allow background browser use",
+    description: "Allow agent runs to use the environment's browser without opening a visible window.",
+  },
+  "browser.headless.endpoint": {
+    label: "Background browser address",
+    description: "Connect to a browser you manage using its debugging address. Choose none to let the environment start its own browser.",
+  },
+  "browser.headless.executable": {
+    label: "Background browser program",
+    description: "The browser program to start on this machine. Choose none to use the browser found automatically.",
+  },
+  "browser.headless.limits": {
+    label: "Background browser limits",
+    description: "Limit simultaneous browser sessions, idle time and tab memory use. These limits always apply.",
+  },
+  "browser.internalHosts": {
+    label: "Allowed internal hosts",
+    description: "The internal host patterns agents may reach with the background browser or web reading. Other private addresses are blocked; cloud metadata addresses remain blocked.",
+  },
+  "credentials.injection": {
+    label: "Provide credentials to agents",
+    description: "Allow or deny access to forge and key-manager credentials during runs. Account and routine choices can override this setting.",
+  },
+  "credentials.injectionByAccount": {
+    label: "Credential access by account",
+    description: "Override credential access for each account's runs and terminals. Unlisted accounts use the environment's choice; a routine's own choice takes priority.",
+  },
+  "network.bindTailnet": {
+    label: "Allow tailnet connections",
+    description: "Accept paired clients on this machine's tailnet address from the environment's next start, when an address is available.",
+  },
+  "network.bindLan": {
+    label: "Local network address",
+    description: "Accept paired clients on this machine's chosen local network address from the next start. Choose none to keep local network access off.",
+  },
+  "instructions.orientation": {
+    label: "Include orientation instructions",
+    description: "Give agents the environment's introductory instructions at the start of every run. Turning this off leaves them out of future runs.",
+  },
+} satisfies Record<keyof typeof SETTING_DEFINITIONS, SettingWords>;
+
+type LabeledSettings = { readonly [K in keyof typeof SETTING_DEFINITIONS]: (typeof SETTING_DEFINITIONS)[K] & SettingWords };
+
+/** Every setting with its editor copy; schemas, presets and writing rules stay together. */
+export const SETTINGS = Object.fromEntries(
+  Object.entries(SETTING_DEFINITIONS).map(([key, definition]) => [key, { ...definition, ...SETTING_WORDS[key as keyof typeof SETTING_DEFINITIONS] }]),
+) as LabeledSettings;
 
 export type SettingsKey = keyof typeof SETTINGS;
 

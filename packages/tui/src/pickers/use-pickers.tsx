@@ -60,7 +60,7 @@ import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Questio
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
 import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, setupRows, usageLines, type Panel, type PanelRow } from "./panel.js";
-import { editorKeys, editorRows, noRowLine } from "./settings.js";
+import { editorKeys, editorRows, noRowLine, settingLabel } from "./settings.js";
 
 /**
  * The accounts, models, permissions, settings and Set up commands wired to
@@ -316,14 +316,14 @@ export const usePickers = (host: PickersHost): Pickers => {
       return host.ask({
         text: `${BYPASS_SENTENCE} Make bypassPermissions the unattended mode? y/n`,
         yes: () => writeSetting(environmentId, key, value, true),
-        no: () => host.say(`${key} is left as it was.`),
+        no: () => host.say(`${settingLabel(key)} is left as it was.`),
       });
     }
     // The value was checked against the key's schema; `requests.call` checks the params against the method's again.
     void saveSetting(runtime, environmentId, key, value, { commandId: host.newCommandId(), acknowledgeBypass: acknowledged }).then((saved) => {
       if (!saved.ok) return host.say(`Not saved: ${saved.line}`);
       host.change((card) => (card.kind === "settings" && card.environmentId === environmentId ? { ...card, values: { ...card.values, ...saved.values } } : card));
-      host.say(`${key} is ${valueWords(value)}.`);
+      host.say(`${settingLabel(key)} is ${valueWords(value)}.`);
     });
   };
 
@@ -394,12 +394,12 @@ export const usePickers = (host: PickersHost): Pickers => {
     }
     if (card.values === null) return [];
     const listed = editorRows(card.row);
-    const width = Math.max(0, ...listed.flatMap((row) => row.keys.map((k) => k.length))) + 2;
+    const width = Math.max(0, ...listed.flatMap((row) => row.keys.map((k) => settingLabel(k).length))) + 2;
     // Each row's label over its first key: the cursor moves over the keys alone.
     return listed.flatMap((row) =>
       row.keys.map((k, at) => ({
         key: k,
-        cells: [{ text: k.padEnd(width) }, { text: valueWords(card.values?.[k]) }],
+        cells: [{ text: settingLabel(k).padEnd(width) }, { text: valueWords(card.values?.[k]) }],
         dim: false,
         ...(at === 0 && { heading: { text: row.label, bold: true } }),
         ...(writerOf(k) === null && { note: { text: "read-only", dim: true } }),
@@ -671,7 +671,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           if (card.values === null || key === undefined) return;
           const absent = lacking(card.environmentId, "settings.update");
           if (absent !== undefined) return host.say(`Not changed: ${absent}`);
-          if (writerOf(key) === null) return host.say(`${key} is recorded by the environment itself; nothing sets it.`);
+          if (writerOf(key) === null) return host.say(`${settingLabel(key)} is recorded by the environment itself; nothing sets it.`);
           const form = settingForm(key);
           if (card.edit?.kind === "choice") {
             const value = form.kind === "choice" ? form.options[card.edit.cursor] : undefined;
@@ -892,7 +892,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "settings": {
           const key = settingsKey(card);
           const absent = lacking(card.environmentId, "settings.update");
-          const typedPrompt = key === undefined ? "" : `New value for ${key} (now ${valueWords(card.values?.[key])}), as JSON or a bare word:`;
+          const typedPrompt = key === undefined ? "" : `New value for ${settingLabel(key)} (now ${valueWords(card.values?.[key])}), as JSON or a bare word:`;
           const footer: (readonly Span[])[] =
             card.edit?.kind === "text"
               ? [...(card.edit.error !== null ? [[{ text: card.edit.error, color: TERMINAL_ROLES.danger }]] : [])]
@@ -902,7 +902,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           return (
             <ListCard
               width={size.width}
-              title={card.edit?.kind === "choice" ? `${key}:` : `Settings on ${nameFor(card.environmentId)}`}
+              title={card.edit?.kind === "choice" && key !== undefined ? `${settingLabel(key)}:` : `Settings on ${nameFor(card.environmentId)}`}
               {...(absent !== undefined && card.edit === null && { lead: [{ text: `read-only: ${absent}`, color: TERMINAL_ROLES.warning }] })}
               hint={hint}
               rows={card.edit?.kind === "text" ? rows.filter((_, at) => at === card.cursor) : rows}
