@@ -1,5 +1,6 @@
 import { LOCAL_PLACEHOLDER_ID, homeEnvironment, installLines, type EnvironmentView } from "@agent-harness/client-runtime";
 import { ReleaseChannel } from "@agent-harness/contracts";
+import { Laptop, TextCursorInput } from "lucide-react";
 import { useId, useState } from "react";
 import { PairingForm } from "../connections/pairing.js";
 import { nameOf } from "../connections/words.js";
@@ -40,9 +41,9 @@ const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
         and code, for Pair with it. Set AGENT_HARNESS_TOKEN to a Forgejo token with read:repository first: the line hands it to curl on its standard input, never on a
         command line.
       </p>
-      <Field label="Name (optional)">
-        <Input value={name} placeholder="The new machine's hostname" onChange={(event) => setName(event.target.value)} />
-      </Field>
+      <div className="flex items-start gap-2"><TextCursorInput aria-hidden="true" className="mt-1 size-4 shrink-0" /><Field label="Name (optional)" className="flex-1">
+        <Input title="Name (optional; type a name)" value={name} placeholder="The new machine's hostname" onChange={(event) => setName(event.target.value)} />
+      </Field></div>
       <CopyLine label="macOS and Linux" text={lines.unix} />
       <CopyLine label="Windows (PowerShell)" text={lines.windows} />
       <CopyLine label="A container (Docker or Podman), from the folder to keep its compose file in" text={lines.compose.join("\n")} />
@@ -77,9 +78,9 @@ export const AddAMachine = ({ added }: { readonly added: (environmentId: string)
   const lens = camera.status === "present" ? shell?.camera : undefined;
   const scanQr = lens === undefined ? undefined : () => lens.scanQr();
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-sm font-semibold text-ink">
-        Add a machine
+    <section aria-labelledby={heading} className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-hairline bg-panel p-3">
+      <h3 id={heading} className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <Laptop aria-hidden="true" className="size-4" />Add a machine
       </h3>
       <Part title="Pair with it">
         <p className="text-sm text-ink-muted">Paste the link or the code the other machine shows: in its own Set up, from its terminal's pair, or in the install script's last lines.</p>

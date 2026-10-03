@@ -1,3 +1,4 @@
+import { KeyRound, Link, QrCode, X } from "lucide-react";
 import {
   LOCAL_PLACEHOLDER_ID,
   parsePairingInput,
@@ -113,11 +114,12 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
   return (
     <div className="flex flex-col gap-4">
       <form aria-label="Pair by link" className="flex flex-col gap-1.5" onSubmit={byLink}>
-        <label className="text-sm text-ink-muted" htmlFor={linkField}>
-          Pairing link
+        <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={linkField}>
+          <Link aria-hidden="true" className="size-4" />Pairing link
         </label>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Input
+            title="Pairing link (paste; Enter to pair)"
             id={linkField}
             value={link}
             placeholder="http://desk:7433/pair#K7Q2M-XH4RT"
@@ -125,23 +127,25 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
             disabled={pairing}
             autoFocus={autoFocus}
           />
-          <Button type="submit" tone="primary" disabled={pairing}>
-            Pair
+          <Button type="submit" tone="primary" disabled={pairing} title="Pair (Enter or Space)">
+            <Link aria-hidden="true" data-icon="inline-start" />Pair
           </Button>
           {scanQr !== undefined && (
-            <Button disabled={pairing} onClick={() => void scan()}>
-              Scan a QR
+            <Button disabled={pairing} onClick={() => void scan()} title="Scan a QR (Enter or Space)">
+              <QrCode aria-hidden="true" data-icon="inline-start" />Scan a QR
             </Button>
           )}
         </div>
       </form>
       <form aria-label="Pair by address and code" className="flex flex-col gap-1.5" onSubmit={byCode}>
         <span className="text-sm text-ink-muted">Or the environment's address and its code</span>
-        <div className="flex gap-2">
-          <Input aria-label="Address" value={address} placeholder="desk:7433" onChange={(event) => setAddress(event.target.value)} disabled={pairing} />
-          <Input aria-label="Pairing code" value={code} placeholder="K7Q2M-XH4RT" onChange={(event) => setCode(event.target.value)} disabled={pairing} />
-          <Button type="submit" disabled={pairing}>
-            Pair with the code
+        <div className="flex flex-wrap gap-2">
+          <label className="flex min-w-0 flex-1 basis-40 flex-col gap-2 text-xs text-ink-muted"><span className="flex items-center gap-2"><Link aria-hidden="true" className="size-4" />Address</span><Input title="Address (type the environment address)" className="font-mono" aria-label="Address" value={address} placeholder="desk:7433" onChange={(event) => setAddress(event.target.value)} disabled={pairing} /></label>
+          <label className="flex min-w-0 flex-1 basis-40 flex-col gap-2 text-xs text-ink-muted"><span className="flex items-center gap-2"><KeyRound aria-hidden="true" className="size-4" />Pairing code</span><Input title="Pairing code (type; Enter to pair)" className="font-mono" aria-label="Pairing code" value={code} placeholder="K7Q2M-XH4RT" onChange={(event) => setCode(event.target.value)} disabled={pairing} /></label>
+        </div>
+        <div>
+          <Button type="submit" disabled={pairing} title="Pair with the code (Enter or Space)">
+            <KeyRound aria-hidden="true" data-icon="inline-start" />Pair with the code
           </Button>
         </div>
       </form>
@@ -151,10 +155,10 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         {said?.kind === "offer" && (
           <>
             <span>{said.line}</span>
-            <Button tone="primary" onClick={() => pair(said.input, { rePair: said.environmentId })}>
-              Pair again
+            <Button tone="primary" onClick={() => pair(said.input, { rePair: said.environmentId })} title="Pair again (Enter or Space)">
+              <KeyRound aria-hidden="true" data-icon="inline-start" />Pair again
             </Button>
-            <Button onClick={() => setSaid(undefined)}>Cancel</Button>
+            <Button onClick={() => setSaid(undefined)} title="Cancel (Enter or Space)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
           </>
         )}
       </div>
@@ -210,7 +214,7 @@ export const PairingProvider = ({ children }: { readonly children: ReactNode }) 
           >
             <PairingForm key={request.opened} rePair={request.rePair} link={request.link} />
             <DialogClose asChild>
-              <Button className="self-end">Close</Button>
+              <Button className="self-end" title="Close (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Close</Button>
             </DialogClose>
           </DialogContent>
         )}

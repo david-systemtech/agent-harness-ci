@@ -1,3 +1,4 @@
+import { ArrowUpCircle, Download, RefreshCw, X } from "lucide-react";
 import {
   drainAndUpdateDescription,
   drainAndUpdateQuestion,
@@ -74,15 +75,16 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
 
   return (
     <div className="flex flex-col gap-2 text-sm">
-      {version !== null && <p className="text-ink">{environmentVersionWords(version)}</p>}
+      {version !== null && <p className="flex items-center gap-2 font-mono text-xs text-ink"><ArrowUpCircle aria-hidden="true" className="size-4" />{environmentVersionWords(version)}</p>}
       {ready && status.error !== null && <p className="text-signal">{updatesUnreadWords(status.error.message)}</p>}
       {values !== null && (
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="flex items-center gap-2">
+        <div className="flex flex-col gap-2">
+          <span className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-wash p-3">
             <span id={channelLabel} className="text-ink-muted">
               Channel
             </span>
             <Select
+              title="Channel (Arrow keys)"
               aria-labelledby={channelLabel}
               value={String(values["updates.channel"])}
               disabled={!admits("updates.settings.set")}
@@ -95,11 +97,12 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
               ))}
             </Select>
           </span>
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-wash p-3">
             <span id={autoUpdateLabel} className="text-ink-muted">
               Auto-update
             </span>
             <Switch
+              title="Auto-update (Space)"
               aria-labelledby={autoUpdateLabel}
               checked={values["updates.autoUpdate"] === true}
               disabled={!admits("updates.settings.set")}
@@ -111,8 +114,8 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
       {typeof pinned === "string" && <p className="text-ink-muted">{pinnedWords(pinned)}</p>}
       {pending !== null && <p className="text-ink-muted">{pending}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button disabled={!admits("updates.apply")} onClick={() => update("idle")}>
-          Update now
+        <Button disabled={!admits("updates.apply")} onClick={() => update("idle")} title="Update now (Enter or Space)">
+          <Download aria-hidden="true" data-icon="inline-start" />Update now
         </Button>
         {drainable !== null && (
           <Button
@@ -121,8 +124,9 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
               setSaid(undefined);
               setAsking(drainable.updateId);
             }}
+            title="Drain and update now… (Enter or Space)"
           >
-            Drain and update now…
+            <RefreshCw aria-hidden="true" data-icon="inline-start" />Drain and update now…
           </Button>
         )}
       </div>
@@ -132,10 +136,10 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
           <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
             <div className="flex justify-end gap-2">
               <DialogClose asChild>
-                <Button>Cancel</Button>
+                <Button title="Cancel (Enter or Space)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
-              <Button tone="danger" onClick={() => update("now")}>
-                Drain and update
+              <Button tone="danger" title="Drain and update (Enter or Space)" onClick={() => update("now")}>
+                <RefreshCw aria-hidden="true" data-icon="inline-start" />Drain and update
               </Button>
             </div>
           </DialogContent>

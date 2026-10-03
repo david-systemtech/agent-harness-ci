@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { accessEventTimeWords, accessEventWords, clientSessionLabels, readAccessLog, type AccessLogRead, type ClientSessionSummary, type EnvironmentView } from "@agent-harness/client-runtime";
 import { useEffect, useMemo, useState } from "react";
 import { Part } from "../settings/part.js";
@@ -56,28 +57,28 @@ export const AccessLog = ({ view, sessions, after }: AccessLogProps) => {
         <p className="text-sm text-ink-faint">The access log holds nothing yet.</p>
       ) : (
         <>
-          <ol aria-label="Access log events" className="flex flex-col gap-1">
+          <ol aria-label="Access log events" className="divide-y divide-hairline">
             {shown.map((event) => (
-              <li key={event.sequence} className="text-sm text-ink">
-                <span className="text-ink-faint">{accessEventTimeWords(event, clock.now())}</span> {accessEventWords(event, labelOf)}
+              <li key={event.sequence} className="py-2 text-xs text-ink">
+                <span className="font-mono text-2xs text-ink-faint">{accessEventTimeWords(event, clock.now())}</span> {accessEventWords(event, labelOf)}
               </li>
             ))}
           </ol>
-          <div className="flex items-center gap-3">
-            <Button disabled={page === 0} onClick={() => setPage((now) => now - 1)}>
-              Newer
+          <div className="flex flex-wrap items-center gap-2">
+            <Button disabled={page === 0} onClick={() => setPage((now) => now - 1)} title="Newer (Enter or Space)">
+              <ChevronLeft aria-hidden="true" data-icon="inline-start" />Newer
             </Button>
             <p className="text-xs text-ink-muted">
               {page * PAGE + 1} to {page * PAGE + shown.length} of {events.length}, newest first
             </p>
-            <Button disabled={(page + 1) * PAGE >= events.length} onClick={() => setPage((now) => now + 1)}>
-              Older
+            <Button disabled={(page + 1) * PAGE >= events.length} onClick={() => setPage((now) => now + 1)} title="Older (Enter or Space)">
+              <ChevronRight aria-hidden="true" data-icon="inline-start" />Older
             </Button>
           </div>
         </>
       )}
       <div>
-        <Button onClick={() => setAsked((now) => now + 1)}>Read again</Button>
+        <Button onClick={() => setAsked((now) => now + 1)} title="Read again (Enter or Space)"><RefreshCw aria-hidden="true" data-icon="inline-start" />Read again</Button>
       </div>
     </Part>
   );

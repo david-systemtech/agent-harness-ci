@@ -1,3 +1,4 @@
+import { Pencil, TextCursorInput, Palette, Shapes } from "lucide-react";
 import { adminCall, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
 import {
   ENVIRONMENT_COLOURS,
@@ -8,7 +9,7 @@ import {
   type EnvironmentIcon,
 } from "@agent-harness/contracts";
 import { useId, useState, type FormEvent } from "react";
-import { Button, Input } from "../ui/index.js";
+import { Button, Input, Select } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 
 /** The three commands that set an environment's look, by the part each sets. */
@@ -20,8 +21,6 @@ export const LOOK_COMMANDS = Object.values(LOOK_METHODS);
 
 /** What a refused part says before why. */
 const REFUSED: Readonly<Record<LookPart, string>> = { name: "Not renamed", icon: "Icon not set", colour: "Colour not set" };
-
-const SELECT = "h-8 rounded-md border border-line bg-inset px-2 text-sm text-ink outline-none focus-visible:border-beam disabled:text-ink-faint";
 
 /**
  * An environment's name, icon and colour on its card (workspace-picker spec,
@@ -68,28 +67,28 @@ export const LookEditor = ({ view, writable }: { readonly view: EnvironmentView;
         }}
       />
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={ids.icon} className="w-14 text-sm text-ink-muted">
-          Icon
+        <label htmlFor={ids.icon} className="flex items-center gap-1.5 text-xs text-ink-muted">
+          <Shapes aria-hidden="true" className="size-4" />Icon
         </label>
-        <select id={ids.icon} value={view.icon ?? ""} disabled={!writable} onChange={(event) => void send("icon", event.target.value)} className={SELECT}>
+        <Select title="Icon (Arrow keys)" id={ids.icon} value={view.icon ?? ""} disabled={!writable} onChange={(event) => void send("icon", event.target.value)}>
           {view.icon === null && <option value="">none</option>}
           {ENVIRONMENT_ICONS.map((icon) => (
             <option key={icon} value={icon}>
               {icon}
             </option>
           ))}
-        </select>
-        <label htmlFor={ids.colour} className="text-sm text-ink-muted">
-          Colour
+        </Select>
+        <label htmlFor={ids.colour} className="flex items-center gap-1.5 text-xs text-ink-muted">
+          <Palette aria-hidden="true" className="size-4" />Colour
         </label>
-        <select id={ids.colour} value={view.colour ?? ""} disabled={!writable} onChange={(event) => void send("colour", event.target.value)} className={SELECT}>
+        <Select title="Colour (Arrow keys)" id={ids.colour} value={view.colour ?? ""} disabled={!writable} onChange={(event) => void send("colour", event.target.value)}>
           {view.colour === null && <option value="">none</option>}
           {ENVIRONMENT_COLOURS.map((colour) => (
             <option key={colour} value={colour}>
               {colour}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       {refused !== undefined && <p className="text-xs text-signal">{refused}</p>}
     </div>
@@ -105,13 +104,13 @@ const NameField = ({ name, writable, rename }: { readonly name: string; readonly
     rename(typed);
   };
   return (
-    <form onSubmit={submit} className="flex items-center gap-2">
-      <label htmlFor={id} className="w-14 text-sm text-ink-muted">
-        Name
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+      <label htmlFor={id} className="flex items-center gap-1.5 text-xs text-ink-muted">
+        <TextCursorInput aria-hidden="true" className="size-4" />Name
       </label>
-      <Input id={id} value={typed} disabled={!writable} onChange={(event) => setTyped(event.target.value)} className="w-56" />
-      <Button type="submit" disabled={!writable || typed.trim() === "" || typed === name}>
-        Rename
+      <Input title="Name (type; Enter to rename)" id={id} value={typed} disabled={!writable} onChange={(event) => setTyped(event.target.value)} className="w-full sm:w-56" />
+      <Button type="submit" disabled={!writable || typed.trim() === "" || typed === name} title="Rename (Enter or Space)">
+        <Pencil aria-hidden="true" data-icon="inline-start" />Rename
       </Button>
     </form>
   );

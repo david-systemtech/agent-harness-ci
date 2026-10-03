@@ -1,3 +1,5 @@
+import { DialogFooter } from "../ui/dialog.js";
+import { Power, Star, Trash2, X } from "lucide-react";
 import type { EnvironmentView, RemoveResult } from "@agent-harness/client-runtime";
 import { useState } from "react";
 import { nameOf } from "../connections/words.js";
@@ -49,21 +51,21 @@ export const ConnectionVerbs = ({ view, forgotten }: { readonly view: Environmen
     <>
       <div className="flex flex-wrap gap-2">
         {view.enabled ? (
-          <Button onClick={() => void run("Not disabled", () => runtime.connections.setEnabled(view.environmentId, false))}>Disable</Button>
+          <Button onClick={() => void run("Not disabled", () => runtime.connections.setEnabled(view.environmentId, false))} title="Disable (Enter or Space)"><Power aria-hidden="true" data-icon="inline-start" />Disable</Button>
         ) : (
-          <Button onClick={() => void run("Not enabled", () => runtime.connections.setEnabled(view.environmentId, true))}>Enable</Button>
+          <Button onClick={() => void run("Not enabled", () => runtime.connections.setEnabled(view.environmentId, true))} title="Enable (Enter or Space)"><Power aria-hidden="true" data-icon="inline-start" />Enable</Button>
         )}
-        {!view.primary && <Button onClick={() => void makePrimary()}>Make primary</Button>}
+        {!view.primary && <Button onClick={() => void makePrimary()} title="Make primary (Enter or Space)"><Star aria-hidden="true" data-icon="inline-start" />Make primary</Button>}
         {view.kind === "paired" && (
-          <Button tone="danger" onClick={() => setAsking(true)}>
-            Forget…
+          <Button tone="danger" onClick={() => setAsking(true)} title="Forget… (Enter or Space)">
+            <Trash2 aria-hidden="true" data-icon="inline-start" />Forget…
           </Button>
         )}
       </div>
       {line !== undefined && <p className="text-sm text-signal">{line}</p>}
       <Dialog open={asking} onOpenChange={setAsking}>
         {asking && (
-          <DialogContent
+          <DialogContent showClose={false}
             title={`Forget ${name}?`}
             description={
               view.unreachableSince === null
@@ -71,14 +73,14 @@ export const ConnectionVerbs = ({ view, forgotten }: { readonly view: Environmen
                 : `${name} cannot be reached now, so this client forgets it here, and its client session there stays until it is revoked from that machine's access list.`
             }
           >
-            <div className="flex justify-end gap-2">
+            <DialogFooter>
               <DialogClose asChild>
-                <Button>Cancel</Button>
+                <Button title="Cancel (Enter or Space)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
-              <Button tone="danger" onClick={() => void forget()}>
-                Forget
+              <Button tone="danger" onClick={() => void forget()} title="Forget (Enter or Space)">
+                <Trash2 aria-hidden="true" data-icon="inline-start" />Forget
               </Button>
-            </div>
+            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>
