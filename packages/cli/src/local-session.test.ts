@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type AddressInfo, type Socket } from "node:net";
+import { setImmediate } from "node:timers/promises";
 import { ContractError, registry } from "@agent-harness/contracts";
 import { systemClock, type Clock, type Timer } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
+import { manualClock } from "../../environment/test/clock.js";
 import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { LocalFailure, LocalRefusal, withLocalSession, type Net } from "./local-session.js";
 
@@ -135,20 +137,34 @@ describe("the local session route", () => {
 
   it("waits on a call given a longer wait than the route's for as long as that call's wait, and fails it past that", async () => {
     const t = await start();
-    // Answered a second after it is asked: past the route's timeout, within the call's own wait.
-    t.env.methods.register(registry["banks.list"], async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    const clock = manualClock();
+    // Keep setup's clock still, then answer past the route's deadline but within the call's.
+    t.env.methods.register(registry["banks.list"], () => {
+      clock.advance(1000);
       return { banks: [] };
     });
-    const answered = await withLocalSession({ dataDir: t.dataDir }, net, "one slow call", (call) => call("banks.list", {}, { timeoutMs: 60_000 }), { timeoutMs: 300 });
+    const answered = await withLocalSession({ dataDir: t.dataDir }, net, "one slow call", (call) => call("banks.list", {}, { timeoutMs: 60_000 }), { timeoutMs: 300, clock });
     expect(answered).toEqual({ banks: [] });
 
-    const { clock, start: silence } = heldClock();
+    let asked!: () => void;
+    const callReceived = new Promise<void>((resolve) => (asked = resolve));
     t.env.methods.register(registry["banks.list"], () => {
-      silence();
+      asked();
       return new Promise<never>(() => undefined);
     });
     const verb = withLocalSession({ dataDir: t.dataDir }, net, "one silent slow call", (call) => call("banks.list", {}, { timeoutMs: 600 }), { timeoutMs: 300, clock });
+    let settled = false;
+    void verb.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    await callReceived;
+    clock.advance(599);
+    await setImmediate();
+    expect(settled).toBe(false);
+    clock.advance(1);
+    await setImmediate();
+    expect(settled).toBe(true);
     await expect(verb).rejects.toThrow(/did not answer within 0\.6 seconds/);
   });
 

@@ -20,7 +20,7 @@ describe("the browser dock", () => {
     await chooseHeaderAction(app, "Browser");
     const dock = await screen.findByRole("region", { name: "Browser" });
     await waitFor(() => expect(app.shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
-    act(() => app.shell.changeWebView("view-1", { url: "https://example.org/current", canGoBack: true, canGoForward: false }));
+    act(() => app.shell.changeWebView("view-1", { url: "https://example.org/current", canGoBack: true, canGoForward: false, loading: false }));
     const address = within(dock).getByRole("textbox", { name: "Address" });
     await app.user.clear(address);
     await app.user.type(address, "unfinished");
@@ -74,7 +74,7 @@ describe("the browser dock", () => {
     act(() => address.focus());
     await app.user.keyboard("https://example.org/one{Enter}");
     await waitFor(() => expect(app.shell.calls).toContainEqual(["webView.navigate", "view-1", "https://example.org/one"]));
-    act(() => app.shell.changeWebView("view-1", { url: "https://example.org/two", canGoBack: true, canGoForward: true }));
+    act(() => app.shell.changeWebView("view-1", { url: "https://example.org/two", canGoBack: true, canGoForward: true, loading: false }));
     expect((address as HTMLInputElement).value).toBe("https://example.org/two");
     await app.user.click(within(dock).getByRole("button", { name: "Back" }));
     await app.user.click(within(dock).getByRole("button", { name: "Forward" }));
@@ -92,6 +92,30 @@ describe("the browser dock", () => {
     await app.user.click(screen.getByRole("button", { name: "Close Browser" }));
     await waitFor(() => expect(app.shell.calls).toContainEqual(["webView.destroy", "view-1"]));
   });
+  it("replaces Reload with a named, tooltipped Stop while loading and restores Reload after Stop or completion", async () => {
+    const app = await opened();
+    await chooseHeaderAction(app, "Browser");
+    const dock = within(await screen.findByRole("region", { name: "Browser" }));
+    await waitFor(() => expect(app.shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
+    const loading = { url: "https://example.org/slow", canGoBack: true, canGoForward: false, loading: true };
+    act(() => app.shell.changeWebView("view-1", loading));
+    expect(dock.queryByRole("button", { name: "Reload" })).toBeNull();
+    const stop = dock.getByRole("button", { name: "Stop" });
+    expect(stop.querySelector("svg")).not.toBeNull();
+    // Keyboard focus opens the tooltip without a wall-clock hover delay.
+    act(() => stop.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Stop · Enter / Space");
+    await app.user.click(stop);
+    expect(app.shell.calls).toContainEqual(["webView.stop", "view-1"]);
+    expect(dock.getByRole("button", { name: "Reload" })).toBeDefined();
+    expect(dock.queryByRole("button", { name: "Stop" })).toBeNull();
+    act(() => app.shell.changeWebView("view-1", loading));
+    act(() => app.shell.changeWebView("view-1", { ...loading, loading: false }));
+    await app.user.click(dock.getByRole("button", { name: "Reload" }));
+    expect(app.shell.calls).toContainEqual(["webView.reload", "view-1"]);
+    expect(dock.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
   it("follows size and position changes while shown, keeps pages across session switches and Settings, and isolates the next pane", async () => {
     const app = await opened();
     await chooseHeaderAction(app, "Browser");

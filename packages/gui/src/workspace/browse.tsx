@@ -1,7 +1,10 @@
 import type { RequestAnswer } from "@agent-harness/client-runtime";
 import { WORKSPACES_BROWSE_CAP } from "@agent-harness/contracts";
 import { useEffect, useState } from "react";
-import { Button, Switch } from "../ui/index.js";
+import { Switch } from "../ui/index.js";
+import { DialogAction as Button } from "../ui/dialog-action.js";
+import { ArrowLeft, Folder, Eye } from "lucide-react";
+import { Tooltip } from "../ui/tooltip.js";
 import { useRuntime } from "../window-context.js";
 import { Entry, PickerLine, ViewTitle } from "./parts.js";
 
@@ -79,7 +82,7 @@ export const Browse = ({ environmentId, where, at, takeWords, take, go, relist, 
       </ViewTitle>
       {listing !== undefined && (
         <>
-          <Button className="self-start" disabled={waiting} onClick={() => take(listing.path)}>
+          <Button icon={Folder} className="self-start" disabled={waiting} onClick={() => take(listing.path)}>
             {takeWords(listing.path)}
           </Button>
           <ul aria-label={`Directories in ${listing.path}`} className="flex max-h-64 flex-col overflow-y-auto">
@@ -97,11 +100,11 @@ export const Browse = ({ environmentId, where, at, takeWords, take, go, relist, 
         </>
       )}
       <label className="flex items-center gap-2 text-xs text-ink-muted">
-        <Switch aria-label="Dot-directories" checked={at.hidden} disabled={waiting} onCheckedChange={(hidden) => relist({ path: listing?.path ?? at.path, hidden })} />
+        <Tooltip content="Dot-directories · Space"><Switch aria-label="Dot-directories" checked={at.hidden} disabled={waiting} onCheckedChange={(hidden) => relist({ path: listing?.path ?? at.path, hidden })} /></Tooltip><Eye aria-hidden="true" className="size-4" />
         Dot-directories
       </label>
       <PickerLine line={line ?? own} />
-      <Button className="self-start" disabled={waiting} onClick={back}>
+      <Button icon={ArrowLeft} className="self-start" disabled={waiting} onClick={back}>
         Back
       </Button>
     </>

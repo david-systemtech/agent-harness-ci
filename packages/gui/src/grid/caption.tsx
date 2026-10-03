@@ -1,6 +1,9 @@
 import { workspaceLabel } from "@agent-harness/client-runtime";
 import type { Workspace } from "@agent-harness/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { ChevronRight, Folder, Info, Pencil, X } from "lucide-react";
+import { useFirstKey } from "../keys/key-dispatch.js";
+import { useGridPaneId, usePaneGrid } from "./grid.js";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import type { PaneSession } from "../presentation.js";
@@ -11,7 +14,7 @@ import { TITLE_MOST } from "../sidebar/row.js";
 import { notDone, quoted } from "../sidebar/words.js";
 import { RunInfo } from "../status/run-info.js";
 import { classes } from "../ui/classes.js";
-import { Button } from "../ui/index.js";
+import { IconButton, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /**
@@ -19,8 +22,8 @@ import { useObservable, useRuntime } from "../window-context.js";
  * the session's badge, its title, renamed in place (`sessions.rename`
  * through the outbox, a refusal said on the pane's line), its workspace
  * chip (#421), its pull requests' links (#419), the run info toggle, and
- * close, the one way a pane of the grid is closed. The focused
- * pane's caption is edged in the accent while the grid holds more than one.
+ * close, the one way a pane of the grid is closed. Captions appear only
+ * with several panes; their focused pane uses an accent boundary.
  */
 
 export interface CaptionProps {
@@ -31,24 +34,39 @@ export interface CaptionProps {
 }
 
 /** The caption's frame: the mark, what it holds, and close at its end. */
-const CaptionBar = ({ marked, close, children }: CaptionProps & { readonly children: ReactNode }) => (
-  <div className={classes("flex h-8 shrink-0 items-center gap-1.5 border-b-2 px-2 text-sm", marked ? "border-beam" : "border-line")}>
-    {children}
-    {close !== undefined && (
-      <Button
-        aria-label="Close the pane"
-        title="Close the pane"
-        className="h-6 px-1.5 text-xs font-normal text-ink-muted"
-        // Closing another pane leaves the focus on the focused one: a press on close does not focus its pane first.
-        onPointerDown={(event) => event.stopPropagation()}
-        onFocus={(event) => event.stopPropagation()}
-        onClick={close}
-      >
-        ✕
-      </Button>
-    )}
-  </div>
-);
+const CaptionBar = ({ marked, close, children }: CaptionProps & { readonly children: ReactNode }) => {
+  const id = useGridPaneId();
+  const grid = usePaneGrid();
+  const pressedControl = useRef(false);
+  return (
+    <div
+      data-pane-caption
+      hidden={close === undefined}
+      className={classes("h-8 shrink-0 items-center gap-1.5 border-b border-hairline px-2.5 text-sm", close === undefined ? "hidden" : "flex", marked && "bg-wash")}
+      draggable={close !== undefined && id !== null}
+      onPointerDownCapture={(event) => {
+        pressedControl.current = event.target instanceof Element && event.target.closest("button, input, a") !== null;
+      }}
+      onDragStart={(event) => {
+        if (id === null || pressedControl.current || (event.target instanceof Element && event.target.closest("button, input, a") !== null)) return event.preventDefault();
+        event.dataTransfer.setData("application/x-agent-harness-pane", id);
+        event.dataTransfer.effectAllowed = "move";
+        grid.drag(id);
+      }}
+      onDragEnd={() => grid.drag(null)}
+    >
+      {children}
+      {close !== undefined && (
+        <IconButton label="Close the pane" size="icon-xs"
+          onPointerDown={(event) => event.stopPropagation()}
+          onFocus={(event) => event.stopPropagation()}
+          onClick={close}>
+          <X aria-hidden="true" />
+        </IconButton>
+      )}
+    </div>
+  );
+};
 
 /** The caption of a pane showing a session. */
 export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly session: PaneSession }) => {
@@ -61,6 +79,7 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
   const name = summary?.title ?? "";
   const [, say] = usePaneLine();
   const [editing, setEditing] = useState(false);
+  const infoKeys = useFirstKey("app.runInfo.toggle");
 
   const rename = (title: string) => {
     void runtime.commands.dispatch(environmentId, "sessions.rename", { sessionId, title }).then((answer) => {
@@ -71,22 +90,25 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
   return (
     <CaptionBar {...bar}>
       <EnvironmentGlyph view={environment} label={environment?.name ?? THIS_MACHINE} />
+      {summary !== null && <WorkspaceNote workspace={summary.workspace} />}
+      <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-ink-faint" />
       {editing ? (
         <RenameField label={`Rename ${quoted(name)}`} value={name} maxLength={TITLE_MOST} close={() => setEditing(false)} commit={rename} />
       ) : (
-        <button
+        <Tooltip content={`Rename “${name}”`}><button
           type="button"
           aria-label={`Rename ${quoted(name)}`}
-          title="Rename"
           className="min-w-0 truncate rounded-sm px-1 text-left font-medium text-ink outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam"
           onClick={() => setEditing(true)}
         >
-          {name}
-        </button>
+          <Pencil aria-hidden="true" className="mr-1 inline size-3" />{name}
+        </button></Tooltip>
       )}
-      {summary !== null && <WorkspaceNote workspace={summary.workspace} />}
       <PullRequestLinks pullRequests={summary?.pullRequests ?? []} />
-      <RunInfo environmentId={environmentId} sessionId={sessionId} />
+      <span title={["Run info", infoKeys].filter(Boolean).join(" · ")} data-caption-run-info className="relative ml-auto shrink-0 [&>button]:size-6 [&>button]:p-0 [&>button]:text-[0px]">
+          <RunInfo environmentId={environmentId} sessionId={sessionId} />
+          <Info aria-hidden="true" className="pointer-events-none absolute inset-1 size-4 text-ink-muted" />
+      </span>
     </CaptionBar>
   );
 };
@@ -99,8 +121,9 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
 const WorkspaceNote = ({ workspace }: { readonly workspace: Workspace }) => {
   const label = workspaceLabel(workspace);
   return (
-    <span role="note" aria-label={`Workspace: ${label}`} title={workspace.path} className="min-w-0 shrink truncate text-xs text-ink-muted">
-      {label}
+    <span role="note" aria-label={`Workspace: ${label}`} title={workspace.path} className="flex min-w-0 shrink items-center gap-1 rounded-md bg-wash px-1.5 py-0.5 text-xs text-ink-muted">
+      <Folder aria-hidden="true" className="size-3 shrink-0" /><span className="truncate">{workspace.kind === "scratch" ? "scratch" : (workspace.kind === "worktree" ? workspace.repository : workspace.path).split(/[\\/]/).filter(Boolean).at(-1) ?? label}</span>
+      {workspace.kind === "worktree" && <span className="max-w-20 shrink-0 truncate rounded-sm bg-wash-strong px-1 font-mono text-2xs">{workspace.branch}</span>}
     </span>
   );
 };

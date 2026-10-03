@@ -28,6 +28,7 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
   const listeners = new Set<(id: string, state: ShellWebViewState) => void>();
   const state = (view: ElectronWebView): ShellWebViewState => ({
     url: view.webContents.getURL(),
+    loading: view.webContents.isLoadingMainFrame(),
     canGoBack: view.webContents.navigationHistory.canGoBack(),
     canGoForward: view.webContents.navigationHistory.canGoForward(),
   });
@@ -105,7 +106,13 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
       const changed = () => {
         if (views.has(id)) for (const listener of listeners) listener(id, state(view));
       };
-      for (const event of ["did-navigate", "did-navigate-in-page", "did-stop-loading"] as const) view.webContents.on(event, changed);
+      for (const event of ["did-navigate", "did-navigate-in-page", "did-start-loading", "did-stop-loading"] as const) view.webContents.on(event, changed);
+      view.webContents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) changed();
+      });
+      view.webContents.on("did-frame-finish-load", (_details, isMainFrame) => {
+        if (isMainFrame) changed();
+      });
       try {
         await view.webContents.loadURL(url);
         return id;
@@ -122,8 +129,13 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
     hide(id) {
       views.get(id)?.setVisible(false);
     },
-    navigate(id, url) {
-      return get(id).webContents.loadURL(pageUrl(url));
+    async navigate(id, url) {
+      try {
+        await get(id).webContents.loadURL(pageUrl(url));
+      } catch (error) {
+        // Chromium rejects loadURL when Stop or another navigation cancels it.
+        if (!(error instanceof Error && "code" in error && error.code === "ERR_ABORTED")) throw error;
+      }
     },
     back(id) {
       const history = get(id).webContents.navigationHistory;
@@ -135,6 +147,9 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
     },
     reload(id) {
       get(id).webContents.reload();
+    },
+    stop(id) {
+      get(id).webContents.stop();
     },
     state: async (id) => state(get(id)),
     onChange(listener) {

@@ -14,6 +14,10 @@ const lowlight = createLowlight(common);
 /** Past this many characters a file is drawn plain: highlighting runs on the window's thread (a chosen default). */
 const HIGHLIGHT_MOST = 512 * 1024;
 
+/** look.md §8.2: bound DOM work even when a small file has many lines. */
+export const FILE_DISPLAY_LINES = 20_000;
+export const fileLineCount = (text: string): number => text === "" ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+
 type Tree = ReturnType<typeof lowlight.highlight>;
 type Node = Tree["children"][number];
 
@@ -40,13 +44,22 @@ const draw = (nodes: readonly Node[]): ReactNode[] =>
 
 /** `text`, the file at `path`'s, drawn in a monospaced block, highlighted when its name says a language. */
 export const Highlighted = ({ path, text }: { readonly path: string; readonly text: string }) => {
+  const count = fileLineCount(text);
+  const clipped = count > FILE_DISPLAY_LINES;
+  const displayed = clipped ? text.split("\n").slice(0, FILE_DISPLAY_LINES).join("\n") : text;
   const drawn = useMemo(() => {
     const language = languageOf(path);
-    return language === undefined || text.length > HIGHLIGHT_MOST ? text : draw(lowlight.highlight(language, text).children);
-  }, [path, text]);
-  return (
-    <pre className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-xs text-ink">
-      <code>{drawn}</code>
-    </pre>
-  );
+    return language === undefined || displayed.length > HIGHLIGHT_MOST ? displayed : draw(lowlight.highlight(language, displayed).children);
+  }, [path, displayed]);
+  return <>
+    {clipped && <p className="shrink-0 px-3 py-1 font-mono text-2xs text-amber">Only the first 20,000 lines are shown.</p>}
+    <div className="min-h-0 flex-1 overflow-auto py-[4px]">
+      <pre className="flex min-w-max gap-[12px] px-[12px] font-mono text-[11px] leading-relaxed text-ink">
+        <span aria-label="Line numbers" className="w-[40px] shrink-0 select-none text-right text-ink-faint" data-file-gutter>
+          {Array.from({ length: Math.min(count, FILE_DISPLAY_LINES) }, (_, index) => <span key={index} className="block">{index + 1}</span>)}
+        </span>
+        <code>{drawn}</code>
+      </pre>
+    </div>
+  </>;
 };

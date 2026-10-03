@@ -1,6 +1,6 @@
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
 import { renderApp } from "../test/harness.js";
 import { dataTransfer, heading, inUtc, region, row, sidebar } from "../test/sidebar-fixtures.js";
@@ -78,17 +78,12 @@ const withOpen = async (title = "Train tidy", options: Parameters<typeof launch>
 };
 
 const header = () => screen.getByRole("banner");
-const gridLine = async (app: RenderedApp) => {
-  const menu = await openHeaderMenu(app);
-  const text = within(menu).queryByRole("status")?.textContent;
-  await app.user.keyboard("{Escape}");
-  return text;
-};
+const gridLine = () => document.querySelector('[data-sonner-toast]:not([data-removed="true"]) [data-title]')?.textContent;
 const panes = () => within(screen.getByRole("main")).getAllByRole("region", { name: "Session pane" });
 const surfaceOf = (pane: HTMLElement) => within(pane).queryByRole("region", { name: "New session" });
 
 /** A pane as the grid test reads it: its session's title, "+" for the new-session surface, "·" for neither. */
-const titleOf = (pane: HTMLElement) => within(pane).queryByRole("button", { name: /^Rename / })?.textContent ?? (surfaceOf(pane) === null ? "·" : "+");
+const titleOf = (pane: HTMLElement) => pane.querySelector('button[aria-label^="Rename "]')?.textContent ?? (surfaceOf(pane) === null ? "·" : "+");
 
 /** The grid, each row's panes left to right, the focused one starred. */
 const grid = () =>
@@ -192,7 +187,81 @@ describe("New session in the focused pane", () => {
   });
 });
 
+describe("new-session readiness", () => {
+  it("welcomes the chosen account and keeps the send action inside the composer", async () => {
+    const app = await withOpen("Train tidy");
+    await app.user.keyboard("{Control>}n{/Control}");
+    const surface = surfaces()[0] as HTMLElement;
+    expect(within(surface).getByRole("heading", { name: "agent-harness" })).toBeDefined();
+    expect(within(surface).getByText("Start a session on laptop with Home.")).toBeDefined();
+    expect(within(surface).getByRole("list", { name: "Keyboard shortcuts" })).toBeDefined();
+    const send = within(surface).getByRole("button", { name: "Send" });
+    expect(send.querySelector("svg")).not.toBeNull();
+    expect(messageBox(surface).getAttribute("spellcheck")).toBe("false");
+    await typeOn(app, surface, "First line{Shift>}{Enter}{/Shift}Second line");
+    expect((messageBox(surface) as HTMLTextAreaElement).value).toBe("First line\nSecond line");
+    fireEvent.keyDown(messageBox(surface), { key: "Enter", code: "Enter", isComposing: true });
+    expect(params(app, "laptop", "sessions.create")).toEqual([]);
+  });
+
+  it("names the selected signed-out account when another account is already signed in", async () => {
+    const app = await launch({ laptop: { accounts: [HOME, { id: "adopted", label: "Adopted", status: { state: "signed-out", checkedAt: null, detail: null } }] } });
+    await app.user.click(headingControl("laptop"));
+    const surface = surfaces()[0] as HTMLElement;
+    await openChip(app, surface, "Account");
+    await app.user.click(await screen.findByRole("menuitem", { name: /^Adopted/ }));
+    expect(within(surface).getByRole("alert").textContent).toContain("Adopted on laptop is not signed in.");
+    expect(within(surface).getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("lists signed-out accounts and offers Sign in after one is chosen", async () => {
+    const app = await launch({ laptop: { accounts: [{ id: "adopted", label: "Adopted", status: { state: "signed-out", checkedAt: null, detail: null } }], models: [] } });
+    await app.user.click(headingControl("laptop"));
+    const surface = surfaces()[0] as HTMLElement;
+    await openChip(app, surface, "Account");
+    const option = await screen.findByRole("menuitem", { name: /^Adopted/ });
+    expect(option.textContent).toContain("signed out");
+    await app.user.click(option);
+    expect(within(surface).getByRole("button", { name: /^Account: Adopted/ })).toBeDefined();
+    expect(within(surface).getByRole("button", { name: "Sign in" })).toBeDefined();
+    expect(within(surface).getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it.each([{ accounts: [] }, { accounts: [{ id: "signed-out", label: "Adopted", status: { state: "signed-out", checkedAt: null, detail: null } }] }] as const)("explains missing sign-in and opens Accounts on the chosen environment", async ({ accounts }) => {
+    const app = await launch({ laptop: { accounts: [...accounts], models: [] } });
+    await app.user.click(headingControl("laptop"));
+    const surface = surfaces()[0] as HTMLElement;
+    const alert = await within(surface).findByRole("alert");
+    expect(within(alert).getByText("No account on laptop is signed in.")).toBeDefined();
+    await typeOn(app, surface, "Keep this draft");
+    expect(within(surface).getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    await app.user.keyboard("{Enter}");
+    expect(params(app, "laptop", "sessions.create")).toEqual([]);
+    await app.user.click(within(alert).getByRole("button", { name: "Sign in" }));
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    const accountsPane = await within(settings).findByRole("region", { name: "Accounts" });
+    expect((within(accountsPane).getByRole("combobox", { name: "Environment" }) as HTMLSelectElement).value).toBe(LAPTOP_ID);
+    await app.user.keyboard("{Escape}");
+    expect((messageBox(surfaces()[0] as HTMLElement) as HTMLTextAreaElement).value).toBe("Keep this draft");
+  });
+});
+
 describe("the chips", () => {
+  it("draws icon chips and exposes account and model dependencies in one popup", async () => {
+    const app = await withOpen("Train tidy");
+    await app.user.keyboard("{Control>}n{/Control}");
+    const surface = surfaces()[0] as HTMLElement;
+    for (const chip of within(within(surface).getByRole("group", { name: "Where it starts" })).getAllByRole("button")) {
+      expect(chip.querySelector("svg")).not.toBeNull();
+    }
+    await openChip(app, surface, "Model");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("group", { name: "Environment and account" })).toBeDefined();
+    expect(within(menu).getByRole("group", { name: "Models" })).toBeDefined();
+    expect(within(menu).getByRole("menuitem", { name: /^Home/ })).toBeDefined();
+    expect(within(menu).getByRole("menuitem", { name: /^Sonnet 5/ })).toBeDefined();
+  });
+
   it("are projections.newSession's presets; changing one re-runs the presets after it, and an environment no session can start on is greyed with its reason", async () => {
     const app = await withOpen("Fix the rail");
     await app.user.keyboard("{Control>}n{/Control}");
@@ -273,6 +342,21 @@ describe("the workspace chip", () => {
 });
 
 describe("the first send", () => {
+  it("labels the single send action Starting while creation is pending and ignores repeated sends", async () => {
+    const app = await withOpen("Train tidy");
+    await app.user.keyboard("{Control>}n{/Control}");
+    app.environment("laptop").wire.answer("sessions.create", () => new Promise(() => undefined));
+    const surface = surfaces()[0] as HTMLElement;
+    await typeOn(app, surface, "Start once");
+    await app.user.click(within(surface).getByRole("button", { name: "Send" }));
+    const starting = await within(surface).findByRole("button", { name: "Starting…" });
+    expect(starting.hasAttribute("disabled")).toBe(true);
+    expect(starting.querySelector("svg")).not.toBeNull();
+    await typeOn(app, surface, "{Enter}{Enter}");
+    expect(params(app, "laptop", "sessions.create")).toHaveLength(1);
+    expect(params(app, "laptop", "runs.start")).toEqual([]);
+  });
+
   it("keeps what is typed in the pane with no session until it, then starts the session, sends the text as its first message, and the pane shows it", async () => {
     const app = await withOpen("Train tidy");
     await app.user.keyboard("{Control>}n{/Control}");
@@ -407,27 +491,44 @@ describe("a new session in a new pane", () => {
     for (const name of ["desk", "laptop"]) expect(params(app, name, "sessions.create")).toEqual([]);
   });
 
-  it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in the grid's line", async () => {
+  it("shows a fresh refusal while the previous toast is leaving", async () => {
+    await twoPanes();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    try {
+      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(gridLine()).toBe("A new session opens in a pane.");
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+      expect(gridLine()).toBeUndefined();
+      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(gridLine()).toBe("A new session opens in a pane.");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in a toast", async () => {
     const app = await twoPanes();
     expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-    expect(await gridLine(app)).toBe("A new session opens in a pane.");
+    await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
     await openHeaderMenu(app);
     expect(dropControl(headerControl(), () => header())).toBe(false);
-    expect(await gridLine(app)).toBe("A new session opens in a pane.");
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
     expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]);
 
     for (let split = 2; split < 8; split += 1) await app.user.keyboard(split % 2 === 0 ? SPLIT_DOWN : SPLIT_RIGHT);
     expect(panes()).toHaveLength(8);
-    expect(await gridLine(app)).toBeUndefined();
+    expect(gridLine()).toBeUndefined();
 
     await app.user.keyboard(NEW_IN_PANE);
-    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     await openHeaderMenu(app);
     expect(dropControl(headerControl(), zone(() => paneOf("Train tidy"), "New session to the right"))).toBe(false);
+    await app.user.keyboard("{Escape}");
     expect(dropControl(headingControl("desk"), zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(false);
-    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(dropControl(headingControl("desk"), () => heading("laptop"))).toBe(false);
-    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(panes()).toHaveLength(8);
     expect(surfaces()).toHaveLength(0);
 

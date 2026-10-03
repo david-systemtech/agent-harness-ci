@@ -507,12 +507,16 @@ describe("a refusal from the environment", () => {
     expect(within(transcript).queryByRole("button", { name: /^Rewound: / })).toBeNull();
   });
 
-  it("is said under the message for a fork onto another account too", async () => {
+  it("keeps an anchored hand-off refusal visible in the picker and under the message after dismissal", async () => {
     const { app, env, transcript, session } = await opened({ receipts: { "sessions.fork": { rejected: "conflict", message: "The session is being deleted." } } });
     await converse(env, session, transcript, "Fix the receipts", "Add the tests");
     await app.user.click(within(await actionsOn(app, transcript, "Add the tests")).getByRole("button", { name: "Fork onto another account" }));
     const dialog = await screen.findByRole("dialog", { name: "Hand off Receipts on desk" });
     await app.user.click(within(dialog).getByRole("button", { name: /^personal/ }));
+    expect(await within(dialog).findByRole("status")).toHaveProperty("textContent", "Not handed off: The session is being deleted.");
+    expect(screen.getByRole("dialog", { name: "Hand off Receipts on desk" })).toBe(dialog);
+    await app.user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(lineUnder(transcript, "Add the tests")).toBe("Not handed off: The session is being deleted."));
     expect(inPane(app)?.sessionId).toBe(session);
   });
