@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { Menu, MenuCheckboxItem, MenuContent, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./menu.js";
-import { DialogsScene } from "../../gallery/scenes/dialogs.js";
-import { MenusScene } from "../../gallery/scenes/menus.js";
+import { DialogsScene, geometry as dialogsGeometry } from "../../gallery/scenes/dialogs.js";
+import { MenusScene, geometry as menusGeometry } from "../../gallery/scenes/menus.js";
 import { Toaster, toast } from "./toaster.js";
 import { CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList } from "./command.js";
 import { SelectMenu, SelectMenuContent, SelectMenuItem, SelectMenuTrigger, SelectMenuValue } from "./select-menu.js";
@@ -132,6 +132,7 @@ describe("window overlays", () => {
     expect(screen.getByText("Context usage")).toBeTruthy();
     expect(screen.getByRole("tooltip", { hidden: true }).textContent).toBe("Copy linkCtrl+C");
     expect(screen.getByRole("combobox", { name: "Search commands", hidden: true })).toBeTruthy();
+    for (const check of menusGeometry) expect(document.querySelectorAll(check.selector).length, check.selector).toBeGreaterThan(0);
   });
 
   it("shows a standard dialog and an explicit confirmation in the dialogs scene", () => {
@@ -139,5 +140,6 @@ describe("window overlays", () => {
     expect(screen.getByRole("dialog", { hidden: true }).textContent).toContain("New session");
     expect(screen.getByRole("alertdialog").textContent).toContain("Delete this session?");
     expect(screen.getByRole("button", { name: "Delete session" })).toBeTruthy();
+    for (const check of dialogsGeometry) expect(document.querySelectorAll(check.selector).length, check.selector).toBeGreaterThan(0);
   });
 });

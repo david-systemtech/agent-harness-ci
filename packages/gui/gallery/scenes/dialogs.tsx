@@ -11,7 +11,7 @@ export const DialogsScene = () => <TooltipProvider><main data-scene="dialogs" cl
   <p className="mt-2 text-ink-muted">The window stays visible behind the scrim.</p>
   <Dialog open modal={false}>
     <DialogContent title="New session" description="Choose a name for this session." className="left-[30%] z-[51]" onOpenAutoFocus={(event) => event.preventDefault()} onInteractOutside={(event) => event.preventDefault()} data-geometry="dialog">
-      <Field label="Session name"><Input defaultValue="Build notes" /></Field>
+      <Field label="Session name"><Input data-geometry="dialog-name" defaultValue="Build notes" /></Field>
       <DialogFooter><Tooltip content="Cancel · Escape"><DialogClose asChild><Button variant="outline"><X aria-hidden="true" />Cancel</Button></DialogClose></Tooltip><Tooltip content="Create session · Enter"><Button variant="default"><Plus aria-hidden="true" />Create session</Button></Tooltip></DialogFooter>
     </DialogContent>
   </Dialog>
@@ -25,6 +25,6 @@ export const DialogsScene = () => <TooltipProvider><main data-scene="dialogs" cl
 export const geometry = [
   { selector: '[data-geometry="dialog"]', width: 384, tolerance: 0.1 },
   { selector: '[data-geometry="confirmation"]', width: 384, tolerance: 0.1 },
-  { selector: '[data-scene="dialogs"] input', height: 32, tolerance: 0.1 },
+  { selector: '[data-geometry="dialog-name"]', height: 32, tolerance: 0.1 },
 ];
 export default DialogsScene;

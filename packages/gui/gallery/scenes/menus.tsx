@@ -34,6 +34,6 @@ export const geometry = [
   { selector: '[data-geometry="context"]', width: 192, tolerance: 0.1 },
   { selector: '[data-geometry="select"]', width: 192, tolerance: 0.1 },
   { selector: '[data-geometry="popover"]', width: 288, tolerance: 0.1 },
-  { selector: '[cmdk-input]', height: 32, tolerance: 0.1 },
+  { selector: '[data-command-input]', height: 32, tolerance: 0.1 },
 ];
 export default MenusScene;
