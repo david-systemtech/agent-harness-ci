@@ -20,7 +20,7 @@ describe("the browser dock", () => {
     await chooseHeaderAction(app, "Browser");
     const dock = await screen.findByRole("region", { name: "Browser" });
     await waitFor(() => expect(app.shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
-    act(() => app.shell.changeWebView("view-1", { url: "https://example.org/current", canGoBack: true, canGoForward: false }));
+    act(() => app.shell.changeWebView("view-1", { url: "https://example.org/current", canGoBack: true, canGoForward: false, loading: false }));
     const address = within(dock).getByRole("textbox", { name: "Address" });
     await app.user.clear(address);
     await app.user.type(address, "unfinished");
