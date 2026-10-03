@@ -1,3 +1,4 @@
+import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp } from "../test/harness.js";
@@ -35,7 +36,12 @@ const paneOf = (title: string) => panes().find((pane) => titleOf(pane) === title
 const header = () => screen.getByRole("banner");
 
 /** What the grid's line in the header says. */
-const gridLine = () => within(header()).queryByRole("status")?.textContent;
+const gridLine = async (app: RenderedApp) => {
+  const menu = await openHeaderMenu(app);
+  const text = within(menu).queryByRole("status")?.textContent;
+  await app.user.keyboard("{Escape}");
+  return text;
+};
 
 /** Presses a key chord with the focus where it is. */
 const press = (app: RenderedApp, keys: string) => app.user.keyboard(keys);
@@ -89,7 +95,7 @@ describe("splitting", () => {
     expect(grid()).toEqual([["*Train tidy"]]);
     expect(within(header()).getByText("laptop")).toBeDefined();
 
-    await app.user.click(within(header()).getByRole("button", { name: "Split right" }));
+    await chooseHeaderAction(app, "Split right");
     expect(grid()).toEqual([["Train tidy", "*·"]]);
     expect(within(header()).queryByText("laptop")).toBeNull();
     expect(within(paneOf("·")).getByText("No session is open. Choose one from the sidebar.")).toBeDefined();
@@ -103,7 +109,7 @@ describe("splitting", () => {
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*·"]]);
     await press(app, SPLIT_RIGHT);
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["·", "*·"]]);
-    await app.user.click(within(header()).getByRole("button", { name: "Split down" }));
+    await chooseHeaderAction(app, "Split down");
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["·", "·"], ["*·"]]);
 
     // The focus put in a pane focuses it, and the header follows it.
@@ -136,17 +142,20 @@ describe("eight panes", () => {
     const app = await withTrain();
     for (let split = 1; split < 8; split += 1) await press(app, split % 2 === 0 ? SPLIT_DOWN : SPLIT_RIGHT);
     expect(panes()).toHaveLength(8);
-    expect(gridLine()).toBeUndefined();
+    expect(await gridLine(app)).toBeUndefined();
 
-    await app.user.click(within(header()).getByRole("button", { name: "Split right" }));
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    const more = await openHeaderMenu(app);
+    const split = within(more).getByRole("menuitem", { name: "Split right" });
+    expect(split.getAttribute("aria-disabled")).toBe("true");
+    expect(split.textContent).toContain("The grid holds eight panes; close one first.");
+    await app.user.keyboard("{Escape}");
     await press(app, SPLIT_DOWN);
     expect(panes()).toHaveLength(8);
 
     expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(false);
     expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open below")).toBe(false);
     expect(panes()).toHaveLength(8);
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
 
     await app.user.pointer({ keys: "[MouseRight]", target: row("Fix the rail") });
     const menu = await screen.findByRole("menu", { name: "Organise “Fix the rail”" });
@@ -164,7 +173,7 @@ describe("eight panes", () => {
     await app.user.click(within(paneOf("Fix the rail")).getByRole("button", { name: "Close the pane" }));
     await press(app, SPLIT_RIGHT);
     expect(panes()).toHaveLength(8);
-    expect(gridLine()).toBeUndefined();
+    expect(await gridLine(app)).toBeUndefined();
   });
 });
 

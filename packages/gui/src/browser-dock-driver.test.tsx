@@ -1,3 +1,4 @@
+import { chooseHeaderAction } from "../test/header-actions.js";
 // @vitest-environment jsdom-on-node
 import { act, screen, waitFor } from "@testing-library/react";
 import { fakeShell, type FakeShell } from "@agent-harness/client-runtime/testing";
@@ -43,7 +44,7 @@ describe("the dock's client-call driver", () => {
     });
     expect(shell.calls.some(([name]) => name === "webView.attach")).toBe(false);
     expect(peer.targets().filter((target) => target.type === "page")).toHaveLength(1);
-    await app.user.click(await screen.findByRole("button", { name: "Browser" }));
+    await chooseHeaderAction(app, "Browser");
     await waitFor(() => expect(shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
     expect((screen.getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe("https://example.org/receipts");
     expect(shell.calls.filter(([name]) => name === "webView.create")).toHaveLength(1);
