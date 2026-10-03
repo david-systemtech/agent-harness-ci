@@ -55,8 +55,8 @@ it("allows at most 0.05 percent different pixels and rejects missing baselines a
   expect(compareCapture(image(), image(101, 100)).pixelFailed).toBe(true);
 });
 
-it("has a baseline at each capture viewport before pixels become blocking", () => {
-  for (const [name, width, height] of [["window-empty.dark", 1400, 900], ["window-empty-narrow.dark", 1024, 768]] as const) {
+it("has a baseline for each ladder and viewport before pixels become blocking", () => {
+  for (const [name, width, height] of [["window-empty.dark", 1400, 900], ["window-empty-narrow.dark", 1024, 768], ["window-empty.light", 1400, 900], ["window-empty-narrow.light", 1024, 768]] as const) {
     const baseline = PNG.sync.read(readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url)));
     expect([baseline.width, baseline.height]).toEqual([width, height]);
   }
