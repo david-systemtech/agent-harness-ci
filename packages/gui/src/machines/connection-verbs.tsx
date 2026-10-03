@@ -57,7 +57,7 @@ export const ConnectionVerbs = ({ view, forgotten }: { readonly view: Environmen
         )}
         {!view.primary && <Button onClick={() => void makePrimary()} title="Make primary (Enter or Space)"><Star aria-hidden="true" data-icon="inline-start" />Make primary</Button>}
         {view.kind === "paired" && (
-          <Button tone="danger" onClick={() => setAsking(true)} title="Forget… (Enter or Space)">
+          <Button variant="destructive" onClick={() => setAsking(true)} title="Forget… (Enter or Space)">
             <Trash2 aria-hidden="true" data-icon="inline-start" />Forget…
           </Button>
         )}
@@ -77,7 +77,7 @@ export const ConnectionVerbs = ({ view, forgotten }: { readonly view: Environmen
               <DialogClose asChild>
                 <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
-              <Button tone="danger" onClick={() => void forget()} title="Forget (Enter or Space)">
+              <Button variant="destructive" onClick={() => void forget()} title="Forget (Enter or Space)">
                 <Trash2 aria-hidden="true" data-icon="inline-start" />Forget
               </Button>
             </DialogFooter>

@@ -172,7 +172,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
         </ul>
       )}
       {connection.basePath !== null && items.length > 0 && (
-        <Button icon={ArrowRight} label="Move all" tone="primary" className="self-start" disabled={moving} onClick={() => move("all")}>
+        <Button icon={ArrowRight} label="Move all" variant="default" className="self-start" disabled={moving} onClick={() => move("all")}>
           Move all
         </Button>
       )}
@@ -211,7 +211,7 @@ const CopiedValueDialog = ({ environmentId, label, copied, close }: { readonly e
         </Field>
         <div className="flex justify-end gap-2">
           {clipboard !== undefined && <Button icon={Copy} label="Copy to the clipboard" onClick={() => void clipboard.writeText(copied.value)}>Copy to the clipboard</Button>}
-          <Button icon={X} label="Done" tone="primary" onClick={close}>
+          <Button icon={X} label="Done" variant="default" onClick={close}>
             Done
           </Button>
         </div>

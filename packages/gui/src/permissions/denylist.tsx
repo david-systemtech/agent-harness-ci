@@ -139,7 +139,7 @@ export const RestorePresetsDialog = ({ open, sections, cancel, restore }: Restor
             <DialogClose asChild>
               <Button title="Cancel (Esc)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
             </DialogClose>
-            <Button title="Restore (Enter or Space)" tone="primary" onClick={restore}>
+            <Button title="Restore (Enter or Space)" variant="default" onClick={restore}>
               <RotateCcw aria-hidden="true" data-icon="inline-start" />Restore
             </Button>
           </div>
@@ -197,7 +197,7 @@ const EntryForm = ({ entry, writing, send, close }: EntryFormProps) => {
       <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
         <label className="flex min-w-0 flex-1 basis-48 flex-col gap-1 text-2xs"><span className="flex items-center gap-1.5"><FileCode aria-hidden="true" className="size-3.5" />Pattern</span><Input aria-label="Pattern" title="Pattern (Enter to submit)" value={pattern} onChange={(event) => setPattern(event.target.value)} className="w-full font-mono" /></label>
         <label className="flex min-w-0 flex-1 basis-48 flex-col gap-1 text-2xs"><span className="flex items-center gap-1.5"><Text aria-hidden="true" className="size-3.5" />Note</span><Input aria-label="Note" title="Note (Enter to submit)" value={note} onChange={(event) => setNote(event.target.value)} className="w-full" /></label>
-        <Button title="Save (Enter)" type="submit" tone="primary" disabled={writing || pattern.trim() === ""}>
+        <Button title="Save (Enter)" type="submit" variant="default" disabled={writing || pattern.trim() === ""}>
           <Save aria-hidden="true" data-icon="inline-start" />Save
         </Button>
         <Button title="Cancel (Enter or Space)" onClick={close}><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>

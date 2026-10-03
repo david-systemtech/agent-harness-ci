@@ -5,7 +5,7 @@ import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
 import { captureCases, sceneFiles } from "./capture-plan.js";
 import { measureSceneGeometry } from "./geometry.js";
-import { captureName, compareCapture, geometryFailures } from "./compare.js";
+import { captureName, compareCapture, geometryFailures, galleryFailed } from "./compare.js";
 import type { Measurement } from "./compare.js";
 
 // This executable starts a server and Chromium. Its only execution site is a hosted CI runner.
@@ -81,13 +81,13 @@ try {
     }
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
-  const pixelBlocking = process.env["GALLERY_PIXEL_BLOCKING"] === "true";
+  const pixelBlocking = true;
   await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, scenes: report }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);
   }
-  if (report.some((scene) => scene.geometryFailures.length > 0 || pixelBlocking && scene.pixelFailed)) process.exitCode = 1;
+  if (galleryFailed(report)) process.exitCode = 1;
 
 } finally {
   await browser?.close();

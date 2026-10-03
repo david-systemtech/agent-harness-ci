@@ -147,7 +147,7 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
           <SettingsGroup title="Theme seeds"><Seeds theme={shown} disabled={!writable} change={(seed, value) => edit({ ...shown, seeds: { ...shown.seeds, [seed]: value } })} /></SettingsGroup>
           <SettingsGroup title="Preview and contrast"><Derived theme={shown} /></SettingsGroup>
           <div className="flex flex-wrap gap-2">
-            <Tooltip content="Save theme · Enter / Space"><Button tone="primary" disabled={!writable || !changed || !named || saving} onClick={save}>
+            <Tooltip content="Save theme · Enter / Space"><Button variant="default" disabled={!writable || !changed || !named || saving} onClick={save}>
               <Save aria-hidden="true" />Save
             </Button></Tooltip>
             <Tooltip content="Cancel theme · Enter / Space"><Button disabled={!changed} onClick={cancel}>

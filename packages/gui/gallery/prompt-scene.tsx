@@ -29,9 +29,12 @@ const prompts: Readonly<Record<PromptKind, ScriptedPrompt>> = {
   },
 };
 
+export type PromptSceneState = "pending" | "busy" | "error" | "settled";
+
 /** The real window over a fresh scripted runtime on each mount, including each ladder. */
-export function PromptScene({ kind, ladder }: { readonly kind: PromptKind; readonly ladder: LadderName }) {
+export function PromptScene({ kind, ladder, state = "pending" }: { readonly kind: PromptKind; readonly ladder: LadderName; readonly state?: PromptSceneState }) {
   const [app, setApp] = useState<AppProps>();
+  const [stateDrawn, setStateDrawn] = useState(false);
   useEffect(() => {
     let stopped = false;
     let dispose: (() => Promise<void>) | undefined;
@@ -51,24 +54,46 @@ export function PromptScene({ kind, ladder }: { readonly kind: PromptKind; reado
       if (stopped) { await dispose(); return; }
       env.startRun(sessionId, "Check the receipts and explain the result.");
       const ttlExpiresAt = new Date(prepared.clock.now().getTime() + 120_000).toISOString();
-      env.openPrompt(sessionId, { ...prompts[kind], ttlExpiresAt });
-      env.openPrompt(sessionId, { ...prompts[kind], summary: "A second request is waiting", ttlExpiresAt });
+      const promptId = env.openPrompt(sessionId, { ...prompts[kind], ttlExpiresAt });
+      if (state === "pending") env.openPrompt(sessionId, { ...prompts[kind], summary: "A second request is waiting", ttlExpiresAt });
       await new Promise<void>((resolve) => {
-        const ready = () => { if (projection.read().freshness === "live" && projection.read().parkedPrompts.length === 2) { unsubscribe(); resolve(); } };
+        const ready = () => { if (projection.read().freshness === "live" && projection.read().parkedPrompts.length === (state === "pending" ? 2 : 1)) { unsubscribe(); resolve(); } };
         const unsubscribe = projection.subscribe(ready);
         ready();
       });
       if (stopped) return;
+      if (state === "settled") env.answerElsewhere(sessionId, promptId, { decision: "deny" });
+      if (state === "error") env.answerElsewhere(sessionId, promptId, { decision: "allow", heard: false });
+      if (state === "busy") env.wire.answer("permissions.prompts.answer", () => undefined);
       const layout = holders.presentation.values.read().paneLayout;
       holders.presentation.set("paneLayout", showSession(layout, layout.focused, { environmentId: env.environmentId, sessionId }));
       setApp({ ...holders, clock: prepared.clock, shell: prepared.shell, version: prepared.version, macOS: false });
     })();
     return () => { stopped = true; void dispose?.(); };
-  }, [kind, ladder]);
+  }, [kind, ladder, state]);
   useEffect(() => {
-    if (app !== undefined) document.getElementById("root")?.setAttribute("data-gallery-ready", `prompt-${kind}`);
-  }, [app, kind]);
-  return app === undefined ? null : <App {...app} />;
+    if (app !== undefined && state === "pending") document.getElementById("root")?.setAttribute("data-gallery-ready", `prompt-${kind}`);
+  }, [app, kind, state]);
+  useEffect(() => {
+    if (app === undefined || state === "pending") return;
+    let clicked = false;
+    const update = () => {
+      const card = document.querySelector('[aria-label="Parked prompt"]');
+      if ((state === "busy" || state === "error") && !clicked && card !== null) {
+        const action = card.querySelector<HTMLButtonElement>('button[aria-label="Deny"], button[aria-label="Skip"], button[aria-label="Keep planning"]');
+        if (action !== null) { clicked = true; action.click(); }
+      }
+      const drawn = state === "error" ? card?.querySelector('[role="status"]')?.textContent?.startsWith("Not answered:") === true
+        : state === "busy" ? clicked && card === null : document.querySelector('article[aria-label="Permission"], article[aria-label="Plan"], article[aria-label="Question"]') !== null;
+      if (drawn) { setStateDrawn(true); observer.disconnect(); }
+    };
+    const observer = new MutationObserver(update);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    update();
+    return () => observer.disconnect();
+  }, [app, state]);
+  return app === undefined ? null : <><App {...app} />{stateDrawn && <span hidden data-prompt-state={state} />}</>;
+
 }
 
 /** look.md §10.3 and §5.1: pending buttons 28, semantic icon 14, keycaps 20, argument/plan caps. */

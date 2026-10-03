@@ -63,3 +63,8 @@ export function geometryFailures(measured: readonly Measurement[], expectations:
     return valid && passes ? [] : [`${label}: got ${actual}, expected ${"maximum" in expectation ? `at most ${expectation.maximum}` : expectation.expected}`];
   });
 }
+
+/** The shell migration is complete: missing baselines and pixel differences block. */
+export function galleryFailed(scenes: readonly { readonly pixelFailed: boolean; readonly geometryFailures: readonly string[] }[]): boolean {
+  return scenes.some((scene) => scene.pixelFailed || scene.geometryFailures.length > 0);
+}

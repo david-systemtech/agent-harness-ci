@@ -3,7 +3,8 @@ import { useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { usePickedEnvironment, useSettings } from "../settings/settings-window.js";
 import { classes } from "../ui/classes.js";
-import { Button } from "../ui/index.js";
+import { RotateCw } from "lucide-react";
+import { DialogAction as Button } from "../ui/dialog-action.js";
 import { useRuntime } from "../window-context.js";
 import { useChecklist } from "./checklist-window.js";
 import { HealthDot } from "./health-dot.js";
@@ -45,7 +46,7 @@ export const SetupPane = () => {
       <ReachLine view={view} environment={picked} />
       <p className="text-sm text-ink">{countsWords(view.counts)}</p>
       <div className="flex flex-wrap gap-2">
-        <Button tone="primary" onClick={() => void rerun()}>
+        <Button icon={RotateCw} variant="default" onClick={() => void rerun()}>
           Re-run
         </Button>
         <Button onClick={() => openChecklist()}>Open the full checklist</Button>

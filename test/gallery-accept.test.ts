@@ -156,13 +156,13 @@ it("accepts a valid capture larger than 4 MiB within the gallery report budget",
 });
 
 
-it("accepts all 400 captures allowed by a reviewed gallery report", async () => {
-  const f = await fixture("versioned", 400);
+it("accepts all 1200 captures allowed by a reviewed gallery report", async () => {
+  const f = await fixture("versioned", 1200);
   await run("bash", [script, "42"], { env: f.env });
-  expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(400);
+  expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(1200);
   const baselines = join(f.folder, "packages/gui/gallery/baselines");
   expect(readFileSync(join(baselines, "window-empty.dark.png"))).toEqual(png);
-  for (let index = 1; index < 400; index++) expect(readFileSync(join(baselines, `window-scene-${index}.dark.png`))).toEqual(png);
+  for (let index = 1; index < 1200; index++) expect(readFileSync(join(baselines, `window-scene-${index}.dark.png`))).toEqual(png);
 });
 
 
@@ -175,8 +175,8 @@ it("accepts captures above the old 24 MiB total within the 48 MiB report budget"
 });
 
 
-it("refuses more than 400 captures before downloading or writing baselines", async () => {
-  const f = await fixture("versioned", 401);
+it("refuses more than 1200 captures before downloading or writing baselines", async () => {
+  const f = await fixture("versioned", 1201);
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("No gallery captures on the current PR head") });
   expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);

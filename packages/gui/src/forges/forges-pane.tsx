@@ -77,7 +77,7 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
       {!adding && (
         <div className="flex flex-wrap gap-2">
-          <Button ref={trigger} icon={Plus} label="Add a forge" tone="primary" disabled={!writable} onClick={() => setAdding(true)}>
+          <Button ref={trigger} icon={Plus} label="Add a forge" variant="default" disabled={!writable} onClick={() => setAdding(true)}>
             Add a forge
           </Button>
         </div>

@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ESLint } from "eslint";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { WHOLE_PACKAGE_LINT_MS } from "../../../eslint-rules/package-lint.js";
 
@@ -62,4 +63,74 @@ describe("the GUI under the repository's lint", () => {
     expect(await ruleIds(page, markup)).not.toContain(COLOUR);
     expect(await ruleIds(page, markup.replace("<head>", `<head><meta name="theme-color" content="${hex}" />`))).toContain(COLOUR);
   });
+});
+
+
+/** JSX controls must use the window's variants after the surface migration. */
+it("has no remaining Button tone aliases", () => {
+  const problems: string[] = [];
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const file = join(directory, entry.name);
+      if (entry.isDirectory()) { walk(file); continue; }
+      if (!file.endsWith(".tsx")) continue;
+      const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const visit = (node: ts.Node) => {
+        if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && /Button$/.test(node.tagName.getText(source))) {
+          for (const attribute of node.attributes.properties) {
+            if (ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "tone") problems.push(`${file}:${source.getLineAndCharacterOfPosition(attribute.getStart()).line + 1}`);
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+  };
+  walk(join(root, "packages/gui/src"));
+  expect(problems).toEqual([]);
+});
+
+const GLYPHS = new Set(["✕", "×", "»", "›", "▸", "▾", "←", "→", "↻", "+", "★", "⑂", "⚠"]);
+
+/** Read literal JSX content, including wrappers and conditional branches; icons count as content. */
+function glyphControls(file: string, code: string): string[] {
+  const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const contents = (node: ts.Node): string[] => {
+    if (ts.isJsxText(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text.trim()];
+    if (ts.isJsxExpression(node)) return node.expression === undefined ? [""] : contents(node.expression);
+    if (ts.isParenthesizedExpression(node)) return contents(node.expression);
+    if (ts.isConditionalExpression(node)) return [...contents(node.whenTrue), ...contents(node.whenFalse)];
+    if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
+      return node.children.reduce<string[]>((texts, child) => texts.flatMap((text) => contents(child).map((next) => text + next)), [""]);
+    }
+    return ["[nonliteral content]"];
+  };
+  const problems: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxElement(node)) {
+      const name = node.openingElement.tagName.getText(source);
+      const role = node.openingElement.attributes.properties.find((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "role");
+      const control = /^(button|a)$|Button$|MenuItem$|MenuEntry$|Trigger$/.test(name) || /"(button|link|menuitem|tab)"/.test(role?.getText(source) ?? "");
+      if (control && contents(node).some((text) => GLYPHS.has(text.trim()))) problems.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return problems;
+}
+
+it.each([...GLYPHS])("refuses %s as a control's whole content, even through wrappers or expressions", (glyph) => {
+  for (const code of [`<button>${glyph}</button>`, `<IconButton label="Action"><span>{"${glyph}"}</span></IconButton>`, `<div role="button">{open ? "${glyph}" : "Open"}</div>`]) {
+    expect(glyphControls("fixture.tsx", code)).toEqual(["fixture.tsx:1"]);
+  }
+  expect(glyphControls("fixture.tsx", `<button><Plus /> Add</button><span>${glyph}</span><button>{"${glyph}  Add"}</button>`)).toEqual([]);
+});
+
+it("leaves no text glyph standing for a control icon in the renderer", () => {
+  const walk = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const file = join(directory, entry.name);
+    if (entry.isDirectory()) return walk(file);
+    return file.endsWith(".tsx") && !file.endsWith(".test.tsx") ? glyphControls(file, readFileSync(file, "utf8")) : [];
+  });
+  expect(walk(join(root, "packages/gui/src"))).toEqual([]);
 });

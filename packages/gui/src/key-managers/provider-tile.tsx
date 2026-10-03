@@ -125,7 +125,7 @@ const TileConnection = ({ environmentId, environmentName, connection, writable, 
         {advice !== null && <span className="text-ink-muted"> {advice}</span>}
       </p>
       {fix !== null && (
-        <Button icon={LogIn} label={FIX_WORDS[fix]} tone="primary" className="self-start" disabled={!writable || verifying} onClick={() => act(fix)}>
+        <Button icon={LogIn} label={FIX_WORDS[fix]} variant="default" className="self-start" disabled={!writable || verifying} onClick={() => act(fix)}>
           {FIX_WORDS[fix]}
         </Button>
       )}

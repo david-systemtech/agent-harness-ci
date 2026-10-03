@@ -86,3 +86,11 @@ it("gives every discovered scene a valid, distinct capture name at both viewport
   );
   expect(new Set(names).size).toBe(scenes.length * 4);
 });
+
+it("blocks missing and changed baselines as well as geometry faults", async () => {
+  const { galleryFailed } = await import("../gallery/compare.js");
+  expect(galleryFailed([{ ...compareCapture(undefined, image()), geometryFailures: [] }])).toBe(true);
+  expect(galleryFailed([{ ...compareCapture(image(), image(100, 100, 6)), geometryFailures: [] }])).toBe(true);
+  expect(galleryFailed([{ ...compareCapture(image(), image()), geometryFailures: ["header.height: got 48, expected 44"] }])).toBe(true);
+  expect(galleryFailed([{ ...compareCapture(image(), image()), geometryFailures: [] }])).toBe(false);
+});

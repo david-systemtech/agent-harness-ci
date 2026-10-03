@@ -5,7 +5,7 @@ import { showSession } from "../src/grid/layout.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 /** Both pages exercise the real palette and its key dispatch over a frozen world. */
-export async function paletteScene(page: "root" | "sessions") {
+export async function paletteScene(page: "root" | "sessions" | "no-match") {
   const prepared = await prepareWorld({ environments: [{ name: "desk", reach: "local", colour: "teal", sessions: Array.from({ length: 10 }, (_, index) => ({
     title: index === 0 ? "Check the receipts" : `Receipt task ${index + 1}`,
     workspace: { kind: "worktree" as const, path: `/projects/receipts-${index + 1}`, repository: "/projects/receipts", branch: `task/receipts-${index + 1}` },
@@ -18,6 +18,7 @@ export async function paletteScene(page: "root" | "sessions") {
       holders.presentation.set("lightOrDark", ladder);
       let opened = false;
       let frame = 0;
+      let queried = false;
       const browse = () => {
         if (!opened) {
           const composer = document.querySelector<HTMLElement>('[aria-label="Message"]');
@@ -29,7 +30,15 @@ export async function paletteScene(page: "root" | "sessions") {
             composer.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
           });
         }
-        if (page !== "sessions") return;
+        if (page === "no-match" && !queried) {
+          const input = document.querySelector<HTMLInputElement>("[data-command-input] input");
+          if (input !== null) {
+            queried = true;
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "no-such-command");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        }
+        if (page !== "sessions" && page !== "no-match") return;
         const entry = document.querySelector<HTMLElement>('[cmdk-item][data-value="sessions"]');
         if (entry === null) return;
         observer.disconnect();

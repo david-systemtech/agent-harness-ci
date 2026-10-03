@@ -1,5 +1,6 @@
 import { oneLine, pullSetupSources } from "@agent-harness/client-runtime";
 import { CATALOGUE, catalogueTickStates, SKILL_SOURCE_LIMIT, type CatalogueSkillEntry, type CatalogueTickState } from "@agent-harness/contracts";
+import { TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
@@ -111,7 +112,7 @@ const CatalogueCard = ({ entry, environmentId, tick, readable, say }: {
       <p className="text-sm text-ink-muted">{entry.pitch}</p>
       <p className="text-sm">{entry.skillCount} skill(s)</p>
       <p className="text-sm">
-        {(licence.where.kind !== "file" || licence.holder === null) && <span aria-label="Licence caution">⚠ </span>}
+        {(licence.where.kind !== "file" || licence.holder === null) && <TriangleAlert aria-label="Licence caution" className="inline size-3.5 text-amber" />}
         <a href={licence.link} target="_blank" rel="noreferrer">{licence.spdx ?? "No licence"} — {declaration}</a>
         {licence.holder !== null && ` · ${licence.holder}`}
       </p>

@@ -101,11 +101,11 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
       </p>
       <div className="flex flex-wrap gap-2">
         {kind === "certificate-rejected" && (
-          <Button icon={ShieldCheck} label="Check its certificate" tone="primary" disabled={!writable} onClick={() => setOpen("certificate")}>
+          <Button icon={ShieldCheck} label="Check its certificate" variant="default" disabled={!writable} onClick={() => setOpen("certificate")}>
             Check its certificate
           </Button>
         )}
-        <Button icon={LogIn} label={awaiting ? "Sign in" : "Sign in again"} tone={SIGN_IN_FIXES.has(kind) ? "primary" : "quiet"} disabled={!writable} onClick={() => setOpen("sign-in")}>
+        <Button icon={LogIn} label={awaiting ? "Sign in" : "Sign in again"} variant={SIGN_IN_FIXES.has(kind) ? "default" : "ghost"} disabled={!writable} onClick={() => setOpen("sign-in")}>
           {awaiting ? "Sign in" : "Sign in again"}
         </Button>
         <Button icon={RefreshCw} label="Verify now" disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection))}>

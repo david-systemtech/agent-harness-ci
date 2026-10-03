@@ -29,3 +29,13 @@ it.each(["palette-root", "palette-sessions"])("captures %s with the real modal, 
     { selector: '[cmdk-list]', height: 352 },
   ]));
 });
+
+it("the no-match scene keeps its query and empty feedback visible", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "palette-no-match");
+  close = gallery.close;
+  const dialog = await screen.findByRole("dialog", { name: "Command palette" });
+  await within(dialog).findByText("No session matches that.");
+  expect((within(dialog).getByRole("combobox", { name: "Search the sessions on every environment" }) as HTMLInputElement).value).toBe("no-such-command");
+});
