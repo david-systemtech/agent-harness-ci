@@ -1,5 +1,6 @@
 import { adminCall, isLive, isRegisteredStep, uuidv4, uuidv7, type CardAction } from "@agent-harness/client-runtime";
 import type { PromptVariant, SetupTarget } from "@agent-harness/contracts";
+import { BookOpen } from "lucide-react";
 import { useMemo, useState } from "react";
 import { SessionPane } from "../grid/session-pane.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
@@ -81,7 +82,7 @@ export const MintedSessionCard = ({ environmentId, step, subject, artefact, outc
   return <>
     <StepStatus environmentId={environmentId} step={step} cardAction={act} />
     <AuthoringPicker picker={picker} />
-    {sessionId === undefined && !step.result?.actions.includes("start-over") && <Button onClick={() => void mint()}>{startLabel}</Button>}
+    {sessionId === undefined && !step.result?.actions.includes("start-over") && <Button title={`${startLabel} · Tab, Enter or Space`} onClick={() => void mint()}><BookOpen aria-hidden="true" />{startLabel}</Button>}
     {line !== undefined && <p role="alert">{line}</p>}
     {sessionId !== undefined && <MintedConversation environmentId={environmentId} sessionId={sessionId} outcome={outcome ?? (step.result?.state === "done" ? "landed" : undefined)} />}
   </>;
