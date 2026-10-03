@@ -13,12 +13,13 @@ export interface SourceProfile {
 
 export interface SourceProfiles extends SourceReportRecords {
   readonly profiles: readonly SourceProfile[];
+  readonly deferredProfiles: readonly { readonly sourceId: string; readonly label: string }[];
   readonly sourceIds: readonly string[];
   readonly failed: readonly StateImportFailure[];
 }
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const EMPTY: SourceProfiles = { profiles: [], sourceIds: [], failed: [], later: [], notCarried: [] };
+const EMPTY: SourceProfiles = { profiles: [], deferredProfiles: [], sourceIds: [], failed: [], later: [], notCarried: [] };
 
 export const readSourceProfiles = (folder: string) => readStore<SourceProfiles>(join(folder, DATA_FILES.profiles), { name: "The profile list", is: "is" }, (value): SourceProfiles | { refused: string } => {
   if (!record(value) || !Array.isArray(value["profiles"])) return { refused: "The profile list has no profiles array." };
@@ -42,5 +43,7 @@ export const readSourceProfiles = (folder: string) => readStore<SourceProfiles>(
     }
     profiles.push({ sourceId, label, directory: value["version"] === 1 ? resolve(folder, "profiles", path) : path });
   }
-  return { profiles, sourceIds: [...seen], failed, ...profileOmissions(value["profiles"]) };
+  const deferredProfiles = value["profiles"].flatMap((row) => record(row) && row["providerId"] !== "claude" && typeof row["id"] === "string" && row["id"].length > 0
+    ? [{ sourceId: row["id"], label: typeof row["label"] === "string" && row["label"].trim().length > 0 ? row["label"] : `Profile for ${String(row["providerId"])}` }] : []);
+  return { profiles, deferredProfiles, sourceIds: [...seen], failed, ...profileOmissions(value["profiles"]) };
 }, EMPTY);

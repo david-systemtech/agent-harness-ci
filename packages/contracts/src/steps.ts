@@ -290,6 +290,7 @@ export const STEP_REGISTRY = [
         holds: "Every adopted account with something to carry has been imported, and its last import finished.",
         actions: ["import-again"],
       },
+      { id: "carry-over.default-account", holds: "No imported default Account is waiting for sign-in.", actions: ["sign-in-again"] },
     ],
     links: [{ row: "knowledge.skills" }, { row: "knowledge.banks" }],
     skippable: true,

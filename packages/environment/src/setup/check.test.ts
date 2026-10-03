@@ -23,6 +23,7 @@ const holding: StateCheckers = {
   "carry-over.present": () => true,
   "carry-over.readable": () => true,
   "carry-over.last-import": () => true,
+  "carry-over.default-account": () => true,
   "your-machines.not-root": () => true,
   "your-machines.release-channel": () => true,
   "your-machines.updates": () => true,

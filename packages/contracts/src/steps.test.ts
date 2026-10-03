@@ -282,6 +282,7 @@ describe("the step registry", () => {
       },
       { id: "carry-over.readable", holds: "Every adopted account's directory can be read.", actions: ["check-again"] },
       { id: "carry-over.last-import", holds: "Every adopted account with something to carry has been imported, and its last import finished.", actions: ["import-again"] },
+      { id: "carry-over.default-account", holds: "No imported default Account is waiting for sign-in.", actions: ["sign-in-again"] },
     ]);
   });
 
