@@ -12,7 +12,7 @@ import {
 import type { AccountRecord } from "@agent-harness/contracts";
 import { useMemo, useRef, useState } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
-import { useOpenInPane, usePaneLine, useSayUnder } from "../session/pane-line.js";
+import { useMessageLine, useOpenInPane, usePaneLine, useSayUnder } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
 import { DialogAction as Button } from "../ui/dialog-action.js";
 import { ArrowRightLeft, UserRound, X } from "lucide-react";
@@ -103,7 +103,9 @@ export const HandoffPicker = ({ environmentId, sessionId, at = null, signIn, clo
   const handOffOnto = useHandOffOnto(environmentId, sessionId, at);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
-  const [line, say] = usePaneLine();
+  const [paneLine, say] = usePaneLine();
+  const messageLine = useMessageLine(at?.messageId ?? "");
+  const line = at === null ? paneLine : messageLine;
   const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
   const offer = runtime.capability(environmentId, "sessions.fork");
   const environment = environments.find((view) => view.environmentId === environmentId)?.name ?? THIS_MACHINE;

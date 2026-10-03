@@ -13,7 +13,7 @@ export async function dialogScene(kind: DialogScene) {
     { id: "account-1", label: "work", identity: { provider: "claude", email: "agent@work.test", organisation: null } },
     { id: "account-2", label: "spare", identity: { provider: "claude", email: "agent@home.test", organisation: null } },
   ], sessions: [{ title: "Check the receipts", accountId: "account-1", model: "claude-opus-4" }],
-  recommendation: { recommend: true, message: "Work is out of capacity. Spare has room.", accountId: "account-2", reason: "limit-reached", binding: "five_hour", candidates: 1, basis: "same-plan" },
+  recommendation: { message: "Work is out of capacity. Spare has room.", accountId: "account-2", reason: "limit-reached", binding: "five_hour", candidates: 1, basis: "same-plan" },
   }] });
   const holders = await startWorld(prepared, prepared.paired);
   const env = prepared.world.environment("desk");

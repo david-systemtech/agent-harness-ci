@@ -48,7 +48,7 @@ const nameOf = (environments: readonly EnvironmentView[], environmentId: string)
 /** A dialog that closes when dismissed (Esc, the overlay, a Close button). */
 const Shown = ({ close, title, description, children, wide = false }: { close(): void; readonly title: string; readonly description?: string; readonly children: ReactNode; readonly wide?: boolean }) => (
   <Dialog open onOpenChange={(open) => !open && close()}>
-    <DialogContent title={title} {...(description !== undefined && { description })} className={wide ? "max-w-[32rem] max-h-[calc(100dvh-4rem)] overflow-y-auto" : "max-h-[calc(100dvh-4rem)] overflow-y-auto"}>
+    <DialogContent title={title} onKeyDown={(event) => { if (event.key === "Escape") close(); }} {...(description !== undefined && { description })} className={wide ? "max-w-[32rem] max-h-[calc(100dvh-4rem)] overflow-y-auto" : "max-h-[calc(100dvh-4rem)] overflow-y-auto"}>
       {children}
     </DialogContent>
   </Dialog>
