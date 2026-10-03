@@ -146,10 +146,10 @@ describe("the Diff pane", () => {
       "Edit · turn 1",
       "MultiEdit",
     ]);
-    expect(within(file).getByText("+const total = 2;")).toBeDefined();
-    expect(within(file).getByText("-const total = 1;")).toBeDefined();
+    expect(within(file).getByText((_, element) => element?.textContent === "+const total = 2;")).toBeDefined();
+    expect(within(file).getByText((_, element) => element?.textContent === "-const total = 1;")).toBeDefined();
     expect(within(pane("Diff")).getByRole("heading", { name: "The working tree against HEAD" })).toBeDefined();
-    expect(within(pane("Diff")).getByText("+new line")).toBeDefined();
+    expect(within(pane("Diff")).getByText((_, element) => element?.textContent === "+new line")).toBeDefined();
     expect(sent(env, "diffs.session")).toEqual([{ sessionId: session }]);
     expect(sent(env, "diffs.workingTree")).toEqual([{ sessionId: session }]);
   });

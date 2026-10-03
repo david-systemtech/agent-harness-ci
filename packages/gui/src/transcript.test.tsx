@@ -219,7 +219,10 @@ describe("tool calls", () => {
 
     await app.user.click(count);
     expect(count.getAttribute("aria-expanded")).toBe("true");
-    expect(within(transcript).getByRole("group", { name: "Bash: ls" }).textContent).toContain("receipts.ts");
+    const successful = within(transcript).getByRole("group", { name: "Bash: ls" });
+    await app.user.click(within(successful).getByRole("button", { name: "Bash: ls" }));
+    await app.user.click(within(successful).getByRole("button", { name: "Result" }));
+    expect(successful.textContent).toContain("receipts.ts");
     expect(within(transcript).getByRole("group", { name: "Read: receipts.ts" })).toBeDefined();
   });
 
@@ -561,8 +564,8 @@ describe("the find bar", () => {
     expect(within(bar).getByText("1 of 2")).toBeDefined();
 
     await app.user.click(fold);
-    await waitFor(() => expect(within(bar).getByText("1 of 4")).toBeDefined());
-    expect(within(transcript).getAllByRole("mark")).toHaveLength(4);
+    await waitFor(() => expect(within(bar).getByText("1 of 3")).toBeDefined());
+    expect(within(transcript).getAllByRole("mark")).toHaveLength(3);
     await app.user.click(fold);
     await waitFor(() => expect(within(bar).getByText("1 of 2")).toBeDefined());
   });
