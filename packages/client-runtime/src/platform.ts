@@ -68,6 +68,7 @@ export interface DocumentStore {
  * `secrets` member (the OS keychain).
  */
 export interface SecretStore {
+  /** Unavailable access may reject; reconnecting must preserve the saved credential when it does. */
   get(name: string): Promise<string | undefined>;
   set(name: string, secret: string): Promise<void>;
   delete(name: string): Promise<void>;

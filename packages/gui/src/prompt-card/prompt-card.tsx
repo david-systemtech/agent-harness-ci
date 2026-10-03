@@ -160,9 +160,12 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   };
   const deny = () => (prompt.kind === "question" ? settle({ kind: "answer", answer: { decision: "deny", ...noteOf(fields.note) } }) : choose(rows[0]));
   const dim = capability.status === "absent";
-  const pinnedDecision = prompt.kind === "permission";
+  const permission = prompt.kind === "permission";
+  const pinnedDecision = permission || prompt.kind === "plan";
   const shownLine = line ?? (dim ? capability.message : undefined);
   const facts = [place, ttl].filter((fact) => fact !== undefined).join(" · ");
+
+  const request = <PromptBody prompt={prompt} fields={fields} setFields={setFields} />;
 
   return (
     <KeyContext context="permission">
@@ -192,18 +195,16 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
             }}>{collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}{collapsed ? "Show" : "Hide"}</Button>
           </PromptTooltip>
         </header>
-        <div id={bodyId} hidden={collapsed} className={pinnedDecision ? "flex min-h-0 flex-col" : undefined}>
+        <div id={bodyId} hidden={collapsed} className={classes(pinnedDecision && !collapsed && "flex min-h-0 flex-col")}>
           <div className={classes("flex flex-col gap-2", pinnedDecision && "min-h-0")}>
-            <div role={pinnedDecision ? "region" : undefined} aria-label={pinnedDecision ? "Permission request" : undefined} className={classes("flex flex-col gap-2", pinnedDecision && "min-h-0")}>
-              <PromptBody prompt={prompt} fields={fields} setFields={setFields} />
-            </div>
-            <div role={pinnedDecision ? "group" : undefined} aria-label={pinnedDecision ? "Permission decision" : undefined} className="flex shrink-0 flex-col gap-2">
+            {permission ? <div role="region" aria-label="Permission request" className="flex min-h-0 flex-col gap-2">{request}</div> : request}
+            <div role={permission ? "group" : undefined} aria-label={permission ? "Permission decision" : undefined} className="flex shrink-0 flex-col gap-2">
               <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
               <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
                 <Textarea
                   id={noteId}
                   rows={2}
-                  className="min-h-12"
+                  className={classes("min-h-12", prompt.kind === "plan" && "max-h-24 resize-none overflow-y-auto")}
                   aria-label="Note"
                   placeholder="A note for the agent, sent with the answer: why, or what to do after"
                   maxLength={10_000}
@@ -282,11 +283,11 @@ const PlanBody = ({ text }: { readonly text: string }) => {
     if (element.firstElementChild !== null) observer.observe(element.firstElementChild);
     return () => observer.disconnect();
   }, [text]);
-  return <div>
-    <div ref={body} aria-label="Plan body" onScroll={measure} className={classes("max-h-[416px] overflow-y-auto", clipped && "[mask-image:linear-gradient(to_bottom,var(--ink)_calc(100%_-_24px),transparent)]")}>
+  return <div className="flex min-h-0 flex-col">
+    <div ref={body} aria-label="Plan body" onScroll={measure} className={classes("min-h-0 max-h-[416px] overflow-y-auto", clipped && "[mask-image:linear-gradient(to_bottom,var(--ink)_calc(100%_-_24px),transparent)]")}>
       <Markdown text={text} />
     </div>
-    {clipped && <p className="mt-1 flex items-center gap-1 text-xs text-ink-faint"><ChevronDown aria-hidden="true" className="size-3.5" />Scroll to read the plan</p>}
+    {clipped && <p className="mt-1 flex shrink-0 items-center gap-1 text-xs text-ink-faint"><ChevronDown aria-hidden="true" className="size-3.5" />Scroll to read the plan</p>}
   </div>;
 };
 

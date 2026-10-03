@@ -132,7 +132,7 @@ describe("the preload bundle", () => {
     expect(Object.keys(shell["network"] ?? {})).toEqual(["allow"]);
     expect(Object.keys(shell["deepLinks"] ?? {})).toEqual(["onOpen"]);
     expect(Object.keys(shell["notifications"] ?? {}).sort()).toEqual(["onActivate", "show"]);
-    expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["delete", "get", "protection", "set"]);
+    expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["access", "delete", "get", "onAccess", "protection", "set"]);
     expect(Object.keys(shell["localGrant"] ?? {})).toEqual(["read"]);
     expect(Object.keys(shell["service"] ?? {}).sort()).toEqual(["applyUpdateNow", "install", "pendingUpdate", "start", "status"]);
     expect(Object.keys(shell["preview"] ?? {})).toEqual(["grant"]);

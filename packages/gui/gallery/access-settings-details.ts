@@ -9,7 +9,7 @@ export interface AccessSettingsDetail {
   readonly controls?: readonly SceneGeometry[];
 }
 
-const unattended = '[role="group"]:has(input[aria-label="acceptEdits"]):not(:has(input[aria-label="plan"]))';
+const unattended = '[role="group"]:has(input[aria-label="Accept file edits"]):not(:has(input[aria-label="Plan only"]))';
 const ttl = '[role="group"]:has(input[title^="Unanswered permission timeout"])';
 const containment = '[role="radiogroup"]:has(input[title^="off ("])';
 const sites = 'section[aria-label="Sites you are developing"]';
@@ -48,7 +48,13 @@ export const accessSettingsDetails = {
       { selector: 'select[aria-label="Default browser for Personal"]', height: 32 },
     ],
   },
-  unattended: { row: "access.permissions", anchor: unattended, visible: [unattended] },
+  unattended: {
+    row: "access.permissions", anchor: unattended, visible: [unattended],
+    controls: [
+      { selector: `${unattended} label .text-xs`, fontSize: 12 },
+      { selector: `${unattended} label code`, fontSize: 11 },
+    ],
+  },
   containment: {
     row: "access.permissions", anchor: ttl, visible: [ttl, containment],
     controls: [{ selector: 'input[title^="Unanswered permission timeout"]', height: 32 }],

@@ -629,7 +629,9 @@ Tinted bubbles derive their fill from beam: lightness 0.93/chroma ×0.16 in ligh
 Cards lg, semantic 45% border, semantic fill and 14px icon, x 12/y 10/gap 8;
 shared focus beam/50, pending answer controls 28px and notes min 48px/rows 2.
 Arguments square mono max 224px; plan max 416px with bottom clipping fade and
-scroll hint; parked-card stack max 60vh. Keep draft/choices keyed by prompt
+scroll hint; parked-card stack max 60vh. The plan well shrinks within that
+bound to keep the note, delivery error and decision footer visible without
+scrolling the card; only the plan and a long note scroll. Keep draft/choices keyed by prompt
 identity across collapse and failed delivery. Busy disables duplicate decisions;
 failure one sentence inside the card, retaining the request and what was typed.
 Permission cards keep the header and decision footer (note, refusal and actions)

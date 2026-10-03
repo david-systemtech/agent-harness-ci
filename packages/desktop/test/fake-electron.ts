@@ -442,22 +442,28 @@ const fakeSafeStorage = (os: ShellPlatform): FakeSafeStorage => {
       return storage.backend === "basic_text" ? storage.plainText : storage.keychain;
     },
     encryptString(plainText) {
-      if (!storage.isEncryptionAvailable()) throw new Error("Error while encrypting the text provided to safeStorage.encryptString. Encryption is not available.");
+      if (!available()) throw new Error("Error while encrypting the text provided to safeStorage.encryptString. Encryption is not available.");
       const prefix = os === "linux" && storage.backend === "basic_text" ? "v10" : `v11:${key}:`;
       return Buffer.concat([Buffer.from(prefix), scramble(Buffer.from(plainText, "utf8"))]);
     },
     decryptString(encrypted) {
-      if (!storage.isEncryptionAvailable()) throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString. Decryption is not available.");
+      if (!available()) throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString. Decryption is not available.");
       const text = encrypted.toString("latin1");
       const prefix = text.startsWith("v10") ? "v10" : `v11:${key}:`;
       if (!text.startsWith(prefix)) throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString.");
       return scramble(encrypted.subarray(prefix.length)).toString("utf8");
     },
+    async isAsyncEncryptionAvailable() { return storage.keychain; },
+    async encryptStringAsync(plainText) { return encrypt(plainText); },
+    async decryptStringAsync(encrypted) { return { result: decrypt(encrypted), shouldReEncrypt: false }; },
     getSelectedStorageBackend: () => (os === "linux" ? storage.backend : "unknown"),
     setUsePlainTextEncryption(usePlainText) {
       storage.plainText = usePlainText;
     },
   };
+  const available = storage.isEncryptionAvailable;
+  const encrypt = storage.encryptString;
+  const decrypt = storage.decryptString;
   return storage;
 };
 

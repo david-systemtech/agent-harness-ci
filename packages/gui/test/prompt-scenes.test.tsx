@@ -9,6 +9,27 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
+it("the permission error scene keeps its refusal and decisions outside the scrolling request", async () => {
+  for (const ladder of ["light", "dark"] as const) {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const gallery = await mountGallery(container, "prompt-permission-error", ladder);
+    close = gallery.close;
+    expect(await gallery.ready).toBe(true);
+    const card = screen.getByRole("region", { name: "Parked prompt" });
+    const decisions = within(card).getByRole("group", { name: "Permission decision" });
+    expect(within(decisions).getByRole("status").textContent).toBe("Not answered: The prompt was already answered.");
+    expect(within(decisions).getByRole("textbox", { name: "Note" })).toBeTruthy();
+    for (const name of ["Deny", "Allow once", "Allow for this session"]) expect(within(decisions).getByRole("button", { name })).toBeTruthy();
+    expect(within(card).getByRole("region", { name: "Permission request" }).textContent).toContain("Check 20");
+    const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+    expect(geometry).toContainEqual({ selector: '[aria-label="Permission decision"] [role="status"]', visibleWithin: '[aria-label="Parked prompt"]' });
+    await gallery.close();
+    close = undefined;
+    container.remove();
+  }
+});
+
 it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s prompt scene and its measured controls in both ladders", async (kind) => {
   for (const ladder of ["light", "dark"] as const) {
     const container = document.createElement("div");
@@ -28,7 +49,7 @@ it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s p
     const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; height?: number }[];
     expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] button', height: 28 });
     expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 });
-    if (kind === "plan") expect(geometry).toContainEqual({ selector: '[aria-label="Plan body"]', height: 416 });
+    if (kind === "plan") expect(geometry).toContainEqual({ selector: '[aria-label="Plan body"]', maxHeight: 416, visibleWithin: '[aria-label="Parked prompt"]' });
     if (kind === "permission") {
       expect(geometry).toContainEqual({ selector: '[aria-label="Arguments"]', height: 224, viewport: 1400 });
       expect(geometry).toContainEqual({ selector: '[aria-label="Permission decision"]', visibleWithin: '[aria-label="Parked prompt"]' });
