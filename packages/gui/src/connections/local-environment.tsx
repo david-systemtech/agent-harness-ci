@@ -17,7 +17,7 @@ export const LocalEnvironmentPane = ({ view }: { readonly view: EnvironmentView 
     <section aria-label="This machine" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
       <h2 className="text-base font-semibold text-ink">{view.name ?? "This machine"}</h2>
       <p role="status" className="max-w-xl text-sm text-ink-muted">
-        {failed ? `The environment on this machine did not start: ${service.failure}` : phaseSentence(view, service.starting)}
+        {failed ? `The environment on this machine did not start: ${service.failure}` : phaseSentence(view, service.starting, service.installing)}
       </p>
       <Remedy view={view} startLabel={failed ? "Try again" : "Start it"} />
       <RunHereSwitch />

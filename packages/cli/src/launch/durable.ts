@@ -61,11 +61,17 @@ export const syncDirectory = (path: string, fs: DurableFs = nodeFs, platform: No
 };
 
 /**
- * Puts every file and folder under `dir`, and `dir` itself, on disk, as a
- * version's files must be before the sentinel that completes it is written;
- * links are left as they are.
+ * Flushes a staged version's files and folders on POSIX before its rename
+ * and last-written, flushed sentinel; links are left as they are.
+ * Windows skips the tree walk: NTFS journals the rename, and the sentinel
+ * marks a completed copy, avoiding a flush for each of thousands of files.
+ * This protects against a process crash, not loss of cached payload bytes
+ * on power loss: the sentinel's flush does not flush other files. Such a
+ * version may need reinstalling. State and database files still use their
+ * own flushes (launcher-update spec, "Version staging and power loss").
  */
 export const syncTree = (dir: string, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): void => {
+  if (platform === "win32") return;
   for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) syncTree(path, fs, platform);
