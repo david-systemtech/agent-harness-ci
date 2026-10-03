@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { useId, type ReactNode } from "react";
 import { classes } from "./classes.js";
 
@@ -23,13 +24,12 @@ export const Fold = ({ summary, open, onOpenChange, children, className }: FoldP
       <button
         type="button"
         aria-expanded={open}
+        title="Toggle details (Enter or Space)"
         aria-controls={open ? id : undefined}
         onClick={() => onOpenChange(!open)}
         className="flex min-w-0 items-center gap-1.5 self-start rounded-sm text-left text-[0.85em] text-ink-muted outline-none hover:text-ink focus-visible:outline-2 focus-visible:outline-beam"
       >
-        <span aria-hidden="true" className={classes("inline-block transition-transform", open && "rotate-90")}>
-          ›
-        </span>
+        <ChevronRight aria-hidden="true" className={classes("size-3.5 shrink-0 transition-transform duration-100", open && "rotate-90")} />
         {summary}
       </button>
       {open && <div id={id}>{children}</div>}

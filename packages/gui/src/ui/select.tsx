@@ -1,10 +1,12 @@
+import { ChevronDown } from "lucide-react";
 import type { ComponentProps } from "react";
-import { classes } from "./classes.js";
+import { cn } from "./classes.js";
+import { FIELD_CONTROL } from "./input.js";
 
-/** A native choice among options; name it with a label or `aria-label`, and give it its `option`s. */
+/** The trigger is drawn here; options, form submission and keyboard navigation remain native. */
 export const Select = ({ className, ...props }: ComponentProps<"select">) => (
-  <select
-    className={classes("h-8 rounded-md border border-line bg-inset px-2 text-sm text-ink outline-none focus-visible:border-beam disabled:text-ink-faint", className)}
-    {...props}
-  />
+  <span className="relative inline-flex min-w-0 max-w-full items-center">
+    <select className={cn(FIELD_CONTROL, "h-8 w-full appearance-none text-sm py-1 pr-8 pl-2.5", className)} {...props} />
+    <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 size-4 text-ink-muted" />
+  </span>
 );

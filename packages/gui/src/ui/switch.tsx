@@ -1,16 +1,9 @@
-import * as RadixSwitch from "@radix-ui/react-switch";
+import { Switch as RadixSwitch } from "radix-ui";
 import type { ComponentProps } from "react";
-import { classes } from "./classes.js";
+import { cn } from "./classes.js";
 
-/** An on or off switch; name it with a label or `aria-label`. Controlled or not, as its props say. */
-export const Switch = ({ className, ...props }: ComponentProps<typeof RadixSwitch.Root>) => (
-  <RadixSwitch.Root
-    className={classes(
-      "inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-line-strong bg-inset focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-beam data-[state=checked]:bg-beam disabled:opacity-50",
-      className,
-    )}
-    {...props}
-  >
-    <RadixSwitch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-ink transition-transform data-[state=checked]:translate-x-4 data-[state=checked]:bg-beam-ink" />
+export const Switch = ({ className, size = "default", ...props }: ComponentProps<typeof RadixSwitch.Root> & { readonly size?: "default" | "sm" }) => (
+  <RadixSwitch.Root data-size={size} className={cn("group inline-flex shrink-0 items-center rounded-full border border-transparent bg-hairline-strong dark:bg-hairline-strong/80 outline-none transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-beam/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:ring-3 aria-invalid:ring-signal/20 data-[state=checked]:bg-beam", size === "sm" ? "h-[14px] w-[24px]" : "h-[18.4px] w-[32px]", className)} {...props}>
+    <RadixSwitch.Thumb className={cn("pointer-events-none block rounded-full bg-abyss transition-transform duration-150 data-[state=checked]:bg-beam-ink dark:data-[state=unchecked]:bg-ink", size === "sm" ? "size-[12px] data-[state=checked]:translate-x-[10px]" : "size-[16px] data-[state=checked]:translate-x-[14px]")} />
   </RadixSwitch.Root>
 );
