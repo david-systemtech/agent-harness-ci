@@ -29,12 +29,12 @@ id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 # A separate network job shares the transport, not the unit suite.
 event=${GH_CI_EVENT:-ci}
-case "$event" in ci | catalogue) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
+case "$event" in ci | catalogue | gallery) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
 
 # Each attempt has 120 s, enough for a 16 KB run reply at the site's measured 1.2 KB/s.
 # Retries start within 180 s; the last attempt can take another 120 s.
 gh_api() {
-  curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-max-time 180 --retry-all-errors -H "Authorization: Bearer $GH_CI_TOKEN" \
+  curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-max-time 180 --retry-all-errors -H @<(printf 'Authorization: Bearer %s\n' "$GH_CI_TOKEN") \
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
 # A GET whose reply gets parsed. Through a file, because curl cannot rewind stdout: a retry after
@@ -87,7 +87,7 @@ gl_kept=${RUNNER_TOOL_CACHE:-$HOME/.cache}/gitleaks/$gl_version/$gl_sum.tar.gz
 if cp "$gl_kept" "$gl/g.tgz" 2>/dev/null && echo "$gl_sum  $gl/g.tgz" | sha256sum -c --status -; then
   echo "gitleaks $gl_version: the copy kept at $gl_kept"
 elif [ -n "${FORGEJO_TOKEN:-}" ] &&
-  curl -sSfL --connect-timeout 10 --max-time 60 -H "Authorization: token $FORGEJO_TOKEN" \
+  curl -sSfL --connect-timeout 10 --max-time 60 -H @<(printf 'Authorization: token %s\n' "$FORGEJO_TOKEN") \
     -o "$gl/g.tgz" "${FORGEJO_URL:-https://git.systemtech.dev:5526}/api/packages/david/generic/gitleaks/$gl_version/gitleaks_${gl_version}_linux_$gl_arch.tar.gz" 2>/dev/null &&
   echo "$gl_sum  $gl/g.tgz" | sha256sum -c --status -; then
   # The same pinned build, kept in this Forgejo's generic package registry
@@ -116,7 +116,8 @@ tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
   { echo "::error::gitleaks found a secret; nothing was pushed to GitHub"; exit 1; }
 
 echo "Pushing $sha to $repo as ci/$id"
-auth=(-c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_CI_TOKEN" | base64 -w0)")
+auth=(-c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$GH_CI_TOKEN"; }; f')
+export GH_CI_TOKEN GIT_TERMINAL_PROMPT=0
 # GitHub sometimes rejects a push while other relays push at once ("[remote rejected] ... (failed)",
 # main run 3778 on 2026-10-01, in a burst of six merges in three minutes), so try it three times.
 for try in 1 2 3; do
@@ -169,7 +170,20 @@ print(r.get("status") or "unknown", r.get("conclusion") or "-")')
   sleep 15
 done
 echo "GitHub run finished: $conclusion"
-[ "$conclusion" = success ] && exit 0
+if [ "$conclusion" = success ]; then
+  if [ "$event" = gallery ]; then
+    reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
+    artifact=$(printf '%s' "$reply" | python3 -c '
+import json,sys
+items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
+if len(items)!=1 or items[0]["size_in_bytes"]>2*1024*1024: sys.exit("missing or oversized gallery artifact")
+print(int(items[0]["id"]))')
+    # One small zip, even over the slow relay link; all attempts and their retries are bounded.
+    gh_api --fail -L --max-filesize 2097152 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
+    bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
+  fi
+  exit 0
+fi
 
 # Print the failed steps of each failed job, then fail.
 for _ in 1 2 3; do
