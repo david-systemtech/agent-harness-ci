@@ -49,8 +49,8 @@ const PACMAN_DEPENDS: readonly string[] = [
 /**
  * The NSIS include that registers the app's scheme for the user installing
  * it, as `app.setAsDefaultProtocolClient` does at each launch, so a link
- * opens the app before its first launch. The uninstaller removes it, except
- * when an update runs it before installing the next version.
+ * opens the app before its first launch. The uninstaller first stops and
+ * unregisters the environment through the bundled CLI, retaining personal data. An update keeps both registrations.
  */
 export const nsisSchemeInclude = (scheme: string): string =>
   [
@@ -63,6 +63,16 @@ export const nsisSchemeInclude = (scheme: string): string =>
     "",
     "!macro customUnInstall",
     "  ${ifNot} ${isUpdated}",
+    "    ClearErrors",
+    `    ExecWait '"$INSTDIR\\resources\\${PACKAGED_SERVER}\\node\\node.exe" "$INSTDIR\\resources\\${PACKAGED_SERVER}\\packages\\cli\\dist\\main.js" service uninstall' $0`,
+    "    ${if} ${Errors}",
+    "      SetErrorLevel 1",
+    '      Abort "Could not run environment service cleanup. The app has been kept."',
+    "    ${endIf}",
+    "    ${if} $0 != 0",
+    "      SetErrorLevel 1",
+    '      Abort "Could not uninstall the environment service. The app has been kept."',
+    "    ${endIf}",
     `    DeleteRegKey SHELL_CONTEXT "Software\\Classes\\${scheme}"`,
     "  ${endIf}",
     "!macroend",
