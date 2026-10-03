@@ -391,13 +391,26 @@ describe("the Your machines step's release channel check", () => {
     return results[0];
   };
 
-  it("needs attention with auto-update on before the channel was ever read, offering check-again", async () => {
+  it("is pending with auto-update on before the first scheduled channel read", async () => {
     const t = await start();
     expect(await result(await t.client())).toMatchObject({
-      state: "needs-attention",
-      failing: ["your-machines.release-channel"],
-      actions: ["check-again"],
-      reason: "The release channel has not been read yet: the environment reads it two minutes after it starts, then hourly.",
+      state: "pending",
+      failing: [],
+      actions: [],
+      reason: "Waiting for the first release channel read, scheduled two minutes after the environment starts.",
+    });
+  });
+
+  it("needs attention when the first scheduled read is overdue, after its ten-second network budget", async () => {
+    const t = await start();
+    const client = await t.client();
+    // A missed scheduled read: moving wall time runs no scheduled callbacks.
+    t.clock.jump(2 * MINUTE + 9_999);
+    expect(await result(client)).toMatchObject({ state: "pending", failing: [], actions: [] });
+    t.clock.jump(1);
+    expect(await result(client)).toMatchObject({
+      state: "needs-attention", failing: ["your-machines.release-channel"], actions: ["check-again"],
+      reason: "The first scheduled release channel read is overdue: it has not completed within ten seconds of its scheduled time.",
     });
   });
 
@@ -448,7 +461,7 @@ describe("the Your machines step's release channel check", () => {
     return async () => StepResult.parse((await client.next(isMachinesResult)).event.payload);
   };
 
-  const notReadYet = "The release channel has not been read yet: the environment reads it two minutes after it starts, then hourly.";
+  const notReadYet = "Waiting for the first release channel read, scheduled two minutes after the environment starts.";
 
   it("is checked again within a second of the channel's first read, two minutes after the start, not an hour on at its cadence, though the read appends nothing (#679)", async () => {
     // The channel's newest is what runs: the read stages nothing, so no update notice triggers the step.
@@ -456,7 +469,7 @@ describe("the Your machines step's release channel check", () => {
     fake.publish({ version: "0.5.0" });
     await t.env.setup.startPass;
     const next = await machinesResults(client);
-    expect(await next()).toMatchObject({ state: "needs-attention", failing: ["your-machines.release-channel"], reason: notReadYet, checkedAt: MANUAL_CLOCK_START });
+    expect(await next()).toMatchObject({ state: "pending", failing: [], reason: notReadYet, checkedAt: MANUAL_CLOCK_START });
 
     t.clock.advance(2 * MINUTE);
     // Answers once the check the clock began, the channel's first read, has ended.
@@ -472,7 +485,7 @@ describe("the Your machines step's release channel check", () => {
     const client = await t.client();
     await t.env.setup.startPass;
     const next = await machinesResults(client);
-    expect(await next()).toMatchObject({ state: "needs-attention", reason: notReadYet });
+    expect(await next()).toMatchObject({ state: "pending", reason: notReadYet });
 
     t.clock.advance(2 * MINUTE);
     const { lastCheck } = await client.request("updates.check", {});

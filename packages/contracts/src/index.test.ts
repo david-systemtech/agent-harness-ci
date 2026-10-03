@@ -11,8 +11,8 @@ import {
 } from "./index.js";
 
 describe("contracts", () => {
-  it("speaks protocol version 1", () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+  it("speaks protocol version 2 for pending setup results", () => {
+    expect(PROTOCOL_VERSION).toBe(2);
   });
 
   it("names the product with the placeholder name", () => {

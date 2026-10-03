@@ -98,7 +98,7 @@ const sameButCheckedAt = (row: string | undefined, result: StepResult): boolean 
 /** The last good result a step's cached result leaves for one that timed out or could not check: it, when it passed; else the one it carried. */
 const lastGoodOf = (cached: StepResult | undefined): LastGood | undefined => {
   if (cached === undefined) return undefined;
-  if (cached.state === "needs-attention") return cached.lastGood;
+  if (cached.state === "needs-attention" || cached.state === "pending") return cached.lastGood;
   return { state: cached.state, reason: cached.reason, checkedAt: cached.checkedAt };
 };
 
