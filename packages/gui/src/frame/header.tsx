@@ -22,7 +22,7 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
   const summary = list.rows.find((row) => row.environmentId === session.environmentId && row.summary.id === session.sessionId.toLowerCase())?.summary ?? projection.summary;
   const environment = environments.find((view) => view.environmentId === session.environmentId);
   const path = summary?.workspace.path;
-  const workspace = path?.split(/[/\\]/).filter(Boolean).at(-1) ?? "No workspace";
+  const workspace = path?.split(/[/\\]/).filter(Boolean).at(-1) ?? path ?? "No workspace";
   return <>
     {environment !== undefined && <span title={environment.name ?? undefined} className="flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-hairline px-1.5 text-xs text-ink-muted">
       <EnvironmentGlyph view={environment} /><span className="truncate">{environment.name ?? "This machine"}</span>

@@ -21,6 +21,18 @@ const prepared = await prepareWorld({ environments: [{
   updates: { status: { newest: "0.6.0" }, desktopBuild: { path: "/data/test-update.pkg", version: "0.6.0", sha256: "a".repeat(64) } },
 }] });
 const holders = await startWorld(prepared, prepared.paired);
+// A component scene is marked ready immediately; hold its staged update on the event before exporting it.
+await new Promise<void>((resolve, reject) => {
+  const ready = () => {
+    const { build } = holders.runtime.desktopUpdate.view.read();
+    if (build.state === "ready") { unsubscribe(); resolve(); }
+    else if (build.state === "failed" || build.state === "unsupported" || build.state === "current") {
+      unsubscribe(); reject(new Error("The header scene needs a staged desktop update."));
+    }
+  };
+  const unsubscribe = holders.runtime.desktopUpdate.view.subscribe(ready);
+  ready();
+});
 const env = prepared.world.environment("Desk with a deliberately long environment name");
 const sessionId = env.sessionId();
 const stop = holders.runtime.projections.runs.subscribe(() => {});
@@ -82,7 +94,7 @@ export const geometry = [1400, 1024].flatMap((width) => [
   { selector: `[data-header-width="${width}"] button[aria-label="Settings"]`, width: 28, height: 28 },
   { selector: `[data-header-width="${width}"] button[aria-label="Search sessions and commands"]`, height: 24 },
   { selector: `[data-header-width="${width}"] [role="radiogroup"]`, height: 30 },
-  { selector: `[data-header-width="${width}"] button[aria-label="Set up: 1 need attention"]`, height: 22 },
+  { selector: `[data-header-width="${width}"] button[aria-label="Set up: 1 needs attention"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Parked asks, 1 waiting"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Restart to update"]`, height: 22 },
 ]);

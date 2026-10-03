@@ -10,8 +10,10 @@ it("draws populated headers with geometry contracts for both acceptance widths",
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe("header"));
     expect(screen.getAllByRole("button", { name: "Settings" })).toHaveLength(2);
     expect(await screen.findAllByRole("button", { name: "Parked asks, 1 waiting" })).toHaveLength(2);
-    expect(await screen.findAllByRole("button", { name: "Restart to update" })).toHaveLength(2);
-    expect(await screen.findAllByRole("button", { name: "Set up: 1 need attention" })).toHaveLength(2);
+    const updates = await screen.findAllByRole("button", { name: "Restart to update" });
+    expect(updates).toHaveLength(2);
+    for (const update of updates) expect(update.getAttribute("aria-label")).toBe("Restart to update");
+    expect(await screen.findAllByRole("button", { name: "Set up: 1 needs attention" })).toHaveLength(2);
     const checks: unknown = JSON.parse(container.dataset["galleryGeometry"] ?? "null");
     expect(checks).toEqual(expect.arrayContaining([
       { selector: '[data-header-width="1400"][data-header-fits="true"] header', width: 1400, height: 44 },

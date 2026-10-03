@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { STEP_ORDER } from "@agent-harness/contracts";
+import { PRODUCT_NAME, STEP_ORDER } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp } from "../test/harness.js";
 
@@ -7,7 +7,7 @@ describe("the single-line header", () => {
   it("opens Settings and the palette through named icon controls", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
     const header = within(screen.getByRole("banner"));
-    expect(header.queryByText("agent-harness")).toBeNull();
+    expect(header.queryByText(PRODUCT_NAME)).toBeNull();
     const settings = header.getByRole("button", { name: "Settings" });
     expect(settings.textContent).toBe("");
     await app.user.click(settings);
@@ -57,7 +57,7 @@ describe("the single-line header", () => {
     const header = within(screen.getByRole("banner"));
     expect(await header.findByText("project")).toBeDefined();
     expect(header.getByText("Plan the next task")).toBeDefined();
-    await app.user.click(await header.findByRole("button", { name: "Set up: 1 need attention" }));
+    await app.user.click(await header.findByRole("button", { name: "Set up: 1 needs attention" }));
     expect(await screen.findByRole("region", { name: "Set up" })).toBeDefined();
     expect(header.queryByRole("button", { name: "Parked asks" })).toBeNull();
   });
@@ -67,6 +67,12 @@ describe("the single-line header", () => {
     const header = within(screen.getByRole("banner"));
     expect(await header.findByRole("status")).toHaveProperty("textContent", "Update failed");
     expect(header.queryByRole("button", { name: "Restart to update" })).toBeNull();
+  });
+
+  it("names a root workspace without treating it as absent", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Root task", workspace: { kind: "directory", path: "/" } }] }] });
+    app.open("desk");
+    expect(await within(screen.getByRole("banner")).findByText("/")).toBeDefined();
   });
 
 });

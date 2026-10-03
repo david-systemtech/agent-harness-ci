@@ -19,7 +19,7 @@ export const RestartButton = () => {
   if (!restartable(build)) return null;
   return (
     <Tooltip content={build.state === "failed" ? `Restart to update · ${build.message}` : "Restart to update"}>
-      <Button size="xs" className={classes("h-[22px] max-w-36 gap-1.5 border font-mono", build.state === "failed" ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text")} onClick={() => void runtime.desktopUpdate.restart()}>
+      <Button aria-label="Restart to update" size="xs" className={classes("h-[22px] max-w-36 gap-1.5 border font-mono", build.state === "failed" ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text")} onClick={() => void runtime.desktopUpdate.restart()}>
         <ArrowDown aria-hidden="true" /><span className="truncate">Restart to update</span>
       </Button>
     </Tooltip>
