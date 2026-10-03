@@ -142,6 +142,15 @@ esac
     expect(job("release")).toContain("    needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
   });
 
+  it("checks persisted channel targets on the packaged Linux server's second start", () => {
+    const smoke = step("smoke-linux", "Start the packaged environment twice");
+    expect(smoke).toContain('environment.update-pending');
+    expect(smoke).toContain('source: "channel"');
+    expect(smoke).toContain('cause === "superseded"');
+    expect(smoke).toContain('update status --json --data-dir "$data_dir"');
+    expect(smoke).toContain('status.pending.state !== "current"');
+  });
+
   it("smokes the public headless installers without credentials on each release platform", () => {
     for (const name of ["smoke-macos", "smoke-linux"]) {
       const body = job(name).join("\n");

@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Accept the current PR head's hosted captures. No browser or image generation runs here.
 set -euo pipefail
-[[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr>' >&2; exit 1; }
+[[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr> [reviewed-capture.png ...]' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
-python3 - "$root" "$1" <<'PY'
+python3 - "$root" "$@" <<'PY'
 import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
 root = pathlib.Path(sys.argv[1]); number = sys.argv[2]
+selected = set(sys.argv[3:])
+if any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) for name in selected):
+    sys.exit('Expected exact reviewed capture filenames.')
 remote = urllib.parse.urlsplit(subprocess.check_output(['git', '-C', str(root), 'remote', 'get-url', 'origin'], text=True).strip())
 base = os.environ.get('FORGEJO_URL', f'{remote.scheme}://{remote.netloc}').rstrip('/')
 repository = os.environ.get('FORGEJO_REPOSITORY', remote.path.strip('/').removesuffix('.git'))
@@ -56,6 +59,9 @@ if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', versi
     sys.exit('Invalid gallery capture version.')
 files = manifest.get('captures', [])
 if not files or len(files) > 400: sys.exit('Invalid gallery capture list.')
+names = [item['name'] for item in files]
+if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
+if selected - set(names): sys.exit('A requested capture is absent from the current report.')
 accepted = {}; total = 0
 for item in files:
     name, url = item['name'], item['api_url']
@@ -64,6 +70,7 @@ for item in files:
         sys.exit('Invalid or duplicate gallery filename.')
     if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or parsed.path != f'/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}' or parsed.query or parsed.fragment:
         sys.exit('Invalid gallery attachment origin.')
+    if selected and name not in selected: continue
     data = get(url, limit=48*1024*1024)
     digest = item.get('sha256')
     if (version != head or digest is not None) and (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest) or hashlib.sha256(data).hexdigest() != digest):
@@ -73,7 +80,7 @@ for item in files:
     total += len(data)
     if total > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
     accepted[name] = data
-# Validate and download everything before writing any baseline.
+# Validate and download every selected capture before writing any baseline.
 folder = root / 'packages/gui/gallery/baselines'
 folder.mkdir(parents=True, exist_ok=True)
 if folder.is_symlink(): sys.exit('The baseline directory must not be a symlink.')

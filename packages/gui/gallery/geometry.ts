@@ -10,7 +10,19 @@ export function measureSceneGeometry(): string[] {
     return elements.flatMap((element, index) => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
-      return (["width", "height", "paddingLeft", "paddingTop", "fontSize", "maxWidth"] as const).flatMap((dimension) => {
+      const visibility: string[] = [];
+      if (check.visibleWithin !== undefined) {
+        const pane = element.closest(check.visibleWithin);
+        const bounds = pane?.getBoundingClientRect();
+        const tolerance = check.tolerance ?? 0.5;
+        if (bounds === undefined || rect.width <= 0 || rect.height <= 0
+          || rect.left < Math.max(0, bounds.left) - tolerance || rect.top < Math.max(0, bounds.top) - tolerance
+          || rect.right > Math.min(window.innerWidth, bounds.right) + tolerance
+          || rect.bottom > Math.min(window.innerHeight, bounds.bottom) + tolerance) {
+          visibility.push(`${check.selector}[${index}]: clipped outside ${check.visibleWithin}`);
+        }
+      }
+      return [...visibility, ...(["width", "height", "paddingLeft", "paddingTop", "fontSize", "maxWidth"] as const).flatMap((dimension) => {
         const expected = check[dimension];
         const minimum = dimension === "height" ? check.minimumHeight : undefined;
         if (expected === undefined && minimum === undefined) return [];
@@ -20,7 +32,7 @@ export function measureSceneGeometry(): string[] {
           && (minimum === undefined || actual >= minimum - tolerance);
         return Number.isFinite(actual) && matches ? []
           : [`${check.selector}[${index}].${dimension}: got ${actual}, expected ${expected ?? `at least ${minimum}`} ±${tolerance}`];
-      });
+      })];
     });
   });
 }
