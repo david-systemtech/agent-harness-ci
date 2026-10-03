@@ -51,6 +51,7 @@ const onlySteps = (results: ScriptedSetup): ScriptedSetup => ({ ...Object.fromEn
 /** A first launch on this machine's environment, `desk`, as `given` scripts it, with Set up open over the window. */
 const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", ...given }] }, { firstLaunch: true });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   await screen.findByRole("region", { name: "Set up" });
   return app;
 };
@@ -76,6 +77,7 @@ it("shows a pending scheduled read as neutral checking and leaves it out of the 
   const dot = await within(steps()).findByRole("img", { name: "Your machines: checking" });
   expect(dot.className).toContain("bg-ink-faint");
   await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+  await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
   expect(await screen.findByRole("button", { name: "Set up: 1 needs attention" })).toBeDefined();
   const pane = await setupPane(app);
   expect(await within(pane).findByText("0 done, 1 needs attention, 0 skipped, 1 checking")).toBeDefined();
@@ -88,6 +90,7 @@ it("counts a bank awaiting owner review as done and shows its review URL in the 
   await app.user.click(within(steps()).getByRole("button", { name: "Memory bank" }));
   expect(await within(checklist() as HTMLElement).findByText(reason)).toBeDefined();
   await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+  await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
   expect(await within(await setupPane(app)).findByText("1 done, 0 need attention, 0 skipped")).toBeDefined();
 });
 
@@ -95,6 +98,7 @@ describe("the first-launch mark", () => {
   it("is set by closing Set up, so the next launch opens on the window, and the Set up pane's Open the full checklist brings it back", async () => {
     const app = await firstLaunch();
     await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
     expect(await screen.findByText(NO_SESSION)).toBeDefined();
     expect(checklist()).toBeNull();
 
@@ -134,7 +138,8 @@ describe("the first-launch mark", () => {
     expect(within(settings()).getByRole("region", { name: "Permissions" })).toBeDefined();
     expect(checklist()).toBeNull();
 
-    await app.remount();
+    const again = await app.remount();
+    await again.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     expect(await screen.findByRole("region", { name: "Set up" })).toBeDefined();
     await waitFor(() => expect(within(steps()).getByRole("img", { name: "Account: done" })).toBeDefined());
   });
@@ -184,7 +189,8 @@ describe("Skip for now", () => {
     expect({ commands: commands(), checks: desk.requests("setup.check").length }).toEqual(sent);
 
     // Nothing was recorded, the first-launch mark included: the next launch opens Set up again.
-    await app.remount();
+    const again = await app.remount();
+    await again.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     expect(await screen.findByRole("region", { name: "Set up" })).toBeDefined();
   });
 });
@@ -764,7 +770,8 @@ describe("a result this window did not ask for", () => {
     expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
     // A re-check that finds nothing new is never heard, so the line says since when it is unchanged rather than how old it is.
     expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", `The denylist lost 2 presets. (unchanged since ${passed})`]);
-    expect(screen.getByRole("button", { name: "Set up: 1 needs attention" })).toBeDefined();
+    // The header continues to update behind Settings, which hides background controls from assistive technology.
+    expect(screen.getByText("Set up: 1 needs attention")).toBeDefined();
     expect(screen.queryByText("Checking…")).toBeNull();
     expect(desk.requests("setup.check")).toHaveLength(asked);
   });

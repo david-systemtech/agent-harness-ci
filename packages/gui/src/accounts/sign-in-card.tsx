@@ -1,13 +1,18 @@
-import { addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInLeftWords, startSignIn, uuidv4 } from "@agent-harness/client-runtime";
+import { LOCAL_PLACEHOLDER_ID, addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInLeftWords, startSignIn, uuidv4 } from "@agent-harness/client-runtime";
+import { Check, Copy, ExternalLink, KeyRound, LoaderCircle, Plus, Send, X } from "lucide-react";
 import type { AccountRecord } from "@agent-harness/contracts";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { useEnvironmentCountdown } from "../environment-countdown.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
-import { Button, Dialog, DialogContent, Input } from "../ui/index.js";
+import { Dialog, DialogContent, Input } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
+
+import { AccountAction } from "./action.js";
 
 export interface SignInCardProps {
   readonly environmentId: string;
+  /** Accounts embeds the flow in its pane; other openers keep their dialog. */
+  readonly inline?: boolean;
   /** The account to sign in, by its id and label; null to add a new one, labelled first. */
   readonly account: Pick<AccountRecord, "id" | "label"> | null;
   /** Closes the card. */
@@ -38,12 +43,13 @@ type Sending = "add" | "start" | "code" | null;
  *   for a terminal on the environment's machine under it, and the time the
  *   sign-in has left, counted down on the environment's clock from its
  *   `expiresAt` (ten minutes, ADR 0018; #575).
- * - A sign-in the card follows that ends closes it, its end said in one line
+ * - Inline success stays until Done; other ends close the card, said in one line
  *   where the card was opened; so is a refusal of the start. Closing the
  *   card cancels the sign-in it started (`accounts.signin.cancel`), since
  *   the card is its attendant.
  */
-export const SignInCard = ({ environmentId, account, close, say }: SignInCardProps) => {
+export const SignInCard = ({ environmentId, account, close, say, inline = false }: SignInCardProps) => {
+  const heading = useId();
   const runtime = useRuntime();
   const shell = useShell();
   const environments = useObservable(runtime.projections.environments);
@@ -55,9 +61,28 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [sending, setSending] = useState<Sending>(account === null ? null : "start");
   const [typed, setTyped] = useState("");
+  const [completed, setCompleted] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const opened = useRef<string | null>(null);
   const ended = useRef(false);
+  const departed = useRef(false);
+  const attended = useRef<Pick<AccountRecord, "id" | "label"> | null>(null);
+  const cancelDeparted = (owned: Pick<AccountRecord, "id" | "label">) => {
+    attended.current = null;
+    void cancelSignIn(runtime, environmentId, owned, uuidv4(), environment);
+  };
+  const attend = (owned: Pick<AccountRecord, "id" | "label">) => {
+    if (departed.current) cancelDeparted(owned);
+    else attended.current = owned;
+  };
+
+  // Inline flows leave with their pane, including a start or add answered after it unmounts.
+  useEffect(() => () => {
+    if (!inline) return;
+    departed.current = true;
+    if (!ended.current && attended.current !== null) cancelDeparted(attended.current);
+  }, []);
 
   const followed = followedSignIn(held, { accountId, startedAt, starting: sending === "start" });
   const end = followed ? signInEnd(followed, label, environment) : undefined;
@@ -74,17 +99,19 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
         close();
         return say(started.line);
       }
+      attend(account);
+      if (departed.current) return;
       setStartedAt(started.startedAt);
       setSending(null);
     });
   }, []);
 
-  // A sign-in the card follows that ends closes it, its end said in one line.
+  // Inline success stays visible until Done; other ends are said by the opener.
   useEffect(() => {
     if (end === undefined || ended.current) return;
     ended.current = true;
-    close();
-    say(end);
+    if (inline && followed?.state === "done") setCompleted(end);
+    else { close(); say(end); }
   }, [end]);
 
   // The verification URL opens in the system browser as it arrives, once.
@@ -112,6 +139,8 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
         close();
         return say(added.line);
       }
+      attend(added.account);
+      if (departed.current) return;
       setAccountId(added.account.id);
       setTyped("");
       setSending(null);
@@ -132,8 +161,9 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
 
   /** Leaving the card: the sign-in it started is its to end, so it is cancelled whatever state it has reached. */
   const leave = () => {
+    if (inline) departed.current = true;
     close();
-    if (accountId === null || ended.current) return;
+    if (accountId === null || ended.current || (inline && attended.current === null)) return;
     ended.current = true;
     void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4(), environment).then(say);
   };
@@ -144,9 +174,13 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
   const checking = sending === "code" || followed?.state === "submitting";
   const takesCode = followed?.state === "awaiting-code" && sending === null;
 
-  return (
-    <Dialog open onOpenChange={(open) => !open && leave()}>
-      <DialogContent title={account === null && accountId === null ? `Add an account on ${environment}` : `Sign in: ${label} on ${environment}`} className="max-w-lg">
+  const title = account === null && accountId === null ? `Add an account on ${environment}` : `Sign in: ${label} on ${environment}`;
+  const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
+  const content = completed !== null ? <div className="flex flex-col gap-3">
+    <p role="status" className="flex items-center gap-2 text-sm text-mint"><Check aria-hidden="true" className="size-4" />{completed}</p>
+    <AccountAction icon={Check} variant="default" className="self-end" onClick={() => { say(completed); close(); }}>Done</AccountAction>
+  </div> : (
+    <>
         {labelling ? (
           <form aria-label="Add an account" className="flex flex-col gap-1.5" onSubmit={add}>
             <label className="flex flex-col gap-1 text-sm">
@@ -156,10 +190,10 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
             <p className="text-xs text-ink-faint">The email it signs in as makes a good label.</p>
             {error !== null && <p className="text-xs text-signal">{error}</p>}
             <div className="flex justify-end gap-2">
-              <Button onClick={leave}>Cancel</Button>
-              <Button tone="primary" type="submit">
+              <AccountAction icon={X} onClick={leave}>Cancel</AccountAction>
+              <AccountAction icon={Plus} variant="default" type="submit">
                 Add
-              </Button>
+              </AccountAction>
             </div>
           </form>
         ) : (
@@ -168,27 +202,27 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
               <>
                 <p>Open this page and sign in:</p>
                 <p className="break-all font-mono text-xs text-beam-text">{url}</p>
-                <Button
+                <AccountAction icon={ExternalLink}
                   className="self-start"
                   aria-disabled={openExternal.status === "absent" ? true : undefined}
                   title={openExternal.status === "absent" ? openExternal.message : undefined}
                   onClick={() => (openExternal.status === "absent" ? setError(openExternal.message) : void shell?.openExternal?.(url))}
                 >
                   Open the sign-in page
-                </Button>
+                </AccountAction>
               </>
             )}
             {sending === "add" && <p className="text-ink-faint">Adding {label}…</p>}
-            {sending !== "add" && (checking ? <p className="text-ink-faint">Checking the code…</p> : (!followed || followed.state === "starting" || sending === "start") && <p className="text-ink-faint">Starting the sign-in…</p>)}
+            {sending !== "add" && (checking ? <p role="status" className="flex items-center gap-2 text-ink-faint"><LoaderCircle aria-hidden="true" className="size-4 animate-spin" />Checking the code…</p> : (!followed || followed.state === "starting" || sending === "start") && <p className="text-ink-faint">Starting the sign-in…</p>)}
             {takesCode && (
               <form aria-label="Send the code" className="flex flex-col gap-1.5" onSubmit={sendCode}>
                 <label className="flex flex-col gap-1">
                   Then paste the code it shows
                   <Input value={typed} onChange={(event) => setTyped(event.target.value)} autoFocus />
                 </label>
-                <Button tone="primary" type="submit" className="self-end" disabled={typed.trim() === ""}>
+                <AccountAction icon={Send} variant="default" type="submit" className="self-end" disabled={typed.trim() === ""}>
                   Send the code
-                </Button>
+                </AccountAction>
               </form>
             )}
             {error !== null && <p className="text-xs text-signal">{error}</p>}
@@ -200,15 +234,22 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
             {followed && (
               <>
                 <p className="text-xs text-ink-faint">Or run this in a terminal on {environment}'s machine:</p>
-                <code className="break-all rounded-md bg-inset px-2 py-1 font-mono text-xs">{fallbackOf(followed, directory)}</code>
+                <section aria-label="Terminal fallback" className="flex items-start gap-2 rounded-lg border border-hairline bg-inset p-2">
+                  <code className="min-w-0 flex-1 break-all font-mono text-2xs select-all">{fallbackOf(followed, directory)}</code>
+                  <AccountAction icon={Copy} size="xs" aria-label="Copy terminal command" disabled={clipboard === undefined} onClick={() => { void clipboard?.writeText(fallbackOf(followed, directory)).then(() => setCopied(true)); }}>Copy</AccountAction>
+                </section>
+                {copied && <p role="status" className="text-2xs text-ink-muted">Terminal command copied.</p>}
               </>
             )}
-            <Button className="self-end" onClick={leave}>
+            <AccountAction icon={X} className="self-end" onClick={leave}>
               Cancel the sign-in
-            </Button>
+            </AccountAction>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+    </>
   );
+  return inline ? <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+    <h3 id={heading} className="flex items-center gap-2 text-sm font-medium"><KeyRound aria-hidden="true" className="size-4" />{title}</h3>
+    {content}
+  </section> : <Dialog open onOpenChange={(open) => !open && leave()}><DialogContent title={title} className="max-w-lg">{content}</DialogContent></Dialog>;
 };

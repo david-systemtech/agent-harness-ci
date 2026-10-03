@@ -32,6 +32,7 @@ const tile = (name: string) => within(step()).getByRole("region", { name });
 /** The full checklist on its first launch over `desk`, this machine's environment, as `desk` scripts it, showing the Key manager step. */
 const opened = async (desk: Partial<ScriptedEnvironment> = {}): Promise<RenderedApp> => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: [...FLAGGED], ...desk }] }, { firstLaunch: true });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   await screen.findByRole("region", { name: "Set up" });
   await app.user.click(within(within(checklist()).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
   return app;
@@ -373,6 +374,7 @@ describe("without admin", () => {
       },
       { firstLaunch: true },
     );
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     await screen.findByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist()).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
     expect(await within(step()).findAllByText("Read-only: This client was paired with desk without the admin scope.")).toHaveLength(1);

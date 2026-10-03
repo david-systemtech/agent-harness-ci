@@ -10,6 +10,7 @@ const BankCard = (props: StepCardProps) => <MintedSessionCard {...props} subject
 
 const openCard = async (more: Partial<ScriptedEnvironment> = {}, draft = false, Card: ComponentType<StepCardProps> = BankCard) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: { "memory-bank": { state: "needs-attention", reason: "BANK.md is missing.", actions: ["write-it-myself", "start-over"] } }, ...more }] }, { firstLaunch: true, stepCards: { "memory-bank": Card } });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const env = app.environment("desk");
   // The setup.mint boundary creates an ordinary session, just as the environment's mint service does.
   env.wire.answer("setup.mint", async () => {

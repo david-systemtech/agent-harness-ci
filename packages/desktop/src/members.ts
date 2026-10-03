@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import type {
   GrantReader,
   ShellContent,
+  ShellWindowState,
   ShellFile,
   ShellInstaller,
   ShellSecrets,
@@ -33,6 +34,11 @@ import { applyWhen, stagedBuild } from "./update.js";
  * allow.
  */
 export type Members = { readonly [M in Answered]: (...args: unknown[]) => unknown } & { readonly [M in Told]: (...args: unknown[]) => void };
+
+/** A snapshot read from Electron, never inferred from the last button pressed. */
+export const windowState = (window: ElectronBrowserWindow, platform: DesktopPlatform["os"]): ShellWindowState => ({
+  platform, focused: window.isFocused(), maximized: window.isMaximized(), fullScreen: window.isFullScreen(),
+});
 
 /** Brings `window` to the front: restored when minimised, shown and focused. */
 export const bringForward = (window: ElectronWindow): void => {
@@ -116,6 +122,10 @@ export const shellMembers = ({
     return answer.canceled ? [] : answer.filePaths;
   };
   return {
+    "window.state": () => windowState(window, platform.os),
+    "window.minimize": () => window.minimize(),
+    "window.toggleMaximize": () => window.isMaximized() ? window.unmaximize() : window.maximize(),
+    "window.close": () => window.close(),
     "window.setTitle": (title) => window.setTitle(text(title, "A window's title")),
     "window.focus": () => bringForward(window),
     "window.setBadge": (badge) => showBadge(electron, window, platform.os, badge),

@@ -97,7 +97,13 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, s
  * window mounted. With no local environment scripted, the grant the shell
  * reads is none, as on a desktop whose machine runs no environment yet.
  */
-export const renderApp = async (script: Script, options: RenderOptions = {}): Promise<RenderedApp> => {
+export const renderApp = async (
+  script: Script,
+  options: RenderOptions = {},
+  /** Registers custom environment answers before the runtime or window can request them. */
+  configure?: (world: ScriptedWorld) => void,
+): Promise<RenderedApp> => {
   const world = await prepareWorld(script, options);
+  configure?.(world.world);
   return mount(world, world.paired);
 };

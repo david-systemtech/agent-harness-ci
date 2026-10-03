@@ -126,7 +126,7 @@ describe("revoking", () => {
     await app.user.click(within(asked).getByRole("button", { name: "Revoke" }));
 
     expect(await within(pane("Access")).findByText("Revoked laptop window: its token is refused from now on.")).toBeDefined();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Revoke laptop window on desk?" })).toBeNull();
     expect(desk.requests("access.sessions.revoke").map((request) => request.params)).toEqual([expect.objectContaining({ clientSessionId: desk.clientSessions()[0]?.id })]);
     expect(desk.clientSessions()[0]?.revokedAt).not.toBeNull();
     await waitFor(() => expect(within(sessions).queryByRole("listitem", { name: "laptop window" })).toBeNull());
@@ -143,7 +143,7 @@ describe("revoking", () => {
     const asked = await screen.findByRole("dialog", { name: "Revoke milo@desk:pts/3 on desk?" });
     expect(within(asked).getByText("This is this client's own session: this window loses desk as soon as it is revoked, until it pairs with desk again.")).toBeDefined();
     await app.user.click(within(asked).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Revoke milo@desk:pts/3 on desk?" })).toBeNull();
     expect(desk.requests("access.sessions.revoke")).toEqual([]);
 
     const programs = part(access, "Program pairings");

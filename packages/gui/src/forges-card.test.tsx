@@ -47,6 +47,7 @@ const opened = async (desk: Partial<ScriptedEnvironment> = {}, others: readonly 
     { environments: [{ name: "desk", reach: "local", capabilities: ["forge"], ...desk }, ...others] },
     { firstLaunch: true, ...(options.shell !== undefined && { shell: options.shell }) },
   );
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   await screen.findByRole("region", { name: "Set up" });
   if (options.on !== undefined) await app.user.selectOptions(within(checklist()).getByRole("combobox", { name: "Environment" }), options.on);
   await app.user.click(railStep("Forges"));

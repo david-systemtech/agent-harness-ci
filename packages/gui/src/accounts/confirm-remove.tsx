@@ -1,7 +1,9 @@
 import { removalWords, removeAccount, uuidv7 } from "@agent-harness/client-runtime";
 import type { AccountRecord } from "@agent-harness/contracts";
-import { useState } from "react";
-import { Button, Dialog, DialogClose, DialogContent } from "../ui/index.js";
+import { Trash2, X } from "lucide-react";
+import { useId, useState } from "react";
+import { Checkbox, Dialog, DialogClose, DialogContent, Tooltip } from "../ui/index.js";
+import { AccountAction } from "./action.js";
 import { useClock, useRuntime } from "../window-context.js";
 
 export interface ConfirmRemoveProps {
@@ -22,6 +24,7 @@ export interface ConfirmRemoveProps {
  * environment's refusal, is one line in the pane.
  */
 export const ConfirmRemove = ({ environmentId, environment, account, close, say }: ConfirmRemoveProps) => {
+  const deleteId = useId();
   const runtime = useRuntime();
   const clock = useClock();
   const [deleting, setDeleting] = useState(false);
@@ -37,18 +40,18 @@ export const ConfirmRemove = ({ environmentId, environment, account, close, say 
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent title={`Remove ${account.label} from ${environment}?`} description={removalWords(account)}>
         {account.directory.kind === "owned" && (
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input type="checkbox" className="accent-beam" checked={deleting} onChange={(event) => setDeleting(event.target.checked)} />
+          <label htmlFor={deleteId} className="flex items-center gap-2 text-sm text-ink">
+            <Tooltip content="Also delete its sign-in and history · Space"><Checkbox id={deleteId} checked={deleting} onCheckedChange={(checked) => setDeleting(checked === true)} /></Tooltip>
             Also delete its sign-in and history
           </label>
         )}
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
-            <Button>Cancel</Button>
+            <AccountAction icon={X}>Cancel</AccountAction>
           </DialogClose>
-          <Button tone="danger" disabled={sending} onClick={remove}>
+          <AccountAction icon={Trash2} variant="destructive" disabled={sending} onClick={remove}>
             Remove
-          </Button>
+          </AccountAction>
         </div>
       </DialogContent>
     </Dialog>

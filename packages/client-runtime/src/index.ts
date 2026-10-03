@@ -59,6 +59,7 @@ export {
   type ShellWebViewState,
   type ShellWebViewKey,
   type ShellWindow,
+  type ShellWindowState,
 } from "./shell.js";
 export {
   BLOCKED_REASONS,
