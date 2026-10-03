@@ -1,5 +1,5 @@
 import { uuidv4, type NewSessionChips } from "@agent-harness/client-runtime";
-import { createContext, use, useMemo, useState, useCallback, useEffect, useId, type ReactNode } from "react";
+import { createContext, use, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { toast } from "../ui/toaster.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import type { GridPane, PaneLayout, PaneSession } from "../presentation.js";
@@ -41,12 +41,21 @@ const RefusalContext = createContext<((message: string | undefined) => void) | n
 export const PaneGridProvider = ({ children }: { readonly children: ReactNode }) => {
   const [dragged, drag] = useState<string | null>(null);
   const carried = useMemo(() => [dragged, drag] as const, [dragged]);
-  const toastId = useId();
+  const currentToast = useRef<string | number | null>(null);
   const say = useCallback((message: string | undefined) => {
-    if (message === undefined) toast.dismiss(toastId);
-    else toast.warning(message, { id: toastId });
-  }, [toastId]);
-  useEffect(() => () => { toast.dismiss(toastId); }, [toastId]);
+    if (message === undefined) {
+      if (currentToast.current !== null) toast.dismiss(currentToast.current);
+      currentToast.current = null;
+      return;
+    }
+    const id = toast.warning(message, {
+      ...(currentToast.current !== null && { id: currentToast.current }),
+      onDismiss: ({ id }) => { if (currentToast.current === id) currentToast.current = null; },
+      onAutoClose: ({ id }) => { if (currentToast.current === id) currentToast.current = null; },
+    });
+    currentToast.current = id;
+  }, []);
+  useEffect(() => () => { if (currentToast.current !== null) toast.dismiss(currentToast.current); }, []);
   return <RefusalContext value={say}><DragContext value={carried}>{children}</DragContext></RefusalContext>;
 };
 

@@ -1,11 +1,9 @@
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect } from "react";
 import { App } from "../../src/app.js";
-import { prepareWorld, startWorld } from "../world.js";
-import { script, presentation } from "./grid-two.js";
+import { createGridWorld } from "./grid-two.js";
 
-const prepared = await prepareWorld(script, { presentation });
-const holders = await startWorld(prepared, prepared.paired);
+const { prepared, holders } = await createGridWorld();
 
 export default function GridDrop({ ladder }: { readonly ladder: LadderName }) {
   useEffect(() => {

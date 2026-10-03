@@ -1,3 +1,7 @@
+import type { LadderName } from "@agent-harness/theme";
+import { useEffect } from "react";
+import { App } from "../../src/app.js";
+import { prepareWorld, startWorld } from "../world.js";
 import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { PresentationValues } from "../../src/presentation.js";
 
@@ -21,3 +25,23 @@ export const geometry = [
   { selector: '[aria-label="Close the pane"]', width: 24, height: 24 },
   { selector: "[data-caption-run-info] > button", width: 24, height: 24 },
 ];
+
+export async function createGridWorld() {
+  const prepared = await prepareWorld(script, { presentation });
+  prepared.world.environment("desk").wire.answer("checks.get", ({ sessionId }) => ({ result: {
+    workspace: sessionId === first ? "/work/ledger" : "/work/ledger-review", command: null,
+  } }));
+  const holders = await startWorld(prepared, prepared.paired);
+  return { prepared, holders };
+}
+
+const { prepared, holders } = await createGridWorld();
+export default function GridTwo({ ladder }: { readonly ladder: LadderName }) {
+  useEffect(() => { holders.presentation.set("lightOrDark", ladder); }, [ladder]);
+  useEffect(() => () => {
+    holders.stopFollowing();
+    void holders.presentation.close();
+    void holders.runtime.close();
+  }, []);
+  return <App {...holders} clock={prepared.clock} shell={prepared.shell} version={prepared.version} macOS={false} />;
+}

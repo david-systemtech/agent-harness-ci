@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
+import GridTwo from "../gallery/scenes/grid-two.js";
 import GridDrop from "../gallery/scenes/grid-drop.js";
 import { script, presentation } from "../gallery/scenes/grid-two.js";
 import { renderApp } from "../test/harness.js";
@@ -23,5 +24,13 @@ it("grid-drop reveals the real caption-drag targets with dashed labels", async (
     expect(screen.getByLabelText("Move to the right")).toBeDefined();
     expect(screen.getByLabelText("Move below")).toBeDefined();
     expect(screen.getAllByLabelText("Swap panes")).toHaveLength(1);
+  } finally { view.unmount(); }
+});
+
+it("the gallery panes use a complete workspace-check script", async () => {
+  const view = render(<GridTwo ladder="light" />);
+  try {
+    expect(await screen.findAllByText("Check is off.")).toHaveLength(2);
+    expect(screen.queryByText(/The fake environment has no method/)).toBeNull();
   } finally { view.unmount(); }
 });
