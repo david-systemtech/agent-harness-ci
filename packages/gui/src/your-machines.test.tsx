@@ -478,6 +478,23 @@ describe("Your machines' update controls", () => {
     expect(within(sidebar).queryByRole("button", { name: "Update immediately" })).toBeNull();
   });
 
+  it("clears a refused immediate-update message when the environment proceeds with the update", async () => {
+    const shell = fakeShell();
+    shell.answer("service.pendingUpdate", async () => LOCAL_IDLE_UPDATE);
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { shell, protocolVersion: PROTOCOL_VERSION + 1, version: "0.6.0" });
+    await app.user.click(await screen.findByRole("button", { name: "Update desk" }));
+    const sidebar = screen.getByRole("navigation", { name: "Sessions" });
+    await within(sidebar).findByText(/Waiting to update to 0.6.0.*idle.*until/);
+    shell.answer("service.pendingUpdate", async () => ({ ...LOCAL_IDLE_UPDATE, waitsOn: { reason: "run-running", until: null } }));
+    await app.user.click(within(sidebar).getByRole("button", { name: "Update immediately" }));
+    const refused = "Not updated: The update is no longer waiting only on the idle window.";
+    await within(sidebar).findByText(refused);
+    shell.answer("service.pendingUpdate", async () => ({ ...LOCAL_IDLE_UPDATE, state: "draining", cause: "idle" }));
+    await act(async () => { app.clock.advance(5000); });
+    await within(sidebar).findByText("Restarting for an update…");
+    await waitFor(() => expect(within(sidebar).queryByText(refused)).toBeNull());
+  });
+
   it("shows the idle deadline and offers an immediate local update across an older protocol", async () => {
     const pending = LOCAL_IDLE_UPDATE;
     let advanced = false;

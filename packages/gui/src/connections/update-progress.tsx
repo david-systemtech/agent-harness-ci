@@ -1,5 +1,5 @@
 import type { EnvironmentView } from "@agent-harness/client-runtime";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../ui/index.js";
 import { useRuntime, useClock } from "../window-context.js";
 import { updateWords } from "./words.js";
@@ -9,6 +9,9 @@ export const ImmediateUpdate = ({ view }: { readonly view: EnvironmentView }) =>
   const runtime = useRuntime();
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  useEffect(() => {
+    if (error !== undefined && view.update?.restarting) setError(undefined);
+  }, [error, view.update?.restarting]);
   return <>
     {view.update?.canUpdateNow && <Button disabled={asking} onClick={() => {
       setAsking(true);
