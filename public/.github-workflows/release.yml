@@ -223,6 +223,7 @@ jobs:
       - name: The setup carries its server dependencies
         run: |
           set -euo pipefail
+          apt-get update && apt-get install -y --no-install-recommends curl xz-utils
           sevenzip=$(bash scripts/7zip.sh)
           rm -rf unpacked-setup unpacked-windows
           "$sevenzip" x -y desktop/agent-harness-desktop-win32-x64-setup.exe -ounpacked-setup
