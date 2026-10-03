@@ -238,8 +238,8 @@ function New-Cli([string]$Folder) {
   }
 }
 
-# Runs a verb of $Cli, the options every verb takes after its own when $WithTarget,
-# in a dry run, prints it as a line of the plan instead. A verb that fails ends the run with its exit code.
+# Runs a verb of $Cli, adding the target options when $WithTarget.
+# In a dry run, prints the command instead. A failed verb ends the run with its exit code.
 function Invoke-Verb([hashtable]$Cli, [string[]]$Arguments, [switch]$WithTarget) {
   $words = @($Arguments)
   if ($WithTarget) { $words += $targetOptions }
