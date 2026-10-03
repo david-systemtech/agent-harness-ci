@@ -196,7 +196,7 @@ describe("the Account card's defaults", () => {
     const account = await within(defaults()).findByRole("combobox", { name: "Default account" });
     expect(within(step()).getByRole("region", { name: "work" }).compareDocumentPosition(defaults()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The idle time is the row's, not the step card's.
-    expect(within(defaults()).queryByRole("group", { name: "providers.processIdleMinutes" })).toBeNull();
+    expect(within(defaults()).queryByRole("group", { name: "Stop idle agent processes after minutes" })).toBeNull();
 
     await app.user.selectOptions(account, "work");
     await waitFor(() => expect(desk.settings()["accounts.defaultAccount"]).toBe("account-2"));

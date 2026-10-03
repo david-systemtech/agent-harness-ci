@@ -32,6 +32,17 @@ import {
  */
 
 describe("the settings keys", () => {
+  it("gives every setting a human label and description without internal names", () => {
+    for (const key of SETTINGS_KEYS) {
+      const definition = SETTINGS[key];
+      expect(definition, key).toHaveProperty("label", expect.stringMatching(/\S/));
+      expect(definition.label, key).not.toBe(key);
+      expect(definition.description, key).toMatch(/\S/);
+      expect(definition.description, key).not.toMatch(/`|\bnull\b|settledBy|auto-idle|auto-merge/i);
+      for (const id of SETTINGS_KEYS) expect(definition.description, key).not.toContain(id);
+    }
+  });
+
   it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391), the browser keys (#541), the injection keys (#367), the binding keys, preset to the tailnet on and the LAN off (#574), and the orientation switch, preset on (#505)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",

@@ -1,4 +1,4 @@
-import { SETTINGS_ROWS, type SettingsKey, type SettingsRowId } from "@agent-harness/contracts";
+import { SETTINGS, SETTINGS_ROWS, type SettingsKey, type SettingsRowId } from "@agent-harness/contracts";
 import { noSettingsRowLine, rowKeys } from "@agent-harness/client-runtime";
 
 /**
@@ -33,3 +33,6 @@ export const editorKeys = (id: SettingsRowId | null): readonly SettingsKey[] => 
 
 /** What `/settings <id>` says when no row has the id: the client runtime's words, then the rows holding settings. */
 export const noRowLine = (typed: string): string => `${noSettingsRowLine(typed)} The rows holding settings: ${ROWS_WITH_KEYS.join(", ")}.`;
+
+/** The human label used for key titles and editing prompts. */
+export const settingLabel = (key: SettingsKey): string => SETTINGS[key].label;

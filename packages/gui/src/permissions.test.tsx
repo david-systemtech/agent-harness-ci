@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { BYPASS_SENTENCE, denylistPresets, type ContainmentReport } from "@agent-harness/contracts";
+import { SETTINGS, type SettingsKey, BYPASS_SENTENCE, denylistPresets, type ContainmentReport } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -32,7 +32,7 @@ const openPermissions = async (app: RenderedApp, environment?: string) => {
 };
 
 /** A key's group, by the key. */
-const field = (region: HTMLElement, key: string) => within(region).getByRole("group", { name: key });
+const field = (region: HTMLElement, key: SettingsKey) => within(region).getByRole("group", { name: SETTINGS[key].label });
 
 /** What `laptop`'s probe finds: bubblewrap missing, so neither workspace level can be enforced. */
 const NO_BUBBLEWRAP: Partial<ContainmentReport> = {
@@ -109,13 +109,13 @@ describe("the permission settings", () => {
 
     const mode = await within(field(permissions, "permissions.unattended.mode")).findByRole("combobox");
     await app.user.selectOptions(mode, "bypassPermissions");
-    const cancelled = await screen.findByRole("dialog", { name: "Set permissions.unattended.mode to bypassPermissions?" });
+    const cancelled = await screen.findByRole("dialog", { name: "Set Unattended permission mode to bypassPermissions?" });
     expect(within(cancelled).getByText(BYPASS_SENTENCE)).toBeDefined();
     await app.user.click(within(cancelled).getByRole("button", { name: "Cancel" }));
     expect(desk.requests("permissions.settings.set")).toEqual([]);
 
     await app.user.selectOptions(mode, "bypassPermissions");
-    const confirm = await screen.findByRole("dialog", { name: "Set permissions.unattended.mode to bypassPermissions?" });
+    const confirm = await screen.findByRole("dialog", { name: "Set Unattended permission mode to bypassPermissions?" });
     await app.user.click(within(confirm).getByRole("button", { name: "Set it" }));
     await waitFor(() => expect(desk.settings()["permissions.unattended.mode"]).toBe("bypassPermissions"));
     expect(desk.requests("permissions.settings.set").map((request) => request.params)).toEqual([
@@ -137,7 +137,7 @@ describe("the permission settings", () => {
       ]),
     );
     const group = within(permissions).getByRole("radiogroup", { name: "permissions.containment.default" });
-    expect(within(group).getByText("The containment level of a run whose session names none.")).toBeDefined();
+    expect(within(group).getByText("How new sessions restrict agent processes and network access. The environment reports which restrictions this machine supports.")).toBeDefined();
     const workspace = within(group).getByRole("radio", { name: /^◐ workspace/ });
     expect(workspace.closest("label")?.className).toMatch(/text-ink-muted/);
 
