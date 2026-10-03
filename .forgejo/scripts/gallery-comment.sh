@@ -26,7 +26,7 @@ archive=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
 if archive.stat().st_size > 2*1024*1024: raise ValueError('gallery zip is too large')
 with zipfile.ZipFile(archive) as z:
     files=z.infolist()
-    if not files or len(files)>30 or sum(f.file_size for f in files)>1536*1024: raise ValueError('gallery payload is too large')
+    if not files or len(files)>64 or sum(f.file_size for f in files)>1536*1024: raise ValueError('gallery payload is too large')
     names=set()
     for f in files:
         if not re.fullmatch(r'[a-z0-9-]+[.](light|dark)[.]png',f.filename) or f.filename in names: raise ValueError('unexpected gallery entry')
