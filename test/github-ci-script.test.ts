@@ -526,6 +526,44 @@ it("rejects a PNG payload above 24 MiB before posting, leaving ZIP overhead with
 
 
 it.each([
+  ["too-many", "gallery payload is too large"],
+  ["compressed-payload", "gallery payload is too large"],
+  ["large-zip", "gallery zip is too large"],
+  ["unexpected", "unexpected gallery entry"],
+  ["traversal", "unexpected gallery entry"],
+  ["duplicate", "unexpected gallery entry"],
+  ["not-png", "gallery entry is not a PNG"],
+  ["empty", "gallery payload is too large"],
+])("rejects an invalid capture-only gallery before any publication (%s)", async (mode, error) => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const zip = join(f.checkout, "gallery.zip");
+  await run("python3", ["-c", `import sys,zipfile
+mode=sys.argv[2]
+with zipfile.ZipFile(sys.argv[1], 'w', compression=zipfile.ZIP_DEFLATED if mode=='compressed-payload' else zipfile.ZIP_STORED) as z:
+    if mode=='empty': pass
+    elif mode=='too-many':
+        for i in range(601): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
+    else:
+        size=(24*1024*1024+1 if mode=='compressed-payload' else 32*1024*1024+1 if mode=='large-zip' else 15)
+        name=('geometry.json' if mode=='unexpected' else '../escape.dark.png' if mode=='traversal' else 'window-empty.dark.png')
+        data=(b'not a PNG' if mode=='not-png' else b'\\x89PNG\\r\\n\\x1a\\n'+b'x'*(size-8))
+        z.writestr(name, data)
+        if mode=='duplicate': z.writestr(name, data)
+`, zip, mode]);
+  const result = await relay(f, {
+    GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    FAKE_PR_SHA: sha, FAKE_GALLERY_ZIP: zip,
+  });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(error);
+  expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
+  const mutations = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && (line.includes("POST") || line.includes("PATCH")));
+  expect(mutations).toEqual([]);
+});
+
+
+it.each([
   ["empty", "gallery payload is too large"],
   ["count", "gallery payload is too large"],
   ["expanded", "gallery payload is too large"],
@@ -800,18 +838,24 @@ it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure
   expect(body).not.toContain("token-for-tests");
 });
 
-it("attaches discovered component captures in both ladders", async () => {
+it("attaches every registered scene in both ladders, including the Settings scenes", async () => {
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const scenes = new Set([
+    ...readdirSync(join(root, "packages/gui/gallery/scenes")).filter((name) => name.endsWith(".tsx")).map((name) => name.slice(0, -4)),
+    "settings-accounts", "settings-search",
+  ]);
+  const images = [...scenes].flatMap((scene) => [`${scene}.light.png`, `${scene}.dark.png`]);
+  expect(images.length).toBeGreaterThanOrEqual(32);
   const result = await relay(f, {
     FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests",
     FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
-    FAKE_PNG_NAMES: "window-empty.light.png,window-empty.dark.png,primitives.light.png,primitives.dark.png",
+    FAKE_PNG_NAMES: images.join(","), FAKE_PNG_SIZE: String(64 * 1024),
   });
   expect(result.code).toBe(0);
   const comment = readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8");
-  for (const name of ["window-empty.light", "window-empty.dark", "primitives.light", "primitives.dark"]) {
-    expect(comment).toContain(`![${name}.png](https://forge.example.invalid/attachments/screenshot)`);
+  for (const name of images) {
+    expect(comment).toContain(`![${name}](https://forge.example.invalid/attachments/screenshot)`);
   }
   expect(comment).toContain("light and dark");
 });
