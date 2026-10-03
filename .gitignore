@@ -5,3 +5,5 @@ dist/
 coverage/
 .vitest/
 .image-sdk-cache/
+gallery-dist/
+gallery-images/

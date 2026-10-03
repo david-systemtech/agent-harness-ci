@@ -60,9 +60,22 @@ args = sys.argv[1:]
 def value(flag, default=None):
     return args[args.index(flag)+1] if flag in args else default
 url = next(arg for arg in args if arg.startswith('https://'))
+if 'forge.example.invalid' in url:
+    with open(os.environ['FAKE_LOG'], 'a') as log: log.write('forgejo ' + json.dumps({'url':url, 'args':args}) + '\\n')
+    out = pathlib.Path(value('-o'))
+    if '/pulls/' in url:
+        out.write_text(json.dumps({'state':'open','head':{'sha':os.environ['FAKE_PR_SHA']}}))
+    elif url.endswith('/assets'):
+        out.write_text(json.dumps({'browser_download_url':'https://forge.example.invalid/attachments/screenshot'}))
+    elif value('-X') == 'PATCH':
+        body = json.loads(pathlib.Path(value('--data-binary')[1:]).read_text())
+        pathlib.Path(os.environ['FAKE_API_STATE']+'-comment').write_text(body['body'])
+    else: out.write_text(json.dumps({'id':123}))
+    sys.exit(0)
 if 'api.github.com/' not in url:
     os.execv('/bin/sh', ['sh', os.environ['FAKE_DOWNLOAD_CURL'], *args])
-stage = ('dispatch' if url.endswith('/dispatches') else
+stage = ('artifacts' if '/artifacts?' in url else 'archive' if url.endswith('/zip') else
+         'dispatch' if url.endswith('/dispatches') else
          'discovery' if '?' in url else
          'logs' if url.endswith('/logs') else
          'jobs' if url.endswith('/jobs') else 'status')
@@ -93,6 +106,11 @@ if stage == 'dispatch':
     pathlib.Path(os.environ['FAKE_API_STATE'] + '-title').write_text(
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
+elif stage == 'artifacts':
+    out.write_text(json.dumps({'artifacts':[{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
+elif stage == 'archive':
+    import zipfile
+    with zipfile.ZipFile(out,'w') as z: z.writestr('window-empty.dark.png', b'\\x89PNG\\r\\n\\x1a\\nfixture')
 elif stage == 'discovery':
     title = pathlib.Path(os.environ['FAKE_API_STATE'] + '-title').read_text()
     if mode == 'retry-truncated' and stage == target:
@@ -170,7 +188,7 @@ const fixture = async (): Promise<Fixture> => {
   };
 };
 
-const apiFixture = async () => {
+const apiFixture = async (): Promise<Fixture> => {
   const f = await fixture();
   const git = (await run("bash", ["-c", "command -v git"])).stdout.trim();
   writeFileSync(join(f.bin, "git"), `#!/bin/sh
@@ -370,4 +388,39 @@ describe("the relay's GitHub API", () => {
     expect(result.stdout).toContain("/dispatches");
     expect(result.stderr).not.toContain("Traceback");
   });
+});
+
+
+describe("the advisory gallery relay", () => {
+  it("dispatches its own gallery run and retrieves the small screenshot artifact", async () => {
+    const f = await apiFixture();
+    const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+    const result = await relay(f, { FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Gallery posted on pull request 1336");
+    expect(readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8")).toContain("![window-empty.dark.png](https://forge.example.invalid/attachments/screenshot)");
+    const archive = apiCalls(f).find((call) => call.stage === "archive");
+    expect(archive?.args).toContain("2097152");
+    expect(archive?.args).toContain("--max-time");
+    const forgejoCalls = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && line.includes("/api/v1/"));
+    expect(forgejoCalls).toHaveLength(4);
+    for (const call of forgejoCalls) {
+      expect(call).toContain("--connect-timeout");
+      expect(call).toContain("--max-time");
+      expect(call).not.toContain("token-for-tests");
+    }
+    const dispatch = apiCalls(f).find((call) => call.stage === "dispatch");
+    expect(dispatch?.args.join(" ")).toContain('"event_type": "gallery"');
+  });
+});
+
+it("keeps screenshot work outside the blocking CI workflow", () => {
+  const hosted = readFileSync(join(root, ".forgejo", "github-workflows", "gallery.yml"), "utf8");
+  const relayWorkflow = readFileSync(join(root, ".forgejo", "workflows", "gallery.yml"), "utf8");
+  const ci = readFileSync(join(root, ".forgejo", "workflows", "ci.yml"), "utf8");
+  expect(hosted).toContain("runs-on: ubuntu-24.04");
+  expect(hosted).toContain("types: [gallery]");
+  expect(relayWorkflow).toContain("continue-on-error: true");
+  expect(relayWorkflow).toContain("'packages/gui/**'");
+  expect(ci).not.toContain("GH_CI_EVENT: gallery");
 });

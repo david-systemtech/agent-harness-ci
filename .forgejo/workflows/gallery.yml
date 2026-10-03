@@ -1,0 +1,34 @@
+# Screenshots are advisory and run independently of ci / ci.
+name: gallery
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'packages/gui/**'
+      - '.forgejo/workflows/gallery.yml'
+      - '.forgejo/github-workflows/gallery.yml'
+      - '.forgejo/scripts/gallery-comment.sh'
+      - '.forgejo/scripts/github-ci.sh'
+concurrency:
+  group: gallery-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  gallery:
+    runs-on: relay
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Capture on GitHub and attach the images
+        run: bash .forgejo/scripts/github-ci.sh
+        env:
+          GH_CI_EVENT: gallery
+          GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_URL: ${{ github.server_url }}
+          FORGEJO_REPOSITORY: ${{ github.repository }}
+          FORGEJO_PR: ${{ github.event.pull_request.number }}
+          GROUP: ${{ github.event.pull_request.number }}
+          FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
