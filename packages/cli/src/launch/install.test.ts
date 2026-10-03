@@ -5,7 +5,7 @@ import { LAUNCHER_PROTOCOL, type InstallAnswer } from "@agent-harness/contracts/
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeTimer, installVersion, layOutVersion, preflightRuns, stageVersion } from "../../test/launcher-fixtures.js";
 import type { DurableFs } from "./durable.js";
-import { createInstaller, type InstallerOptions } from "./install.js";
+import { createInstaller, moveIntoVersions, type InstallerOptions } from "./install.js";
 import { completeVersions } from "./versions.js";
 
 /**
@@ -196,6 +196,41 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
       "fsync versions/0.6.0",
     ]);
     expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
+  });
+
+  it("stages many small files on Windows with one sentinel flush, independent of the tree size", () => {
+    for (const count of [4, 1000]) {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const payload = join(staged, "payload");
+      mkdirSync(payload);
+      for (let index = 0; index < count; index++) writeFileSync(join(payload, `${index}.txt`), "payload");
+      const { fs, calls } = recordingFs(dataDir);
+      moveIntoVersions(dataDir, "0.6.0", staged, fs, "win32");
+      expect(calls.filter((call) => call.startsWith("fsync "))).toEqual(["fsync versions/0.6.0/..complete (temporary)"]);
+      expect(calls.indexOf("rename staging/0.6.0 to versions/0.6.0")).toBeLessThan(calls.indexOf("write versions/0.6.0/..complete (temporary)"));
+      expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
+      expect(readFileSync(join(dataDir, "versions", "0.6.0", "payload", `${count - 1}.txt`), "utf8")).toBe("payload");
+    }
+  });
+
+  it("never promotes a bundled sentinel on Windows when writing the completion marker fails", () => {
+    const dataDir = dataDirectory();
+    const staged = stageVersion(dataDir, "0.6.0");
+    writeFileSync(join(staged, ".complete"), "bundled");
+    let completeAtRename = false;
+    const recorded = recordingFs(dataDir, { call: "fsync versions/0.6.0/..complete (temporary)", code: "EIO" });
+    const fs: DurableFs = {
+      ...recorded.fs,
+      renameSync: (from, to) => {
+        recorded.fs.renameSync(from, to);
+        if (from === staged) completeAtRename = completeVersions(dataDir).includes("0.6.0");
+      },
+    };
+    expect(() => moveIntoVersions(dataDir, "0.6.0", staged, fs, "win32")).toThrow("EIO");
+    expect(completeAtRename).toBe(false);
+    expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
+    expect(readFileSync(join(staged, "packages", "cli", "package.json"), "utf8")).toContain("0.6.0");
   });
 
   it("replaces a folder of the version without its sentinel, which an install cut short left", async () => {

@@ -1,10 +1,11 @@
 import { removeTreeSync } from "@agent-harness/filesystem";
 import { randomUUID } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
+import * as nodeFs from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
-import { syncDirectory, syncTree, writeFileDurably } from "../launch/durable.js";
+import { syncDirectory, syncTree, writeFileDurably, type DurableFs } from "../launch/durable.js";
 import { LAUNCHER_VERSION_FILE, writeLauncherVersion } from "../launch/launcher-version.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "../launch/state.js";
 import { isComplete, VERSION_CLI_ENTRY, VERSION_SENTINEL, versionDirectory, versionNode, VERSIONS_DIRECTORY } from "../launch/versions.js";
@@ -96,12 +97,13 @@ const clearPartials = (versions: string): void => {
  * Makes `unpacked` a version in `dataDir`'s versions directory and names it.
  * One already in the versions directory (the install script unpacks there)
  * is named by its folder, and must be complete. One outside it (a desktop's
- * bundled artefact) is copied in beside the others, put on disk, renamed into
- * place and completed with its sentinel, written last, unless a complete copy
+ * bundled artefact) is copied in beside the others, synced for the platform
+ * (see syncTree for the Windows power-loss rule), renamed into place and
+ * completed with its sentinel, written last, unless a complete copy
  * is already there; a folder of it without the sentinel, or a staging
  * folder, is what a copy cut short left, and is replaced or removed.
  */
-export const placeVersion = (dataDir: string, unpacked: UnpackedVersion): PlacedVersion => {
+export const placeVersion = (dataDir: string, unpacked: UnpackedVersion, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): PlacedVersion => {
   const versions = join(dataDir, VERSIONS_DIRECTORY);
   if (sameFolder(dirname(unpacked.root), versions)) {
     const version = basename(unpacked.root);
@@ -126,11 +128,11 @@ export const placeVersion = (dataDir: string, unpacked: UnpackedVersion): Placed
     mkdirSync(versions, { recursive: true });
     clearPartials(versions);
     cpSync(root, partial, { recursive: true, verbatimSymlinks: true, filter: (source) => source !== join(root, VERSION_SENTINEL) });
-    syncTree(partial);
+    syncTree(partial, fs, platform);
     removeTreeSync(target);
-    renameSync(partial, target);
-    syncDirectory(versions);
-    writeFileDurably(join(target, VERSION_SENTINEL), "");
+    fs.renameSync(partial, target);
+    syncDirectory(versions, fs, platform);
+    writeFileDurably(join(target, VERSION_SENTINEL), "", fs, platform);
   } catch (error) {
     undo();
     throw new ServiceError(`Could not copy ${version} from ${root} into ${versions}: ${reasonOf(error)}`, { cause: error });
