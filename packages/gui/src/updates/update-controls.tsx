@@ -134,7 +134,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
           <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
             <DialogFooter>
               <Tooltip content="Cancel · Enter / Space / Escape"><DialogClose asChild>
-                <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" />Cancel</Button>
+                <Button><X aria-hidden="true" />Cancel</Button>
               </DialogClose></Tooltip>
               <Tooltip content="Drain and update · Enter / Space"><Button tone="danger" onClick={() => update("now")}>
                 <CircleStop aria-hidden="true" />
