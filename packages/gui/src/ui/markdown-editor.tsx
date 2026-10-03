@@ -7,7 +7,7 @@ import { CharacterCount } from "@tiptap/extensions";
 import { Markdown, type MarkdownStorage } from "tiptap-markdown";
 import { Bold, Code, Heading2, Heading3, Italic, Link, List, ListOrdered, Quote, SquareCode } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Tooltip } from "./index.js";
+import { Button, Input, Textarea, Tooltip } from "./index.js";
 
 // The extension publishes this storage but does not augment Tiptap's storage interface.
 declare module "@tiptap/core" { interface Storage { markdown: MarkdownStorage & { readonly serializer: { serialize(node: Node): string } } } }
@@ -21,6 +21,8 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
   readonly maxLength?: number;
 }) => {
   const [link, setLink] = useState<string | null>(null);
+  const [sourceEditing, setSourceEditing] = useState(false);
+  const firstLoad = useRef(true);
   const lastMarkdown = useRef(value);
   const linkHandled = useRef(false);
   const extensions = useMemo(() => [StarterKit.configure({ heading: { levels: [2, 3] }, link: { openOnClick: false }, underline: false }),
@@ -52,15 +54,25 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
   });
   useEffect(() => {
     if (editor === null) return;
-    if (editor.isEditable === readOnly) editor.setEditable(!readOnly, false);
+    const editable = !readOnly && !sourceEditing;
+    if (editor.isEditable !== editable) editor.setEditable(editable, false);
     editor.view.dom.setAttribute("aria-readonly", String(readOnly));
-    if (lastMarkdown.current !== value) {
+    if (firstLoad.current || lastMarkdown.current !== value) {
+      firstLoad.current = false;
       lastMarkdown.current = value;
       editor.commands.setContent(value, { emitUpdate: false });
+      // Use source editing whenever the rich document would rewrite the original Markdown.
+      setSourceEditing(editor.storage.markdown.getMarkdown() !== value);
     }
-  }, [editor, readOnly, value]);
+  }, [editor, readOnly, sourceEditing, value]);
   useEffect(() => { if (readOnly) setLink(null); }, [readOnly]);
   if (editor === null) return null;
+  if (sourceEditing) return <Textarea aria-label={label} title={`${label} · Markdown source`} className="min-h-32 font-mono" value={value} readOnly={readOnly} maxLength={maxLength} onChange={(event) => {
+    const markdown = event.target.value;
+    if (readOnly || (maxLength !== undefined && markdown.length > maxLength && markdown.length >= value.length)) return;
+    lastMarkdown.current = markdown;
+    change(markdown);
+  }} />;
   const controls = [
     { name: "Heading 2", icon: Heading2, active: editor.isActive("heading", { level: 2 }), run: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), keys: "Mod+Alt+2" },
     { name: "Heading 3", icon: Heading3, active: editor.isActive("heading", { level: 3 }), run: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), keys: "Mod+Alt+3" },
