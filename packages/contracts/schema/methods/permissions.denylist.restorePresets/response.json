@@ -209,8 +209,8 @@
                   },
                   "pattern": {
                     "type": "string",
-                    "pattern": "^(?:~|~\\/[^\\0]*|\\/[^\\0]*)$",
-                    "description": "An absolute or ~-relative path, with glob segments: * and ? within a segment, ** for any number of segments."
+                    "pattern": "^(?:~|~[\\\\/][^\\0]*|\\/(?![\\\\/])[^\\0]*|[A-Za-z]:[\\\\/][^\\0]*)$",
+                    "description": "A POSIX absolute, drive-letter absolute or ~-relative path; Windows accepts either separator and compares without regard to case. UNC, device and drive-relative patterns are refused. Glob segments: * and ? within a segment, ** for any number of segments."
                   },
                   "note": {
                     "type": "string",

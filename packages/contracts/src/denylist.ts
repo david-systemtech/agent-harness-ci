@@ -95,8 +95,8 @@ const HostPatternInput = HostPattern
  */
 const PathPattern = z
   .string()
-  .regex(/^(?:~|~\/[^\0]*|\/[^\0]*)$/)
-  .meta({ description: "An absolute or ~-relative path, with glob segments: * and ? within a segment, ** for any number of segments." });
+  .regex(/^(?:~|~[\\/][^\0]*|\/(?![\\/])[^\0]*|[A-Za-z]:[\\/][^\0]*)$/)
+  .meta({ description: "A POSIX absolute, drive-letter absolute or ~-relative path; Windows accepts either separator and compares without regard to case. UNC, device and drive-relative patterns are refused. Glob segments: * and ? within a segment, ** for any number of segments." });
 
 /** A command pattern: tokens separated by white space, a bare `*` any run of tokens, a `*` inside a token anything within it. */
 const CommandPattern = z
@@ -399,28 +399,43 @@ export interface DenylistMatchContext {
   readonly exempt?: readonly string[] | undefined;
   /** The name of the user whose home `home` is: `~name/` reads as the home directory too. */
   readonly user?: string | undefined;
-  /** Whether paths compare without regard to case, as the file systems of macOS and Windows do. */
+  /** The environment's path flavour, independent of the client or test host; preset: POSIX. */
+  readonly pathStyle?: "posix" | "win32";
+  /** Whether paths compare without regard to case (always true with Windows paths). */
   readonly caseInsensitive?: boolean | undefined;
 }
 
 /** `path` absolute: `~` (and `~user` for the context's own user) expanded, a relative path read against `cwd`. Not normalised. */
-const absolute = (path: string, context: Pick<DenylistMatchContext, "home" | "cwd" | "user">): string => {
+const absolute = (path: string, context: Pick<DenylistMatchContext, "home" | "cwd" | "user" | "pathStyle">): string => {
+  const windows = context.pathStyle === "win32";
+  if (windows) path = path.replace(/\\/g, "/");
+  const home = windows ? context.home.replace(/\\/g, "/") : context.home;
+  const cwd = windows ? context.cwd.replace(/\\/g, "/") : context.cwd;
+  // Local file URLs carry a slash before their drive letter.
+  if (windows && /^\/[A-Za-z]:\//.test(path)) path = path.slice(1);
   const own = context.user !== undefined && context.user !== "" ? `~${context.user}` : null;
   for (const tilde of own === null ? ["~"] : ["~", own]) {
-    if (path === tilde) return context.home;
-    if (path.startsWith(`${tilde}/`)) return `${context.home}/${path.slice(tilde.length + 1)}`;
+    if (path === tilde) return home;
+    if (path.startsWith(`${tilde}/`)) return `${home}/${path.slice(tilde.length + 1)}`;
   }
-  if (path.startsWith("/")) return path;
-  return `${context.cwd}/${path}`;
+  if (windows && /^[A-Za-z]:\//.test(path)) return path;
+  if (path.startsWith("/")) {
+    // A rooted Windows path uses the working directory's drive. UNC remains distinct.
+    const drive = windows && !path.startsWith("//") ? /^[A-Za-z]:/.exec(cwd)?.[0] : undefined;
+    return drive === undefined ? path : `${drive}${path}`;
+  }
+  return `${cwd}/${path}`;
 };
 
 /** The segments of an absolute path with `..` applied as text. */
 const lexical = (path: string): string[] => {
   const out: string[] = [];
+  const rootLength = /^[A-Za-z]:\//.test(path) ? 1 : 0;
   for (const part of path.split("/")) {
     if (part === "" || part === ".") continue;
-    if (part === "..") out.pop();
-    else out.push(part);
+    if (part === "..") {
+      if (out.length > rootLength) out.pop();
+    } else out.push(part);
   }
   return out;
 };
@@ -521,7 +536,7 @@ const within = (directory: readonly string[], path: readonly string[]): boolean 
 const pathReader = (context: DenylistMatchContext) => {
   const resolved = new Map<string, string>();
   const resolve = context.resolve;
-  const fold = context.caseInsensitive === true ? (form: string[]) => form.map((part) => part.toLowerCase()) : (form: string[]) => form;
+  const fold = context.pathStyle === "win32" || context.caseInsensitive === true ? (form: string[]) => form.map((part) => part.toLowerCase()) : (form: string[]) => form;
   const resolveOnce = (path: string): string => {
     let known = resolved.get(path);
     if (known === undefined) {
@@ -534,7 +549,7 @@ const pathReader = (context: DenylistMatchContext) => {
   const forms = (path: string): string[][] => {
     const full = absolute(path, context);
     const read = [lexical(full)];
-    if (resolve !== undefined) read.push(lexical(resolveOnce(full)));
+    if (resolve !== undefined) read.push(lexical(absolute(resolveOnce(full), context)));
     return dedupe(read.map(fold));
   };
   const entries = new Map<string, string[][]>();
@@ -548,7 +563,9 @@ const pathReader = (context: DenylistMatchContext) => {
         const firstGlob = segments.findIndex(isGlob);
         const literal = firstGlob === -1 ? segments : segments.slice(0, firstGlob);
         const rest = firstGlob === -1 ? [] : segments.slice(firstGlob);
-        read.push([...lexical(resolveOnce(`/${literal.join("/")}`)), ...rest]);
+        const prefix = context.pathStyle === "win32" && /^[A-Za-z]:$/.test(literal[0] ?? "") ? "" : "/";
+        const literalPath = `${prefix}${literal.join("/")}${literal.length === 1 && prefix === "" ? "/" : ""}`;
+        read.push([...lexical(absolute(resolveOnce(literalPath), context)), ...rest]);
       }
       known = dedupe(read.map(fold));
       entries.set(pattern, known);
@@ -719,10 +736,8 @@ const expandedPaths = (value: string, braces: boolean): string[] => {
  * `x>~/.netrc`, `cat<key`, `x=$(sudo ls)`. A quote does not hide an
  * operator: the reading is of tokens, not of the shell's grammar.
  */
-const tokensOf = (line: string): string[] =>
-  line
-    .trim()
-    .split(/\s+/)
+const tokensOf = (line: string, windows = false): string[] =>
+  (windows ? (line.match(/(?:"[^"]*"|'[^']*'|[^\s"'])+/g) ?? []) : line.trim().split(/\s+/))
     .flatMap((token) => token.split(OPERATORS))
     .flatMap((token) => (OPERATOR_TOKEN.test(token) ? [token] : token.split(/(?=\|)/)))
     .filter((token) => token !== "");
@@ -766,7 +781,7 @@ const shellRead = (tokens: readonly string[]): { readonly read: readonly string[
 const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:|(?:https?|wss?|ftp):)/i;
 
 /** `$HOME` and `${HOME}` at a token's start read as `~`. */
-const home = (token: string): string => token.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");
+const home = (token: string, windows = false): string => token.replace(windows ? /^(?:\$HOME|\$\{HOME\})(?=[\\/]|$)/ : /^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");
 
 /** Whether a token reads as a path: absolute, `~`, a dot file or a relative path with a slash in it. */
 const isPathLike = (token: string): boolean => token.startsWith("/") || token.startsWith("~") || token.startsWith(".") || token.includes("/");
@@ -839,7 +854,7 @@ export const shellSubjects = (line: string): { paths: string[]; urls: string[]; 
 };
 
 /** `shellSubjects`, and the path-like tokens whose braces make too many words to read, with their braces kept (`unbounded`). */
-const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[]; hosts: string[]; unbounded: string[] } => {
+const subjectsOf = (tokens: readonly string[], windows = false): { paths: string[]; urls: string[]; hosts: string[]; unbounded: string[] } => {
   const unbounded: string[] = [];
   const paths: string[] = [];
   const urls: string[] = [];
@@ -849,19 +864,20 @@ const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[
     // scp's `[2001:db8::1]:backup`): a host read with its brackets stands for the token's own reading.
     const bracketed = raw.includes("[") ? hostToken(raw.replace(/["'\\]/g, "").replace(/^[^=[]*=/, "")) : null;
     if (bracketed !== null) hosts.push(bracketed);
-    const whole = home(unwrap(raw));
+    // Backslashes are Windows separators, not shell escape characters.
+    const whole = home(windows ? raw.replace(/["']/g, "") : unwrap(raw), windows);
     const equals = whole.indexOf("=");
     // An option's value (`--out=x`), not a query's or a fragment's `=` (`169.254.169.254?x=1`), which is the whole token's.
-    const candidates = equals > 0 && !URL_PREFIX.test(whole) && !/[?#]/.test(whole.slice(0, equals)) ? [home(whole.slice(equals + 1))] : [whole];
+    const candidates = equals > 0 && !URL_PREFIX.test(whole) && !/[?#]/.test(whole.slice(0, equals)) ? [home(whole.slice(equals + 1), windows)] : [whole];
     // An absolute path with `=` in it is a path too, beside what follows the `=`.
-    if (candidates[0] !== whole && (whole.startsWith("/") || whole.startsWith("~/"))) candidates.unshift(whole);
+    if (candidates[0] !== whole && (whole.startsWith("/") || whole.startsWith("~/") || (windows && /^(?:[A-Za-z]:|~)[\\/]/.test(whole)))) candidates.unshift(whole);
     for (const token of candidates) {
       if (token === "" || token.startsWith("-")) continue;
-      if (URL_PREFIX.test(token)) {
+      if (URL_PREFIX.test(token) && !(windows && /^[A-Za-z]:[\\/]/.test(token))) {
         urls.push(token);
         continue;
       }
-      if (isPathLike(token)) paths.push(token);
+      if (isPathLike(token) || (windows && token.includes("\\"))) paths.push(token);
       if (bracketed !== null) continue;
       const host = hostToken(token);
       if (host !== null) hosts.push(host);
@@ -1159,7 +1175,7 @@ const unique = <S extends Subject>(subjects: readonly S[]): S[] => {
 export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: DenylistMatchContext): DenylistMatch[] => {
   const commands: CommandSubject[] = unique(
     (call.commands ?? []).map((value) => {
-      const tokens = tokensOf(value);
+      const tokens = tokensOf(value, context.pathStyle === "win32");
       return { value, tokens, ...shellRead(tokens) };
     }),
   );
@@ -1171,7 +1187,7 @@ export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: D
   const filePaths: string[] = [];
 
   for (const command of commands) {
-    const found = subjectsOf(command.tokens);
+    const found = subjectsOf(command.tokens, context.pathStyle === "win32");
     // An unbounded token first: the same token read as written must not stand for it (`unique` keeps the first).
     pathValues.push(...found.unbounded.map((value) => ({ value, braces: true })), ...found.paths.map((value) => ({ value, braces: false })));
     hostValues.push(...found.urls, ...found.hosts);

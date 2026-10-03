@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { dirname, posix, win32 } from "node:path";
 import {
   describeDenylistMatch,
   hostOf,
@@ -64,7 +64,7 @@ const inputSubjects = (call: GatedToolCall): DenylistCall => {
       const text = value.trim();
       if (URL_PREFIX.test(text)) hosts.push(text);
       // `~`, `~/…`, and `~name` or `~name/…`, which the matcher reads as the home directory for the environment's own user.
-      else if (/^~[^\s/]*(?:\/|$)/.test(text) || text.startsWith("/")) paths.push(text);
+      else if (/^~[^\s/\\]*(?:[\\/]|$)/.test(text) || text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text)) paths.push(text);
       else if (hostToken(text) !== null && !/\s/.test(text)) hosts.push(text);
     } else if (value !== null && typeof value === "object") {
       const items: readonly unknown[] = Array.isArray(value) ? value : Object.values(value);
@@ -150,6 +150,8 @@ export interface DenylistContext {
   readonly resolve?: (path: string) => string | null;
   /** The user whose home `home` is: `~name/` reads as it too. */
   readonly user?: string;
+  /** The environment's platform, injectable for path matching on another host. */
+  readonly platform?: NodeJS.Platform;
   /** Whether paths compare without regard to case: preset, on macOS and Windows. */
   readonly caseInsensitive?: boolean;
   /** Which calls the denylist reads at all; preset: `denylistReadsCall`, all except client tools. */
@@ -185,7 +187,8 @@ export const readDenylistCall = (context: DenylistContext, call: DenylistCall, c
     cwd,
     exempt: context.exempt,
     user: context.user,
-    caseInsensitive: context.caseInsensitive ?? (process.platform === "darwin" || process.platform === "win32"),
+    pathStyle: (context.platform ?? process.platform) === "win32" ? "win32" : "posix",
+    caseInsensitive: context.caseInsensitive ?? (["darwin", "win32"].includes(context.platform ?? process.platform)),
     resolve: (path) => {
       const resolved = resolve(path);
       if (resolved !== null) return resolved;
@@ -204,8 +207,9 @@ export const readDenylistCall = (context: DenylistContext, call: DenylistCall, c
  * directories the matcher leaves out, which the sandbox reads again; and
  * the enabled command patterns as written.
  */
-export const providerDenylist = (denylist: Denylist, context: Pick<DenylistContext, "home" | "exempt">): RunDenylist => {
-  const absolute = (pattern: string): string => (pattern === "~" ? context.home : pattern.startsWith("~/") ? join(context.home, pattern.slice(2)) : pattern);
+export const providerDenylist = (denylist: Denylist, context: Pick<DenylistContext, "home" | "exempt" | "platform">): RunDenylist => {
+  const paths = (context.platform ?? process.platform) === "win32" ? win32 : posix;
+  const absolute = (pattern: string): string => (pattern === "~" ? context.home : /^~[\\/]/.test(pattern) ? paths.join(context.home, pattern.slice(2)) : pattern);
   return {
     paths: denylist.paths.filter((entry) => entry.enabled).map(({ pattern }) => absolute(pattern)),
     exempt: [...context.exempt],
