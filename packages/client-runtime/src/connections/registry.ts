@@ -1247,6 +1247,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (!isCurrent(environmentId, entry)) return outcome;
       if (outcome.ok && overRoute) {
         entry.runner.feed({ type: "update-taken" });
+        entry.updateGeneration = (entry.updateGeneration ?? 0) + 1;
+        entry.updatePoll?.cancel();
         await pollUpdate(environmentId, entry);
       }
       if (!outcome.ok && outcome.refused) {

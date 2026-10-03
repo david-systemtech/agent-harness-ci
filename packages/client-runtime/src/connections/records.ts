@@ -114,7 +114,6 @@ export interface ConnectionCredential {
   readonly token: string;
 }
 
-/** A connection as `connections.list` shows it. */
 /** Progress read outside the wire while an accepted update crosses a protocol gap. */
 export interface ConnectionUpdate {
   readonly pending: PendingUpdate | null;
@@ -123,6 +122,7 @@ export interface ConnectionUpdate {
   readonly canUpdateNow: boolean;
 }
 
+/** A connection as `connections.list` shows it. */
 export interface ConnectionRecord extends SavedConnection {
   readonly update?: ConnectionUpdate;
   readonly environmentId: string;

@@ -241,6 +241,35 @@ describe("update-environment on a local environment blocked on an older protocol
     expect(shell.calls.filter(([member]) => member === "service.pendingUpdate")).toHaveLength(reads);
   });
 
+  it("keeps one progress poll when two update requests are accepted concurrently, ignoring the superseded read", async () => {
+    const shell = fakeShell();
+    let finish!: (pending: PendingUpdate) => void;
+    let reads = 0;
+    shell.answer("service.pendingUpdate", () => {
+      reads += 1;
+      return reads === 1 ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve(IDLE_PENDING);
+    });
+    const { runtime, wire, clock } = await blockedLocal(shell);
+    const first = runtime.connections.updateEnvironment(wire.environmentId);
+    const second = runtime.connections.updateEnvironment(wire.environmentId);
+    await flush();
+    expect(await second).toMatchObject({ ok: true });
+    finish({ ...IDLE_PENDING, state: "draining", cause: "requested" });
+    expect(await first).toMatchObject({ ok: true });
+    expect(reads).toBe(2);
+    expect(record(runtime).update).toMatchObject({ pending: IDLE_PENDING, restarting: false, canUpdateNow: true });
+    clock.advance(5000);
+    await flush();
+    expect(reads).toBe(3);
+    clock.advance(5000);
+    await flush();
+    expect(reads).toBe(4);
+    await runtime.close();
+    clock.advance(5000);
+    await flush();
+    expect(reads).toBe(4);
+  });
+
   it("rechecks the hold before updating immediately and refuses when a run has started", async () => {
     const shell = fakeShell();
     let pending: PendingUpdate = IDLE_PENDING;
