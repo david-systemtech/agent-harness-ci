@@ -118,6 +118,46 @@ jobs:
             echo "::error::image reports $reported, expected agent-harness $VERSION"
             exit 1
           fi
+      - name: Inspect a container update without applying it
+        run: |
+          set -euo pipefail
+          project=$(mktemp -d)
+          compose_file="$project/compose.yaml"
+          cp scripts/compose.yaml "$compose_file"
+          cp scripts/host-updater.sh "$project/host-updater.sh"
+          printf 'AGENT_HARNESS_IMAGE=%s\n' "$IMAGE_REFERENCE" > "$project/.env"
+          cleanup() {
+            result=$?
+            trap - EXIT
+            docker compose -f "$compose_file" down --volumes --timeout 5 || result=1
+            rm -rf "$project"
+            exit "$result"
+          }
+          trap cleanup EXIT
+          docker compose -f "$compose_file" up -d --pull never environment
+          ready=false
+          for tick in {1..120}; do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:7433/health | grep -q '"status"[[:space:]]*:[[:space:]]*"ready"'; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            docker compose -f "$compose_file" logs environment
+            echo "::error::container did not become ready for the updater inspection"
+            exit 1
+          fi
+          before=$(find "$project" -type f -exec sha256sum {} + | sort)
+          docker compose -f "$compose_file" exec -T environment agent-harness update status --json --data-dir /data | grep -q '"lastPoll": null'
+          output=$(AGENT_HARNESS_COMPOSE_FILE="$compose_file" sh "$project/host-updater.sh" --dry-run)
+          printf '%s\n' "$output"
+          grep -q 'No pending update.' <<< "$output"
+          grep -Fq "Current image: $IMAGE_REFERENCE" <<< "$output"
+          after=$(find "$project" -type f -exec sha256sum {} + | sort)
+          test "$before" = "$after"
+          docker compose -f "$compose_file" exec -T environment agent-harness update status --json --data-dir /data | grep -q '"lastPoll": null'
+
       - name: Push the verified image on a tag
         id: publish
         if: needs.check.outputs.publish == 'true'
@@ -368,7 +408,7 @@ jobs:
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
           $node = Join-Path $server "node\node.exe"
           $cli = Join-Path $server "packages\cli\dist\main.js"
-          $dataDir = Join-Path ([IO.Path]::GetTempPath()) ("environment-smoke-" + [Guid]::NewGuid())
+          $dataDir = Join-Path $env:LOCALAPPDATA "agent-harness"
           New-Item -ItemType Directory -Path $dataDir | Out-Null
           $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
           $listener.Start()
@@ -440,8 +480,22 @@ jobs:
             throw
           } finally {
             try { Stop-Tree } finally {
-              & $node $cli service uninstall --data-dir $dataDir
-              if ($LASTEXITCODE -ne 0) { throw 'Could not uninstall the smoke service' }
+              # Exercise the desktop's own cleanup, without a preceding CLI uninstall.
+              $personalData = Join-Path $dataDir 'uninstall-retention-check.txt'
+              [IO.File]::WriteAllText($personalData, 'Personal data stays until the user removes it.')
+              $appDir = Split-Path (Split-Path $server -Parent) -Parent
+              $uninstaller = Join-Path $appDir "Uninstall agent-harness.exe"
+              # _?= keeps NSIS in this process so -Wait observes cleanup and its exit code.
+              $uninstall = Start-Process -FilePath $uninstaller -ArgumentList ('/S _?={0}' -f $appDir) -Wait -PassThru
+              if ($uninstall.ExitCode -ne 0) { throw "Desktop uninstall exited with $($uninstall.ExitCode)" }
+              if (Get-ScheduledTask -TaskName agent-harness -ErrorAction SilentlyContinue) { throw 'Desktop uninstall left the environment task registered' }
+              if (!(Test-Path $personalData)) { throw 'Desktop uninstall deleted personal environment data' }
+              foreach ($file in 'launcher-entry.cmd', 'bin\agent-harness.cmd', 'service.json') {
+                if (Test-Path (Join-Path $dataDir $file)) { throw 'Desktop uninstall left service launch scripts behind' }
+              }
+              if (Test-Path $server) { throw 'Desktop uninstall left app resources behind' }
+              # _?= deliberately leaves the running uninstaller itself; the fixture removes it.
+              if (Test-Path $appDir) { Remove-Item -LiteralPath $appDir -Recurse -Force }
               Remove-Item -LiteralPath $dataDir -Recurse -Force
             }
           }

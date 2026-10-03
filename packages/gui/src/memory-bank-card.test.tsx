@@ -130,6 +130,7 @@ describe("the Memory bank card", () => {
     await app.user.click(within(card).getByRole("button", { name: "Preview" }));
     const facts = await within(card).findByRole("region", { name: "Bank preview" });
     for (const text of ["Platform team's shared memory.", "Platform organisation", "Runtime project", "how-we-work", "Shared with the team: no personal facts, no secrets.", "Can read: yes. Can push: no."]) expect(within(facts).getByText(text)).toBeDefined();
+    for (const name of ["Organisations", "Projects", "Entities", "Orientation", "Access and review"]) expect(within(facts).getByRole("heading", { name })).toBeDefined();
     expect(facts.textContent).toContain("engine");
     expect(facts.textContent).toContain("david, alex");
     expect(facts.textContent).toContain("orientation, decisions, status, manifest");

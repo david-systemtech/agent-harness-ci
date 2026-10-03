@@ -20,14 +20,14 @@ with open(sys.argv[1]) as f: pr=json.load(f)
 if pr['state'] != 'open' or pr.get('merged') or pr['head']['sha'] != sys.argv[2]: sys.exit(2)
 PY
 # No extraction of paths from an untrusted archive. Match the hosted gallery and report publisher:
-# 600 PNGs, 24 MiB expanded, 32 MiB ZIP including headers and compression overhead.
+# 1200 PNGs, 48 MiB expanded, 64 MiB ZIP including headers and compression overhead.
 python3 - "$archive" "$work" <<'PY'
 import pathlib,re,sys,zipfile
 archive=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2])
-if archive.stat().st_size > 32*1024*1024: raise ValueError('gallery zip is too large')
+if archive.stat().st_size > 64*1024*1024: raise ValueError('gallery zip is too large')
 with zipfile.ZipFile(archive) as z:
     files=z.infolist()
-    if not files or len(files)>600 or sum(f.file_size for f in files)>24*1024*1024: raise ValueError('gallery payload is too large')
+    if not files or len(files)>1200 or sum(f.file_size for f in files)>48*1024*1024: raise ValueError('gallery payload is too large')
     names=set()
     for f in files:
         if not re.fullmatch(r'[a-z0-9-]+[.](light|dark)[.]png',f.filename) or f.filename in names: raise ValueError('unexpected gallery entry')

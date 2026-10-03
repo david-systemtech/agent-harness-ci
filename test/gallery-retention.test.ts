@@ -9,7 +9,7 @@ const script = join(import.meta.dirname, "../scripts/gallery-retention.py");
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
-async function fixture(failure = "") {
+async function fixture(failure = "", captureCount = 1) {
   const deleted: string[] = [];
   const requests: string[] = [];
   let base = "";
@@ -31,7 +31,7 @@ async function fixture(failure = "") {
       response.end(JSON.stringify(page === "1" ? [{ number: 42, head: { sha: "active-head" } }] : []));
     } else if (url.pathname.includes("/comments")) {
       if (failure === "comments") { response.writeHead(503).end(); return; }
-      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: [{ name: "window-empty.dark.png", api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png` }] }) + ' -->' });
+      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: Array.from({ length: captureCount }, (_, index) => ({ name: `window-scene-${index}.dark.png`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-scene-${index}.dark.png` })) }) + ' -->' });
       const comments = [...Array.from({ length: 50 }, (_, index) => ({ id: 1000 + index, user: { id: 7 }, body: "Discussion" })),
         manifest("active-head", "active-head-1"), manifest("earlier-head", "earlier-head-2"), manifest("legacy-head", "legacy-head", false),
         ...(failure === "malformed" ? [{ id: 1500, user: { id: -2 }, body: '<!-- window-gallery {broken -->' }, { id: 1501, user: { id: -2 }, body: '<!-- window-gallery [] -->' }] : []),
@@ -97,4 +97,18 @@ it("requires a modern report version to belong to its containing relay comment",
   const f = await fixture("unbound");
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-head-99", "expired-second-page"]);
+});
+
+
+it("preserves a 400-capture reviewed manifest after the open PR head changes", async () => {
+  const f = await fixture("", 400);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
+});
+
+
+it("does not protect an earlier-head manifest beyond the 400-capture bound", async () => {
+  const f = await fixture("", 401);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "earlier-head-2", "legacy-head", "expired-second-page"]);
 });
