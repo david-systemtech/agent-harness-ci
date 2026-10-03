@@ -17,19 +17,20 @@ import {
 } from "@agent-harness/client-runtime";
 import { ArrowLeft, ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
-import { useMemo, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
-import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, Tooltip } from "../ui/index.js";
+import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { useHandOffOnto } from "./hand-off.js";
 import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
+import { RunChoiceRow, RunPickerColumn, moveInColumns, useNarrowRunPicker } from "./run-picker-parts.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 
 /**
@@ -90,7 +91,7 @@ const containmentLabel = (words: string): string => words.replace(/^[○◐●]\
 const PickerButton = ({ name, value, offer, children, items, command, warning, columns }: PickerButtonProps) => {
   const [, say] = usePaneLine();
   const [open, setOpen] = useState(false);
-  const narrow = useSyncExternalStore(subscribeWidth, () => window.innerWidth < 800);
+  const narrow = useNarrowRunPicker();
   useSlashCommand(command, () => (offer.status === "absent" ? say(offer.message) : setOpen(true)), offer);
   const label = `${name}: ${value}`;
   const Icon = PICKER_ICONS[command];
@@ -167,52 +168,6 @@ interface ModelPickerProps extends AccountPickerProps {
   readonly model: RunChoice | undefined;
 }
 
-/** Rows keep the popup open while a dependent choice is made. */
-const ChoiceRow = ({ label, note, under, selected, dim, primary, machine, icon: Icon, onSelect }: {
-  readonly label: string; readonly primary?: string; readonly machine?: string | undefined; readonly note?: string | undefined; readonly under?: string | undefined;
-  readonly selected?: boolean; readonly dim?: boolean; readonly icon: typeof Cpu; readonly onSelect: () => void;
-}) => <MenuItem title={`${label} · Enter to choose · ↑ ↓ Home End · Tab next column${note ? ` · ${note}` : ""}`} aria-label={label} aria-disabled={dim || undefined} data-selected={selected || undefined} onSelect={(event) => { event.preventDefault(); onSelect(); }}
-    className={classes("items-start gap-2 px-2.5 py-2 text-xs [overflow-wrap:anywhere] [&_svg]:size-3", selected && "bg-wash", dim && "opacity-50")}>
-    <Icon aria-hidden="true" className="mt-0.5 size-3" />
-    <span className="min-w-0 flex-1">
-      <span className="block font-medium">{primary ?? label}</span>
-      {machine !== undefined && <span className="block font-mono text-2xs text-ink-muted">{machine}</span>}
-      {note !== undefined && <span className="block text-2xs text-ink-muted">{note}</span>}
-      {under !== undefined && <span className="block text-2xs text-ink-muted">{under}</span>}
-    </span>
-    {selected && <Check aria-hidden="true" className="mt-0.5 size-3" />}
-  </MenuItem>;
-
-const subscribeWidth = (changed: () => void) => {
-  window.addEventListener("resize", changed);
-  return () => window.removeEventListener("resize", changed);
-};
-
-/** Arrows stay in a list; Tab moves to the next dependency, rather than closing a menu. */
-const moveInColumns = (event: KeyboardEvent<HTMLDivElement>) => {
-  const target = event.target as HTMLElement;
-  if (target.tagName === "INPUT") {
-    if (!["ArrowDown", "ArrowUp", "Escape", "Tab"].includes(event.key)) event.stopPropagation();
-    if (!["Tab", "ArrowDown", "ArrowUp"].includes(event.key)) return;
-  }
-  const column = target.closest<HTMLElement>("[data-run-column]");
-  if (column === null) return;
-  const rows = [...column.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-disabled]), button')];
-  let next: HTMLElement | undefined;
-  if (event.key === "Tab") {
-    const columns = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-run-column]")].filter((entry) => !entry.hidden);
-    const index = columns.indexOf(column);
-    const destination = columns[(index + (event.shiftKey ? columns.length - 1 : 1)) % columns.length];
-    next = destination?.querySelector<HTMLElement>('input, button, [role="menuitem"]:not([data-disabled])') ?? undefined;
-  } else if (event.key === "Home") next = rows[0];
-  else if (event.key === "End") next = rows.at(-1);
-  else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    const index = rows.indexOf(target.closest<HTMLElement>('[role="menuitem"], button') ?? target);
-    next = rows[(index + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length];
-  }
-  if (next !== undefined) { event.preventDefault(); event.stopPropagation(); next.focus(); }
-};
-
 /** Both account and model chips expose the same runtime-owned dependencies. */
 export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, initialStage, close, compact = false }: ModelPickerProps & { readonly initialStage: "Accounts" | "Models"; readonly close: () => void; readonly compact?: boolean }) => {
   const runtime = useRuntime();
@@ -231,7 +186,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   const [, choose] = useModelChoice(environmentId, sessionId);
   const [, say] = usePaneLine();
   const session = useSessionName(environmentId, sessionId);
-  const windowIsNarrow = useSyncExternalStore(subscribeWidth, () => window.innerWidth < 800);
+  const windowIsNarrow = useNarrowRunPicker();
   const narrow = compact || windowIsNarrow;
   const [activeColumn, setActiveColumn] = useState(initialStage);
   const [query, setQuery] = useState("");
@@ -257,12 +212,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
     close();
     handOffOnto(candidate);
   };
-  const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <div
-    role="group" aria-label={name} data-run-column={name} hidden={narrow && (activeColumn !== name && !(activeColumn === "Models" && name === "Effort"))}
-    className={classes("min-w-0 shrink-0", narrow ? "w-full" : name === "Accounts" ? "w-56" : "w-64")}>
-    <MenuLabel className="px-4 py-2">{name}</MenuLabel>
-    <div data-run-list className="max-h-[320px] overflow-y-auto p-1.5">{children}</div>
-  </div>;
+  const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <RunPickerColumn name={name} narrow={narrow} activeColumn={activeColumn}>{children}</RunPickerColumn>;
   const visible = models.filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLowerCase().includes(query.toLowerCase()));
   const quick = model?.model === undefined ? models.slice(0, 5) : models.filter((entry, index) => entry.id === model.model || index < 5);
   return <div data-run-picker data-narrow={narrow ? "true" : undefined} className={classes("flex flex-col", narrow && "w-[min(512px,calc(100vw-16px))]")}
@@ -277,34 +227,34 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
         <div className="px-2.5 py-2 text-xs [&_svg]:size-4"><EnvironmentBadge view={environment} /><p className="mt-1 text-2xs text-ink-muted">{environment?.phase === "ready" ? "Connected. This session stays on this environment." : "Unreachable. Choices are cached."}</p></div>
         {accounts.value === null ? <Waiting>{accounts.error ? `The accounts could not be read: ${accounts.error.message}` : "Reading the accounts…"}</Waiting> : <>
           {accounts.value.length === 0 && <Waiting>No accounts yet. Add an account to sign in.</Waiting>}
-          {accounts.value.map((candidate) => <ChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
+          {accounts.value.map((candidate) => <RunChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
             label={`${candidate.label} ${identityWords(candidate)}`} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
             note={[ACCOUNT_STATUS_WORDS[candidate.status.state], candidate.id === accountId ? "this session" : candidate.status.state === "signed-in" ? "Fork onto this account" : "Sign in", candidate.provider].join(" · ")}
             under={readingWords(gaugeOf(usage.gauges, environmentId, candidate.id))} onSelect={() => pickAccount(candidate)} />)}
         </>}
         {accountId !== null && accounts.value !== null && !accounts.value.some((entry) => entry.id === accountId) && <Waiting>Stored account {accountId} is not listed on this environment.</Waiting>}
-        {accounts.error !== null && <ChoiceRow icon={RefreshCw} label="Refresh accounts" onSelect={() => runtime.requests.refresh(environmentId, "accounts.list", {})} />}
+        {accounts.error !== null && <RunChoiceRow icon={RefreshCw} label="Refresh accounts" onSelect={() => runtime.requests.refresh(environmentId, "accounts.list", {})} />}
         {listingAccounts.status === "absent" && <Waiting>{listingAccounts.message}</Waiting>}
         <MenuSeparator />
-        <ChoiceRow icon={Plus} label="Add an account…" dim={adding.status === "absent"} under={adding.status === "absent" ? adding.message : undefined}
+        <RunChoiceRow icon={Plus} label="Add an account…" dim={adding.status === "absent"} under={adding.status === "absent" ? adding.message : undefined}
           onSelect={() => { close(); if (adding.status === "absent") say(`Cannot add an account on ${environment?.name ?? THIS_MACHINE}: ${adding.message}`); else openSignIn(null); }} />
       </>)}
       {column("Models", <>
         {catalogues.value === null ? <Waiting>{catalogues.error ? `The models could not be read: ${catalogues.error.message}` : "Reading the models…"}</Waiting> : <>
           {models.length > 12 && <label title="Search models · Type to filter · Tab next column" className="mb-1 flex items-center gap-2 rounded-md bg-wash px-2"><Search aria-hidden="true" className="size-3" /><input aria-label="Search models" value={query} onChange={(event) => setQuery(event.target.value)} className="h-8 min-w-0 w-full bg-transparent text-xs outline-none" /></label>}
-          {models.length > 5 && <ChoiceRow icon={Search} label={full ? "Quick choices" : "All models"} onSelect={() => setFull(!full)} />}
-          {(full || query !== "" ? visible : quick).map((entry) => <ChoiceRow key={entry.id} icon={Cpu} label={modelName(entry)} primary={entry.label ?? entry.id} machine={entry.label === null ? undefined : entry.id}
+          {models.length > 5 && <RunChoiceRow icon={Search} label={full ? "Quick choices" : "All models"} onSelect={() => setFull(!full)} />}
+          {(full || query !== "" ? visible : quick).map((entry) => <RunChoiceRow key={entry.id} icon={Cpu} label={modelName(entry)} primary={entry.label ?? entry.id} machine={entry.label === null ? undefined : entry.id}
             selected={model?.model === entry.id} dim={live || listingModels.status === "absent"} note={entry.efforts.length > 0 ? "Supports effort" : "Uses its own effort"}
             onSelect={() => chosen(entry.id, model?.model === entry.id && (model.effort === null || entry.efforts.includes(model.effort)) ? model.effort : null)} />)}
           {model !== undefined && selected === undefined && <Waiting>Stored model {model.model} is not listed for this account. Choose an available model for the next run.</Waiting>}
           {models.length === 0 && <Waiting>No model is listed for this account.</Waiting>}
           {models.length > 0 && visible.length === 0 && <Waiting>No models match your search.</Waiting>}
         </>}
-        {catalogues.error !== null && <ChoiceRow icon={RefreshCw} label="Refresh models" onSelect={() => runtime.requests.refresh(environmentId, "models.list", {})} />}
+        {catalogues.error !== null && <RunChoiceRow icon={RefreshCw} label="Refresh models" onSelect={() => runtime.requests.refresh(environmentId, "models.list", {})} />}
         {listingModels.status === "absent" && <Waiting>{listingModels.message}</Waiting>}
       </>)}
       {selected !== undefined && selected.efforts.length > 0 && column("Effort", <>
-        {[null, ...selected.efforts].map((effort) => <ChoiceRow key={effort ?? "own"} icon={SlidersHorizontal} label={effort ?? "its own effort"}
+        {[null, ...selected.efforts].map((effort) => <RunChoiceRow key={effort ?? "own"} icon={SlidersHorizontal} label={effort ?? "its own effort"}
           selected={model?.effort === effort} dim={live || listingModels.status === "absent"} note={model?.effort === effort ? "this session" : undefined}
           under={effort === null ? "Let the model choose its effort." : "Reasoning effort for the next run."}
           onSelect={() => { chosen(selected.id, effort); if (!live && listingModels.status === "present") close(); }} />)}

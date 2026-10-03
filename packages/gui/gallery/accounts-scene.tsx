@@ -6,7 +6,7 @@ import { App } from "../src/app.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 /** The three Accounts panes over the real Settings dialog, with pooled fake readings. */
-export async function accountsScene(row: SettingsRowId) {
+export async function accountsScene(row: SettingsRowId, openPicker = false) {
   const identity = { provider: "claude" as const, email: "reader@example.test", organisation: null };
   const prepared = await prepareWorld({ environments: [
     { name: "desk", reach: "local", accounts: [
@@ -28,9 +28,19 @@ export async function accountsScene(row: SettingsRowId) {
       holders.presentation.set("lightOrDark", ladder);
       prepared.shell.openDeepLink(settingsDeepLink(row));
       // Settings is portalled outside the gallery root: publish readiness back inside it.
-      const selector = row === "accounts.accounts" ? "[data-account-card] svg[role=img]" : row === "accounts.default-model" ? 'select option[value="sonnet"]' : '[aria-label="Windows"] svg';
+      const selector = row === "accounts.accounts" ? "[data-account-card] svg[role=img]" : row === "accounts.default-model" ? '[data-default-choice="Model family"]' : '[aria-label="Windows"] svg';
+      let openedPicker = false;
       const mark = () => {
-        if (document.querySelector(selector) === null) return;
+        const target = document.querySelector<HTMLElement>(selector);
+        if (target === null) return;
+        if (row === "accounts.default-model" && !target.textContent?.includes("Claude Sonnet 5")) return;
+        if (openPicker) {
+          if (!openedPicker) {
+            openedPicker = true;
+            target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+          }
+          if (document.querySelector("[data-default-picker]") === null) return;
+        }
         setReady(true);
         observer.disconnect();
       };
