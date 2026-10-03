@@ -46,16 +46,16 @@ export const ParkedAsksButton = ({ menu = false }: { readonly menu?: boolean }) 
   const [open, setOpen] = useState(false);
   const count = parkedAsks.length;
 
+  const trigger = <DialogTrigger asChild>
+    {menu ? <MenuItem aria-label={count === 0 ? "Parked asks" : `Parked asks, ${count} waiting`} onSelect={(event) => event.preventDefault()}><CircleHelp aria-hidden="true" />Parked asks{count > 0 && <span className="ml-auto text-amber">{count}</span>}</MenuItem> :
+      <Button icon={CircleHelp} aria-label={`Parked asks, ${count} waiting`} size="xs" className="h-[22px] border border-amber/45 bg-amber/10 text-amber hover:bg-amber/20">
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-amber" /><span>{count} waiting</span>
+      </Button>}
+  </DialogTrigger>;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {(menu || count > 0) && <Tooltip content={`Parked asks · ${count} waiting`}>
-        <DialogTrigger asChild>
-          {menu ? <MenuItem aria-label={count === 0 ? "Parked asks" : `Parked asks, ${count} waiting`} onSelect={(event) => event.preventDefault()}><CircleHelp aria-hidden="true" />Parked asks{count > 0 && <span className="ml-auto text-amber">{count}</span>}</MenuItem> :
-            <Button icon={CircleHelp} aria-label={`Parked asks, ${count} waiting`} size="xs" className="h-[22px] border border-amber/45 bg-amber/10 text-amber hover:bg-amber/20">
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-amber" /><span>{count} waiting</span>
-            </Button>}
-        </DialogTrigger>
-      </Tooltip>}
+      {(menu || count > 0) && (menu ? <Tooltip content={`Parked asks · ${count} waiting`}>{trigger}</Tooltip> : trigger)}
       {open && <ParkedAsksView asks={parkedAsks} answers={answers} close={() => setOpen(false)} />}
     </Dialog>
   );
