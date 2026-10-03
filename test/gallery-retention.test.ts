@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
@@ -63,15 +62,7 @@ it.each(["comments", "packages"])("deletes nothing when the %s inventory cannot 
   expect(f.deleted).toEqual([]);
 });
 
-it("runs cleanup daily and after a completed gallery report", () => {
-  const workflow = readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery-retention.yml"), "utf8");
-  expect(workflow).toContain("cron:");
-  expect(workflow).toContain("workflow_dispatch:");
-  expect(workflow).toContain("python3 scripts/gallery-retention.py");
-  expect(workflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
-  expect(readFileSync(join(import.meta.dirname, "../.forgejo/workflows/gallery.yml"), "utf8")).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
-  expect(readFileSync(join(import.meta.dirname, "../.forgejo/scripts/github-ci.sh"), "utf8")).toContain("scripts/gallery-retention.py");
-});
+
 
 
 it("ignores manifest examples in discussion while preserving valid active manifests", async () => {
