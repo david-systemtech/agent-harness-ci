@@ -29,7 +29,7 @@ with zipfile.ZipFile(archive) as z:
     if not files or len(files)>30 or sum(f.file_size for f in files)>1536*1024: raise ValueError('gallery payload is too large')
     names=set()
     for f in files:
-        if not re.fullmatch(r'[a-z0-9-]+[.]dark[.]png',f.filename) or f.filename in names: raise ValueError('unexpected gallery entry')
+        if not re.fullmatch(r'[a-z0-9-]+[.](light|dark)[.]png',f.filename) or f.filename in names: raise ValueError('unexpected gallery entry')
         names.add(f.filename)
         data=z.read(f)
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): raise ValueError('gallery entry is not a PNG')
@@ -37,7 +37,7 @@ with zipfile.ZipFile(archive) as z:
 PY
 python3 - "$sha" > "$work/comment.json" <<'PY'
 import json,sys
-print(json.dumps({'body':f'Window gallery for `{sys.argv[1]}` (1400 × 900, dark). Uploading screenshots…'}))
+print(json.dumps({'body':f'Window gallery for `{sys.argv[1]}` (1400 × 900, light and dark). Uploading screenshots…'}))
 PY
 fj_api -X POST -H 'Content-Type: application/json' --data-binary "@$work/comment.json" -o "$work/comment-reply.json" "$api/issues/$FORGEJO_PR/comments"
 comment=$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["id"]))' "$work/comment-reply.json")
@@ -46,7 +46,7 @@ for png in "$work"/*.png; do
 done
 python3 - "$work" "$sha" <<'PY'
 import json,pathlib,sys
-folder=pathlib.Path(sys.argv[1]); body=f'Window gallery for `{sys.argv[2]}` (1400 × 900, dark).\n'
+folder=pathlib.Path(sys.argv[1]); body=f'Window gallery for `{sys.argv[2]}` (1400 × 900, light and dark).\n'
 for path in sorted(folder.glob('*.png.json')):
     asset=json.loads(path.read_text()); name=path.name.removesuffix('.json')
     url=asset['browser_download_url']
