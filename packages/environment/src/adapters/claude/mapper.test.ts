@@ -26,11 +26,44 @@ const setup = () => {
 
 const mapAll = (messages: unknown[], state: MapperState): AdapterEvent[] => messages.flatMap((message) => mapSdkMessage(message, state));
 
+describe("current request context", () => {
+  it("reports each main request independently of cumulative spend and ignores delegated requests", () => {
+    const { state } = setup();
+    const request = (id: string, input: number, parent: string | null = null) => ({
+      type: "assistant", parent_tool_use_id: parent,
+      message: { id, model: "model-a", content: [], usage: { input_tokens: input, cache_read_input_tokens: 200, cache_creation_input_tokens: 50, output_tokens: 90 } },
+    });
+    expect(mapSdkMessage(request("first", 100), state)).toEqual([
+      { type: "context.reported", payload: { model: "model-a", contextTokens: 350, contextWindow: null } },
+    ]);
+    expect(mapSdkMessage(request("delegated", 5000, "task-1"), state)).toEqual([]);
+    expect(mapSdkMessage(request("second", 20), state)).toEqual([
+      { type: "context.reported", payload: { model: "model-a", contextTokens: 270, contextWindow: null } },
+    ]);
+    const result = mapSdkMessage({ type: "result", subtype: "success", modelUsage: { "model-a": { inputTokens: 12000, outputTokens: 900, contextWindow: 1000 } } }, state);
+    expect(result).toContainEqual({ type: "context.reported", payload: { model: "model-a", contextTokens: 270, contextWindow: 1000 } });
+    expect(result).toContainEqual({ type: "usage.reported", payload: { models: [{ model: "model-a", inputTokens: 12000, outputTokens: 900, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, contextWindow: 1000 }] } });
+  });
+  it("reads stream starts, updates partial input on settlement, and skips invalid or absent counts", () => {
+    const { state } = setup();
+    const body = { id: "request", model: "model-a", usage: { input_tokens: 10 } };
+    const start = { type: "stream_event", parent_tool_use_id: null, event: { type: "message_start", message: body } };
+    expect(mapSdkMessage(start, state)).toEqual([{ type: "context.reported", payload: { model: "model-a", contextTokens: 10, contextWindow: null } }]);
+    expect(mapSdkMessage({ ...start, parent_tool_use_id: "task-1" }, state)).toEqual([]);
+    const settle = (usage: unknown) => ({ type: "assistant", parent_tool_use_id: null, message: { ...body, content: [], usage } });
+    expect(mapSdkMessage(settle({ input_tokens: 10, cache_read_input_tokens: 90 }), state)).toEqual([{ type: "context.reported", payload: { model: "model-a", contextTokens: 100, contextWindow: null } }]);
+    expect(mapSdkMessage(settle({ input_tokens: 10, cache_read_input_tokens: 90 }), state)).toEqual([]);
+    for (const usage of [undefined, {}, { input_tokens: -1 }, { input_tokens: 1.5 }, { input_tokens: 10, cache_read_input_tokens: -1 }]) expect(mapSdkMessage(settle(usage), state)).toEqual([]);
+    expect(mapSdkMessage({ type: "assistant", message: { id: "next", model: "model-a", usage: { input_tokens: 0 }, content: [] } }, state)).toEqual([{ type: "context.reported", payload: { model: "model-a", contextTokens: 0, contextWindow: null } }]);
+  });
+
+});
+
 describe("a turn of text and thinking", () => {
   it("links the provider's session on init, streams deltas per item, settles each item, reports usage and ends completed", () => {
     const { state } = setup();
     const events = mapAll(fixture("text-turn"), state);
-    expect(events).toEqual([
+    expect(events.filter((entry) => entry.type !== "context.reported")).toEqual([
       { type: "session.provider-linked", payload: { providerSessionId: "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a" } },
       { type: "assistant.delta", payload: { itemId: "msg_01:0", fragments: [{ kind: "thinking", text: "The user wants " }] } },
       { type: "assistant.delta", payload: { itemId: "msg_01:0", fragments: [{ kind: "thinking", text: "a greeting." }] } },
@@ -53,6 +86,10 @@ describe("a turn of text and thinking", () => {
         turnCount: 1,
         resultText: "Hello, David.",
       },
+    ]);
+    expect(events.filter((entry) => entry.type === "context.reported")).toEqual([
+      { type: "context.reported", payload: { model: "claude-opus-5", contextTokens: 10, contextWindow: null } },
+      { type: "context.reported", payload: { model: "claude-opus-5", contextTokens: 10, contextWindow: 1000000 } },
     ]);
     expect(state.ended).toBe(true);
     expect(state.providerSessionId).toBe("5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a");
@@ -112,7 +149,7 @@ describe("tool use and results", () => {
       events.push(...mapSdkMessage(message, state));
       clock.advance(1_000);
     }
-    expect(events).toEqual([
+    expect(events.filter((entry) => entry.type !== "context.reported")).toEqual([
       { type: "session.provider-linked", payload: { providerSessionId: "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a" } },
       {
         type: "tool.started",

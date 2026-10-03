@@ -12,5 +12,5 @@ it("draws both activity states, edit details, live and quiet status, failure out
   expect(screen.getByText("No output for 3 min")).toBeDefined();
   expect(screen.getByText("not_found: No file missing.ts in the workspace.")).toBeDefined();
   expect(screen.getByRole("button", { name: "Preview chart.svg" }).getAttribute("aria-disabled")).toBe("true");
-  expect(geometry).toContainEqual({ selector: "[data-diff-gutter]", width: 40, tolerance: 0.1 });
+  expect(geometry({ width: 1400, height: 900 })).toContainEqual({ selector: "[data-diff-gutter]", width: 40, tolerance: 0.1 });
 });

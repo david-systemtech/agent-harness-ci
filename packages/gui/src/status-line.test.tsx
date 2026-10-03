@@ -153,7 +153,7 @@ describe("the status line", () => {
 });
 
 describe("the plan gauge", () => {
-  it("shows the actual run's reported context scale without claiming cumulative spend is current context", async () => {
+  it("keeps current context separate from pooled plan usage and cumulative spend", async () => {
     const { app, env, session } = await opened();
     const { runId } = env.startRun(session, "Check the receipts", [], { model: "actual-model" });
     env.emit(session, "usage.reported", { runId, models: [
@@ -162,8 +162,7 @@ describe("the plan gauge", () => {
     ] });
     await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
     const details = await screen.findByRole("dialog", { name: "Usage details" });
-    expect(await within(details).findByText(/Context window: 100000 tokens/)).toBeTruthy();
-    expect(within(details).getByText(/Context tokens are not reported/)).toBeTruthy();
+    expect(await within(details).findByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
     expect(within(statusLine()).queryByRole("img", { name: /^Ctx/ })).toBeNull();
   });
 
@@ -177,7 +176,7 @@ describe("the plan gauge", () => {
     expect(within(details).getByText("milo@work.test")).toBeTruthy();
     expect(within(details).getByText("80%")).toBeTruthy();
     expect(within(details).getByText(/2026-09-25T14:30:00/)).toBeTruthy();
-    expect(within(details).getByText(/Context tokens are not reported/)).toBeTruthy();
+    expect(within(details).getByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
     await waitFor(() => expect(env.requests("accounts.usage").length).toBeGreaterThan(before));
     const age = within(details).getByLabelText("Reading age").textContent;
     act(() => app.clock.advance(60_000));
@@ -226,7 +225,7 @@ describe("the plan gauge", () => {
 });
 
 describe("the run", () => {
-  it("shows its activity, its elapsed time in the environment's time, its tokens and cost while it runs, and the last run's after", async () => {
+  it("keeps spend in status and activity with elapsed time above the composer", async () => {
     const { app, env, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
     env.emit(session, "tool.started", { runId, toolCallId: "t1", name: "Bash", input: { command: "pnpm test" }, title: null, agentId: null, parentToolCallId: null });
@@ -234,9 +233,12 @@ describe("the run", () => {
       runId,
       models: [{ model: "claude-opus-4", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 2000, cacheWriteTokens: 0, costUsd: 0.042, contextWindow: null }],
     });
-    await waitFor(() => expect(lineText()).toContain("Running a command"));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("Running a command"));
     act(() => app.clock.advance(64_000));
-    await waitFor(() => expect(lineText()).toContain("Running a command · 1m 04s · 3.5k tok · $0.042"));
+    await screen.findByText("1m 04s");
+    expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("Running a command");
+    expect(lineText()).toContain("3.5k tok · $0.042");
+    expect(lineText()).not.toContain("Running a command");
 
     env.endRun(session, runId, {
       usage: [{ model: "claude-opus-4", inputTokens: 1500, outputTokens: 500, cacheReadTokens: 2000, cacheWriteTokens: 0, costUsd: 0.05, contextWindow: null }],
@@ -249,7 +251,7 @@ describe("the run", () => {
     const { env, session } = await opened();
     env.startRun(session, "Fix the receipts");
     env.openPrompt(session, {});
-    await waitFor(() => expect(lineText()).toContain("waiting for you"));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("waiting for you"));
   });
 });
 
@@ -295,5 +297,48 @@ describe("run info", () => {
     expect(await screen.findByText("No run yet: the session's first message starts one.")).toBeTruthy();
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByText("No run yet: the session's first message starts one.")).toBeNull());
+  });
+});
+
+describe("current context meter", () => {
+  it("shows unknown before a run, known zero on start, then current request share independently of spend", async () => {
+    const { app, env, session } = await opened([desk({ provider: { contextReadings: true }, models: [{ accountId: "account-1", models: [{ id: "claude-opus-4", family: "opus", tier: 1, label: null, efforts: [], contextWindow: 1000 }] }] })]);
+    const meter = await within(statusLine()).findByRole("img", { name: "Context: unknown" });
+    expect(meter.textContent).toBe("—");
+    const { runId } = env.startRun(session, "Check context");
+    expect(await within(statusLine()).findByRole("img", { name: "Context: 0%" })).toBeTruthy();
+    env.emit(session, "context.reported", { runId, model: "claude-opus-4", contextTokens: 800, contextWindow: null });
+    expect(await within(statusLine()).findByRole("img", { name: "Context: 80%" })).toBeTruthy();
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
+    const planDetails = await screen.findByRole("dialog", { name: "Usage details" });
+    expect(within(planDetails).getByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
+    expect(within(planDetails).queryByText(/Context tokens are not reported/)).toBeNull();
+    await app.user.keyboard("{Escape}");
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Context usage" }));
+    expect(await screen.findByText("800 / 1,000 tokens")).toBeTruthy();
+    await app.user.keyboard("{Escape}");
+    env.emit(session, "usage.reported", { runId, models: [{ model: "claude-opus-4", inputTokens: 9000, outputTokens: 500, cacheReadTokens: 4000, cacheWriteTokens: 0, costUsd: null, contextWindow: 1000 }] });
+    expect(await within(statusLine()).findByRole("img", { name: "Context: 80%" })).toBeTruthy();
+    env.emit(session, "context.reported", { runId, model: "model-b", contextTokens: 1200, contextWindow: 1000 });
+    const full = await within(statusLine()).findByRole("img", { name: "Context: 100%" });
+    expect(full.textContent).toBe("100");
+    env.emit(session, "context.reported", { runId, model: "model-c", contextTokens: 400, contextWindow: null });
+    expect(await within(statusLine()).findByRole("img", { name: "Context: unknown" })).toBeTruthy();
+    env.emit(session, "context.reported", { runId, model: "model-b", contextTokens: 200, contextWindow: null });
+    expect(await within(statusLine()).findByRole("img", { name: "Context: 20%" })).toBeTruthy();
+    env.endRun(session, runId);
+    expect(await within(statusLine()).findByRole("img", { name: "Context: 20%" })).toBeTruthy();
+  });
+  it("keeps an unknown scale honest and omits the ring without the capability", async () => {
+    const { app, env, session } = await opened([desk({ provider: { contextReadings: true } }), { name: "other", reach: "paired", provider: { contextReadings: false }, accounts: [{ id: "other-account" }], sessions: [{ title: "Other", accountId: "other-account" }] }]);
+    const { runId } = env.startRun(session, "Unknown scale");
+    env.emit(session, "context.reported", { runId, model: "claude-opus-4", contextTokens: 400, contextWindow: null });
+    expect(await within(statusLine()).findByRole("img", { name: "Context: unknown" })).toBeTruthy();
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Context usage" }));
+    expect(await screen.findByText("400 tokens · unknown scale")).toBeTruthy();
+    await app.user.keyboard("{Escape}");
+    app.open("other");
+    await screen.findByText("Nothing said yet.");
+    expect(within(statusLine()).queryByRole("button", { name: "Context usage" })).toBeNull();
   });
 });
