@@ -95,23 +95,35 @@ const GLYPHS = new Set(["✕", "×", "»", "›", "▸", "▾", "←", "→", "�
 /** Read literal JSX content, including wrappers and conditional branches; icons count as content. */
 function glyphControls(file: string, code: string): string[] {
   const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  // Once content contains a word or icon, concatenating it cannot make a lone glyph.
+  const alternatives = (texts: string[]) => [...new Set(texts.map((text) => text === "" || GLYPHS.has(text) ? text : "[nonliteral content]"))];
   const contents = (node: ts.Node): string[] => {
-    if (ts.isJsxText(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text.trim()];
+    if (ts.isJsxText(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return alternatives([node.text.trim()]);
     if (ts.isJsxExpression(node)) return node.expression === undefined ? [""] : contents(node.expression);
     if (ts.isParenthesizedExpression(node)) return contents(node.expression);
-    if (ts.isConditionalExpression(node)) return [...contents(node.whenTrue), ...contents(node.whenFalse)];
+    if (ts.isConditionalExpression(node)) return alternatives([...contents(node.whenTrue), ...contents(node.whenFalse)]);
+    if (ts.isBinaryExpression(node)) {
+      if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return alternatives(["", ...contents(node.right)]);
+      if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) return alternatives([...contents(node.left), ...contents(node.right)]);
+    }
     if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
-      return node.children.reduce<string[]>((texts, child) => texts.flatMap((text) => contents(child).map((next) => text + next)), [""]);
+      return node.children.reduce<string[]>((texts, child) => alternatives(texts.flatMap((text) => contents(child).map((next) => text + next))), [""]);
     }
     return ["[nonliteral content]"];
   };
   const problems: string[] = [];
   const visit = (node: ts.Node) => {
-    if (ts.isJsxElement(node)) {
-      const name = node.openingElement.tagName.getText(source);
-      const role = node.openingElement.attributes.properties.find((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "role");
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      const name = opening.tagName.getText(source);
+      const role = opening.attributes.properties.find((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "role");
       const control = /^(button|a)$|Button$|MenuItem$|MenuEntry$|Trigger$/.test(name) || /"(button|link|menuitem|tab)"/.test(role?.getText(source) ?? "");
-      if (control && contents(node).some((text) => GLYPHS.has(text.trim()))) problems.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+      const texts = control && ts.isJsxElement(node) ? contents(node) : [];
+      if (/IconButton$/.test(name)) {
+        const label = opening.attributes.properties.find((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "label");
+        if (label !== undefined && ts.isJsxAttribute(label) && label.initializer !== undefined) texts.push(...contents(label.initializer));
+      }
+      if (control && texts.some((text) => GLYPHS.has(text.trim()))) problems.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
     }
     ts.forEachChild(node, visit);
   };
@@ -120,10 +132,16 @@ function glyphControls(file: string, code: string): string[] {
 }
 
 it.each([...GLYPHS])("refuses %s as a control's whole content, even through wrappers or expressions", (glyph) => {
-  for (const code of [`<button>${glyph}</button>`, `<IconButton label="Action"><span>{"${glyph}"}</span></IconButton>`, `<div role="button">{open ? "${glyph}" : "Open"}</div>`]) {
+  for (const code of [`<button>${glyph}</button>`, `<IconButton label="Action"><span>{"${glyph}"}</span></IconButton>`, `<div role="button">{open ? "${glyph}" : "Open"}</div>`, `<button>{open && "${glyph}"}</button>`, `<button>{label || "${glyph}"}</button>`, `<button>{label ?? "${glyph}"}</button>`, `<IconButton label="${glyph}"><Close /></IconButton>`, `<IconButton label={"${glyph}"} />`]) {
     expect(glyphControls("fixture.tsx", code)).toEqual(["fixture.tsx:1"]);
   }
   expect(glyphControls("fixture.tsx", `<button><Plus /> Add</button><span>${glyph}</span><button>{"${glyph}  Add"}</button>`)).toEqual([]);
+});
+
+it("finds a lone glyph among many independently optional labels", () => {
+  const labels = Array.from({ length: 32 }, () => '<span>{shown && "Detail"}</span>').join("");
+  expect(glyphControls("fixture.tsx", `<button>${labels}+</button>`)).toEqual(["fixture.tsx:1"]);
+  expect(glyphControls("fixture.tsx", `<button>${labels}<Plus /> Add</button>`)).toEqual([]);
 });
 
 it("leaves no text glyph standing for a control icon in the renderer", () => {
