@@ -196,6 +196,26 @@ describe("a session dragged onto the grid", () => {
 });
 
 describe("a pane dragged by its caption", () => {
+  it("does not start a pane drag from its controls or from text selection in the rename field", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_RIGHT);
+    const pane = paneOf("Train tidy");
+    const caption = pane.querySelector("[data-pane-caption]") as HTMLElement;
+    const carry = dataTransfer();
+    fireEvent.pointerDown(within(pane).getByRole("button", { name: "Close the pane" }));
+    // Native dragstart names the draggable caption, even when its child was pressed.
+    expect(fireEvent.dragStart(caption, { dataTransfer: carry })).toBe(false);
+    expect(screen.queryByLabelText("Swap panes")).toBeNull();
+    await app.user.click(within(pane).getByRole("button", { name: "Rename “Train tidy”" }));
+    fireEvent.pointerDown(within(pane).getByRole("textbox", { name: "Rename “Train tidy”" }));
+    expect(fireEvent.dragStart(caption, { dataTransfer: carry })).toBe(false);
+    expect(screen.queryByLabelText("Swap panes")).toBeNull();
+    fireEvent.pointerDown(caption);
+    expect(fireEvent.dragStart(caption, { dataTransfer: carry })).toBe(true);
+    expect(screen.getByLabelText("Swap panes")).toBeDefined();
+    fireEvent.dragEnd(caption, { dataTransfer: carry });
+  });
+
   it("swaps whole panes at the centre, moves one below another, and keeps the arrangement after a remount", async () => {
     const app = await withTrain();
     await press(app, SPLIT_RIGHT);

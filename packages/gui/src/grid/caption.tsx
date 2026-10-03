@@ -3,7 +3,7 @@ import type { Workspace } from "@agent-harness/contracts";
 import { ChevronRight, Folder, Info, Pencil, X } from "lucide-react";
 import { useFirstKey } from "../keys/key-dispatch.js";
 import { useGridPaneId, usePaneGrid } from "./grid.js";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import type { PaneSession } from "../presentation.js";
@@ -37,14 +37,18 @@ export interface CaptionProps {
 const CaptionBar = ({ marked, close, children }: CaptionProps & { readonly children: ReactNode }) => {
   const id = useGridPaneId();
   const grid = usePaneGrid();
+  const pressedControl = useRef(false);
   return (
     <div
       data-pane-caption
       hidden={close === undefined}
       className={classes("h-8 shrink-0 items-center gap-1.5 border-b border-hairline px-2.5 text-sm", close === undefined ? "hidden" : "flex", marked && "bg-wash")}
       draggable={close !== undefined && id !== null}
+      onPointerDownCapture={(event) => {
+        pressedControl.current = event.target instanceof Element && event.target.closest("button, input, a") !== null;
+      }}
       onDragStart={(event) => {
-        if (id === null || (event.target instanceof Element && event.target.closest("button, input, a") !== null)) return event.preventDefault();
+        if (id === null || pressedControl.current || (event.target instanceof Element && event.target.closest("button, input, a") !== null)) return event.preventDefault();
         event.dataTransfer.setData("text/plain", id);
         event.dataTransfer.effectAllowed = "move";
         grid.drag(id);

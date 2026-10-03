@@ -4,7 +4,7 @@ import type { PresentationValues } from "../../src/presentation.js";
 const environmentId = "0199cc00-0000-4000-8000-000000000001";
 const first = "0199dd00-0000-4000-8000-000000000001";
 const second = "0199dd00-0000-4000-8000-000000000002";
-export const script: Script = { environments: [{ name: "desk", reach: "local", environmentId, sessions: (() => [
+export const script: Script = { environments: [{ name: "desk", reach: "local", environmentId, capabilities: ["workspaceChecks"], sessions: (() => [
   { id: first, title: "Check the ledger", workspace: { kind: "directory", path: "/work/ledger" }, pullRequests: [{ url: "https://forge.example.test/team/ledger/pulls/12", state: "open", mergedAt: null, closedAt: null }] },
   { id: second, title: "Review the receipt parser", workspace: { kind: "worktree", path: "/work/ledger-review", repository: "/work/ledger", branch: "review" } },
 ])() }] };
