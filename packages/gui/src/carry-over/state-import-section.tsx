@@ -1,5 +1,7 @@
 import { adminCall, clientLocalImportValues, uuidv7 } from "@agent-harness/client-runtime";
 import type { StateImportHoldings, StateImportReport } from "@agent-harness/contracts";
+import { Download, ScanSearch } from "lucide-react";
+import { CountGrid } from "./count-grid.js";
 import { useMemo, useState } from "react";
 import { TEXT_SIZE_LEAST, TEXT_SIZE_MOST } from "../presentation.js";
 import { Button } from "../ui/index.js";
@@ -17,10 +19,7 @@ export const StateImportSection = ({ environmentId }: { readonly environmentId: 
 
 const foundCount = (count: number | null) => count === null ? "unreadable" : count;
 const Holdings = ({ holds }: { readonly holds: StateImportHoldings }) => (
-  <p className="text-sm text-ink">
-    {foundCount(holds.profiles)} profiles; {foundCount(holds.banks)} banks; {foundCount(holds.routines)} routines;{" "}
-    {foundCount(holds.instructions)} instructions; {foundCount(holds.skillSources)} skill sources; {foundCount(holds.connections)} connections.
-  </p>
+  <CountGrid label="Source holdings" rows={[["Profiles", foundCount(holds.profiles)], ["Banks", foundCount(holds.banks)], ["Routines", foundCount(holds.routines)], ["Instructions", foundCount(holds.instructions)], ["Skill sources", foundCount(holds.skillSources)], ["Connections", foundCount(holds.connections)]]} />
 );
 
 const DetectedStateImport = ({ environmentId }: { readonly environmentId: string }) => {
@@ -57,8 +56,8 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
   const detection = found.result;
   if (detection === null || (detection.dataFolder === null && detection.terminalFolder === null)) return null;
   return (
-    <section aria-label="State import" className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 className="font-semibold text-ink">State import</h3>
+    <section aria-label="State import" className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-4">
+      <h3 className="text-sm font-medium text-ink">State import</h3>
       {detection.dataFolder !== null && (
         <>
           <p className="text-sm text-ink-muted">Data folder: {detection.dataFolder.path}</p>
@@ -67,9 +66,9 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
       )}
       {detection.terminalFolder !== null && <p className="text-sm text-ink-muted">Terminal-client state folder: {detection.terminalFolder.path}</p>}
       {admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
-      <div className="flex gap-2">
-        <Button disabled={busy || admin.status === "absent"} onClick={() => void run(true)}>Dry run</Button>
-        <Button tone="primary" disabled={busy || admin.status === "absent"} onClick={() => void run(false)}>Import</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" title="Dry run · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(true)}><ScanSearch aria-hidden="true" />Dry run</Button>
+        <Button variant="default" title="Import · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(false)}><Download aria-hidden="true" />Import</Button>
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {report !== undefined && <StateImportResult report={report} clientLocalApplied={clientLocalApplied} />}

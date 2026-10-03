@@ -1,4 +1,5 @@
-import { containmentWords, type EnvironmentView } from "@agent-harness/client-runtime";
+import { Shield, ShieldCheck, ShieldOff } from "lucide-react";
+import { type EnvironmentView } from "@agent-harness/client-runtime";
 import { CONTAINMENT_LEVELS } from "@agent-harness/contracts";
 import { useMemo } from "react";
 import { nameOf } from "../connections/words.js";
@@ -40,17 +41,20 @@ export const ContainmentAvailability = ({ view }: { readonly view: EnvironmentVi
       ) : (
         <ul className="flex flex-col gap-0.5 text-sm">
           {CONTAINMENT_LEVELS.map((level) => {
+            const Icon = level === "off" ? ShieldOff : level === "workspace" ? Shield : ShieldCheck;
+            const label = level === "off" ? "Off" : level === "workspace" ? "Workspace" : "No network";
             const availability = report.levels.find((candidate) => candidate.level === level);
             return (
-              <li key={level} className={availability?.available === false ? "text-ink-muted" : "text-ink"}>
-                {containmentWords(level, false)}: {availability === undefined ? "not reported" : availability.available ? "available" : `not available: ${availability.reason}`}
+              <li key={level} className={`flex items-start gap-2 text-xs ${availability?.available === false ? "text-ink-muted" : "text-ink"}`}>
+                <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" /><span>{label}: {availability === undefined ? "not reported" : availability.available ? "available" : `not available: ${availability.reason}`}
+                </span>
               </li>
             );
           })}
         </ul>
       )}
       <div>
-        <Button onClick={openPermissions}>Open Permissions</Button>
+        <Button onClick={openPermissions} title="Open Permissions (Enter or Space)"><Shield aria-hidden="true" data-icon="inline-start" />Open Permissions</Button>
       </div>
     </>
   );

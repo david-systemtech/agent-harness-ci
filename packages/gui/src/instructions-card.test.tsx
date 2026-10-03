@@ -1,3 +1,4 @@
+import "../test/markdown-editor-dom.js";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import type { ResultOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
@@ -69,10 +70,12 @@ describe("the Instructions card in Set up", () => {
     await app.user.click(within(custom).getByRole("button", { name: "Write a custom instruction" }));
     const editor = await screen.findByRole("dialog", { name: "New instruction" });
     await app.user.type(within(editor).getByRole("textbox", { name: "Title" }), "My review habits");
-    await app.user.type(within(editor).getByRole("textbox", { name: "Markdown body" }), "**Read** the comments.");
+    await app.user.click(within(editor).getByRole("textbox", { name: "Markdown body" }));
+    await app.user.paste("**Read** the comments.");
     await app.user.click(within(editor).getByRole("button", { name: "Save instruction" }));
     const row = await within(card).findByRole("region", { name: "My review habits" });
-    expect(within(row).getByText("**Read** the comments.")).toBeDefined();
+    expect(within(row).getByText("Read", { selector: "strong" })).toBeDefined();
+    expect(row.textContent).toContain("Read the comments.");
     expect((within(row).getByRole("checkbox", { name: "All accounts, including future accounts" }) as HTMLInputElement).checked).toBe(true);
     expect((within(row).getByRole("checkbox", { name: "Main account" }) as HTMLInputElement).checked).toBe(true);
     expect((within(row).getByRole("checkbox", { name: /Other account/ }) as HTMLInputElement).checked).toBe(true);
@@ -111,7 +114,7 @@ describe("the Instructions card in Set up", () => {
     const suggestions = await within(card).findByRole("region", { name: "Suggested instructions" });
     await app.user.click(within(suggestions).getByRole("checkbox", { name: "Read code from a fresh checkout" }));
     const row = await within(card).findByRole("region", { name: "Read code from a fresh checkout" });
-    expect(within(row).getByText("coding.fresh-checkout, version 1")).toBeDefined();
+    expect(within(row).getByText("coding.fresh-checkout")).toBeDefined();
     expect((within(row).getByRole("checkbox", { name: "All accounts, including future accounts" }) as HTMLInputElement).checked).toBe(true);
     expect((within(row).getByRole("checkbox", { name: "Main account" }) as HTMLInputElement).checked).toBe(true);
     expect(desk.requests("instructions.create").filter((request) => request.params["catalogueId"] === "coding.fresh-checkout")).toHaveLength(1);

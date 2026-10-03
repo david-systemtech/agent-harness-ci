@@ -12,6 +12,37 @@ for any machine; it reads the channel and the release manifest, and says when
 an update is ready, the moment it would drain were it a native service. The
 updater asks it every five minutes and does the rest.
 
+## Inspecting an update
+
+Run `./host-updater.sh --dry-run` from the Docker host, with the same
+compose file as the scheduled updater (`AGENT_HARNESS_COMPOSE_FILE` can name
+it). The output names the current version and the image the container was
+created with, the pending update's state, id and target version, and its
+image reference and manifest digest. For a ready update it lists the pull
+and digest check, drain, stop, snapshot, `.env` change, recreate, health wait,
+watch, rollback on failure, and successful cleanup.
+
+This inspection reads `update status --json` without `--host-updater`, so it
+does not record an updater poll. It pulls no image, runs no update verb other
+than status, writes no lock, log state, update record or `.env`, runs no
+notification command, and changes no update settings or application content.
+Like any local CLI status read, it authenticates through the bootstrap
+grant; that authentication rotates the grant and records access metadata.
+It does not record the host-side updater's last poll or begin an update.
+It does not acquire the tick's lock: the report is a view of the plan at
+that moment, and a scheduled tick may progress while it is read. It does
+not verify registry access or prove that a target will start.
+
+It exits 0 when the plan can be read, including when there is no pending
+update ("No pending update", no target or actions), or one is not ready
+(its state and no actions). A failed status or image read, an unreadable
+status, or a ready target without a usable image reference and SHA-256
+digest exits 1 with an explanation. An update-in-flight record reports the
+interrupted update and exits 1 without recovering it; a regular tick must
+finish it before another update can be planned. Unknown or extra arguments
+exit 2. `AGENT_HARNESS_UPDATER=0` keeps its usual meaning: stop before doing
+anything, including an inspection.
+
 ## What a tick does
 
 Each run is one tick, under one `flock` on `.host-updater.lock` beside the

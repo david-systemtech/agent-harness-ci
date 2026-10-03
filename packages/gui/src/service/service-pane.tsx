@@ -1,3 +1,4 @@
+import { Server } from "lucide-react";
 import { UPDATES_MANAGED_OUTSIDE, environmentStateWords, rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
 import { useMemo } from "react";
@@ -60,7 +61,7 @@ const State = ({ view }: { readonly view: EnvironmentView }) => {
   }
   return (
     <div className="flex flex-col gap-0.5 text-sm text-ink">
-      <p>{environmentStateWords(status.result)}</p>
+      <p className="flex items-center gap-2 text-xs"><Server aria-hidden="true" className="size-4 shrink-0 text-cyan" />{environmentStateWords(status.result)}</p>
       {status.result.updatesManagedOutside && <p className="text-ink-muted">{UPDATES_MANAGED_OUTSIDE}</p>}
     </div>
   );

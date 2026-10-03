@@ -1,3 +1,4 @@
+import type { PendingUpdate } from "@agent-harness/contracts";
 import {
   ClientSessionCredential,
   commandResponse,
@@ -116,6 +117,8 @@ export interface Connections {
    * Rejects for an unknown environment.
    */
   updateEnvironment(environmentId: string): Promise<UpdateEnvironmentOutcome>;
+  /** Advance a local update held only by its idle window, even across a protocol gap. */
+  updateEnvironmentNow(environmentId: string): Promise<void>;
   /**
    * The connection's address and the token its client session holds now,
    * for a caller that authenticates as this client on the environment's
@@ -213,6 +216,11 @@ export interface Registry extends Connections {
 export const REVOKE_TIMEOUT_MS = 10_000;
 
 interface Entry {
+  updatePending?: PendingUpdate | null;
+  updateError?: string | null;
+  updateRestarting?: boolean;
+  updatePoll?: Timer;
+  updateGeneration?: number;
   saved: SavedConnection;
   /** The connection's state machine and the one owner of its socket, timers and retries. */
   readonly runner: Runner;
@@ -285,6 +293,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       unreachableSince: iso(machine.unreachableSince),
       refreshFailed: machine.refreshFailed,
       action: actionOf(machine),
+      ...(machine.updateDeadline !== null && { update: {
+        pending: entry.updatePending ?? null,
+        error: entry.updateError ?? null,
+        restarting: entry.updateRestarting ?? false,
+        canUpdateNow: !entry.updateRestarting && entry.saved.kind === "local" && platform.shell?.service?.applyUpdateNow !== undefined && idleHold(entry.updatePending),
+      } }),
     };
   };
 
@@ -299,6 +313,30 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     };
     const ids = [...entries.keys()].sort((a, b) => rank(a) - rank(b));
     list.set(ids.map((id) => toRecord(id, entries.get(id) as Entry)));
+  };
+
+  const idleHold = (pending: PendingUpdate | null | undefined): boolean => pending?.state === "waiting" &&
+    (pending.waitsOn === null || pending.waitsOn.reason === "recent-activity" || pending.waitsOn.reason === "parked-prompt");
+
+  const pollUpdate = async (environmentId: string, entry: Entry): Promise<void> => {
+    const read = platform.shell?.service?.pendingUpdate;
+    if (!read || entry.saved.kind !== "local" || !isCurrent(environmentId, entry) || entry.runner.state.updateDeadline === null) return;
+    const generation = entry.updateGeneration ?? 0;
+    try {
+      const pending = await read();
+      if (!isCurrent(environmentId, entry) || entry.runner.state.updateDeadline === null || generation !== (entry.updateGeneration ?? 0)) return;
+      entry.updatePending = pending;
+      entry.updateError = null;
+      entry.updateRestarting = pending.state === "draining" || pending.state === "switching";
+    } catch (error) {
+      if (!isCurrent(environmentId, entry) || entry.runner.state.updateDeadline === null || generation !== (entry.updateGeneration ?? 0)) return;
+      entry.updatePending = null;
+      entry.updateError = error instanceof Error ? error.message : String(error);
+    }
+    publish();
+    if (isCurrent(environmentId, entry) && entry.runner.state.updateDeadline !== null) {
+      entry.updatePoll = platform.clock.setTimeout(() => { void pollUpdate(environmentId, entry); }, 5000);
+    }
   };
 
   const entryOf = (environmentId: string): Entry => {
@@ -655,7 +693,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         },
       });
     },
-    describe: (document) => updateSaved(environmentId, entry(), { descriptor: fromDiscovery(entry().saved.descriptor, document) }),
+    describe: (document) => {
+      const e = entry();
+      if (e.runner.state.updateDeadline !== null) {
+        e.updateRestarting = document.readiness !== "ready" || e.updatePending?.state === "draining" || e.updatePending?.state === "switching";
+        if (document.readiness !== "ready") e.updatePending = null;
+      }
+      return updateSaved(environmentId, e, { descriptor: fromDiscovery(e.saved.descriptor, document) });
+    },
     async clearToken() {
       const e = entry();
       if (e.saved.kind === "local") e.token = undefined;
@@ -667,6 +712,16 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
     changed(next, previous) {
       const e = entry();
+      if (next.updateDeadline === null) {
+        e.updatePoll?.cancel();
+        e.updateGeneration = (e.updateGeneration ?? 0) + 1;
+        e.updatePending = null;
+        e.updateError = null;
+        e.updateRestarting = false;
+      } else if (next.failures > previous.failures) {
+        e.updateRestarting = true;
+        e.updatePending = null;
+      }
       if (next.step !== "open") endSyncing(environmentId);
       if (!isCurrent(environmentId, e)) return;
       if (next.blocked !== previous.blocked) return updateSaved(environmentId, e, { blocked: next.blocked });
@@ -1190,7 +1245,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           .then(answeredByMethod, (error: unknown) => failed("unreachable", error instanceof Error ? error.message : String(error)));
       }
       if (!isCurrent(environmentId, entry)) return outcome;
-      if (outcome.ok && overRoute) entry.runner.feed({ type: "update-taken" });
+      if (outcome.ok && overRoute) {
+        entry.runner.feed({ type: "update-taken" });
+        entry.updateGeneration = (entry.updateGeneration ?? 0) + 1;
+        entry.updatePoll?.cancel();
+        await pollUpdate(environmentId, entry);
+      }
       if (!outcome.ok && outcome.refused) {
         notices.raise(environmentId, {
           kind: "update-refused",
@@ -1201,8 +1261,31 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       return outcome;
     },
 
+    async updateEnvironmentNow(environmentId) {
+      if (!loaded) await ensureLoaded();
+      const entry = entryOf(environmentId);
+      const service = platform.shell?.service;
+      if (entry.saved.kind !== "local" || entry.runner.state.updateDeadline === null || !service?.pendingUpdate || !service.applyUpdateNow) {
+        throw new Error("This client cannot advance that environment's update across the protocol gap.");
+      }
+      const pending = await service.pendingUpdate();
+      if (!isCurrent(environmentId, entry) || entry.runner.state.updateDeadline === null || !idleHold(pending)) {
+        throw new Error("The update is no longer waiting only on the idle window.");
+      }
+      await service.applyUpdateNow();
+      if (!isCurrent(environmentId, entry) || entry.runner.state.updateDeadline === null) return;
+      entry.updateGeneration = (entry.updateGeneration ?? 0) + 1;
+      entry.updatePoll?.cancel();
+      entry.updateRestarting = true;
+      entry.updatePending = null;
+      entry.updateError = null;
+      publish();
+      void pollUpdate(environmentId, entry);
+    },
+
     close() {
       closed = true;
+      for (const entry of entries.values()) entry.updatePoll?.cancel();
       stopNetwork?.();
       stopNetwork = undefined;
       for (const entry of entries.values()) entry.runner.stop();
