@@ -84,6 +84,14 @@ describe("a step's result", () => {
     })).toMatchObject({ state: "needs-attention", failing: ["your-machines.named"], reason: "The environment needs a name." });
   });
 
+  it("keeps real failures visible when a skip check is pending", async () => {
+    expect(await check(stepOf("forges"), presetSettings(), {
+      ...holding,
+      "forges.present": () => ({ pending: true, reason: "Waiting for forge accounts." }),
+      "forges.identity": () => ({ reason: "The forge refused the credential." }),
+    })).toMatchObject({ state: "needs-attention", failing: ["forges.identity"], reason: "The forge refused the credential.", actions: ["sign-in-again", "check-again"] });
+  });
+
   it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {
     const values = { ...presetSettings(), "permissions.parkedPrompt.ttl": "forever" } as unknown as ReturnType<typeof presetSettings>;
     const result = await check(stepOf("permissions"), values, {

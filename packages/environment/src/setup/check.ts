@@ -172,14 +172,16 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
   };
 
   const run = async (): Promise<StepResult> => {
+    const failures: Failure[] = [];
     const skipCheck = step.stateChecks.find((stateCheck) => stateCheck.id === step.skip);
     if (skipCheck !== undefined) {
       const answer = await ask(skipCheck);
       if (answer !== true && answer.couldNotCheck) return failed([answer]);
-      if (answer !== true && answer.pending) return { step: step.id, state: "pending", reason: answer.reason, failing: [], actions: [], checkedAt };
-      if (answer !== true) return { step: step.id, state: "skipped", reason: answer.reason, failing: [], actions: [], checkedAt };
+      if (answer !== true) {
+        if (!answer.pending) return { step: step.id, state: "skipped", reason: answer.reason, failing: [], actions: [], checkedAt };
+        failures.push(answer);
+      }
     }
-    const failures: Failure[] = [];
     for (const { key, check } of step.checks) {
       const answer = check(context.values[key]);
       if (answer !== true) failures.push({ id: key, reason: answer, actions: [], targets: [], couldNotCheck: false });

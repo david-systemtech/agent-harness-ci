@@ -127,7 +127,7 @@ else if (verb === "where") console.log(JSON.stringify({ node: process.env.FIXTUR
 else if (verb === "preflight") {
   const { bundledExecutable } = await import("@agent-harness/environment");
   const claude = execFileSync(bundledExecutable(), ["--version"], { encoding: "utf8" }).trim();
-  console.log(JSON.stringify({ version: manifest.version, protocolVersion: 1, launcherProtocol: manifest.launcherProtocol, databaseSchemaVersion: 17, bundledClaudeCodeVersion: claude }));
+  console.log(JSON.stringify({ version: manifest.version, protocolVersion: ${PROTOCOL_VERSION}, launcherProtocol: manifest.launcherProtocol, databaseSchemaVersion: 17, bundledClaudeCodeVersion: claude }));
 } else if (verb === "serve") {
   if (process.getuid?.() === 0) {
     console.error("agent-harness serve refuses to run as root");
