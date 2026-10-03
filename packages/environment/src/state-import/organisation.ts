@@ -36,7 +36,8 @@ export const planOrganisation = (stores: readonly OrganisationStore[], options: 
   }
   // Shared aliases can have several Account-qualified keys but only one target row.
   targets = targets.map((target) => ({ ...target, accountId: canonicalAccount(target.accountId, target.providerId) }));
-  targets = targets.filter((target, index) => targets.findIndex((entry) => entry.accountId === target.accountId && entry.providerId === target.providerId && entry.present >= target.present) === index);
+  targets.sort((a, b) => b.present - a.present);
+  targets = targets.filter((target, index) => targets.findIndex((entry) => entry.accountId === target.accountId && entry.providerId === target.providerId) === index);
   if (options.preview) for (const { accountId: sourceAccountId, session } of options.listed) {
     const accountId = canonicalAccount(sourceAccountId, session.providerSessionId);
     if (targets.some((s) => s.accountId === accountId && s.providerId === session.providerSessionId)) continue;

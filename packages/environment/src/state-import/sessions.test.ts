@@ -352,3 +352,29 @@ it("deduplicates links to a transcript even when the projects directories are di
   expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result?.failed).toEqual([]);
   expect((await client.request("sessions.list", {})).sessions).toHaveLength(1);
 });
+
+it("previews a deleted shared alias before a live row as one target and keeps the live row when repairing", async () => {
+  const f = sharedFixture(2);
+  writeFileSync(join(f.source, "prefs.json"), "{}");
+  rmSync(join(f.secondary, "projects"));
+  cpSync(join(f.winner, "projects"), join(f.secondary, "projects"), { recursive: true });
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const owner = (await client.request("accounts.list", {})).accounts.find((account) => account.directory.path === f.winner)!;
+  const ownerSession = t.env.log.readStream({ kinds: ["session"] }).find((event) => event.type === "session.created" && (event.payload as SessionCreatedPayload).origin?.accountId === owner.id)!.streamId;
+  await deleteSession(client, ownerSession);
+  const liveSession = (await client.request("sessions.list", {})).sessions[0]!.id;
+  rmSync(join(f.secondary, "projects"), { recursive: true });
+  symlinkSync(join(f.winner, "projects"), join(f.secondary, "projects"), "dir");
+  writeFileSync(join(f.source, "prefs.json"), JSON.stringify({ pinnedSessions: [`profile-0:${f.shared}`] }));
+  const dry = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
+  expect(dry.result?.carried.pins).toBe(1);
+  expect(dry.result?.notCarried).not.toContainEqual(expect.objectContaining({ label: "Ambiguous Session references" }));
+  expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result?.failed).toEqual([]);
+  const rows = (await client.request("sessions.list", {})).sessions;
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.id).toBe(liveSession);
+  expect(rows[0]?.pinnedAt).not.toBeNull();
+});

@@ -5,7 +5,7 @@ import type { SessionRow } from "./session-tables.js";
 import { sessionStream } from "./streams.js";
 
 /** Repair only imported rows whose source has proved they are the same transcript.
- * Keep a continued row's history before preferring the source owner, and union pins and archive state.
+ * Keep continued history and live rows before preferring the source owner, and union pins and archive state.
  * Purging a redundant row never asks to delete its provider transcript.
  */
 export const reconcileImportedSessions = (log: EventLog, deletion: Deletion) => (
@@ -16,7 +16,7 @@ export const reconcileImportedSessions = (log: EventLog, deletion: Deletion) => 
     "SELECT sessions.*, json_extract(origin, '$.accountId') AS sourceAccountId, (SELECT count(*) FROM runs WHERE runs.session_id = sessions.id) AS runs FROM sessions WHERE json_extract(origin, '$.kind') = 'import' AND json_extract(origin, '$.providerSessionId') = ? ORDER BY created_at, id",
     providerSessionId,
   ).filter((row) => accountIds.includes(row.sourceAccountId));
-  rows.sort((a, b) => b.runs - a.runs || Number(b.sourceAccountId === ownerAccountId) - Number(a.sourceAccountId === ownerAccountId));
+  rows.sort((a, b) => b.runs - a.runs || Number(a.deleted_at !== null) - Number(b.deleted_at !== null) || Number(b.sourceAccountId === ownerAccountId) - Number(a.sourceAccountId === ownerAccountId));
   const winner = rows[0];
   if (winner === undefined) return undefined;
   // Two independently continued conversations are no longer redundant history. Retain both for manual repair.
