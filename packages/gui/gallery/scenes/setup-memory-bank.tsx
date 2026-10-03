@@ -8,7 +8,8 @@ export const geometry = [
   { selector: "[data-bank-content]", maxWidth: 620 },
   { selector: "[data-bank-choices]", paddingLeft: 6, paddingTop: 6 },
   { selector: "[data-bank-form]", paddingLeft: 16, paddingTop: 16 },
-  { selector: "[data-bank-form] input", maxWidth: 224, height: 32 },
+  { selector: "[data-bank-form] [data-bank-field]", maxWidth: 224 },
+  { selector: "[data-bank-form] input", height: 32 },
   { selector: 'footer[aria-label="Step navigation"]', height: 67 },
   { selector: 'footer[aria-label="Step navigation"] button', height: 32 },
 ];

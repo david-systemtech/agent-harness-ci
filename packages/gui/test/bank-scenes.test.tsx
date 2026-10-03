@@ -1,5 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { measureSceneGeometry } from "../gallery/geometry.js";
+import type { SceneGeometry } from "../gallery/scene-registry.js";
 import { mountGallery } from "../gallery/mount.js";
 
 let close: (() => Promise<void>) | undefined;
@@ -7,6 +9,7 @@ afterEach(async () => {
   await close?.();
   close = undefined;
   document.body.replaceChildren();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -37,6 +40,7 @@ it.each(["light", "dark"] as const)("draws the setup choices with navigation out
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("setup-memory-bank"));
   const card = await screen.findByRole("region", { name: "Memory bank" });
   expect(within(card).getByText("Facts your agents keep")).toBeDefined();
+  expect(within(card).getByText("No banks attached yet.")).toBeDefined();
   expect(within(card).getByRole("radiogroup", { name: "Bank kind" })).toBeDefined();
   expect(within(card).getByRole("textbox", { name: "Bank name" })).toBeDefined();
   const footer = screen.getByRole("navigation", { name: "Step navigation" });
@@ -47,4 +51,24 @@ it.each(["light", "dark"] as const)("draws the setup choices with navigation out
     { selector: "[data-bank-content]", maxWidth: 620 },
     { selector: 'footer[aria-label="Step navigation"]', height: 67 },
   ]));
+});
+
+// Replay the hosted capture's field cap and input height; jsdom has no Tailwind layout.
+it("measures the setup field wrappers rather than uncapped inputs", async () => {
+  const container = document.createElement("div");
+  container.id = "root";
+  document.body.append(container);
+  const gallery = await mountGallery(container, "setup-memory-bank", "dark");
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("setup-memory-bank"));
+  const checks = (JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as SceneGeometry[])
+    .filter((check) => check.selector.startsWith("[data-bank-form]") && check.paddingLeft === undefined);
+  container.dataset["galleryGeometry"] = JSON.stringify(checks);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((element) => ({
+    maxWidth: element.classList.contains("max-w-[224px]") ? "224px" : "none",
+  }) as CSSStyleDeclaration);
+  for (const input of container.querySelectorAll("[data-bank-form] input")) {
+    vi.spyOn(input, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 200, 32));
+  }
+  expect(measureSceneGeometry()).toEqual([]);
 });

@@ -29,6 +29,6 @@ export const BankButton = ({ label, icon: Icon, reason, children, ...props }: Bu
 </Tooltip>;
 
 /** Field icons are decoration; the human label remains the accessible name. */
-export const BankField = ({ label, icon: Icon, children, wide = false }: { readonly label: string; readonly icon: LucideIcon; readonly children: ReactElement; readonly wide?: boolean }) => <div className={wide ? "max-w-[320px]" : "max-w-[224px]"}>
+export const BankField = ({ label, icon: Icon, children, wide = false }: { readonly label: string; readonly icon: LucideIcon; readonly children: ReactElement; readonly wide?: boolean }) => <div data-bank-field className={wide ? "max-w-[320px]" : "max-w-[224px]"}>
   <div className="flex items-start gap-2"><Icon aria-hidden="true" className="mt-1 size-4 shrink-0 text-ink-muted" /><Tooltip content={`${label} · Tab to focus, type to edit`}><div className="min-w-0 flex-1"><Field label={label}>{children}</Field></div></Tooltip></div>
 </div>;

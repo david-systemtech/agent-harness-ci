@@ -34,6 +34,7 @@ const OpenBank = () => {
 export async function bankScene(setup: boolean) {
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"],
+    ...(setup ? { setup: { "memory-bank": { state: "skipped" as const, reason: "No banks attached yet." } } } : {}),
     accounts: [{ id: "project", label: "Project" }], forges: { accounts: [{ origin: "https://git.example.test", kind: "forgejo", identity: { login: "member", userId: "42" } }] },
     sessions: [{ title: "Project work", repositoryIdentity: "https://git.example.test/project/workspace" }],
   }] }, { firstLaunch: setup, presentation: { settingsRow: "knowledge.banks" } });
