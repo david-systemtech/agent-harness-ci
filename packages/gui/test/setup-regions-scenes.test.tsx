@@ -28,6 +28,7 @@ it.each(["light", "dark"] as const)("shows four bounded setup regions in %s", as
       for (const heading of ["Load the extension", "Pair", "Sites you are developing", "Done"]) {
         expect(screen.getByRole("heading", { name: heading })).toBeDefined();
       }
+      expect(within(screen.getByRole("region", { name: "Browser" })).queryAllByRole("checkbox")).toHaveLength(0);
       expect(screen.getByRole("img", { name: "4. Done: complete" })).toBeDefined();
       expect(screen.getByRole("region", { name: "Using your browser" })).toBeDefined();
     }

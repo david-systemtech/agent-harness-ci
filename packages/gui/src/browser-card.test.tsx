@@ -46,6 +46,7 @@ describe("the Browser card in Set up", () => {
   it("shows the unpacked folder and exact walkthrough, copies it, and ticks Load on extension.seen", async () => {
     const { app, desk, status } = await opened();
     expect(await within(card()).findByText(status.folder.path)).toBeDefined();
+    expect(within(card()).queryAllByRole("checkbox")).toHaveLength(0);
     expect(within(card()).getByText("Open chrome://extensions. Turn on Developer mode. Click Load unpacked and choose this folder.")).toBeDefined();
     await app.user.click(within(card()).getByRole("button", { name: "Copy" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", status.folder.path]);
@@ -99,18 +100,18 @@ describe("the Browser card in Set up", () => {
 
   it("keeps persisted hosts on revisit and labels the tick as this visit's save acknowledgement", async () => {
     const { app } = await opened({ settings: { "browser.devSites": ["app.example.test"] } });
-    const savedThisVisit = () => within(card()).getByRole("checkbox", { name: "Sites saved this visit" }) as HTMLInputElement;
+    const savedThisVisit = () => within(card()).getByRole("img", { name: /3\. Sites you are developing:/ }).getAttribute("aria-label");
     const sites = await within(card()).findByRole("textbox", { name: "Sites you are developing" });
     expect((sites as HTMLTextAreaElement).value).toBe("app.example.test");
-    expect(savedThisVisit().checked).toBe(false);
+    expect(savedThisVisit()).toBe("3. Sites you are developing: pending");
     await app.user.click(within(card()).getByRole("button", { name: "Save sites" }));
-    await waitFor(() => expect(savedThisVisit().checked).toBe(true));
+    await waitFor(() => expect(savedThisVisit()).toBe("3. Sites you are developing: complete"));
     const steps = within(screen.getByRole("navigation", { name: "Set up steps" }));
     await app.user.click(steps.getByRole("button", { name: "Appearance" }));
     await app.user.click(steps.getByRole("button", { name: "Browser" }));
     const revisited = await within(card()).findByRole("textbox", { name: "Sites you are developing" });
     expect((revisited as HTMLTextAreaElement).value).toBe("app.example.test");
-    expect(savedThisVisit().checked).toBe(false);
+    expect(savedThisVisit()).toBe("3. Sites you are developing: pending");
   });
 
   it("Done reads the current reach and presets My Chrome only for accounts still at per-session, names them, then shows usage", async () => {

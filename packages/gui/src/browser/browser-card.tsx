@@ -1,9 +1,11 @@
 import { adminCall, uuidv7, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { PairedChrome, SetupTarget } from "@agent-harness/contracts";
-import { useMemo, useState } from "react";
+import { Save } from "lucide-react";
+import { useId, useMemo, useState } from "react";
 import { BrowserSubstep } from "./setup-substep.js";
 import { BrowserDone } from "./done.js";
-import { DevelopmentSites } from "./development-sites.js";
+import { useSettingsValues } from "../settings/settings-values.js";
+import { Button } from "../ui/index.js";
 import { BrowserPairingCode } from "./pairing-code.js";
 import { CopyLine } from "../settings/copy-line.js";
 import type { StepCardProps } from "../setup/cards.js";
@@ -70,10 +72,7 @@ export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another }
         {status.result?.listener.state === "listening" && <p>Listening on 127.0.0.1:{status.result.listener.port}.</p>}
         {status.result?.listener.state === "not-listening" && <p role="alert">{status.result.listener.message}</p>}
       </section>
-      <div data-browser-sites className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
-        <h3 aria-label="Sites you are developing" data-browser-substep className="flex items-center gap-2 text-xs font-medium"><span className="w-[18px] shrink-0 font-mono text-2xs text-ink-faint">3.</span>Sites you are developing</h3>
-        <DevelopmentSites environmentId={environmentId} />
-      </div>
+      <BrowserSites environmentId={environmentId} />
       <BrowserDone environmentId={accountsEnvironmentId} chromeEnvironmentId={environmentId} paired={paired} />
     </>
   );
@@ -90,4 +89,35 @@ const Pair = ({ environmentId, chromes }: { readonly environmentId: string; read
       {!completed && <BrowserPairingCode environmentId={environmentId} />}
     </>
   );
+};
+
+/** The walkthrough owns this visit's third tick; the persisted policy uses the shared settings hook. */
+const BrowserSites = ({ environmentId }: { readonly environmentId: string }) => {
+  const runtime = useRuntime();
+  const settings = useSettingsValues(environmentId);
+  const id = useId();
+  const [typed, setTyped] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [line, say] = useState<string>();
+  const writable = runtime.capability(environmentId, "settings.update").status === "present" && settings.values !== null;
+  const text = typed ?? (settings.values?.["browser.devSites"] as string[] | undefined)?.join("\n") ?? "";
+  const save = async () => {
+    setBusy(true);
+    const result = await settings.save("browser.devSites", text.split(/\r?\n/).map((host) => host.trim()).filter(Boolean));
+    say(result.ok ? "Development sites saved." : `Sites not saved: ${result.line}`);
+    if (result.ok) setSaved(true);
+    setBusy(false);
+  };
+  return <section aria-label="Sites you are developing" data-browser-sites className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
+    <BrowserSubstep number={3} label="Sites you are developing" complete={saved} />
+    <label htmlFor={id} className="text-2xs text-ink-muted">Sites you are developing</label>
+    <textarea id={id} rows={4} title="Sites you are developing · Tab, Enter for a new host" value={text} disabled={!writable || busy}
+      onChange={(event) => { setTyped(event.target.value); setSaved(false); }}
+      className="min-h-32 w-full rounded-lg border border-hairline-strong bg-inset px-3 py-2.5 font-mono text-xs text-ink focus-visible:border-beam focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-beam/50 disabled:opacity-50" />
+    <p className="text-2xs text-ink-muted">One host per line. Optional.</p>
+    <p className="text-2xs text-ink-muted">Loopback and private addresses count without being listed.</p>
+    <Button variant="outline" title="Save sites · Tab, Enter or Space" className="self-start" disabled={!writable || busy} onClick={() => void save()}><Save aria-hidden="true" />Save sites</Button>
+    {line !== undefined && <p role="status">{line}</p>}
+  </section>;
 };
