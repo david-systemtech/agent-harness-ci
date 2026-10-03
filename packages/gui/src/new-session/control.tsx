@@ -1,9 +1,11 @@
+import { MenuShortcut } from "../ui/menu.js";
+import { Plus, SquarePlus } from "lucide-react";
 import type { DragEvent, ReactNode } from "react";
 import { GRID_FULL, type SplitDirection } from "../grid/layout.js";
 import { usePaneGrid } from "../grid/grid.js";
-import { useKeyAction } from "../keys/key-dispatch.js";
+import { useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { useSettings } from "../settings/settings-window.js";
-import { Button, type ButtonProps } from "../ui/index.js";
+import { Button, MenuItem, Tooltip, type ButtonProps } from "../ui/index.js";
 import { useSurfaces, type NewSessionControl } from "./surfaces.js";
 import { OFF_GRID } from "./words.js";
 
@@ -96,9 +98,27 @@ export const HeaderNewSession = () => {
   const start = useStartNewSession();
   useKeyAction("app.session.new", () => start.here(HEADER_CONTROL));
   useKeyAction("app.session.newInPane", () => start.beside(grid.focused.id, "right", HEADER_CONTROL), grid.adding);
-  return (
-    <NewSessionButton control={HEADER_CONTROL} label="New session" className="h-7 px-2 text-xs">
-      New session
-    </NewSessionButton>
-  );
+  return null;
+};
+
+/** The menu keeps the draggable New session control and offers a new pane separately. */
+export const HeaderNewSessionItems = ({ select, onDragStart, onDragEnd }: { readonly select: (run: () => void) => void; readonly onDragStart: () => void; readonly onDragEnd: () => void }) => {
+  const grid = usePaneGrid();
+  const start = useStartNewSession();
+  const drag = useDragControl(HEADER_CONTROL);
+  const hereKeys = useFirstKey("app.session.new");
+  const paneKeys = useFirstKey("app.session.newInPane");
+  const absent = grid.adding.status === "absent" ? grid.adding.message : undefined;
+  return <>
+    <Tooltip content={["New session", hereKeys].filter(Boolean).join(" · ")}>
+      <MenuItem aria-label="New session" onSelect={() => select(() => start.here(HEADER_CONTROL))} {...drag} onDragStart={(event) => { onDragStart(); drag.onDragStart(event); }} onDragEnd={() => { drag.onDragEnd(); onDragEnd(); }}>
+        <Plus aria-hidden="true" />New session<MenuShortcut>{hereKeys}</MenuShortcut>
+      </MenuItem>
+    </Tooltip>
+    <Tooltip content={["New session in a new pane", paneKeys, absent].filter(Boolean).join(" · ")}>
+      <MenuItem aria-label="New session in a new pane" disabled={absent !== undefined} onSelect={() => select(() => start.beside(grid.focused.id, "right", HEADER_CONTROL))}>
+        <SquarePlus aria-hidden="true" /><span>New session in a new pane{absent !== undefined && <span className="block text-xs text-ink-faint">{absent}</span>}</span><MenuShortcut>{paneKeys}</MenuShortcut>
+      </MenuItem>
+    </Tooltip>
+  </>;
 };
