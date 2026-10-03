@@ -65,7 +65,7 @@ describe("the browser dock", () => {
   });
   it("replaces Reload with a named, tooltipped Stop while loading and restores Reload after Stop or completion", async () => {
     const app = await opened();
-    await app.user.click(screen.getByRole("button", { name: "Browser" }));
+    await chooseHeaderAction(app, "Browser");
     const dock = within(await screen.findByRole("region", { name: "Browser" }));
     await waitFor(() => expect(app.shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
     const loading = { url: "https://example.org/slow", canGoBack: true, canGoForward: false, loading: true };
