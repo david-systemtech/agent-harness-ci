@@ -99,7 +99,7 @@ describe("first launch", () => {
     expect(
       within(steps)
         .getAllByRole("button")
-        .map((step) => step.textContent),
+        .map((step) => step.getAttribute("aria-label")),
     ).toEqual(["Account", "Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions", "Appearance"]);
     expect(await within(steps).findByRole("img", { name: "Permissions: needs attention" })).toBeDefined();
     expect(within(steps).getByRole("img", { name: "Account: done" })).toBeDefined();
