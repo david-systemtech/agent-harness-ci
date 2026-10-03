@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { Plus } from "lucide-react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -21,7 +21,7 @@ import { Spinner, StatusDot, Skeleton } from "./feedback.js";
 import { CodeBlock } from "./code-block.js";
 import { Swatch } from "./swatch.js";
 import { mountGallery } from "../../gallery/mount.js";
-import { PrimitivesScene } from "../../gallery/scenes/primitives.js";
+import { PrimitivesScene, geometry as primitivesGeometry } from "../../gallery/scenes/primitives.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 
 describe("window controls", () => {
@@ -168,5 +168,11 @@ describe("window controls", () => {
     expect(document.documentElement.dataset["ladder"]).toBe(ladder);
     expect(screen.getByRole("heading", { name: "Window primitives" })).toBeTruthy();
     expect(container.dataset["galleryGeometry"]).toContain("input[data-geometry=input]");
+    const buttons = new Set<Element>(within(container).getAllByRole("button"));
+    for (const expectation of primitivesGeometry.filter((item) => item.selector.startsWith("button"))) {
+      const measured = [...container.querySelectorAll(expectation.selector)];
+      expect(measured.length).toBeGreaterThan(0);
+      expect(measured.every((element) => buttons.has(element))).toBe(true);
+    }
   });
 });

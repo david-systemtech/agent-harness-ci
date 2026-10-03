@@ -82,8 +82,8 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
 /** Measured control heights at the default 16px root; both ladders use the same geometry. */
 export const geometry = [
   { selector: "main[data-scene=primitives]", width: 1400, height: 900, tolerance: 0.1 },
-  ...([["xs", 24], ["sm", 28], ["default", 32], ["lg", 36]] as const).map(([size, height]) => ({ selector: `button[data-size="${size}"]`, height, tolerance: 0.1 })),
-  ...([["icon-xs", 24], ["icon-sm", 28], ["icon", 32], ["icon-lg", 36]] as const).map(([size, dimension]) => ({ selector: `button[data-size="${size}"]`, width: dimension, height: dimension, tolerance: 0.1 })),
+  ...([["xs", 24], ["sm", 28], ["default", 32], ["lg", 36]] as const).map(([size, height]) => ({ selector: `button[data-variant][data-size="${size}"]`, height, tolerance: 0.1 })),
+  ...([["icon-xs", 24], ["icon-sm", 28], ["icon", 32], ["icon-lg", 36]] as const).map(([size, dimension]) => ({ selector: `button[data-variant][data-size="${size}"]`, width: dimension, height: dimension, tolerance: 0.1 })),
   { selector: "input[data-geometry=input]", height: 32, tolerance: 0.1 },
   { selector: "[role=switch][data-size=default]", width: 32, height: 18.4, tolerance: 0.1 },
   { selector: "[role=switch][data-size=sm]", width: 24, height: 14, tolerance: 0.1 },
