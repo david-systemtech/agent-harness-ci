@@ -38,7 +38,7 @@ describe("the public release's packaged server smoke tests", () => {
     const body = job(hosted, "smoke-macos");
     expect(body).toContain("- name: Verify packaged macOS tunnel ownership");
     expect(body).toContain('"$server/node/bin/node" --input-type=module');
-    expect(body).toContain("packages/environment/dist/serve/interfaces.js");
+    expect(body).toContain("node_modules/@agent-harness/environment/dist/serve/interfaces.js");
     expect(body).toContain("tailscaleDetector");
     expect(body).toContain('"Stopped", "NeedsLogin"');
   });
