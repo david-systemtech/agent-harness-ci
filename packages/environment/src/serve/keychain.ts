@@ -37,7 +37,8 @@ interface KeyringModule {
     service: string,
     account: string,
   ) => {
-    getSecret(): Promise<Uint8Array | null | undefined>;
+    /** Native releases may answer a Uint8Array or a plain byte array; validate at this boundary. */
+    getSecret(): Promise<unknown>;
     setSecret(secret: Uint8Array): Promise<void>;
     deleteCredential(): Promise<boolean>;
   };
@@ -56,8 +57,20 @@ export const loadKeychainBinding = async (load: () => Promise<KeyringModule> = (
   const decoder = new TextDecoder("utf-8", { fatal: true });
   return {
     get: async (service, account) => {
-      const secret = await new AsyncEntry(service, account).getSecret();
-      return secret === null || secret === undefined ? undefined : decoder.decode(secret);
+      try {
+        const secret = await new AsyncEntry(service, account).getSecret();
+        if (secret === null || secret === undefined) return undefined;
+        if (secret instanceof Uint8Array) return decoder.decode(secret);
+        if (Array.isArray(secret) && Array.from(secret).every((byte: unknown) => typeof byte === "number" && Number.isInteger(byte) && byte >= 0 && byte <= 255)) {
+          return decoder.decode(Uint8Array.from(secret));
+        }
+        throw new Error("The keychain binding did not return bytes.");
+      } catch (cause) {
+        throw new Error(
+          `Could not read keychain entry "${account}" under service "${service}". Unlock your OS keychain and allow agent-harness to access this entry, then restart the environment. If it still fails, repair the entry in Keychain Access (macOS) or Credential Manager (Windows) without deleting the signing key.`,
+          { cause },
+        );
+      }
     },
     set: (service, account, value) => new AsyncEntry(service, account).setSecret(encoder.encode(value)),
     delete: async (service, account) => {
