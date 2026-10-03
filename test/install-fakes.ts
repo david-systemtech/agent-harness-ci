@@ -1,15 +1,15 @@
 /**
  * What the two install scripts' tests share (`install-script.test.ts` for
  * `install.sh`, `install-ps1-script.test.ts` for `install.ps1`): the forge's
- * and the environment's URLs, the token, a release as the forge's API lists
+ * and the environment's URLs, a fake inherited token, a public release as the API lists
  * it, and a fake `curl` that serves them. Nothing here touches the network.
  */
 import { chmodSync, writeFileSync } from "node:fs";
 
-export const FORGE = "https://git.systemtech.dev:5526";
-export const API = `${FORGE}/api/v1/repos/david/agent-harness/releases`;
-export const LIST = `${API}?limit=50`;
-export const DOWNLOAD = `${FORGE}/david/agent-harness/releases/download`;
+export const FORGE = "https://github.com";
+export const API = "https://api.github.com/repos/david-systemtech/agent-harness/releases";
+export const LIST = `${API}?per_page=50`;
+export const DOWNLOAD = `${FORGE}/david-systemtech/agent-harness/releases/download`;
 export const ENVIRONMENT = "http://127.0.0.1:7433";
 export const HEALTH = `${ENVIRONMENT}/health`;
 export const DISCOVERY = `${ENVIRONMENT}/.well-known/agent-harness/environment`;
@@ -21,7 +21,7 @@ export const write = (path: string, text: string, mode = 0o644) => {
 };
 
 /**
- * A fake curl: logs its URL; for the forge, checks the token arrives on stdin
+ * A fake curl: logs its URL; for the public release, refuses authentication
  * and serves the fake release, to `-o`'s file when given, else to stdout; for
  * the environment's own URLs, refuses the token and answers health and
  * discovery while the fake service runs, health failing to connect for its
@@ -29,17 +29,16 @@ export const write = (path: string, text: string, mode = 0o644) => {
  * and saying `starting` for its first FAKE_STARTING_PROBES. Its environment:
  * FAKE_LOG, the calls' log; FAKE_STATE, the fake service's folder (`running`, `probes`);
  * FAKE_RELEASES, the API's answers (`list.json`, `<tag>.json`); FAKE_ASSETS,
- * the downloads (`<tag>/<name>`); EXPECTED_TOKEN; FAKE_AUTH_POLICY.
+ * the downloads (`<tag>/<name>`); FAKE_RELEASE_ERROR; FAKE_AUTH_POLICY.
  */
 export const FAKE_CURL = `#!/bin/sh
 out=""
 url=""
-config=""
 with_config=0
 while [ $# -gt 0 ]; do
   case $1 in
     -o | --max-time) [ "$1" = -o ] && out=$2; shift 2 ;;
-    -K) config=$(cat); with_config=1; shift 2 ;;
+    -K) cat >/dev/null; with_config=1; shift 2 ;;
     -*) shift ;;
     *) url=$1; shift ;;
   esac
@@ -62,12 +61,10 @@ case $url in
     esac
     exit 0 ;;
 esac
-case $config in
-  *"Authorization: token $EXPECTED_TOKEN"*) ;;
-  *) echo "curl: (22) The requested URL returned error: 401" >&2; exit 22 ;;
-esac
+[ "$with_config" = 0 ] || { echo "curl: a credential was sent to a public release" >&2; exit 99; }
+[ -z "\${FAKE_RELEASE_ERROR:-}" ] || { echo "curl: (22) The requested URL returned error: $FAKE_RELEASE_ERROR" >&2; exit 22; }
 case $url in
-  *"/releases?limit=50") answer="$FAKE_RELEASES/list.json" ;;
+  *"/releases?per_page=50") answer="$FAKE_RELEASES/list.json" ;;
   */releases/tags/*) answer="$FAKE_RELEASES/\${url##*/}.json" ;;
   */releases/download/*) answer="$FAKE_ASSETS/\${url#*/releases/download/}" ;;
   *) echo "curl: (6) Could not resolve host" >&2; exit 6 ;;
