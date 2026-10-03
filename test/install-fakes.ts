@@ -64,6 +64,11 @@ esac
 [ "$with_config" = 0 ] || { echo "curl: a credential was sent to a public release" >&2; exit 99; }
 [ -z "\${FAKE_RELEASE_ERROR:-}" ] || { echo "curl: (22) The requested URL returned error: $FAKE_RELEASE_ERROR" >&2; exit 22; }
 case $url in
+  https://api.github.com/*)
+    [ -z "\${FAKE_API_ERROR:-}" ] || { echo "curl: (22) The requested URL returned error: $FAKE_API_ERROR" >&2; exit 22; } ;;
+esac
+case $url in
+  */releases/latest/download/release.json) answer="$FAKE_RELEASES/latest-manifest.json" ;;
   *"/releases?per_page=50") answer="$FAKE_RELEASES/list.json" ;;
   */releases/tags/*) answer="$FAKE_RELEASES/\${url##*/}.json" ;;
   */releases/download/*) answer="$FAKE_ASSETS/\${url#*/releases/download/}" ;;

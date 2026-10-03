@@ -57,6 +57,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 $ProductName = 'agent-harness'
 $ReleaseApi = 'https://api.github.com/repos/david-systemtech/agent-harness/releases'
+$PublicReleases = 'https://github.com/david-systemtech/agent-harness/releases'
 # The environment's port when none is given, and the address it answers on for this machine.
 $DefaultPort = '7433'
 $Loopback = '127.0.0.1'
@@ -289,6 +290,28 @@ function Test-Running([hashtable]$Cli) {
   try { return (($answer -join "`n") | ConvertFrom-Json).running -eq $true } catch { return $false }
 }
 
+# Public release assets remain available when the anonymous API cannot be read.
+# GitHub's latest asset redirect names the stable release; pins use their exact tag.
+# Beta selection still requires the API, since latest does not select prereleases.
+function Resolve-PublicManifest {
+  if (-not $Version -and $Channel -ne 'stable') { return $null }
+  if ($Version) { $url = "$PublicReleases/download/v$Version/release.json" }
+  else { $url = "$PublicReleases/latest/download/release.json" }
+  $text = Get-ForgeText $url 2>$null
+  if ($null -eq $text) { return $null }
+  try { $manifest = ConvertFrom-Json $text } catch { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
+  $resolved = [string]$manifest.version
+  if (-not (Test-ReleaseVersion $resolved) -or ($Version -and $resolved -cne $Version) -or (-not $Version -and ($resolved -split '\+', 2)[0].Contains('-'))) {
+    Stop-Install "invalid release version in the public manifest at ${url}; nothing was installed."
+  }
+  $entries = @($manifest.assets | Where-Object { [string]$_.name -ceq $asset })
+  if ($manifest.assets -isnot [Array] -or $entries.Count -ne 1 -or [string]$entries[0].sha256 -cnotmatch '^[0-9a-f]{64}\z' -or ($entries[0].size -isnot [int] -and $entries[0].size -isnot [long]) -or $entries[0].size -le 0) {
+    Stop-Install "public release manifest v$resolved has no valid ${asset}; nothing was installed."
+  }
+  $tag = "v$resolved"
+  return @{ Tag = $tag; Version = $resolved; AssetUrl = "$PublicReleases/download/$tag/$asset"; ChecksumUrl = "$PublicReleases/download/$tag/$asset.sha256" }
+}
+
 # Finds the release to install, the channel's newest or the one -Version names, and
 # answers its tag and version and the download URLs of the artefact and its digest.
 function Resolve-Release {
@@ -298,6 +321,8 @@ function Resolve-Release {
     $releaseUrl = "$api/tags/v$Version"
     $text = Get-ForgeText $releaseUrl
     if ($null -eq $text) {
+      $public = Resolve-PublicManifest
+      if ($null -ne $public) { return $public }
       Stop-Install "could not read release v$Version from ${releaseUrl}: no such public release is published, or GitHub could not be reached."
     }
     $release = Select-NewestRelease (ConvertFrom-Json $text) 'any'
@@ -305,7 +330,11 @@ function Resolve-Release {
   } else {
     $listing = "${api}?per_page=$ReleaseListLimit"
     $text = Get-ForgeText $listing
-    if ($null -eq $text) { Stop-Install "could not read the releases from $listing; check connectivity and the GitHub API rate limit." }
+    if ($null -eq $text) {
+      $public = Resolve-PublicManifest
+      if ($null -ne $public) { return $public }
+      Stop-Install "could not read the releases from $listing; check connectivity and the GitHub API rate limit."
+    }
     $listed = ConvertFrom-Json $text
     $release = Select-NewestRelease $listed $Channel
     if ($null -eq $release) { Stop-Install "no release is published on the $Channel channel." }
