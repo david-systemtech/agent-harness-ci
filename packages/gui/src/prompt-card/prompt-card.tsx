@@ -160,8 +160,12 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   };
   const deny = () => (prompt.kind === "question" ? settle({ kind: "answer", answer: { decision: "deny", ...noteOf(fields.note) } }) : choose(rows[0]));
   const dim = capability.status === "absent";
+  const permission = prompt.kind === "permission";
+  const pinnedDecision = permission || prompt.kind === "plan";
   const shownLine = line ?? (dim ? capability.message : undefined);
   const facts = [place, ttl].filter((fact) => fact !== undefined).join(" · ");
+
+  const request = <PromptBody prompt={prompt} fields={fields} setFields={setFields} />;
 
   return (
     <KeyContext context="permission">
@@ -173,7 +177,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
         tabIndex={-1}
         className={classes(
           "mx-3 flex max-h-[60vh] shrink-0 flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
-          prompt.kind === "plan" ? "overflow-hidden" : "overflow-y-auto",
+          pinnedDecision ? "overflow-hidden" : "overflow-y-auto",
           dim ? "border-line bg-panel text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
         )}
       >
@@ -191,10 +195,10 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
             }}>{collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}{collapsed ? "Show" : "Hide"}</Button>
           </PromptTooltip>
         </header>
-        <div id={bodyId} hidden={collapsed} className={classes(prompt.kind === "plan" && !collapsed && "flex min-h-0 flex-col")}>
-          <div className={classes("flex flex-col gap-2", prompt.kind === "plan" && "min-h-0")}>
-            <PromptBody prompt={prompt} fields={fields} setFields={setFields} />
-            <div className="flex shrink-0 flex-col gap-2">
+        <div id={bodyId} hidden={collapsed} className={classes(pinnedDecision && !collapsed && "flex min-h-0 flex-col")}>
+          <div className={classes("flex flex-col gap-2", pinnedDecision && "min-h-0")}>
+            {permission ? <div role="region" aria-label="Permission request" className="flex min-h-0 flex-col gap-2">{request}</div> : request}
+            <div role={permission ? "group" : undefined} aria-label={permission ? "Permission decision" : undefined} className="flex shrink-0 flex-col gap-2">
               <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
               <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
                 <Textarea
@@ -244,8 +248,8 @@ const PromptBody = ({ prompt, fields, setFields }: { readonly prompt: PromptOpen
   const input = inputText(prompt.input);
   return (
     <>
-      <p>{oneLine(prompt.summary, 300)}</p>
-      {prompt.reason !== null && <p className="text-amber">{oneLine(prompt.reason, 300)}</p>}
+      <p className="shrink-0">{oneLine(prompt.summary, 300)}</p>
+      {prompt.reason !== null && <p className="shrink-0 text-amber">{oneLine(prompt.reason, 300)}</p>}
       {prompt.blockedPath !== null && <p className="text-xs text-ink-muted">Path: {prompt.blockedPath}</p>}
       {prompt.agentId !== null && <p className="text-xs text-ink-muted">Asked by the subagent {prompt.agentId}</p>}
       {prompt.denylist !== null && prompt.denylist.length > 0 && (
@@ -256,7 +260,7 @@ const PromptBody = ({ prompt, fields, setFields }: { readonly prompt: PromptOpen
         </ul>
       )}
       {input !== undefined && (
-        <pre aria-label="Arguments" className="max-h-[224px] overflow-auto rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted">{input}</pre>
+        <pre aria-label="Arguments" className={classes("max-h-[224px] overflow-auto rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted", prompt.kind === "permission" && "min-h-0")}>{input}</pre>
       )}
     </>
   );
