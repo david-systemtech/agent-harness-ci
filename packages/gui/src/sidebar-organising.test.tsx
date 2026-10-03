@@ -23,7 +23,7 @@ import {
   inUtc,
   lineOf,
   region,
-  row,
+  row, rowWords,
   settled,
   sidebar,
   two,
@@ -55,7 +55,7 @@ const menuOf = async (app: RenderedApp, title: string) => {
 const offered = (menu: HTMLElement) =>
   within(menu)
     .getAllByRole("menuitem")
-    .map((item) => item.textContent);
+    .map((item) => { const copy = item.cloneNode(true) as HTMLElement; copy.querySelector("kbd")?.remove(); return copy.textContent; });
 
 /**
  * Chooses the item at the end of `path` in the row's context menu, through each submenu on the way by the keys (jsdom
@@ -100,7 +100,7 @@ describe("a row's context menu", () => {
     const app = await settled(await two());
     const release = app.environment("laptop").list.hold("sessions.pin");
     await choose(app, "Train tidy", "Pin");
-    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["▾ Pinned", "  Pinned one", "  Laptop pin", "  Train tidy ?2 ↻"]));
+    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["Pinned", "  Pinned one", "  Laptop pin", "  Train tidy 2 waiting Pending"]));
     expect(sent(app, "laptop", "sessions.pin")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN }]);
     release();
     await waitFor(() => expect(within(row("Train tidy")).queryByRole("img", { name: "Pending" })).toBeNull());
@@ -109,11 +109,11 @@ describe("a row's context menu", () => {
     await waitFor(() => expect(sent(app, "laptop", "sessions.unpin")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN }]));
 
     await choose(app, "Fix the rail", "Archive");
-    await waitFor(() => expect(drawn()).toContain("▸ Archive 2"));
+    await waitFor(() => expect(drawn()).toContain("Archive 2"));
     expect(sent(app, "desk", "sessions.archive")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: FIX }]);
 
     await choose(app, "Pinned one", "Settle");
-    await waitFor(() => expect(drawn()).toContain("▸ Settled 2"));
+    await waitFor(() => expect(drawn()).toContain("Settled 2"));
     expect(sent(app, "desk", "sessions.settle")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: PINNED }]);
     expect(app.environment("desk").summary(PINNED).settledAt).not.toBeNull();
   });
@@ -123,7 +123,7 @@ describe("a row's context menu", () => {
     await app.user.click(within(sidebar()).getByRole("button", { name: "Archive", expanded: false }));
     await choose(app, "Old thing", "Unarchive");
     await waitFor(() => expect(sent(app, "laptop", "sessions.unarchive")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: OLD }]));
-    await waitFor(() => expect(drawn()).not.toContain("▾ Archive"));
+    await waitFor(() => expect(drawn()).not.toContain("Archive"));
 
     await app.user.click(within(sidebar()).getByRole("button", { name: "Settled", expanded: false }));
     await choose(app, "Done", "Unsettle");
@@ -151,7 +151,9 @@ describe("a command the connection cannot send", () => {
     for (const name of ["Rename", "Pin", "Archive", "Settle", "Snooze", "Tags…", "Move to group", "Fork", "Delete…"]) {
       const item = within(menu).getByRole("menuitem", { name: new RegExp(`^${name}`) });
       expect(item.getAttribute("aria-disabled"), name).toBe("true");
-      expect(item.textContent, name).toBe(`${name}${reason}`);
+      const copy = item.cloneNode(true) as HTMLElement;
+      copy.querySelector("kbd")?.remove();
+      expect(copy.textContent, name).toBe(`${name}${reason}`);
     }
     await app.user.click(within(menu).getByRole("menuitem", { name: /^Pin/ }));
     expect(app.environment("laptop").requests("sessions.pin")).toEqual([]);
@@ -167,7 +169,7 @@ describe("while the environment cannot be reached", () => {
     await within(sidebar()).findByText("Unreachable since 00:00");
 
     await choose(app, "Train tidy", "Pin");
-    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["▾ Pinned", "  Pinned one", "  Laptop pin", "  Train tidy ?2 ↻"]));
+    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["Pinned", "  Pinned one", "  Laptop pin", "  Train tidy 2 waiting Pending"]));
     expect(within(sidebar()).getByText("1 pending")).toBeDefined();
 
     laptop.discovery("ready");
@@ -209,7 +211,7 @@ describe("Snooze", () => {
 
     await choose(app, "Train tidy", "Snooze", /^An hour/);
     await waitFor(() => expect(sent(app, "laptop", "sessions.snooze")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN, until: "2026-09-26T01:00:00.000Z" }]));
-    await waitFor(() => expect(within(region("Snoozed")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toContain("Train tidy 01:00 ?2"));
+    await waitFor(() => expect(within(region("Snoozed")).getAllByRole("listitem").map((line) => rowWords(line))).toContain("Train tidy 01:00 2 waiting"));
 
     await choose(app, "Later", "Wake now");
     await waitFor(() => expect(sent(app, "desk", "sessions.unsnooze")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: LATER }]));
@@ -276,13 +278,13 @@ describe("Move to group", () => {
     const [created] = sent(app, "laptop", "groups.create");
     expect(created).toEqual({ commandId: expect.stringMatching(UUIDV7), id: expect.any(String), name: "Ops" });
     expect(sent(app, "laptop", "sessions.setGroup")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN, groupId: created?.["id"] }]);
-    await waitFor(() => expect(within(region("Ops")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Fix the rail #wip", "Train tidy ?2"]));
+    await waitFor(() => expect(within(region("Ops")).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Fix the rail #wip", "Train tidy 2 waiting"]));
 
     await choose(app, "Spare", "Move to group", "New group…");
     const dialog = await screen.findByRole("dialog", { name: "Move “Spare” into a new group" });
     await app.user.type(within(dialog).getByRole("textbox", { name: "The group's name" }), "Receipts{Enter}");
     await waitFor(() => expect(sent(app, "desk", "groups.create")).toEqual([{ commandId: expect.stringMatching(UUIDV7), id: expect.any(String), name: "Receipts" }]));
-    await waitFor(() => expect(within(region("Receipts")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Spare"]));
+    await waitFor(() => expect(within(region("Receipts")).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Spare"]));
 
     await choose(app, "Brand copy", "Move to group", "No group");
     await waitFor(() => expect(sent(app, "desk", "sessions.setGroup").at(-1)).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: COPY, groupId: null }));
@@ -352,10 +354,10 @@ describe("a merged heading", () => {
     const field = within(sidebar()).getByRole("textbox", { name: "Rename the group “Meadowstudios”" });
     expect(document.activeElement).toBe(field);
     await app.user.keyboard("Brand work{Enter}");
-    await waitFor(() => expect(drawn()).toContain("▾ Brand work"));
+    await waitFor(() => expect(drawn()).toContain("Brand work"));
     expect(sent(app, "desk", "groups.rename")).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_DESK, name: "Brand work" }]);
     expect(sent(app, "laptop", "groups.rename")).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_LAPTOP, name: "Brand work" }]);
-    expect(within(region("Brand work")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Brand copy", "Brand on laptop"]);
+    expect(within(region("Brand work")).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Brand copy", "Brand on laptop"]);
   });
 
   it("is deleted, asked once, with one groups.delete per member group, its sessions staying in no group", async () => {
@@ -364,11 +366,11 @@ describe("a merged heading", () => {
     const dialog = await screen.findByRole("dialog", { name: "Delete the group “Meadowstudios”?" });
     expect(within(dialog).getByText("On desk and laptop. Its sessions stay, in no group.")).toBeDefined();
     await app.user.click(within(dialog).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(drawn()).not.toContain("▾ Meadowstudios"));
+    await waitFor(() => expect(drawn()).not.toContain("Meadowstudios"));
     expect(sent(app, "desk", "groups.delete")).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_DESK }]);
     expect(sent(app, "laptop", "groups.delete")).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_LAPTOP }]);
-    await waitFor(() => expect(within(region("desk")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toContain("Brand copy"));
-    expect(within(region("laptop")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toContain("Brand on laptop");
+    await waitFor(() => expect(within(region("desk")).getAllByRole("listitem").map((line) => rowWords(line))).toContain("Brand copy"));
+    expect(within(region("laptop")).getAllByRole("listitem").map((line) => rowWords(line))).toContain("Brand on laptop");
   });
 });
 
@@ -385,20 +387,20 @@ describe("dragging", () => {
     const app = await settled(await two());
     const release = app.environment("laptop").list.hold("sessions.reorderPinned");
     expect(drag(row("Laptop pin"), lineOf("Pinned one"))).toBe(true);
-    await waitFor(() => expect(drawn().slice(0, 3)).toEqual(["▾ Pinned", "  Laptop pin ↻", "  Pinned one"]));
+    await waitFor(() => expect(drawn().slice(0, 3)).toEqual(["Pinned", "  Laptop pin Pending", "  Pinned one"]));
     const [move] = sent(app, "laptop", "sessions.reorderPinned");
     expect(sent(app, "laptop", "sessions.reorderPinned")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: LPIN, orderKey: expect.any(String) }]);
     expect(String(move?.["orderKey"]) < "m").toBe(true);
     expect(sent(app, "desk", "sessions.reorderPinned")).toEqual([]);
     release();
-    await waitFor(() => expect(drawn().slice(0, 3)).toEqual(["▾ Pinned", "  Laptop pin", "  Pinned one"]));
+    await waitFor(() => expect(drawn().slice(0, 3)).toEqual(["Pinned", "  Laptop pin", "  Pinned one"]));
   });
 
   it("among a heading's active sessions sends sessions.reorderActive, the keys spread when the neighbours have none", async () => {
     const app = await settled(await two());
     // Both are in activity order, with no key: the heading's keys are spread, one command per session.
     expect(drag(row("Spare"), lineOf("Fix the rail"))).toBe(true);
-    await waitFor(() => expect(within(region("desk")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Spare", "Fix the rail #wip"]));
+    await waitFor(() => expect(within(region("desk")).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Spare", "Fix the rail #wip"]));
     const moves = sent(app, "desk", "sessions.reorderActive");
     expect(moves.map((move) => move["sessionId"])).toEqual([SPARE, FIX]);
     expect(moves.every((move) => UUIDV7.test(String(move["commandId"])))).toBe(true);
@@ -412,11 +414,11 @@ describe("dragging", () => {
 
     expect(drag(row("Fix the rail"), lineOf("Pinned one"))).toBe(true);
     await waitFor(() => expect(sent(app, "desk", "sessions.pin")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: FIX, orderKey: expect.any(String) }]));
-    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["▾ Pinned", "  Fix the rail #wip", "  Pinned one", "  Laptop pin"]));
+    await waitFor(() => expect(drawn().slice(0, 4)).toEqual(["Pinned", "  Fix the rail #wip", "  Pinned one", "  Laptop pin"]));
 
     expect(drag(row("Train tidy"), heading("Pinned"))).toBe(true);
     await waitFor(() => expect(sent(app, "laptop", "sessions.pin")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN }]));
-    await waitFor(() => expect(drawn().slice(0, 5)).toEqual(["▾ Pinned", "  Fix the rail #wip", "  Pinned one", "  Laptop pin", "  Train tidy ?2"]));
+    await waitFor(() => expect(drawn().slice(0, 5)).toEqual(["Pinned", "  Fix the rail #wip", "  Pinned one", "  Laptop pin", "  Train tidy 2 waiting"]));
   });
 
   it("onto the pinned block while nothing is pinned: it stands empty at the top while a session is dragged", async () => {
@@ -435,7 +437,7 @@ describe("dragging", () => {
     fireEvent.drop(zone, { dataTransfer: carried });
     fireEvent.dragEnd(loose, { dataTransfer: carried });
     await waitFor(() => expect(desk.requests("sessions.pin").map((frame) => frame.params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: desk.sessionId(0) }]));
-    await waitFor(() => expect(drawn().slice(0, 2)).toEqual(["▾ Pinned", "  Loose"]));
+    await waitFor(() => expect(drawn().slice(0, 2)).toEqual(["Pinned", "  Loose"]));
   });
 
   it("is refused on a shelf, on another environment's heading and in a filtered list, with the reason, and nothing is sent", async () => {
