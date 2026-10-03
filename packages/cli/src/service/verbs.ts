@@ -122,7 +122,7 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
   let installed: InstalledDefinition | undefined;
   try {
     if (unpacked !== undefined) {
-      placed = placeVersion(dataDir, unpacked);
+      placed = placeVersion(dataDir, unpacked, undefined, installContext.platform);
       undo.push(placed.undo);
       undo.push(nameVersion(dataDir, placed.version));
     }

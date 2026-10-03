@@ -21,6 +21,8 @@ const done = {
   actions: [],
   checkedAt: "2026-09-25T08:00:00.000Z",
 };
+export const pendingRead = { ...done, state: "pending", reason: "Waiting for the first release channel read." };
+
 const needsAttention = {
   step: "permissions",
   state: "needs-attention",
@@ -91,10 +93,11 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       { action: "sign-in-again", kind: "account", id: "account-work" },
     ],
   },
-  "setup/step-state.json": { valid: ["done", "needs-attention", "skipped"], invalid: ["needs attention", "pending", ""] },
+  "setup/step-state.json": { valid: ["done", "needs-attention", "skipped", "pending"], invalid: ["needs attention", "checking", ""] },
   "setup/step-result.json": {
     valid: [
       done,
+      pendingRead,
       needsAttention,
       timedOut,
       skipped,
@@ -122,7 +125,7 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       { ...timedOut, lastGood: { ...timedOut.lastGood, reason: "" } },
       { ...timedOut, lastGood: "The environment runs as a non-root user." },
       { ...done, reason: "" },
-      { ...done, state: "pending" },
+      { ...done, state: "checking" },
       { ...done, checkedAt: "yesterday" },
       { ...done, step: "housekeeping" },
       { state: "done", reason: "x", failing: [], actions: [], checkedAt: "2026-09-25T08:00:00.000Z" },
@@ -131,11 +134,11 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
   "setup/step-results.json": {
     valid: [
       [],
-      [done, needsAttention, signedOutResult],
+      [done, needsAttention, signedOutResult, pendingRead],
       // A step past the milestone-1 order, a later milestone's: passed over whatever it holds, the rest read (#693).
       [done, { ...done, step: "housekeeping" }, { step: "housekeeping", state: "idle" }],
     ],
-    invalid: [done, [{ ...done, state: "pending" }], [done, { ...done, step: "" }], [{ ...done, step: "Housekeeping" }], [{ state: "done", reason: "x", failing: [], actions: [], checkedAt: done.checkedAt }]],
+    invalid: [done, [{ ...done, state: "checking" }], [done, { ...done, step: "" }], [{ ...done, step: "Housekeeping" }], [{ state: "done", reason: "x", failing: [], actions: [], checkedAt: done.checkedAt }]],
   },
   "setup/prompt-variant.json": {
     valid: ["first", "revise"],

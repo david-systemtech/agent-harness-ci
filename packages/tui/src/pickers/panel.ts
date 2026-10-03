@@ -294,7 +294,7 @@ const setupStepSpan = (step: SetupStepView, now: Date): Span => {
   if (state === undefined) return { text: `${step.label}: ${stepLine(step, now)}`, dim: true };
   const attention = state === "needs-attention";
   return {
-    text: `${attention ? "!" : state === "done" ? "●" : "○"} ${step.label}: ${STEP_STATE_WORDS[state]}${attention || step.pending || step.result?.stale || step.result?.olderThanCadence ? ` — ${stepLine(step, now)}` : ""}`,
+    text: `${attention ? "!" : state === "done" ? "●" : "○"} ${step.label}: ${STEP_STATE_WORDS[state]}${attention || state === "pending" || step.pending || step.result?.stale || step.result?.olderThanCadence ? ` — ${stepLine(step, now)}` : ""}`,
     dim: state === "skipped",
     ...(attention && { color: TERMINAL_ROLES.warning }),
   };

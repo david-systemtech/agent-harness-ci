@@ -32,6 +32,7 @@ import {
   type StartupStep,
   type UserCheck,
 } from "../index.js";
+import { loadKeychainBinding } from "./keychain.js";
 import { presetColour } from "../look/look.js";
 
 const posix = process.platform !== "win32";
@@ -317,6 +318,26 @@ describe("binding and the Host check", () => {
 });
 
 describe("the environment record and the signing key", () => {
+  it("explains how to recover when the keychain cannot be read at the identity step", async () => {
+    class Entry {
+      getSecret = async (): Promise<never> => { throw new Error("The keychain is locked."); };
+      setSecret = async () => undefined;
+      deleteCredential = async () => false;
+    }
+    const binding = await loadKeychainBinding(async () => ({ AsyncEntry: Entry }));
+    await expect(start({
+      vault: {
+        get: (key) => binding.get("service-for-tests", key),
+        set: (key, value) => binding.set("service-for-tests", key, value),
+        delete: (key) => binding.delete("service-for-tests", key),
+        keys: async () => [SIGNING_KEY],
+      },
+    })).rejects.toMatchObject({
+      step: "identity",
+      message: `Startup failed at the identity step: Could not read keychain entry "${SIGNING_KEY}" under service "service-for-tests". Unlock your OS keychain and allow agent-harness to access this entry, then restart the environment. If it still fails, repair the entry in Keychain Access (macOS) or Credential Manager (Windows) without deleting the signing key.`,
+    });
+  });
+
   it("are written on first start and kept by a restart on the same directory", async () => {
     const dataDir = join(tempDir(), "data");
     const first = await start({ dataDir, name: "first" });

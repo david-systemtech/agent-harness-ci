@@ -20,13 +20,16 @@ import { unenforceable } from "./containment.js";
  */
 
 /**
- * A state check's answer: it holds, or the sentence saying what does not
+ * A state check's answer: it holds (optionally with its own line), is pending a scheduled read, or the sentence saying what does not
  * and, where its actions apply to particular items, those items, each with
  * the action it serves (#568): the accounts Sign in again opens, the
  * sources Pull now pulls. A target for an action the check does not offer
  * is not carried.
  */
-export type StateCheckAnswer = true | { readonly reason: string; readonly targets?: readonly SetupTarget[] };
+export type StateCheckAnswer =
+  | true
+  | { readonly holds: true; readonly reason: string; readonly pending?: never; readonly targets?: never }
+  | { readonly holds?: false; readonly reason: string; readonly pending?: true; readonly targets?: readonly SetupTarget[] };
 
 /**
  * What a person can do on Linux about a containment level the probe refused:

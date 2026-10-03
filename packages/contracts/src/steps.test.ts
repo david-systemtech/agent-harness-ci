@@ -269,7 +269,7 @@ describe("the step registry", () => {
 
   it("links the Carry over entry to the Skills and Memory banks rows, with the local budget and the hour, re-run on account.updated, carry-over.imported and state-import.finished", () => {
     expect(carryOver.links).toEqual([{ row: "knowledge.skills" }, { row: "knowledge.banks" }]);
-    expect(carryOver).toMatchObject({ budget: "local", cadence: { minutes: 60 }, triggers: ["account.updated", "carry-over.imported", "state-import.finished"] });
+    expect(carryOver).toMatchObject({ budget: "local", cadence: { minutes: 60 }, triggers: ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed"] });
   });
 
   it("may skip Carry over, skipped when carry-over.present finds nothing to carry and no source folder, then checks every adopted directory readable and the last import finished", () => {
@@ -282,6 +282,7 @@ describe("the step registry", () => {
       },
       { id: "carry-over.readable", holds: "Every adopted account's directory can be read.", actions: ["check-again"] },
       { id: "carry-over.last-import", holds: "Every adopted account with something to carry has been imported, and its last import finished.", actions: ["import-again"] },
+      { id: "carry-over.default-account", holds: "No imported default Account is waiting for sign-in.", actions: ["sign-in-again"] },
     ]);
   });
 
@@ -718,7 +719,7 @@ describe("the step registry", () => {
   it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Skills on skills.updated, Instructions on its own events and every registry its orientation block reads, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
-      ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished"]],
+      ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed"]],
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
       ["forges", ["forge.account.*", "tools.updated"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],

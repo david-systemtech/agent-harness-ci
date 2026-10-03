@@ -21,6 +21,8 @@ const addresses: Fixtures = {
  * loopback with a Tailscale address found since the start (#861), and an environment that predates `tailnetFound`.
  */
 export const validBindings = [
+  { tailnet: null, tailnetFound: null, tailscaleInstalled: true, lan: null, lanAddresses: [] },
+  { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: [] },
   { tailnet: { address: "100.101.102.103", name: "desk.tail1234.ts.net" }, tailnetFound: null, lan: "192.168.1.20", lanAddresses: ["192.168.1.20", "fd00::20"] },
   { tailnet: { address: "100.101.102.103", name: null }, tailnetFound: null, lan: null, lanAddresses: [] },
   { tailnet: null, tailnetFound: null, lan: null, lanAddresses: ["192.168.1.20"] },
@@ -29,6 +31,7 @@ export const validBindings = [
 ];
 
 export const invalidBindings = [
+  { tailnet: null, tailscaleInstalled: "yes", lan: null, lanAddresses: [] },
   {},
   { tailnet: null, lan: null },
   { tailnet: { address: "100.101.102.103" }, lan: null, lanAddresses: [] },

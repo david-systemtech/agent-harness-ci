@@ -55,6 +55,29 @@ const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
   return app;
 };
 
+it("shows a pending scheduled read as neutral checking and leaves it out of the header attention count", async () => {
+  const app = await firstLaunch({ capabilities: ["setup"], setup: onlySteps({
+    "your-machines": { state: "pending", reason: "Waiting for the first release channel read." },
+    permissions: { state: "needs-attention", reason: "Containment is unavailable." },
+  }) });
+  const dot = await within(steps()).findByRole("img", { name: "Your machines: checking" });
+  expect(dot.className).toContain("bg-ink-faint");
+  await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+  expect(await screen.findByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" })).toBeDefined();
+  const pane = await setupPane(app);
+  expect(await within(pane).findByText("0 done, 1 needs attention, 0 skipped, 1 checking")).toBeDefined();
+});
+
+it("counts a bank awaiting owner review as done and shows its review URL in the step's line", async () => {
+  const reason = "team-memory is landed and awaiting your review: https://git.example.test/team/memory/pulls/7.";
+  const app = await firstLaunch({ capabilities: ["setup"], setup: onlySteps({ "memory-bank": { state: "done", reason } }) });
+  expect(await within(steps()).findByRole("img", { name: "Memory bank: done" })).toBeDefined();
+  await app.user.click(within(steps()).getByRole("button", { name: "Memory bank" }));
+  expect(await within(checklist() as HTMLElement).findByText(reason)).toBeDefined();
+  await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+  expect(await within(await setupPane(app)).findByText("1 done, 0 need attention, 0 skipped")).toBeDefined();
+});
+
 describe("the first-launch mark", () => {
   it("is set by closing Set up, so the next launch opens on the window, and the Set up pane's Open the full checklist brings it back", async () => {
     const app = await firstLaunch();

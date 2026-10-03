@@ -122,18 +122,18 @@ const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
     `set "LOG=%DATA_DIR%\\${LOG_DIRECTORY}\\${LOG_FILE}"`,
     ":start",
     'set "VERSION="',
-    // findstr reads the file itself, so a line holding a quote or an ampersand is refused before cmd ever expands it.
-    `if exist "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" >nul && goto no_version`,
+    // Search for forbidden characters before cmd expands a value. Avoid /x and $, which reject LF-only files.
+    `if exist "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" findstr /r "[^0-9A-Za-z.+-]" "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" >nul && goto no_version`,
     `if exist "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" for /f "usebackq delims=" %%V in ("%DATA_DIR%\\${LAUNCHER_VERSION_FILE}") do if not defined VERSION set "VERSION=%%V"`,
     "if not defined VERSION goto no_version",
     'set "FROM="',
     'set "TO="',
     // The same check keeps a handover record with any other line from being read at all.
-    `if exist "%DATA_DIR%\\${HANDOVER_FILE}" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\\${HANDOVER_FILE}" >nul || for /f "usebackq delims=" %%L in ("%DATA_DIR%\\${HANDOVER_FILE}") do if not defined FROM (set "FROM=%%L") else if not defined TO set "TO=%%L"`,
+    `if exist "%DATA_DIR%\\${HANDOVER_FILE}" findstr /r "[^0-9A-Za-z.+-]" "%DATA_DIR%\\${HANDOVER_FILE}" >nul || for /f "usebackq delims=" %%L in ("%DATA_DIR%\\${HANDOVER_FILE}") do if not defined FROM (set "FROM=%%L") else if not defined TO set "TO=%%L"`,
     "if not defined TO goto run",
     'if not "%TO%"=="%VERSION%" goto run',
     'set "STARTS=0"',
-    `if exist "%DATA_DIR%\\${HANDOVER_STARTS_FILE}" findstr /r /v /x "[0-9]*" "%DATA_DIR%\\${HANDOVER_STARTS_FILE}" >nul || for /f "usebackq delims=" %%N in ("%DATA_DIR%\\${HANDOVER_STARTS_FILE}") do set /a "STARTS=%%N"`,
+    `if exist "%DATA_DIR%\\${HANDOVER_STARTS_FILE}" findstr /r "[^0-9]" "%DATA_DIR%\\${HANDOVER_STARTS_FILE}" >nul || for /f "usebackq delims=" %%N in ("%DATA_DIR%\\${HANDOVER_STARTS_FILE}") do set /a "STARTS=%%N"`,
     `if %STARTS% GEQ ${UNCONFIRMED_STARTS} goto fall_back`,
     'set /a "STARTS+=1"',
     ...replace(HANDOVER_STARTS_FILE, "%STARTS%"),

@@ -48,13 +48,13 @@ const unreachableWords = (since: string): string => `Unreachable since ${clockTi
  * it is ready, or reached and catching its list up, which the list's
  * freshness says.
  */
-export const phaseWords = (view: EnvironmentView, starting: boolean): string | undefined => {
+export const phaseWords = (view: EnvironmentView, starting: boolean, installing = false): string | undefined => {
   switch (view.phase) {
     case "ready":
     case "syncing":
       return undefined;
     case "service-down":
-      return starting ? "Starting…" : "Not running";
+      return installing ? "Installing the environment (first start only)…" : starting ? "Starting…" : "Not running";
     case "starting":
       return "Starting…";
     case "connecting":
@@ -72,13 +72,13 @@ export const phaseWords = (view: EnvironmentView, starting: boolean): string | u
 };
 
 /** The phase as a sentence, where the window waits on the environment. */
-export const phaseSentence = (view: EnvironmentView, starting: boolean): string => {
+export const phaseSentence = (view: EnvironmentView, starting: boolean, installing = false): string => {
   const subject = subjectOf(view);
   switch (view.phase) {
     case "ready":
       return `${subject} is ready.`;
     case "service-down":
-      return starting ? "Starting the environment on this machine…" : `${subject} is not running.`;
+      return installing ? "Installing the environment (first start only)…" : starting ? "Starting the environment on this machine…" : `${subject} is not running.`;
     case "starting":
       return `${subject} is starting…`;
     case "connecting":

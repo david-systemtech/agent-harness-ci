@@ -95,7 +95,7 @@ export const readTranscriptOpening = async (path: string): Promise<Opening> => {
  * every project folder's `<id>.jsonl`, and of a session in two folders the
  * one last written, the copy the SDK lists.
  */
-const transcriptPaths = async (directory: string): Promise<ReadonlyMap<string, string>> => {
+export const transcriptPaths = async (directory: string): Promise<ReadonlyMap<string, string>> => {
   const projects = join(directory, "projects");
   const paths = new Map<string, { readonly path: string; readonly written: number }>();
   const folders = await readdir(projects, { withFileTypes: true }).catch(() => []);

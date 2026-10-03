@@ -1,3 +1,4 @@
+import { selectSharedSources } from "../state-import/shared-sources.js";
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
@@ -72,6 +73,7 @@ import {
  */
 
 export interface CarryOverOptions {
+  readonly sharedSources?: () => readonly { readonly sourceId: string; readonly directory: string }[];
   readonly log: EventLog;
   readonly coordinator: ImportCoordinator;
   readonly stateImportInventory?: () => Promise<StateImportAccountInventories>;
@@ -109,6 +111,8 @@ interface Planned {
 
 /** Only the state import may hand in a validated, listed source. This is never a wire parameter. */
 export interface CarryOverSource {
+  readonly excludedSessions?: readonly string[];
+  readonly excludedMemory?: readonly string[];
   readonly directory: string;
   readonly sourceKey: string;
   readonly importId: string;
@@ -211,10 +215,13 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
     }
     importing.add(accountId);
     const prepared = async (): Promise<MethodHandler<"carryOver.run">> => {
+      const selection = importedSource ?? (source.adapter.descriptor.provider === "claude" && options.sharedSources !== undefined
+        ? (await selectSharedSources(options.sharedSources(), (directory) => listed({ ...source, account: { ...source.account, directory } }))).sources.find((entry) => entry.directory === source.directory)
+        : undefined);
       const failed: CarryOverFailure[] = [];
       let sessions: ProviderSessionInfo[] = [];
       try {
-        sessions = await listed(source);
+        sessions = (await listed(source)).filter((session) => !selection?.excludedSessions?.includes(session.providerSessionId));
       } catch (error) {
         if (error instanceof ContractError) throw error;
         failed.push({ providerSessionId: null, message: listingFailed(source.account, error) });
@@ -235,7 +242,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
         else planned.push({ session, directory });
       }
       // The memory, copied now (a dry run's said), outside the transaction: a copy the command then fails is kept, and found held next time.
-      const mapped = await memory.map(accountId, source.directory);
+      const mapped = await memory.map(accountId, source.directory, selection?.excludedMemory);
       const copies = await memory.copy(mapped.mapped, dryRun);
       const memoryReport: CarryOverMemoryImported = { folders: [...copies.folders], unmappable: [...mapped.unmappable] };
       failed.push(...mapped.failed, ...copies.failed);

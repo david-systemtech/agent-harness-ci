@@ -27,6 +27,7 @@ export const StateImportResult = ({ report, clientLocalApplied }: { readonly rep
   return (
     <section aria-label="State import result" className="flex flex-col gap-2 text-sm text-ink">
       <h4 className="font-semibold">{report.dryRun ? "Dry run report" : "Import report"}</h4>
+      {(report.sharedProjects ?? []).map((source) => <p key={source.sourceId}>{source.sourceId} shares a projects folder with {source.ownerSourceId}. Sessions and memory carry once, under the first source in source-id order.</p>)}
       <h5 className="font-semibold">Carried</h5>
       {report.dryRun && <p className="text-ink-muted">These counts show what an import would carry. Nothing was written.</p>}
       {CARRIED_ROWS.map(([kind, label]) => <p key={kind}>{label}: {report.carried[kind]}</p>)}

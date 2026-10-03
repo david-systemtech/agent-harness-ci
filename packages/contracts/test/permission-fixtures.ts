@@ -57,6 +57,8 @@ const sudoEntry = { id: "preset:sudo *", pattern: "sudo *", note: "Runs a comman
 const domainEntry = { id: "preset:*.paypal.com", pattern: "*.paypal.com", note: "Payments.", preset: true, enabled: true };
 const hostEntry = { id: "metadata", pattern: "169.254.169.254", note: "", preset: false, enabled: false };
 const denylist = { browserDomains: [domainEntry], paths: [sshEntry], commandPatterns: [sudoEntry], hosts: [hostEntry] };
+const windowsPaths = ["C:/", String.raw`C:\Users\tester\AppData\Local\agent-harness`, String.raw`~\.ssh`, String.raw`C:/projects\**/secret?.txt`];
+const refusedWindowsPaths = ["C:", "C:relative", String.raw`\\server\share`, "//server/share", String.raw`\\?\C:\keys`, String.raw`\\.\pipe\keys`, String.raw`~tester\.ssh`, "C:/keys\0secret"];
 const sshMatch = { section: "paths", entry: sshEntry, matched: "~/.ssh/id_rsa" };
 const denylistPrompt = {
   ...openedPrompt,
@@ -299,8 +301,9 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...sshEntry, id: "" }, { ...sshEntry, pattern: "" }, { ...sshEntry, enabled: "yes" }, { id: "x", pattern: "~/.ssh" }],
   },
   "permissions/denylist.json": {
-    valid: [denylist, { browserDomains: [], paths: [], commandPatterns: [], hosts: [] }, { ...denylist, hosts: [{ ...hostEntry, pattern: "*.internal.example" }, { ...hostEntry, pattern: "::1" }] }],
+    valid: [...windowsPaths.map((pattern) => ({ ...denylist, paths: [{ ...sshEntry, pattern }] })), denylist, { browserDomains: [], paths: [], commandPatterns: [], hosts: [] }, { ...denylist, hosts: [{ ...hostEntry, pattern: "*.internal.example" }, { ...hostEntry, pattern: "::1" }] }],
     invalid: [
+      ...refusedWindowsPaths.map((pattern) => ({ ...denylist, paths: [{ ...sshEntry, pattern }] })),
       { ...denylist, hosts: undefined },
       { ...denylist, paths: [{ ...sshEntry, pattern: ".ssh" }] },
       { ...denylist, paths: [{ ...sshEntry, pattern: "~root/.ssh" }] },
@@ -310,8 +313,8 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "permissions/denylist-input.json": {
-    valid: [{ paths: [{ pattern: "/etc/shadow" }, { id: "preset:~/.ssh", pattern: "~/.ssh", note: "Keys", enabled: false }] }, { hosts: [] }, denylist],
-    invalid: [{}, { paths: [{ id: "x" }] }, { paths: [{ pattern: "relative" }] }, { hosts: [{ pattern: "*" }] }, { commandPatterns: [{ pattern: "" }] }],
+    valid: [...windowsPaths.map((pattern) => ({ paths: [{ pattern }] })), { paths: [{ pattern: "/etc/shadow" }, { id: "preset:~/.ssh", pattern: "~/.ssh", note: "Keys", enabled: false }] }, { hosts: [] }, denylist],
+    invalid: [...refusedWindowsPaths.map((pattern) => ({ paths: [{ pattern }] })), {}, { paths: [{ id: "x" }] }, { paths: [{ pattern: "relative" }] }, { hosts: [{ pattern: "*" }] }, { commandPatterns: [{ pattern: "" }] }],
   },
   "permissions/denylist-match.json": {
     valid: [sshMatch, { section: "commandPatterns", entry: sudoEntry, matched: "sudo apt install jq" }],

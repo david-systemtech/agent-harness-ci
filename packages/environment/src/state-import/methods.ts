@@ -1,3 +1,5 @@
+import type { reconcileImportedSessions } from "../sessions/import-dedupe.js";
+import { selectSharedSources } from "./shared-sources.js";
 import { BANK_REGISTRY_LABEL } from "./banks.js";
 import type { BankService } from "../banks/bank-service.js";
 import { planOrganisation, type OrganisationOwners } from "./organisation.js";
@@ -59,6 +61,7 @@ export interface StateImportOptions extends OrganisationOwners, Omit<PlanSkillsO
   readonly accounts: AccountService;
   readonly banks: BankService;
   readonly carryOver: CarryOverService;
+  readonly reconcileSessions: ReturnType<typeof reconcileImportedSessions>;
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
   /** The Instructions service's create command, which carries each instruction. */
   readonly createInstruction: MethodHandler<"instructions.create">;
@@ -70,7 +73,7 @@ export interface StateImportOptions extends OrganisationOwners, Omit<PlanSkillsO
 }
 
 /** The report as `state-import.finished` carries it: without what only the client that asked is answered. */
-const finishedPayload = ({ carried, reEnter, later, notCarried, failed }: StateImportReport): StateImportFinishedPayload => ({ carried, reEnter, later, notCarried, failed });
+const finishedPayload = ({ carried, sharedProjects, reEnter, later, notCarried, failed }: StateImportReport): StateImportFinishedPayload => ({ carried, ...(sharedProjects !== undefined && { sharedProjects }), reEnter, later, notCarried, failed });
 
 export const stateImportMethods = (options: StateImportOptions): MethodHandlers => {
   const { machine, log, coordinator, hooks } = options;
@@ -109,12 +112,15 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           repairs: (preview: boolean) => [...credentials.repairs(preview), ...(planned.repairs?.(preview) ?? [])],
         };
         const organisationStores = await readOrganisationStores(dataFolder?.path ?? null, terminalFolder?.path ?? null);
-        const listed = (await Promise.all(directoriesOf(combined).map(async (entry) => {
+        const shared = await selectSharedSources(directoriesOf(combined), options.listSessions);
+        const sharedProjects = shared.sources.flatMap((source) => source.sharedProjectsWith === undefined ? [] : [{ sourceId: source.sourceId, ownerSourceId: source.sharedProjectsWith }]);
+        const listed = shared.sources.flatMap((entry) => {
           const accountId = combined.accountIds?.get(entry.sourceId);
           if (accountId === undefined) return [];
-          try { return (await options.listSessions(entry.directory)).map((session) => ({ accountId, profileId: entry.sourceId, session })); }
-          catch { return []; } // Carry over owns listing failures and their repair diagnostics.
-        }))).flat();
+          return entry.sessions.map((session) => ({ accountId, profileId: entry.sourceId, session,
+            ownerSourceId: shared.sharedSessions.find((group) => group.providerSessionId === session.providerSessionId && group.sourceIds.includes(entry.sourceId))?.ownerSourceId ?? entry.sourceId,
+          }));
+        });
         const withOrganisation: ImportPlan = {
           ...combined,
           stores: [...combined.stores, ...organisationStores.flatMap((store) => store.read.status === "read" ? [{ snapshot: store.read.snapshot, label: store.label, items: [], dependencies: [
@@ -130,13 +136,13 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           }));
           return planOrganisation(organisationStores.filter((store) => plan.stores.some((s) => s.snapshot === store.read.snapshot)), { ...options, sourceKey: plan.sourceKey, accountIds, listed: listed.flatMap((entry) => {
             const accountId = directoriesOf(plan).some((source) => source.sourceId === entry.profileId) ? accountIds.get(entry.profileId) : undefined;
-            return accountId === undefined ? [] : [{ ...entry, accountId }];
+            return accountId === undefined ? [] : [{ ...entry, accountId, ownerAccountId: accountIds.get(entry.ownerSourceId) ?? accountId }];
           }), preview });
         };
         if (dryRun) {
           const org = organisation(true, withOrganisation);
           const report = reportOf({ ...withOrganisation, stores: [...withOrganisation.stores, { snapshot: { path: "", digest: null }, label: "Organisation", items: org.items }], notCarried: [...withOrganisation.notCarried, ...org.notCarried] }, null);
-          return () => ({ aggregate: environmentStream, result: report });
+          return () => ({ aggregate: environmentStream, result: { ...report, ...(sharedProjects.length > 0 && { sharedProjects }) } });
         }
         await hooks?.planned?.();
         const plan = await recheckStores(withOrganisation);
@@ -152,7 +158,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           actor,
           afterItem: (item) => hooks?.carried?.({ kind: item.kind, sourceId: item.sourceId }),
         });
-        const carryFailures = await carryListedSources(plan, { log, accounts: options.accounts, carryOver: options.carryOver, caller, actor, importId, afterSource: (sourceId) => hooks?.carried?.({ kind: "session", sourceId }) });
+        const carryFailures = await carryListedSources(plan, { log, environmentId: options.environmentId, reconcileSessions: options.reconcileSessions, listSessions: options.listSessions, accounts: options.accounts, carryOver: options.carryOver, caller, actor, importId, afterSource: (sourceId) => hooks?.carried?.({ kind: "session", sourceId }) });
         // Carry over can await provider/filesystem work; check these bytes again immediately before organisation application.
         const isOrganisationStore = (store: ImportPlan["stores"][number]) => organisationStores.some((source) => source.read.snapshot === store.snapshot);
         const organisationPart = await recheckStores({ ...plan, stores: plan.stores.filter(isOrganisationStore) });
@@ -161,9 +167,9 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const organisationApplied = await applyItems(org.items, { log, environmentId: options.environmentId, importId, caller, actor, afterItem: (item) => hooks?.carried?.(item) });
         const report = reportOf({ ...organisationPlan, notCarried: [...organisationPlan.notCarried, ...org.notCarried] }, { carried: [...applied.carried, ...organisationApplied.carried], heldDrafts: organisationApplied.heldDrafts ?? 0, failed: [...applied.failed, ...carryFailures, ...organisationApplied.failed] });
         return (_params, command) => {
-          const finished = { type: "state-import.finished", payload: finishedPayload(report) };
+          const finished = { type: "state-import.finished", payload: finishedPayload({ ...report, ...(sharedProjects.length > 0 && { sharedProjects }) }) };
           log.append(environmentStream, [finished], { tx: command.tx, actor: command.actor, commandId: command.commandId, correlationId: importId });
-          return { aggregate: environmentStream, result: report };
+          return { aggregate: environmentStream, result: { ...report, ...(sharedProjects.length > 0 && { sharedProjects }) } };
         };
       });
       return (

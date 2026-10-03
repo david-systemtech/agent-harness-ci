@@ -23,6 +23,7 @@ const holding: StateCheckers = {
   "carry-over.present": () => true,
   "carry-over.readable": () => true,
   "carry-over.last-import": () => true,
+  "carry-over.default-account": () => true,
   "your-machines.not-root": () => true,
   "your-machines.release-channel": () => true,
   "your-machines.updates": () => true,
@@ -74,6 +75,35 @@ describe("a step's result", () => {
       checkedAt: AT,
     });
     expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "A Chrome is paired with this environment. A paired Chrome is connected. Every paired Chrome last reported the shipped extension version." });
+  });
+
+  it("keeps a passing check's own line in registry order and leaves failure actions out", async () => {
+    const stateChecks: StateCheckers = { ...holding, "permissions.denylist": async () => ({ holds: true, reason: "The denylist was deliberately emptied." }) };
+    expect(await check(stepOf("permissions"), presetSettings(), stateChecks)).toMatchObject({
+      state: "done",
+      reason: "The containment default can be enforced here. The denylist was deliberately emptied. The environment runs as a non-root user.",
+      failing: [],
+      actions: [],
+    });
+    expect(await check(stepOf("permissions"), presetSettings(), {
+      ...stateChecks, "permissions.not-root": () => ({ reason: "This environment runs as root." }),
+    })).toMatchObject({ state: "needs-attention", reason: "This environment runs as root.", failing: ["permissions.not-root"] });
+  });
+
+  it("reports pending without failure actions while waiting for a scheduled read, and gives real failures precedence", async () => {
+    const waiting: StateCheckers = { ...holding, "your-machines.release-channel": () => ({ pending: true, reason: "Waiting for the first release channel read." }) };
+    expect(await check(stepOf("your-machines"), presetSettings(), waiting)).toMatchObject({ state: "pending", failing: [], actions: [] });
+    expect(await check(stepOf("your-machines"), presetSettings(), {
+      ...waiting, "your-machines.named": () => ({ reason: "The environment needs a name." }),
+    })).toMatchObject({ state: "needs-attention", failing: ["your-machines.named"], reason: "The environment needs a name." });
+  });
+
+  it("keeps real failures visible when a skip check is pending", async () => {
+    expect(await check(stepOf("forges"), presetSettings(), {
+      ...holding,
+      "forges.present": () => ({ pending: true, reason: "Waiting for forge accounts." }),
+      "forges.identity": () => ({ reason: "The forge refused the credential." }),
+    })).toMatchObject({ state: "needs-attention", failing: ["forges.identity"], reason: "The forge refused the credential.", actions: ["sign-in-again", "check-again"] });
   });
 
   it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {

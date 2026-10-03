@@ -75,7 +75,7 @@ describe("the launcher entry", () => {
 
   it("refuses in the cmd entry a launcher version file with a line that is not a version, without expanding that line", () => {
     const lines = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
-    const check = lines.indexOf('if exist "%DATA_DIR%\\launcher-version" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\\launcher-version" >nul && goto no_version');
+    const check = lines.indexOf('if exist "%DATA_DIR%\\launcher-version" findstr /r "[^0-9A-Za-z.+-]" "%DATA_DIR%\\launcher-version" >nul && goto no_version');
     expect(check).toBeGreaterThan(lines.indexOf(":start"));
     expect(check).toBeLessThan(lines.findIndex((line) => line.includes("for /f")));
   });

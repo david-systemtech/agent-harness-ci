@@ -7072,9 +7072,10 @@
               "enum": [
                 "done",
                 "needs-attention",
-                "skipped"
+                "skipped",
+                "pending"
               ],
-              "description": "What a step's check found: done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step). Skipped is derived from the environment's state each time the step is checked, never recorded: nothing a person does skips a step."
+              "description": "What a step's check found: pending (waiting for a scheduled read, neutral and needing no action), done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step). Skipped is derived from the environment's state each time the step is checked, never recorded: nothing a person does skips a step."
             },
             "reason": {
               "type": "string",
@@ -7087,7 +7088,7 @@
                 "type": "string",
                 "minLength": 1
               },
-              "description": "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when done or skipped."
+              "description": "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when pending, done or skipped."
             },
             "actions": {
               "type": "array",
@@ -7123,7 +7124,7 @@
                   }
                 ]
               },
-              "description": "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out."
+              "description": "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out."
             },
             "targets": {
               "description": "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once, after the session try-again continues when an LLM step's minted session stopped; on a done LLM step, each of its subjects for revise; absent when none is named. The reader leaves out one of a verb or a kind it does not know.",
@@ -8464,6 +8465,27 @@
               ],
               "description": "What a state import carried, counted per kind."
             },
+            "sharedProjects": {
+              "description": "Directories sharing a real projects folder; sessions and memory are carried once under the first source in source-id order.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "sourceId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "ownerSourceId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "sourceId",
+                  "ownerSourceId"
+                ]
+              }
+            },
             "reEnter": {
               "type": "array",
               "items": {
@@ -8489,14 +8511,14 @@
                       "permissions",
                       "appearance"
                     ],
-                    "description": "The step whose card takes it: Forges or Key manager."
+                    "description": "The step whose card takes it: Account, Forges, Key manager or Memory bank."
                   }
                 },
                 "required": [
                   "label",
                   "step"
                 ],
-                "description": "Something a state import could not carry because the source encrypted it: what, and the step that takes it again."
+                "description": "Something a state import needs the person to enter again: what, and the step that takes it."
               },
               "description": "What must be entered again, each with the step that takes it."
             },

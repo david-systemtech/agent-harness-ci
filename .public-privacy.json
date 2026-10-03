@@ -172,7 +172,7 @@
     {
       "rule": "private-ip",
       "path": "^packages/environment/src/serve/interfaces\\.ts$",
-      "value": "(?:100\\.64\\.0\\.0|fd00:0::20|fd00::20|fd7a:115c:a1e0::|fe80::)"
+      "value": "(?:10\\.0\\.0\\.0|172\\.16\\.0\\.0|192\\.168\\.0\\.0|fc00::|100\\.64\\.0\\.0|fd00:0::20|fd00::20|fd7a:115c:a1e0::|fe80::)"
     },
     {
       "rule": "private-ip",

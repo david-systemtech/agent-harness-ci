@@ -1,3 +1,4 @@
+import { reconcileImportedSessions } from "../sessions/import-dedupe.js";
 import { validatorUpdateMethods } from "../banks/validator-update.js";
 import { migrationMethods } from "../banks/migrate.js";
 import { splitMethods } from "../banks/split.js";
@@ -225,6 +226,7 @@ import { directoryInventory } from "../carry-over/directory-inventory.js";
 import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
+import { followDeferredDefaults } from "../state-import/default-account.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
 import { detectSource, type SourceMachine } from "../state-import/source/folders.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
@@ -1553,7 +1555,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
     startedAt: () => startedAt,
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({ ...boundBeside, tailnetFound, ...(interfaces.tailscaleInstalled !== undefined && { tailscaleInstalled: interfaces.tailscaleInstalled() }), lanAddresses: [...interfaces.lanAddresses()] }),
     lookAgain: async () => {
       if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
     },
@@ -1765,9 +1767,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     if (adapter?.listSessions === undefined) throw new Error("The Claude adapter cannot list source use.");
     return adapter.listSessions({ id: "state-import-preview", directory });
   };
+  const sharedCarrySources = () => accounts.list().filter((account) => account.provider === "claude" && account.directory.kind === "adopted").map((account) => ({
+    directory: account.directory.path,
+    sourceId: log.read<{ source_id: string }>("SELECT source_id FROM state_import_items WHERE kind = 'account' AND target_id = ? AND source_directory = ? ORDER BY source_id LIMIT 1", account.id, account.directory.path)[0]?.source_id ?? account.id,
+  }));
   const importInventory = sourceAccountInventories({
     log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
-    inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
+    inventory: directoryInventory({ log, sharedSources: sharedCarrySources, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
   });
   const skillHandlers = skillsMethods({
     log,
@@ -1782,7 +1788,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sources: skillSources,
     sync: skillSync,
   });
-  const carryOver = createCarryOver({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
+  const carryOver = createCarryOver({ log, sharedSources: sharedCarrySources, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
   const routineHandlers = routineMethods({
     log,
     clock: now,
@@ -1811,6 +1817,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     orientation: readOrientation,
   });
   const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
+  closers.push(followDeferredDefaults({ log, accounts, environmentId: record.id, onChange: () => settleSweep.settingsChanged(["accounts.defaultAccount"]) }));
   const sessionHandlers = sessionMethods({
       log,
       clock: now,
@@ -1926,6 +1933,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...carryOver.methods,
     // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
     ...stateImportMethods({
+      reconcileSessions: reconcileImportedSessions(log, deletion),
       machine: stateImportSource,
       log,
       environmentId: record.id,

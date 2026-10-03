@@ -647,3 +647,57 @@ describe("a file: URL", () => {
     expect(first({ commands: [`cat file:${DATA.slice(1)}/environment.db`] })?.[1]).toBe(DATA);
   });
 });
+
+
+describe("Windows path patterns", () => {
+  it("matches the native data-directory preset and home globs across separators and case on Windows", () => {
+    const windows: DenylistMatchContext = { home: String.raw`C:\Users\tester`, cwd: String.raw`C:\Users\tester\work`, pathStyle: "win32" };
+    const list = denylistPresets(String.raw`C:\Users\tester\AppData\Local\agent-harness`);
+    list.paths.push(entry("glob", String.raw`~\projects\**\secret?.txt`));
+    for (const path of [String.raw`c:\USERS\TESTER\.SSH\id_rsa`, String.raw`..\.ssh/id_rsa`, "~/.SSH/id_rsa", String.raw`~\.ssh\id_rsa`, "file:///C:/Users/tester/.ssh/id_rsa"]) {
+      const call = path.startsWith("file:") ? { hosts: [path] } : { paths: [path] };
+      expect(matchDenylist(list, call, windows).map((found) => found.entry.id), path).toContain("preset:~/.ssh");
+    }
+    expect(matchDenylist(list, { paths: ["c:/users/TESTER/appdata/local/AGENT-HARNESS/events.db"] }, windows).map((found) => found.entry.id)).toEqual([DATA_DIRECTORY_PRESET_ID]);
+    expect(matchDenylist(list, { paths: [String.raw`C:\Users\tester\projects\one\two\SECRET1.txt`] }, windows).map((found) => found.entry.id)).toEqual(["glob"]);
+  });
+
+  it("keeps drive roots distinct and resolves links without losing the containment exemption", () => {
+    const data = String.raw`C:\Users\tester\AppData\Local\agent-harness`;
+    const windows: DenylistMatchContext = {
+      home: String.raw`C:\Users\tester`, cwd: "C:/work", pathStyle: "win32",
+      exempt: [String.raw`c:\users\tester\appdata\local\agent-harness\containment`],
+      resolve: (path) => path.toLowerCase() === "c:/links/keys" || path.toLowerCase().endsWith("/containment/escape") ? String.raw`C:\Users\tester\.ssh` : path,
+    };
+    const list = denylistPresets(data);
+    list.paths.push(entry("drive-root", "C:/"), entry("linked-glob", "C:/links/keys/*.pem"), entry("inside", `${data}/containment/private`));
+    const ids = (path: string) => matchDenylist(list, { paths: [path] }, windows).map((found) => found.entry.id);
+    expect(ids("D:/Users/tester/.ssh/key")).toEqual([]);
+    expect(ids("C:/../../ordinary")).toEqual(["drive-root"]);
+    expect(ids(String.raw`\ordinary`)).toEqual(["drive-root"]);
+    expect(ids(`${data}/containment/session/tmp`)).toEqual([]);
+    expect(ids(`${data}/containment/private/file`)).toEqual(["inside"]);
+    expect(ids(`${data}/containment/escape`)).toContain("preset:~/.ssh");
+    expect(ids("C:/Users/tester/.ssh/KEY.pem")).toContain("linked-glob");
+    expect(ids(`${data}-other/file`)).not.toContain(DATA_DIRECTORY_PRESET_ID);
+    expect(matchDenylist(list, { commands: [String.raw`type C:\Users\tester\AppData\Local\agent-harness\name=value`] }, windows).map((found) => found.entry.id)).toContain(DATA_DIRECTORY_PRESET_ID);
+  });
+
+  it("preserves Windows separators in command path tokens, including quoted paths with spaces and option values", () => {
+    const windows: DenylistMatchContext = { home: String.raw`C:\Users\test user`, cwd: "C:/work", pathStyle: "win32" };
+    const list = denylistPresets("C:/data");
+    for (const command of [String.raw`type "C:\Users\test user\.SSH\id_rsa"`, String.raw`copy --from="C:\Users\test user\.ssh\id_rsa" out`, String.raw`type ~\.ssh\id_rsa`, String.raw`type "$HOME\.ssh\id_rsa"`, String.raw`type --from="$HOME\.ssh\id_rsa"`]) {
+      expect(matchDenylist(list, { commands: [command] }, windows).map((found) => found.entry.id), command).toContain("preset:~/.ssh");
+    }
+  });
+
+  it("admits drive-absolute and home-relative patterns with either separator, but refuses UNC, device and drive-relative patterns", () => {
+    for (const pattern of ["C:/", "c:/Users/tester/.ssh", String.raw`C:\Users\tester\AppData\Local\agent-harness`, String.raw`~\.ssh`, String.raw`~/projects\**/secret?.txt`]) {
+      expect(DenylistInput.safeParse({ paths: [{ pattern }] }).success, pattern).toBe(true);
+      expect(Denylist.safeParse(denylistPresets(pattern)).success, pattern).toBe(true);
+    }
+    for (const pattern of ["C:", "C:keys", String.raw`\keys`, String.raw`\\server\share\keys`, "//server/share/keys", String.raw`\\?\C:\keys`, String.raw`~tester\.ssh`, "C:/keys\0secret"]) {
+      expect(DenylistInput.safeParse({ paths: [{ pattern }] }).success, pattern).toBe(false);
+    }
+  });
+});

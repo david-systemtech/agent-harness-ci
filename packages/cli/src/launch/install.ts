@@ -121,7 +121,8 @@ const inspectStaged = (dataDir: string, version: string, staged: string): { read
 /**
  * Moves the version staged at `staged` into the versions directory of
  * `dataDir` as `version`, durably and in this order: its files and folders
- * are put on disk, a folder of the version without its sentinel (what an
+ * are synced for the platform (syncTree states the Windows power-loss
+ * rule), a folder of the version without its sentinel (what an
  * install cut short left, no version) is removed, the staged folder is
  * renamed into place and both directories put on disk, and the sentinel is
  * written last. A failure once it is renamed moves it back to the staging
@@ -129,6 +130,8 @@ const inspectStaged = (dataDir: string, version: string, staged: string): { read
  */
 export const moveIntoVersions = (dataDir: string, version: string, staged: string, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): void => {
   const target = versionDirectory(dataDir, version);
+  // Only our last-written marker may complete a version, even if the artefact carried one.
+  fs.rmSync(join(staged, VERSION_SENTINEL), { force: true });
   syncTree(staged, fs, platform);
   removeTreeSync(target, fs.rmSync.bind(fs));
   fs.renameSync(staged, target);

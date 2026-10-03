@@ -192,6 +192,27 @@
           ],
           "description": "What a state import carried, counted per kind."
         },
+        "sharedProjects": {
+          "description": "Directories sharing a real projects folder; sessions and memory are carried once under the first source in source-id order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sourceId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ownerSourceId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "sourceId",
+              "ownerSourceId"
+            ]
+          }
+        },
         "reEnter": {
           "type": "array",
           "items": {
@@ -217,14 +238,14 @@
                   "permissions",
                   "appearance"
                 ],
-                "description": "The step whose card takes it: Forges or Key manager."
+                "description": "The step whose card takes it: Account, Forges, Key manager or Memory bank."
               }
             },
             "required": [
               "label",
               "step"
             ],
-            "description": "Something a state import could not carry because the source encrypted it: what, and the step that takes it again."
+            "description": "Something a state import needs the person to enter again: what, and the step that takes it."
           },
           "description": "What must be entered again, each with the step that takes it."
         },

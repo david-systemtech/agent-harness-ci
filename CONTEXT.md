@@ -181,7 +181,7 @@ Where a run may reach on its environment, independent of its mode: off, workspac
 _Avoid_: sandbox (the mechanism, not the setting), jail, isolation
 
 **Denylist**:
-The environment's user-editable list of browser domains, paths, commands and hosts that are never auto-approved in any mode.
+The environment's user-editable list of browser domains, paths, commands and hosts that are never auto-approved in any mode. Its path patterns are POSIX absolute, drive-letter absolute (`C:/keys` or `C:\keys`) or home-relative (`~`, `~/keys` or `~\keys`); Windows treats either separator alike and ignores case, and UNC, device and drive-relative patterns are refused.
 _Avoid_: blocklist, blacklist, guardrails
 
 **Parked prompt**:

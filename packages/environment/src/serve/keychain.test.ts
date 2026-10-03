@@ -270,21 +270,49 @@ describe("the chosen vault as the environment holds it", () => {
 });
 
 describe("the keychain's binding", () => {
-  it("keeps each value as its UTF-8 bytes in the binding's entry for the service and account, reads an absent one as undefined, and deletes an absent one as no error", async () => {
+  it.each([
+    "secret-value-for-tests",
+    42,
+    {},
+    ["65"],
+    [-1],
+    [256],
+    [1.5],
+    [undefined],
+    Array(1),
+    new Uint16Array([65]),
+    new Uint8Array([255]),
+  ].map((secret) => ({ secret })))("refuses unreadable bytes without exposing the value ($secret)", async ({ secret }) => {
+    class Entry {
+      getSecret = async () => secret;
+      setSecret = async () => undefined;
+      deleteCredential = async () => false;
+    }
+    const binding = await loadKeychainBinding(async () => ({ AsyncEntry: Entry }));
+    await expect(binding.get(SERVICE, "signing")).rejects.toThrow(
+      `Could not read keychain entry "signing" under service "${SERVICE}". Unlock your OS keychain and allow agent-harness to access this entry, then restart the environment. If it still fails, repair the entry in Keychain Access (macOS) or Credential Manager (Windows) without deleting the signing key.`,
+    );
+  });
+
+  it.each(["typed", "array"] as const)("keeps UTF-8 values through a binding answering %s bytes, reads an absent entry as undefined, and deletes an absent entry as no error", async (shape) => {
     const secrets = new Map<string, Uint8Array>();
     class Entry {
       readonly #at: string;
       constructor(service: string, account: string) {
         this.#at = `${service} / ${account}`;
       }
-      getSecret = async () => secrets.get(this.#at) ?? null;
+      getSecret = async () => {
+        const secret = secrets.get(this.#at);
+        return secret === undefined ? null : shape === "array" ? [...secret] : secret;
+      };
       setSecret = async (secret: Uint8Array) => void secrets.set(this.#at, secret);
       deleteCredential = async () => secrets.delete(this.#at);
     }
     const binding = await loadKeychainBinding(async () => ({ AsyncEntry: Entry }));
     await binding.set(SERVICE, "signing", "signing-value-é");
     expect(Buffer.from(secrets.get(`${SERVICE} / signing`) ?? []).toString("utf8")).toBe("signing-value-é");
-    expect(await binding.get(SERVICE, "signing")).toBe("signing-value-é");
+    const restarted = await loadKeychainBinding(async () => ({ AsyncEntry: Entry }));
+    expect(await restarted.get(SERVICE, "signing")).toBe("signing-value-é");
     expect(await binding.get(SERVICE, "missing")).toBeUndefined();
     await binding.delete(SERVICE, "missing");
     await binding.delete(SERVICE, "signing");

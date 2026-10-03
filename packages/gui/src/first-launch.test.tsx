@@ -29,6 +29,9 @@ const serviceCalls = (app: RenderedApp) => app.shell.calls.filter(([member]) => 
 describe("first launch", () => {
   it("installs and starts this machine's environment through the shell, follows it from service down through starting to ready, then opens Set up as the whole window", async () => {
     const shell = fakeShell();
+    let installed!: () => void;
+    shell.answer("service.status", async () => ({ installed: false, running: false, ready: false }));
+    shell.answer("service.install", () => new Promise<void>((resolve) => (installed = resolve)));
     let started!: () => void;
     shell.answer("service.start", () => new Promise<void>((resolve) => (started = resolve)));
     const app = await renderApp(
@@ -36,8 +39,11 @@ describe("first launch", () => {
       { shell, firstLaunch: true },
     );
 
+    expect(await within(pane()).findByText("Installing the environment (first start only)…")).toBeDefined();
+    expect(serviceCalls(app)).toEqual(["service.status", "service.install"]);
+    await act(async () => installed());
     expect(await within(pane()).findByText("Starting the environment on this machine…")).toBeDefined();
-    expect(serviceCalls(app)).toEqual(["service.start"]);
+    expect(serviceCalls(app)).toEqual(["service.status", "service.install", "service.start"]);
     expect(app.runtime.connections.list.read()).toMatchObject([{ environmentId: LOCAL_PLACEHOLDER_ID, phase: "service-down" }]);
 
     // The service is installed and started; the environment answers, starting.
@@ -63,7 +69,7 @@ describe("first launch", () => {
     expect(within(steps).getByRole("img", { name: "Account: done" })).toBeDefined();
     expect(within(setup).getByRole("region", { name: "Account" })).toBeDefined();
     expect(within(within(setup).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("desk");
-    expect(serviceCalls(app)).toEqual(["service.start"]);
+    expect(serviceCalls(app)).toEqual(["service.status", "service.install", "service.start"]);
   });
 
   it("starts it once: a window opened again on an environment that has answered does not start it unasked", async () => {
@@ -74,6 +80,17 @@ describe("first launch", () => {
     const sidebar = screen.getByRole("navigation", { name: "Sessions" });
     expect(await within(sidebar).findByText("Not running")).toBeDefined();
     expect(serviceCalls(again)).toEqual([]);
+  });
+
+  it("reports an install failure and does not try to start a service that was never installed", async () => {
+    const shell = fakeShell();
+    shell.answer("service.status", async () => ({ installed: false, running: false, ready: false }));
+    shell.answer("service.install", async () => { throw new Error("Could not install the environment on this machine: copy failed."); });
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, { shell });
+    expect(await within(pane()).findByText("The environment on this machine did not start: Could not install the environment on this machine: copy failed.")).toBeDefined();
+    expect(serviceCalls(app)).toEqual(["service.status", "service.install"]);
+    expect(within(pane()).queryByText("Installing the environment (first start only)…")).toBeNull();
+    expect(within(pane()).getByRole("button", { name: "Try again" })).toBeDefined();
   });
 
   it("says in one line why the start failed, and starts it again on Try again", async () => {
@@ -89,7 +106,7 @@ describe("first launch", () => {
     shell.answer("service.start", async () => app.environment("desk").discovery("ready"));
     await app.user.click(within(pane()).getByRole("button", { name: "Try again" }));
     expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
-    expect(serviceCalls(app)).toEqual(["service.start", "service.start"]);
+    expect(serviceCalls(app)).toEqual(["service.status", "service.start", "service.status", "service.start"]);
   });
 
   it("offers the start while a known environment's service is down, and starts it from the sidebar", async () => {
@@ -104,7 +121,7 @@ describe("first launch", () => {
     await app.user.click(await within(sidebar).findByRole("button", { name: "Start" }));
     expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
     await waitFor(() => expect(within(sidebar).queryByText("Not running")).toBeNull());
-    expect(serviceCalls(app)).toEqual(["service.start"]);
+    expect(serviceCalls(app)).toEqual(["service.status", "service.start"]);
   });
 });
 
@@ -125,7 +142,7 @@ describe("with Run an environment on this machine off", () => {
 
     const again = await app.remount();
     expect(await screen.findByRole("region", { name: "Pair with an environment" })).toBeDefined();
-    expect(serviceCalls(again)).toEqual(["service.start"]);
+    expect(serviceCalls(again)).toEqual(["service.status", "service.start"]);
   });
 
   it("is turned on from the pairing pane, which starts this machine's environment", async () => {
@@ -134,6 +151,6 @@ describe("with Run an environment on this machine off", () => {
     const pairing = await screen.findByRole("region", { name: "Pair with an environment" });
     await app.user.click(within(pairing).getByRole("switch", { name: "Run an environment on this machine" }));
     expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
-    expect(serviceCalls(app)).toEqual(["service.start"]);
+    expect(serviceCalls(app)).toEqual(["service.status", "service.start"]);
   });
 });

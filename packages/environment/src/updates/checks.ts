@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { UpdateCheck, UpdateCheckFailure, UpdatesStatus } from "@agent-harness/contracts";
+import { CHECK_BUDGET_SECONDS, type UpdateCheck, type UpdateCheckFailure, type UpdatesStatus } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { ChannelContext, ChannelReading, ChannelSettings, ReleaseChannelReader } from "./channel.js";
@@ -18,7 +18,9 @@ import { readKeptTime, writeKeptTime } from "./kept-time.js";
  * a release passed over as the last check that read the channel found
  * them. The Your machines step's `your-machines.release-channel` reads it:
  * it holds while auto-update is off (switched off, or a version pinned) or
- * a check succeeded in the last 24 hours. When the last one succeeded is
+ * a check succeeded in the last 24 hours. Before its first scheduled read,
+ * it reports pending through the startup delay and network budget (#1326),
+ * then needs attention if no read completed. When the last one succeeded is
  * kept in the data directory (`RELEASE_CHANNEL_FILE`), so a restart, an
  * update's included, does not make the channel read as unread. A check
  * appends nothing, so no trigger the step names hears it: the environment
@@ -94,6 +96,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   let status: ChannelStatus = { newest: null, lastCheck: null, target: null, passedOver: null };
   let lastSucceededAt = readKeptTime(recordPath, LAST_SUCCEEDED, LAST_CHECK);
   let lastStartedAt: number | undefined;
+  let firstCheckDueAt = clock.now().getTime() + FIRST_CHECK_MS;
   let running: Promise<void> | undefined;
   /** Whether the settings changed while a check was under way, which read them before. */
   let again = false;
@@ -164,6 +167,12 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
       if (!settings.autoUpdate || settings.pinnedVersion !== null) return true;
       if (lastSucceededAt !== undefined && clock.now().getTime() - lastSucceededAt <= RELEASE_CHANNEL_FRESH_MS) return true;
       const last = status.lastCheck;
+      if (lastSucceededAt === undefined && last === null && clock.now().getTime() < firstCheckDueAt + CHECK_BUDGET_SECONDS.network * 1000) {
+        return { pending: true, reason: "Waiting for the first release channel read, scheduled two minutes after the environment starts." };
+      }
+      if (lastSucceededAt === undefined && last === null) {
+        return { reason: "The first scheduled release channel read is overdue: it has not completed within ten seconds of its scheduled time." };
+      }
       const since = lastSucceededAt === undefined ? "yet" : "in the last 24 hours";
       if (last === null) return { reason: `The release channel has not been read ${since}: the environment reads it two minutes after it starts, then hourly.` };
       return { reason: `The release channel has not been read ${since}: ${last.result === "failed" ? last.message : "no check succeeded."}` };
@@ -176,6 +185,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
     },
 
     start() {
+      firstCheckDueAt = clock.now().getTime() + FIRST_CHECK_MS;
       let hourly: Timer | undefined;
       const first = clock.setTimeout(() => {
         hourly = clock.setInterval(() => void run(), CHECK_INTERVAL_MS);
