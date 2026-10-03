@@ -1,14 +1,16 @@
 import { choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
 import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
+import { ChevronDown, ChevronUp, ClipboardList, MessageCircleQuestionMark, ShieldAlert, StickyNote } from "lucide-react";
+import { Kbd } from "../ui/kbd.js";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useEnvironmentCountdown } from "../environment-countdown.js";
 import { useInFocusedPane } from "../grid/grid.js";
 import { KeyContext, useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { Markdown } from "../transcript/markdown.js";
-import { Input } from "../ui/index.js";
+import { Button, Textarea } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { Answer } from "./answer-button.js";
+import { Answer, PromptEscape, PromptTooltip } from "./answer-button.js";
 import { useAnswering } from "./answering.js";
 import { QuestionForm, questionAnswers, questionsOf, type Picks } from "./question.js";
 
@@ -113,17 +115,27 @@ const KEY_WORDS: Readonly<Record<PromptKind, { readonly deny: string; readonly a
   plan: { deny: "keeps planning", allow: "approves, continuing in acceptEdits" },
 };
 
-/** The edge of the card, by the prompt's kind: an approval in the warning's colour, a denylist prompt in the danger's; a dim card has none. */
-const EDGES: Readonly<Record<PromptKind, string>> = { permission: "border-amber", denylist: "border-signal", question: "border-cyan", plan: "border-beam" };
+/** The edge of the card, by the prompt's kind: an approval in the warning's colour, a denylist prompt in the danger's; a dim card uses the neutral edge. */
+const EDGES: Readonly<Record<PromptKind, string>> = { permission: "border-amber/45 bg-amber/8", denylist: "border-signal/45 bg-signal/8", question: "border-cyan/45 bg-cyan/6", plan: "border-beam/45 bg-beam/6" };
+const ICON_COLOURS: Readonly<Record<PromptKind, string>> = { permission: "text-amber", denylist: "text-signal", question: "text-cyan", plan: "text-beam-text" };
+const ICONS = { permission: ShieldAlert, denylist: ShieldAlert, question: MessageCircleQuestionMark, plan: ClipboardList };
 
 /** One prompt's card. */
 const ParkedCard = ({ environmentId, parked, place, capability, fields, setFields, line, say, answer }: ParkedCardProps) => {
   const { prompt } = parked;
   const self = useRef<HTMLElement>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const bodyId = useId();
+  const noteId = useId();
+  const denyKey = useFirstKey("permission.deny");
+  const allowKey = useFirstKey("permission.allow");
+  const Icon = ICONS[prompt.kind];
   // How long the prompt has before its TTL denies it; none when it never is.
   const remaining = useEnvironmentCountdown(environmentId, prompt.ttlExpiresAt);
   const ttl = remaining === undefined ? undefined : ttlWords(remaining);
-  const rows = choiceRows(prompt);
+  const choices = choiceRows(prompt);
+  const rows = prompt.kind === "denylist" ? choices.filter((row) => row.kind === "deny")
+    : prompt.kind === "permission" ? [...choices.filter((row) => row.kind !== "allow"), ...choices.filter((row) => row.kind === "allow")] : choices;
 
   // The card takes the focus when its prompt comes to it: the card, never a button, so a stray Enter fires nothing. In a
   // pane the grid is not focused on it leaves the focus in the pane being typed in, and does not take it when its own
@@ -142,6 +154,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   };
   const choose = (row: ChoiceRow | undefined) => settle(rowAnswer(prompt, row, fields.note));
   const allow = () => {
+    if (prompt.kind === "denylist") return;
     if (prompt.kind === "question") return settle(questionAnswers(prompt, fields.picks, fields.note));
     choose(rows.find((row) => row.kind === "allow" || (row.kind === "approve" && row.mode === null)));
   };
@@ -152,52 +165,71 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
 
   return (
     <KeyContext context="permission">
+      <PromptEscape value={deny}>
       <CardKeys allow={allow} deny={deny} offer={capability} />
       <section
         ref={self}
         aria-label="Parked prompt"
         tabIndex={-1}
         className={classes(
-          "flex max-h-[60vh] shrink-0 flex-col gap-2 overflow-y-auto border-t-2 bg-panel px-4 py-3 text-sm outline-none",
-          dim ? "border-line text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
+          "mx-3 flex max-h-[60vh] shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          dim ? "border-line bg-panel text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
         )}
       >
-        <header className="flex items-baseline gap-2">
-          <h2 className="font-semibold">
+        <header className={classes("flex items-center gap-2 text-xs", prompt.kind === "question" ? "text-cyan" : "text-amber")}>
+          <Icon aria-hidden="true" className={classes("size-3.5 shrink-0", ICON_COLOURS[prompt.kind])} />
+          <h2 className="font-semibold text-ink">
             {HEADINGS[prompt.kind]}
             {(prompt.kind === "permission" || prompt.kind === "denylist") && prompt.toolName !== null && ` · ${prompt.toolName}`}
           </h2>
-          {facts.length > 0 && <span className="text-xs text-ink-muted">{facts}</span>}
+          {facts.length > 0 && <span>{facts}</span>}
+          <PromptTooltip content={`${collapsed ? "Show request" : "Hide request"} · Enter or Space`}>
+            <Button size="sm" className="ml-auto" aria-label={collapsed ? "Show request" : "Hide request"} aria-controls={bodyId} aria-expanded={!collapsed} onClick={() => {
+              setCollapsed(!collapsed);
+              if (collapsed) self.current?.focus({ preventScroll: true });
+            }}>{collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}{collapsed ? "Show" : "Hide"}</Button>
+          </PromptTooltip>
         </header>
-        <PromptBody prompt={prompt} fields={fields} setFields={setFields} />
-        <Input
-          aria-label="Note"
-          placeholder="A note for the agent, sent with the answer: why, or what to do after"
-          maxLength={10_000}
-          value={fields.note}
-          onChange={(event) => setFields({ ...fields, note: event.target.value })}
-        />
-        {shownLine !== undefined && (
-          <p role="status" className={line === undefined ? "text-xs text-ink-muted" : "text-xs text-signal"}>
-            {shownLine}
-          </p>
-        )}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          {prompt.kind === "question" ? (
-            <>
-              <Answer dim={dim} onClick={deny}>
-                Skip
-              </Answer>
-              <Answer dim={dim} approves onClick={allow}>
-                {questionsOf(prompt).length > 1 ? "Send answers" : "Send answer"}
-              </Answer>
-            </>
-          ) : (
-            rows.map((row) => <RowButton key={row.label} row={row} dim={dim} onClick={() => choose(row)} />)
-          )}
+        <div id={bodyId} hidden={collapsed}>
+          <div className="flex flex-col gap-2">
+            <PromptBody prompt={prompt} fields={fields} setFields={setFields} />
+            <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
+            <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
+              <Textarea
+                id={noteId}
+                rows={2}
+                className="min-h-12"
+                aria-label="Note"
+                placeholder="A note for the agent, sent with the answer: why, or what to do after"
+                maxLength={10_000}
+                value={fields.note}
+                onChange={(event) => setFields({ ...fields, note: event.target.value })}
+              />
+            </PromptTooltip>
+            {shownLine !== undefined && (
+              <p role="status" className={line === undefined ? "text-xs text-ink-muted" : "text-xs text-signal"}>
+                {shownLine}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              {prompt.kind === "question" ? (
+                <>
+                  <Answer dim={dim} keys={denyKey} hint={dim ? capability.message : undefined} onClick={deny}>
+                    Skip
+                  </Answer>
+                  <Answer dim={dim} approves keys={allowKey} hint={dim ? capability.message : undefined} onClick={allow}>
+                    {questionsOf(prompt).length > 1 ? "Send answers" : "Send answer"}
+                  </Answer>
+                </>
+              ) : (
+                rows.map((row) => <RowButton key={row.label} row={row} dim={dim} reason={dim ? capability.message : undefined} keys={row.kind === "deny" ? denyKey : row.kind === "allow" || (row.kind === "approve" && row.mode === null) ? allowKey : undefined} onClick={() => choose(row)} />)
+              )}
+            </div>
+            <KeysHint kind={prompt.kind} />
+          </div>
         </div>
-        <KeysHint kind={prompt.kind} />
       </section>
+      </PromptEscape>
     </KeyContext>
   );
 };
@@ -205,12 +237,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
 /** What the prompt asks, by its kind. */
 const PromptBody = ({ prompt, fields, setFields }: { readonly prompt: PromptOpenedPayload; readonly fields: CardFields; setFields(fields: CardFields): void }) => {
   if (prompt.kind === "question") return <QuestionForm prompt={prompt} picks={fields.picks} setPicks={(picks) => setFields({ ...fields, picks })} />;
-  if (prompt.kind === "plan")
-    return (
-      <div className="max-h-72 overflow-y-auto rounded-md border border-hairline px-3 py-2">
-        <Markdown text={prompt.plan ?? prompt.summary} />
-      </div>
-    );
+  if (prompt.kind === "plan") return <PlanBody text={prompt.plan ?? prompt.summary} />;
   const input = inputText(prompt.input);
   return (
     <>
@@ -226,10 +253,35 @@ const PromptBody = ({ prompt, fields, setFields }: { readonly prompt: PromptOpen
         </ul>
       )}
       {input !== undefined && (
-        <pre className="max-h-48 overflow-auto rounded-md border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted">{input}</pre>
+        <pre aria-label="Arguments" className="max-h-[224px] overflow-auto rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted">{input}</pre>
       )}
     </>
   );
+};
+
+/** Fade only unread content, so a short plan and the last line remain legible. */
+const PlanBody = ({ text }: { readonly text: string }) => {
+  const body = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  const measure = () => {
+    const element = body.current;
+    setClipped(element !== null && element.scrollHeight > element.clientHeight + element.scrollTop + 1);
+  };
+  useEffect(() => {
+    const element = body.current;
+    if (element === null) return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (element.firstElementChild !== null) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, [text]);
+  return <div>
+    <div ref={body} aria-label="Plan body" onScroll={measure} className={classes("max-h-[416px] overflow-y-auto", clipped && "[mask-image:linear-gradient(to_bottom,var(--ink)_calc(100%_-_24px),transparent)]")}>
+      <Markdown text={text} />
+    </div>
+    {clipped && <p className="mt-1 flex items-center gap-1 text-xs text-ink-faint"><ChevronDown aria-hidden="true" className="size-3.5" />Scroll to read the plan</p>}
+  </div>;
 };
 
 /** A call's input as the card shows it, verbatim: a shell command as its lines, anything else as indented JSON; none when there is none. */
@@ -244,12 +296,12 @@ const inputText = (input: PromptOpenedPayload["input"]): string | undefined => {
 };
 
 /** An approval's or a plan's row as a button, with what it does beside it: a greyed mode's reason. */
-const RowButton = ({ row, dim, onClick }: { readonly row: ChoiceRow; readonly dim: boolean; readonly onClick: () => void }) => {
+const RowButton = ({ row, dim, keys, reason, onClick }: { readonly row: ChoiceRow; readonly dim: boolean; readonly keys: string | undefined; readonly reason: string | undefined; readonly onClick: () => void }) => {
   const id = useId();
   const described = row.detail.length > 0 ? id : undefined;
   return (
     <span className="inline-flex items-baseline gap-1.5">
-      <Answer dim={dim} approves={row.kind !== "deny"} greyed={row.kind === "approve" && row.above} describedBy={described} onClick={onClick}>
+      <Answer dim={dim} approves={row.kind !== "deny"} greyed={row.kind === "approve" && row.above} describedBy={described} keys={keys} hint={reason ?? row.detail} onClick={onClick}>
         {row.label}
       </Answer>
       {described !== undefined && (
@@ -274,11 +326,10 @@ const CardKeys = ({ allow, deny, offer }: { readonly allow: () => void; readonly
 
 /** What the card's keys do, in the keys in force as this platform writes them. */
 const KeysHint = ({ kind }: { readonly kind: PromptKind }) => {
-  const said = [
-    [useFirstKey("permission.deny"), KEY_WORDS[kind].deny],
-    [useFirstKey("permission.allow"), KEY_WORDS[kind].allow],
-  ].flatMap(([key, words]) => (key === undefined ? [] : [`${key} ${words}`]));
-  return <p className="text-xs text-ink-faint">{said.join(" · ")}</p>;
+  const deny = useFirstKey("permission.deny");
+  const allow = useFirstKey("permission.allow");
+  return <p className="flex flex-wrap items-center gap-1 text-xs text-ink-faint">
+    {deny !== undefined && <><Kbd>{deny}</Kbd>{KEY_WORDS[kind].deny}</>}
+    {allow !== undefined && kind !== "denylist" && <><Kbd>{allow}</Kbd>{KEY_WORDS[kind].allow}</>}
+  </p>;
 };
-
-

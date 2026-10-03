@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { describe, expect, it } from "vitest";
-import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
  * The parked prompt's card (docs/specs/gui.md, "A session pane"; permissions
@@ -17,8 +17,8 @@ import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvir
  */
 
 /** The local environment with one session opened in the pane and a run going on it. */
-const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
-  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], ...more }] });
+const opened = async (more: Partial<ScriptedEnvironment> = {}, options: RenderOptions = {}) => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], ...more }] }, options);
   app.open("desk");
   const transcript = await screen.findByRole("region", { name: "Transcript" });
   await within(transcript).findByText("Nothing said yet.");
@@ -62,6 +62,31 @@ describe("the card", () => {
     await waitFor(() => expect(card()).toBeNull());
     expect(within(transcript).getByRole("article", { name: "Permission" }).textContent).toBe("Bash: rm -rf build — allowed");
   });
+
+  it("hides and shows the same oldest request, keeping choices, note, TTL and focus", async () => {
+    const { app, env, session } = await opened();
+    const first = await park(env, session, {
+      kind: "question", summary: "Which check?", input: null,
+      questions: [{ header: "Check", question: "Which check?", options: [{ label: "Types", description: "Check types" }], multiSelect: false }],
+      ttlExpiresAt: new Date(app.clock.now().getTime() + 120_000).toISOString(),
+    });
+    env.openPrompt(session, { summary: "A later request" });
+    const shown = card() as HTMLElement;
+    await app.user.click(within(shown).getByRole("radio", { name: "Types" }));
+    await app.user.type(within(shown).getByRole("textbox", { name: "Note" }), "Use strict checks");
+    await app.user.click(button("Hide request"));
+    expect(within(shown).queryByRole("radio")).toBeNull();
+    expect(shown.textContent).toContain("1 of 2 waiting");
+    act(() => app.clock.advance(1_000));
+    await waitFor(() => expect(shown.textContent).toContain("1m 59s left"));
+    await app.user.click(button("Show request"));
+    expect(document.activeElement).toBe(shown);
+    expect(within(shown).getByRole("radio", { name: "Types" })).toHaveProperty("checked", true);
+    expect(within(shown).getByRole("textbox", { name: "Note" })).toHaveProperty("value", "Use strict checks");
+    await press(app, MOD_ENTER);
+    expect((await sentAnswers(env, 1))[0]).toEqual(expect.objectContaining({ promptId: first, answers: { "Which check?": "Types" }, message: "Use strict checks" }));
+  });
+
 });
 
 /** The card's button named `name`. */
@@ -102,6 +127,34 @@ describe("an approval", () => {
     ]);
   });
 
+  it("orders denial, session allowance and one-time allowance with icons and effective keycaps", async () => {
+    const { app, env, session } = await opened();
+    await park(env, session);
+    const shown = card() as HTMLElement;
+    const actions = within(shown).getAllByRole("button").filter((control) => control.getAttribute("aria-label") !== "Hide request");
+    expect(actions.map((control) => control.getAttribute("aria-label") ?? control.textContent)).toEqual(["Deny", "Allow for this session", "Allow once"]);
+    for (const control of actions) expect(control.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(button("Deny").querySelector("kbd")?.textContent).toBe("Esc");
+    expect(button("Allow once").querySelector("kbd")?.textContent).toBe("Ctrl+Enter");
+    act(() => button("Allow once").focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Ctrl+Enter");
+    await app.user.keyboard("{Enter}");
+    expect(answersSent(env)).toEqual([]);
+  });
+
+  it.each([
+    { macOS: true, keyRemaps: { "permission.allow": ["Mod+Enter"] }, label: "⌘Enter", keys: "{Meta>}{Enter}{/Meta}" },
+    { macOS: false, keyRemaps: { "permission.allow": ["Ctrl+Shift+Enter"] }, label: "Ctrl+Shift+Enter", keys: "{Control>}{Shift>}{Enter}{/Shift}{/Control}" },
+  ])("names and dispatches the effective approval key $label", async ({ macOS, keyRemaps, label, keys }) => {
+    const { app, env, session } = await opened({}, { macOS, presentation: { keyRemaps } });
+    await park(env, session);
+    expect(button("Allow once").querySelector("kbd")?.textContent).toBe(label);
+    act(() => button("Allow once").focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain(label);
+    await press(app, keys);
+    expect((await sentAnswers(env, 1))[0]).toEqual(expect.objectContaining({ decision: "allow" }));
+  });
+
   it("takes the focus when it comes, the card and no button, and is allowed once by Mod+Enter", async () => {
     const { app, env, session } = await opened();
     const promptId = await park(env, session);
@@ -137,7 +190,7 @@ describe("an approval", () => {
     await waitFor(() => expect(within(transcript).getByRole("article", { name: "Permission" }).textContent).toBe("Bash: rm -rf build — denied: use make clean instead"));
   });
 
-  it("names a denylist prompt's entry and offers no Allow for this session", async () => {
+  it("names a denylist prompt's entry and never offers or dispatches an approval", async () => {
     const { app, env, session } = await opened();
     const promptId = await park(env, session, {
       kind: "denylist",
@@ -149,9 +202,11 @@ describe("an approval", () => {
     const shown = card() as HTMLElement;
     expect(within(shown).getByRole("heading").textContent).toBe("Denylist · Read");
     expect(within(within(shown).getByRole("list", { name: "On the denylist" })).getByRole("listitem").textContent).toMatch(/is on the denylist .*~\/\.ssh\/\*\*/);
-    expect(within(shown).getAllByRole("button").map((control) => control.textContent)).toEqual(["Deny", "Allow once"]);
-    await app.user.click(button("Allow once"));
-    expect((await sentAnswers(env, 1))[0]).toEqual({ commandId: expect.any(String), promptId, sessionId: session, decision: "allow" });
+    expect(within(shown).queryByRole("button", { name: /Allow/ })).toBeNull();
+    await press(app, MOD_ENTER);
+    expect(answersSent(env)).toEqual([]);
+    await app.user.click(button("Deny"));
+    expect((await sentAnswers(env, 1))[0]).toEqual({ commandId: expect.any(String), promptId, sessionId: session, decision: "deny" });
   });
 });
 
@@ -206,6 +261,21 @@ describe("a question", () => {
     await waitFor(() => expect(within(transcript).getByRole("article", { name: "Question" }).textContent).toBe("Which checks? — lint, testsWhich database? — SQLite, 3.45 or later"));
   });
 
+  it("accepts a nonblank note through Send and its shortcut, while blank input sends nothing", async () => {
+    const { app, env, session } = await opened();
+    await park(env, session, questions);
+    await app.user.click(button("Send answers"));
+    expect(answersSent(env)).toEqual([]);
+    await app.user.type(within(card() as HTMLElement).getByRole("textbox", { name: "Note" }), "Choose the simplest check");
+    await app.user.click(button("Send answers"));
+    expect((await sentAnswers(env, 1))[0]).toEqual(expect.objectContaining({ decision: "allow", answers: {}, message: "Choose the simplest check" }));
+    await waitFor(() => expect(card()).toBeNull());
+    await park(env, session, questions);
+    await app.user.type(within(card() as HTMLElement).getByRole("textbox", { name: "Note" }), "Use the same choice");
+    await press(app, MOD_ENTER);
+    expect((await sentAnswers(env, 2))[1]).toEqual(expect.objectContaining({ decision: "allow", answers: {}, message: "Use the same choice" }));
+  });
+
   it("is skipped by Esc, a deny", async () => {
     const { app, env, session } = await opened();
     const promptId = await park(env, session, questions);
@@ -231,7 +301,7 @@ describe("a plan", () => {
     const promptId = await park(env, session, plan("acceptEdits"));
     const shown = card() as HTMLElement;
     expect(within(shown).getByRole("heading", { name: "Steps" })).toBeTruthy();
-    expect(within(shown).getAllByRole("button").map((control) => control.textContent)).toEqual([
+    expect(within(shown).getAllByRole("button").filter((control) => control.getAttribute("aria-label") !== "Hide request").map((control) => control.getAttribute("aria-label") ?? control.textContent)).toEqual([
       "Keep planning",
       "Approve · continue in acceptEdits",
       "Approve · continue in auto",
