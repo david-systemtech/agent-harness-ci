@@ -17,7 +17,7 @@ const opened = async (shell?: FakeShell) => {
 describe("the browser dock", () => {
   it("restores the current address on Escape without navigating or hiding the browser", async () => {
     const app = await opened();
-    await app.user.click(screen.getByRole("button", { name: "Browser" }));
+    await chooseHeaderAction(app, "Browser");
     const dock = await screen.findByRole("region", { name: "Browser" });
     await waitFor(() => expect(app.shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
     act(() => app.shell.changeWebView("view-1", { url: "https://example.org/current", canGoBack: true, canGoForward: false }));
@@ -34,7 +34,7 @@ describe("the browser dock", () => {
     const shell = fakeShell();
     shell.answer("webView.navigate", async () => { throw new Error("This page could not be reached."); });
     const app = await opened(shell);
-    await app.user.click(screen.getByRole("button", { name: "Browser" }));
+    await chooseHeaderAction(app, "Browser");
     const dock = await screen.findByRole("region", { name: "Browser" });
     await waitFor(() => expect(within(dock).getByRole("button", { name: "Go" }).hasAttribute("disabled")).toBe(false));
     await app.user.click(within(dock).getByRole("button", { name: "Go" }));
