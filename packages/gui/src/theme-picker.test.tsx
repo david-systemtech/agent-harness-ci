@@ -397,6 +397,7 @@ describe("where the theme cannot be written", () => {
 describe("on the Appearance card", () => {
   it("picks for the environment the checklist checks: another picked, Save writes to it, and the window keeps the home environment's theme", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired" }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const checklist = await screen.findByRole("region", { name: "Set up" });
     const rail = within(checklist).getByRole("navigation", { name: "Set up steps" });
     await within(rail).findByRole("img", { name: /^Appearance: / });

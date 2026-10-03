@@ -319,6 +319,7 @@ describe("built and unbuilt row controls", () => {
     const checklist = screen.getByRole("region", { name: "Set up" });
     expect(within(checklist).getByRole("region", { name: "Instructions" })).toBeDefined();
     await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
     const again = pane("Instructions");
     expect(within(again).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");

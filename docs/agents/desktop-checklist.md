@@ -112,7 +112,18 @@ checkout, after `pnpm install`:
    Quit and start: the window opens on it before the page paints.
 9. **window.** `setTitle("checklist")` retitles the window. Minimise it,
    `setTimeout(() => desktopShell.window.focus(), 2000)`: it comes back to the
-   front.
+   front. Check the frame on each platform (record macOS, Windows and Linux
+   separately): there is no OS title bar above the 44px header. Drag its blank
+   space to move the window; Settings, search, More and theme controls remain
+   clickable and never start a drag. On macOS, native traffic lights occupy
+   the reserved 76px left inset; entering full screen removes the inset and
+   leaving restores it. On Windows and Linux, the three 28px buttons minimize,
+   maximize/restore and close; close turns signal on hover and all three dim
+   when another window has focus. OS maximize/restore actions update the middle
+   button too. Tab to the buttons: names and tooltips match their actions.
+   `await desktopShell.window.state()` agrees with native focus, maximize and
+   full-screen changes. Use `desktopShell.window.onChange(console.log)` and
+   its returned unsubscribe to verify events stop after unsubscribing.
 10. **dialogs.** Each opens modal to the window (a sheet on macOS):
     `openFile({ multiple: true })` answers the paths chosen, `[]` when
     cancelled; `openFileContents({ maxBytes: 1024 })` on a small and a large
@@ -369,6 +380,13 @@ section as not run. On each platform, with a session open in the pane:
 4. **The lockdown stands.** A link in the dock's page opens in the dock;
    the app's own page stays on `agent-harness://app/`, and the console shows
    no content-policy error from it.
+
+5. **Loading and Stop.** Navigate to a slow page: Reload becomes the named
+   Stop icon and its tooltip says Stop. Stop cancels the load and restores
+   Reload without an error strip. Reload again and let it finish: Reload
+   returns. Repeat through an in-page link and history navigation; an iframe
+   loading by itself must leave Reload visible. Hide and restore the dock
+   during the load: Stop still reflects that page's state.
 
 ## First launch and the keychain (#395)
 

@@ -1,0 +1,49 @@
+import { settingsDeepLink } from "@agent-harness/client-runtime";
+import type { AccountUsage, SettingsRowId } from "@agent-harness/contracts";
+import type { LadderName } from "@agent-harness/theme";
+import { useEffect, useState } from "react";
+import { App } from "../src/app.js";
+import { prepareWorld, startWorld } from "./world.js";
+
+/** The three Accounts panes over the real Settings dialog, with pooled fake readings. */
+export async function accountsScene(row: SettingsRowId) {
+  const identity = { provider: "claude" as const, email: "reader@example.test", organisation: null };
+  const prepared = await prepareWorld({ environments: [
+    { name: "desk", reach: "local", accounts: [
+      { label: "Personal", identity },
+      { label: "Project", status: { state: "expired", checkedAt: null, detail: null } },
+    ], settings: { "accounts.defaultAccount": "account-1", "accounts.defaultModelFamily": "sonnet", "accounts.defaultEffort": "high" }, models: [{ accountId: "account-1", models: [{ id: "claude-sonnet-5", family: "sonnet", label: "Claude Sonnet 5", tier: 2, efforts: ["low", "medium", "high"] }] }] },
+    { name: "laptop", reach: "paired", accounts: [{ label: "Travel", identity }] },
+  ] }, { presentation: { settingsRow: row } });
+  const reading: AccountUsage = { accountId: "account-1", identity, windows: [
+    { window: "five_hour", utilisation: 0.42, resetsAt: "2026-09-30T14:00:00.000Z", verdict: null, observedAt: "2026-09-30T10:00:00.000Z" },
+    { window: "seven_day", utilisation: 0.78, resetsAt: null, verdict: null, observedAt: "2026-09-30T10:00:00.000Z" },
+  ], readAt: "2026-09-30T10:00:00.000Z", unavailableReason: null };
+  prepared.world.environment("desk").setUsage([reading, { accountId: "account-2", identity: null, windows: [], readAt: reading.readAt, unavailableReason: "Sign in again to read this account’s usage." }]);
+  prepared.world.environment("laptop").setUsage([reading]);
+  const holders = await startWorld(prepared, prepared.paired);
+  return function AccountsScene({ ladder }: { readonly ladder: LadderName }) {
+    const [ready, setReady] = useState(false);
+    useEffect(() => {
+      holders.presentation.set("lightOrDark", ladder);
+      prepared.shell.openDeepLink(settingsDeepLink(row));
+      // Settings is portalled outside the gallery root: publish readiness back inside it.
+      const selector = row === "accounts.accounts" ? "[data-account-card] svg[role=img]" : row === "accounts.default-model" ? 'select option[value="sonnet"]' : '[aria-label="Windows"] svg';
+      const mark = () => {
+        if (document.querySelector(selector) === null) return;
+        setReady(true);
+        observer.disconnect();
+      };
+      const observer = new MutationObserver(mark);
+      observer.observe(document.body, { childList: true, subtree: true });
+      mark();
+      return () => {
+        observer.disconnect();
+        holders.stopFollowing();
+        void holders.presentation.close();
+        void holders.runtime.close();
+      };
+    }, [ladder]);
+    return <><App {...holders} clock={prepared.clock} shell={prepared.shell} version={prepared.version} macOS={false} />{ready && <span hidden data-accounts-scene-ready />}</>;
+  };
+}

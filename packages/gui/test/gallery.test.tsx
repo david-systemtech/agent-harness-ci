@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { discoverScenes, type SceneModule } from "../gallery/scene-registry.js";
 import { mountGallery } from "../gallery/mount.js";
@@ -110,6 +110,26 @@ it.each(["dock-files", "dock-sheet"])("renders %s with retained Files and the me
   expect(geometry).toContainEqual({ selector: "[data-dock-rail]", width: 40 });
   expect(geometry).toContainEqual({ selector: "section:not([hidden]) > [data-dock-header]", height: 30 });
   expect(geometry).toContainEqual({ selector: '[role="tab"]', width: 28, height: 28 });
+});
+
+it("captures the loading browser dock, then restores Reload on Stop and completion", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "dock-browser-loading");
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("dock-browser-loading"));
+  const dock = within(screen.getByRole("region", { name: "Browser" }));
+  const stop = dock.getByRole("button", { name: "Stop" });
+  expect(stop.querySelector("svg")).not.toBeNull();
+  act(() => stop.click());
+  expect(gallery.world.shell.calls).toContainEqual(["webView.stop", "view-1"]);
+  expect(dock.getByRole("button", { name: "Reload" })).toBeDefined();
+  const state = await gallery.world.shell.webView.state("view-1");
+  act(() => gallery.world.shell.changeWebView("view-1", { ...state, loading: true }));
+  expect(dock.getByRole("button", { name: "Stop" })).toBeDefined();
+  act(() => gallery.world.shell.changeWebView("view-1", { ...state, loading: false }));
+  expect(dock.getByRole("button", { name: "Reload" })).toBeDefined();
+  expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: '[aria-label="Stop"]', width: 24, height: 24 });
 });
 
 it.each(["dock-terminal", "dock-browser", "dock-preview"])("renders %s with pane content and geometry from the look contract", async (scene) => {
