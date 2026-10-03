@@ -183,7 +183,7 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
       protection: () => ask("secrets.protection"),
     },
     localGrant: { read: () => ask("localGrant.read") },
-    service: { install: () => ask("service.install"), start: () => ask("service.start"), status: () => ask("service.status") },
+    service: { pendingUpdate: () => ask("service.pendingUpdate"), applyUpdateNow: () => ask("service.applyUpdateNow"), install: () => ask("service.install"), start: () => ask("service.start"), status: () => ask("service.status") },
     preview: { grant: (content) => ask("preview.grant", content) },
     update: { current: () => ask("update.current"), apply: (staged, when) => ask("update.apply", staged, when) },
     installer: { bundledServer: () => ask("installer.bundledServer") },

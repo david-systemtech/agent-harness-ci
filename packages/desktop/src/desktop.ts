@@ -169,7 +169,7 @@ export const startDesktop = async (
   const stopAccess = secrets.onAccess((state) => window.webContents.send(SECRET_ACCESS_CHANNEL, state));
   window.on("closed", stopAccess);
   const localGrant = grantFile(platform.paths.environment, reportError);
-  const service = bundledService({ os: platform.os, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
+  const service = bundledService({ os: platform.os, environmentDir: platform.paths.environment, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
   const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
   const installer = bundledInstaller(platform.paths.server);
   const gh = computerGh({ os: platform.os, process: ghProcess, environment });

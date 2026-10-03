@@ -1,3 +1,4 @@
+import type { PendingUpdate } from "@agent-harness/contracts";
 import type { GrantReader, HttpFetch, SecretStore } from "./platform.js";
 
 /**
@@ -325,6 +326,10 @@ export type ShellApplyOutcome =
 
 /** The local environment's service (ADR 0001). */
 export interface ShellService {
+  /** The installed server's pending update, read by its own CLI across a protocol gap. */
+  pendingUpdate?(): Promise<PendingUpdate>;
+  /** Apply the installed server's pending update now, using its own CLI. */
+  applyUpdateNow?(): Promise<void>;
   install(): Promise<void>;
   start(): Promise<void>;
   status(): Promise<{ readonly installed: boolean; readonly running: boolean; readonly ready: boolean }>;

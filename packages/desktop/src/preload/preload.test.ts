@@ -134,7 +134,7 @@ describe("the preload bundle", () => {
     expect(Object.keys(shell["notifications"] ?? {}).sort()).toEqual(["onActivate", "show"]);
     expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["access", "delete", "get", "onAccess", "protection", "set"]);
     expect(Object.keys(shell["localGrant"] ?? {})).toEqual(["read"]);
-    expect(Object.keys(shell["service"] ?? {}).sort()).toEqual(["install", "start", "status"]);
+    expect(Object.keys(shell["service"] ?? {}).sort()).toEqual(["applyUpdateNow", "install", "pendingUpdate", "start", "status"]);
     expect(Object.keys(shell["preview"] ?? {})).toEqual(["grant"]);
     expect(Object.keys(shell["update"] ?? {}).sort()).toEqual(["apply", "current"]);
     expect(Object.keys(shell["installer"] ?? {})).toEqual(["bundledServer"]);

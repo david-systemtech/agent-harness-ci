@@ -4,6 +4,7 @@ import { NETWORK_SETTINGS_KEYS, type MethodName, type SettingsKey } from "@agent
 import { useId, useState, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { Remedy } from "../connections/remedy.js";
+import { UpdateProgress } from "../connections/update-progress.js";
 import { THIS_MACHINE, nameOf } from "../connections/words.js";
 import { GenericEditor, lackingLines, readOnlyLine, writersOf } from "../settings/generic-editor.js";
 import { useSettings } from "../settings/settings-window.js";
@@ -135,6 +136,7 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: M
       <Part title="Updates">
         <UpdateControls view={view} />
         <ClientOffer view={view} />
+        <UpdateProgress view={view} />
         {view.kind === "local" && <BundledServerOffer view={view} />}
         <Fold summary="Advanced" open={advanced} onOpenChange={setAdvanced}>
           <GenericEditor view={view} keys={ADVANCED_KEYS} saysWhyReadOnly={false} />
