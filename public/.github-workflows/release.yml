@@ -118,6 +118,46 @@ jobs:
             echo "::error::image reports $reported, expected agent-harness $VERSION"
             exit 1
           fi
+      - name: Inspect a container update without applying it
+        run: |
+          set -euo pipefail
+          project=$(mktemp -d)
+          compose_file="$project/compose.yaml"
+          cp scripts/compose.yaml "$compose_file"
+          cp scripts/host-updater.sh "$project/host-updater.sh"
+          printf 'AGENT_HARNESS_IMAGE=%s\n' "$IMAGE_REFERENCE" > "$project/.env"
+          cleanup() {
+            result=$?
+            trap - EXIT
+            docker compose -f "$compose_file" down --volumes --timeout 5 || result=1
+            rm -rf "$project"
+            exit "$result"
+          }
+          trap cleanup EXIT
+          docker compose -f "$compose_file" up -d --pull never environment
+          ready=false
+          for tick in {1..120}; do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:7433/health | grep -q '"status"[[:space:]]*:[[:space:]]*"ready"'; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            docker compose -f "$compose_file" logs environment
+            echo "::error::container did not become ready for the updater inspection"
+            exit 1
+          fi
+          before=$(find "$project" -type f -exec sha256sum {} + | sort)
+          docker compose -f "$compose_file" exec -T environment agent-harness update status --json --data-dir /data | grep -q '"lastPoll": null'
+          output=$(AGENT_HARNESS_COMPOSE_FILE="$compose_file" sh "$project/host-updater.sh" --dry-run)
+          printf '%s\n' "$output"
+          grep -q 'No pending update.' <<< "$output"
+          grep -Fq "Current image: $IMAGE_REFERENCE" <<< "$output"
+          after=$(find "$project" -type f -exec sha256sum {} + | sort)
+          test "$before" = "$after"
+          docker compose -f "$compose_file" exec -T environment agent-harness update status --json --data-dir /data | grep -q '"lastPoll": null'
+
       - name: Push the verified image on a tag
         id: publish
         if: needs.check.outputs.publish == 'true'
