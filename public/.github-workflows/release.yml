@@ -359,7 +359,7 @@ jobs:
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
           $node = Join-Path $server "node\node.exe"
           $cli = Join-Path $server "packages\cli\dist\main.js"
-          $dataDir = Join-Path ([IO.Path]::GetTempPath()) ("environment-smoke-" + [Guid]::NewGuid())
+          $dataDir = Join-Path $env:LOCALAPPDATA "agent-harness"
           New-Item -ItemType Directory -Path $dataDir | Out-Null
           $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
           $listener.Start()
@@ -431,8 +431,22 @@ jobs:
             throw
           } finally {
             try { Stop-Tree } finally {
-              & $node $cli service uninstall --data-dir $dataDir
-              if ($LASTEXITCODE -ne 0) { throw 'Could not uninstall the smoke service' }
+              # Exercise the desktop's own cleanup, without a preceding CLI uninstall.
+              $personalData = Join-Path $dataDir 'uninstall-retention-check.txt'
+              [IO.File]::WriteAllText($personalData, 'Personal data stays until the user removes it.')
+              $appDir = Split-Path (Split-Path $server -Parent) -Parent
+              $uninstaller = Join-Path $appDir "Uninstall agent-harness.exe"
+              # _?= keeps NSIS in this process so -Wait observes cleanup and its exit code.
+              $uninstall = Start-Process -FilePath $uninstaller -ArgumentList ('/S _?={0}' -f $appDir) -Wait -PassThru
+              if ($uninstall.ExitCode -ne 0) { throw "Desktop uninstall exited with $($uninstall.ExitCode)" }
+              if (Get-ScheduledTask -TaskName agent-harness -ErrorAction SilentlyContinue) { throw 'Desktop uninstall left the environment task registered' }
+              if (!(Test-Path $personalData)) { throw 'Desktop uninstall deleted personal environment data' }
+              foreach ($file in 'launcher-entry.cmd', 'bin\agent-harness.cmd', 'service.json') {
+                if (Test-Path (Join-Path $dataDir $file)) { throw 'Desktop uninstall left service launch scripts behind' }
+              }
+              if (Test-Path $server) { throw 'Desktop uninstall left app resources behind' }
+              # _?= deliberately leaves the running uninstaller itself; the fixture removes it.
+              if (Test-Path $appDir) { Remove-Item -LiteralPath $appDir -Recurse -Force }
               Remove-Item -LiteralPath $dataDir -Recurse -Force
             }
           }
