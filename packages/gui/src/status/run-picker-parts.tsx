@@ -55,10 +55,10 @@ export const useNarrowRunPicker = (breakpoint = 800) => useSyncExternalStore(sub
 export type RunStage = "Accounts" | "Models" | "Effort";
 
 /** A dependency column shared by session choices and standing defaults. */
-export const RunPickerColumn = ({ name, narrow, activeColumn, children }: {
-  readonly name: RunStage; readonly narrow: boolean; readonly activeColumn: RunStage; readonly children: ReactNode;
+export const RunPickerColumn = ({ name, narrow, activeColumn, showEffortWithModel = true, children }: {
+  readonly name: RunStage; readonly narrow: boolean; readonly activeColumn: RunStage; readonly showEffortWithModel?: boolean; readonly children: ReactNode;
 }) => <div role="group" aria-label={name} data-run-column={name}
-    hidden={narrow && activeColumn !== name && !(activeColumn === "Models" && name === "Effort")}
+    hidden={narrow && activeColumn !== name && !(showEffortWithModel && activeColumn === "Models" && name === "Effort")}
     className={classes("min-w-0 shrink-0", narrow ? "w-full" : name === "Accounts" ? "w-56" : "w-64")}>
     <MenuLabel className="px-4 py-2">{name}</MenuLabel>
     <div data-run-list className="max-h-[320px] overflow-y-auto p-1.5">{children}</div>

@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import type { AccountIdentity, AccountUsage } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
@@ -336,24 +336,52 @@ describe("Default account and model", () => {
   });
 
   it("navigates dependency columns by keyboard and restores the trigger on Escape", async () => {
+    vi.stubGlobal("innerWidth", 1400);
+    try {
+      const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS } });
+      const defaults = await openRow(app, "Default account and model");
+      const picker = await openDefault(app, defaults, "Model family");
+      const model = await within(picker).findByRole("menuitem", { name: "Claude Opus 5" });
+      model.focus();
+      await app.user.keyboard("{Home}");
+      expect(document.activeElement).toBe(within(picker).getByRole("menuitem", { name: "The account's strongest model" }));
+      await app.user.keyboard("{ArrowDown}{Enter}");
+      await waitFor(() => expect(app.environment("desk").settings()["accounts.defaultModelFamily"]).toBe("opus"));
+      await app.user.keyboard("{Tab}");
+      expect(document.activeElement).toBe(within(picker).getByRole("menuitem", { name: "The model's own" }));
+      await app.user.keyboard("{End}{Enter}");
+      await waitFor(() => expect(app.environment("desk").settings()["accounts.defaultEffort"]).toBe("xhigh"));
+      for (const name of ["Accounts", "Models", "Effort"]) expect(within(picker).getByRole("group", { name })).toBeDefined();
+      expect(within(picker).getByRole("menuitem", { name: "xhigh" }).dataset["selected"]).toBe("true");
+      await app.user.keyboard("{Escape}");
+      await waitFor(() => expect(document.activeElement).toBe(within(defaults).getByRole("button", { name: "Model family: Claude Opus 5" })));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("moves keyboard focus to the model stage after choosing an account in a narrow popup", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS } });
+    const defaults = await openRow(app, "Default account and model");
+    const picker = await openDefault(app, defaults, "Default account");
+    const account = await within(picker).findByRole("menuitem", { name: "personal" });
+    account.focus();
+    await app.user.keyboard("{Enter}");
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.defaultAccount"]).toBe("account-1"));
+    await waitFor(() => expect(document.activeElement).toBe(within(picker).getByRole("menuitem", { name: "The account's strongest model" })));
+  });
+
+  it("shows one dependency stage at a time in the narrow defaults dialog", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS } });
     const defaults = await openRow(app, "Default account and model");
     const picker = await openDefault(app, defaults, "Model family");
     const model = await within(picker).findByRole("menuitem", { name: "Claude Opus 5" });
-    model.focus();
-    await app.user.keyboard("{Home}");
-    expect(document.activeElement).toBe(within(picker).getByRole("menuitem", { name: "The account's strongest model" }));
-    await app.user.keyboard("{ArrowDown}{Enter}");
-    await waitFor(() => expect(app.environment("desk").settings()["accounts.defaultModelFamily"]).toBe("opus"));
-    await app.user.keyboard("{Tab}");
-    expect(document.activeElement).toBe(within(picker).getByRole("menuitem", { name: "The model's own" }));
-    await app.user.keyboard("{End}{Enter}");
-    await waitFor(() => expect(app.environment("desk").settings()["accounts.defaultEffort"]).toBe("xhigh"));
-    await app.user.click(within(picker).getByRole("button", { name: "Back to accounts" }));
-    await app.user.click(within(picker).getByRole("button", { name: "Choose model and effort" }));
-    expect(within(picker).getByRole("menuitem", { name: "xhigh" }).dataset["selected"]).toBe("true");
-    await app.user.keyboard("{Escape}");
-    await waitFor(() => expect(document.activeElement).toBe(within(defaults).getByRole("button", { name: "Model family: Claude Opus 5" })));
+    expect(within(picker).queryByRole("group", { name: "Effort" })).toBeNull();
+    await app.user.click(model);
+    await waitFor(() => expect(within(picker).queryByRole("group", { name: "Models" })).toBeNull());
+    expect(within(picker).getByRole("menuitem", { name: "high" })).toBeDefined();
+    await app.user.click(within(picker).getByRole("button", { name: "Back to models" }));
+    expect(within(picker).getByRole("menuitem", { name: "Claude Opus 5" }).dataset["selected"]).toBe("true");
   });
 
   it("edits the default account, model family and effort from pickers fed by accounts.list and models.list, and the process idle time, each through settings.update", async () => {
