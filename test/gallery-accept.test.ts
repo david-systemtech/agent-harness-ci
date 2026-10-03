@@ -169,7 +169,6 @@ it.each([
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });
 
-
 it("accepts 600 captures at the shared archive count boundary", async () => {
   const f = await fixture("versioned", 600);
   await run("bash", [script, "42"], { env: f.env });
