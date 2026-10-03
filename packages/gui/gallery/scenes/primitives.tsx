@@ -1,3 +1,4 @@
+import type { SceneGeometry, SceneViewport } from "../scene-registry.js";
 import { DEFAULT_THEME, ENVIRONMENT_ICONS } from "@agent-harness/contracts";
 import { cssVariables, derive, type LadderName } from "@agent-harness/theme";
 import { Bold, File, Info, Plus } from "lucide-react";
@@ -80,8 +81,9 @@ export const PrimitivesScene = ({ ladder = "dark" }: { readonly ladder?: LadderN
 };
 
 /** Measured control heights at the default 16px root; both ladders use the same geometry. */
-export const geometry = [
-  { selector: "main[data-scene=primitives]", width: 1400, height: 900, tolerance: 0.1 },
+export const geometry = ({ width, height }: SceneViewport): readonly SceneGeometry[] => [
+  // Narrow content wraps and may grow past min-h-screen; keep the wide height exact.
+  { selector: "main[data-scene=primitives]", width, ...(width < 1400 ? { minimumHeight: height } : { height }), tolerance: 0.1 },
   ...([["xs", 24], ["sm", 28], ["default", 32], ["lg", 36]] as const).map(([size, height]) => ({ selector: `button[data-variant][data-size="${size}"]`, height, tolerance: 0.1 })),
   ...([["icon-xs", 24], ["icon-sm", 28], ["icon", 32], ["icon-lg", 36]] as const).map(([size, dimension]) => ({ selector: `button[data-variant][data-size="${size}"]`, width: dimension, height: dimension, tolerance: 0.1 })),
   { selector: "input[data-geometry=input]", height: 32, tolerance: 0.1 },

@@ -1,4 +1,4 @@
-import type { JsonObject, ModelUsage, RunError } from "@agent-harness/contracts";
+import type { ContextReading, JsonObject, ModelUsage, RunError } from "@agent-harness/contracts";
 import { recordedImage, type AdapterEvent, type RunEnd, type ToolDenial, type TranscriptEvent } from "../../adapter/contract.js";
 import type { TaskLedger } from "./tasks.js";
 
@@ -17,8 +17,8 @@ import type { TaskLedger } from "./tasks.js";
  * What it does not map, by decision: a subagent's own text and thinking
  * (its transcript is read on demand, not logged; its tool calls are, nested
  * under the call that started it), the prompt echo and replayed history (the
- * host records what was sent), and per-message token counts (the result
- * carries the run's).
+ * host records what was sent), and per-message spend (the result carries the run's). Main request
+ * input usage is reported separately as current context.
  */
 
 /** A tool call opened and not yet ended. */
@@ -56,6 +56,8 @@ export interface MapperState {
   readonly openItems: Map<string, OpenItem>;
   /** The provider's last in-band error, for an ending that names none. */
   lastError: RunError | null;
+  context: ContextReading | null;
+  contextMessageId: string | null;
   /** The process's delegated-work ledger, shared across its turns. */
   readonly ledger: TaskLedger;
   readonly now: () => number;
@@ -74,6 +76,8 @@ export const createMapperState = (options: { readonly ledger: TaskLedger; readon
   streams: new Map(),
   openItems: new Map(),
   lastError: null,
+  context: null,
+  contextMessageId: null,
   ledger: options.ledger,
   now: options.now,
 });
@@ -201,6 +205,23 @@ const mapInit = (message: Record_, state: MapperState): TranscriptEvent[] => {
   return [event("session.provider-linked", { providerSessionId: sessionId })];
 };
 
+/** Input context belongs to one main request; output and subagent usage never enter it. */
+const mapContext = (body: unknown, state: MapperState): TranscriptEvent[] => {
+  if (!isRecord(body) || !isRecord(body["usage"])) return [];
+  const model = text(body["model"]);
+  const id = text(body["id"]);
+  const usage = body["usage"];
+  const counts = [usage["input_tokens"], usage["cache_read_input_tokens"] ?? 0, usage["cache_creation_input_tokens"] ?? 0];
+  if (model === null || id === null || !counts.every((value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) return [];
+  const contextTokens = counts.reduce((sum, value) => sum + value, 0);
+  if (!Number.isSafeInteger(contextTokens)) return [];
+  if (state.contextMessageId === id && state.context?.model === model && state.context.contextTokens === contextTokens) return [];
+  const contextWindow = state.context?.model === model ? state.context.contextWindow : null;
+  state.contextMessageId = id;
+  state.context = { model, contextTokens, contextWindow };
+  return [event("context.reported", state.context)];
+};
+
 const mapStreamEvent = (message: Record_, state: MapperState): TranscriptEvent[] => {
   const key = streamOf(message);
   const raw = message["event"];
@@ -209,7 +230,7 @@ const mapStreamEvent = (message: Record_, state: MapperState): TranscriptEvent[]
     case "message_start": {
       const id = isRecord(raw["message"]) ? text(raw["message"]["id"]) : null;
       if (id !== null) state.streams.set(key, { messageId: id, blockIndex: undefined });
-      return [];
+      return key === MAIN ? mapContext(raw["message"], state) : [];
     }
     case "content_block_start": {
       const stream = state.streams.get(key);
@@ -253,7 +274,7 @@ const mapAssistant = (message: Record_, state: MapperState): TranscriptEvent[] =
   const stream = state.streams.get(streamOf(message));
   const streamedIndex = stream !== undefined && stream.messageId === messageId && content.length === 1 ? stream.blockIndex : undefined;
   const aborted = message["aborted"] === true;
-  const events: TranscriptEvent[] = [];
+  const events: TranscriptEvent[] = parent === null && error === null ? mapContext(body, state) : [];
   content.forEach((block: unknown, position: number) => {
     if (!isRecord(block)) return;
     const itemId = itemIdOf(messageId, streamedIndex ?? position);
@@ -394,7 +415,13 @@ const mapResult = (message: Record_, state: MapperState): AdapterEvent[] => {
         code: state.lastError?.code ?? text(message["terminal_reason"]) ?? text(message["subtype"]),
       };
   // The denials no frame reported come before the ending, so the host has every call's before it settles the rest.
-  const reported: AdapterEvent[] = [...(usage.length > 0 ? [event("usage.reported", { models: usage })] : []), ...resultDenials(message, state)];
+  const denominator = usage.find((entry) => entry.model === state.context?.model)?.contextWindow;
+  const contextEvents: TranscriptEvent[] = [];
+  if (state.context !== null && denominator != null && denominator !== state.context.contextWindow) {
+    state.context = { ...state.context, contextWindow: denominator };
+    contextEvents.push(event("context.reported", state.context));
+  }
+  const reported: AdapterEvent[] = [...contextEvents, ...(usage.length > 0 ? [event("usage.reported", { models: usage })] : []), ...resultDenials(message, state)];
   const end = endTurn(state, {
     reason: succeeded ? "completed" : "error",
     error,

@@ -619,6 +619,10 @@
       "title": "UsageReportedPayload"
     },
     {
+      "path": "sessions/events/context.reported.json",
+      "title": "ContextReportedPayload"
+    },
+    {
       "path": "sessions/events/plan.limit.json",
       "title": "PlanLimitPayload"
     },
@@ -2265,6 +2269,10 @@
     {
       "path": "transcript/run-mode.json",
       "title": "RunMode"
+    },
+    {
+      "path": "transcript/context-reading.json",
+      "title": "ContextReading"
     },
     {
       "path": "transcript/model-usage.json",
