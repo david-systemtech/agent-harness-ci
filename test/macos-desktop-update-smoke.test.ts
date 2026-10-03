@@ -5,9 +5,10 @@ import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate, packagedSettingsOpen } = await import(script) as {
+const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings } = await import(script) as {
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
+  clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
 };
 
 /** The smoke's CDP boundary evaluates in a page exposing the preload's shell; no Electron or service manager runs. */
@@ -30,6 +31,21 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("waits for the Settings control to mount before clicking it", async () => {
+    const dom = new JSDOM("<main></main>");
+    try {
+      const evaluate = async (expression: string): Promise<unknown> => runInNewContext(expression, { document: dom.window.document });
+      expect(await clickPackagedSettings(evaluate)).toBe(false);
+      dom.window.document.body.innerHTML = '<button aria-label="Settings">Settings</button>';
+      let clicks = 0;
+      dom.window.document.querySelector("button")?.addEventListener("click", () => { clicks++; });
+      expect(await clickPackagedSettings(evaluate)).toBe(true);
+      expect(clicks).toBe(1);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("recognizes the named Settings section without requiring an explicit accessibility role", async () => {
     const dom = new JSDOM('<button aria-label="Settings">Settings</button><section aria-label="Settings"></section>');
     try {

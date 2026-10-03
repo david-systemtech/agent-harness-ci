@@ -35,10 +35,27 @@ const bannerSaying = async (text: string) => {
 };
 
 describe("a notice", () => {
+  it("waits for sustained credential access, cancelling the banner when a routine read settles", async () => {
+    const shell = fakeShell();
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
+    await act(async () => shell.changeSecretAccess("waiting"));
+    expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull();
+    await act(async () => app.clock.advance(400));
+    await act(async () => shell.changeSecretAccess(null));
+    await act(async () => app.clock.advance(1000));
+    expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull();
+    await act(async () => shell.changeSecretAccess("waiting"));
+    await act(async () => app.clock.advance(499));
+    expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull();
+    await act(async () => app.clock.advance(1));
+    await bannerSaying("Waiting for macOS Keychain access");
+  });
+
   it("explains pending Keychain approval while Settings stays usable, and keeps the cancellation explanation until dismissed", async () => {
     const shell = fakeShell();
     shell.changeSecretAccess("waiting");
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
+    await act(async () => app.clock.advance(500));
     const pending = await bannerSaying("Waiting for macOS Keychain access");
     expect(pending.textContent).toContain("macOS may ask for approval after replacing this app");
     await app.user.click(screen.getByRole("button", { name: "Settings" }));
@@ -50,11 +67,13 @@ describe("a notice", () => {
     await app.user.click(within(denied).getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(screen.queryByText("Keychain access did not complete")).toBeNull());
     await act(async () => shell.changeSecretAccess("waiting"));
+    await act(async () => app.clock.advance(500));
     expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull();
     await act(async () => shell.changeSecretAccess("denied"));
     expect(screen.queryByText("Keychain access did not complete")).toBeNull();
     await act(async () => shell.changeSecretAccess(null));
     await act(async () => shell.changeSecretAccess("waiting"));
+    await act(async () => app.clock.advance(500));
     await bannerSaying("Waiting for macOS Keychain access");
     await act(async () => shell.changeSecretAccess("denied"));
     expect((await bannerSaying("Keychain access did not complete")).textContent).toMatch(/pair.*again/i);

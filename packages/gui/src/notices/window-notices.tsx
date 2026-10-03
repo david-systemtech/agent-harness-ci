@@ -8,7 +8,7 @@ import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { ArrowRight, Info, TriangleAlert, X } from "lucide-react";
 import { Button, IconButton, Tooltip } from "../ui/index.js";
-import { useObservable, useRuntime, useShell } from "../window-context.js";
+import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 
 /**
  * The window's notices (docs/specs/gui.md, "Parked asks, attention and
@@ -132,12 +132,24 @@ const NoticeBanner = ({ notice }: { readonly notice: Notice }) => {
   );
 };
 
+const KEYCHAIN_NOTICE_DELAY_MS = 500;
+
 /** Environment notices and this window's OS credential access, as dismissible banners. */
 export const WindowNotices = () => {
   const secrets = useShell()?.secrets;
+  const clock = useClock();
   const [access, setAccess] = useState<SecretAccess>(null);
   const [dismissed, setDismissed] = useState(false);
-  useEffect(() => secrets?.onAccess?.((state) => { setAccess(state); if (state === null) setDismissed(false); }), [secrets]);
+  useEffect(() => {
+    let timer: ReturnType<typeof clock.setTimeout> | undefined;
+    const stop = secrets?.onAccess?.((state) => {
+      timer?.cancel();
+      setAccess(state === "waiting" ? null : state);
+      if (state === "waiting") timer = clock.setTimeout(() => setAccess("waiting"), KEYCHAIN_NOTICE_DELAY_MS);
+      else if (state === null) setDismissed(false);
+    });
+    return () => { timer?.cancel(); stop?.(); };
+  }, [clock, secrets]);
   const notices = useObservable(useRuntime().projections.notices);
   if (notices.length === 0 && (access === null || dismissed)) return null;
   return (

@@ -23,6 +23,16 @@ export async function packagedSettingsOpen(evaluate) {
   return await evaluate("!!document.querySelector('section[aria-label=Settings]')");
 }
 
+/** Opens Settings through the packaged page's CDP boundary. */
+export async function clickPackagedSettings(evaluate) {
+  return await evaluate(`(() => {
+    const button = document.querySelector('button[aria-label=Settings]');
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`);
+}
+
 /** Runs on hosted macOS only. The credential stays inside the page; no token is returned or logged. */
 export async function askForPackagedUpdate(evaluate, version) {
   const result = await evaluate(`(async () => {
@@ -208,7 +218,7 @@ try {
     desktop.on("error", () => {});
     cdp = await connectCdp(port);
     await until(() => cdp.evaluate("typeof window.desktopShell === 'object'"), "The packaged preload did not load");
-    await cdp.evaluate("document.querySelector('button[aria-label=Settings]').click()");
+    await until(() => clickPackagedSettings(cdp.evaluate), "The Settings control did not mount");
     await until(() => packagedSettingsOpen(cdp.evaluate), "Settings did not open after replacement");
     await askForPackagedUpdate(cdp.evaluate, version);
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Reading the existing credential must preserve it");
