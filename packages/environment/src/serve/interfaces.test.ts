@@ -42,17 +42,18 @@ describe("the Tailscale detector", () => {
     expect(asked).toContain("/Applications/Tailscale.app/Contents/MacOS/Tailscale status --json");
   });
 
-  it("falls back on macOS to a non-internal CGNAT IPv4 on utun, excluding addresses outside the range", async () => {
+  it("discovers the app-only Mac's tunnel among simultaneous CGNAT VPNs using its own Tailscale IPv6 address", async () => {
     let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
       en0: [entry("100.64.0.5")],
       utun2: [entry("192.168.1.20"), entry("100.63.255.255"), entry("100.128.0.1"), entry("100.64.0.7", true), entry("fd7a:115c:a1e0::1")],
-      utun10: [entry("100.64.0.10")],
-      utun4: [entry("100.64.0.9")],
+      utun10: [entry("100.64.0.10"), entry("fd00::10")],
+      utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9")],
+      utun0: [entry("100.64.0.8")],
     };
     const detector = tailscaleDetector(scripted({}).run, () => interfaces, { platform: "darwin" });
     expect(await detector.tailscaleAddress()).toBe("100.64.0.9");
     expect(await tailscaleDetector(scripted({}).run, () => interfaces, { platform: "linux" }).tailscaleAddress()).toBeUndefined();
-    interfaces = { utun4: [entry("100.127.255.254")] };
+    interfaces = { utun4: [entry("100.127.255.254"), entry("FD7A:115C:A1E0::9")] };
     expect(await detector.tailscaleAddress()).toBe("100.127.255.254");
     interfaces = {};
     expect(await detector.tailscaleAddress()).toBeUndefined();
@@ -65,6 +66,33 @@ describe("the Tailscale detector", () => {
     expect(detector.tailscaleInstalled?.()).toBe(true);
     installed = false;
     expect(detector.tailscaleInstalled?.()).toBe(false);
+  });
+
+  it("does not resurrect a stopped or signed-out Mac's retained tunnel addresses", async () => {
+    for (const state of ["Stopped", "NeedsLogin", "Starting", "NeedsMachineAuth"]) {
+      const detector = tailscaleDetector(scripted({
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale status --json": JSON.stringify({ BackendState: state }),
+      }).run, () => ({
+        utun0: [entry("100.64.0.8")],
+        utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9")],
+      }), { platform: "darwin", readInstalled: () => true });
+      expect(await detector.tailscaleAddress(), state).toBeUndefined();
+      expect(await detector.tailnetName(), state).toBeUndefined();
+      expect(detector.tailscaleInstalled?.()).toBe(true);
+    }
+  });
+
+  it("leaves ownership undetermined without a non-internal Tailscale IPv6 on that numbered tunnel", async () => {
+    for (const interfaces of [
+      { utun4: [entry("100.64.0.9")] },
+      { utun4: [entry("100.64.0.9"), entry("fd00::9")], utun5: [entry("fd7a:115c:a1e0::9")] },
+      { utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9", true)] },
+      { utunOther: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9")] },
+    ]) {
+      const detector = tailscaleDetector(scripted({}).run, () => interfaces, { platform: "darwin" });
+      expect(await detector.tailscaleAddress()).toBeUndefined();
+      expect(await detector.tailnetName()).toBeUndefined();
+    }
   });
 
   it("discovers the host tailnet without a CLI in a container sharing the host network, retaining loopback and leaving LAN opt-in", async () => {

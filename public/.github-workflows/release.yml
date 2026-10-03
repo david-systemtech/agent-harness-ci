@@ -439,6 +439,34 @@ jobs:
           test "$code" -eq 3
           grep -q 'No service is installed' <<< "$status"
 
+      - name: Verify packaged macOS tunnel ownership
+        run: |
+          set -euo pipefail
+          server=unzipped/agent-harness.app/Contents/Resources/server
+          SERVER="$server" "$server/node/bin/node" --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { resolve } from "node:path";
+          import { pathToFileURL } from "node:url";
+          const { tailscaleDetector, bindPlan } = await import(pathToFileURL(resolve(process.env.SERVER, "packages/environment/dist/serve/interfaces.js")));
+          const entry = (address) => ({ address, internal: false, family: address.includes(":") ? "IPv6" : "IPv4" });
+          let interfaces = { utun0: [entry("100.64.0.8")], utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::9")] };
+          let state;
+          const detector = tailscaleDetector(async (_command, args) =>
+            args[0] === "status" && state ? JSON.stringify({ BackendState: state }) : undefined,
+            () => interfaces, { platform: "darwin", readInstalled: () => true });
+          assert.equal(await detector.tailscaleAddress(), "100.64.0.9");
+          assert.equal(await detector.tailnetName(), undefined);
+          for (state of ["Stopped", "NeedsLogin"]) {
+            assert.equal(await detector.tailscaleAddress(), undefined);
+          }
+          state = undefined;
+          interfaces = { utun0: [entry("100.64.0.8")] };
+          const tailscaleAddress = await detector.tailscaleAddress();
+          assert.equal(tailscaleAddress, undefined);
+          assert.equal(detector.tailscaleInstalled(), true);
+          assert.deepEqual(bindPlan({ tailscaleAddress }).binds, [{ host: "127.0.0.1", interface: "loopback" }]);
+          NODE
+
       - name: Start the packaged environment twice
         run: |
           set -euo pipefail
