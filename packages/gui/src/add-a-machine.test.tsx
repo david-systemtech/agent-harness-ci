@@ -125,6 +125,8 @@ describe("Add a machine", () => {
     expect(line(container)).toBe(
       [
         `${tokenToCurl} -o compose.yaml ${release}/compose.yaml`,
+        `${tokenToCurl} -o host-updater.sh ${release}/host-updater.sh`,
+        "chmod +x host-updater.sh",
         "docker login git.example.test",
         "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Build box' docker compose up -d",
         "docker compose logs environment",
@@ -134,6 +136,17 @@ describe("Add a machine", () => {
     expect(within(install).getByText(/Its first start takes the channel and the name from the line that starts it; a later start keeps them, and its card changes either once paired\./)).toBeDefined();
     await app.user.click(within(install).getByRole("button", { name: "The host-side updater's documentation" }));
     expect(app.shell.calls).toContainEqual(["openExternal", "https://git.example.test/david/agent-harness/src/tag/v0.0.0-fake/docs/host-updater.md"]);
+  });
+
+  it("offers anonymous public install commands and explains how to schedule the downloaded host-side updater", async () => {
+    const app = await opened({ desk: { updates: { status: { version: "0.1.1", releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" } } } } });
+    const install = within(within(await openMachines(app)).getByRole("region", { name: "Add a machine" })).getByRole("region", { name: "Install on another machine" });
+    await within(install).findByRole("region", { name: "macOS and Linux" });
+    expect(install.textContent).not.toMatch(/AGENT_HARNESS_TOKEN|Forgejo token|Authorization|docker login/);
+    expect(within(install).getByText(/Public releases download without credentials/)).toBeDefined();
+    expect(within(install).getByText(/schedule host-updater.sh on the host every five minutes/)).toBeDefined();
+    await app.user.click(within(within(install).getByRole("region", { name: "Windows (PowerShell)" })).getByRole("button", { name: "Copy" }));
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", '& ([scriptblock]::Create((curl.exe -fsSL https://github.com/owner/name/releases/download/v0.1.1/install.ps1) -join "`n")) -Channel stable']);
   });
 
   it("is where Set up's Set up another machine opens, its link's field taking the focus", async () => {

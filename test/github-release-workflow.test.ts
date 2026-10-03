@@ -109,6 +109,22 @@ esac
     expect(job("release")).toContain("    needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
   });
 
+  it("smokes the public headless installers without credentials on each release platform", () => {
+    for (const name of ["smoke-macos", "smoke-linux"]) {
+      const body = job(name).join("\n");
+      expect(body).toContain("actions/checkout@");
+      expect(step(name, "Resolve a public headless install without credentials")).toContain('sh scripts/install.sh --dry-run --data-dir "$RUNNER_TEMP/headless-install"');
+      expect(body).toContain("unset AGENT_HARNESS_TOKEN");
+      expect(body).toContain("https://github.com/david-systemtech/agent-harness/releases/download/");
+    }
+    const windows = job("smoke-windows").join("\n");
+    expect(windows).toContain("actions/checkout@");
+    expect(windows).toContain("scripts/install.ps1");
+    expect(windows).toContain("-DryRun -DataDir");
+    expect(windows).toContain("Remove-Item Env:\\AGENT_HARNESS_TOKEN");
+    expect(windows).toContain("https://github.com/david-systemtech/agent-harness/releases/download/");
+  });
+
   it("hands the manifest writer every asset, the tag and exact ghcr image through the runner's shell", async () => {
     scratch = mkdtempSync(join(tmpdir(), "github-release-workflow-"));
     const log = join(scratch, "args");

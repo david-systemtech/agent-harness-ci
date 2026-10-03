@@ -25,6 +25,7 @@ import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { packZip } from "../packages/cli/scripts/release/archive.js";
 import { pathLine } from "../packages/cli/src/service/shim.js";
+import { releaseWorkflowInput } from "./release-workflow-input.js";
 import { API, DISCOVERY, DOWNLOAD, FAKE_CURL, HEALTH, LIST, releaseJson, type ReleaseSpec, TOKEN, write } from "./install-fakes.js";
 
 const script = join(import.meta.dirname, "..", "scripts", "install.ps1");
@@ -177,7 +178,6 @@ const fixture = (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Fixtur
     OS: "Windows_NT",
     PROCESSOR_ARCHITECTURE: "AMD64",
     AGENT_HARNESS_TOKEN: TOKEN,
-    EXPECTED_TOKEN: TOKEN,
     FAKE_LOG: log,
     FAKE_ARGV: argvLog,
     FAKE_RELEASES: listed,
@@ -268,12 +268,12 @@ it.runIf(inCi)("has PowerShell 7 to run the script under in CI", () => {
 });
 
 describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, () => {
-  it("prints its usage, naming the token it needs, for -Help", async () => {
+  it("prints its usage, describing an anonymous public install, for -Help", async () => {
     const f = fixture();
     const result = await install(f, ["-Help"]);
     expect(result.code).toBe(0);
     expect(result.stdout).toMatch(/^Usage: install\.ps1/);
-    expect(result.stdout).toContain("AGENT_HARNESS_TOKEN");
+    expect(result.stdout).not.toContain("AGENT_HARNESS_TOKEN");
     expect(f.calls()).toEqual([]);
   });
 
@@ -305,12 +305,12 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(f.calls()).toEqual([]);
   });
 
-  it("refuses to run without a token, saying which variable to set, with exit 2", async () => {
+  it("installs from public GitHub releases without a credential", async () => {
     const f = fixture();
     const result = await install(f, [], { AGENT_HARNESS_TOKEN: "" });
-    expect(result.code).toBe(2);
-    expect(result.stderr).toContain("AGENT_HARNESS_TOKEN");
-    expect(f.calls()).toEqual([]);
+    expect(result.code).toBe(0);
+    expect(f.calls()).toContain(`curl ${LIST}`);
+    expect(existsSync(join(f.state, "credential"))).toBe(false);
   });
 
   it.each(["soon", "1.5", "08", "-1"])("refuses INSTALL_READY_TIMEOUT=%s, no whole number of seconds, with exit 2, before any download", async (timeout) => {
@@ -360,17 +360,17 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(f.calls()).toEqual([`curl ${LIST}`]);
   });
 
-  it("keeps the token off every command line, and out of the environment the CLI runs in", async () => {
+  it("ignores an inherited private forge token without sending or storing it", async () => {
     const f = fixture();
     expect((await install(f)).code).toBe(0);
     expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
     expect(f.calls()).not.toContainEqual(expect.stringMatching(/saw AGENT_HARNESS_TOKEN/));
-    expect(readFileSync(join(f.state, "credential"), "utf8").trim()).toBe(TOKEN);
+    expect(existsSync(join(f.state, "credential"))).toBe(false);
   });
 
-  it("says the token was refused when the releases API refuses it", async () => {
+  it("reports a public releases API failure", async () => {
     const f = fixture();
-    const result = await install(f, [], { EXPECTED_TOKEN: "another-token" });
+    const result = await install(f, [], { FAKE_RELEASE_ERROR: "403" });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(LIST);
   });
@@ -423,7 +423,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(readdirSync(f.temp)).toEqual([]);
   });
 
-  it("installs the stable channel's newest release, starts it, waits for it, hands it the channel and the token, and ends with the pairing and the Path line", async () => {
+  it("installs the stable channel's newest release, starts it, waits for it, sets its channel, and ends with the pairing and the Path line", async () => {
     const f = fixture();
     const result = await install(f, ["-Name", "Build box"]);
     expect(result.stderr).toBe("");
@@ -440,11 +440,10 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
       "0.1.0 service start",
       `curl ${HEALTH}`,
       "0.1.0 update settings --channel stable",
-      "0.1.0 update credential --stdin",
       `curl ${DISCOVERY}`,
       "0.1.0 pair --preset own-client",
     ]);
-    expect(readFileSync(join(f.state, "credential"), "utf8").trim()).toBe(TOKEN);
+    expect(existsSync(join(f.state, "credential"))).toBe(false);
     expect(result.stdout).toContain("Verified the SHA-256 of agent-harness-win32-x64.zip.");
     expect(result.stdout).toContain("\n  Code: ABCD-EFGH\n");
     expect(result.stdout.indexOf("Code: ABCD-EFGH")).toBeLessThan(result.stdout.indexOf("The shim "));
@@ -456,7 +455,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     const f = fixture();
     const result = await install(f, [], { FAKE_AUTH_POLICY: "local-only" });
     expect(result.code).toBe(0);
-    expect(f.calls().slice(-2)).toEqual(["0.1.0 update credential --stdin", `curl ${DISCOVERY}`]);
+    expect(f.calls().slice(-2)).toEqual(["0.1.0 update settings --channel stable", `curl ${DISCOVERY}`]);
     expect(f.calls().filter((call) => call.startsWith("0.1.0 pair"))).toEqual([]);
     expect(result.stdout).toContain(
       "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.\n",
@@ -604,7 +603,6 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         `  & ${node} ${entry} service start`,
         `  wait up to 60 seconds for ${HEALTH} to say ready`,
         `  & ${node} ${entry} update settings --channel stable`,
-        `  & ${node} ${entry} update credential --stdin`,
         `  & ${node} ${entry} pair --preset own-client, or the Tailscale warning when only loopback is bound`,
         "Dry run: nothing was downloaded or changed.",
         "",
@@ -623,6 +621,22 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(result.stdout).toContain(
       `  & ${node} ${entry} pair --preset own-client --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`,
     );
+  });
+
+  it("runs the release's Windows headless smoke against anonymous public assets", async () => {
+    const f = fixture();
+    write(join(f.root, "install.ps1"), readFileSync(script, "utf8"));
+    const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
+    const start = workflow.indexOf("          Remove-Item Env:");
+    const end = workflow.indexOf("          Write-Output \"Smoke user token", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const commands = workflow.slice(start, end).replaceAll("$PSScriptRoot", `'${f.root}'`);
+    const result = await inSession(f, commands);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain(`${DOWNLOAD}/v0.1.0/${ASSET}`);
+    expect(f.calls()).toEqual([`curl ${LIST}`]);
   });
 
   it("prints the plan of a re-run over a running service for -DryRun, changing nothing", async () => {
@@ -652,12 +666,11 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         "0.1.0 service install --name Build box",
         `curl ${HEALTH}`,
         "0.1.0 update settings --channel beta",
-        "0.1.0 update credential --stdin",
         `curl ${DISCOVERY}`,
         "0.1.0 pair --preset own-client",
       ]);
       expect(result.stdout).toContain("The agent-harness service is running, so nothing is downloaded or unpacked.");
-      expect(readFileSync(join(f.state, "credential"), "utf8").trim()).toBe(TOKEN);
+      expect(existsSync(join(f.state, "credential"))).toBe(false);
       expect(readdirSync(join(f.dataDir, "versions"))).toEqual(["0.1.0"]);
       expect(result.stdout).toContain("\n  Code: ABCD-EFGH\n");
       expect(result.stdout.endsWith(pathEnding(f.dataDir))).toBe(true);
@@ -677,7 +690,6 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         `0.1.0 service install --data-dir ${dataDir}`,
         `curl ${HEALTH}`,
         `0.1.0 update settings --channel stable --data-dir ${dataDir}`,
-        `0.1.0 update credential --stdin --data-dir ${dataDir}`,
         `0.1.0 update apply --version 0.2.0 --data-dir ${dataDir}`,
         `curl ${DISCOVERY}`,
         `0.1.0 pair --preset own-client --data-dir ${dataDir}`,
@@ -747,11 +759,11 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
       expect(result.stdout).toMatch(/after: 3, preference: True\n$/);
     });
 
-    it("says the token was refused when curl.exe fails on the releases API", async () => {
+    it("reports a public releases API failure with native error preferences enabled", async () => {
       const f = fixture();
-      const result = await withPreference(f, { EXPECTED_TOKEN: "another-token" });
+      const result = await withPreference(f, { FAKE_RELEASE_ERROR: "403" });
       expect(result.stderr).toBe(
-        `curl: (22) The requested URL returned error: 401\ninstall.ps1: could not read the releases from ${LIST}; check AGENT_HARNESS_TOKEN.\n`,
+        `curl: (22) The requested URL returned error: 403\ninstall.ps1: could not read the releases from ${LIST}; check connectivity and the GitHub API rate limit.\n`,
       );
       expect(result.stdout).toMatch(/after: 1, preference: True\n$/);
     });
@@ -798,7 +810,6 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         ["service", "install", "--name", name, "--data-dir", dataDir],
         ["service", "start"],
         ["update", "settings", "--channel", "stable", "--data-dir", dataDir],
-        ["update", "credential", "--stdin", "--data-dir", dataDir],
         ["pair", "--preset", "own-client", "--data-dir", dataDir],
       ]);
 
