@@ -297,7 +297,7 @@ export const STEP_REGISTRY = [
     skip: "carry-over.present",
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: ["account.updated", "carry-over.imported", "state-import.finished"],
+    triggers: ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed"],
   },
   {
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:

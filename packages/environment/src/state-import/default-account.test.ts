@@ -64,7 +64,11 @@ it.each([false, true])("retains a deferred default across restart and respects a
   const client = await t.client();
   await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   const id = (await client.request("accounts.list", {})).accounts.find((account) => account.label === "Work")!.id;
-  if (edit) await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultAccount": "other" } });
+  if (edit) {
+    await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultAccount": "other" } });
+    expect(await client.request("setup.check", { step: "carry-over" })).toMatchObject({ results: [{ state: "done" }] });
+    expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { reEnter: [], failed: [] } });
+  }
   // Changes to the source's preference after import do not replace the retained choice.
   writeFileSync(join(source, "prefs.json"), JSON.stringify({ activeProfileId: "missing" }));
   await t.close();
