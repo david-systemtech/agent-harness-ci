@@ -5,11 +5,11 @@ import { Part } from "../settings/part.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { useHoldContinue } from "../setup/continue-hold.js";
 import { StepStatus } from "../setup/step-status.js";
-import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { AccountsList } from "./accounts-pane.js";
 import { DefaultChoices } from "./default-model-pane.js";
 
-/** Why Continue past Account waits on first launch (ADR 0018: the step needs a signed-in account to continue). */
+/** Why Continue past Account waits (ADR 0018: the step needs a signed-in account to continue). */
 const WAITS_ON_AN_ACCOUNT = "Continue once an account is signed in.";
 
 /**
@@ -21,8 +21,7 @@ const WAITS_ON_AN_ACCOUNT = "Continue once an account is signed in.";
  * Cancel; a row per account with its label, identity, status and Sign in
  * again. Under the list, the default account, model family and effort,
  * written through `settings.update`, which the first account signed in
- * presets (`usePresetOnFirstSignIn`). On first launch, while the
- * first-launch mark is unset, Continue waits until an account on the
+ * presets (`usePresetOnFirstSignIn`). Continue waits until an account on the
  * environment checked is signed in; the step is never skipped. Claude's
  * parts alone: Codex and local models come with their adapters
  * (milestone 2, ADR 0016).
@@ -31,15 +30,15 @@ export const AccountStepCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
   const view = useObservable(runtime.projections.environments).find((environment) => environment.environmentId === environmentId);
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value;
-  const [marked] = usePresentation("firstLaunchDone");
   const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
-  useHoldContinue(marked || signedIn ? undefined : WAITS_ON_AN_ACCOUNT);
+  useHoldContinue(signedIn ? undefined : WAITS_ON_AN_ACCOUNT);
   return (
     <>
+      <p className="max-w-[56ch] text-sm text-ink-muted">Your agent needs a signed-in coding account to start a session. We will help you connect it.</p>
       <StepStatus environmentId={environmentId} step={step} />
       {view !== undefined && (
         <>
-          <AccountsList view={view} add="Sign in another account" />
+          <AccountsList view={view} add={accounts?.length ? "Sign in another account" : "Sign in an account"} />
           <Defaults view={view} accounts={accounts} />
         </>
       )}

@@ -19,6 +19,7 @@ import type {
   ShellWebViewState,
   ShellWebViewKey,
   ShellWindow,
+  ShellWindowState,
 } from "../shell.js";
 
 /**
@@ -37,6 +38,11 @@ export interface ShellFunctions {
   "dialogs.openFileContents": ShellDialogs["openFileContents"];
   "dialogs.openDirectory": ShellDialogs["openDirectory"];
   "dialogs.save": ShellDialogs["save"];
+  "window.minimize": NonNullable<ShellWindow["minimize"]>;
+  "window.toggleMaximize": NonNullable<ShellWindow["toggleMaximize"]>;
+  "window.close": NonNullable<ShellWindow["close"]>;
+  "window.state": NonNullable<ShellWindow["state"]>;
+  "window.onChange": NonNullable<ShellWindow["onChange"]>;
   "window.setTitle": ShellWindow["setTitle"];
   "window.focus": ShellWindow["focus"];
   "window.setBadge": ShellWindow["setBadge"];
@@ -57,6 +63,7 @@ export interface ShellFunctions {
   "webView.back": ShellWebView["back"];
   "webView.forward": ShellWebView["forward"];
   "webView.reload": ShellWebView["reload"];
+  "webView.stop": ShellWebView["stop"];
   "webView.state": ShellWebView["state"];
   "webView.onChange": ShellWebView["onChange"];
   "webView.onKey": ShellWebView["onKey"];
@@ -105,6 +112,7 @@ export type FakeShell = Required<Shell> & {
   answer<M extends ScriptableShellFunction>(member: M, responder: ShellFunctions[M]): void;
   /** Opens `url` as the desktop does a deep link: every listener `deepLinks.onOpen` holds now hears it. */
   openDeepLink(url: string): void;
+  changeWindow(state: ShellWindowState): void;
   changeWebView(id: string, state: ShellWebViewState): void;
   pressWebViewKey(id: string, key: ShellWebViewKey): void;
   /** Clicks the notification shown with `tag`: every listener `notifications.onActivate` holds now is handed the tag. Throws when none was shown with it. */
@@ -116,6 +124,7 @@ export const fakeShell = (): FakeShell => {
   const secrets = new Map<string, string>();
   const heard = { links: new Set<(url: string) => void>(), activations: new Set<(tag: string) => void>() };
   const keyListeners = new Set<(id: string, key: ShellWebViewKey) => void>();
+  const windowListeners = new Set<(state: ShellWindowState) => void>();
   const viewListeners = new Set<(id: string, state: ShellWebViewState) => void>();
   const viewStates = new Map<string, ShellWebViewState>();
   let views = 0;
@@ -131,6 +140,11 @@ export const fakeShell = (): FakeShell => {
     "dialogs.openFileContents": async () => [],
     "dialogs.openDirectory": async () => undefined,
     "dialogs.save": async () => undefined,
+    "window.minimize": () => undefined,
+    "window.toggleMaximize": () => undefined,
+    "window.close": () => undefined,
+    "window.state": async () => undefined,
+    "window.onChange": listen(windowListeners),
     "window.setTitle": () => undefined,
     "window.focus": () => undefined,
     "window.setBadge": () => undefined,
@@ -142,7 +156,7 @@ export const fakeShell = (): FakeShell => {
     "deepLinks.onOpen": listen(heard.links),
     "webView.create": async ({ url }) => {
       const id = `view-${++views}`;
-      viewStates.set(id, { url, canGoBack: false, canGoForward: false });
+      viewStates.set(id, { url, canGoBack: false, canGoForward: false, loading: false });
       return id;
     },
     "webView.debugger.attach": async () => undefined,
@@ -153,20 +167,31 @@ export const fakeShell = (): FakeShell => {
     "webView.attach": () => undefined,
     "webView.hide": () => undefined,
     "webView.navigate": async (id, url) => {
-      const state = { url, canGoBack: true, canGoForward: false };
+      const state = { url, canGoBack: true, canGoForward: false, loading: false };
       viewStates.set(id, state);
       for (const listener of viewListeners) listener(id, state);
     },
-    "webView.state": async (id) => viewStates.get(id) ?? { url: "about:blank", canGoBack: false, canGoForward: false },
+    "webView.state": async (id) => {
+      const state = viewStates.get(id);
+      if (!state) throw new Error("The browser page is closed.");
+      return state;
+    },
     "webView.onKey": (listener) => { keyListeners.add(listener); return () => void keyListeners.delete(listener); },
     "webView.back": () => undefined,
     "webView.forward": () => undefined,
     "webView.reload": () => undefined,
+    "webView.stop": (id) => {
+      const held = viewStates.get(id);
+      if (!held) throw new Error("The browser page is closed.");
+      const state = { ...held, loading: false };
+      viewStates.set(id, state);
+      for (const listener of viewListeners) listener(id, state);
+    },
     "webView.onChange": (listener) => {
       viewListeners.add(listener);
       return () => void viewListeners.delete(listener);
     },
-    "webView.destroy": () => undefined,
+    "webView.destroy": (id) => { viewStates.delete(id); },
     "preview.grant": async () => `${PRODUCT_NAME}-preview://fake/${++previews}`,
     // Carries no server artefact, as a desktop run from a checkout; runs a build that updates itself, and applies one when asked.
     "installer.bundledServer": async () => null,
@@ -211,6 +236,11 @@ export const fakeShell = (): FakeShell => {
       save: recorded("dialogs.save"),
     },
     window: {
+      minimize: recorded("window.minimize"),
+      toggleMaximize: recorded("window.toggleMaximize"),
+      close: recorded("window.close"),
+      state: recorded("window.state"),
+      onChange: recorded("window.onChange"),
       setTitle: recorded("window.setTitle"),
       focus: recorded("window.focus"),
       setBadge: recorded("window.setBadge"),
@@ -233,6 +263,7 @@ export const fakeShell = (): FakeShell => {
       back: recorded("webView.back"),
       forward: recorded("webView.forward"),
       reload: recorded("webView.reload"),
+      stop: recorded("webView.stop"),
       state: recorded("webView.state"),
       onChange: recorded("webView.onChange"),
       onKey: recorded("webView.onKey"),
@@ -258,6 +289,7 @@ export const fakeShell = (): FakeShell => {
       responders[member] = responder;
     },
     pressWebViewKey(id, key) { for (const listener of keyListeners) listener(id, key); },
+    changeWindow(state) { for (const listener of [...windowListeners]) listener(state); },
     changeWebView(id, state) {
       viewStates.set(id, state);
       for (const listener of viewListeners) listener(id, state);

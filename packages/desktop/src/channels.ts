@@ -11,8 +11,11 @@
  */
 export const SHELL_GLOBAL = "desktopShell";
 
+export const WINDOW_CHANNEL = "shell:window.changed";
+
 /** The members the renderer awaits, each answered through `ipcMain.handle`. */
 export const ANSWERED = [
+  "window.state",
   "dialogs.openFile",
   "dialogs.openFileContents",
   "dialogs.openDirectory",
@@ -51,6 +54,9 @@ export type Answered = (typeof ANSWERED)[number];
 
 /** The members that answer nothing (`void` in the shell interface), each heard through `ipcMain.on`. */
 export const TOLD = [
+  "window.minimize",
+  "window.toggleMaximize",
+  "window.close",
   "window.setTitle",
   "window.focus",
   "window.setBadge",
@@ -61,6 +67,7 @@ export const TOLD = [
   "webView.back",
   "webView.forward",
   "webView.reload",
+  "webView.stop",
 ] as const;
 export type Told = (typeof TOLD)[number];
 

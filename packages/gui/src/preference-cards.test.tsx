@@ -26,6 +26,7 @@ const checklist = () => screen.getByRole("region", { name: "Set up" });
 /** A first launch on this machine's environment, `desk`, as `given` scripts it, with Set up open over the window. */
 const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", ...given }] }, { firstLaunch: true });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   await screen.findByRole("region", { name: "Set up" });
   return app;
 };
@@ -231,6 +232,7 @@ describe("without admin", () => {
       },
       { firstLaunch: true },
     );
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     await screen.findByRole("region", { name: "Set up" });
     const line = "Read-only: This client was paired with laptop without the admin scope.";
 

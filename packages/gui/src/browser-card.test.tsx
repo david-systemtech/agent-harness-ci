@@ -22,6 +22,7 @@ const chromeOf = (now: string): PairedChrome => ({
 const card = () => screen.getByRole("region", { name: "Browser" });
 const opened = async (given: Partial<ScriptedEnvironment> = {}, local = true, initiallyPaired = false) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: local ? "local" : "paired", ...given }] }, { firstLaunch: true });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const desk = app.environment("desk");
   const status = statusOf();
   let chromes: PairedChrome[] = initiallyPaired ? [chromeOf(app.clock.now().toISOString())] : [];

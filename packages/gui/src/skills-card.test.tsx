@@ -14,6 +14,7 @@ const accepted = (result: Record<string, unknown>) => ({ result: { receipt: { st
 const card = () => screen.getByRole("region", { name: "Skills" });
 const opened = async (value = initial(), given: Partial<ScriptedEnvironment> = {}) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", ...given }] }, { firstLaunch: true });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const desk = app.environment("desk");
   let skills = value;
   desk.wire.answer("skills.get", () => ({ result: skills }));
