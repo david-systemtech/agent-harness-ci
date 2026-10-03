@@ -340,6 +340,7 @@ describe("pull requests where sessions are drawn", () => {
     expect(await within(row).findByRole("img", { name: "Pull request #12, merged" })).toBeDefined();
 
     await app.user.click(row);
+    await app.user.keyboard("{Control>}\\{/Control}");
     const link = await screen.findByRole("button", { name: "Pull request #12, merged" });
     expect(link.textContent).toBe("PR #12 merged");
     await app.user.click(link);

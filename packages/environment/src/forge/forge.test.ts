@@ -162,7 +162,7 @@ describe("forge.accounts.add", () => {
     expect(busy).toMatchObject({ identity: null, primary: true, problem: { kind: "unreachable", since: MANUAL_CLOCK_START } });
     expect(busy.problem?.message).toContain(forge.origin);
 
-    const nowhere = await unreachableOrigin();
+    const nowhere = await unreachableOrigin(onCleanup);
     const gone = await added(client, { url: nowhere, kind: "gitea", credential: pasted(OTHER_TOKEN) });
     expect(gone).toMatchObject({ identity: null, primary: false, problem: { kind: "unreachable", since: MANUAL_CLOCK_START } });
     expect(gone.problem?.message).toMatch(new RegExp(`^The forge at ${nowhere.replaceAll(".", "\\.")} could not be reached: [^\\n]+\\.$`));

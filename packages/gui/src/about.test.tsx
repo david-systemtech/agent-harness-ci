@@ -61,6 +61,10 @@ describe("About", () => {
     const about = await openAbout(app);
     const updates = within(about).getByRole("region", { name: "Updates" });
 
+    const platform = await within(about).findByText("linux · x64");
+    expect(platform.tagName).toBe("DD");
+    expect(platform.classList.contains("font-mono")).toBe(true);
+    expect(within(updates).getByRole("button", { name: "Update now" }).querySelector("svg")).not.toBeNull();
     expect(await within(updates).findByText("Version 0.5.0")).toBeDefined();
     await waitFor(() => expect((within(updates).getByRole("combobox", { name: "Channel" }) as HTMLSelectElement).value).toBe("beta"));
     expect(within(updates).getByRole("switch", { name: "Auto-update" }).getAttribute("aria-checked")).toBe("true");

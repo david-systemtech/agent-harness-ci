@@ -1,7 +1,9 @@
 import { oneLine } from "@agent-harness/client-runtime";
 import type { ForgeAccountRecord, ParamsOf } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
-import { Button, Field, Input, Select } from "../ui/index.js";
+import { Folder, GitBranch, GitFork, Plus, Server, UserRound, UsersRound } from "lucide-react";
+import { BankButton, BankField } from "./bank-controls.js";
+import { Input, Select, Textarea } from "../ui/index.js";
 import { useFollowed, useRuntime } from "../window-context.js";
 
 type Creation = ParamsOf<"banks.create">["creation"];
@@ -23,13 +25,13 @@ export const PersonalBankForm = ({ forges, busy, create, firstProject }: CreateP
   const bankName = name ?? (primary?.identity === undefined || primary.identity === null ? "personal-memory" : `${primary.identity.login}-memory`);
   const projectName = project ?? firstProject;
   const send = (localOnly: boolean) => create(bankName, { kind: "personal", localOnly, org, project: projectName });
-  const invalid = busy || bankName === "" || org === "" || projectName === "";
+  const invalid = bankName === "" || org === "" || projectName === "";
   return <>
-    <Field label="Bank name"><Input value={bankName} onChange={(event) => setName(event.target.value)} /></Field>
-    <Field label="What do you call your own work?"><Input value={org} onChange={(event) => setOrg(event.target.value)} /></Field>
-    <Field label="Your first project"><Input value={projectName} onChange={(event) => setProject(event.target.value)} /></Field>
-    <Button disabled={invalid || primary === undefined} onClick={() => void send(false)}>Create</Button>
-    <Button disabled={invalid} onClick={() => void send(true)}>Keep it on this machine for now</Button>
+    <BankField icon={GitBranch} label="Bank name"><Input value={bankName} onChange={(event) => setName(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="What do you call your own work?"><Input value={org} onChange={(event) => setOrg(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="Your first project"><Input value={projectName} onChange={(event) => setProject(event.target.value)} /></BankField>
+    <div className="flex flex-wrap gap-1.5"><BankButton label="Create" icon={Plus} variant={primary === undefined ? "outline" : "default"} disabled={busy} reason={primary === undefined ? "Connect a verified primary forge, or keep the bank on this machine." : invalid ? "Fill in the bank name, organisation and first project." : undefined} onClick={() => void send(false)} />
+    <BankButton label="Keep it on this machine for now" icon={Server} variant={primary === undefined ? "default" : "outline"} disabled={busy} reason={invalid ? "Fill in the bank name, organisation and first project." : undefined} onClick={() => void send(true)} /></div>
   </>;
 };
 
@@ -48,22 +50,22 @@ export const TeamBankForm = ({ environmentId, forges, busy, create }: CreateProp
   const firstOrg = org ?? slug(team);
   const firstProjects = projects.split("\n").map((name) => name.trim()).filter(Boolean).map((name) => ({ name, folder: slug(name) }));
   return <>
-    <Field label="Forge"><Select value={forge?.id ?? ""} onChange={(event) => { pick(event.target.value); setOwner(undefined); }}>
+    <BankField icon={GitFork} label="Forge"><Select value={forge?.id ?? ""} onChange={(event) => { pick(event.target.value); setOwner(undefined); }}>
       <option value="" disabled>Choose a verified forge</option>
       {forges.map((forge) => <option key={forge.id} value={forge.id}>{new URL(forge.origin).host} — {forge.identity?.login}</option>)}
-    </Select></Field>
-    <Field label="Owner"><Select value={owner?.login ?? ""} disabled={owners?.result === null || owners?.error !== null} onChange={(event) => setOwner(event.target.value)}>
+    </Select></BankField>
+    <BankField icon={UserRound} label="Owner"><Select value={owner?.login ?? ""} disabled={owners?.result === null || owners?.error !== null} onChange={(event) => setOwner(event.target.value)}>
       <option value="" disabled>Choose an owner</option>
       {owners?.result?.owners.map((owner) => <option key={owner.login} value={owner.login}>{owner.login}</option>)}
-    </Select></Field>
+    </Select></BankField>
     {owners?.error != null && <p role="alert">{oneLine(owners.error.message)}</p>}
     {forge !== undefined && <p>Every teammate needs an account on {new URL(forge.origin).host}.</p>}
-    <Field label="Team name"><Input value={team} onChange={(event) => setTeam(event.target.value)} /></Field>
-    <Field label="Repository name"><Input value={repositoryName} onChange={(event) => setName(event.target.value)} /></Field>
-    <Field label="First organisation"><Input value={firstOrg} onChange={(event) => setOrg(event.target.value)} /></Field>
-    <Field label="First projects (one per line)"><textarea value={projects} onChange={(event) => setProjects(event.target.value)} className="rounded-md border border-line bg-inset p-2" /></Field>
-    <Button disabled={busy || forge === undefined || owner === undefined || owners?.error !== null || team.trim() === "" || repositoryName === "" || firstOrg === "" || firstProjects.length === 0} onClick={() => {
+    <BankField icon={UsersRound} label="Team name"><Input value={team} onChange={(event) => setTeam(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="Repository name"><Input value={repositoryName} onChange={(event) => setName(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="First organisation"><Input value={firstOrg} onChange={(event) => setOrg(event.target.value)} /></BankField>
+    <BankField wide icon={Folder} label="First projects (one per line)"><Textarea rows={4} title="First projects · Tab to focus, type one project per line" value={projects} onChange={(event) => setProjects(event.target.value)} className="w-full" /></BankField>
+    <BankButton label="Create" icon={Plus} variant="default" className="self-start" disabled={busy} reason={forge === undefined ? "Connect a verified forge." : owner === undefined || owners?.error !== null ? "Choose an available owner." : team.trim() === "" || repositoryName === "" || firstOrg === "" || firstProjects.length === 0 ? "Fill in the team, repository, organisation and first projects." : undefined} onClick={() => {
       if (forge !== undefined && owner !== undefined) void create(repositoryName, { kind: "team", forgeAccountId: forge.id, owner, repositoryName, teamName: team, org: firstOrg, projects: firstProjects });
-    }}>Create</Button>
+    }} />
   </>;
 };

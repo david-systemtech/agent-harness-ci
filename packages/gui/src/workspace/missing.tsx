@@ -2,7 +2,9 @@ import { derived, resolverRefusal, workspaceGoneLine, type DispatchFailure, type
 import type { WorkspaceRequest } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
-import { Button, Popover, PopoverTrigger } from "../ui/index.js";
+import { Popover, PopoverTrigger } from "../ui/index.js";
+import { DialogAction as Button } from "../ui/dialog-action.js";
+import { Folder } from "lucide-react";
 import { useObservable, useRuntime } from "../window-context.js";
 import { WorkspacePopover } from "./picker.js";
 
@@ -67,11 +69,11 @@ export const MissingWorkspace = ({ environmentId, sessionId, path, line }: Missi
 
   return (
     <div role="group" aria-label="The workspace is gone" className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <p className="min-w-0 flex-1 text-sm text-amber">{workspaceGoneLine(path)}</p>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button tone="primary" disabled={absent !== undefined} title={absent}>
+            <Button icon={Folder} tone="primary" disabled={absent !== undefined} title={absent}>
               Choose a workspace
             </Button>
           </PopoverTrigger>
