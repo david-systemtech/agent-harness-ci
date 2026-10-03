@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ScriptedEnvironment } from "../test/harness.js";
-import { LAPTOP_ID, TRAIN, desk, drag, drawn, heading, inUtc, laptop, lineOf, region, row, settled, sidebar, two, typeIn } from "../test/sidebar-fixtures.js";
+import { LAPTOP_ID, TRAIN, desk, drag, drawn, heading, inUtc, laptop, lineOf, region, row, rowWords, settled, sidebar, two, typeIn } from "../test/sidebar-fixtures.js";
 
 /**
  * The sidebar by repository (docs/specs/gui.md, "The window and the
@@ -43,37 +43,37 @@ describe("the switch", () => {
   it("shows the sidebar by repository or by groups, and the choice is presentation that survives a remount", async () => {
     const app = await settled(await inRepositories());
     expect(byRepository().getAttribute("aria-checked")).toBe("false");
-    expect(drawn()).toContain("▾ Meadowstudios");
+    expect(drawn()).toContain("Meadowstudios");
 
     await app.user.click(byRepository());
     expect(drawn()).toEqual([
-      "▾ Pinned",
+      "Pinned",
       "  Pinned one",
       "  Laptop pin",
-      "▾ git.example.test/meadowstudios/site",
+      "git.example.test/meadowstudios/site",
       "  Brand on laptop",
-      "▾ david/agent-harness",
+      "david/agent-harness",
       "  Fix the rail #wip",
-      "  Train tidy ?2",
-      "▾ github.com/meadowstudios/site",
+      "  Train tidy 2 waiting",
+      "github.com/meadowstudios/site",
       "  Brand copy",
       "desk · no repository",
       "  Spare",
       "laptop · no repository",
-      "▾ Snoozed",
+      "Snoozed",
       "  Later 18:00",
-      "▸ Settled 1",
-      "▸ Archive 1",
+      "Settled 1",
+      "Archive 1",
     ]);
     expect(app.presentation.values.read().sidebarView).toBe("repositories");
 
     await settled(await app.remount());
     expect(byRepository().getAttribute("aria-checked")).toBe("true");
-    expect(drawn()).toContain("▾ david/agent-harness");
+    expect(drawn()).toContain("david/agent-harness");
 
     await app.user.click(byRepository());
-    expect(drawn()).toContain("▾ Meadowstudios");
-    expect(drawn()).not.toContain("▾ david/agent-harness");
+    expect(drawn()).toContain("Meadowstudios");
+    expect(drawn()).not.toContain("david/agent-harness");
   });
 });
 
@@ -82,8 +82,8 @@ describe("a repository's heading", () => {
     await settled(await inRepositories({ presentation: { sidebarView: "repositories" } }));
     const harness = region("david/agent-harness");
     const rows = within(harness).getAllByRole("listitem");
-    expect(rows.map((line) => line.textContent?.trim())).toEqual(["Fix the rail #wip", "Train tidy ?2"]);
-    const badges = rows.map((line) => within(line).getAllByRole("img")[0] as HTMLElement).map((badge) => [badge.getAttribute("aria-label"), badge.style.color]);
+    expect(rows.map((line) => rowWords(line))).toEqual(["Fix the rail #wip", "Train tidy 2 waiting"]);
+    const badges = rows.map((line) => within(line).getByRole("img", { name: /^(desk|laptop)$/ }) as HTMLElement).map((badge) => [badge.getAttribute("aria-label"), badge.style.color]);
     expect(badges).toEqual([
       ["desk", "var(--environment-teal)"],
       ["laptop", "var(--environment-amber)"],
@@ -94,8 +94,8 @@ describe("a repository's heading", () => {
 
   it("is labelled with the identity's path, and with the host when two headings share a path", async () => {
     await settled(await inRepositories({ presentation: { sidebarView: "repositories" } }));
-    expect(within(region("github.com/meadowstudios/site")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Brand copy"]);
-    expect(within(region("git.example.test/meadowstudios/site")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Brand on laptop"]);
+    expect(within(region("github.com/meadowstudios/site")).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Brand copy"]);
+    expect(within(region("git.example.test/meadowstudios/site")).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Brand on laptop"]);
     expect(within(sidebar()).queryByRole("region", { name: "meadowstudios/site" })).toBeNull();
     expect(within(sidebar()).queryByRole("region", { name: "git.systemtech.dev/david/agent-harness" })).toBeNull();
   });
@@ -106,7 +106,7 @@ describe("a repository's heading", () => {
     const release = laptop.list.hold("sessions.tag");
     void app.runtime.commands.dispatch(LAPTOP_ID, "sessions.tag", { sessionId: TRAIN, tag: "later" });
     await waitFor(() => expect(within(row("Train tidy")).getByRole("img", { name: "Pending" })).toBeDefined());
-    expect(within(region("david/agent-harness")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toContain("Train tidy #later ?2 ↻");
+    expect(within(region("david/agent-harness")).getAllByRole("listitem").map((line) => rowWords(line))).toContain("Train tidy #later 2 waiting Pending");
     release();
     await waitFor(() => expect(within(row("Train tidy")).queryByRole("img", { name: "Pending" })).toBeNull());
 
@@ -120,12 +120,12 @@ describe("a repository's heading", () => {
   it("folds, kept in collapsedHeadings keyed as the terminal UI keys it, and stays folded when the window opens again", async () => {
     const app = await settled(await inRepositories({ presentation: { sidebarView: "repositories" } }));
     await app.user.click(within(sidebar()).getByRole("button", { name: "david/agent-harness", expanded: true }));
-    expect(drawn()).toContain("▸ david/agent-harness 2");
+    expect(drawn()).toContain("david/agent-harness 2");
     expect(within(region("david/agent-harness")).queryAllByRole("listitem")).toEqual([]);
     expect(app.presentation.values.read().collapsedHeadings).toEqual({ [`repository:${HARNESS}`]: true });
 
     await settled(await app.remount(), "Brand on laptop");
-    expect(drawn()).toContain("▸ david/agent-harness 2");
+    expect(drawn()).toContain("david/agent-harness 2");
   });
 
   it("refuses a session dropped on it with the reason, since a repository is not a group, and nothing is sent", async () => {
@@ -146,10 +146,10 @@ describe("an environment's last heading", () => {
   it("holds its sessions with no identity, one per environment after every repository, with its environment's name, badge and status", async () => {
     await settled(await inRepositories({ presentation: { sidebarView: "repositories" } }));
     const desk = region("desk · no repository");
-    expect(within(desk).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Spare"]);
+    expect(within(desk).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Spare"]);
     expect(within(desk).getAllByRole("img")[0]?.style.color).toBe("var(--environment-teal)");
     const headings = drawn().filter((line) => !line.startsWith("  "));
-    expect(headings.indexOf("desk · no repository")).toBeGreaterThan(headings.indexOf("▾ github.com/meadowstudios/site"));
+    expect(headings.indexOf("desk · no repository")).toBeGreaterThan(headings.indexOf("github.com/meadowstudios/site"));
     expect(headings.indexOf("laptop · no repository")).toBe(headings.indexOf("desk · no repository") + 1);
     expect(within(region("laptop · no repository")).queryAllByRole("listitem")).toEqual([]);
   });
@@ -162,7 +162,7 @@ describe("the filter", () => {
     const filter = within(sidebar()).getByRole("searchbox", { name: "Filter the sessions" });
     await typeIn(app, filter, "agent-harness");
     const found = within(sidebar()).getByRole("list", { name: "Sessions matching “agent-harness”" });
-    expect(within(found).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Pinned one", "Fix the rail #wip", "Train tidy ?2", "Done"]);
+    expect(within(found).getAllByRole("listitem").map((line) => rowWords(line))).toEqual(["Pinned one", "Fix the rail #wip", "Train tidy 2 waiting", "Done"]);
     expect(within(sidebar()).queryAllByRole("region")).toEqual([]);
 
     await app.user.click(row("Train tidy"));
