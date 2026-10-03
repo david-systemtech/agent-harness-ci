@@ -1,13 +1,16 @@
-import { homeEnvironment } from "@agent-harness/client-runtime";
+import { homeEnvironment, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/contracts";
-import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useSettings, type SettingsPart } from "../settings/settings-window.js";
+import { ArrowLeft, LogOut } from "lucide-react";
+import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
+import { usePickedEnvironment, useSettings, type SettingsPart } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { Button, Dialog, DialogContent, Tooltip } from "../ui/index.js";
 import { ChecklistAuthoringProvider } from "./authoring-run.js";
+import { Introduction } from "./introduction.js";
 
 /**
  * Set up as the whole window (docs/specs/gui.md, "Set up in the window";
- * ADR 0016): on first launch, once the home environment is ready and while
+ * ADR 0016): on first launch, from the first frame while
  * the first-launch mark is unset, the full checklist takes the window;
  * finishing or closing it sets the mark, and the Set up pane's "Open the
  * full checklist", a step's link and Re-run bring it back. Whether it is
@@ -50,44 +53,48 @@ export const useChecklist = (): Checklist => {
   return checklist;
 };
 
-/** Holds Set up as the whole window, and opens it on first launch once the home environment is ready. */
+/** Holds Set up as the whole window, and shows its introduction from the first frame on first launch. */
 export const ChecklistProvider = ({ children }: { readonly children: ReactNode }) => {
   const { open: openRow } = useSettings();
   const [marked, mark] = usePresentation("firstLaunchDone");
-  const home = homeEnvironment(useObservable(useRuntime().projections.environments));
-  const [shown, setShown] = useState(false);
+  const runtime = useRuntime();
+  const home = homeEnvironment(useObservable(runtime.projections.environments));
+  const picked = usePickedEnvironment();
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(picked?.environmentId ?? LOCAL_PLACEHOLDER_ID), [runtime, picked?.environmentId])).value;
+  const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
+  const [shown, setShown] = useState(!marked);
+  const [introduction, setIntroduction] = useState(!marked);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [authoringRunId, setAuthoringRunId] = useState(0);
-  const [left, setLeft] = useState(false);
   const [step, setStep] = useState<StepId>(STEP_ORDER[0]);
   const [part, setPart] = useState<StepPart | undefined>(undefined);
-
-  // First launch: opened once the home environment is ready, and held open until it is finished, closed or left.
-  const firstLaunch = !marked && !left && home?.phase === "ready";
-  useEffect(() => {
-    if (firstLaunch) setShown(true);
-  }, [firstLaunch]);
 
   const open = useCallback((at?: StepId, to?: StepPart) => {
     if (at !== undefined) setStep(at);
     setPart(to);
+    setIntroduction(false);
     setShown(true);
   }, []);
   const choose = useCallback((at: StepId) => {
     setStep(at);
     setPart(undefined);
   }, []);
-  const close = useCallback(() => {
+  const finish = useCallback(() => {
     mark(true);
+    setConfirmClose(false);
     setShown(false);
     setAuthoringRunId((id) => id + 1);
   }, [mark]);
+  const close = useCallback(() => {
+    if (signedIn) finish();
+    else setConfirmClose(true);
+  }, [signedIn, finish]);
   const leaveForMain = useCallback(() => {
     mark(true);
     setShown(false);
   }, [mark]);
   const leave = useCallback(
     (row: SettingsRowId, environmentId?: string, part?: SettingsPart) => {
-      setLeft(true);
       setShown(false);
       openRow(row, environmentId, part);
     },
@@ -95,5 +102,17 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   );
 
   const checklist = useMemo<Checklist>(() => ({ shown, step, part, open, choose, close, leaveForMain, leave }), [shown, step, part, open, choose, close, leaveForMain, leave]);
-  return <ChecklistContext value={checklist}><ChecklistAuthoringProvider runId={authoringRunId}>{children}</ChecklistAuthoringProvider></ChecklistContext>;
+  return <ChecklistContext value={checklist}>
+    <ChecklistAuthoringProvider runId={authoringRunId}>
+      {shown && introduction ? <Introduction home={home} onBegin={() => { if (home?.phase === "ready") open("account"); }} onLater={close} /> : children}
+      <Dialog open={confirmClose} onOpenChange={setConfirmClose}>
+        <DialogContent onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); setConfirmClose(false); } }} title="Leave set up without an account?" description="You can look around, but you will need to sign in before starting a session. Set up will be waiting in Settings.">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Tooltip content="Keep setting up · Tab, Enter"><Button variant="outline" onClick={() => setConfirmClose(false)}><ArrowLeft aria-hidden="true" />Keep setting up</Button></Tooltip>
+            <Tooltip content="Leave for now · Tab, Enter"><Button variant="default" onClick={finish}><LogOut aria-hidden="true" />Leave for now</Button></Tooltip>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </ChecklistAuthoringProvider>
+  </ChecklistContext>;
 };

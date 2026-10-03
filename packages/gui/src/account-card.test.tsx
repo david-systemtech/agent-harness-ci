@@ -53,6 +53,7 @@ const writes = (app: RenderedApp) => app.environment("desk").requests("settings.
 /** The full checklist on its first launch, on the Account step, desk as `given` scripts it. */
 const opened = async (given: Partial<ScriptedEnvironment> = {}, options: RenderOptions = {}) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", ...given }] }, { firstLaunch: true, ...options });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   await screen.findByRole("region", { name: "Set up" });
   return app;
 };
@@ -67,7 +68,7 @@ describe("the Account card in Set up", () => {
     expect(within(step()).queryByText(/codex|local model/i)).toBeNull();
     expect(within(step()).queryByRole("combobox", { name: /provider/i })).toBeNull();
     // This machine's sign-in comes first, then Sign in another account.
-    const another = within(step()).getByRole("button", { name: "Sign in another account" });
+    const another = within(step()).getByRole("button", { name: "Sign in an account" });
     expect(offer.compareDocumentPosition(another) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
@@ -101,15 +102,15 @@ describe("the Account card in Set up", () => {
     expect(within(checklist()).getByRole("region", { name: "Carry over" })).toBeDefined();
   });
 
-  it("holds nothing once the first-launch mark is set: the checklist opened again goes on past Account with no account", async () => {
+  it("holds Continue for an unsigned account when the checklist is opened again", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>},{/Control}");
     const settings = await screen.findByRole("region", { name: "Settings" });
     await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
     await within(step()).findByText("No account is held here.");
-    expect(within(step()).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false);
-    expect(within(step()).queryByText("Continue once an account is signed in.")).toBeNull();
+    expect(within(step()).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+    expect(within(step()).getByText("Continue once an account is signed in.")).toBeDefined();
   });
 
   it("is read-only without admin, with the capability's line said once", async () => {
