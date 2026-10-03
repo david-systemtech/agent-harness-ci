@@ -15,9 +15,9 @@ import {
   type ContainmentBadge,
   type RunChoice,
 } from "@agent-harness/client-runtime";
-import { Box, Cpu, KeyRound, Shield } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
@@ -27,7 +27,10 @@ import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrig
 import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { useHandOffOnto } from "./hand-off.js";
 import { useSignInCard } from "./pane-dialogs.js";
-import { useModelChoice } from "./run-choices.js";
+import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
+import { SessionBrowserPicker } from "../browser/session-picker.js";
+import { EnvironmentBadge } from "../connections/environment-badge.js";
+import { useHandedOnto, useModelChoice } from "./run-choices.js";
 
 /**
  * The status line's pickers (docs/specs/gui.md, "A session pane": pickers
@@ -65,9 +68,10 @@ interface PickerButtonProps {
   readonly offer: Offer;
   readonly children: ReactNode;
   /** The menu's items. */
-  readonly items: () => ReactNode;
+  readonly items: (close: () => void) => ReactNode;
   /** An extra warning appended to the button's tooltip. */
   readonly warning?: string | undefined;
+  readonly columns?: boolean;
   /** The slash command that opens it. */
   readonly command: "account" | "model" | "mode" | "containment";
 }
@@ -83,9 +87,10 @@ const containmentLabel = (words: string): string => words.replace(/^[○◐●]\
  * does, the button is dim with the reason in its tooltip and opens nothing:
  * a press says the reason on the pane's line.
  */
-const PickerButton = ({ name, value, offer, children, items, command, warning }: PickerButtonProps) => {
+const PickerButton = ({ name, value, offer, children, items, command, warning, columns }: PickerButtonProps) => {
   const [, say] = usePaneLine();
   const [open, setOpen] = useState(false);
+  const narrow = useSyncExternalStore(subscribeWidth, () => window.innerWidth < 800);
   useSlashCommand(command, () => (offer.status === "absent" ? say(offer.message) : setOpen(true)), offer);
   const label = `${name}: ${value}`;
   const Icon = PICKER_ICONS[command];
@@ -100,7 +105,7 @@ const PickerButton = ({ name, value, offer, children, items, command, warning }:
     );
   }
   return (
-    <Menu open={open} onOpenChange={setOpen}>
+    <Menu open={open} onOpenChange={setOpen} modal={!columns}>
       <Tooltip content={`${label} · /${command} · Enter to open${warning === undefined ? "" : ` · ${warning}`}`}>
         <MenuTrigger asChild>
           <Button aria-label={label} className={classes(TRIGGER, name === "Account" ? "shrink" : "shrink-0")}>
@@ -108,16 +113,16 @@ const PickerButton = ({ name, value, offer, children, items, command, warning }:
           </Button>
         </MenuTrigger>
       </Tooltip>
-      <MenuContent align="start" className="max-h-96 max-w-md overflow-y-auto">
-        {items()}
+      <MenuContent side="top" align="start" role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} className={columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
+        {items(() => setOpen(false))}
       </MenuContent>
     </Menu>
   );
 };
 
 /** One item of a picker: what it names, dim when it is greyed, with a note after it and a line under it. */
-const Item = (props: { readonly onSelect: () => void; readonly dim?: boolean; readonly note?: string | undefined; readonly under?: string | undefined; readonly children: ReactNode }) => (
-  <MenuItem onSelect={props.onSelect}>
+const Item = (props: { readonly onSelect: () => void; readonly dim?: boolean; readonly note?: string | undefined; readonly under?: string | undefined; readonly selected?: boolean; readonly tooltip?: string; readonly children: ReactNode }) => (
+  <MenuItem title={`${props.tooltip ?? "Choose"} · Enter to choose · ↑ ↓ Home End`} className={classes(props.selected && "bg-wash")} onSelect={props.onSelect}>
     <span className="flex min-w-0 flex-col">
       <span className={classes("flex items-baseline gap-2", props.dim === true && "text-ink-faint")}>
         <span>{props.children}</span>
@@ -125,6 +130,7 @@ const Item = (props: { readonly onSelect: () => void; readonly dim?: boolean; re
       </span>
       {props.under !== undefined && <span className="text-xs text-ink-faint">{props.under}</span>}
     </span>
+    {props.selected && <Check aria-hidden="true" className="ml-auto size-3" />}
   </MenuItem>
 );
 
@@ -155,124 +161,191 @@ const useSessionName = (environmentId: string, sessionId: string): string => {
 interface AccountPickerProps {
   readonly environmentId: string;
   readonly sessionId: string;
-  /** The session's account, as the status line says it; null for the environment's default. */
   readonly accountId: string | null;
 }
-
-/** The account picker: the environment's accounts, and Add an account. */
-export const AccountPicker = ({ environmentId, sessionId, accountId }: AccountPickerProps) => {
-  const runtime = useRuntime();
-  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
-  const usage = useObservable(runtime.projections.usage);
-  const environment = useEnvironmentName(environmentId);
-  const listing = useOffer(environmentId, "accounts.list");
-  const adding = useOffer(environmentId, "accounts.add");
-  const signingIn = useOffer(environmentId, "accounts.signin.start");
-  const [, say] = usePaneLine();
-  const openSignIn = useSignInCard();
-  const handOffOnto = useHandOffOnto(environmentId, sessionId);
-  const account = accounts.value?.find((candidate) => candidate.id === accountId);
-
-  const choose = (chosen: AccountRecord) => {
-    if (chosen.status.state !== "signed-in") {
-      if (signingIn.status === "absent") return say(`Cannot sign ${chosen.label} in on ${environment}: ${signingIn.message}`);
-      return openSignIn(chosen);
-    }
-    handOffOnto(chosen);
-  };
-  const add = () => (adding.status === "absent" ? say(`Cannot add an account on ${environment}: ${adding.message}`) : openSignIn(null));
-
-  const items = () => {
-    if (accounts.value === null) return <Waiting>{accounts.error ? `The accounts could not be read: ${accounts.error.message}` : "Reading the accounts…"}</Waiting>;
-    return (
-      <>
-        {accounts.value.map((candidate) => (
-          <Item
-            key={candidate.id}
-            onSelect={() => choose(candidate)}
-            note={[ACCOUNT_STATUS_WORDS[candidate.status.state], ...(candidate.id === accountId ? ["this session"] : [])].join(" · ")}
-            under={readingWords(gaugeOf(usage.gauges, environmentId, candidate.id))}
-          >
-            <span className="font-medium">{candidate.label}</span> <span className="text-ink-muted">{identityWords(candidate)}</span>
-          </Item>
-        ))}
-        <MenuSeparator />
-        <Item onSelect={add} dim={adding.status === "absent"} under={adding.status === "absent" ? adding.message : undefined}>
-          Add an account…
-        </Item>
-      </>
-    );
-  };
-  return (
-    <PickerButton
-      name="Account" command="account"
-      value={accountId === null ? "default account" : `${account?.label ?? accountId} ${account ? identityWords(account) : "not read yet"}`}
-      offer={listing}
-     
-      items={items}
-    >
-      {accountId === null ? (
-        <span className="text-ink-faint">default account</span>
-      ) : (
-        <>
-          <span className="font-medium text-ink">{account?.label ?? accountId}</span> <span>{account ? identityWords(account) : "not read yet"}</span>
-        </>
-      )}
-    </PickerButton>
-  );
-};
-
-interface ModelPickerProps {
-  readonly environmentId: string;
-  readonly sessionId: string;
-  readonly accountId: string | null;
-  /** The model and effort the next run goes out on, as the status line says it; undefined for the default. */
+interface ModelPickerProps extends AccountPickerProps {
   readonly model: RunChoice | undefined;
 }
 
-/** The model picker: the models of the session's account with their efforts; the choice rides the session's next run. */
-export const ModelPicker = ({ environmentId, sessionId, accountId, model }: ModelPickerProps) => {
+/** Rows keep the popup open while a dependent choice is made. */
+const ChoiceRow = ({ label, note, under, selected, dim, primary, machine, icon: Icon, onSelect }: {
+  readonly label: string; readonly primary?: string; readonly machine?: string | undefined; readonly note?: string | undefined; readonly under?: string | undefined;
+  readonly selected?: boolean; readonly dim?: boolean; readonly icon: typeof Cpu; readonly onSelect: () => void;
+}) => <MenuItem title={`${label} · Enter to choose · ↑ ↓ Home End · Tab next column${note ? ` · ${note}` : ""}`} aria-label={label} aria-disabled={dim || undefined} data-selected={selected || undefined} onSelect={(event) => { event.preventDefault(); onSelect(); }}
+    className={classes("items-start gap-2 px-2.5 py-2 text-xs [overflow-wrap:anywhere] [&_svg]:size-3", selected && "bg-wash", dim && "opacity-50")}>
+    <Icon aria-hidden="true" className="mt-0.5 size-3" />
+    <span className="min-w-0 flex-1">
+      <span className="block font-medium">{primary ?? label}</span>
+      {machine !== undefined && <span className="block font-mono text-2xs text-ink-muted">{machine}</span>}
+      {note !== undefined && <span className="block text-2xs text-ink-muted">{note}</span>}
+      {under !== undefined && <span className="block text-2xs text-ink-muted">{under}</span>}
+    </span>
+    {selected && <Check aria-hidden="true" className="mt-0.5 size-3" />}
+  </MenuItem>;
+
+const subscribeWidth = (changed: () => void) => {
+  window.addEventListener("resize", changed);
+  return () => window.removeEventListener("resize", changed);
+};
+
+/** Arrows stay in a list; Tab moves to the next dependency, rather than closing a menu. */
+const moveInColumns = (event: KeyboardEvent<HTMLDivElement>) => {
+  const target = event.target as HTMLElement;
+  if (target.tagName === "INPUT") {
+    if (!["ArrowDown", "ArrowUp", "Escape", "Tab"].includes(event.key)) event.stopPropagation();
+    if (!["Tab", "ArrowDown", "ArrowUp"].includes(event.key)) return;
+  }
+  const column = target.closest<HTMLElement>("[data-run-column]");
+  if (column === null) return;
+  const rows = [...column.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-disabled]), button')];
+  let next: HTMLElement | undefined;
+  if (event.key === "Tab") {
+    const columns = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-run-column]")].filter((entry) => !entry.hidden);
+    const index = columns.indexOf(column);
+    const destination = columns[(index + (event.shiftKey ? columns.length - 1 : 1)) % columns.length];
+    next = destination?.querySelector<HTMLElement>('input, button, [role="menuitem"]:not([data-disabled])') ?? undefined;
+  } else if (event.key === "Home") next = rows[0];
+  else if (event.key === "End") next = rows.at(-1);
+  else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    const index = rows.indexOf(target.closest<HTMLElement>('[role="menuitem"], button') ?? target);
+    next = rows[(index + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length];
+  }
+  if (next !== undefined) { event.preventDefault(); event.stopPropagation(); next.focus(); }
+};
+
+/** Both account and model chips expose the same runtime-owned dependencies. */
+export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, initialStage, close, compact = false }: ModelPickerProps & { readonly initialStage: "Accounts" | "Models"; readonly close: () => void; readonly compact?: boolean }) => {
   const runtime = useRuntime();
+  const environments = useObservable(runtime.projections.environments);
+  const environment = environments.find((view) => view.environmentId === environmentId);
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
   const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
-  const listing = useOffer(environmentId, "models.list");
+  const usage = useObservable(runtime.projections.usage);
+  const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const listingModels = useOffer(environmentId, "models.list");
+  const listingAccounts = useOffer(environmentId, "accounts.list");
+  const adding = useOffer(environmentId, "accounts.add");
+  const signingIn = useOffer(environmentId, "accounts.signin.start");
+  const openSignIn = useSignInCard();
+  const handOffOnto = useHandOffOnto(environmentId, sessionId);
   const [, choose] = useModelChoice(environmentId, sessionId);
   const [, say] = usePaneLine();
   const session = useSessionName(environmentId, sessionId);
-
-  const unavailable = model !== undefined && catalogues.value !== null && !modelsOf(catalogues.value, accountId).some((entry) => entry.id === model.model);
-  const words = model === undefined ? "default model" : model.effort !== null ? `${model.model} ${model.effort}` : model.model;
+  const windowIsNarrow = useSyncExternalStore(subscribeWidth, () => window.innerWidth < 800);
+  const narrow = compact || windowIsNarrow;
+  const [activeColumn, setActiveColumn] = useState(initialStage);
+  const [query, setQuery] = useState("");
+  const [full, setFull] = useState(false);
+  const models = catalogues.value === null ? [] : modelsOf(catalogues.value, accountId);
+  const selected = models.find((entry) => entry.id === model?.model);
+  const live = ["starting", "running", "parked"].includes(runs.state);
+  const reason = live ? "Wait for this run to end before changing its account or model." : undefined;
   const chosen = (id: string, effort: string | null) => {
+    if (reason !== undefined) return say(reason);
+    if (listingModels.status === "absent") return say(listingModels.message);
     choose({ model: id, effort });
     say(`The next run of ${session} goes out on ${id} at ${effort === null ? "its own effort" : `${effort} effort`}.`);
   };
-  const marked = (id: string, effort: string | null) => (model?.model === id && model.effort === effort ? "this session" : undefined);
-
-  const items = () => {
-    if (catalogues.value === null) return <Waiting>{catalogues.error ? `The models could not be read: ${catalogues.error.message}` : "Reading the models…"}</Waiting>;
-    const models = modelsOf(catalogues.value, accountId);
-    if (models.length === 0) return <Waiting>No model is listed for this account.</Waiting>;
-    return models.map((entry) =>
-      entry.efforts.length === 0 ? (
-        <Item key={entry.id} onSelect={() => chosen(entry.id, null)} note={marked(entry.id, null)}>
-          {modelName(entry)}
-        </Item>
-      ) : (
-        <div key={entry.id} role="group" aria-label={modelName(entry)}>
-          <MenuLabel>{modelName(entry)}</MenuLabel>
-          {[null, ...entry.efforts].map((effort) => (
-            <Item key={effort ?? ""} onSelect={() => chosen(entry.id, effort)} note={marked(entry.id, effort)}>
-              {effort ?? "its own effort"}
-            </Item>
-          ))}
-        </div>
-      ),
-    );
+  const pickAccount = (candidate: AccountRecord) => {
+    if (reason !== undefined) return say(reason);
+    if (listingAccounts.status === "absent") return say(listingAccounts.message);
+    if (candidate.status.state !== "signed-in") {
+      if (signingIn.status === "absent") return say(`Cannot sign ${candidate.label} in on ${environment?.name ?? THIS_MACHINE}: ${signingIn.message}`);
+      close();
+      return openSignIn(candidate);
+    }
+    close();
+    handOffOnto(candidate);
   };
-  return (
-    <PickerButton name="Model" command="model" value={words} offer={listing} items={items} warning={unavailable ? "This stored model is not listed for this account. Choose an available model for the next run." : undefined}>
-      <span className={unavailable ? "text-amber" : model === undefined ? "text-ink-faint" : "text-ink"}>{words}</span>
-    </PickerButton>
-  );
+  const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <div
+    role="group" aria-label={name} data-run-column={name} hidden={narrow && (activeColumn !== name && !(activeColumn === "Models" && name === "Effort"))}
+    className={classes("min-w-0 shrink-0", narrow ? "w-full" : name === "Accounts" ? "w-56" : "w-64")}>
+    <MenuLabel className="px-4 py-2">{name}</MenuLabel>
+    <div data-run-list className="max-h-[320px] overflow-y-auto p-1.5">{children}</div>
+  </div>;
+  const visible = models.filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLowerCase().includes(query.toLowerCase()));
+  const quick = model?.model === undefined ? models.slice(0, 5) : models.filter((entry, index) => entry.id === model.model || index < 5);
+  return <div data-run-picker data-narrow={narrow ? "true" : undefined} className={classes("flex flex-col", narrow && "w-[min(512px,calc(100vw-16px))]")}
+    onKeyDownCapture={moveInColumns}>
+    {narrow && <div role="group" aria-label="Steps" data-run-column="Steps" className="flex items-center gap-2 border-b border-hairline p-1.5">
+      <Button title="Back to accounts · Enter" aria-label="Back to accounts" onClick={() => setActiveColumn("Accounts")}><ArrowLeft aria-hidden="true" />Back</Button>
+      <Button title="Choose model and effort · Enter" aria-label="Choose model and effort" onClick={() => setActiveColumn("Models")}><Cpu aria-hidden="true" />Model and effort</Button>
+    </div>}
+    {reason !== undefined && <Waiting>{reason}</Waiting>}
+    <div className={classes("flex min-w-0 divide-hairline", narrow ? "flex-col divide-y" : "divide-x")}>
+      {column("Accounts", <>
+        <div className="px-2.5 py-2 text-xs [&_svg]:size-4"><EnvironmentBadge view={environment} /><p className="mt-1 text-2xs text-ink-muted">{environment?.phase === "ready" ? "Connected. This session stays on this environment." : "Unreachable. Choices are cached."}</p></div>
+        {accounts.value === null ? <Waiting>{accounts.error ? `The accounts could not be read: ${accounts.error.message}` : "Reading the accounts…"}</Waiting> : <>
+          {accounts.value.length === 0 && <Waiting>No accounts yet. Add an account to sign in.</Waiting>}
+          {accounts.value.map((candidate) => <ChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
+            label={`${candidate.label} ${identityWords(candidate)}`} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
+            note={[ACCOUNT_STATUS_WORDS[candidate.status.state], candidate.id === accountId ? "this session" : candidate.status.state === "signed-in" ? "Fork onto this account" : "Sign in", candidate.provider].join(" · ")}
+            under={readingWords(gaugeOf(usage.gauges, environmentId, candidate.id))} onSelect={() => pickAccount(candidate)} />)}
+        </>}
+        {accountId !== null && accounts.value !== null && !accounts.value.some((entry) => entry.id === accountId) && <Waiting>Stored account {accountId} is not listed on this environment.</Waiting>}
+        {accounts.error !== null && <ChoiceRow icon={RefreshCw} label="Refresh accounts" onSelect={() => runtime.requests.refresh(environmentId, "accounts.list", {})} />}
+        {listingAccounts.status === "absent" && <Waiting>{listingAccounts.message}</Waiting>}
+        <MenuSeparator />
+        <ChoiceRow icon={Plus} label="Add an account…" dim={adding.status === "absent"} under={adding.status === "absent" ? adding.message : undefined}
+          onSelect={() => { close(); if (adding.status === "absent") say(`Cannot add an account on ${environment?.name ?? THIS_MACHINE}: ${adding.message}`); else openSignIn(null); }} />
+      </>)}
+      {column("Models", <>
+        {catalogues.value === null ? <Waiting>{catalogues.error ? `The models could not be read: ${catalogues.error.message}` : "Reading the models…"}</Waiting> : <>
+          {models.length > 12 && <label title="Search models · Type to filter · Tab next column" className="mb-1 flex items-center gap-2 rounded-md bg-wash px-2"><Search aria-hidden="true" className="size-3" /><input aria-label="Search models" value={query} onChange={(event) => setQuery(event.target.value)} className="h-8 min-w-0 w-full bg-transparent text-xs outline-none" /></label>}
+          {models.length > 5 && <ChoiceRow icon={Search} label={full ? "Quick choices" : "All models"} onSelect={() => setFull(!full)} />}
+          {(full || query !== "" ? visible : quick).map((entry) => <ChoiceRow key={entry.id} icon={Cpu} label={modelName(entry)} primary={entry.label ?? entry.id} machine={entry.label === null ? undefined : entry.id}
+            selected={model?.model === entry.id} dim={live || listingModels.status === "absent"} note={entry.efforts.length > 0 ? "Supports effort" : "Uses its own effort"}
+            onSelect={() => chosen(entry.id, model?.model === entry.id && (model.effort === null || entry.efforts.includes(model.effort)) ? model.effort : null)} />)}
+          {model !== undefined && selected === undefined && <Waiting>Stored model {model.model} is not listed for this account. Choose an available model for the next run.</Waiting>}
+          {models.length === 0 && <Waiting>No model is listed for this account.</Waiting>}
+          {models.length > 0 && visible.length === 0 && <Waiting>No models match your search.</Waiting>}
+        </>}
+        {catalogues.error !== null && <ChoiceRow icon={RefreshCw} label="Refresh models" onSelect={() => runtime.requests.refresh(environmentId, "models.list", {})} />}
+        {listingModels.status === "absent" && <Waiting>{listingModels.message}</Waiting>}
+      </>)}
+      {selected !== undefined && selected.efforts.length > 0 && column("Effort", <>
+        {[null, ...selected.efforts].map((effort) => <ChoiceRow key={effort ?? "own"} icon={SlidersHorizontal} label={effort ?? "its own effort"}
+          selected={model?.effort === effort} dim={live || listingModels.status === "absent"} note={model?.effort === effort ? "this session" : undefined}
+          under={effort === null ? "Let the model choose its effort." : "Reasoning effort for the next run."}
+          onSelect={() => { chosen(selected.id, effort); if (!live && listingModels.status === "present") close(); }} />)}
+        {model?.effort !== null && model?.effort !== undefined && !selected.efforts.includes(model.effort) && <Waiting>Stored effort {model.effort} is not supported by this model.</Waiting>}
+      </>)}
+    </div>
+    <div role="group" aria-label="More choices" data-run-column="More choices" className="flex items-center gap-2 border-t border-hairline p-1.5">
+      <ModeSubmenu environmentId={environmentId} sessionId={sessionId} />
+      <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} submenu />
+    </div>
+  </div>;
+};
+
+/** A session never moves environment; choosing another account invokes the runtime's fork. */
+export const AccountPicker = ({ environmentId, sessionId, accountId }: AccountPickerProps) => {
+  const runtime = useRuntime();
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
+  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  const [choice] = useModelChoice(environmentId, sessionId);
+  const account = accounts.value?.find((candidate) => candidate.id === accountId);
+  const value = accountId === null ? "default account" : `${account?.label ?? accountId} ${account ? identityWords(account) : "not read yet"}`;
+  const model = choice ?? (projection.summary?.model ? { model: projection.summary.model, effort: null } : undefined);
+  return <PickerButton name="Account" command="account" value={value} offer={useOffer(environmentId, "accounts.list")} columns
+    items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={model} initialStage="Accounts" close={close} />}>
+    <span className="truncate">{value}</span>
+  </PickerButton>;
+};
+
+export const ModelPicker = ({ environmentId, sessionId, accountId, model }: ModelPickerProps) => {
+  const runtime = useRuntime();
+  const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
+  const [choice] = useModelChoice(environmentId, sessionId);
+  const handedOnto = useHandedOnto(environmentId, sessionId);
+  const current = choice ?? model;
+  const unavailable = current !== undefined && catalogues.value !== null && !modelsOf(catalogues.value, accountId ?? handedOnto ?? null).some((entry) => entry.id === current.model);
+  const words = current === undefined ? "default model" : current.effort !== null ? `${current.model} ${current.effort}` : current.model;
+  return <PickerButton name="Model" command="model" value={words} offer={useOffer(environmentId, "models.list")} columns
+    items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={current} initialStage="Models" close={close} />}
+    warning={unavailable ? "This stored model is not listed for this account. Choose an available model for the next run." : undefined}>
+    <span className={unavailable ? "text-amber" : current === undefined ? "text-ink-faint" : "text-ink"}>{words}</span>
+  </PickerButton>;
 };
 
 interface ModePickerProps {
@@ -283,28 +356,40 @@ interface ModePickerProps {
   readonly children: ReactNode;
 }
 
-/** The mode picker: the four modes, one above the connection's ceiling greyed with the ceiling named, and the clamp said once set. */
-export const ModePicker = ({ environmentId, sessionId, value, children }: ModePickerProps) => {
+const ModeRows = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string }) => {
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.modes(environmentId), [runtime, environmentId]));
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const setting = useOffer(environmentId, "permissions.mode.set");
   const [, say] = usePaneLine();
   const session = projection.summary?.title ?? "this session";
   const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
-
-  const items = () =>
-    picker.modes.map(({ mode, allowed }) => (
+  return picker.modes.map(({ mode, allowed }) => (
       <Item
         key={mode}
         onSelect={() => void setSessionMode(runtime, environmentId, sessionId, mode, session).then((set) => say(set.line))}
         dim={!allowed}
+        selected={mode === own}
+        tooltip={modeLabel(MODE_BADGE_WORDS[mode])}
         note={!allowed ? aboveCeilingWords(picker.ceiling) : mode === own ? "this session" : undefined}
         under={mode === "bypassPermissions" ? BYPASS_SENTENCE : undefined}
       >
         <Shield aria-hidden="true" className="mr-1 inline size-3" />{modeLabel(MODE_BADGE_WORDS[mode])}
       </Item>
     ));
+};
+
+const ModeSubmenu = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string }) => {
+  const offer = useOffer(environmentId, "permissions.mode.set");
+  return <MenuSub>
+    <MenuSubTrigger title={`Mode · Right arrow to open${offer.status === "absent" ? ` · ${offer.message}` : ""}`} disabled={offer.status === "absent"}><Shield aria-hidden="true" />Mode</MenuSubTrigger>
+    <MenuSubContent aria-label="Mode" className="w-72 max-h-[320px] overflow-y-auto"><ModeRows environmentId={environmentId} sessionId={sessionId} /></MenuSubContent>
+  </MenuSub>;
+};
+
+/** The mode picker: the four modes, one above the connection's ceiling greyed with the ceiling named, and the clamp said once set. */
+export const ModePicker = ({ environmentId, sessionId, value, children }: ModePickerProps) => {
+  const setting = useOffer(environmentId, "permissions.mode.set");
+  const items = () => <ModeRows environmentId={environmentId} sessionId={sessionId} />;
   return (
     <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items}>
       {children}
@@ -341,6 +426,8 @@ export const ContainmentPicker = ({ environmentId, sessionId, containment }: Con
             key={level}
             onSelect={() => void setSessionContainment(runtime, environmentId, sessionId, level, { session, environment }).then((set) => say(set.line))}
             dim={unavailable !== undefined}
+            selected={containment?.level === level}
+            tooltip={containmentLabel(containmentWords(level, false))}
             note={unavailable !== undefined ? `not available here: ${unavailable}` : marked}
           >
             <Box aria-hidden="true" className="mr-1 inline size-3" />{containmentLabel(containmentWords(level, false))}
