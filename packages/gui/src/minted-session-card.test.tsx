@@ -43,6 +43,8 @@ describe("the minted session on its card", () => {
     act(() => env.emit(id, "assistant.delta", { runId, itemId: "bank-text", fragments: [{ kind: "text", text: "Working on BANK.md. " }] }));
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Transcript" })).getByRole("article", { name: "Reply" }).textContent).toContain("Working on BANK.md."));
     expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("running");
+    expect(screen.getByRole("region", { name: "Authoring conversation" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Set up: Memory bank" })).toBeDefined();
     await app.user.click(screen.getByRole("button", { name: "Open in the main window" }));
     await waitFor(() => expect(app.shown()?.sessionId).toBe(id));
     expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
