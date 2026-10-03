@@ -292,7 +292,7 @@ describe("Default account and model", () => {
     await waitFor(() => expect(choices(effort).options).toEqual(["The model's own", "low", "medium", "high"]));
     await app.user.selectOptions(effort, "high");
     await waitFor(() => expect(desk.settings()["accounts.defaultEffort"]).toBe("high"));
-    const idle = within(within(defaults).getByRole("group", { name: "providers.processIdleMinutes" })).getByRole("textbox");
+    const idle = within(within(defaults).getByRole("group", { name: "Stop idle agent processes after minutes" })).getByRole("textbox");
     expect((idle as HTMLInputElement).value).toBe("30");
     await app.user.clear(idle);
     await app.user.type(idle, "45{Enter}");
@@ -333,7 +333,7 @@ describe("Default account and model", () => {
     expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
     await waitFor(() => expect(choices(within(laptop).getByRole("combobox", { name: "Effort" })).chosen).toBe("medium (not offered: runs take the model's own)"));
     for (const name of ["Default account", "Model family", "Effort"]) expect(within(laptop).getByRole("combobox", { name }).hasAttribute("disabled"), name).toBe(true);
-    expect(within(within(laptop).getByRole("group", { name: "providers.processIdleMinutes" })).getByRole("textbox").hasAttribute("disabled")).toBe(true);
+    expect(within(within(laptop).getByRole("group", { name: "Stop idle agent processes after minutes" })).getByRole("textbox").hasAttribute("disabled")).toBe(true);
 
     const desk = await openRow(app, "Default account and model", "desk");
     const effort = await within(desk).findByRole("combobox", { name: "Effort" });

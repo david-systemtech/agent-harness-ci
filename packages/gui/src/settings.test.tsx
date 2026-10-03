@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
-import { BYPASS_SENTENCE, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
+import { SETTINGS, type SettingsKey, BYPASS_SENTENCE, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
 import { TOKEN_NAMES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
 import { scriptInstructions } from "../test/instructions.js";
@@ -222,7 +222,7 @@ describe("a row's scope", () => {
 });
 
 /** A key's field in a pane, by the key's name. */
-const field = (region: HTMLElement, key: string) => within(region).getByRole("group", { name: key });
+const field = (region: HTMLElement, key: SettingsKey) => within(region).getByRole("group", { name: SETTINGS[key].label });
 
 /** Opens Settings on the Service row with the picker on `name`. */
 const serviceOn = async (app: RenderedApp, name: string) => {
@@ -315,7 +315,7 @@ describe("built and unbuilt row controls", () => {
 
     const permissions = await openRow(app, "Permissions");
     await app.user.selectOptions(await within(field(permissions, "permissions.unattended.mode")).findByRole("combobox"), "bypassPermissions");
-    const confirm = await screen.findByRole("dialog", { name: "Set permissions.unattended.mode to bypassPermissions?" });
+    const confirm = await screen.findByRole("dialog", { name: "Set Unattended permission mode to bypassPermissions?" });
     expect(within(confirm).getByText(BYPASS_SENTENCE)).toBeDefined();
     await app.user.click(within(confirm).getByRole("button", { name: "Set it" }));
     await waitFor(() => expect(desk.settings()["permissions.unattended.mode"]).toBe("bypassPermissions"));
@@ -502,4 +502,16 @@ describe("/settings in a session pane's composer", () => {
     expect(app.presentation.values.read().settingsRow).toBe("access.permissions");
     expect(screen.getByRole("region", { name: "Transcript" })).toBeDefined();
   });
+});
+
+it("names generic settings with human labels and keeps their keys as muted details", async () => {
+  const app = await opened();
+  const service = await serviceOn(app, "desk");
+  const idle = await within(service).findByRole("group", { name: "Settle idle sessions" });
+  expect(within(idle).getByRole("textbox", { name: "Settle idle sessions" })).toBeDefined();
+  expect(within(idle).getByText("sessions.autoSettleAfterIdle").classList.contains("text-ink-faint")).toBe(true);
+  expect(within(idle).getByText("Move quiet sessions out of the active list after this long. Choose none to keep them active until you settle them yourself.")).toBeDefined();
+  const merge = within(service).getByRole("switch", { name: "Settle sessions after merge" });
+  await app.user.click(merge);
+  await waitFor(() => expect(app.environment("desk").settings()["sessions.autoSettleOnMerge"]).toBe(true));
 });

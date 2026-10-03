@@ -2,7 +2,7 @@ import { createContext, memo, use, useMemo, type ComponentPropsWithoutRef } from
 import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { FindQuery, findMarks } from "./find.js";
+import { FindQuery, findMarks, Marked } from "./find.js";
 
 /**
  * Markdown as the transcript draws it (docs/specs/gui.md, "A session pane"):
@@ -48,7 +48,11 @@ const Link = ({ href, children }: ComponentPropsWithoutRef<"a"> & ExtraProps) =>
 const COMPONENTS: Components = { img: Image, a: Link };
 
 /** Markdown with what the find bar looks for marked, parsed again only when its text or the query changes. */
-export const Markdown = ({ text }: { readonly text: string }) => <Parsed text={text} query={use(FindQuery)} />;
+export const Markdown = ({ text }: { readonly text: string }) => {
+  const query = use(FindQuery);
+  // Bound Markdown parsing for very long provider output without dropping its searchable text.
+  return text.length > 80_000 ? <div className="whitespace-pre-wrap break-words"><Marked text={text} /></div> : <Parsed text={text} query={query} />;
+};
 
 const Parsed = memo(({ text, query }: { readonly text: string; readonly query: string }) => {
   const rehypePlugins = useMemo<Options["rehypePlugins"]>(() => (query === "" ? [HIGHLIGHT] : [HIGHLIGHT, findMarks(query)]), [query]);

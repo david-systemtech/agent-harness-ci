@@ -79,14 +79,14 @@ describe("the Account card in Set up", () => {
     await waitFor(() => expect(within(step()).queryByRole("region", { name: /^Use the Claude Code sign-in/ })).toBeNull());
   });
 
-  it("holds Continue on first launch until an account is signed in, with no Skip for now, and the first account signed in with the code lets it go", async () => {
+  it("holds Continue on first launch until an account is signed in, with Skip for now disabled, and the first account signed in with the code lets it go", async () => {
     const app = await opened({ accounts: [{ label: "work", status: { state: "signed-out", checkedAt: null, detail: null } }] });
     const desk = app.environment("desk");
     const next = () => within(step()).getByRole("button", { name: "Continue" });
     const work = await within(step()).findByRole("region", { name: "work" });
     expect(next().hasAttribute("disabled")).toBe(true);
     expect(within(step()).getByText("Continue once an account is signed in.")).toBeDefined();
-    expect(within(step()).queryByRole("button", { name: "Skip for now" })).toBeNull();
+    expect(within(step()).getByRole("button", { name: "Skip for now" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
     const signing = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
@@ -196,7 +196,7 @@ describe("the Account card's defaults", () => {
     const account = await within(defaults()).findByRole("combobox", { name: "Default account" });
     expect(within(step()).getByRole("region", { name: "work" }).compareDocumentPosition(defaults()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The idle time is the row's, not the step card's.
-    expect(within(defaults()).queryByRole("group", { name: "providers.processIdleMinutes" })).toBeNull();
+    expect(within(defaults()).queryByRole("group", { name: "Stop idle agent processes after minutes" })).toBeNull();
 
     await app.user.selectOptions(account, "work");
     await waitFor(() => expect(desk.settings()["accounts.defaultAccount"]).toBe("account-2"));

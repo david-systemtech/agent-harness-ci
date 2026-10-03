@@ -9,6 +9,7 @@ import { buildOptionsOf } from "./arguments.js";
 import type { OtherAsset } from "./assets.js";
 import { buildRelease } from "./build.js";
 import { withoutNode } from "./verify.js";
+import { releaseWorkflowInput } from "../../../../test/release-workflow-input.js";
 
 /**
  * The release build (launcher-update spec, "The release"; #356), run over a
@@ -48,6 +49,34 @@ const executable = (path: string): boolean => (statSync(path).mode & 0o111) !== 
 const BUILD_MS = 120_000;
 
 describe("the release build", { timeout: BUILD_MS }, () => {
+  it("ships the module imported by the packaged macOS ownership smoke", async () => {
+    build = fixtureBuild({ host: "darwin-arm64" });
+    const workflow = releaseWorkflowInput(join(import.meta.dirname, "..", "..", "..", "..")).hosted;
+    const ownership = workflow.split("- name: Verify packaged macOS tunnel ownership")[1]?.split("- name:")[0];
+    expect(ownership).toBeDefined();
+    const modulePath = ownership?.match(/resolve\(process\.env\.SERVER, "([^"]+)"\)/)?.[1];
+    expect(modulePath).toBeDefined();
+    await buildRelease(build.options({ platforms: ["darwin-arm64"] }), {
+      ...build.seams,
+      compile: async (repository) => {
+        await build.seams.compile?.(repository);
+        const directory = join(repository, "packages/environment/dist/serve");
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, "interfaces.js"), "export const tailscaleDetector = () => {}; export const bindPlan = () => {};\n");
+      },
+    });
+    const root = unpack("agent-harness-darwin-arm64.tar.gz");
+    const imported = execFileSync(process.execPath, ["--input-type=module", "-e", `
+      import assert from 'node:assert/strict';
+      import { pathToFileURL } from 'node:url';
+      const module = await import(pathToFileURL(process.argv[1]));
+      assert.equal(typeof module.tailscaleDetector, 'function');
+      assert.equal(typeof module.bindPlan, 'function');
+      console.log('ownership module loaded');
+    `, join(root, modulePath ?? "")], { encoding: "utf8" });
+    expect(imported.trim()).toBe("ownership module loaded");
+  });
+
   it.each(["darwin-arm64", "win32-x64"])("refuses a %s artefact without its keychain native prebuild", async (platform) => {
     build = fixtureBuild({ host: platform });
     await expect(buildRelease(build.options({ platforms: [platform] }), {
@@ -461,4 +490,3 @@ describe("the build's command line", () => {
     expect(() => buildOptionsOf(["--tag", "v0.5.0", "--out", "r", "--image-reference", "x", "--image-digest", "y", "--sign"], "/work")).toThrow(/--sign/);
   });
 });
-

@@ -15,6 +15,7 @@ import {
   SETTINGS,
   SETUP_ACTIONS,
   STEP_LABELS,
+  STEP_HINTS,
   STEP_PROMPTS,
   STEP_ORDER,
   STEP_REGISTRY,
@@ -27,6 +28,14 @@ import {
   unregisteredSteps,
   type SettingsKey,
 } from "./index.js";
+
+it("explains the outcome of every checklist step, including optional steps", () => {
+  expect(STEP_ORDER.map((id) => STEP_HINTS[id])).toEqual([
+    "Choose your agent’s account", "Bring past work with you", "Work here or elsewhere", "Open pull requests",
+    "Fetch keys when needed", "Keep a shared notebook", "Reuse working procedures", "Guide every session",
+    "See and use web pages", "Choose when agents ask", "Make the window feel right",
+  ]);
+});
 
 /**
  * The step registry's contract test (ADR 0016; session-state spec,

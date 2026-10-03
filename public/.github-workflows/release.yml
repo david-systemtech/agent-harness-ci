@@ -223,12 +223,13 @@ jobs:
       - name: The setup carries its server dependencies
         run: |
           set -euo pipefail
-          apt-get update && apt-get install -y --no-install-recommends p7zip-full
+          apt-get update && apt-get install -y --no-install-recommends curl xz-utils
+          sevenzip=$(bash scripts/7zip.sh)
           rm -rf unpacked-setup unpacked-windows
-          7z x -y desktop/agent-harness-desktop-win32-x64-setup.exe -ounpacked-setup
+          "$sevenzip" x -y desktop/agent-harness-desktop-win32-x64-setup.exe -ounpacked-setup
           payload=$(find unpacked-setup -type f -name 'app-64.7z')
           test -f "$payload"
-          7z x -y "$payload" -ounpacked-windows
+          "$sevenzip" x -y "$payload" -ounpacked-windows
           test -f unpacked-windows/resources/server/node_modules/@agent-harness/contracts/package.json
 
       - name: Keep the desktop build
@@ -447,7 +448,7 @@ jobs:
           import assert from "node:assert/strict";
           import { resolve } from "node:path";
           import { pathToFileURL } from "node:url";
-          const { tailscaleDetector, bindPlan } = await import(pathToFileURL(resolve(process.env.SERVER, "packages/environment/dist/serve/interfaces.js")));
+          const { tailscaleDetector, bindPlan } = await import(pathToFileURL(resolve(process.env.SERVER, "node_modules/@agent-harness/environment/dist/serve/interfaces.js")));
           const entry = (address) => ({ address, internal: false, family: address.includes(":") ? "IPv6" : "IPv4" });
           let interfaces = { utun0: [entry("100.64.0.8")], utun4: [entry("100.64.0.9"), entry("fd7a:115c:a1e0::1")] };
           let state;

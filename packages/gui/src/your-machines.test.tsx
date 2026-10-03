@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { clockTime } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
-import { PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { SETTINGS, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { encode } from "uqr";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -326,8 +326,8 @@ describe("Your machines' update controls", () => {
     expect(scripted.settings()).toMatchObject({ "updates.channel": "beta", "updates.autoUpdate": false });
     // The pin, the idle window and the deferral cap stay the generic editor's, under Advanced (#576).
     await app.user.click(within(laptop()).getByRole("button", { name: "Advanced" }));
-    for (const key of ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]) expect(within(laptop()).getByRole("group", { name: key })).toBeDefined();
-    expect(within(laptop()).queryByRole("group", { name: "updates.channel" })).toBeNull();
+    for (const key of ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"] as const) expect(within(laptop()).getByRole("group", { name: SETTINGS[key].label })).toBeDefined();
+    expect(within(laptop()).queryByRole("group", { name: "Update channel" })).toBeNull();
 
     await app.user.click(within(laptop()).getByRole("button", { name: "Update now" }));
     expect(await within(laptop()).findByText("Updating to 0.6.0 once laptop is idle.")).toBeDefined();

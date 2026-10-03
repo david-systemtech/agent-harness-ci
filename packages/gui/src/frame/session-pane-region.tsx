@@ -10,7 +10,7 @@ import { PaneLines } from "../session/pane-line.js";
  */
 export const SessionPaneRegion = () => (
   <PaneLines>
-    <main className="flex h-full min-w-0 flex-col bg-abyss">
+    <main className="flex h-full min-w-0 flex-col bg-panel">
       <PaneGrid />
     </main>
   </PaneLines>

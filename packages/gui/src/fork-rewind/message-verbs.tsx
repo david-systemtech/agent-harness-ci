@@ -1,4 +1,5 @@
 import type { UserMessageEntry } from "@agent-harness/client-runtime";
+import { GitFork, KeyRound, Undo2 } from "lucide-react";
 import { useState, type FocusEvent, type ReactNode } from "react";
 import { useMessageLine } from "../session/pane-line.js";
 import { VerbButton } from "../session/verb-button.js";
@@ -35,19 +36,19 @@ export const MessageVerbs = ({ entry, children }: { readonly entry: UserMessageE
   return (
     <div className="flex flex-col items-end gap-0.5" onPointerEnter={() => setPointer(true)} onPointerLeave={() => setPointer(false)} onFocus={() => setFocused(true)} onBlur={left}>
       {children}
-      <div role="group" aria-label={`Fork or rewind: ${messageWords(entry.text)}`} className="flex gap-1" style={{ visibility: shown ? "visible" : "hidden" }}>
-        <VerbButton does={FORK_DOES} availability={forkRewind.fork} run={() => forkRewind.forkAt(anchor)}>
-          Fork
+      <div role="group" aria-label={`Fork or rewind: ${messageWords(entry.text)}`} className="flex max-w-full flex-wrap justify-end gap-1" style={{ visibility: shown ? "visible" : "hidden" }}>
+        <VerbButton does={`${FORK_DOES} (Enter or Space)`} availability={forkRewind.fork} run={() => forkRewind.forkAt(anchor)}>
+          <GitFork aria-hidden="true" className="size-3" />Fork
         </VerbButton>
-        <VerbButton does={FORK_ONTO_DOES} availability={forkRewind.fork} run={() => forkRewind.forkOntoAccount(anchor)}>
-          Fork onto another account
+        <VerbButton does={`${FORK_ONTO_DOES} (Enter or Space)`} availability={forkRewind.fork} run={() => forkRewind.forkOntoAccount(anchor)}>
+          <KeyRound aria-hidden="true" className="size-3" />Fork onto another account
         </VerbButton>
-        <VerbButton does={forkRewind.stops ? STOP_AND_REWIND_DOES : REWIND_DOES} availability={forkRewind.rewind} run={() => forkRewind.rewindTo(anchor)}>
-          {forkRewind.stops ? "Stop and rewind here" : "Rewind"}
+        <VerbButton does={`${forkRewind.stops ? STOP_AND_REWIND_DOES : REWIND_DOES} (Enter or Space)`} availability={forkRewind.rewind} run={() => forkRewind.rewindTo(anchor)}>
+          <Undo2 aria-hidden="true" className="size-3" />{forkRewind.stops ? "Stop and rewind here" : "Rewind"}
         </VerbButton>
       </div>
       {line !== undefined && (
-        <p role="status" className="max-w-[85%] text-xs text-ink-muted">
+        <p role="status" className="max-w-[80%] text-xs text-ink-muted">
           {line}
         </p>
       )}
