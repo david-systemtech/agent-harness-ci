@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createRuntime } from "../runtime.js";
+import type { ShellWebViewState } from "../shell.js";
 import { SHELL_MEMBERS, hasShellMember } from "../shell.js";
 import { fakeShell, inMemoryPlatform } from "./in-memory-platform.js";
 
@@ -16,6 +17,30 @@ describe("the recording fake shell", () => {
   it("implements every member a renderer may ask about", () => {
     const shell = fakeShell();
     for (const member of SHELL_MEMBERS) expect(hasShellMember(shell, member), member).toBe(true);
+  });
+
+  it("records Stop, reports loading until stopped or completed, and forgets destroyed pages", async () => {
+    const shell = fakeShell();
+    const id = await shell.webView.create({ url: "https://example.org/" });
+    expect(await shell.webView.state(id)).toMatchObject({ loading: false });
+    const states: ShellWebViewState[] = [];
+    const unsubscribe = shell.webView.onChange((_id, state) => states.push(state));
+    const loading = { url: "https://example.org/", canGoBack: false, canGoForward: false, loading: true };
+    shell.changeWebView(id, loading);
+    expect(await shell.webView.state(id)).toEqual(loading);
+    shell.webView.stop(id);
+    expect(shell.calls).toContainEqual(["webView.stop", id]);
+    expect(states.at(-1)).toEqual({ ...loading, loading: false });
+    expect(await shell.webView.state(id)).toEqual({ ...loading, loading: false });
+    shell.changeWebView(id, loading);
+    shell.changeWebView(id, { ...loading, loading: false });
+    expect(await shell.webView.state(id)).toMatchObject({ loading: false });
+    unsubscribe();
+    const count = states.length;
+    shell.changeWebView(id, loading);
+    expect(states).toHaveLength(count);
+    shell.webView.destroy(id);
+    await expect(shell.webView.state(id)).rejects.toThrow("closed");
   });
 
   it("records each call with every argument, oldest first", async () => {

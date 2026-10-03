@@ -63,6 +63,7 @@ export interface ShellFunctions {
   "webView.back": ShellWebView["back"];
   "webView.forward": ShellWebView["forward"];
   "webView.reload": ShellWebView["reload"];
+  "webView.stop": ShellWebView["stop"];
   "webView.state": ShellWebView["state"];
   "webView.onChange": ShellWebView["onChange"];
   "webView.onKey": ShellWebView["onKey"];
@@ -155,7 +156,7 @@ export const fakeShell = (): FakeShell => {
     "deepLinks.onOpen": listen(heard.links),
     "webView.create": async ({ url }) => {
       const id = `view-${++views}`;
-      viewStates.set(id, { url, canGoBack: false, canGoForward: false });
+      viewStates.set(id, { url, canGoBack: false, canGoForward: false, loading: false });
       return id;
     },
     "webView.debugger.attach": async () => undefined,
@@ -166,20 +167,31 @@ export const fakeShell = (): FakeShell => {
     "webView.attach": () => undefined,
     "webView.hide": () => undefined,
     "webView.navigate": async (id, url) => {
-      const state = { url, canGoBack: true, canGoForward: false };
+      const state = { url, canGoBack: true, canGoForward: false, loading: false };
       viewStates.set(id, state);
       for (const listener of viewListeners) listener(id, state);
     },
-    "webView.state": async (id) => viewStates.get(id) ?? { url: "about:blank", canGoBack: false, canGoForward: false },
+    "webView.state": async (id) => {
+      const state = viewStates.get(id);
+      if (!state) throw new Error("The browser page is closed.");
+      return state;
+    },
     "webView.onKey": (listener) => { keyListeners.add(listener); return () => void keyListeners.delete(listener); },
     "webView.back": () => undefined,
     "webView.forward": () => undefined,
     "webView.reload": () => undefined,
+    "webView.stop": (id) => {
+      const held = viewStates.get(id);
+      if (!held) throw new Error("The browser page is closed.");
+      const state = { ...held, loading: false };
+      viewStates.set(id, state);
+      for (const listener of viewListeners) listener(id, state);
+    },
     "webView.onChange": (listener) => {
       viewListeners.add(listener);
       return () => void viewListeners.delete(listener);
     },
-    "webView.destroy": () => undefined,
+    "webView.destroy": (id) => { viewStates.delete(id); },
     "preview.grant": async () => `${PRODUCT_NAME}-preview://fake/${++previews}`,
     // Carries no server artefact, as a desktop run from a checkout; runs a build that updates itself, and applies one when asked.
     "installer.bundledServer": async () => null,
@@ -251,6 +263,7 @@ export const fakeShell = (): FakeShell => {
       back: recorded("webView.back"),
       forward: recorded("webView.forward"),
       reload: recorded("webView.reload"),
+      stop: recorded("webView.stop"),
       state: recorded("webView.state"),
       onChange: recorded("webView.onChange"),
       onKey: recorded("webView.onKey"),

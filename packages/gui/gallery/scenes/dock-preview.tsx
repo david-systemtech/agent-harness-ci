@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { App } from "../../src/app.js";
 import { sideColumnKey } from "../../src/presentation.js";
 import { prepareWorld, startWorld } from "../world.js";
-import { geometry as dockGeometry, presentation as filesPresentation, script } from "./dock-files.js";
+import { dockGeometry, presentation as filesPresentation, script } from "./dock-files.js";
 
 const session = filesPresentation.paneLayout!.rows[0]!.panes[0]!.session!;
 const prepared = await prepareWorld(script, { presentation: {

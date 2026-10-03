@@ -186,6 +186,7 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
       back: (id) => tell("webView.back", id),
       forward: (id) => tell("webView.forward", id),
       reload: (id) => tell("webView.reload", id),
+      stop: (id) => tell("webView.stop", id),
       state: (id) => ask("webView.state", id),
       onChange: (listener) => {
         viewListeners.add(listener);

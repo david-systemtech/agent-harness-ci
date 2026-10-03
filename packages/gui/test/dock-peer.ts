@@ -22,6 +22,7 @@ export const dockPeer = () => {
     url: peer.target(targets.get(id)!).url,
     canGoBack: false,
     canGoForward: false,
+    loading: false,
   }));
   shell.answer("webView.debugger.attach", async (id) => {
     const session = await connection.attach(targets.get(id)!);
