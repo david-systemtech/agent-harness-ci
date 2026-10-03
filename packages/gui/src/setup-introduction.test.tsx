@@ -62,7 +62,7 @@ it("asks before leaving without an account and keeps setup available after relau
   await again.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
   await screen.findByRole("region", { name: "Account" });
   expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
-  await again.user.click(screen.getByRole("button", { name: "Appearance", exact: true }));
+  await again.user.click(screen.getByRole("button", { name: "Appearance" }));
   expect(screen.getByRole("button", { name: "Finish" })).toBeDefined();
 });
 
@@ -74,4 +74,39 @@ it("starts a known local environment when an unfinished first launch is opened a
   expect(screen.getByRole("heading", { name: "Welcome to agent-harness" })).toBeDefined();
   expect(await screen.findByRole("button", { name: "Begin set up" })).toBeDefined();
   expect(again.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1);
+});
+
+it("offers a restart when a ready environment stops while the introduction is still open", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+  expect(screen.getByRole("button", { name: "Begin set up" })).toBeDefined();
+  app.environment("desk").discovery("nothing");
+  app.environment("desk").server.drop();
+  await screen.findByText("desk cannot be reached; this client tries again.");
+  act(() => app.clock.advance(5_000));
+  const again = await screen.findByRole("button", { name: "Try again" });
+  expect(screen.getByRole("status").textContent).toBe("The environment on this machine is not running");
+  expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(0);
+  app.shell.answer("service.start", async () => app.environment("desk").discovery("ready"));
+  await app.user.click(again);
+  expect(await screen.findByRole("button", { name: "Begin set up" })).toBeDefined();
+});
+
+it("explains an opted-out local service without claiming that it is starting", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, { firstLaunch: true, presentation: { runLocalEnvironment: false } });
+  expect(screen.getByRole("status").textContent).toBe("This machine’s environment is turned off");
+  expect(app.shell.calls.filter(([member]) => member.startsWith("service."))).toHaveLength(0);
+  expect(screen.getByRole("switch", { name: "Run an environment on this machine" }).getAttribute("aria-checked")).toBe("false");
+  app.shell.answer("service.start", async () => app.environment("desk").discovery("ready"));
+  await app.user.click(screen.getByRole("switch", { name: "Run an environment on this machine" }));
+  expect(await screen.findByRole("button", { name: "Begin set up" })).toBeDefined();
+});
+
+it("offers pairing when this client cannot start a local service", async () => {
+  const shell = fakeShell();
+  Object.defineProperty(shell, "service", { value: undefined });
+  await renderApp({ environments: [] }, { firstLaunch: true, shell });
+  expect(screen.getByRole("status").textContent).toBe("This machine cannot start an environment");
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  expect(shell.calls.filter(([member]) => member.startsWith("service."))).toHaveLength(0);
+  expect(screen.getByRole("button", { name: "Pair instead" })).toBeDefined();
 });
