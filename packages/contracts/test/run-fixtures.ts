@@ -199,6 +199,7 @@ const payloads: Record<string, Fixtures> = {
     valid: [{ runId, tasks: [] }, { runId, tasks: [task, settledTask] }],
     invalid: [{ runId, tasks: [{ ...task, status: "paused-ish" }] }, { runId }],
   },
+  "context.reported": { valid: [{ runId, model: "model-a", contextTokens: 350, contextWindow: 1000 }], invalid: [{ runId, model: "model-a", contextTokens: -1, contextWindow: 1000 }, { runId, model: "model-a", contextTokens: 0, contextWindow: 0 }] },
   "usage.reported": { valid: [{ runId, models: [usage] }], invalid: [{ runId, models: [] }, { runId, models: [{ ...usage, inputTokens: -1 }] }] },
   "plan.limit": {
     valid: [
@@ -408,6 +409,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [mode, { requested: null, effective: "acceptEdits", clamped: false }],
     invalid: [{ requested: "plan", effective: "plan" }, { ...mode, clamped: "no" }, { requested: null, effective: null, clamped: false }, { ...mode, requested: "dontAsk" }],
   },
+  "transcript/context-reading.json": { valid: [{ model: "model-a", contextTokens: 350, contextWindow: null }], invalid: [{ model: "model-a", contextTokens: -1, contextWindow: 1000 }] },
   "transcript/model-usage.json": { valid: [usage, { ...usage, costUsd: null, contextWindow: null }], invalid: [{ ...usage, outputTokens: 1.5 }, { model: "opus" }] },
   "transcript/run-error.json": { valid: [{ message: "Gone.", code: null }, { message: "Gone.", code: "overloaded" }], invalid: [{ message: "" , code: null }, { code: null }] },
   "transcript/run-state.json": { valid: ["running", "ended"], invalid: ["starting", ""] },

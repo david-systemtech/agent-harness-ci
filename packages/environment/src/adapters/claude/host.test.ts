@@ -197,12 +197,14 @@ describe("a Claude run through the adapter host", () => {
     const { runId, messageId } = startRun(t);
     const query = await runQuery(t, 1);
     expect(query.prompts[0]).toMatchObject({ uuid: messageId, message: { content: "Go" } });
+    const reply = sdk.text("msg_1", "Hello.");
     query.emit(
       sdk.init(PROVIDER_SESSION),
+      { type: "assistant", message: { id: "msg_1", model: "claude-fable-5", content: [], usage: { input_tokens: 300, cache_read_input_tokens: 200 } }, parent_tool_use_id: null },
       sdk.replyStart("msg_1", [messageId]),
       sdk.blockStart(0),
       sdk.textDelta(0, "Hello"),
-      sdk.text("msg_1", "Hello."),
+      { ...reply, message: { ...reply.message, model: "claude-fable-5", usage: { input_tokens: 300, cache_read_input_tokens: 200 } } },
       sdk.result(PROVIDER_SESSION, { modelUsage: { "claude-fable-5": { inputTokens: 3, outputTokens: 4, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0.01, contextWindow: 1000000 } } }),
     );
     await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
@@ -214,14 +216,20 @@ describe("a Claude run through the adapter host", () => {
       "message.sent",
       "run.instructions.composed",
       "session.provider-linked",
+      "context.reported",
       "assistant.delta",
       "assistant.text",
+      "context.reported",
       "usage.reported",
       "run.ended",
     ]);
+    expect(events.filter((event) => event.type === "context.reported").map((event) => event.payload)).toEqual([
+      { runId, model: "claude-fable-5", contextTokens: 500, contextWindow: null },
+      { runId, model: "claude-fable-5", contextTokens: 500, contextWindow: 1000000 },
+    ]);
     for (const event of events) expect(event.correlationId, event.type).toBe(runId);
     expect(events[4]?.actor).toBe("system:adapter-host");
-    expect(events.slice(5).map((event) => event.actor)).toEqual(Array(5).fill("adapter:claude"));
+    expect(events.slice(5).map((event) => event.actor)).toEqual(Array(7).fill("adapter:claude"));
     expect(events.at(-1)?.payload).toMatchObject({ reason: "completed", resultText: "Done.", turnCount: 1, usage: [expect.objectContaining({ model: "claude-fable-5", costUsd: 0.01 })] });
     // Released, the process is kept for the next run until the pool's idle stop.
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -345,6 +353,7 @@ describe("a Claude run through the adapter host", () => {
       "run.instructions.composed",
       "session.provider-linked",
       "message.sent",
+      "context.reported",
       "assistant.text",
       "run.ended",
       "run.started",
@@ -352,12 +361,13 @@ describe("a Claude run through the adapter host", () => {
       "run.browser.resolved",
       "message.delivered",
       "session.provider-linked",
+      "context.reported",
       "assistant.text",
       "run.ended",
     ]);
-    const adopted = events[9];
+    const adopted = events.filter((event) => event.type === "run.started").at(-1);
     expect(adopted?.payload).toMatchObject({ origin: "provider", promptMessageId: null, queuedMessageIds: [queued] });
-    expect(events[12]?.payload).toEqual({ runId: adopted?.payload["runId"], messageId: queued, delivery: "prompt" });
+    expect(events.find((event) => event.type === "message.delivered")?.payload).toEqual({ runId: adopted?.payload["runId"], messageId: queued, delivery: "prompt" });
     expect(events.filter((event) => event.type === "run.ended").map((event) => event.payload["reason"])).toEqual(["completed", "completed"]);
     expect(fake.queries).toHaveLength(t.controlQueries + 1);
   });

@@ -66,6 +66,8 @@ export interface ModelOption {
   readonly tier: number;
   readonly efforts: readonly string[];
   readonly label?: string;
+  /** Only a provider-reported denominator; static catalogues omit it. */
+  readonly contextWindow?: number | null;
 }
 
 /** The models an account can use: listed live from the provider (`liveModels`), or the adapter's static list. */
@@ -767,6 +769,7 @@ export const ADAPTER_EVENT_TYPES = [
   "command.ran",
   "tasks.changed",
   "usage.reported",
+  "context.reported",
   "plan.limit",
   "session.provider-linked",
 ] as const;

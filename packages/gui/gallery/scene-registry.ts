@@ -6,9 +6,18 @@ import type { PresentationValues } from "../src/presentation.js";
 /** Every matching element must have these dimensions; missing selectors fail capture. */
 export interface SceneGeometry {
   readonly selector: string;
+  /** Apply this measurement only at the named capture viewport width. */
+  readonly viewport?: number;
   readonly width?: number;
   readonly height?: number;
   readonly tolerance?: number;
+  /** Content may grow beyond a scene’s viewport-height floor. */
+  readonly minimumHeight?: number;
+}
+
+export interface SceneViewport {
+  readonly width: number;
+  readonly height: number;
 }
 
 /** A scene file exports a default component or an app script, plus optional geometry. */
@@ -18,7 +27,7 @@ export interface SceneModule {
   /** Arrange readings or run events on each fresh world before the app mounts. */
   readonly arrange?: (world: ScriptedWorld) => void;
   readonly presentation?: Partial<PresentationValues>;
-  readonly geometry?: readonly SceneGeometry[];
+  readonly geometry?: readonly SceneGeometry[] | ((viewport: SceneViewport) => readonly SceneGeometry[]);
 }
 export type SceneRegistry = Readonly<Record<string, SceneModule>>;
 

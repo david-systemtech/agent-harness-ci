@@ -38,6 +38,9 @@ describe("the session browser picker", () => {
     expect(refused.getAttribute("aria-disabled")).toBe("true");
     expect(refused.textContent).toContain("no local client can drive");
     expect(refused.textContent).toContain("the chip's now");
+    expect(menu.className).toContain("w-72");
+    expect(refused.className).toContain("bg-wash");
+    expect(refused.querySelector("svg")).not.toBeNull();
   });
 
   it("changes the session field for the next run while keeping the running browser until the next resolution", async () => {

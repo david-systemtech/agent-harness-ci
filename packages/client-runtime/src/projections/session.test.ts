@@ -836,3 +836,20 @@ describe("the session's view", () => {
     expect(projectSession({ environmentId: "env", sessionId: FIXTURE_SESSION, state: cachedStream(1, gone), overlays: [], waitingDraft: undefined })).toMatchObject({ deleted: true, summary: null });
   });
 });
+
+describe("current request context", () => {
+  it("replaces context independently of spend and restores it through the stream cache", () => {
+    const events = numbered(1, [
+      ["run.started", recorded("run.started")],
+      ["context.reported", { runId: FIXTURE_RUN, model: "opus", contextTokens: 350, contextWindow: 1000 }],
+      ["context.reported", { runId: FIXTURE_RUN, model: "sonnet", contextTokens: 200, contextWindow: null }],
+      ["run.ended", recorded("run.ended")],
+    ]);
+    const projection = reduce(events);
+    expect(projection.runs[0]?.context).toEqual({ model: "sonnet", contextTokens: 200, contextWindow: null });
+    const kind = sessionKind();
+    const cached = kind.decode(kind.encode(kind.fromSnapshot({ ...recordedSnapshot(), runs: projection.runs })));
+    expect(reduceSession(cached.snapshot, []).runs[0]?.context).toEqual(projection.runs[0]?.context);
+    expect(reduceSession(cached.snapshot, []).runs[0]?.contextWindows).toEqual({ opus: 1000 });
+  });
+});

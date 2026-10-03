@@ -1,3 +1,4 @@
+import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
@@ -127,7 +128,7 @@ const methods = (app: RenderedApp, name: string) => app.environment(name).reques
 const params = (app: RenderedApp, name: string, method: string) => app.environment(name).requests(method).map((request) => request.params);
 
 /** The header's New session control, and an environment heading's. */
-const headerControl = () => within(header()).getByRole("button", { name: "New session" });
+const headerControl = () => screen.getByRole("menuitem", { name: "New session" });
 const headingControl = (environment: string) => within(region(environment)).getByRole("button", { name: `New session on ${environment}` });
 
 /** A New session control dragged onto `onto` (found once the drag has started) and dropped; answers whether the drop was taken. */
@@ -152,7 +153,7 @@ describe("New session in the focused pane", () => {
     const app = await withOpen("Train tidy");
     expect(within(region("desk")).getByRole("button", { name: "New session on desk" })).toBeDefined();
 
-    await app.user.click(headerControl());
+    await chooseHeaderAction(app, "New session");
     expect(grid()).toEqual([["*+"]]);
     // The header's carries the focused pane's environment, and the pane beside is its own: its session's workspace.
     await chipsRead(() => surfaces()[0] as HTMLElement, TRAIN_CHIPS);
@@ -374,6 +375,7 @@ describe("a new session in a new pane", () => {
   it("opens where a New session control is dropped on the grid: a pane's edge splits it, anywhere else splits the focused pane right, and the chips preset from the pane landed beside", async () => {
     const app = await twoPanes();
     // Onto the grid of two, at a pane's centre: a third pane beside the focused one, replacing neither.
+    await openHeaderMenu(app);
     expect(dropControl(headerControl(), zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(true);
     expect(grid()).toEqual([["Train tidy", "Fix the rail", "*+"]]);
     await chipsRead(() => surfaces()[0] as HTMLElement, DESK_CHIPS);
@@ -416,7 +418,9 @@ describe("a new session in a new pane", () => {
     const app = await twoPanes();
     expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
     await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
+    await openHeaderMenu(app);
     expect(dropControl(headerControl(), () => header())).toBe(false);
+    await app.user.keyboard("{Escape}");
     await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
     expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]);
 
@@ -426,7 +430,9 @@ describe("a new session in a new pane", () => {
 
     await app.user.keyboard(NEW_IN_PANE);
     await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
+    await openHeaderMenu(app);
     expect(dropControl(headerControl(), zone(() => paneOf("Train tidy"), "New session to the right"))).toBe(false);
+    await app.user.keyboard("{Escape}");
     expect(dropControl(headingControl("desk"), zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(false);
     await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(dropControl(headingControl("desk"), () => heading("laptop"))).toBe(false);

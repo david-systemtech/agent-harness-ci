@@ -1,3 +1,4 @@
+import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp } from "../test/harness.js";
@@ -89,7 +90,7 @@ describe("splitting", () => {
     expect(grid()).toEqual([["*Train tidy"]]);
     expect(within(header()).getByText("laptop")).toBeDefined();
 
-    await app.user.click(within(header()).getByRole("button", { name: "Split right" }));
+    await chooseHeaderAction(app, "Split right");
     expect(grid()).toEqual([["Train tidy", "*·"]]);
     expect(within(header()).queryByText("laptop")).toBeNull();
     expect(within(paneOf("·")).getByText("No session is open. Choose one from the sidebar.")).toBeDefined();
@@ -103,7 +104,7 @@ describe("splitting", () => {
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*·"]]);
     await press(app, SPLIT_RIGHT);
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["·", "*·"]]);
-    await app.user.click(within(header()).getByRole("button", { name: "Split down" }));
+    await chooseHeaderAction(app, "Split down");
     expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["·", "·"], ["*·"]]);
 
     // The focus put in a pane focuses it, and the header follows it.
@@ -138,8 +139,11 @@ describe("eight panes", () => {
     expect(panes()).toHaveLength(8);
     expect(gridLine()).toBeUndefined();
 
-    await app.user.click(within(header()).getByRole("button", { name: "Split right" }));
-    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    const more = await openHeaderMenu(app);
+    const split = within(more).getByRole("menuitem", { name: "Split right" });
+    expect(split.getAttribute("aria-disabled")).toBe("true");
+    expect(split.textContent).toContain("The grid holds eight panes; close one first.");
+    await app.user.keyboard("{Escape}");
     await press(app, SPLIT_DOWN);
     expect(panes()).toHaveLength(8);
 

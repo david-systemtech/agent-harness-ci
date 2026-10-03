@@ -41,6 +41,7 @@ import {
   type ToolUpdatedPayload,
   type TranscriptItem,
   type UsageReportedPayload,
+  type ContextReportedPayload,
 } from "@agent-harness/contracts";
 import { derived, notifyAll, type Observable } from "../observable.js";
 import { overlaid, type OutboxView, type OverlayRecord, type WaitingDrafts } from "../outbox/overlay.js";
@@ -583,6 +584,15 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         const { text } = event.payload as SessionInstructionsSetPayload;
         if (typeof text !== "string") throw new TypeError("session.instructions-set carries no text.");
         instructions = text;
+        return;
+      }
+      case "context.reported": {
+        const { runId, ...context } = event.payload as ContextReportedPayload;
+        const run = runs.get(runId);
+        if (run !== undefined) {
+          run.context = context;
+          if (context.contextWindow !== null) run.contextWindows = { ...run.contextWindows, [context.model]: context.contextWindow };
+        }
         return;
       }
       case "usage.reported": {
