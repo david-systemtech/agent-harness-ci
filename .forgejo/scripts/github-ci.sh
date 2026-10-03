@@ -278,7 +278,7 @@ for scene in scenes:
         # A repeat run may reuse a capture only when its bytes are identical.
         req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
         with opener.open(req, timeout=120) as response:
-            if response.read(4*1024*1024+1) != images[name]: sys.exit('Existing gallery capture has different bytes')
+            if response.read(len(images[name])+1) != images[name]: sys.exit('Existing gallery capture has different bytes')
     captures.append({'name': name, 'url': urls[name], 'api_url': download})
 manifest = {'head': head, 'captures': captures}
 body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'

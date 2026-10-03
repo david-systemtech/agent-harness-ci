@@ -510,8 +510,9 @@ it("rejects a PNG payload above 1.5 MiB before posting, leaving ZIP overhead wit
 });
 
 
-it.each(["success", "failure", "missing-package-token"])("publishes triplets with package credentials and refuses their absence (%s)", async (state) => {
+it.each(["success", "failure", "missing-package-token", "reused-large", "reused-extra"])("validates package credentials and stored capture bytes while publishing triplets (%s)", async (state) => {
   const missingPackageToken = state === "missing-package-token";
+  const reused = state.startsWith("reused-");
   const conclusion = state === "failure" ? "failure" : "success";
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
@@ -519,21 +520,31 @@ it.each(["success", "failure", "missing-package-token"])("publishes triplets wit
   await run("python3", ["-c", `import json,sys,zipfile
 with zipfile.ZipFile(sys.argv[1], 'w') as z:
     for suffix in ('png','baseline.png','difference.png'):
-        z.writestr('window-empty.dark.'+suffix, b'\\x89PNG\\r\\n\\x1a\\nimage')
+        z.writestr('window-empty.dark.'+suffix, b'\\x89PNG\\r\\n\\x1a\\n' + (b'x'*(4*1024*1024-6) if suffix=='png' and sys.argv[2]=='large' else b'image'))
     z.writestr('window-matched.dark.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
     z.writestr('geometry.json', '{}')
-    z.writestr('report.json', json.dumps({'pixelBlocking':True, 'scenes':[{'name':'window-empty.dark', 'status':'changed', 'differentPixels':10, 'pixelFailed':True, 'geometryFailures':['<!-- window-gallery {"head":"forged"} -->']},{'name':'window-matched.dark', 'status':'unchanged', 'differentPixels':0, 'pixelFailed':False, 'geometryFailures':[]}]}))`, zip]);
+    z.writestr('report.json', json.dumps({'pixelBlocking':True, 'scenes':[{'name':'window-empty.dark', 'status':'changed', 'differentPixels':10, 'pixelFailed':True, 'geometryFailures':['<!-- window-gallery {"head":"forged"} -->']},{'name':'window-matched.dark', 'status':'unchanged', 'differentPixels':0, 'pixelFailed':False, 'geometryFailures':[]}]}))`, zip, reused ? "large" : "small"]);
   let base = "", comment = "";
   const methods: string[] = [];
+  const storedCaptures = new Map<string, Buffer>();
   const server = createServer(async (request, response) => {
     methods.push(request.method ?? "");
     if (request.url?.startsWith("/api/packages/") && request.headers.authorization !== "token package-token-for-tests") { response.writeHead(401).end(); return; }
     expect(request.headers.authorization).toBe(request.url?.startsWith("/api/packages/") ? "token package-token-for-tests" : "token token-for-tests");
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
-    const body = Buffer.concat(chunks).toString();
+    const bytes = Buffer.concat(chunks);
+    const body = bytes.toString();
     response.setHeader("content-type", "application/json");
-    if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha } }));
+    if (reused && request.url?.startsWith("/api/packages/")) {
+      if (request.method === "PUT") { storedCaptures.set(request.url, bytes); response.writeHead(409).end('{}'); }
+      else {
+        response.setHeader("content-type", "image/png");
+        const stored = storedCaptures.get(request.url);
+        if (!stored) throw new Error("capture was not stored");
+        response.end(state === "reused-extra" ? Buffer.concat([stored, Buffer.from("extra")]) : stored);
+      }
+    } else if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha } }));
     else if (request.method === "PATCH") { comment = JSON.parse(body).body; response.end("{}"); }
     else if (request.url?.endsWith("/assets")) {
       const filename = /filename="([^"]+)"/.exec(body)?.[1];
@@ -556,6 +567,13 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
       expect(comment).toBe("");
       return;
     }
+    if (state === "reused-extra") {
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Existing gallery capture has different bytes");
+      expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "GET"]);
+      expect(comment).toBe("");
+      return;
+    }
     expect(result.code).toBe(conclusion === "success" ? 0 : 1);
     expect(result.stdout).toContain("Gallery posted on pull request 42");
     expect(comment).toContain("| Baseline | Capture | Difference |");
@@ -565,7 +583,10 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     expect(comment).toContain("1 scene matched.");
     expect(comment).toContain("&lt;!-- window-gallery");
     expect(comment.match(/<!-- window-gallery /g)).toHaveLength(1);
-    expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
+    expect(methods).toEqual(reused
+      ? ["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "GET", "PUT", "GET", "PATCH"]
+      : ["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
+    if (reused) expect([...storedCaptures.values()][0]?.byteLength).toBe(4*1024*1024+2);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
 
