@@ -436,6 +436,18 @@ it("allows documented network constants without allowing deployment addresses or
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
+it("allows LAN preference subnet constants only in the detector, retaining address denial", () => {
+  const f = fixture();
+  const detector = "packages/environment/src/serve/interfaces.ts";
+  f.write(detector, "LAN subnets: 10.0.0.0, 172.16.0.0, 192.168.0.0, fc00::\n");
+  f.commit(); f.publish("--dry-run");
+  f.write(detector, "10.0.0.1"); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/Privacy deny-list failed/);
+  f.write(detector, "");
+  f.write("README.md", "10.0.0.0"); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/Privacy deny-list failed/);
+});
+
 it("allows only the listed synthetic fixture values, while scanning fixture prose", () => {
   const f = fixture();
   f.write("test/fixture.txt", "synthetic: 10.0.0.1, 192.168.1.2, 100.64.0.1; documentation: 192.0.2.1, tail1234, example.com\n");
