@@ -90,6 +90,21 @@ describe("the Documents pane", () => {
     );
   });
 
+  it("shows document glyphs and explains keyboard activation for each row action", async () => {
+    const { app, env, session, runId } = await opened();
+    env.writeFile(session, runId, "NOTES.md", NOTES);
+    await openPane(app, "Documents");
+    const document = await waitFor(() => row("NOTES.md"));
+    expect(document.querySelector("[data-document-glyph] svg")).not.toBeNull();
+    for (const name of ["Preview", "Source", "Transcript"]) {
+      const button = within(document).getByRole("button", { name });
+      expect(button.querySelector("svg[aria-hidden=true]")).not.toBeNull();
+      await app.user.hover(button);
+      expect((await screen.findByRole("tooltip")).textContent).toContain("Enter or Space");
+      await app.user.unhover(button);
+    }
+  });
+
   it("opens on /documents typed at the composer, the command the terminal UI lists the same documents with", async () => {
     const { app, env, session, runId } = await opened();
     env.writeFile(session, runId, "NOTES.md", NOTES);
