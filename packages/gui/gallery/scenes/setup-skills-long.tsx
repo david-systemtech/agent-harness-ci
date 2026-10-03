@@ -68,5 +68,6 @@ export default function SetupSkillsLong({ ladder }: { readonly ladder: LadderNam
     })();
     return () => { stopped = true; void dispose?.(); };
   }, [ladder]);
+  useEffect(() => { if (app !== undefined) document.querySelector<HTMLButtonElement>("[data-setup-begin]")?.click(); }, [app]);
   return app === undefined ? null : <App {...app} />;
 }
