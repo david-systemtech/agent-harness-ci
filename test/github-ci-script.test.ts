@@ -12,6 +12,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
@@ -109,6 +110,10 @@ if stage == 'dispatch':
 elif stage == 'artifacts':
     out.write_text(json.dumps({'artifacts':[{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
 elif stage == 'archive':
+    if os.environ.get('FAKE_GALLERY_ZIP'):
+        import shutil
+        shutil.copyfile(os.environ['FAKE_GALLERY_ZIP'], out)
+        sys.exit(0)
     import zipfile
     with zipfile.ZipFile(out,'w') as z: z.writestr('window-empty.dark.png', b'\\x89PNG\\r\\n\\x1a\\n' + b'x' * (int(os.environ.get('FAKE_PNG_SIZE','15')) - 8))
 elif stage == 'discovery':
@@ -400,7 +405,7 @@ describe("the advisory gallery relay", () => {
     expect(result.stdout).toContain("Gallery posted on pull request 1336");
     expect(readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8")).toContain("![window-empty.dark.png](https://forge.example.invalid/attachments/screenshot)");
     const archive = apiCalls(f).find((call) => call.stage === "archive");
-    expect(archive?.args).toContain("2097152");
+    expect(archive?.args).toContain("33554432");
     expect(archive?.args).toContain("--max-time");
     const forgejoCalls = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && line.includes("/api/v1/"));
     expect(forgejoCalls).toHaveLength(4);
@@ -449,4 +454,50 @@ it("rejects a PNG payload above 1.5 MiB before posting, leaving ZIP overhead wit
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("gallery payload is too large");
   expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
+});
+
+
+it.each(["success", "failure"])("posts a baseline/capture/difference triplet even when the hosted check reports %s", async (conclusion) => {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  const zip = join(f.checkout, "gallery.zip");
+  await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    for suffix in ('png','baseline.png','difference.png'):
+        z.writestr('window-empty.dark.'+suffix, b'\\x89PNG\\r\\n\\x1a\\nimage')
+    z.writestr('geometry.json', '{}')
+    z.writestr('report.json', json.dumps({'pixelBlocking':True, 'scenes':[{'name':'window-empty.dark', 'status':'changed', 'differentPixels':10, 'pixelFailed':True, 'geometryFailures':[]}]}))`, zip]);
+  let base = "", comment = "";
+  const methods: string[] = [];
+  const server = createServer(async (request, response) => {
+    methods.push(request.method ?? "");
+    expect(request.headers.authorization).toBe("token token-for-tests");
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = Buffer.concat(chunks).toString();
+    response.setHeader("content-type", "application/json");
+    if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha } }));
+    else if (request.method === "PATCH") { comment = JSON.parse(body).body; response.end("{}"); }
+    else if (request.url?.endsWith("/assets")) {
+      const filename = /filename="([^"]+)"/.exec(body)?.[1];
+      response.end(JSON.stringify({ browser_download_url: `${base}/attachments/${filename}` }));
+    } else response.end(JSON.stringify({ id: 123 }));
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no fixture address");
+  base = `http://127.0.0.1:${address.port}`;
+  try {
+    const result = await relay(f, {
+      GH_CI_EVENT: "gallery", FAKE_API_CONCLUSION: conclusion, FAKE_GALLERY_ZIP: zip,
+      FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project",
+    });
+    expect(result.code).toBe(conclusion === "success" ? 0 : 1);
+    expect(result.stdout).toContain("Gallery posted on pull request 42");
+    expect(comment).toContain("| Baseline | Capture | Difference |");
+    expect(comment).toContain(`![capture window-empty.dark](${base}/attachments/window-empty.dark.png)`);
+    expect(comment).toContain('"name": "window-empty.dark.png"');
+    expect(comment).toContain(`"head": "${sha}"`);
+    expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "PUT", "PATCH"]);
+  } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
