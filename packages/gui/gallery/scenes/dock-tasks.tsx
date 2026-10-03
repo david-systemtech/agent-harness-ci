@@ -2,7 +2,7 @@ import type { DelegatedWorkRow } from "@agent-harness/contracts";
 import type { Script, ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { sideColumnKey, type PresentationValues } from "../../src/presentation.js";
 import type { SceneGeometry } from "../scene-registry.js";
-import { geometry as dockGeometry, presentation as filesPresentation, script as filesScript } from "./dock-files.js";
+import { dockGeometry, presentation as filesPresentation, script as filesScript } from "./dock-files.js";
 
 const session = filesPresentation.paneLayout!.rows[0]!.panes[0]!.session!;
 export const script: Script = { environments: filesScript.environments.map((env) => ({
