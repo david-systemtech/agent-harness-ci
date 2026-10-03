@@ -12,6 +12,7 @@ import type {
   ShellNotifications,
   ShellPreview,
   ShellSecrets,
+  SecretAccess,
   ShellService,
   ShellTray,
   ShellUpdate,
@@ -85,6 +86,8 @@ export interface ShellFunctions {
   "secrets.get": SecretStore["get"];
   "secrets.set": SecretStore["set"];
   "secrets.delete": SecretStore["delete"];
+  "secrets.access": NonNullable<ShellSecrets["access"]>;
+  "secrets.onAccess": NonNullable<ShellSecrets["onAccess"]>;
   "secrets.protection": NonNullable<ShellSecrets["protection"]>;
   http: HttpFetch;
   "network.allow": ShellNetwork["allow"];
@@ -112,6 +115,7 @@ export type FakeShell = Required<Shell> & {
   answer<M extends ScriptableShellFunction>(member: M, responder: ShellFunctions[M]): void;
   /** Opens `url` as the desktop does a deep link: every listener `deepLinks.onOpen` holds now hears it. */
   openDeepLink(url: string): void;
+  changeSecretAccess(state: SecretAccess): void;
   changeWindow(state: ShellWindowState): void;
   changeWebView(id: string, state: ShellWebViewState): void;
   pressWebViewKey(id: string, key: ShellWebViewKey): void;
@@ -122,6 +126,8 @@ export type FakeShell = Required<Shell> & {
 export const fakeShell = (): FakeShell => {
   const calls: ShellCall[] = [];
   const secrets = new Map<string, string>();
+  let access: SecretAccess = null;
+  const accessListeners = new Set<(state: SecretAccess) => void>();
   const heard = { links: new Set<(url: string) => void>(), activations: new Set<(tag: string) => void>() };
   const keyListeners = new Set<(id: string, key: ShellWebViewKey) => void>();
   const windowListeners = new Set<(state: ShellWindowState) => void>();
@@ -210,6 +216,12 @@ export const fakeShell = (): FakeShell => {
     "secrets.delete": async (name) => void secrets.delete(name),
     // A keychain whose key the OS keeps, until the test scripts one that stores tokens unprotected.
     "secrets.protection": async () => "os",
+    "secrets.access": async () => access,
+    "secrets.onAccess": (listener) => {
+      accessListeners.add(listener);
+      listener(access);
+      return () => void accessListeners.delete(listener);
+    },
     // Nothing answers until the test scripts it: a request fails as one to an address with nothing listening does.
     http: async () => {
       throw new TypeError("fetch failed");
@@ -278,7 +290,7 @@ export const fakeShell = (): FakeShell => {
     clipboard: { readText: recorded("clipboard.readText"), writeText: recorded("clipboard.writeText"), readImage: recorded("clipboard.readImage") },
     openExternal: recorded("openExternal"),
     localGrant: { read: recorded("localGrant.read") },
-    secrets: { get: recorded("secrets.get"), set: recorded("secrets.set"), delete: recorded("secrets.delete"), protection: recorded("secrets.protection") },
+    secrets: { access: recorded("secrets.access"), onAccess: recorded("secrets.onAccess"), get: recorded("secrets.get"), set: recorded("secrets.set"), delete: recorded("secrets.delete"), protection: recorded("secrets.protection") },
     http: recorded("http"),
     network: { allow: recorded("network.allow") },
     system: recorded("system"),
@@ -289,6 +301,10 @@ export const fakeShell = (): FakeShell => {
       responders[member] = responder;
     },
     pressWebViewKey(id, key) { for (const listener of keyListeners) listener(id, key); },
+    changeSecretAccess(state) {
+      access = state;
+      for (const listener of [...accessListeners]) listener(state);
+    },
     changeWindow(state) { for (const listener of [...windowListeners]) listener(state); },
     changeWebView(id, state) {
       viewStates.set(id, state);

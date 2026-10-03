@@ -1,4 +1,5 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp } from "../test/harness.js";
@@ -34,6 +35,26 @@ const toastSaying = async (text: string) => {
 };
 
 describe("a notice", () => {
+  it("explains pending Keychain approval while Settings stays usable, and keeps the cancellation explanation until dismissed", async () => {
+    const shell = fakeShell();
+    shell.changeSecretAccess("waiting");
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
+    const pending = await toastSaying("Waiting for macOS Keychain access");
+    expect(pending.textContent).toContain("macOS may ask for approval after replacing this app");
+    await app.user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("dialog", { name: "Settings" })).toBeDefined();
+    await act(async () => shell.changeSecretAccess("denied"));
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
+    const denied = await toastSaying("Keychain access did not complete");
+    expect(denied.textContent).toContain("Your accounts and saved connections are kept");
+    await app.user.click(within(denied).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(screen.queryByText("Keychain access did not complete")).toBeNull());
+    await act(async () => shell.changeSecretAccess("waiting"));
+    await toastSaying("Waiting for macOS Keychain access");
+    await act(async () => shell.changeSecretAccess(null));
+    await waitFor(() => expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull());
+  });
+
   it("shows as a toast with its action, and the toasts stack in one list, oldest first", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");

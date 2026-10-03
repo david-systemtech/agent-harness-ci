@@ -433,7 +433,24 @@ status`, from a release's shim, says `Installed: no`, or the user is new).
 1. **The Keychain prompt.** The first token kept may ask to let the app use
    "agent-harness Safe Storage" in the login keychain: record whether it
    asked, and that allowing it keeps later launches quiet.
-2. **Translocation.** Unzip the download in Downloads and open the app from
+2. **Replace an app with existing credentials (#1480).** Keep a 0.1.0
+   install's environment data, accounts, paired connections and encrypted
+   files in place. Quit it, verify the new ZIP's SHA-256 and replace the app
+   in Applications with 0.1.1 or the release under test. Open Settings and
+   install the bundled environment from Your machines. Verify the environment
+   reaches the carried version, with the same identity and accounts, and
+   paired environments reconnect without pairing again. If macOS asks for
+   Keychain access, the window explains why in a notice, still opens Settings
+   and responds to Quit. Record the OS prompt as observed, without assuming
+   its wording. Cancel it: the window stays usable and the encrypted files
+   remain. Allow access on a subsequent attempt (or restart if the OS provider
+   retains the refusal) and verify reconnect and upgrade complete.
+   The release's macOS smoke job separately replaces a differently signed
+   fixture app, reads an existing synchronous-format credential and completes
+   a real launcher upgrade from a lower-stamped server. Its test Keychain
+   authorizes both app signatures for unattended execution; it does not prove
+   interactive OS approval or 0.1.0 data migrations.
+3. **Translocation.** Unzip the download in Downloads and open the app from
    there without moving it (Gatekeeper runs it translocated, from a read-only
    path). Run step 1: the install reads the bundle and copies the version
    out, so it works from there. Then `xattr -l <data>/versions/<v>/node/bin/node`:

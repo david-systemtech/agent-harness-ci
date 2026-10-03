@@ -11,6 +11,7 @@ import type {
   ShellNotifications,
   ShellPreview,
   ShellSecrets,
+  SecretAccess,
   ShellService,
   ShellSystem,
   ShellUpdate,
@@ -21,7 +22,7 @@ import type {
   ShellWebViewState,
   ShellWebViewKey,
 } from "@agent-harness/client-runtime";
-import { channelOf, WINDOW_CHANNEL, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
+import { channelOf, WINDOW_CHANNEL, SECRET_ACCESS_CHANNEL, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
 
 /**
  * The shell as the desktop gives it to its renderer: the members every
@@ -66,6 +67,13 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
   const ask = <T>(member: Answered, ...args: unknown[]): Promise<T> => ipc.invoke(channelOf(member), ...args) as Promise<T>;
   const tell = (member: Told, ...args: unknown[]): void => ipc.send(channelOf(member), ...args);
 
+  const accessListeners = new Set<(state: SecretAccess) => void>();
+  let accessRevision = 0;
+  ipc.on(SECRET_ACCESS_CHANNEL, (_details, state) => {
+    if (state !== null && state !== "waiting" && state !== "denied") return;
+    accessRevision++;
+    for (const listener of [...accessListeners]) listener(state);
+  });
   const windowListeners = new Set<(state: ShellWindowState) => void>();
   ipc.on(WINDOW_CHANNEL, (_details, state) => {
     if (typeof state !== "object" || state === null) return;
@@ -160,6 +168,15 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
       },
     },
     secrets: {
+      access: () => ask("secrets.access"),
+      onAccess: (listener) => {
+        accessListeners.add(listener);
+        const revision = accessRevision;
+        void ask<SecretAccess>("secrets.access").then((state) => {
+          if (revision === accessRevision && accessListeners.has(listener)) listener(state);
+        }, () => {});
+        return () => void accessListeners.delete(listener);
+      },
       get: (name) => ask("secrets.get", name),
       set: (name, secret) => ask("secrets.set", name, secret),
       delete: (name) => ask("secrets.delete", name),

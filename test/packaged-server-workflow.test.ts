@@ -34,6 +34,14 @@ describe.each(workflows)("the %s release's packed servers", (_name, workflow) =>
 });
 
 describe("the public release's packaged server smoke tests", () => {
+  it("checks a packaged macOS replacement with a kept credential separately from fresh server starts", () => {
+    const body = job(hosted, "smoke-macos");
+    expect(body).toContain("- name: Replace the packaged desktop with an existing client credential");
+    expect(body).toContain("uses: actions/checkout@");
+    expect(body).toContain('"$server/node/bin/node" scripts/macos-desktop-update-smoke.mjs');
+    expect(body).toContain('"unzipped/agent-harness.app"');
+  });
+
   it("exercises Mac tunnel ownership with the packaged environment and its bundled Node", () => {
     const body = job(hosted, "smoke-macos");
     expect(body).toContain("- name: Verify packaged macOS tunnel ownership");

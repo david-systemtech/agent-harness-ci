@@ -201,6 +201,7 @@ export const shellMembers = ({
     "secrets.set": (name, secret) => secrets.set(text(name, "A secret's name"), text(secret, "A secret")),
     "secrets.delete": (name) => secrets.delete(text(name, "A secret's name")),
     "secrets.protection": () => secrets.protection(),
+    "secrets.access": () => secrets.access(),
     "localGrant.read": () => localGrant.read(),
     "service.install": () => service.install(),
     "service.start": () => service.start(),

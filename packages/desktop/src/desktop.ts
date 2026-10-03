@@ -4,7 +4,7 @@ import { APP_ID } from "./app-id.js";
 import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
 import { allowAppCamera } from "./camera-permission.js";
-import { ANSWERED, channelOf, TOLD, WINDOW_CHANNEL, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
+import { ANSWERED, channelOf, TOLD, WINDOW_CHANNEL, SECRET_ACCESS_CHANNEL, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
 import { computerGh, NODE_GH_PROCESS, type GhProcess } from "./gh.js";
 import { grantFile } from "./local-grant.js";
@@ -166,6 +166,8 @@ export const startDesktop = async (
     dir: join(platform.paths.data, SECRETS_DIRECTORY),
     report: reportError,
   });
+  const stopAccess = secrets.onAccess((state) => window.webContents.send(SECRET_ACCESS_CHANNEL, state));
+  window.on("closed", stopAccess);
   const localGrant = grantFile(platform.paths.environment, reportError);
   const service = bundledService({ os: platform.os, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
   const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });

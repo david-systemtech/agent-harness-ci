@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeElectron } from "../test/fake-electron.js";
@@ -17,6 +17,53 @@ const DESK = "0199aa00-0000-7000-8000-00000000d35c";
 const LAPTOP = "0199aa00-0000-7000-8000-0000000019a7";
 
 describe("secrets", () => {
+  it("reads a prior macOS install's credential without accessing Keychain on the main thread", async () => {
+    const platform = platformOn("darwin");
+    const electron = fakeElectron({ os: "darwin" });
+    const folder = join(platform.paths.data, "secrets");
+    mkdirSync(folder);
+    writeFileSync(join(folder, `${DESK}.secret`), electron.safeStorage.encryptString("token-for-tests-desk"));
+    const synchronousAccess = () => { throw new Error("Keychain access would block the main thread"); };
+    electron.safeStorage.isEncryptionAvailable = synchronousAccess;
+    electron.safeStorage.encryptString = synchronousAccess;
+    electron.safeStorage.decryptString = synchronousAccess;
+    const { shell } = await start({ electron, platform, reportError: () => {} });
+
+    expect(await shell().secrets.get(DESK)).toBe("token-for-tests-desk");
+    await shell().secrets.set(LAPTOP, "token-for-tests-laptop");
+    expect(await shell().secrets.get(LAPTOP)).toBe("token-for-tests-laptop");
+    expect(await shell().secrets.protection()).toBe("os");
+  });
+
+  it("keeps the window usable while macOS approval is pending or cancelled, and preserves the prior credential", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const folder = join(platform.paths.data, "secrets");
+    mkdirSync(folder);
+    const kept = electron.safeStorage.encryptString("token-for-tests-desk");
+    writeFileSync(join(folder, `${DESK}.secret`), kept);
+    const decrypt = electron.safeStorage.decryptStringAsync;
+    let cancel!: (error: Error) => void;
+    electron.safeStorage.decryptStringAsync = () => new Promise((_resolve, reject) => { cancel = reject; });
+    const reported: unknown[] = [];
+    const { shell } = await start({ electron, platform, reportError: (error) => reported.push(error) });
+    const bridge = shell();
+    const waiting = new Promise<void>((resolve) => bridge.secrets.onAccess((state) => { if (state === "waiting") resolve(); }));
+    const reading = bridge.secrets.get(DESK);
+    await waiting;
+    expect(await bridge.secrets.access()).toBe("waiting");
+    expect(await bridge.system()).toMatchObject({ platform: "darwin" });
+    expect(await bridge.window.state?.()).toMatchObject({ platform: "darwin" });
+    cancel(new Error("OS approval cancelled"));
+    expect(await reading).toBeUndefined();
+    expect(await bridge.secrets.access()).toBe("denied");
+    expect(readFileSync(join(folder, `${DESK}.secret`))).toEqual(kept);
+    electron.safeStorage.decryptStringAsync = decrypt;
+    expect(await bridge.secrets.get(DESK)).toBe("token-for-tests-desk");
+    expect(await bridge.secrets.access()).toBeNull();
+    expect(reported.map(String)).toEqual([expect.stringMatching(/cancelled.*kept/i)]);
+  });
+
   it("keeps each token in a file of its own, encrypted, which a later launch reads back", async () => {
     const platform = platformOn("linux");
     const first = await start({ platform });

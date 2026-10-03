@@ -94,8 +94,14 @@ export const hasShellMember = (shell: Shell | undefined, member: ShellMember): b
  */
 export type SecretProtection = "os" | "unprotected" | "none";
 
+/** The macOS credential operation awaiting OS approval, refused, or settled. */
+export type SecretAccess = "waiting" | "denied" | null;
+
 /** The OS keychain as the shell gives it: the platform's `SecretStore`, and how what it keeps is protected. */
 export interface ShellSecrets extends SecretStore {
+  /** OS credential access underway or refused; no credential crosses this presentation event. */
+  readonly access?: () => Promise<SecretAccess>;
+  readonly onAccess?: (listener: (state: SecretAccess) => void) => () => void;
   /** How a token kept now is protected, which the Your machines card says when it is unprotected (#416). */
   readonly protection?: () => Promise<SecretProtection>;
 }

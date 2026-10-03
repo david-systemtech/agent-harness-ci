@@ -1,4 +1,5 @@
-import { stepHome, type Notice } from "@agent-harness/client-runtime";
+import { useEffect, useState } from "react";
+import { stepHome, type Notice, type SecretAccess } from "@agent-harness/client-runtime";
 import { STEP_ORDER, settingsRow, type StepId } from "@agent-harness/contracts";
 import { nameOf } from "../connections/words.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -6,7 +7,7 @@ import { useOpenPairing } from "../connections/pairing.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { Toast, Toasts } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime, useShell } from "../window-context.js";
 
 /**
  * The window's notices (docs/specs/gui.md, "Parked asks, attention and
@@ -97,12 +98,25 @@ const NoticeToast = ({ notice }: { readonly notice: Notice }) => {
   );
 };
 
-/** Every notice this client holds, as a toast in one list. */
+/** Environment notices and this window's pending OS credential access, as dismissible toasts. */
 export const WindowNotices = () => {
+  const secrets = useShell()?.secrets;
+  const [access, setAccess] = useState<SecretAccess>(null);
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => secrets?.onAccess?.((state) => { setAccess(state); setDismissed(false); }), [secrets]);
   const notices = useObservable(useRuntime().projections.notices);
-  if (notices.length === 0) return null;
+  if (notices.length === 0 && (access === null || dismissed)) return null;
   return (
     <Toasts>
+      {access !== null && !dismissed && <Toast
+        open
+        duration={Infinity}
+        title={access === "waiting" ? "Waiting for macOS Keychain access" : "Keychain access did not complete"}
+        description={access === "waiting"
+          ? "macOS may ask for approval after replacing this app. Allow access to reconnect and update this machine's environment, or cancel the OS prompt. You can keep using this window."
+          : "Your accounts and saved connections are kept. Allow Keychain access when prompted. If access stays unavailable, restart this desktop to retry."}
+        onOpenChange={(open) => { if (!open) setDismissed(true); }}
+      />}
       {notices.map((notice) => (
         <NoticeToast key={notice.id} notice={notice} />
       ))}
