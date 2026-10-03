@@ -61,6 +61,49 @@ const rows = () =>
     .map((button) => button.textContent);
 
 describe("the Files pane", () => {
+  it("refreshes the folder listing explicitly and disables climbing above the workspace", async () => {
+    const { app, env } = await opened();
+    await write(app, "/files{Enter}");
+    await within(pane("Files")).findByRole("button", { name: "README.md" });
+    expect(within(pane("Files")).getByRole("button", { name: "Go up" }).hasAttribute("disabled")).toBe(true);
+    env.wire.answer("files.list", () => ({ result: { files: ["new.md"], truncated: false, source: "git" } }));
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Refresh files" }));
+    expect(await within(pane("Files")).findByRole("button", { name: "new.md" })).toBeDefined();
+    expect(within(pane("Files")).queryByRole("button", { name: "README.md" })).toBeNull();
+  });
+
+  it("pins a file for reopening, numbers its lines and copies its complete text without the gutter", async () => {
+    const { app } = await opened();
+    await write(app, "/files src/app.tsx{Enter}");
+    await within(pane("Files")).findByText("2 lines");
+    expect(within(pane("Files")).getByLabelText("Line numbers").textContent).toBe("12");
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Copy file" }));
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", APP_TSX]);
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Pin file" }));
+    expect(within(pane("Files")).getByRole("button", { name: "Unpin file" })).toBeDefined();
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Back to src/" }));
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Open pinned src/app.tsx" }));
+    expect(await within(pane("Files")).findByRole("button", { name: "Unpin file" })).toBeDefined();
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Unpin file" }));
+    await app.user.click(within(pane("Files")).getByRole("button", { name: "Back to src/" }));
+    expect(within(pane("Files")).queryByRole("button", { name: "Open pinned src/app.tsx" })).toBeNull();
+  });
+
+  it("refuses whole-file copy for partial reads and for a clipped display", async () => {
+    const { app } = await opened({ fileContents: {
+      "big.log": { text: "line one\n", truncated: true, size: 3 * 1024 * 1024 },
+      "many.txt": "x\n".repeat(20_001),
+    } });
+    await write(app, "/files big.log{Enter}");
+    await within(pane("Files")).findByText("1 line");
+    expect(within(pane("Files")).getByRole("button", { name: "Copy file" }).hasAttribute("disabled")).toBe(true);
+    await write(app, "/files many.txt{Enter}");
+    expect(await within(pane("Files")).findByText("Only the first 20,000 lines are shown.")).toBeDefined();
+    expect(within(pane("Files")).getByRole("button", { name: "Copy file" }).hasAttribute("disabled")).toBe(true);
+    expect(within(pane("Files")).getByLabelText("Line numbers").children).toHaveLength(20_000);
+    expect(within(pane("Files")).getByRole("code").textContent?.split("\n")).toHaveLength(20_000);
+  });
+
   it("lists one directory at a time from files.list, its directories first with how many files each holds, with a way up", async () => {
     const { app, env, session } = await opened();
     await write(app, "/files{Enter}");
@@ -91,7 +134,7 @@ describe("the Files pane", () => {
     expect(sent(env, "files.read")).toEqual([{ sessionId: session, path: "src/app.tsx" }]);
 
     await app.user.click(within(pane("Files")).getByRole("button", { name: "Back to src/" }));
-    expect(rows()).toEqual(["../", "files/ 2 files", "app.tsx"]);
+    expect(rows()).toEqual(["../", "files/ 2 files", "app.tsx 42 bytes"]);
   });
 
   it("says a file past 2 MiB is shown by its first 2 MiB, and says a binary file without drawing it", async () => {
