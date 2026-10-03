@@ -90,7 +90,7 @@ describe("the side column", () => {
         });
       }
     });
-    onTestFinished(() => vi.unstubAllGlobals());
+    onTestFinished(() => { vi.unstubAllGlobals(); });
     const app = await opened();
     await openPane(app, "Files");
     expect(column()?.hasAttribute("data-dock-sheet")).toBe(false);
