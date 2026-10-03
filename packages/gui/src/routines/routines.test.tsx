@@ -1,0 +1,83 @@
+import { act, screen, within } from "@testing-library/react";
+import { expect, it } from "vitest";
+import { registry } from "@agent-harness/contracts";
+import { settingsDeepLink } from "@agent-harness/client-runtime";
+import { renderApp } from "../../test/harness.js";
+import { routineFixture } from "../../gallery/routine-fixtures.js";
+
+it("lists routines under both environments without a picker and keeps an unreachable list marked cached", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired" }] }, {}, (world) => {
+    for (const name of ["desk", "laptop"]) world.environment(name).wire.answer("routines.list", () => ({ result: { routines: [routineFixture(name === "desk" ? "Morning digest" : "Backup check")] } }));
+  });
+  act(() => app.shell.openDeepLink(settingsDeepLink("routines.routines")));
+  const pane = await screen.findByRole("region", { name: "Routines" });
+  expect(within(pane).queryByRole("combobox", { name: "Environment" })).toBeNull();
+  expect(await within(pane).findByRole("region", { name: "Morning digest" })).toBeDefined();
+  const laptop = await within(pane).findByRole("region", { name: "laptop" });
+  expect(await within(laptop).findByRole("region", { name: "Backup check" })).toBeDefined();
+  act(() => app.environment("laptop").server.drop());
+  expect(await within(laptop).findByText("Cached: what this window last saw.")).toBeDefined();
+  expect(within(laptop).getByRole("button", { name: "Run now" }).hasAttribute("disabled")).toBe(true);
+});
+
+it("shows four scheduled routines and opens the pane from the overflow link", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, {}, (world) => {
+    world.environment("desk").wire.answer("routines.list", () => ({ result: { routines: Array.from({ length: 6 }, (_,index) => routineFixture(`Digest ${index + 1}`, index + 1)) } }));
+  });
+  const strip = await screen.findByRole("region", { name: "Scheduled" });
+  expect(await within(strip).findByRole("button", { name: /Digest 4/ })).toBeDefined();
+  expect(within(strip).queryByRole("button", { name: /Digest 5/ })).toBeNull();
+  await app.user.click(within(strip).getByRole("button", { name: "and 2 more…" }));
+  expect(await screen.findByRole("region", { name: "Routines" })).toBeDefined();
+});
+
+it("validates the inline form and creates an appointment with the selected account and schedule", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ label: "Project", identity: { provider: "claude", email: "sample@example.test", organisation: null } }] }] }, {}, (world) => {
+    const desk = world.environment("desk");
+    desk.wire.answer("routines.list", () => ({ result: { routines: [] } }));
+    desk.wire.answer("routines.create", (raw) => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { routine: { ...routineFixture(), definition: { ...routineFixture().definition, ...registry["routines.create"].params.parse(raw).definition }, state: { ...routineFixture().state, id: registry["routines.create"].params.parse(raw).routineId } } } } }));
+  });
+  act(() => app.shell.openDeepLink(settingsDeepLink("routines.routines")));
+  const pane = await screen.findByRole("region", { name: "Routines" });
+  await app.user.click(within(pane).getByRole("button", { name: "New routine" }));
+  const form = within(pane).getByRole("form", { name: "New routine" });
+  await app.user.click(within(form).getByRole("button", { name: "Create" }));
+  expect(within(form).getByRole("alert")).toBeDefined();
+  expect(app.environment("desk").requests("routines.create")).toHaveLength(0);
+  await app.user.type(within(form).getByRole("textbox", { name: "Name" }), "Weekly check");
+  await app.user.type(within(form).getByRole("textbox", { name: "Workspace" }), "/projects/sample");
+  await app.user.type(within(form).getByRole("textbox", { name: "Instructions" }), "Review the project.");
+  await app.user.selectOptions(within(form).getByRole("combobox", { name: "Account" }), within(form).getByRole("option", { name: "Project" }));
+  await app.user.selectOptions(within(form).getByRole("combobox", { name: "Schedule" }), "weekly");
+  await app.user.selectOptions(within(form).getByRole("combobox", { name: "Weekday" }), "friday");
+  await app.user.click(within(form).getByRole("button", { name: "Create" }));
+  expect(await within(pane).findByRole("region", { name: "Weekly check" })).toBeDefined();
+  expect(app.environment("desk").requests("routines.create")).toHaveLength(1);
+  expect(app.environment("desk").requests("routines.create")[0]?.params).toMatchObject({ definition: { name: "Weekly check", account: { email: expect.any(String) }, schedule: { kind: "weekly", day: "friday", at: "09:00" }, workspace: { kind: "directory", path: "/projects/sample" }, instructions: "Review the project." } });
+});
+
+it("edits only form fields, reads history, and sends the card actions once", async () => {
+  const routine = routineFixture();
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, {}, (world) => {
+    const desk = world.environment("desk");
+    desk.wire.answer("routines.list", () => ({ result: { routines: [routine] } }));
+    for (const method of ["routines.update", "routines.disable", "routines.delete", "routines.runNow"]) desk.wire.answer(method, () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: method === "routines.delete" ? { routineId: routine.state.id } : method === "routines.runNow" ? { entryId: routine.state.id } : { routine } } }));
+    desk.wire.answer("routines.history", () => ({ result: { entries: [{ kind: "skip", id: "20000000-0000-4000-8000-000000000001", trigger: "schedule", count: 1, preCheck: null, deliveries: [], dueAt: "2026-10-03T09:00:00.000Z", at: "2026-10-03T09:00:00.000Z", reason: "no-change", cannotStart: null, detail: "No project changes." }] } }));
+  });
+  act(() => app.shell.openDeepLink(settingsDeepLink("routines.routines")));
+  const pane = await screen.findByRole("region", { name: "Routines" });
+  const card = await within(pane).findByRole("region", { name: "Morning digest" });
+  await app.user.click(within(card).getByRole("button", { name: "Edit" }));
+  const form = within(card).getByRole("form", { name: "Edit routine" });
+  expect(within(form).getByRole("combobox", { name: "Where" }).hasAttribute("disabled")).toBe(true);
+  await app.user.clear(within(form).getByRole("textbox", { name: "Name" }));
+  await app.user.type(within(form).getByRole("textbox", { name: "Name" }), "Evening digest");
+  await app.user.click(within(form).getByRole("button", { name: "Save" }));
+  const update = app.environment("desk").requests("routines.update")[0]?.params;
+  expect(update).toMatchObject({ routineId: routine.state.id, fields: { name: "Evening digest" } });
+  expect(update?.["fields"]).not.toHaveProperty("preCheck");
+  await app.user.click(within(card).getByRole("button", { name: "History" }));
+  expect(await within(card).findByText("No project changes.")).toBeDefined();
+  for (const label of ["Run now", "Pause", "Delete", "Confirm delete"]) await app.user.click(within(card).getByRole("button", { name: label }));
+  for (const method of ["routines.update", "routines.disable", "routines.runNow", "routines.delete"]) expect(app.environment("desk").requests(method)).toHaveLength(1);
+});

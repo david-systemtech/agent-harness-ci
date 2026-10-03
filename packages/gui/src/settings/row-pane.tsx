@@ -6,6 +6,7 @@ import { Button } from "../ui/index.js";
 import { SettingsPane } from "./part.js";
 import { BrowserSettingsPane } from "../browser/settings-pane.js";
 import { AccessPane } from "../access/access-pane.js";
+import { RoutinesPane } from "../routines/routines-pane.js";
 import { AccountsPane } from "../accounts/accounts-pane.js";
 import { DefaultModelPane } from "../accounts/default-model-pane.js";
 import { UsagePane } from "../accounts/usage-pane.js";
@@ -120,6 +121,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "environments.service": ServicePane,
   "knowledge.instructions": InstructionsPane,
   "knowledge.skills": SkillsPane,
+  "routines.routines": RoutinesPane,
   ...APPEARANCE_PANES,
 };
 
