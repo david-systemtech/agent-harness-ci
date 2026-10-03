@@ -6,6 +6,12 @@ import { Button, Dialog, DialogClose, DialogContent } from "../ui/index.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 
 type ModeKey = "permissions.defaultCeiling" | "permissions.unattended.mode";
+const LABELS: Readonly<Record<Mode, string>> = {
+  plan: "Plan only",
+  acceptEdits: "Accept file edits",
+  auto: "Automatic review",
+  bypassPermissions: "Bypass permissions",
+};
 const NOTES: Readonly<Record<Mode, string>> = {
   plan: "Plan without changing files.",
   acceptEdits: "Accept file edits; ask before other actions when the provider supports it.",
@@ -37,9 +43,9 @@ export const ModeChoices = ({ view, name, writable }: { readonly view: Environme
         const selected = settings.values?.[name] === mode;
         const Icon = mode === "bypassPermissions" ? ShieldAlert : Shield;
         return <label key={mode} className={`flex items-start gap-2.5 rounded-md px-2.5 py-2 ${selected ? "bg-wash-strong" : "hover:bg-wash"} ${!writable ? "opacity-50" : ""} ${mode === "bypassPermissions" ? "text-signal" : "text-ink"}`}>
-          <input type="radio" name={id} aria-label={mode} aria-describedby={`${id}-${mode}`} title={`${mode} (Arrow keys to choose)`} checked={selected} disabled={!writable} onChange={() => save(mode)} className="mt-[3px] size-3.5 shrink-0 appearance-none rounded-full border border-line-strong checked:border-beam checked:bg-beam checked:shadow-[inset_0_0_0_3px_var(--panel)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-beam" />
+          <input type="radio" name={id} aria-label={LABELS[mode]} aria-describedby={`${id}-${mode}`} title={`${LABELS[mode]} (Arrow keys to choose)`} checked={selected} disabled={!writable} onChange={() => save(mode)} className="mt-[3px] size-3.5 shrink-0 appearance-none rounded-full border border-line-strong checked:border-beam checked:bg-beam checked:shadow-[inset_0_0_0_3px_var(--panel)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-beam" />
           <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span className="flex min-w-0 flex-col"><span className="text-xs font-medium">{mode}</span><span id={`${id}-${mode}`} className={`text-2xs ${mode === "bypassPermissions" ? "text-signal" : "text-ink-faint"}`}>{NOTES[mode]}</span></span>
+          <span className="flex min-w-0 flex-col"><span className="text-xs font-medium">{LABELS[mode]}</span><code className="font-mono text-2xs text-ink-faint">{mode}</code><span id={`${id}-${mode}`} className={`text-2xs ${mode === "bypassPermissions" ? "text-signal" : "text-ink-faint"}`}>{NOTES[mode]}</span></span>
         </label>;
       })}
     </div>

@@ -6,6 +6,49 @@ import { MarkdownEditor } from "../ui/markdown-editor.js";
 import { MarkdownField } from "./instruction-editor.js";
 
 describe("instruction Markdown editing", () => {
+  it("edits Markdown source without dropping an image", () => {
+    const body = "A procedure\n\n![Procedure](https://example.test/procedure.png)";
+    const change = vi.fn();
+    render(<MarkdownField value={body} change={change} />);
+    const updated = `${body}\n\nVerify the result.`;
+    fireEvent.change(screen.getByRole("textbox", { name: "Markdown body" }), { target: { value: updated } });
+    expect(change).toHaveBeenLastCalledWith(updated);
+  });
+  it("keeps a table intact across edits and controlled value updates", () => {
+    const body = "| Step | Rule |\n| --- | --- |\n| 1 | Verify |";
+    const change = vi.fn();
+    const view = render(<MarkdownField value={body} change={change} />);
+    const updated = `${body}\n\nVerify the result.`;
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: updated } });
+    expect(change).toHaveBeenLastCalledWith(updated);
+    view.rerender(<MarkdownField value={updated} change={change} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: `${updated}\n\nDone.` } });
+    expect(change).toHaveBeenLastCalledWith(`${updated}\n\nDone.`);
+  });
+  it("checks the original Markdown length when editing source", () => {
+    const body = "![Procedure](https://example.test/procedure.png)";
+    const change = vi.fn();
+    render(<MarkdownEditor value={body} change={change} maxLength={body.length} />);
+    expect(screen.getByRole("textbox").getAttribute("maxlength")).toBe(String(body.length));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: `${body} too long` } });
+    expect(change).not.toHaveBeenCalled();
+    const shorter = "![Step](https://example.test/procedure.png)";
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: shorter } });
+    expect(change).toHaveBeenLastCalledWith(shorter);
+  });
+  it("uses lossless editing for new external content and respects read-only", () => {
+    const change = vi.fn();
+    const view = render(<MarkdownField value="A habit" change={change} />);
+    const body = "![Procedure](https://example.test/procedure.png)";
+    view.rerender(<MarkdownField value={body} change={change} disabled />);
+    expect(screen.getByRole("textbox").getAttribute("readonly")).toBe("");
+    expect(screen.queryByRole("toolbar")).toBeNull();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: `${body} ignored` } });
+    expect(change).not.toHaveBeenCalled();
+    view.rerender(<MarkdownField value="A habit" change={change} />);
+    expect(screen.getByRole("textbox").textContent).toBe("A habit");
+    expect(screen.getByRole("toolbar")).toBeDefined();
+  });
   it("renders Markdown as prose, formats a heading and emits Markdown", () => {
     const change = vi.fn();
     render(<MarkdownField value="A habit" change={change} />);
@@ -13,6 +56,44 @@ describe("instruction Markdown editing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Heading 2" }));
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("A habit");
     expect(change).toHaveBeenLastCalledWith("## A habit");
+  });
+  it.each([
+    "| Action | Rule |\n| --- | --- |\n| Review | Always |",
+    "![Guide](https://example.test/guide.png)",
+  ])("preserves unsupported Markdown when another sentence changes: %s", (markdown) => {
+    const value = `A habit\n\n${markdown}`;
+    const change = vi.fn();
+    render(<MarkdownField value={value} change={change} />);
+    const textbox = screen.getByRole("textbox", { name: "Markdown body" });
+    expect(textbox).toHaveProperty("value", value);
+    expect(change).not.toHaveBeenCalled();
+    const edited = `A revised habit\n\n${markdown}`;
+    fireEvent.change(textbox, { target: { value: edited } });
+    expect(change).toHaveBeenLastCalledWith(edited);
+  });
+  it("preserves an unsupported document loaded after the editor mounts, including read-only changes", () => {
+    const change = vi.fn();
+    const view = render(<MarkdownField value="A habit" change={change} />);
+    const value = "![Guide](https://example.test/guide.png)";
+    view.rerender(<MarkdownField value={value} change={change} disabled />);
+    const textbox = screen.getByRole("textbox", { name: "Markdown body" });
+    expect(textbox).toHaveProperty("value", value);
+    expect(textbox).toHaveProperty("readOnly", true);
+    fireEvent.change(textbox, { target: { value: "An edit" } });
+    expect(change).not.toHaveBeenCalled();
+    view.rerender(<MarkdownField value={value} change={change} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: `${value}\n\nAn edit` } });
+    expect(change).toHaveBeenLastCalledWith(`${value}\n\nAn edit`);
+  });
+  it("enforces the Markdown limit in source editing while permitting oversized drafts to shrink", () => {
+    const value = "![Guide](https://example.test/guide.png)";
+    const change = vi.fn();
+    render(<MarkdownEditor value={value} change={change} maxLength={5} />);
+    const textbox = screen.getByRole("textbox");
+    fireEvent.change(textbox, { target: { value: `${value}!` } });
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.change(textbox, { target: { value: "![Guide](guide.png)" } });
+    expect(change).toHaveBeenLastCalledWith("![Guide](guide.png)");
   });
   it("tracks toolbar state when the caret moves without changing Markdown", async () => {
     vi.useFakeTimers();
