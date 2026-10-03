@@ -53,11 +53,12 @@ describe("window controls", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Continue" }));
   });
 
-  it("keeps implicit labels for composite field children", async () => {
+  it("keeps implicit labels and describes composite fields whose children do not forward props", async () => {
     const user = userEvent.setup();
     const Control = () => <Input />;
-    render(<><Field label="Fragment"><><Input /><span>Optional</span></></Field><Field label="Composite"><Control /></Field><Field label="Several">{[<Input key="input" />, <span key="hint">Optional</span>]}</Field></>);
+    render(<><Field label="Fragment" description="Shown in the window" error="Choose a name"><><Input /><span>Optional</span></></Field><Field label="Composite" description="Shown in the window" error="Choose a name"><Control /></Field><Field label="Several" description="Shown in the window" error="Choose a name">{[<Input key="input" />, <span key="hint">Optional</span>]}</Field></>);
     for (const name of ["Fragment", "Composite", "Several"]) {
+      expect(screen.getByRole("group", { name, description: "Shown in the window Choose a name" })).toBeTruthy();
       const input = screen.getByRole("textbox", { name: new RegExp(name) });
       await user.click(screen.getByText(name));
       expect(document.activeElement).toBe(input);
