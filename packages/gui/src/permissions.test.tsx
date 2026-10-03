@@ -291,7 +291,7 @@ describe("the denylist", () => {
     await app.user.type(within(paths).getByRole("textbox", { name: "New pattern" }), "notes/private");
     await app.user.click(within(paths).getByRole("button", { name: "Add" }));
     expect(
-      await within(paths).findByText("Not saved: notes/private is not a pattern paths takes: An absolute or ~-relative path, with glob segments: * and ? within a segment, ** for any number of segments."),
+      await within(paths).findByText("Not saved: notes/private is not a pattern paths takes: A POSIX absolute, drive-letter absolute or ~-relative path; Windows accepts either separator and compares without regard to case. UNC, device and drive-relative patterns are refused. Glob segments: * and ? within a segment, ** for any number of segments."),
     ).toBeDefined();
     expect(app.environment("desk").requests("permissions.denylist.set")).toEqual([]);
 
