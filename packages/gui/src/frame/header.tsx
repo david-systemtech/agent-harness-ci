@@ -5,6 +5,7 @@ import { focusedPane } from "../grid/layout.js";
 import { SplitActions } from "../grid/split-actions.js";
 import { HeaderNewSession } from "../new-session/control.js";
 import { ParkedAsksButton } from "../parked-asks/parked-asks.js";
+import { SettingsControl } from "../settings/settings-control.js";
 import { SetupLine } from "../setup/setup-line.js";
 import { SidePanesMenu } from "../side-column/side-panes-menu.js";
 import { BrowserAction } from "../browser/browser-action.js";
@@ -30,7 +31,7 @@ const FocusedEnvironment = () => {
  * actions, New session (#420), the split actions with the grid's line,
  * "Restart to update" once a desktop build is staged (#424), the Parked
  * asks button with its count (#405), and the Set up line while a step on
- * the home environment needs attention.
+ * the home environment needs attention, and Settings (#1323).
  */
 export const Header = () => (
   <header className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-panel px-3">
@@ -46,6 +47,7 @@ export const Header = () => (
       <RestartToUpdate />
       <ParkedAsksButton />
       <SetupLine />
+      <SettingsControl />
     </span>
   </header>
 );
