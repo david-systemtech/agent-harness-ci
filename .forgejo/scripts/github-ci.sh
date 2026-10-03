@@ -211,7 +211,9 @@ def absolute_request(url, method='GET', data=None, content_type='application/jso
 def request(path, method='GET', data=None, content_type='application/json'):
     return absolute_request(api + path, method, data, content_type)
 current = request(f'/pulls/{pr}')
-if current['state'] != 'open' or current.get('merged') or current['head']['sha'] != head: sys.exit(2)
+if current['state'] != 'open' or current.get('merged') or current['head']['sha'] != head:
+    print('Gallery report rejected: the PR is closed, merged, or its head changed.', file=sys.stderr)
+    sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
     if len(entries) > 602 or sum(f.file_size for f in entries) > 24*1024*1024: sys.exit('gallery payload is too large')
