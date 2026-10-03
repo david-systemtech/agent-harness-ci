@@ -96,6 +96,19 @@ describe("the view", () => {
     await waitFor(() => expect(rows(view)[0]?.textContent).toContain("1h 59m left"));
   });
 
+  it("gives parked actions icons and keyboard hints while keeping Allow off Enter", async () => {
+    const { app, desk } = await twoEnvironments();
+    park(app, desk, 0);
+    await waitFor(() => expect(asksButton().getAttribute("aria-label")).toBe("Parked asks, 1 waiting"));
+    const view = await openView(app);
+    for (const button of within(view).getAllByRole("button")) expect(button.querySelector("svg")).not.toBeNull();
+    const allow = within(view).getByRole("button", { name: "Allow" });
+    act(() => allow.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Space");
+    await app.user.keyboard("{Enter}");
+    expect(answersSent(desk)).toEqual([]);
+  });
+
   it("says when nothing is waiting", async () => {
     const { app } = await twoEnvironments();
     const view = await openView(app);
@@ -156,7 +169,7 @@ describe("Allow all and Deny all", () => {
     const view = await openView(app);
 
     await app.user.click(within(view).getByRole("button", { name: "Allow all" }));
-    const confirm = await screen.findByRole("dialog", { name: "Allow all 2 permissions once?" });
+    const confirm = await screen.findByRole("alertdialog", { name: "Allow all 2 permissions once?" });
     expect(within(confirm).getByText("The denylist prompt stays: each is answered on its own.")).toBeDefined();
     // Nothing is sent until it is confirmed.
     expect([...answersSent(desk), ...answersSent(laptop)]).toEqual([]);
@@ -177,12 +190,12 @@ describe("Allow all and Deny all", () => {
     const view = await openView(app);
 
     await app.user.click(within(view).getByRole("button", { name: "Deny all" }));
-    await app.user.click(within(await screen.findByRole("dialog", { name: "Deny all 2 permissions?" })).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Deny all 2 permissions?" })).toBeNull());
+    await app.user.click(within(await screen.findByRole("alertdialog", { name: "Deny all 2 permissions?" })).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "Deny all 2 permissions?" })).toBeNull());
     expect([...answersSent(desk), ...answersSent(laptop)]).toEqual([]);
 
     await app.user.click(within(view).getByRole("button", { name: "Deny all" }));
-    const confirm = await screen.findByRole("dialog", { name: "Deny all 2 permissions?" });
+    const confirm = await screen.findByRole("alertdialog", { name: "Deny all 2 permissions?" });
     const late = park(app, desk, 1);
     await waitFor(() => expect(rows(view)).toHaveLength(3));
     await app.user.click(within(confirm).getByRole("button", { name: "Deny 2" }));

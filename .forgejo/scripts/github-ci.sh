@@ -237,7 +237,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     for data in images.values():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
     scenes = report['scenes']
-    # Each scene needs a capture; changed scenes also consume two PNG slots.
+    # Each scene requires a capture PNG; share the archive's 600-PNG ceiling.
     if not scenes or len(scenes) > 600: sys.exit('invalid gallery scene list')
     seen = set()
     for scene in scenes:

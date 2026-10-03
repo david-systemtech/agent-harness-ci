@@ -164,7 +164,7 @@ describe("skills.probe's refusals", () => {
     forge.commit("david/broken", { "skills/tdd/SKILL.md": skill("tdd") });
     const objects = join(forge.root, "david", "broken.git", "objects");
     for (const entry of readdirSync(objects)) if (/^[0-9a-f]{2}$/.test(entry)) rmSync(join(objects, entry), { recursive: true });
-    const nowhere = await unreachableOrigin();
+    const nowhere = await unreachableOrigin(onCleanup);
     const { t, client } = await start(forge, { harnessGitConfig: [...skillsInsteadOf(forge), [`url.${nowhere}/.insteadOf`, "https://down.test/"]] });
 
     expect((await refused(client, `${SKILLS_HOST}david/missing`)).data).toMatchObject({ reason: "unreachable", problem: "not_found", origin: "https://skills.test" });

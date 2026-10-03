@@ -1,9 +1,10 @@
 import "@xterm/xterm/css/xterm.css";
 import { DEFAULT_TERMINAL_SIZE, type ManagedToolName, type ToolRunFinishedPayload, type ToolRunStartedPayload } from "@agent-harness/contracts";
+import { Terminal, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPaneTerminal, type PaneTerminal, type PaneView } from "../terminal/pane-terminal.js";
 import { useTerminalTheme } from "../terminal/terminal-theme.js";
-import { Button } from "../ui/index.js";
+import { Button, Tooltip } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 
 /** The run a tool terminal shows: its terminal and the size the environment opened it at, the tool, Install or Update, and the command line it runs. */
@@ -111,14 +112,15 @@ export const ToolTerminal = ({ environmentId, run, label, close }: { readonly en
     close();
   };
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-md border border-line p-3">
+    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
       <header className="flex items-center gap-2">
+        <Terminal aria-hidden="true" className="size-4 shrink-0 text-cyan" />
         <h4 id={heading} className="min-w-0 flex-1 text-sm font-semibold text-ink">
           {run.action === "install" ? "Installing" : "Updating"} {label}
         </h4>
-        <Button onClick={closeIt}>Close</Button>
+        <Tooltip content="Close tool terminal · Enter / Space"><Button size="xs" onClick={closeIt}><X aria-hidden="true" />Close</Button></Tooltip>
       </header>
-      <p className="truncate font-mono text-xs text-ink-muted">
+      <p title={run.command} className="break-words font-mono text-xs text-ink-muted">
         {run.command}
         {view.ended !== null && <span className="text-ink-faint"> · {view.ended}</span>}
       </p>
