@@ -1,3 +1,7 @@
+import { LogIn, Plus, X } from "lucide-react";
+import { ActionButton as Button, AccessField as Field } from "./action-button.js";
+import { RadioGroup as ProviderRadio } from "radix-ui";
+import { Vault } from "lucide-react";
 import {
   KEY_MANAGER_ADDRESS_PRESETS,
   KEY_MANAGER_LABEL_PRESETS,
@@ -11,7 +15,7 @@ import {
 } from "@agent-harness/client-runtime";
 import { KEY_MANAGER_AUTH_METHODS, KEY_MANAGER_PROVIDERS, type KeyManagerAuthMethod, type KeyManagerProvider } from "@agent-harness/contracts";
 import { useState, type FormEvent } from "react";
-import { Button, Dialog, DialogContent, Field, Input, Select } from "../ui/index.js";
+import { Input, Select, RadioGroup, Tooltip } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { CaChoice } from "./certificate-check.js";
 
@@ -54,7 +58,7 @@ export const CredentialFields = ({
 
 export interface SignInFormProps {
   readonly environmentId: string;
-  /** The providers it adds: every one in Add's dialog, which offers a choice of them; a provider's own on its tile. */
+  /** The providers it adds: every one in inline Add, which offers a choice of them; a provider's own on its tile. */
   readonly providers: readonly [KeyManagerProvider, ...KeyManagerProvider[]];
   /** What the form is called. */
   readonly name: string;
@@ -122,22 +126,23 @@ export const SignInForm = ({ environmentId, providers, name, send, close, say }:
   return (
     <form aria-label={name} className="flex flex-col gap-3" onSubmit={submit}>
       {providers.length > 1 && (
-        <Field label="Provider">
-          <Select value={provider} onChange={(event) => choose(event.target.value as KeyManagerProvider)}>
-            {providers.map((each) => (
-              <option key={each} value={each}>
+        <RadioGroup aria-label="Provider" value={provider} onValueChange={(next) => choose(next as KeyManagerProvider)} className="grid grid-cols-2 gap-2">
+          {providers.map((each) => (
+            <Tooltip key={each} content={`${KEY_MANAGER_PROVIDER_WORDS[each]} · Arrow keys to choose`}>
+              <ProviderRadio.Item autoFocus={each === providers[0]} value={each} className="flex min-h-9 items-center gap-2 rounded-lg border border-hairline px-3 py-2 text-xs text-ink-muted data-[state=checked]:border-beam data-[state=checked]:bg-wash-strong data-[state=checked]:text-ink focus-visible:outline-2 focus-visible:outline-beam">
+                <Vault aria-hidden="true" className="size-4 shrink-0" />
                 {KEY_MANAGER_PROVIDER_WORDS[each]}
-              </option>
-            ))}
-          </Select>
-        </Field>
+              </ProviderRadio.Item>
+            </Tooltip>
+          ))}
+        </RadioGroup>
       )}
       <Field label="Label">
         <Input value={label} onChange={(event) => setLabel(event.target.value)} />
       </Field>
       {asksAddress(provider) ? (
         <Field label="Address">
-          <Input value={address} placeholder={openBao ? "https://bao.example.com:8200" : undefined} onChange={(event) => setAddress(event.target.value)} />
+          <Input value={address} placeholder={openBao ? "https://keys.example.test" : undefined} onChange={(event) => setAddress(event.target.value)} />
         </Field>
       ) : (
         <p className="text-xs text-ink-muted">No address: it is the account URL the token names, learned at sign-in.</p>
@@ -171,8 +176,8 @@ export const SignInForm = ({ environmentId, providers, name, send, close, say }:
       {!openBao && <p className="text-xs text-ink-muted">Create a read-only token for it: runs receive this token as it is.</p>}
       {line !== undefined && <p className="text-sm text-signal">{line}</p>}
       <div className="flex justify-end gap-2">
-        <Button onClick={close}>Cancel</Button>
-        <Button tone="primary" type="submit" disabled={sending}>
+        <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
+        <Button icon={send === "Add" ? Plus : LogIn} label={send} tone="primary" type="submit" disabled={sending}>
           {send}
         </Button>
       </div>
@@ -188,11 +193,10 @@ export interface AddConnectionProps {
   readonly say: (line: string) => void;
 }
 
-/** Add a key manager (#425): the sign-in form in a dialog, offering every provider, OpenBao first. */
+/** Add inline, offering every provider with OpenBao selected first. */
 export const AddConnection = ({ environmentId, environmentName, close, say }: AddConnectionProps) => (
-  <Dialog open onOpenChange={(open) => !open && close()}>
-    <DialogContent title={`Add a key manager on ${environmentName}`} className="max-w-lg">
-      <SignInForm environmentId={environmentId} providers={KEY_MANAGER_PROVIDERS} name="Add a key manager" send="Add" close={close} say={say} />
-    </DialogContent>
-  </Dialog>
+  <section aria-label={`Add a key manager on ${environmentName}`} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+    <h3 className="text-xs font-semibold">Add a key manager on {environmentName}</h3>
+    <SignInForm environmentId={environmentId} providers={KEY_MANAGER_PROVIDERS} name="Add a key manager" send="Add" close={close} say={say} />
+  </section>
 );

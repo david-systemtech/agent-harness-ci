@@ -1,9 +1,10 @@
+import { KeyRound } from "lucide-react";
 import { INJECTION_SWITCH_WORDS, INJECTION_WORDS, overridesWith, type EnvironmentView } from "@agent-harness/client-runtime";
 import { INJECTION_ANSWERS, type InjectionAnswer, type SettingsKey } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { nameOf } from "../connections/words.js";
 import { useSettingsValues } from "../settings/settings-values.js";
-import { Select, Switch } from "../ui/index.js";
+import { Select, Switch, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /** An account's choice: its own answer, or the environment's (`inherit`, no entry in the map). */
@@ -29,8 +30,8 @@ export const InjectionSetting = ({ view }: { readonly view: EnvironmentView }) =
   const overrides = (values["credentials.injectionByAccount"] as Readonly<Record<string, InjectionAnswer>> | undefined) ?? {};
 
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-base font-semibold text-ink">
+    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+      <h3 id={heading} className="text-xs font-semibold text-ink">
         Injection
       </h3>
       <p className="text-sm text-ink-muted">
@@ -97,7 +98,10 @@ export const InjectionSwitch = ({ view }: { readonly view: EnvironmentView }) =>
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-3 text-sm text-ink">
-        <Switch aria-labelledby={label} checked={on} disabled={!writable} onCheckedChange={(next) => save("credentials.injection", next ? "allow" : "deny")} />
+        <Tooltip content="Give runs credentials · Space to toggle">
+          <Switch aria-labelledby={label} checked={on} disabled={!writable} onCheckedChange={(next) => save("credentials.injection", next ? "allow" : "deny")} />
+        </Tooltip>
+        <KeyRound aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
         <span id={label}>{INJECTION_SWITCH_WORDS}</span>
       </div>
       {line !== undefined && <p className="text-sm text-signal">{line}</p>}
@@ -119,10 +123,12 @@ const Choice = <V extends AccountChoice>({
   readonly change: (next: V) => void;
   readonly children: ReactNode;
 }) => (
-  <label className="flex items-center justify-between gap-3 text-sm text-ink">
-    {label}
-    <Select value={value} disabled={disabled} onChange={(event) => change(event.target.value as V)}>
-      {children}
-    </Select>
-  </label>
+  <Tooltip content={`${label} · Arrow keys to choose`}>
+    <label className="flex min-w-0 flex-col gap-2 text-xs text-ink">
+      <span className="inline-flex items-center gap-2"><KeyRound aria-hidden="true" className="size-3.5" />{label}</span>
+      <Select value={value} disabled={disabled} onChange={(event) => change(event.target.value as V)}>
+        {children}
+      </Select>
+    </label>
+  </Tooltip>
 );
