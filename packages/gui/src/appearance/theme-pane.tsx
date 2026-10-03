@@ -1,9 +1,11 @@
 import { homeEnvironment, rowSteps } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
+import { Brain, Columns3, Minus, Monitor, Moon, Plus, RotateCcw, Sparkles, Sun, Type, type LucideIcon } from "lucide-react";
 import { useId, type ReactNode } from "react";
-import { READING_WIDTHS, TEXT_SIZE_LEAST, TEXT_SIZE_MOST, type LightOrDark, type ReadingWidth } from "../presentation.js";
+import { TEXT_SIZE_LEAST, TEXT_SIZE_MOST, normalizeTextSize, type LightOrDark, type ReadingWidth } from "../presentation.js";
 import { StepLinks } from "../settings/step-links.js";
-import { Select, Switch } from "../ui/index.js";
+import { ChoiceList, SettingsGroup } from "../settings/part.js";
+import { Button, IconButton, Input, Switch, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { ThemePicker } from "./theme-picker.js";
 
@@ -11,7 +13,7 @@ import { ThemePicker } from "./theme-picker.js";
  * The Theme row, `appearance.theme` (docs/specs/gui.md, "Theme: tokens, the
  * setting and the lint" and "Settings"; ADR 0023, ADR 0027; #418), a
  * `client` row. This client's own preferences, each kept in presentation and
- * taking effect at once: light or dark, and the transcript's text size,
+ * taking effect at once: light or dark, and the window's text size,
  * reading width, reasoning shown and streaming fade. Then the home
  * environment's theme, the one the window paints, in the theme picker
  * (#1194): its name, each seed with its hue and chroma and as a swatch in
@@ -37,47 +39,34 @@ export const ThemePane = () => {
   );
 };
 
-/** A part of the pane, a region named by its heading. */
-const Part = ({ heading, children }: { readonly heading: string; readonly children: ReactNode }) => {
-  const id = useId();
-  return (
-    <section aria-labelledby={id} className="flex flex-col gap-3">
-      <h3 id={id} className="text-sm font-semibold text-ink">
-        {heading}
-      </h3>
-      {children}
-    </section>
-  );
-};
+/** A named group with divided preference rows. */
+const Part = ({ heading, children }: { readonly heading: string; readonly children: ReactNode }) => <SettingsGroup title={heading}>{children}</SettingsGroup>;
 
-/** One preference: its name, what it does, and its control, named by the name. */
-const Preference = ({ name, detail, control }: { readonly name: string; readonly detail: string; readonly control: (label: string) => ReactNode }) => {
+const Preference = ({ name, detail, icon: Icon, control }: { readonly name: string; readonly detail: string; readonly icon: LucideIcon; readonly control: (label: string) => ReactNode }) => {
   const label = useId();
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
-      <div className="flex flex-col gap-0.5">
-        <span id={label} className="text-sm text-ink">
-          {name}
-        </span>
-        <span className="text-xs text-ink-muted">{detail}</span>
+  return <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+      <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-ink-muted" />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span id={label} className="text-xs font-medium text-ink">{name}</span>
+        <span className="text-2xs text-ink-faint">{detail}</span>
       </div>
-      {control(label)}
     </div>
-  );
+    {control(label)}
+  </div>;
 };
 
 /** Light or dark's choices, in the order drawn, and their words. */
 const LIGHT_OR_DARK_CHOICES: readonly (readonly [LightOrDark, string])[] = [
+  ["system", "The OS's"],
   ["light", "Light"],
   ["dark", "Dark"],
-  ["system", "The OS's"],
 ];
 
 /** The reading widths' words. */
 const READING_WIDTH_WORDS: Readonly<Record<ReadingWidth, string>> = { comfortable: "Comfortable", wide: "Wide", full: "The whole pane" };
 
-/** Every text size a person may pick, in CSS pixels. */
-const TEXT_SIZES = Array.from({ length: TEXT_SIZE_MOST - TEXT_SIZE_LEAST + 1 }, (_, at) => TEXT_SIZE_LEAST + at);
+const MODE_ICONS = { system: Monitor, light: Sun, dark: Moon };
 
 /**
  * This client's light or dark, kept in presentation at once and never
@@ -90,15 +79,19 @@ export const LightOrDarkPreference = () => {
   return (
     <Preference
       name="Light or dark"
+      icon={Monitor}
       detail="This client's own: the theme's light or dark ladder, or the one the OS prefers, followed as it switches."
       control={(label) => (
-        <div role="radiogroup" aria-labelledby={label} className="flex gap-3 text-sm text-ink">
-          {LIGHT_OR_DARK_CHOICES.map(([value, words]) => (
-            <label key={value} className="flex items-center gap-1.5">
-              <input type="radio" name={choice} checked={lightOrDark === value} onChange={() => setLightOrDark(value)} className="accent-beam" />
-              {words}
-            </label>
-          ))}
+        <div role="radiogroup" aria-labelledby={label} className="flex flex-wrap gap-0.5 rounded-md border border-hairline bg-inset p-0.5 text-xs text-ink">
+          {LIGHT_OR_DARK_CHOICES.map(([value, words]) => {
+            const Icon = MODE_ICONS[value];
+            return <Tooltip key={value} content={`${words} · Arrow keys`}>
+              <label className={`flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 has-focus-visible:outline-2 has-focus-visible:outline-beam ${lightOrDark === value ? "bg-raised" : "hover:bg-wash"}`}>
+                <input type="radio" name={choice} checked={lightOrDark === value} onChange={() => setLightOrDark(value)} className="sr-only" />
+                <Icon aria-hidden="true" className="size-3.5" />{words}
+              </label>
+            </Tooltip>;
+          })}
         </div>
       )}
     />
@@ -116,39 +109,44 @@ const ClientPreferences = () => {
       <LightOrDarkPreference />
       <Preference
         name="Text size"
-        detail="The transcript's text, in CSS pixels; every size in it follows."
+        icon={Type}
+        detail="Scales the whole window, from 11 to 20 pixels. The preset is 14."
         control={(label) => (
-          <Select aria-labelledby={label} value={String(textSize)} onChange={(event) => setTextSize(Number(event.target.value))}>
-            {TEXT_SIZES.map((size) => (
-              <option key={size} value={String(size)}>
-                {size} px
-              </option>
-            ))}
-          </Select>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <IconButton label="Decrease text size" keys="Enter / Space" size="icon-xs" disabled={textSize <= TEXT_SIZE_LEAST} onClick={() => setTextSize(textSize - 1)}><Minus aria-hidden="true" /></IconButton>
+            <Tooltip content="Text size · Arrow keys; Enter to apply">
+              <Input key={textSize} type="number" aria-labelledby={label} min={TEXT_SIZE_LEAST} max={TEXT_SIZE_MOST} step={1} defaultValue={textSize}
+                onBlur={(event) => {
+                  const size = normalizeTextSize(event.currentTarget.valueAsNumber);
+                  event.currentTarget.value = String(size);
+                  setTextSize(size);
+                }}
+                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} className="w-16 text-center font-mono tabular-nums" />
+            </Tooltip>
+            <IconButton label="Increase text size" keys="Enter / Space" size="icon-xs" disabled={textSize >= TEXT_SIZE_MOST} onClick={() => setTextSize(textSize + 1)}><Plus aria-hidden="true" /></IconButton>
+            <Tooltip content="Reset text size · Enter / Space"><Button size="xs" aria-label="Reset text size" onClick={() => setTextSize(14)}><RotateCcw aria-hidden="true" />Reset</Button></Tooltip>
+          </div>
         )}
       />
-      <Preference
-        name="Reading width"
-        detail="How wide the transcript's column may grow."
-        control={(label) => (
-          <Select aria-labelledby={label} value={readingWidth} onChange={(event) => setReadingWidth(READING_WIDTHS.find((width) => width === event.target.value) ?? readingWidth)}>
-            {READING_WIDTHS.map((width) => (
-              <option key={width} value={width}>
-                {READING_WIDTH_WORDS[width]}
-              </option>
-            ))}
-          </Select>
-        )}
-      />
+      <div className="flex flex-col gap-2">
+        <span className="flex items-center gap-2 text-xs font-medium"><Columns3 aria-hidden="true" className="size-4 text-ink-muted" />Reading width</span>
+        <ChoiceList label="Reading width" value={readingWidth} onValueChange={(value) => setReadingWidth(value as ReadingWidth)} choices={[
+          { value: "comfortable", label: READING_WIDTH_WORDS.comfortable, note: "A centred 920px column at the preset text size." },
+          { value: "wide", label: READING_WIDTH_WORDS.wide, note: "More room for long replies, up to 80rem." },
+          { value: "full", label: READING_WIDTH_WORDS.full, note: "Use all the space in the session pane." },
+        ]} />
+      </div>
       <Preference
         name="Reasoning shown"
+        icon={Brain}
         detail="A run's reasoning is drawn unfolded."
-        control={(label) => <Switch aria-labelledby={label} checked={reasoningShown} onCheckedChange={setReasoningShown} />}
+        control={(label) => <Tooltip content="Reasoning shown · Space"><Switch aria-labelledby={label} checked={reasoningShown} onCheckedChange={setReasoningShown} /></Tooltip>}
       />
       <Preference
         name="Streaming fade"
+        icon={Sparkles}
         detail="Text still streaming fades in word by word."
-        control={(label) => <Switch aria-labelledby={label} checked={streamingFade} onCheckedChange={setStreamingFade} />}
+        control={(label) => <Tooltip content="Streaming fade · Space"><Switch aria-labelledby={label} checked={streamingFade} onCheckedChange={setStreamingFade} /></Tooltip>}
       />
     </Part>
   );

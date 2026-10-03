@@ -85,8 +85,20 @@ describe("the presentation", () => {
     const reported: unknown[] = [];
     const odd = inMemoryDocuments();
     await odd.set("presentation", { format: 1, paneLayout: { session: { environmentId: "env-1", sessionId: "session-1" } }, textSize: 90, readingWidth: "vast", reasoningShown: "yes", streamingFade: null });
-    expect((await openPresentation(odd, (error) => reported.push(error))).values.read()).toEqual(PRESENTATION_DEFAULTS);
-    expect(String(reported[0])).toContain("paneLayout, textSize, readingWidth, reasoningShown, streamingFade");
+    expect((await openPresentation(odd, (error) => reported.push(error))).values.read()).toEqual({ ...PRESENTATION_DEFAULTS, textSize: 20 });
+    expect(String(reported[0])).toContain("paneLayout, readingWidth, reasoningShown, streamingFade");
+  });
+
+  it("rounds and clamps text size to 11–20, resets nonfinite values and keeps the result across launches", async () => {
+    const documents = inMemoryDocuments();
+    const presentation = await openPresentation(documents);
+    for (const [value, expected] of [[24, 20], [17.6, 18], [3, 11], [NaN, 14], [Infinity, 14]]) {
+      presentation.set("textSize", value!);
+      expect(presentation.values.read().textSize).toBe(expected);
+    }
+    presentation.set("textSize", 24);
+    await presentation.close();
+    expect((await openPresentation(documents)).values.read().textSize).toBe(20);
   });
 
   it("reads the grid back only as rows of one to eight panes, each id once, its shares filling the whole, a session in one pane and the focus on a pane it holds", async () => {

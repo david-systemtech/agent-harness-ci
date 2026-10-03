@@ -121,6 +121,15 @@ const updatedGh = async (app: RenderedApp) => {
 /** Whether the section still draws gh's Update. */
 const ghDrawn = () => within(section()).queryByRole("region", { name: "Updating GitHub CLI" }) !== null;
 
+it("draws tool actions with icons and keeps their accessible names", async () => {
+  const app = await opened();
+  await openAbout(app);
+  const tool = await row("OpenBao CLI");
+  const install = within(tool).getByRole("button", { name: /Install/ });
+  expect(install.querySelector("svg")).not.toBeNull();
+  expect(tool.getAttribute("data-managed-tool")).toBe("bao");
+});
+
 describe("About's Managed tools", () => {
   it("lists the picked environment's rows with each one's version, install method, minimum, latest, status and one action; claude reads claude in your terminal and is never required", async () => {
     const app = await opened();

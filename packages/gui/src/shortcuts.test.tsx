@@ -84,6 +84,9 @@ describe("the list", () => {
       "The terminal UI's column is its defaults, read-only here: the terminal UI remaps its keys in keybindings.json in its state directory, or the file its --keybindings names, which this pane never writes.",
     );
 
+    const sidebarKey = within(actionRow(pane, "Anywhere", "Show or hide the sidebar")).getByRole("button", { name: "Ctrl+B" });
+    expect(sidebarKey.querySelector("kbd")?.textContent).toBe("Ctrl+B");
+    expect(sidebarKey.querySelector("svg")).not.toBeNull();
     expect(cells(actionRow(pane, "Anywhere", "Show or hide the sidebar"))).toEqual(["Show or hide the sidebarapp.sidebar.toggle", "None: only the GUI answers it.", "Ctrl+B"]);
     expect(cells(actionRow(pane, "Anywhere", "Interrupt; or follow the end again"))).toEqual([
       "Interrupt; or follow the end againapp.interrupt",
@@ -149,6 +152,7 @@ describe("a remap", () => {
     const asked = app.shell.calls.length;
     await app.user.click(within(row()).getByRole("button", { name: "Ctrl+B" }));
     expect(within(row()).getByRole("button", { name: "Press a key…" })).toBe(document.activeElement);
+    expect(within(row()).getByRole("button", { name: "Press a key…" }).getAttribute("aria-pressed")).toBe("true");
     await app.user.keyboard("{Control>}{Shift>}s{/Shift}{/Control}");
 
     expect(cells(row())[2]).toBe("Ctrl+Shift+SRemapped from Ctrl+BReset");
