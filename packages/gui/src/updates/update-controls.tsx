@@ -131,7 +131,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
       {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
       <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
         {drainable !== null && (
-          <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
+          <DialogContent showClose={false} title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
             <DialogFooter>
               <Tooltip content="Cancel · Enter / Space / Escape"><DialogClose asChild>
                 <Button><X aria-hidden="true" />Cancel</Button>
