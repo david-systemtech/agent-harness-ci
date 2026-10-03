@@ -10,6 +10,7 @@ import {
   type QuietCalls,
   type SessionProjection,
 } from "@agent-harness/client-runtime";
+import { ArrowDown } from "lucide-react";
 import type { DelegatedWorkRow } from "@agent-harness/contracts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
@@ -30,7 +31,7 @@ export interface TranscriptProps {
 }
 
 /** How wide the column of rows may grow, by the reading-width preference. */
-const COLUMN_WIDTHS: Readonly<Record<ReadingWidth, string>> = { comfortable: "920px", wide: "1280px", full: "none" };
+const COLUMN_WIDTHS: Readonly<Record<ReadingWidth, string>> = { comfortable: "920px", wide: "80rem", full: "none" };
 
 /** How near the end, in pixels, still counts as at the end: a scroll that lands this close follows the end again. */
 const AT_END_PX = 48;
@@ -149,8 +150,8 @@ const useReveal = (follow: { readonly column: RefObject<HTMLDivElement | null>; 
  * until David scrolls up, offering a way back to the end. Until its stream
  * is live a marker heads it: the catch-up under way, or what this window
  * last saw of it while its environment is not answering. Under it, the live
- * run's delegated work still going. Its text size and reading width are
- * presentation, read on each render. Mod+F opens its find bar.
+ * run's delegated work still going. Its reading width is
+ * presentation; text scales with the window root. Mod+F opens its find bar.
  */
 export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const runtime = useRuntime();
@@ -158,7 +159,6 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const projection = useObservable(session);
   const checks = useObservable(useMemo(() => runtime.projections.checks(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const environments = useObservable(runtime.projections.environments);
-  const [textSize] = usePresentation("textSize");
   const [readingWidth] = usePresentation("readingWidth");
   // A parked prompt waits on the card under the transcript, and is drawn here, where it was asked, once answered.
   const rows = useMemo(() => transcriptRows(projection).filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [projection]);
@@ -184,8 +184,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
           ref={follow.box}
           onScroll={follow.onScroll}
           tabIndex={0}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain text-ink outline-none"
-          style={{ fontSize: `${textSize}px` }}
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain text-sm text-ink outline-none"
         >
           <div ref={follow.column} className="mx-auto flex min-h-full w-full flex-col justify-end gap-3 px-4 py-3.5" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
             {projection.freshness !== "live" && (
@@ -208,8 +207,8 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
           </div>
         </section>
         {follow.away && (
-          <Button onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float">
-            Jump to the latest
+          <Button size="xs" variant="outline" title="Jump to the latest (Enter or Space)" onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float shadow-lg shadow-scrim/40">
+            <ArrowDown aria-hidden="true" className="size-3" />Jump to the latest
           </Button>
         )}
         {find.open && <FindBar find={find} />}

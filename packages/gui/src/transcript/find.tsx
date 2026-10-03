@@ -1,6 +1,7 @@
 import { createContext, use, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { Conditions } from "../keys/key-dispatch.js";
 import { useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
+import { ArrowDown, ArrowUp, Search, X } from "lucide-react";
 import { Button } from "../ui/index.js";
 
 /**
@@ -184,8 +185,9 @@ export const FindBar = ({ find }: { readonly find: FindBarState }) => {
       ref={find.bar}
       role="search"
       aria-label="Find in the conversation"
-      className="absolute top-2 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-lg border border-line-strong bg-float px-1.5 py-1 text-xs"
+      className="absolute top-2 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-lg border border-hairline-strong bg-float shadow-lg shadow-scrim/40 px-1.5 py-1 text-xs"
     >
+      <Search aria-hidden="true" className="size-3.5 shrink-0 text-ink-faint" />
       <input
         ref={find.field}
         type="search"
@@ -200,13 +202,13 @@ export const FindBar = ({ find }: { readonly find: FindBarState }) => {
         {find.status}
       </span>
       <Button aria-label="Previous match" title={titled("Previous match", previous)} onClick={() => find.step(-1)} className="h-6 px-1.5">
-        ↑
+        <ArrowUp aria-hidden="true" className="size-3.5" />
       </Button>
       <Button aria-label="Next match" title={titled("Next match", next)} onClick={() => find.step(1)} className="h-6 px-1.5">
-        ↓
+        <ArrowDown aria-hidden="true" className="size-3.5" />
       </Button>
       <Button aria-label="Close find" title={titled("Close", close)} onClick={find.close} className="h-6 px-1.5">
-        ✕
+        <X aria-hidden="true" className="size-3.5" />
       </Button>
     </div>
   );

@@ -1,26 +1,47 @@
 import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { Link, TriangleAlert } from "lucide-react";
+import type { ReactNode } from "react";
+import { useKeyMap, useMacOS } from "../keys/key-dispatch.js";
+import type { KeyMap } from "../keys/key-map.js";
+import { Welcome } from "../session/empty-state.js";
+import { Alert, AlertDescription, AlertTitle, Button, Tooltip } from "../ui/index.js";
 import { useLocalService } from "./local-service.js";
+import { useOpenPairing } from "./pairing.js";
 import { Remedy } from "./remedy.js";
 import { RunHereSwitch } from "./run-here.js";
 import { phaseSentence } from "./words.js";
 
-/**
- * This machine's environment while the window waits on it
- * (docs/specs/gui.md, "The local environment, pairing and updates"): its
- * phase from service down through starting to ready, in one line; why a
- * start failed; and what it offers (start it, try again).
- */
+/** Shared service card, including the gallery's deterministic failed-start state. */
+export const LocalStartCard = ({ sentence, children, keyMap, macOS }: {
+  readonly sentence: string;
+  readonly children: ReactNode;
+  readonly keyMap?: KeyMap;
+  readonly macOS?: boolean;
+}) => <Welcome {...(keyMap !== undefined && { keyMap })} {...(macOS !== undefined && { macOS })}>
+  <Alert className="w-full text-left">
+    <TriangleAlert aria-hidden="true" className="text-amber" />
+    <AlertTitle>Not ready to run</AlertTitle>
+    <AlertDescription className="flex flex-col gap-3">
+      <p role="status">{sentence}</p>
+      {children}
+    </AlertDescription>
+  </Alert>
+</Welcome>;
+
+/** This machine's service while no environment is ready, with a readable cause and remedies. */
 export const LocalEnvironmentPane = ({ view }: { readonly view: EnvironmentView }) => {
   const service = useLocalService();
+  const openPairing = useOpenPairing();
+  const keyMap = useKeyMap();
+  const macOS = useMacOS();
   const failed = view.phase === "service-down" && !service.starting && service.failure !== undefined;
-  return (
-    <section aria-label="This machine" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-      <h2 className="text-base font-semibold text-ink">{view.name ?? "This machine"}</h2>
-      <p role="status" className="max-w-xl text-sm text-ink-muted">
-        {failed ? `The environment on this machine did not start: ${service.failure}` : phaseSentence(view, service.starting, service.installing)}
-      </p>
-      <Remedy view={view} startLabel={failed ? "Try again" : "Start it"} />
+  return <section aria-label="This machine" className="flex min-h-0 flex-1 flex-col overflow-auto">
+    <LocalStartCard keyMap={keyMap} macOS={macOS} sentence={failed ? `The environment on this machine did not start: ${service.failure}` : phaseSentence(view, service.starting, service.installing)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Remedy view={view} startLabel={failed ? "Try again" : "Start it"} />
+        <Tooltip content="Pair instead"><Button variant="outline" onClick={() => openPairing()}><Link aria-hidden="true" />Pair instead</Button></Tooltip>
+      </div>
       <RunHereSwitch />
-    </section>
-  );
+    </LocalStartCard>
+  </section>;
 };

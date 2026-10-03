@@ -1,4 +1,6 @@
 import { attachmentChip, type QueuedMessage } from "@agent-harness/client-runtime";
+import { CircleStop, Hourglass, Pencil } from "lucide-react";
+import { TranscriptLine } from "../transcript/rows.js";
 import { Marked } from "../transcript/find.js";
 import { VerbButton } from "../session/verb-button.js";
 import { useSessionQueue } from "./session-queue.js";
@@ -18,9 +20,9 @@ export const QueuedRow = ({ message }: { readonly message: QueuedMessage }) => {
   const queue = useSessionQueue();
   const steering = queue.steers && message.heldBy === "provider";
   return (
-    <article
+    <TranscriptLine right label={<Hourglass aria-hidden="true" className="ml-auto size-3 text-amber" />}><article
       aria-label={steering ? "Steering message" : "Queued message"}
-      className="flex max-w-[85%] flex-col gap-1.5 self-end rounded-lg border border-dashed border-line-strong px-3 py-2 text-ink-muted"
+      className="flex max-w-[80%] flex-col gap-1.5 self-end rounded-lg border border-dashed border-line-strong px-3 py-2 text-ink-muted"
     >
       {message.attachments.length > 0 && (
         <ul className="flex flex-wrap justify-end gap-1.5 text-[0.85em]">
@@ -36,14 +38,14 @@ export const QueuedRow = ({ message }: { readonly message: QueuedMessage }) => {
       </p>
       <div className="flex items-center justify-end gap-1 text-xs">
         <span className={steering ? "mr-auto text-cyan" : "mr-auto text-amber"}>{steering ? "Steering" : "Queued"}</span>
-        <VerbButton does={READ_NOW_DOES} availability={queue.runs.verbs.readNow} run={queue.readNow}>
-          Read now
+        <VerbButton does={`${READ_NOW_DOES} (Enter or Space)`} availability={queue.runs.verbs.readNow} run={queue.readNow}>
+          <CircleStop aria-hidden="true" className="size-3" />Read now
         </VerbButton>
-        <VerbButton does="Takes this message back into the composer to edit." availability={message.withdraw} run={() => queue.withdraw(message.messageId)}>
-          Edit
+        <VerbButton does="Takes this message back into the composer to edit. (Enter or Space)" availability={message.withdraw} run={() => queue.withdraw(message.messageId)}>
+          <Pencil aria-hidden="true" className="size-3" />Edit
         </VerbButton>
       </div>
-    </article>
+    </article></TranscriptLine>
   );
 };
 
@@ -60,11 +62,11 @@ export const QueueStrip = () => {
   return (
     <section aria-label="Queued messages" className="flex shrink-0 items-center gap-2 border-t border-hairline px-4 py-1 text-xs text-ink-muted">
       <span className="mr-auto">{`${queued.length} ${queued.length === 1 ? "message" : "messages"} queued`}</span>
-      <VerbButton does={READ_NOW_DOES} availability={verbs.readNow} run={queue.readNow}>
-        Read now
+      <VerbButton does={`${READ_NOW_DOES} (Enter or Space)`} availability={verbs.readNow} run={queue.readNow}>
+        <CircleStop aria-hidden="true" className="size-3" />Read now
       </VerbButton>
-      <VerbButton does="Takes the newest queued message back into the composer to edit." availability={verbs.withdraw} run={queue.withdrawNewest}>
-        Edit newest
+      <VerbButton does="Takes the newest queued message back into the composer to edit. (Enter or Space)" availability={verbs.withdraw} run={queue.withdrawNewest}>
+        <Pencil aria-hidden="true" className="size-3" />Edit newest
       </VerbButton>
     </section>
   );
