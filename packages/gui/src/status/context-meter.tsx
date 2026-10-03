@@ -33,7 +33,7 @@ export const ContextMeter = ({ facts }: { readonly facts: ContextFacts }) => {
     <Popover>
       <Tooltip content={`Context usage: ${detail}`}>
         <PopoverTrigger asChild>
-          <Button aria-label="Context usage" className="h-6 shrink-0 gap-1 px-1 text-xs font-normal">
+          <Button aria-label="Context usage" className="h-6 shrink-0 gap-1 px-1 text-xs font-normal [&_svg]:size-6">
             <span>Ctx</span>
             <svg role="img" aria-label={`Context: ${facts.percent === null ? "unknown" : `${facts.percent}%`}`} viewBox="0 0 36 36" className={`h-6 w-6 ${tone}`}>
               <circle cx="18" cy="18" r="16" fill="currentColor" fillOpacity="0.12" />

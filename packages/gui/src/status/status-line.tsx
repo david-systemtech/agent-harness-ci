@@ -103,7 +103,7 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-2">
         <SessionContextMeter environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model?.model ?? null} />
-        <UsageMeter environmentId={environmentId} accountId={facts.accountId} runs={projection.runs} />
+        <UsageMeter environmentId={environmentId} accountId={facts.accountId} />
       </span>
     </section>
   );

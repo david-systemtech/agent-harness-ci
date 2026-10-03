@@ -153,7 +153,7 @@ describe("the status line", () => {
 });
 
 describe("the plan gauge", () => {
-  it("shows the actual run's reported context scale without claiming cumulative spend is current context", async () => {
+  it("keeps current context separate from pooled plan usage and cumulative spend", async () => {
     const { app, env, session } = await opened();
     const { runId } = env.startRun(session, "Check the receipts", [], { model: "actual-model" });
     env.emit(session, "usage.reported", { runId, models: [
@@ -162,8 +162,7 @@ describe("the plan gauge", () => {
     ] });
     await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
     const details = await screen.findByRole("dialog", { name: "Usage details" });
-    expect(await within(details).findByText(/Context window: 100000 tokens/)).toBeTruthy();
-    expect(within(details).getByText(/Context tokens are not reported/)).toBeTruthy();
+    expect(await within(details).findByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
     expect(within(statusLine()).queryByRole("img", { name: /^Ctx/ })).toBeNull();
   });
 
@@ -177,7 +176,7 @@ describe("the plan gauge", () => {
     expect(within(details).getByText("milo@work.test")).toBeTruthy();
     expect(within(details).getByText("80%")).toBeTruthy();
     expect(within(details).getByText(/2026-09-25T14:30:00/)).toBeTruthy();
-    expect(within(details).getByText(/Context tokens are not reported/)).toBeTruthy();
+    expect(within(details).getByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
     await waitFor(() => expect(env.requests("accounts.usage").length).toBeGreaterThan(before));
     const age = within(details).getByLabelText("Reading age").textContent;
     act(() => app.clock.advance(60_000));
@@ -300,13 +299,21 @@ describe("run info", () => {
 
 describe("current context meter", () => {
   it("shows unknown before a run, known zero on start, then current request share independently of spend", async () => {
-    const { env, session } = await opened([desk({ provider: { contextReadings: true }, models: [{ accountId: "account-1", models: [{ id: "claude-opus-4", family: "opus", tier: 1, label: null, efforts: [], contextWindow: 1000 }] }] })]);
+    const { app, env, session } = await opened([desk({ provider: { contextReadings: true }, models: [{ accountId: "account-1", models: [{ id: "claude-opus-4", family: "opus", tier: 1, label: null, efforts: [], contextWindow: 1000 }] }] })]);
     const meter = await within(statusLine()).findByRole("img", { name: "Context: unknown" });
     expect(meter.textContent).toBe("—");
     const { runId } = env.startRun(session, "Check context");
     expect(await within(statusLine()).findByRole("img", { name: "Context: 0%" })).toBeTruthy();
     env.emit(session, "context.reported", { runId, model: "claude-opus-4", contextTokens: 800, contextWindow: null });
     expect(await within(statusLine()).findByRole("img", { name: "Context: 80%" })).toBeTruthy();
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
+    const planDetails = await screen.findByRole("dialog", { name: "Usage details" });
+    expect(within(planDetails).getByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
+    expect(within(planDetails).queryByText(/Context tokens are not reported/)).toBeNull();
+    await app.user.keyboard("{Escape}");
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Context usage" }));
+    expect(await screen.findByText("800 / 1,000 tokens")).toBeTruthy();
+    await app.user.keyboard("{Escape}");
     env.emit(session, "usage.reported", { runId, models: [{ model: "claude-opus-4", inputTokens: 9000, outputTokens: 500, cacheReadTokens: 4000, cacheWriteTokens: 0, costUsd: null, contextWindow: 1000 }] });
     expect(await within(statusLine()).findByRole("img", { name: "Context: 80%" })).toBeTruthy();
     env.emit(session, "context.reported", { runId, model: "model-b", contextTokens: 1200, contextWindow: 1000 });

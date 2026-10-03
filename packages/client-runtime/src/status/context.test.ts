@@ -3,7 +3,7 @@ import type { RunSummary } from "@agent-harness/contracts";
 import { contextOf } from "./context.js";
 
 const run = (more: Partial<RunSummary> = {}): RunSummary => ({
-  runId: "run-1", state: "running", origin: "client", accountId: "account-1", identity: null,
+  runId: "run-1", state: "running", origin: "client", accountId: "account-1",
   model: "model-a", effort: null, mode: { requested: null, effective: "auto", clamped: false },
   promptMessageId: null, queuedMessageIds: [], startedAt: "2026-10-03T00:00:00.000Z", endedAt: null,
   reason: null, cause: null, error: null, usage: null, durationMs: null, ...more,
