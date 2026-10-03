@@ -139,3 +139,24 @@ it("opens a firing's session and closes Settings so the result is visible", asyn
   expect(app.shown()).toEqual({ environmentId: app.environment("desk").wire.environmentId, sessionId: app.environment("desk").sessionId() });
   expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
 });
+
+it.each(["Account", "Model"])("preserves saved overrides when the unavailable %s option is reselected", async (label) => {
+  const routine = routineFixture();
+  routine.definition.account = { provider: "claude", email: "missing@example.test", organisation: null };
+  routine.definition.model = "custom-model";
+  routine.definition.effort = "custom-effort";
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ label: "Project", identity: { provider: "claude", email: "sample@example.test", organisation: null } }] }] }, {}, (world) => {
+    const desk = world.environment("desk");
+    desk.wire.answer("routines.list", () => ({ result: { routines: [routine] } }));
+    desk.wire.answer("routines.update", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { routine } } }));
+  });
+  act(() => app.shell.openDeepLink(settingsDeepLink("routines.routines")));
+  const pane = await screen.findByRole("region", { name: "Routines" });
+  const card = await within(pane).findByRole("region", { name: "Morning digest" });
+  await app.user.click(within(card).getByRole("button", { name: "Edit" }));
+  const form = within(card).getByRole("form", { name: "Edit routine" });
+  const select = within(form).getByRole("combobox", { name: label });
+  await app.user.selectOptions(select, within(select).getByRole("option", { name: /unavailable/ }));
+  await app.user.click(within(form).getByRole("button", { name: "Save" }));
+  expect(app.environment("desk").requests("routines.update")[0]?.params).toMatchObject({ fields: { account: routine.definition.account, model: "custom-model", effort: "custom-effort" } });
+});
