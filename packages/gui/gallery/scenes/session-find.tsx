@@ -1,7 +1,7 @@
-import { sessionScene } from "./session-conversation.js";
+import type { SceneGeometry, SceneViewport } from "../scene-registry.js";
+import { geometry as conversationGeometry, sessionScene } from "./session-conversation.js";
 export default await sessionScene("find");
-export const geometry = [
-  { selector: '[aria-label="Transcript"] > div', width: 920 },
-  { selector: '[data-measure="transcript-spine"]', width: 56 },
+export const geometry = (viewport: SceneViewport): readonly SceneGeometry[] => [
+  ...conversationGeometry(viewport),
   { selector: '[aria-label="Find in the conversation"] button', height: 24 },
 ];

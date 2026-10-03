@@ -650,7 +650,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
         return {
           accountId: id,
           live: catalogue?.live ?? false,
-          models: (catalogue?.models ?? []).map((model) => ({ id: model.id, family: model.family, tier: model.tier, efforts: [...model.efforts], label: model.label ?? null })),
+          models: (catalogue?.models ?? []).map((model) => ({ id: model.id, family: model.family, tier: model.tier, efforts: [...model.efforts], label: model.label ?? null, ...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}) })),
         };
       });
     },

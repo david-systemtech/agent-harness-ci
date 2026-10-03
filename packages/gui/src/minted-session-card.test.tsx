@@ -126,7 +126,7 @@ describe("the minted session on its card", () => {
     const env = app.environment("desk");
     await app.user.click(screen.getByRole("button", { name: "Write it myself" }));
     const files = await screen.findByRole("complementary", { name: "Side column" });
-    expect(within(files).getByRole("button", { name: "Files" })).toBeDefined();
+    expect(within(files).getByRole("tab", { name: "Files" })).toBeDefined();
     expect(env.requests("sessions.create").at(-1)?.params["workspace"]).toEqual({ kind: "directory", path: "/banks/receipts" });
     expect(env.requests("setup.mint")).toHaveLength(0);
     expect(env.requests("runs.start")).toHaveLength(0);

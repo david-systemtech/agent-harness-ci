@@ -1,6 +1,7 @@
 import { fuzzyMatch, matchCommands, mentionAt, slashMenuRows, type CachedAnswer, type FileMatch, type Mention, type SlashMenuRow } from "@agent-harness/client-runtime";
 import type { AdapterCapabilities } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { File, SquareTerminal } from "lucide-react";
 import { classes } from "../ui/classes.js";
 import { useFollowed, useRuntime } from "../window-context.js";
 import { typedCommand, useWiredCommands } from "./slash-commands.js";
@@ -124,7 +125,7 @@ export const useMenus = ({ environmentId, sessionId, provider, text, caret }: Me
       if (open === null || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.key === "Escape") dismiss(open.key);
       else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && open.rows.length > 0) {
-        setHighlight({ key: open.key, index: Math.min(Math.max(at + (event.key === "ArrowUp" ? -1 : 1), 0), open.rows.length - 1) });
+        setHighlight({ key: open.key, index: (at + (event.key === "ArrowUp" ? -1 : 1) + open.rows.length) % open.rows.length });
       } else return;
       event.preventDefault();
     },
@@ -159,20 +160,21 @@ export const MenuList = ({ id, menu, highlighted: at, choose }: MenuListProps) =
       id={optionId(id, index)}
       aria-selected={index === at}
       aria-disabled={unavailable === undefined ? undefined : true}
+      title={`${unavailable === undefined ? "" : `${unavailable} · `}↑/↓ choose · Tab completes · Enter accepts · Escape closes`}
       onMouseDown={keepFocus}
       onClick={() => choose(index)}
-      className={classes("flex cursor-default items-baseline gap-2 rounded-sm px-2 py-1", index === at && "bg-wash", unavailable !== undefined && "opacity-50")}
+      className={classes("flex cursor-default items-center gap-2 rounded-md px-2.5 py-1", index === at && "bg-wash-strong", unavailable !== undefined && "opacity-50")}
     >
       {content}
     </li>
   );
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-line-strong bg-float p-1 text-sm text-ink">
+    <div data-composer-menu className="absolute bottom-full left-0 z-20 mb-1.5 flex max-h-64 w-full flex-col gap-1 overflow-y-auto rounded-xl border border-hairline-strong bg-float p-1 text-sm text-ink shadow-lg shadow-scrim/40">
       {menu.rows.length > 0 && (
         <ul role="listbox" id={id} aria-label={menu.kind === "commands" ? "Commands" : "Files"} className="flex flex-col">
           {menu.kind === "commands"
             ? menu.rows.map((row, index) => option(row.name, index, <CommandOption row={row} />, row.unavailable))
-            : menu.rows.map((row, index) => option(row.path, index, <span className="font-mono text-xs">{row.path}</span>))}
+            : menu.rows.map((row, index) => option(row.path, index, <><File aria-hidden="true" className="size-3 shrink-0" /><span className="truncate font-mono text-sm">{row.path}</span></>))}
         </ul>
       )}
       {menu.kind === "files" && menu.note !== undefined && <p className="px-2 py-1 text-xs text-ink-muted">{menu.note}</p>}
@@ -182,11 +184,11 @@ export const MenuList = ({ id, menu, highlighted: at, choose }: MenuListProps) =
 
 const CommandOption = ({ row }: { readonly row: CommandRow }) => (
   <>
-    <span className="font-mono text-xs">/{row.name}</span>
+    <SquareTerminal aria-hidden="true" className="size-3 shrink-0" /><span className="shrink-0 font-mono text-sm">/{row.name}</span>
     <span className="min-w-0 truncate text-xs text-ink-muted">
       {row.unavailable ?? row.description}
-      {row.source === "provider" && " · the agent's"}
-      {row.slashOnly && " · slash-only"}
+
     </span>
+    <span className="ml-auto shrink-0 text-2xs text-ink-faint"> · {row.source === "provider" ? "the agent's" : row.source}{row.slashOnly && " · slash-only"}</span>
   </>
 );
