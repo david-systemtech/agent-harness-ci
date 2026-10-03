@@ -199,3 +199,31 @@ it("marks a scene ready after an accessible-name attribute changes to the requir
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("attribute-ready"));
   expect(await gallery.ready).toBe(true);
 });
+
+
+it("loads the window font before a scene takes its initial layout measurements", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  let layoutDrawn!: () => void;
+  const firstLayout = new Promise<void>((resolve) => { layoutDrawn = resolve; });
+  let releaseFont!: (faces: FontFace[]) => void;
+  let requested!: () => void;
+  const requestedFont = new Promise<void>((resolve) => { requested = resolve; });
+  const loadedFont = new Promise<FontFace[]>((resolve) => { releaseFont = resolve; });
+  Object.defineProperty(document, "fonts", { configurable: true, value: {
+    load: (font: string) => { expect(font).toBe('14px "Archivo Variable"'); requested(); return loadedFont; },
+    ready: Promise.resolve(),
+  } });
+  let measured = false;
+  const mounting = mountGallery(container, "initial-font-layout", "dark", {
+    "initial-font-layout": { default: () => { measured = true; layoutDrawn(); return <button>Close</button>; } },
+  });
+  void mounting.then((gallery) => { close = gallery.close; });
+  await Promise.race([requestedFont, firstLayout]);
+  expect(measured).toBe(false);
+  releaseFont([]);
+  const gallery = await mounting;
+  expect(await gallery.ready).toBe(true);
+  expect(measured).toBe(true);
+  await gallery.close();
+});

@@ -12,6 +12,8 @@ import { prepareWorld, startWorld } from "./world.js";
 export const mountGallery = async (container: HTMLElement, scene: string, ladder: LadderName = "dark", registry: SceneRegistry = scenes) => {
   const definition = registry[scene];
   if (!Object.hasOwn(registry, scene) || definition === undefined) throw new Error(`Unknown gallery scene: ${scene}`);
+  // Floating controls must never measure the fallback font on their first layout.
+  await container.ownerDocument.fonts?.load?.('14px "Archivo Variable"');
   const prepared = await prepareWorld(definition.script ?? { environments: [] }, { presentation: { ...definition.presentation, lightOrDark: ladder } });
   const world = { ...prepared, ...await startWorld(prepared, prepared.paired) };
   definition.arrange?.(world.world, world.shell);
