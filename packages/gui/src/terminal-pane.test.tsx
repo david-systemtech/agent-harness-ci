@@ -79,6 +79,18 @@ const fitsIn = (size: { readonly cols: number; readonly rows: number }) => {
 const writesTo = (app: RenderedApp, id: string) => app.environment("desk").terminal(id).writes;
 
 describe("the Terminal pane", () => {
+  it("opens a fresh shell from the dock footer while leaving the current terminal running", async () => {
+    const { app, env } = await opened({ terminals: [{ id: FIRST, output: "first shell" }] });
+    await open(app);
+    await drawn(["first shell"]);
+    await app.user.click(within(column() as HTMLElement).getByRole("button", { name: "New terminal" }));
+    await waitFor(() => expect(env.terminals()).toHaveLength(2));
+    const fresh = env.terminals().find((terminal) => terminal.id !== FIRST)!;
+    env.terminalOutput(fresh.id, "new shell");
+    await drawn(["$ new shell"]);
+    expect(env.terminals().find((terminal) => terminal.id === FIRST)).toBeDefined();
+  });
+
   it("answers startup snapshot queries without focus, then stops once the startup window ends", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(100);
     onTestFinished(() => now.mockRestore());

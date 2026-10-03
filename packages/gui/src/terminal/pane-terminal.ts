@@ -425,7 +425,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   /** The session whose shell and `!` commands the pane draws; null for a tool terminal's pane, which opens none. */
   const session = source.kind === "session" ? source : null;
 
-  const findShell = (d: Drawn) => {
+  const findShell = (d: Drawn, reuse = true) => {
     if (d.gone || session === null) return;
     const { sessionId, oneOffs } = session;
     d.refused = refusal(d, "No terminal");
@@ -434,7 +434,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
       const stop = runtime.projections.environments.subscribe(() => {
         if (d.gone || runtime.capability(environmentId, "terminals.open").status === "absent") return;
         stop();
-        findShell(d);
+        findShell(d, reuse);
       });
       d.stops.push(stop);
       return;
@@ -444,7 +444,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
       const listed = await runtime.requests.call(environmentId, "terminals.list", { sessionId });
       if (d.gone) return;
       if (!listed.ok) return failed(d, listed.error.message);
-      const running = reusableTerminal(listed.result.terminals, oneOffs);
+      const running = reuse ? reusableTerminal(listed.result.terminals, oneOffs) : undefined;
       if (running !== undefined) return attach(d, running.id, { cols: running.cols, rows: running.rows });
       const id = uuidv4();
       const asked = size();
@@ -512,6 +512,10 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     ask(ask) {
       if (disposed) return;
       switch (ask.kind) {
+        case "new":
+          findShell(begin(null), false);
+          takeKeys();
+          return;
         case "shell":
           if (drawn === null || drawn.command !== null || drawn.ended !== null) shell();
           if (ask.focus) takeKeys();
