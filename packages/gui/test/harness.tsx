@@ -1,26 +1,15 @@
 import { act, render, type RenderResult } from "@testing-library/react";
 import { userEvent, type UserEvent } from "@testing-library/user-event";
-import { createRuntime, type Runtime } from "@agent-harness/client-runtime";
-import {
-  fakeShell,
-  inMemoryDocuments,
-  inMemoryNetwork,
-  manualClock,
-  runtimeSpeaking,
-  seededRandom,
-  type FakeShell,
-  type InMemoryDocumentStore,
-  type InMemoryNetwork,
-  type ManualClock,
-} from "@agent-harness/client-runtime/testing";
-import { FAKE_HARNESS_VERSION } from "@agent-harness/client-runtime/testing/fake-wire";
-import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { Runtime } from "@agent-harness/client-runtime";
+import type { FakeShell, ManualClock } from "@agent-harness/client-runtime/testing";
+import type { EnvironmentHandle, Script, ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { onTestFinished } from "vitest";
 import { App } from "../src/app.js";
 import { focusedPane, showSession } from "../src/grid/layout.js";
-import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
-import { openPresentation, type PaneSession, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
-import type { StepCards } from "../src/setup/cards.js";
+import type { Presentation, PaneSession } from "../src/presentation.js";
+import { prepareWorld, startWorld, type Mount, type RenderOptions, type HarnessPlatform } from "../gallery/world.js";
+
+export type { RenderOptions, HarnessPlatform } from "../gallery/world.js";
 
 export {
   certificateOf,
@@ -46,35 +35,6 @@ export {
  * 1280 by 800 window, so a divider's layout is computed and moved by keys.
  */
 
-export interface RenderOptions {
-  /** Whether `Mod` is ⌘: preset false, Ctrl. */
-  readonly macOS?: boolean;
-  /** The desktop's shell: preset a fresh recording fake. */
-  readonly shell?: FakeShell;
-  /** What the window's presentation holds before it first opens, as a launch before this one left it. */
-  readonly presentation?: Partial<PresentationValues>;
-  /**
-   * The window's first launch: its first-launch mark unset, so Set up takes the whole window once the home environment
-   * is ready. Preset false: a window launched before, whose Set up was finished or closed, as most tests want it.
-   */
-  readonly firstLaunch?: boolean;
-  /** The protocol version this client speaks: preset this build's, so a test can be the newer side of a mismatch. */
-  readonly protocolVersion?: number;
-  /** The step cards the full checklist draws, by step id: preset this build's. */
-  readonly stepCards?: StepCards;
-  /** This client's version: preset the one every scripted environment runs, so no environment is older than it. */
-  readonly version?: string;
-}
-
-/** The desktop platform the window runs on, with what the test holds of it. */
-export interface HarnessPlatform extends DesktopPlatform {
-  readonly documents: InMemoryDocumentStore;
-  readonly clock: ManualClock;
-  readonly network: InMemoryNetwork;
-  /** Every fault handed to `reportError`, oldest first. */
-  readonly reported: readonly unknown[];
-}
-
 export interface RenderedApp {
   readonly world: ScriptedWorld;
   readonly clock: ManualClock;
@@ -97,43 +57,14 @@ export interface RenderedApp {
   remount(): Promise<RenderedApp>;
 }
 
-interface Mount {
-  readonly world: ScriptedWorld;
-  readonly clock: ManualClock;
-  readonly shell: FakeShell;
-  readonly macOS: boolean;
-  readonly documents: InMemoryDocumentStore;
-  readonly protocolVersion: number | undefined;
-  readonly stepCards: StepCards | undefined;
-  readonly version: string;
-}
-
 const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, stepCards, version }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
-  const reported: unknown[] = [];
-  const network = inMemoryNetwork();
-  const desktop = await desktopPlatform({
-    shell,
-    version,
-    documents,
-    clock,
-    network,
-    webSocket: world.webSocket,
-    random: seededRandom(),
-    reportError: (error) => void reported.push(error),
-  });
-  const platform: HarnessPlatform = { ...desktop, documents, clock, network, reported };
-  const runtime = protocolVersion === undefined ? createRuntime(platform) : runtimeSpeaking(platform, protocolVersion);
-  const stopFollowing = platform.follow(runtime.connections.list);
+  const { platform, runtime, presentation, stopFollowing } = await startWorld(
+    { world, clock, shell, macOS, documents, protocolVersion, stepCards, version }, pair,
+  );
   onTestFinished(async () => {
     stopFollowing();
     await runtime.close();
   });
-  await runtime.start();
-  for (const name of pair) {
-    const outcome = await runtime.connections.add({ link: world.environment(name).wire.link });
-    if (outcome.status !== "paired") throw new Error(`The harness could not pair ${name}: ${JSON.stringify(outcome)}.`);
-  }
-  const presentation = await openPresentation(platform.documents, platform.reportError);
   const view = render(<App runtime={runtime} presentation={presentation} clock={clock} version={platform.client.version} macOS={macOS} shell={shell} stepCards={stepCards} />);
   return {
     world,
@@ -167,21 +98,6 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, s
  * reads is none, as on a desktop whose machine runs no environment yet.
  */
 export const renderApp = async (script: Script, options: RenderOptions = {}): Promise<RenderedApp> => {
-  const clock = manualClock();
-  const world = scriptedWorld(clock, script);
-  const paired = script.environments.filter((environment) => environment.reach === "paired").map((environment) => environment.name);
-  const shell = options.shell ?? fakeShell();
-  shell.answer("http", world.fetch);
-  shell.answer("localGrant.read", async () => world.grant?.read());
-  const documents = inMemoryDocuments();
-  const presentation: Partial<PresentationValues> = { ...(options.firstLaunch !== true && { firstLaunchDone: true }), ...options.presentation };
-  if (Object.keys(presentation).length > 0) {
-    const left = await openPresentation(documents);
-    for (const [key, value] of Object.entries(presentation) as [PresentationKey, never][]) left.set(key, value);
-    await left.close();
-  }
-  return mount(
-    { world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion, stepCards: options.stepCards, version: options.version ?? FAKE_HARNESS_VERSION },
-    paired,
-  );
+  const world = await prepareWorld(script, options);
+  return mount(world, world.paired);
 };

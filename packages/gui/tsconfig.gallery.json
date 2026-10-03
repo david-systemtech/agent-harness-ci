@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".", "outDir": "../../.tsbuild/gui-gallery", "emitDeclarationOnly": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"], "jsx": "react-jsx", "types": ["node", "vite/client"]
+  },
+  "include": ["gallery"], "exclude": [],
+  "references": [{ "path": "." }, { "path": "../client-runtime" }, { "path": "../contracts" }]
+}

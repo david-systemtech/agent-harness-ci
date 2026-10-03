@@ -23,10 +23,12 @@ const refuseNodeBuiltins = (): Plugin => ({
 
 const { version } = JSON.parse(readFileSync(new URL("package.json", import.meta.url), "utf8")) as { readonly version: string };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: "./",
   plugins: [refuseNodeBuiltins(), tailwindcss()],
   resolve: { conditions: ["@agent-harness/source", "module", "browser", "development|production"] },
   define: { __HARNESS_VERSION__: JSON.stringify(version) },
-  build: { outDir: "dist", emptyOutDir: true },
-});
+  build: { outDir: mode === "gallery" ? "gallery-dist" : "dist", emptyOutDir: true,
+    ...(mode === "gallery" && { rolldownOptions: { input: new URL("gallery.html", import.meta.url).pathname } }),
+  },
+}));

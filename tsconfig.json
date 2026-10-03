@@ -16,6 +16,7 @@
     { "path": "packages/tui" },
     { "path": "packages/gui" },
     { "path": "packages/gui/tsconfig.test.json" },
+    { "path": "packages/gui/tsconfig.gallery.json" },
     { "path": "packages/desktop" },
     { "path": "packages/desktop/tsconfig.test.json" },
     { "path": "packages/cli" },
