@@ -2,10 +2,10 @@ import { PRODUCT_NAME, type SessionBrowser } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { usePaneLine } from "../session/pane-line.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { BrowserChoiceMenu } from "./choice-menu.js";
+import { BrowserChoiceMenu, BrowserChoiceSubmenu } from "./choice-menu.js";
 
 /** The session field changes through its command; a running browser remains the run's resolution. */
-export const SessionBrowserPicker = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string }) => {
+export const SessionBrowserPicker = ({ environmentId, sessionId, submenu = false }: { readonly environmentId: string; readonly sessionId: string; readonly submenu?: boolean }) => {
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.browsers(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const session = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
@@ -24,8 +24,10 @@ export const SessionBrowserPicker = ({ environmentId, sessionId }: { readonly en
   const resolvedLabel = resolved === undefined ? undefined
     : picker.rows.find((row) => JSON.stringify(row.value) === JSON.stringify(resolved.browser))?.label
       ?? (resolved.browser.kind === "chrome" ? "My Chrome" : resolved.browser.kind === "headless" ? "Headless browser" : resolved.browser.kind === "dock" ? `${PRODUCT_NAME}'s built-in browser` : "None");
+  const offer = busy ? { status: "absent" as const, message: "Changing the browser." } : capability;
+  if (submenu) return <BrowserChoiceSubmenu rows={picker.rows} choose={(browser) => void choose(browser)} offer={offer} />;
   return <div className="contents">
-    <BrowserChoiceMenu rows={picker.rows} choose={(browser) => void choose(browser)} detail={resolved === undefined ? undefined : `${run?.state === "running" ? "This run" : "Last run"}: ${resolvedLabel}. ${resolved.message}`} className="h-[22px] max-w-[240px] min-w-0 gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3" offer={busy ? { status: "absent", message: "Changing the browser." } : capability} />
+    <BrowserChoiceMenu rows={picker.rows} choose={(browser) => void choose(browser)} detail={resolved === undefined ? undefined : `${run?.state === "running" ? "This run" : "Last run"}: ${resolvedLabel}. ${resolved.message}`} className="h-[22px] max-w-[240px] min-w-0 gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3" offer={offer} />
     {resolved !== undefined && <span className="sr-only">{run?.state === "running" ? "This run" : "Last run"}: {resolvedLabel}. {resolved.message}</span>}
   </div>;
 };

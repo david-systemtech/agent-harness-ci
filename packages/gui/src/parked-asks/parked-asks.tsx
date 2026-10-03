@@ -1,11 +1,12 @@
 import { askDetail, bulkAsks, bulkQuestion, decidable, ttlWords, type ParkedAsk, type PromptTarget } from "@agent-harness/client-runtime";
+import { CircleHelp } from "lucide-react";
 import type { PromptKind } from "@agent-harness/contracts";
 import { useState } from "react";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { Answer } from "../prompt-card/answer-button.js";
 import { useAnswers, type Answers } from "../prompt-card/answering.js";
-import { Button, Dialog, DialogClose, DialogContent, DialogTrigger } from "../ui/index.js";
+import { Button, Dialog, DialogClose, DialogContent, DialogTrigger, MenuItem, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /**
@@ -35,21 +36,24 @@ const KIND_WORDS: Readonly<Record<PromptKind, string>> = { permission: "Permissi
 const targetOf = (ask: ParkedAsk): PromptTarget => ({ environmentId: ask.environmentId, sessionId: ask.sessionId, promptId: ask.promptId });
 
 /** The header's Parked asks button, with the count of parked prompts across every environment, which opens the view. */
-export const ParkedAsksButton = () => {
+export const ParkedAsksButton = ({ menu = false }: { readonly menu?: boolean }) => {
   const runtime = useRuntime();
   const { parkedAsks } = useObservable(runtime.projections.runs);
   // Held with the button, not the view, so a row answered from here stays off the view while it is closed and opened again.
   const answers = useAnswers(parkedAsks.map(targetOf));
   const [open, setOpen] = useState(false);
   const count = parkedAsks.length;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button aria-label={count > 0 ? `Parked asks, ${count} waiting` : "Parked asks"}>
-          Parked asks
-          {count > 0 && <span className="rounded-full bg-amber px-1.5 text-xs font-semibold text-amber-ink">{count}</span>}
-        </Button>
-      </DialogTrigger>
+      {(menu || count > 0) && <Tooltip content={`Parked asks · ${count} waiting`}>
+        <DialogTrigger asChild>
+          {menu ? <MenuItem aria-label={count === 0 ? "Parked asks" : `Parked asks, ${count} waiting`} onSelect={(event) => event.preventDefault()}><CircleHelp aria-hidden="true" />Parked asks{count > 0 && <span className="ml-auto text-amber">{count}</span>}</MenuItem> :
+            <Button aria-label={`Parked asks, ${count} waiting`} size="xs" className="h-[22px] border border-amber/45 bg-amber/10 text-amber hover:bg-amber/20">
+              <CircleHelp aria-hidden="true" /><span aria-hidden="true" className="size-1.5 rounded-full bg-amber" /><span>{count} waiting</span>
+            </Button>}
+        </DialogTrigger>
+      </Tooltip>}
       {open && <ParkedAsksView asks={parkedAsks} answers={answers} close={() => setOpen(false)} />}
     </Dialog>
   );
