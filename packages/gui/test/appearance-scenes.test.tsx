@@ -121,7 +121,6 @@ it("settles a closing Theme scene without fonts and prevents its marker reaching
   expect(document.documentElement.dataset["ladder"]).toBe("dark");
 });
 
-
 it("can close Theme before the window draws without leaving startup work behind", async () => {
   const container = document.createElement("div");
   document.body.append(container);
