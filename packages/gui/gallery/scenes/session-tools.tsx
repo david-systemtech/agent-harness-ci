@@ -1,3 +1,4 @@
+import type { SceneGeometry, SceneViewport } from "../scene-registry.js";
 import type { ToolCallEntry } from "@agent-harness/client-runtime";
 import { CallsRow, CallCard } from "../../src/transcript/calls.js";
 import { DocumentTile } from "../../src/transcript/document-tiles.js";
@@ -29,8 +30,8 @@ const SessionToolsScene = () => <main data-scene="session-tools" className="h-sc
   </div>
 </main>;
 
-export const geometry = [
-  { selector: "main[data-scene=session-tools]", width: 1400, height: 900, tolerance: 0.1 },
+export const geometry = ({ width, height }: SceneViewport): readonly SceneGeometry[] => [
+  { selector: "main[data-scene=session-tools]", width, height, tolerance: 0.1 },
   { selector: "[data-diff-gutter]", width: 40, tolerance: 0.1 },
 ];
 export default SessionToolsScene;
