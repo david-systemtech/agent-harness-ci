@@ -30,11 +30,14 @@ async function fixture(failure = "") {
     else if (url.pathname.endsWith("/pulls")) {
       response.end(JSON.stringify(page === "1" ? [{ number: 42, head: { sha: "active-head" } }] : []));
     } else if (url.pathname.includes("/comments")) {
-      if (failure === "comments" && page === "2") { response.writeHead(503).end(); return; }
+      if (failure === "comments") { response.writeHead(503).end(); return; }
       const manifest = (head: string, version: string, modern = true) => ({ body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: [{ api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png` }] }) + ' -->' });
-      response.end(JSON.stringify(page === "1" ? Array.from({ length: 50 }, () => ({ body: "Discussion" })) : page === "2" ? [
+      const comments = [...Array.from({ length: 50 }, () => ({ body: "Discussion" })),
         manifest("active-head", "active-head-1"), manifest("earlier-head", "earlier-head-2"), manifest("legacy-head", "legacy-head", false),
-      ] : failure === "malformed" && page === "3" ? [{ body: '<!-- window-gallery {broken -->' }, { body: '<!-- window-gallery [] -->' }] : []));
+        ...(failure === "malformed" ? [{ body: '<!-- window-gallery {broken -->' }, { body: '<!-- window-gallery [] -->' }] : []),
+      ];
+      // Forgejo's per-issue comments endpoint ignores page and limit and returns the whole thread.
+      response.end(JSON.stringify(comments));
     } else if (url.pathname === "/api/v1/packages/example") {
       if (failure === "packages" && page === "2") { response.writeHead(503).end(); return; }
       response.end(JSON.stringify(page === "1" ? packages.slice(0, 7) : page === "2" ? packages.slice(7) : []));
@@ -48,11 +51,11 @@ async function fixture(failure = "") {
   return { deleted, requests, env: { ...process.env, FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project", FORGEJO_TOKEN: "token-for-tests", PACKAGES_TOKEN: failure === "package-auth" ? "package-token-for-tests" : "token-for-tests" } };
 }
 
-it("expires old orphan versions while preserving every open PR manifest, its in-flight head, and recent captures", async () => {
+it("reads an unpaginated comment thread once and preserves every open PR manifest, its in-flight head, and recent captures", async () => {
   const f = await fixture();
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
-  expect(f.requests.some((url) => url.includes("/comments?limit=50&page=2"))).toBe(true);
+  expect(f.requests.filter((url) => url.includes("/comments"))).toEqual(["/api/v1/repos/example/project/issues/42/comments"]);
   expect(f.requests.some((url) => url.includes("/packages/example?") && url.includes("page=3"))).toBe(true);
 });
 

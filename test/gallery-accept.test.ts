@@ -38,10 +38,9 @@ async function fixture(mode = "current") {
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
       const manifest = { body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
       if (mode === "marker") manifest.body = '<!-- window-gallery {"head":"test-head","captures":[]} -->\n' + manifest.body;
-      const page = new URL(request.url, base).searchParams.get("page");
       const invalid = mode === "invalid-json" ? "{broken" : mode === "non-object" ? "[]" : mode === "invalid-shape" ? '{"head":"test-head","captures":null}' : undefined;
       const comments = invalid === undefined ? [manifest] : [{ body: `<!-- window-gallery ${invalid} -->` }, manifest, { body: `<!-- window-gallery ${invalid} -->` }];
-      response.end(JSON.stringify(mode === "paged" && page === "1" ? Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })) : comments));
+      response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
     else response.end(mode === "corrupt" ? Buffer.from("not an image") : png);
   });
@@ -70,11 +69,11 @@ it.each(["stale", "unsafe", "foreign", "corrupt"])("refuses %s captures without 
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });
 
-it("finds the current capture manifest after a capped 50-comment page", async () => {
-  const f = await fixture("paged");
+it("reads an unpaginated thread once and finds the current manifest after 50 earlier comments", async () => {
+  const f = await fixture("unpaginated");
   const result = await run("bash", [script, "42"], { env: f.env });
   expect(result.stdout).toContain("Accepted window-empty.dark.png");
-  expect(f.requests.some((url) => url.includes("limit=50&page=2"))).toBe(true);
+  expect(f.requests.filter((url) => url.includes("/comments"))).toEqual(["/api/v1/repos/example/project/issues/42/comments"]);
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
 });
 

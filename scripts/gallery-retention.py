@@ -55,7 +55,11 @@ def main():
     # Read ALL protection data before the first DELETE. A failed page deletes nothing.
     for pr in pages(f'/repos/{repository}/pulls?state=open'):
         heads.add(pr['head']['sha'])
-        for comment in pages(f'/repos/{repository}/issues/{pr["number"]}/comments'):
+        # Per-issue comments are an unpaginated full thread in Forgejo.
+        comments = request(f'/repos/{repository}/issues/{pr["number"]}/comments')
+        if not isinstance(comments, list):
+            raise ValueError('Incomplete gallery comment listing')
+        for comment in comments:
             markers = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
             if not markers:
                 continue

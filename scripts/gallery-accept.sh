@@ -31,11 +31,9 @@ pr = json.loads(get(f'{api}/pulls/{number}'))
 head = pr['head']['sha']
 if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip() != head:
     sys.exit('Check out the PR head before accepting its captures.')
-comments = []
-for page in range(1, 101):
-    batch = json.loads(get(f'{api}/issues/{number}/comments?limit=50&page={page}'))
-    comments.extend(batch)
-    if len(batch) < 50: break
+# Forgejo returns the entire per-issue comment thread; page and limit are ignored.
+comments = json.loads(get(f'{api}/issues/{number}/comments'))
+if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
 manifest = None
 for comment in comments:
     matches = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
