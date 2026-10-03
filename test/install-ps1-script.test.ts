@@ -424,6 +424,10 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
   });
 
   it.each([
+    { name: "array-wrapped object", manifest: JSON.stringify([{ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }]), version: "" },
+    { name: "array version", manifest: JSON.stringify({ version: ["0.1.0"], assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }), version: "" },
+    { name: "array asset name", manifest: JSON.stringify({ version: "0.1.0", assets: [{ name: [ASSET], size: 1, sha256: "0".repeat(64) }] }), version: "" },
+    { name: "array digest", manifest: JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: ["0".repeat(64)] }] }), version: "" },
     { name: "invalid JSON", manifest: "{", version: "" },
     { name: "invalid version", manifest: JSON.stringify({ version: "../bad", assets: [] }), version: "" },
     { name: "prerelease on stable", manifest: JSON.stringify({ version: "0.2.0-beta.1", assets: [] }), version: "" },

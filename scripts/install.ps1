@@ -299,13 +299,16 @@ function Resolve-PublicManifest {
   else { $url = "$PublicReleases/latest/download/release.json" }
   $text = Get-ForgeText $url 2>$null
   if ($null -eq $text) { return $null }
+  # PowerShell 5.1 enumerates top-level arrays; check the root before parsing.
+  if (-not $text.TrimStart().StartsWith('{')) { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
   try { $manifest = ConvertFrom-Json $text } catch { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
-  $resolved = [string]$manifest.version
-  if (-not (Test-ReleaseVersion $resolved) -or ($Version -and $resolved -cne $Version) -or (-not $Version -and ($resolved -split '\+', 2)[0].Contains('-'))) {
+  if ($manifest -isnot [PSCustomObject]) { Stop-Install "invalid public release manifest at ${url}; nothing was installed." }
+  $resolved = $manifest.version
+  if ($resolved -isnot [string] -or -not (Test-ReleaseVersion $resolved) -or ($Version -and $resolved -cne $Version) -or (-not $Version -and ($resolved -split '\+', 2)[0].Contains('-'))) {
     Stop-Install "invalid release version in the public manifest at ${url}; nothing was installed."
   }
-  $entries = @($manifest.assets | Where-Object { [string]$_.name -ceq $asset })
-  if ($manifest.assets -isnot [Array] -or $entries.Count -ne 1 -or [string]$entries[0].sha256 -cnotmatch '^[0-9a-f]{64}\z' -or ($entries[0].size -isnot [int] -and $entries[0].size -isnot [long]) -or $entries[0].size -le 0) {
+  $entries = @($manifest.assets | Where-Object { $_ -is [PSCustomObject] -and $_.name -is [string] -and $_.name -ceq $asset })
+  if ($manifest.assets -isnot [Array] -or $entries.Count -ne 1 -or $entries[0].sha256 -isnot [string] -or $entries[0].sha256 -cnotmatch '^[0-9a-f]{64}\z' -or ($entries[0].size -isnot [int] -and $entries[0].size -isnot [long]) -or $entries[0].size -le 0) {
     Stop-Install "public release manifest v$resolved has no valid ${asset}; nothing was installed."
   }
   $tag = "v$resolved"
