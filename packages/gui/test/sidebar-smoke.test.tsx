@@ -66,7 +66,7 @@ const drawn = (sidebar: HTMLElement): string[] =>
       (within(section).getAllByRole("heading")[0]?.textContent ?? "").trim(),
       ...within(section)
         .queryAllByRole("listitem")
-        .map((row) => `  ${(row.textContent ?? "").trim()}`),
+        .map((row) => `  ${[row.querySelector("[data-sidebar-title]")?.textContent, ...Array.from(row.querySelectorAll("[data-sidebar-tag]")).map((tag) => tag.textContent)].filter(Boolean).join(" ")}`),
     ]);
 
 const WAIT = { timeout: 5000 };
@@ -83,7 +83,7 @@ describe("the sidebar through the real spine", { concurrent: false }, () => {
     await accepted(other.commands.dispatch(environmentId, "sessions.pin", { sessionId: pinned }));
 
     const window = await openWindow(t);
-    await waitFor(() => expect(drawn(window.sidebar)).toEqual(["▾ Pinned", "  Pinned one", "smoke-sidebar", "  Fix the rail #wip"]), WAIT);
+    await waitFor(() => expect(drawn(window.sidebar)).toEqual(["Pinned 1", "  Pinned one", "smoke-sidebar", "  Fix the rail #wip"]), WAIT);
     // Reached through the grant: the local environment, not a pairing.
     expect(window.runtime.connections.list.read()).toEqual([expect.objectContaining({ environmentId, kind: "local", phase: "ready" })]);
   });
@@ -111,7 +111,7 @@ describe("the sidebar through the real spine", { concurrent: false }, () => {
     await accepted(other.commands.dispatch(environmentId, "sessions.rename", { sessionId: renamed, title: "Receipts" }));
 
     await waitFor(
-      () => expect(drawn(window.sidebar)).toEqual(["▾ Pinned", "  Keep near", "▾ Meadowstudios", "  Brand copy", "smoke-sidebar-moves", "  Receipts", "▸ Archive 1"]),
+      () => expect(drawn(window.sidebar)).toEqual(["Pinned 1", "  Keep near", "Meadowstudios 1", "  Brand copy", "smoke-sidebar-moves", "  Receipts", "Archive 1"]),
       WAIT,
     );
   });
