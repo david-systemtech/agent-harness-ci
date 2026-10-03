@@ -117,8 +117,8 @@ export const carryOverMemory = (options: CarryOverMemoryOptions) => {
   };
 
   /** Maps the memory folders of the account's directory `directory`: see the module comment. */
-  const map = async (accountId: string, directory: string): Promise<MemoryMap> => {
-    const found = await readMemoryFolders(directory);
+  const map = async (accountId: string, directory: string, excluded: readonly string[] = []): Promise<MemoryMap> => {
+    const found = (await readMemoryFolders(directory)).filter((folder) => !excluded.includes(folder.folder));
     const assigned = assignments(accountId);
     // A path that is not absolute here names nowhere on this environment: the folder is unmappable, not failed.
     const pathOf = (workingDirectory: string | null): string | null => (workingDirectory !== null && isAbsolute(workingDirectory) ? workingDirectory : null);

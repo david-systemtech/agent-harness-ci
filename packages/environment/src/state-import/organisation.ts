@@ -13,7 +13,7 @@ export interface OrganisationOwners {
   readonly setGroup: MethodHandler<"sessions.setGroup">;
   readonly pin: MethodHandler<"sessions.pin">;
 }
-export interface ListedOrganisationSession { readonly accountId: string; readonly session: ProviderSessionInfo }
+export interface ListedOrganisationSession { readonly accountId: string; readonly session: ProviderSessionInfo; readonly ownerAccountId?: string }
 
 /** References resolve only to Imported sessions, never to a different Account's similarly named provider id. */
 export const planOrganisation = (stores: readonly OrganisationStore[], options: OrganisationOwners & {
@@ -24,7 +24,8 @@ export const planOrganisation = (stores: readonly OrganisationStore[], options: 
   readonly preview: boolean;
 }) => {
   const { log, sourceKey } = options;
-  const targets = log.read<{ id: string; accountId: string; providerId: string; present: number }>("SELECT id, json_extract(origin, '$.accountId') AS accountId, json_extract(origin, '$.providerSessionId') AS providerId, deleted_at IS NULL AS present FROM sessions WHERE json_extract(origin, '$.kind') = 'import'");
+  const canonicalAccount = (accountId: string, providerId: string) => options.listed.find((entry) => entry.accountId === accountId && entry.session.providerSessionId === providerId)?.ownerAccountId ?? accountId;
+  let targets = log.read<{ id: string; accountId: string; providerId: string; present: number }>("SELECT id, json_extract(origin, '$.accountId') AS accountId, json_extract(origin, '$.providerSessionId') AS providerId, deleted_at IS NULL AS present FROM sessions WHERE json_extract(origin, '$.kind') = 'import'");
   // Mapping evidence survives purge, so a bare id never becomes falsely unambiguous when one Account deletes its target.
   for (const mapping of log.read<{ source_id: string; target_id: string }>("SELECT source_id, target_id FROM state_import_items WHERE source_key = ? AND kind = 'session'", sourceKey)) {
     let key: unknown;
@@ -33,7 +34,11 @@ export const planOrganisation = (stores: readonly OrganisationStore[], options: 
     if (!Array.isArray(key) || typeof key[0] !== "string" || typeof key[1] !== "string") continue;
     if (!targets.some((target) => target.accountId === key[0] && target.providerId === key[1])) targets.push({ id: mapping.target_id, accountId: key[0], providerId: key[1], present: 0 });
   }
-  if (options.preview) for (const { accountId, session } of options.listed) {
+  // Shared aliases can have several Account-qualified keys but only one target row.
+  targets = targets.map((target) => ({ ...target, accountId: canonicalAccount(target.accountId, target.providerId) }));
+  targets = targets.filter((target, index) => targets.findIndex((entry) => entry.accountId === target.accountId && entry.providerId === target.providerId && entry.present >= target.present) === index);
+  if (options.preview) for (const { accountId: sourceAccountId, session } of options.listed) {
+    const accountId = canonicalAccount(sourceAccountId, session.providerSessionId);
     if (targets.some((s) => s.accountId === accountId && s.providerId === session.providerSessionId)) continue;
     if (mappedTarget(log, { sourceKey, store: "provider-sessions", sourceId: importedSessionSourceId(accountId, session.providerSessionId) }) !== undefined) continue;
     targets.push({ id: derivedUuid("organisation.preview", accountId, session.providerSessionId), accountId, providerId: session.providerSessionId, present: 1 });
@@ -60,14 +65,14 @@ export const planOrganisation = (stores: readonly OrganisationStore[], options: 
     if (qualified && (colon <= 0 || colon === reference.length - 1)) { invalid++; return undefined; }
     const accountId = qualified ? options.accountIds.get(reference.slice(0, colon)) : undefined;
     const providerId = qualified ? reference.slice(colon + 1) : reference;
-    const matches = qualified && accountId === undefined ? [] : targets.filter((s) => s.providerId === providerId && (!qualified || s.accountId === accountId));
+    const matches = qualified && accountId === undefined ? [] : targets.filter((s) => s.providerId === providerId && (!qualified || s.accountId === canonicalAccount(accountId!, providerId)));
     if (matches.length > 1) ambiguous++;
     else if (matches.length === 0) unknown++;
     if (matches.length === 1 && !matches[0]!.present) { held++; return undefined; }
     return matches.length === 1 ? matches[0] : undefined;
   };
-  for (const { accountId, session } of options.listed) if (importsArchived(session)) {
-    const target = targets.find((s) => s.accountId === accountId && s.providerId === session.providerSessionId);
+  for (const { accountId: sourceAccountId, session } of options.listed) if (importsArchived(session)) {
+    const target = targets.find((s) => s.accountId === canonicalAccount(sourceAccountId, session.providerSessionId) && s.providerId === session.providerSessionId);
     if (target !== undefined) add(target, "archive");
   }
   const continued = new Set<string>();
@@ -158,7 +163,8 @@ export const planOrganisation = (stores: readonly OrganisationStore[], options: 
     }
   }
   // Remember the initial active decision too: later source tags or prompts cannot archive a Session edited in the harness.
-  for (const { accountId, session } of options.listed) {
+  for (const { accountId: sourceAccountId, session } of options.listed) {
+    const accountId = canonicalAccount(sourceAccountId, session.providerSessionId);
     const target = targets.find((t) => t.accountId === accountId && t.providerId === session.providerSessionId && t.present);
     if (target === undefined) continue;
     const key = { sourceKey, store: "organisation.archive", sourceId: importedSessionSourceId(accountId, session.providerSessionId) };

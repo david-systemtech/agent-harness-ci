@@ -147,6 +147,7 @@ export type StateImportClientLocal = z.infer<typeof StateImportClientLocal>;
 export const StateImportFinishedPayload = z
   .object({
     carried: StateImportCarried,
+    sharedProjects: z.array(z.object({ sourceId: z.string().min(1), ownerSourceId: z.string().min(1) })).optional().meta({ description: "Directories sharing a real projects folder; sessions and memory are carried once under the first source in source-id order." }),
     reEnter: z.array(StateImportReEnter).meta({ description: "What must be entered again, each with the step that takes it." }),
     later: z.array(StateImportLater).meta({ description: "What arrives in milestone 2: other providers' profiles." }),
     notCarried: z.array(StateImportNotCarried).meta({ description: "What never carries." }),

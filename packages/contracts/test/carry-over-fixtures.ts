@@ -73,7 +73,7 @@ export const carryOverSchemaFixtures: Record<string, Fixtures> = {
     valid: [doesNotCarry, { hooks: 0, mcpServers: 0, permissionRules: 0 }],
     invalid: [{ ...doesNotCarry, hooks: -1 }, { hooks: 1, mcpServers: 1 }],
   },
-  "carry-over/state-import-account-inventories.json": { valid: [sourceInventories, { accounts: [], failed: [], later: [] }], invalid: [{ accounts: [] }, { ...sourceInventories, accounts: [{ sourceId: "" }] }] },
+  "carry-over/state-import-account-inventories.json": { valid: [{ ...sourceInventories, accounts: sourceInventories.accounts.map((account) => ({ ...account, sharedProjectsWith: "primary" })) }, sourceInventories, { accounts: [], failed: [], later: [] }], invalid: [{ accounts: [] }, { ...sourceInventories, accounts: [{ sourceId: "" }] }] },
   "carry-over/inventory.json": {
     valid: [fullInventory, { ...fullInventory, notCarried: [] }],
     invalid: [{ accountId, sessions: inventory }, { ...fullInventory, accountId: "" }, { ...fullInventory, doesNotCarry: { hooks: 1 } }, { ...fullInventory, notCarried: [{ kind: "hook", name: "x" }] }],

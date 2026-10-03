@@ -93,7 +93,7 @@ export const stateImportSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...finished, carried: {} }, { carried, reEnter: [], later: [], notCarried: [] }],
   },
   "state-import/report.json": {
-    valid: [report, { ...finished, clientLocal: {}, dryRun: true }],
+    valid: [{ ...report, sharedProjects: [{ sourceId: "secondary", ownerSourceId: "primary" }] }, report, { ...finished, clientLocal: {}, dryRun: true }],
     invalid: [finished, { ...report, dryRun: "yes" }, { ...report, clientLocal: undefined }],
   },
   "state-import/event-type.json": { valid: ["state-import.started", "state-import.item-carried"], invalid: ["state-import.finished", "state-import.carried", ""] },
