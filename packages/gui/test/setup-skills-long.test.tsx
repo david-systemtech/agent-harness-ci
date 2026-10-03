@@ -11,7 +11,7 @@ it("captures the real long Skills card with its navigation outside the scrolling
     await screen.findByRole("heading", { name: "Skills", level: 2 });
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe("setup-skills-long"));
     expect(screen.getByRole("region", { name: "Skills catalogue" })).toBeDefined();
-    const footer = screen.getByRole("contentinfo", { name: "Step navigation" });
+    const footer = screen.getByRole("navigation", { name: "Step navigation" });
     const scroll = container.querySelector("[data-setup-scroll]");
     expect(scroll?.contains(footer)).toBe(false);
     expect(within(footer).getByRole("button", { name: "Back" })).toBeDefined();

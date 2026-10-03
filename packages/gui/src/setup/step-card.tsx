@@ -48,7 +48,7 @@ export const StepCard = ({ environmentId, step }: StepCardProps) => {
           </ContinueHoldContext>
         </div>
       </div>
-      <footer aria-label="Step navigation" className="relative flex min-h-[67px] shrink-0 flex-wrap items-center justify-between gap-3.5 border-t border-hairline bg-panel px-6 py-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-gradient-to-t before:from-panel before:to-transparent">
+      <footer role="navigation" aria-label="Step navigation" className="relative flex min-h-[67px] shrink-0 flex-wrap items-center justify-between gap-3.5 border-t border-hairline bg-panel px-6 py-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-gradient-to-t before:from-panel before:to-transparent">
         <Tooltip content="Back · Tab, Enter">
           <Button variant="outline" disabled={previous === undefined} onClick={() => { if (previous !== undefined) choose(previous); }}><ArrowLeft aria-hidden="true" />Back</Button>
         </Tooltip>

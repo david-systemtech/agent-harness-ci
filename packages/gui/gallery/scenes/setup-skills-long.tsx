@@ -56,6 +56,7 @@ export default function SetupSkillsLong({ ladder }: { readonly ladder: LadderNam
     queueMicrotask(() => document.getElementById("root")?.removeAttribute("data-gallery-ready"));
     void (async () => {
       const prepared = await prepareWorld({ environments: [{ name: "desk", reach: "local", accounts: [{ label: "personal" }] }] }, { firstLaunch: true, presentation: { lightOrDark: ladder } });
+      prepared.world.environment("desk").wire.answer("trust.list", () => ({ result: { trusted: [], declined: [] } }));
       const world = await startWorld(prepared, prepared.paired);
       dispose = async () => {
         world.stopFollowing();

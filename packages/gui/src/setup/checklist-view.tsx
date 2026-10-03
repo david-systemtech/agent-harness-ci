@@ -69,9 +69,9 @@ export const ChecklistView = () => {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5 text-xs leading-5 font-medium">
                           <span>{candidate.label}</span><HealthDot state={candidate.result?.state ?? null} of={candidate.label} />
+                          <span className={classes("ml-auto shrink-0 rounded-full bg-raised px-1.5 text-[11px] leading-4", index === 0 ? "text-beam-text" : "text-ink-muted")}>{index === 0 ? "Required" : "Optional"}</span>
                         </span>
                         <span className="block text-[11px] leading-4 text-ink-faint">{STEP_HINTS[candidate.id]}</span>
-                        <span className={classes("mt-0.5 inline-flex rounded-full bg-raised px-1.5 text-[11px] leading-4", index === 0 ? "text-beam-text" : "text-ink-muted")}>{index === 0 ? "Required" : "Optional"}</span>
                       </span>
                     </button>
                   </Tooltip>
