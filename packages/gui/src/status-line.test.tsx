@@ -143,7 +143,7 @@ describe("the plan gauge", () => {
 });
 
 describe("the run", () => {
-  it("shows its activity, its elapsed time in the environment's time, its tokens and cost while it runs, and the last run's after", async () => {
+  it("keeps spend in status and activity with elapsed time above the composer", async () => {
     const { app, env, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
     env.emit(session, "tool.started", { runId, toolCallId: "t1", name: "Bash", input: { command: "pnpm test" }, title: null, agentId: null, parentToolCallId: null });
@@ -151,21 +151,23 @@ describe("the run", () => {
       runId,
       models: [{ model: "claude-opus-4", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 2000, cacheWriteTokens: 0, costUsd: 0.042, contextWindow: null }],
     });
-    await waitFor(() => expect(lineText()).toContain("Running a command"));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("Running a command"));
     act(() => app.clock.advance(64_000));
-    await waitFor(() => expect(lineText()).toContain("Running a command · 1m 04s · 3.5k tok · $0.042"));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("1m 04s"));
+    expect(lineText()).toContain("3.5k tok · $0.042");
+    expect(lineText()).not.toContain("Running a command");
 
     env.endRun(session, runId, {
       usage: [{ model: "claude-opus-4", inputTokens: 1500, outputTokens: 500, cacheReadTokens: 2000, cacheWriteTokens: 0, costUsd: 0.05, contextWindow: null }],
     });
-    await waitFor(() => expect(lineText()).toContain("idle · 4.0k tok · $0.050"));
+    await waitFor(() => expect(lineText()).toContain("4.0k tok · $0.050"));
   });
 
   it("says a run parked on a prompt waits for you", async () => {
     const { env, session } = await opened();
     env.startRun(session, "Fix the receipts");
     env.openPrompt(session, {});
-    await waitFor(() => expect(lineText()).toContain("waiting for you"));
+    await waitFor(() => expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("waiting for you"));
   });
 });
 

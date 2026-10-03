@@ -289,6 +289,8 @@ describe("delegated work and plans", () => {
     const agent = await within(transcript).findByRole("button", { name: "Explore: Find where totals are summed · 1 call · running" });
     const strip = screen.getByRole("list", { name: "Delegated work" });
     expect(within(strip).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Explore: Find where totals are summed · running"]);
+    await app.user.click(screen.getByRole("button", { name: "Open background work in Tasks" }));
+    expect(await screen.findByRole("region", { name: "Tasks" })).toBeDefined();
     await app.user.click(agent);
     expect(within(transcript).getByRole("group", { name: "Grep: total" })).toBeDefined();
 

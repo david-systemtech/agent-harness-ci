@@ -5,12 +5,9 @@ import { SlashCommands } from "../composer/slash-commands.js";
 import { useLocalService } from "../connections/local-service.js";
 import { LocalEnvironmentPane } from "../connections/local-environment.js";
 import { PairingPane } from "../connections/pairing-pane.js";
-import { RewoundStrip } from "../fork-rewind/rewound.js";
 import { SessionForkRewindProvider } from "../fork-rewind/session-fork-rewind.js";
 import { NewSessionSurface } from "../new-session/surface.js";
 import type { PaneNewSession, PaneSession } from "../presentation.js";
-import { PromptCard } from "../prompt-card/prompt-card.js";
-import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
 import { EmptyState, Welcome } from "../session/empty-state.js";
 import { useKeyMap, useMacOS } from "../keys/key-dispatch.js";
@@ -21,7 +18,7 @@ import { PaneOrganising } from "../sidebar/pane-organising.js";
 import { TrustQuestion } from "../skills/trust.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
 import { StatusLine } from "../status/status-line.js";
-import { Transcript } from "../transcript/transcript.js";
+import { COLUMN_WIDTHS, Transcript } from "../transcript/transcript.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { EmptyCaption, NewSessionCaption, SessionCaption, type CaptionProps } from "./caption.js";
 
@@ -50,6 +47,7 @@ export interface PaneContentsProps extends CaptionProps {
  */
 export const SessionPane = ({ session, focused, header, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode }) => {
   const { environmentId, sessionId } = session;
+  const [readingWidth] = usePresentation("readingWidth");
   return (
     <div className="flex min-h-0 flex-1">
       <PaneLine key={`${environmentId} ${sessionId}`} environmentId={environmentId} sessionId={sessionId}>
@@ -62,11 +60,10 @@ export const SessionPane = ({ session, focused, header, ...caption }: PaneConten
                     {header ?? <SessionCaption session={session} {...caption} />}
                     <TrustQuestion environmentId={environmentId} sessionId={sessionId} />
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
-                    <QueueStrip />
-                    <PromptCard environmentId={environmentId} sessionId={sessionId} />
-                    <RewoundStrip />
-                    <Composer environmentId={environmentId} sessionId={sessionId} />
-                    <StatusLine environmentId={environmentId} sessionId={sessionId} />
+                    <div data-composer-column className="mx-auto w-full shrink-0" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
+                      <Composer environmentId={environmentId} sessionId={sessionId} />
+                      <StatusLine environmentId={environmentId} sessionId={sessionId} />
+                    </div>
                   </section>
                   <SideColumnView environmentId={environmentId} sessionId={sessionId} />
                   <PaneOrganising environmentId={environmentId} sessionId={sessionId} />
