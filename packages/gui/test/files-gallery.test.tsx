@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
+import type { SceneGeometry } from "../gallery/scene-registry.js";
 import { mountGallery } from "../gallery/mount.js";
 
 let close: (() => Promise<void>) | undefined;
@@ -17,4 +18,22 @@ it("renders the file-view scene with source text, four numbered lines and the me
   expect(files.getByRole("button", { name: "Pin file" })).toBeDefined();
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("dock-file-view"));
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: "[data-file-gutter]", width: 40 });
+});
+
+
+it.each(["dock-diff", "dock-documents", "dock-tasks"])("measures only visible controls in %s when Files is retained but hidden", async (scene) => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, scene);
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+  await within(await screen.findByRole("complementary", { name: "Side column" })).findByRole("tab", { name: "Files" });
+  const geometry: readonly SceneGeometry[] = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
+  await waitFor(() => {
+    for (const measurement of geometry) {
+      const elements = container.querySelectorAll(measurement.selector);
+      expect(elements.length, measurement.selector).toBeGreaterThan(0);
+      for (const element of elements) expect(element.closest("[hidden]"), measurement.selector).toBeNull();
+    }
+  });
 });

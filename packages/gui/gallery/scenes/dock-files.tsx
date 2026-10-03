@@ -12,17 +12,22 @@ export const presentation: Partial<PresentationValues> = {
   paneLayout: { rows: [{ id: "row-1", height: 100, panes: [{ id: "pane-1", width: 100, session }] }], focused: "pane-1" },
   sideColumns: { [sideColumnKey(session)]: { open: ["files", "diff", "documents", "tasks"], shown: "files", hidden: false } },
 };
-/** look.md §9.3: fixed physical dimensions in the owning session pane. */
-export const geometry: readonly SceneGeometry[] = [
+/** Shared dock controls remain visible when another retained pane is shown. */
+export const dockGeometry: readonly SceneGeometry[] = [
   { selector: "[data-dock-rail]", width: 40 },
-  // look.md §9.3: 12/18 filename plus 4px top/bottom; 14px kind icons.
-  { selector: "[data-file-row]", height: 26 },
-  { selector: "[data-file-row] svg", width: 14, height: 14 },
-  { selector: "[data-files-caption] button", width: 24, height: 24 },
   { selector: "section:not([hidden]) > [data-dock-header]", height: 30 },
   { selector: '[role="tab"]', width: 28, height: 28 },
   { selector: '[role="tab"] svg', width: 24, height: 24 },
   { selector: '[role="tablist"] button[aria-label^="Close "]', width: 14, height: 14 },
   { selector: '[role="tablist"] button[aria-label^="Close "] svg', width: 10, height: 10 },
   { selector: '[aria-label="New terminal"]', width: 28, height: 28 },
+];
+
+
+/** look.md §9.3: 12/18 filename plus 4px top/bottom; 14px kind icons. */
+export const geometry: readonly SceneGeometry[] = [
+  ...dockGeometry,
+  { selector: "[data-file-row]", height: 26 },
+  { selector: "[data-file-row] svg", width: 14, height: 14 },
+  { selector: "[data-files-caption] button", width: 24, height: 24 },
 ];
