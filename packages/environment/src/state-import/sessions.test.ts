@@ -378,3 +378,36 @@ it("previews a deleted shared alias before a live row as one target and keeps th
   expect(rows[0]?.id).toBe(liveSession);
   expect(rows[0]?.pinnedAt).not.toBeNull();
 });
+
+it("retains a live shared row when a deleted duplicate has continued history", async () => {
+  const f = sharedFixture(2);
+  writeFileSync(join(f.source, "prefs.json"), "{}");
+  rmSync(join(f.secondary, "projects"));
+  cpSync(join(f.winner, "projects"), join(f.secondary, "projects"), { recursive: true });
+  const boundary = fakeAdapter({ script: () => [{ type: "session.provider-linked", payload: { providerSessionId: f.shared } }, end()] });
+  Object.assign(f.adapter, { createRun: boundary.createRun.bind(boundary) });
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const store = createProviderTranscriptStore({ log: t.env.log, clock: manualClock() });
+  const seeded = createClaudeAdapter({ sessionStore: store });
+  Object.assign(f.adapter, { seedSessionStore: seeded.seedSessionStore?.bind(seeded) });
+  const client = await t.client();
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const owner = (await client.request("accounts.list", {})).accounts.find((account) => account.directory.path === f.winner)!;
+  const continuedId = t.env.log.readStream({ kinds: ["session"] }).find((event) => event.type === "session.created" && (event.payload as SessionCreatedPayload).origin?.accountId === owner.id)!.streamId;
+  await client.request("accounts.refresh", {});
+  expect((await client.request("runs.start", { commandId: randomUUID(), sessionId: continuedId, text: "Continue once" })).receipt.status).toBe("accepted");
+  await expect.poll(() => t.env.log.readStream({ kind: "session", id: continuedId }).some((event) => event.type === "run.ended"), { timeout: WAIT_MS }).toBe(true);
+  await deleteSession(client, continuedId);
+  const liveId = (await client.request("sessions.list", {})).sessions[0]!.id;
+  rmSync(join(f.secondary, "projects"), { recursive: true });
+  symlinkSync(join(f.winner, "projects"), join(f.secondary, "projects"), "dir");
+  expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result?.failed).toEqual([]);
+  const rows = (await client.request("sessions.list", {})).sessions;
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.id).toBe(liveId);
+  // The deleted continuation still has its normal restore grace period.
+  expect((await client.request("sessions.restore", { commandId: randomUUID(), sessionId: continuedId })).receipt.status).toBe("accepted");
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect((await client.request("sessions.list", {})).sessions.map((session) => session.id)).toEqual([continuedId]);
+});
