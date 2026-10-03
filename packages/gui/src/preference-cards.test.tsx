@@ -66,13 +66,13 @@ describe("on a fresh environment", () => {
     expect(stepActions(permissions)).toEqual([]);
     expect(within(permissions).queryByText(/^Read-only:/)).toBeNull();
     // The permissions spec's form, as the Permissions row draws it.
-    expect(await within(field(permissions, "permissions.defaultCeiling")).findByRole("combobox")).toBeDefined();
-    expect(within(field(permissions, "permissions.unattended.mode")).getByRole("combobox")).toBeDefined();
+    expect(await within(field(permissions, "permissions.defaultCeiling")).findByRole("radiogroup")).toBeDefined();
+    expect(within(field(permissions, "permissions.unattended.mode")).getByRole("radiogroup")).toBeDefined();
     expect(within(field(permissions, "permissions.unattended.bypassAcknowledgedAt")).getByText("The environment records it itself; nothing sets it.")).toBeDefined();
     expect(within(field(permissions, "permissions.parkedPrompt.ttl")).getByRole("textbox")).toBeDefined();
     const containment = within(permissions).getByRole("radiogroup", { name: "Default process containment" });
-    await waitFor(() => expect(within(containment).getByRole("radio", { name: "○ off: available" })).toBeDefined());
-    await app.user.click(within(containment).getByRole("radio", { name: "● no network: available" }));
+    await waitFor(() => expect(within(containment).getByRole("radio", { name: "off: available" })).toBeDefined());
+    await app.user.click(within(containment).getByRole("radio", { name: "no network: available" }));
     await waitFor(() => expect(app.environment("desk").settings()["permissions.containment.default"]).toBe("workspace-no-network"));
     for (const name of ["Browser domains", "Paths", "Command patterns", "Hosts"]) expect(await section(permissions, name)).toBeDefined();
     expect(within(permissions).getByRole("form", { name: "Test the denylist" })).toBeDefined();
@@ -239,7 +239,7 @@ describe("without admin", () => {
     expect(within(permissions).getAllByText(/^Read-only:/)).toHaveLength(1);
     expect(within(permissions).getByRole("button", { name: "Restore" }).hasAttribute("disabled")).toBe(true);
     expect(within(await section(permissions, "Paths")).getByRole("button", { name: "Restore presets" }).hasAttribute("disabled")).toBe(true);
-    expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox").hasAttribute("disabled")).toBe(true);
+    expect(within(field(permissions, "permissions.defaultCeiling")).getByRole("radio", { name: "plan" }).hasAttribute("disabled")).toBe(true);
     for (const radio of within(within(permissions).getByRole("radiogroup", { name: "Default process containment" })).getAllByRole("radio")) {
       expect(radio.hasAttribute("disabled")).toBe(true);
     }

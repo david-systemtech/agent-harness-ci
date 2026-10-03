@@ -31,6 +31,24 @@ const opened = async () => {
 };
 
 describe("the Browser settings pane", () => {
+  it("numbers installation steps, copies the live code, and stops showing it", async () => {
+    const { app, desk, pane } = await opened();
+    desk.wire.answer("browser.pairing.code", () => ({ result: { code: "ABCD2345", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
+    await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
+    const load = await within(pane).findByRole("region", { name: "Load the extension" });
+    expect(within(load).getByRole("heading", { name: "1 Load the extension" })).toBeDefined();
+    expect(within(load).queryByRole("checkbox")).toBeNull();
+    const code = await within(pane).findByRole("textbox", { name: "Pairing code" });
+    expect((code as HTMLInputElement).value).toBe("ABCD2345");
+    await app.user.click(within(pane).getByRole("button", { name: "Copy pairing code (Enter or Space)" }));
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", "ABCD2345"]);
+    await app.user.click(within(pane).getByRole("button", { name: "Stop" }));
+    expect(within(pane).queryByRole("textbox", { name: "Pairing code" })).toBeNull();
+    await app.user.click(within(pane).getByRole("button", { name: "Show code" }));
+    await within(pane).findByRole("textbox", { name: "Pairing code" });
+    expect(desk.requests("browser.pairing.code")).toHaveLength(2);
+  });
+
   it("keeps the plain My Chrome default when only one Chrome is paired", async () => {
     const { desk, pane } = await opened();
     act(() => desk.setSettings({ "browser.reach": { work: { chrome: { environmentId: desk.environmentId, chromeId: null } } } }));
@@ -67,18 +85,21 @@ describe("the Browser settings pane", () => {
 
   it("reports a pairing refusal in one line", async () => {
     const { app, desk, pane } = await opened();
-    desk.wire.answer("browser.pairing.code", () => ({ error: { code: "forbidden", message: "Pairing is locked.", data: {} } }));
+    desk.wire.answer("browser.pairing.code", () => ({ error: { code: "forbidden", message: "Pairing is locked.\nThe environment refused the code request.", data: {} } }));
     await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
     expect(await within(pane).findByText("No pairing code: Pairing is locked.")).toBeDefined();
     expect(within(pane).getAllByText(/No pairing code:/)).toHaveLength(1);
+    expect(within(pane).queryByText(/The environment refused the code request/)).toBeNull();
+    await app.user.click(within(pane).getByRole("button", { name: "Technical detail" }));
+    expect(within(pane).getByText(/forbidden: Pairing is locked/)).toBeDefined();
   });
 
   it("shows headless state and changes allowRuns and one account's default without replacing the others", async () => {
     const { app, desk, pane } = await opened();
     desk.setSettings({ "browser.reach": { other: "per-session" }, "browser.headless.allowRuns": false });
     expect(await within(pane).findByText("Available: /test/chromium. 0 live contexts.")).toBeDefined();
-    const allow = await within(pane).findByRole("checkbox", { name: "Allow runs to use the headless browser" });
-    await waitFor(() => expect((allow as HTMLInputElement).checked).toBe(false));
+    const allow = await within(pane).findByRole("switch", { name: "Allow runs to use the headless browser" });
+    await waitFor(() => expect(allow.getAttribute("aria-checked")).toBe("false"));
     await app.user.click(allow);
     expect(await within(pane).findByText("Headless browser allowed for runs.")).toBeDefined();
     const defaults = await within(pane).findByRole("combobox", { name: "Default browser for Work" });
@@ -96,11 +117,11 @@ describe("the Browser settings pane", () => {
     const pair = await within(pane).findByRole("button", { name: "Pair another Chrome" });
     act(() => pair.focus());
     await app.user.keyboard("{Enter}");
-    expect(await within(pane).findByText("ABCD2345")).toBeDefined();
+    expect(await within(pane).findByDisplayValue("ABCD2345")).toBeDefined();
     const added = { ...chrome, id: "0199aa00-0000-4000-8000-000000000042", name: "Personal Chrome" };
     act(() => list([chrome, added]));
     expect(await within(pane).findByText("Personal Chrome")).toBeDefined();
-    await waitFor(() => expect(within(pane).queryByText("ABCD2345")).toBeNull());
+    await waitFor(() => expect(within(pane).queryByDisplayValue("ABCD2345")).toBeNull());
     desk.wire.answer("browser.chromes.unpair", () => {
       list([chrome]);
       return { result: { receipt: { status: "accepted", sequence: 2, changed: true } } };
