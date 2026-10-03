@@ -44,7 +44,7 @@ export const accessSettingsDetails = {
     row: "access.browser", anchor: 'section[aria-label="Headless browser"]',
     visible: ['section[aria-label="Headless browser"]', 'section[aria-label="Per-account default browser"]'],
     controls: [
-      { selector: '[role=switch]', width: 32, height: 18.4 },
+      { selector: 'section[aria-label="Headless browser"] [role=switch]', width: 32, height: 18.4 },
       { selector: 'select[aria-label="Default browser for Personal"]', height: 32 },
     ],
   },

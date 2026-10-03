@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
+import { accessSettingsDetails, detailGeometry } from "../gallery/access-settings-details.js";
 import { measureSceneGeometry } from "../gallery/geometry.js";
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
@@ -100,4 +101,17 @@ it("rejects a correctly sized control clipped by its scrolling pane", () => {
   expect(measureSceneGeometry()).toEqual([]);
   button.mockReturnValue(new DOMRect(20, 110, 0, 0));
   expect(measureSceneGeometry()).toContain("button[0]: clipped outside section");
+});
+
+
+it("measures only the headless switch in the Browser defaults capture", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify(detailGeometry(accessSettingsDetails.defaults, { width: 1400, height: 900 }).filter((check) => check.selector.includes("[role=switch]")));
+  root.innerHTML = '<button role="switch">Window control</button><section aria-label="Headless browser"><button role="switch">Allow runs</button></section>';
+  document.body.append(root);
+  const buttons = root.querySelectorAll("button");
+  vi.spyOn(buttons[0]!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 24, 24));
+  vi.spyOn(buttons[1]!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 32, 18.4));
+  expect(measureSceneGeometry()).toEqual([]);
 });
