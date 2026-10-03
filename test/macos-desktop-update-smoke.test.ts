@@ -1,11 +1,13 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
+import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate } = await import(script) as {
+const { askForPackagedUpdate, packagedSettingsOpen } = await import(script) as {
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
+  packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
 };
 
 /** The smoke's CDP boundary evaluates in a page exposing the preload's shell; no Electron or service manager runs. */
@@ -28,6 +30,18 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("recognizes the named Settings section without requiring an explicit accessibility role", async () => {
+    const dom = new JSDOM('<button aria-label="Settings">Settings</button><section aria-label="Settings"></section>');
+    try {
+      const evaluate = async (expression: string): Promise<unknown> => runInNewContext(expression, { document: dom.window.document });
+      expect(await packagedSettingsOpen(evaluate)).toBe(true);
+      dom.window.document.querySelector("section")?.remove();
+      expect(await packagedSettingsOpen(evaluate)).toBe(false);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("uses the kept client credential and the carried server to request the upgrade", async () => {
     const p = page("token-for-tests");
     await askForPackagedUpdate(p.evaluate, "0.2.0");

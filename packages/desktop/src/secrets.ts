@@ -80,8 +80,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
   return {
     async get(name) {
       const file = fileOf(name);
-      // A token that cannot be read is none, never a rejection the runtime has no answer for: it blocks the connection as
-      // revoked, and pairing again replaces the token.
+      // An absent file is no token. Refused macOS access rejects so the runtime retries without revoking or deleting it.
       try {
         const kept = await readFile(file);
         if (os === "darwin") return await macKeychain(async () => (await safeStorage.decryptStringAsync(kept)).result);
@@ -90,7 +89,9 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         const retry = os === "darwin" ? "The saved token is kept; allow Keychain access and retry. If access stays unavailable, restart this desktop." : "Pair that environment again.";
-        report(new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}). ${retry}`));
+        const unreadable = new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}). ${retry}`);
+        report(unreadable);
+        if (os === "darwin") throw unreadable;
         return undefined;
       }
     },

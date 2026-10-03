@@ -18,6 +18,11 @@ const discoveryPath = "/.well-known/agent-harness/environment";
 const credentialName = "packaged-update-check";
 const baseline = "0.0.0-0";
 
+/** Whether Settings has opened, queried through the packaged page's CDP boundary. */
+export async function packagedSettingsOpen(evaluate) {
+  return await evaluate("!!document.querySelector('section[aria-label=Settings]')");
+}
+
 /** Runs on hosted macOS only. The credential stays inside the page; no token is returned or logged. */
 export async function askForPackagedUpdate(evaluate, version) {
   const result = await evaluate(`(async () => {
@@ -204,7 +209,7 @@ try {
     cdp = await connectCdp(port);
     await until(() => cdp.evaluate("typeof window.desktopShell === 'object'"), "The packaged preload did not load");
     await cdp.evaluate("document.querySelector('button[aria-label=Settings]').click()");
-    await until(() => cdp.evaluate("!!document.querySelector('[aria-label=Settings][role=region]')"), "Settings did not open after replacement");
+    await until(() => packagedSettingsOpen(cdp.evaluate), "Settings did not open after replacement");
     await askForPackagedUpdate(cdp.evaluate, version);
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Reading the existing credential must preserve it");
     const after = await until(async () => {

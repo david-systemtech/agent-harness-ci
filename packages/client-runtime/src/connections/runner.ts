@@ -140,7 +140,15 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
   };
 
   const openSocket = async (attempt: number) => {
-    const token = await host.token();
+    let token: string | undefined;
+    try {
+      token = await host.token();
+    } catch (error) {
+      // Unavailable storage is retryable; only an absent token means the session is revoked.
+      feed({ type: "close", attempt });
+      host.report(error);
+      return;
+    }
     if (stopped || state.attempt !== attempt) return;
     if (token === undefined) return feed({ type: "no-token", attempt });
     const opening = host.dial(token);
