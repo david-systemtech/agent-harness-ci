@@ -50,8 +50,9 @@ const HeaderWidth = ({ width }: { readonly width: number }) => {
     if (wrapper === null || header === null || header === undefined) return;
     const measure = () => {
       const bounds = header.getBoundingClientRect();
+      const title = header.querySelector<HTMLElement>("[data-header-session-title]");
       const children = Array.from(header.querySelectorAll("*")).map((child) => child.getBoundingClientRect()).filter((rect) => rect.width > 0 && rect.height > 0);
-      wrapper.dataset["headerFits"] = String(header.scrollWidth <= header.clientWidth && children.every((rect) => rect.height <= 30.5 && rect.left >= bounds.left - 0.5 && rect.right <= bounds.right + 0.5));
+      wrapper.dataset["headerFits"] = String((title?.getBoundingClientRect().width ?? 0) >= 47.5 && header.scrollWidth <= header.clientWidth && children.every((rect) => rect.height <= 30.5 && rect.left >= bounds.left - 0.5 && rect.right <= bounds.right + 0.5));
     };
     const observer = new ResizeObserver(measure);
     const changes = new MutationObserver(measure);

@@ -29,7 +29,7 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
     </span>}
     <span title={path ?? undefined} className="min-w-0 max-w-56 truncate text-xs text-ink-muted">{workspace}</span>
     <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-ink-faint" />
-    <span title={summary?.title ?? undefined} className="min-w-0 flex-1 truncate text-xs text-ink-muted">{summary?.title ?? "Session"}</span>
+    <span data-header-session-title title={summary?.title ?? undefined} className="min-w-12 flex-1 truncate text-xs text-ink-muted">{summary?.title ?? "Session"}</span>
   </>;
 };
 
