@@ -46,6 +46,12 @@ const withSeeds = (seeds: Partial<Theme["seeds"]>): Theme => ({ name: "Test", se
 const DEFAULT_THEME_DARK_PANEL = RECORDED_PALETTE.dark.panel;
 
 describe("the rules", () => {
+  it.each(LADDERS)("derives a black scrim from a tinted canvas in the %s ladder", (ladder) => {
+    const derived = derive(withSeeds({ canvas: { hue: 121, chroma: 0.15 } }));
+    expect(derived[ladder].tokens.scrim).toEqual({ l: 0, c: 0, h: 121 });
+    expect(inGamut(derived[ladder].tokens.scrim)).toBe(true);
+  });
+
   it.each(LADDERS)("hold on the preset's %s ladder, and nothing is clamped", (ladder) => {
     const derived = derive(DEFAULT_THEME);
     expect(broken(derived[ladder])).toEqual([]);

@@ -101,7 +101,7 @@ const TAILWIND_HUES = [
 const TAILWIND_SHADES = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950"];
 
 /** Every Tailwind 4 utility that takes a colour: the prefixes of the classes its design system lists for `white` at 4.3. */
-const COLOUR_UTILITIES = [
+export const COLOUR_UTILITIES = [
   "accent", "bg", "caret", "decoration", "divide", "drop-shadow", "fill", "from", "via", "to", "inset-ring", "inset-shadow",
   "outline", "placeholder", "ring", "ring-offset", "scrollbar-thumb", "scrollbar-track", "shadow", "stroke", "text", "text-shadow",
   ...["", "-x", "-y", "-s", "-e", "-t", "-r", "-b", "-l", "-bs", "-be"].map((side) => `border${side}`),

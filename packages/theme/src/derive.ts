@@ -71,6 +71,8 @@ const toThousandths = (value: number): number => Math.floor(value * 1000 + 1e-6)
 
 /** The colour at this lightness with as much of the chroma as sRGB shows. */
 const fit = (l: number, chroma: number, h: number): Oklch => {
+  // At black no chroma is in gamut; the floating-point tolerance must not leave a tint.
+  if (l === 0) return { l, c: 0, h };
   let c = toThousandths(chroma);
   while (c > 0 && !inGamut({ l, c, h })) c = Math.max(0, toThousandths(c - CHROMA_STEP));
   return { l, c, h };
@@ -313,6 +315,7 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
     panel,
     raised: surface(plan.surfaces.raised),
     float: surface(plan.surfaces.float),
+    scrim: surface(0),
     line: surface(plan.surfaces.line),
     "line-strong": lineStrong,
     ...inks,
