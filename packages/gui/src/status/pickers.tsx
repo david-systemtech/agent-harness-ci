@@ -66,8 +66,9 @@ interface PickerButtonProps {
   readonly children: ReactNode;
   /** The menu's items. */
   readonly items: () => ReactNode;
-  /** The slash command that opens it. */
+  /** An extra warning appended to the button's tooltip. */
   readonly warning?: string | undefined;
+  /** The slash command that opens it. */
   readonly command: "account" | "model" | "mode" | "containment";
 }
 
