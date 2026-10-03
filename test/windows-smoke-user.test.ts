@@ -1,0 +1,92 @@
+import { execFile, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { afterEach, describe, expect, it } from "vitest";
+import { releaseWorkflowInput } from "./release-workflow-input.js";
+
+const run = promisify(execFile);
+const pwsh = process.env["PWSH"] ?? "pwsh";
+const env = { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1", POWERSHELL_TELEMETRY_OPTOUT: "1", POWERSHELL_UPDATECHECK: "Off" };
+const hasPwsh = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", "-Command", "exit 0"], { env }).status === 0;
+let scratch = "";
+afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
+
+/** Run the hosted job's PowerShell at the account/process boundary, without creating OS users. */
+const execute = async (exitCode: number) => {
+  scratch = mkdtempSync(join(tmpdir(), "windows-smoke-user-"));
+  const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
+  const job = workflow.split("  smoke-windows:\n")[1]?.split("  smoke-macos:\n")[0] ?? "";
+  const command = job.split("        run: |\n")[1]?.split(/^ {6}- /m)[0] ?? "";
+  const script = command.split("\n").map((line) => line.replace(/^ {10}/, "")).join("\n");
+  mkdirSync(join(scratch, "desktop"));
+  writeFileSync(join(scratch, "desktop/agent-harness-desktop-win32-x64-setup.exe"), "fixture setup");
+  const harness = join(scratch, "harness.ps1");
+  writeFileSync(harness, `
+$ErrorActionPreference = 'Stop'
+$env:VERSION = '0.1.1'
+$env:PUBLIC = $env:FIXTURE_ROOT
+function New-LocalUser { param($Name, $Password, [switch] $AccountNeverExpires, [switch] $PasswordNeverExpires)
+  if ($Password -isnot [Security.SecureString]) { throw 'Password must stay in a secure string' }
+  $script:user = $Name
+  [pscustomobject]@{ SID = [pscustomobject]@{ Value = 'fixture-user-sid' } }
+}
+function Add-LocalGroupMember { param($SID, $Member)
+  if ($SID -ne 'S-1-5-32-545') { throw 'Smoke user must join Users only' }
+}
+function Remove-LocalUser { param($Name) Add-Content $env:RECORD "removed:$Name" }
+function icacls.exe { $global:LASTEXITCODE = 0 }
+function Start-Process {
+  param($FilePath, $ArgumentList, $Credential, [switch] $LoadUserProfile, [switch] $UseNewEnvironment,
+    $WorkingDirectory, $RedirectStandardOutput, $RedirectStandardError, [switch] $Wait, [switch] $PassThru)
+  if (!$Credential -or !$LoadUserProfile -or !$UseNewEnvironment -or !$Wait) { throw 'Smoke launched without an ordinary-user profile and credential' }
+  if ($Credential.UserName -notlike "*\\$script:user") { throw 'Smoke credential does not name the created user' }
+  if ($ArgumentList -match [regex]::Escape($Credential.GetNetworkCredential().Password)) { throw 'Password reached process arguments' }
+  $child = Join-Path $WorkingDirectory 'smoke.ps1'
+  Copy-Item $child $env:CHILD_COPY
+  Set-Content $RedirectStandardOutput 'ordinary-user child output'
+  Set-Content $RedirectStandardError ''
+  Add-Content $env:RECORD 'ordinary-user launch'
+  [pscustomobject]@{ ExitCode = ${exitCode} }
+}
+${script}
+`);
+  return run(pwsh, ["-NoProfile", "-NonInteractive", "-File", harness], { cwd: scratch,
+    env: { ...env, FIXTURE_ROOT: scratch, RECORD: join(scratch, "record"), CHILD_COPY: join(scratch, "child.ps1") } });
+};
+
+describe.skipIf(!hasPwsh && !process.env["CI"])("the Windows smoke's user token", () => {
+  it("launches the whole smoke under the temporary ordinary user's profile", async () => {
+    const result = await execute(0);
+    expect(result.stdout).toContain("ordinary-user child output");
+    const record = readFileSync(join(scratch, "record"), "utf8");
+    expect(record).toContain("ordinary-user launch");
+    expect(record).toMatch(/removed:ah-smoke-/);
+    const child = readFileSync(join(scratch, "child.ps1"), "utf8");
+    expect(child).toContain("S-1-16-(\\d+)");
+    expect(child).toContain("foreach ($attempt in 1, 2)");
+    expect(child).toContain("$stagingLimitSeconds = 90");
+    expect(child).toContain("launcher-entry.cmd");
+  });
+
+  it("propagates a failed smoke and removes its temporary account", async () => {
+    await expect(execute(7)).rejects.toMatchObject({ code: 1 });
+    expect(readFileSync(join(scratch, "record"), "utf8")).toMatch(/removed:ah-smoke-/);
+  });
+
+  it.each([
+    ["S-1-16-8192", true],
+    ["S-1-16-12288", false],
+    ["no mandatory level", false],
+  ] as const)("checks a multiline child token containing %s", async (level, allowed) => {
+    await execute(0);
+    const child = readFileSync(join(scratch, "child.ps1"), "utf8");
+    const token = child.slice(child.indexOf("$groups ="), child.indexOf("$PSNativeCommandUseErrorActionPreference"));
+    const probe = token.replace('& "$env:SystemRoot\\System32\\whoami.exe" /groups',
+      `& { $global:LASTEXITCODE = 0; 'ordinary groups'; '${level}' }`);
+    const result = run(pwsh, ["-NoProfile", "-NonInteractive", "-Command", `$ErrorActionPreference = 'Stop'; ${probe}`], { env });
+    if (allowed) expect((await result).stdout).toContain("mandatory level: 8192");
+    else await expect(result).rejects.toMatchObject({ code: 1 });
+  });
+});

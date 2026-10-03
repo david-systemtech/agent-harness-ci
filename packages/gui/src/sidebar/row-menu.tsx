@@ -1,11 +1,12 @@
 import { groupChoices, presetTimes, rowKey, snoozeStands, toggleOf, whenWords, type HeadingRow } from "@agent-harness/client-runtime";
 import type { CommandMethodName } from "@agent-harness/contracts";
+import { Archive, Calendar, Check, Clock, FileText, Folder, FolderPlus, GitFork, Pin, PinOff, SquareSplitHorizontal, Tags, Trash2, Undo2, Pencil } from "lucide-react";
 import { useMemo } from "react";
 import { usePaneGrid } from "../grid/grid.js";
 import { useOpenInPane } from "../session/pane-line.js";
-import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "../ui/index.js";
+import { ContextMenuContent, ContextMenuSeparator } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { Entry, SubEntry, useHandOn } from "./menu-entry.js";
+import { Entry, SubEntry, menuLetter, useHandOn } from "./menu-entry.js";
 import { useOrganise } from "./organise.js";
 import { quoted } from "./words.js";
 
@@ -54,7 +55,7 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
   const toggle = (which: "pin" | "archive" | "settle", on: string, off: string) => {
     const { method, on: set } = toggleOf(summary, which);
     return (
-      <Entry offer={admits(method)} onSelect={() => organise.send(environmentId, method, { sessionId })}>
+      <Entry icon={which === "pin" ? (set ? PinOff : Pin) : which === "archive" ? Archive : Check} letter={which === "pin" ? "P" : which === "archive" ? "A" : "U"} offer={admits(method)} onSelect={() => organise.send(environmentId, method, { sessionId })}>
         {set ? off : on}
       </Entry>
     );
@@ -74,17 +75,18 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
   const choices = groupChoices(list.groups, row, "");
 
   return (
-    <ContextMenuContent aria-label={`Organise ${quoted(summary.title)}`} onCloseAutoFocus={onCloseAutoFocus}>
-      <Entry offer={admits("sessions.rename")} onSelect={handOn(rename)}>
+    <ContextMenuContent className="w-[192px]" onKeyDown={menuLetter} aria-label={`Organise ${quoted(summary.title)}`} onCloseAutoFocus={onCloseAutoFocus}>
+      <Entry icon={Pencil} letter="R" offer={admits("sessions.rename")} onSelect={handOn(rename)}>
         Rename
       </Entry>
       {toggle("pin", "Pin", "Unpin")}
       {toggle("archive", "Archive", "Unarchive")}
       {toggle("settle", "Settle", "Unsettle")}
       <ContextMenuSeparator />
-      <SubEntry offer={admits("sessions.snooze")} name="Snooze">
+      <SubEntry icon={Clock} offer={admits("sessions.snooze")} name="Snooze">
         {presetTimes(now).map((preset) => (
           <Entry
+            icon={Clock}
             key={preset.label}
             offer={preset.at === null ? { status: "absent", message: preset.absent ?? "Not now." } : { status: "present" }}
             {...(preset.at !== null && { detail: whenWords(preset.at) })}
@@ -94,37 +96,37 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
           </Entry>
         ))}
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={handOn(() => organise.open({ kind: "snooze", row: key }))}>A date and time…</ContextMenuItem>
+        <Entry icon={Calendar} offer={admits("sessions.snooze")} onSelect={handOn(() => organise.open({ kind: "snooze", row: key }))}>A date and time…</Entry>
       </SubEntry>
       {snoozeStands(summary, now) && (
-        <Entry offer={admits("sessions.unsnooze")} onSelect={() => organise.send(environmentId, "sessions.unsnooze", { sessionId })}>
+        <Entry icon={Undo2} letter="W" offer={admits("sessions.unsnooze")} onSelect={() => organise.send(environmentId, "sessions.unsnooze", { sessionId })}>
           Wake now
         </Entry>
       )}
-      <Entry offer={admits("sessions.tag")} onSelect={handOn(() => organise.open({ kind: "tags", row: key }))}>
+      <Entry icon={Tags} letter="T" offer={admits("sessions.tag")} onSelect={handOn(() => organise.open({ kind: "tags", row: key }))}>
         Tags…
       </Entry>
-      <Entry offer={admits("sessions.setInstructions")} onSelect={handOn(() => organise.open({ kind: "instructions", row: key }))}>
+      <Entry icon={FileText} letter="I" offer={admits("sessions.setInstructions")} onSelect={handOn(() => organise.open({ kind: "instructions", row: key }))}>
         Session instructions…
       </Entry>
-      <SubEntry offer={moving} name="Move to group">
+      <SubEntry icon={Folder} offer={moving} name="Move to group">
         {choices.listed.map(({ heading, here }) => (
-          <Entry key={heading.key} offer={here ? { status: "absent", message: "It is in this group." } : { status: "present" }} onSelect={() => move(heading.name)}>
+          <Entry icon={Folder} key={heading.key} offer={here ? { status: "absent", message: "It is in this group." } : { status: "present" }} onSelect={() => move(heading.name)}>
             {heading.name}
           </Entry>
         ))}
         {choices.listed.length > 0 && <ContextMenuSeparator />}
-        <ContextMenuItem onSelect={handOn(() => organise.open({ kind: "new-group", row: key }))}>New group…</ContextMenuItem>
-        {choices.out && <ContextMenuItem onSelect={() => move(null)}>No group</ContextMenuItem>}
+        <Entry icon={FolderPlus} offer={moving} onSelect={handOn(() => organise.open({ kind: "new-group", row: key }))}>New group…</Entry>
+        {choices.out && <Entry icon={Folder} offer={moving} onSelect={() => move(null)}>No group</Entry>}
       </SubEntry>
       <ContextMenuSeparator />
-      <Entry offer={verbs.fork} onSelect={fork}>
+      <Entry icon={GitFork} letter="F" offer={verbs.fork} onSelect={fork}>
         Fork
       </Entry>
-      <Entry offer={grid.openingBeside(session)} onSelect={() => grid.openBeside(grid.focused.id, "right", session)}>
+      <Entry icon={SquareSplitHorizontal} letter="O" offer={grid.openingBeside(session)} onSelect={() => grid.openBeside(grid.focused.id, "right", session)}>
         Open in a new pane
       </Entry>
-      <Entry offer={admits("sessions.delete")} onSelect={handOn(() => organise.open({ kind: "delete", row: key }))}>
+      <Entry icon={Trash2} letter="D" offer={admits("sessions.delete")} onSelect={handOn(() => organise.open({ kind: "delete", row: key }))}>
         Delete…
       </Entry>
     </ContextMenuContent>
