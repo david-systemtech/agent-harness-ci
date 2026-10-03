@@ -7,7 +7,7 @@ import { CharacterCount } from "@tiptap/extensions";
 import { Markdown, type MarkdownStorage } from "tiptap-markdown";
 import { Bold, Code, Heading2, Heading3, Italic, Link, List, ListOrdered, Quote, SquareCode } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Tooltip } from "./index.js";
+import { Button, Input, Textarea, Tooltip } from "./index.js";
 
 // The extension publishes this storage but does not augment Tiptap's storage interface.
 declare module "@tiptap/core" { interface Storage { markdown: MarkdownStorage & { readonly serializer: { serialize(node: Node): string } } } }
@@ -22,6 +22,8 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
 }) => {
   const [link, setLink] = useState<string | null>(null);
   const lastMarkdown = useRef(value);
+  const loadedMarkdown = useRef<string | null>(null);
+  const [sourceEditing, setSourceEditing] = useState(false);
   const linkHandled = useRef(false);
   const extensions = useMemo(() => [StarterKit.configure({ heading: { levels: [2, 3] }, link: { openOnClick: false }, underline: false }),
       Markdown.configure({ html: false, tightLists: true, bulletListMarker: "-", transformPastedText: true, transformCopiedText: true }),
@@ -58,9 +60,22 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
       lastMarkdown.current = value;
       editor.commands.setContent(value, { emitUpdate: false });
     }
+    if (loadedMarkdown.current !== value) {
+      loadedMarkdown.current = value;
+      // Use the original source when rich loading cannot preserve it.
+      if (editor.storage.markdown.getMarkdown() !== value) setSourceEditing(true);
+    }
   }, [editor, readOnly, value]);
   useEffect(() => { if (readOnly) setLink(null); }, [readOnly]);
   if (editor === null) return null;
+  if (sourceEditing) return <div data-markdown-editor className="overflow-hidden rounded-lg border border-hairline bg-panel">
+    <p className="px-3 pt-2 text-2xs text-ink-muted">Markdown source</p>
+    <Textarea aria-label={label} aria-readonly={readOnly} readOnly={readOnly} value={value} maxLength={maxLength} className="min-h-32 rounded-none border-0 font-mono" onChange={(event) => {
+      const markdown = event.target.value;
+      if (readOnly || (maxLength !== undefined && markdown.length > maxLength && markdown.length >= value.length)) return;
+      change(markdown);
+    }} />
+  </div>;
   const controls = [
     { name: "Heading 2", icon: Heading2, active: editor.isActive("heading", { level: 2 }), run: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), keys: "Mod+Alt+2" },
     { name: "Heading 3", icon: Heading3, active: editor.isActive("heading", { level: 3 }), run: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), keys: "Mod+Alt+3" },
