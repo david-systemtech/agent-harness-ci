@@ -18,6 +18,21 @@ const discoveryPath = "/.well-known/agent-harness/environment";
 const credentialName = "packaged-update-check";
 const baseline = "0.0.0-0";
 
+/** Prepares the prior install's runtime versions before installing its service. */
+export function stampPriorPackagedServer(server, version) {
+  // The release keeps only the CLI under packages; its workspace dependencies live under their scope.
+  for (const directory of [join(server, "packages"), join(server, "node_modules", "@agent-harness")]) {
+    for (const folder of readdirSync(directory)) {
+      const manifest = join(directory, folder, "package.json");
+      if (existsSync(manifest)) {
+        const value = JSON.parse(readFileSync(manifest, "utf8"));
+        value.version = version;
+        writeFileSync(manifest, JSON.stringify(value));
+      }
+    }
+  }
+}
+
 /** Whether Settings has opened, queried through the packaged page's CDP boundary. */
 export async function packagedSettingsOpen(evaluate) {
   return await evaluate("!!document.querySelector('section[aria-label=Settings]')");
@@ -159,14 +174,7 @@ async function runSmoke(source, version) {
     // A prior-install fixture of the release's server code, stamped lower, tests the real launcher handover.
     // Actual 0.1.0 data migration and interactive OS approval are the manual checklist.
     const server = join(resources, "server");
-    for (const folder of readdirSync(join(server, "packages"))) {
-      const manifest = join(server, "packages", folder, "package.json");
-      if (existsSync(manifest)) {
-        const value = JSON.parse(readFileSync(manifest, "utf8"));
-        value.version = baseline;
-        writeFileSync(manifest, JSON.stringify(value));
-      }
-    }
+    stampPriorPackagedServer(server, baseline);
     fixtureCli = [join(server, "node", "bin", "node"), join(server, "packages", "cli", "dist", "main.js")];
     execute(fixtureCli[0], [fixtureCli[1], "service", "install"]);
     execute(fixtureCli[0], [fixtureCli[1], "service", "start"]);
