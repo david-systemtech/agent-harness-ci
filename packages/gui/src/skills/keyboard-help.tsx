@@ -3,7 +3,7 @@ const SKILLS_ACTIONS = [
   "Probe a skill repository and track selected folders",
   "Pull a source now, change its branch, pin or remove it",
   "Create or remove an own skill",
-  "Change enabled and always-on choices for each account",
+  "Change enabled and Every prompt choices for each account",
   "Check skill readiness again for a session",
   "Decide repository trust or revoke it",
 ] as const;

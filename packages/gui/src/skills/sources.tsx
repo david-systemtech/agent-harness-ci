@@ -1,7 +1,8 @@
 import { oneLine } from "@agent-harness/client-runtime";
 import { SKILL_SOURCE_LIMIT, type SkillsViewSource } from "@agent-harness/contracts";
+import { GitBranch, Folder, Link, Pin, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Button, Dialog, DialogContent, Input, Fact } from "../ui/index.js";
+import { Button, Dialog, DialogContent, Input, Fact, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
 
@@ -17,27 +18,31 @@ export const AddSource = ({ environmentId, say, title = "Skill sources" }: {
   const [asked, setAsked] = useState<{ readonly url: string; readonly branch?: string } | undefined>(undefined);
   return (
     <section aria-label="Add a source" className="flex flex-col gap-3">
-      <h3 className="font-semibold">{title}</h3>
-      <p className="text-sm text-ink-muted">
+      <h3 className="text-xs font-semibold">{title}</h3>
+      <p className="text-2xs text-ink-muted">
         At most {SKILL_SOURCE_LIMIT} sources. Probe a URL, then choose its skill folders. A folder with its own SKILL.md is one skill, including the repository
         root.
       </p>
-      <Input
+      <label className="flex flex-col gap-1 text-xs"><span className="flex items-center gap-1"><Link aria-hidden="true" className="size-3.5" />Repository URL</span><Tooltip content="Repository URL · Type to edit"><Input
+        placeholder="https://git.example.test/team/procedures.git"
+        className="font-mono text-xs"
         aria-label="Source URL"
         value={url}
         onChange={(event) => {
           setUrl(event.target.value);
           setAsked(undefined);
         }}
-      />
-      <Input
+      /></Tooltip></label>
+      <label className="flex flex-col gap-1 text-xs"><span className="flex items-center gap-1"><GitBranch aria-hidden="true" className="size-3.5" />Branch (optional)</span><Tooltip content="Branch · Type to edit"><Input
+        placeholder="Default branch"
+        className="font-mono text-xs"
         aria-label="Source branch (optional)"
         value={branch}
         onChange={(event) => {
           setBranch(event.target.value);
           setAsked(undefined);
         }}
-      />
+      /></Tooltip></label>
       <SkillButton
         environmentId={environmentId}
         method="skills.probe"
@@ -75,11 +80,11 @@ const ProbeFolders = ({
         {oneLine(probed.error.message)}
       </p>
     );
-  if (probe === null) return <p className="text-sm text-ink-muted">Probing repository…</p>;
+  if (probe === null) return <p className="text-2xs text-ink-muted">Probing repository…</p>;
   const folders = [...(probe.root === null ? [] : [probe.root]), ...probe.folders];
   return (
     <>
-      <p className="text-sm text-ink-muted">
+      <p className="text-2xs text-ink-muted">
         {probe.identity}: {probe.branch}, {probe.commit}
       </p>
       {probe.truncated && <p className="text-sm text-amber">The probe reached its directory limit; more folders may exist.</p>}
@@ -87,30 +92,30 @@ const ProbeFolders = ({
       {folders.map((folder) => (
         <div key={folder.folder} className="flex flex-col gap-1">
           <label className="flex items-center gap-2">
-            <input
+            <Tooltip content={`Track ${folder.folder} · Space`}><input
               type="checkbox"
               className="accent-beam focus-visible:outline-beam"
               disabled={folder.count === 0 || sending}
               checked={chosen.includes(folder.folder)}
               onChange={(event) => choose(event.target.checked ? [...chosen, folder.folder] : chosen.filter((value) => value !== folder.folder))}
-            />
+            /></Tooltip><Folder aria-hidden="true" className="size-3.5" />
             Track {folder.folder}: {folder.count} skill(s)
           </label>
-          <p className="text-sm text-ink-muted">Licence: {folder.licence ?? "No licence file found"}</p>
+          <p className="text-2xs text-ink-muted">Licence: {folder.licence ?? "No licence file found"}</p>
           {folder.members.map((member) => (
-            <p key={member.path} className="text-sm text-ink-muted">
+            <p key={member.path} className="text-2xs text-ink-muted">
               {member.name ?? member.path}: {member.description} ({member.invocation}){member.problems.map((problem) => ` — ${problem.message}`).join("")}
             </p>
           ))}
         </div>
       ))}
       <label className="flex items-center gap-2">
-        <input
+        <Tooltip content="Pin at this commit · Space"><input
           type="checkbox"
           className="accent-beam focus-visible:outline-beam"
           checked={followKind === "pinned"}
           onChange={(event) => setFollowKind(event.target.checked ? "pinned" : "branch")}
-        />
+        /></Tooltip><Pin aria-hidden="true" className="size-3.5" />
         Pin at this commit
       </label>
       <SkillButton
@@ -159,8 +164,8 @@ export const SourceCard = ({
   const [branch, setBranch] = useState(source.follow.kind === "branch" ? (source.follow.branch ?? "") : "");
   const pinned = source.follow.kind === "pinned";
   return (
-    <section aria-label={`${source.identity} — ${source.folder}`} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 className="font-semibold">
+    <section aria-label={`${source.identity} — ${source.folder}`} className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3">
+      <h3 className="flex items-center gap-2 text-xs font-semibold break-all"><GitBranch aria-hidden="true" className="size-4 shrink-0" />
         {source.identity} — {source.folder}
       </h3>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 text-sm">
@@ -171,7 +176,7 @@ export const SourceCard = ({
         <Fact name="Last sync">{source.attemptedAt ?? "None since the environment started"}</Fact>
         <Fact name="Outcome since">{source.sync.since}</Fact>
       </dl>
-      <p className="text-sm text-ink-muted">
+      <p className="text-2xs text-ink-muted">
         {source.sync.outcome === "ok"
           ? "Synced"
           : source.sync.outcome === "failed"
@@ -220,7 +225,7 @@ export const SourceCard = ({
           Remove source
         </SkillButton>
       </div>
-      <Input aria-label={`Branch for ${source.identity} — ${source.folder}`} value={branch} onChange={(event) => setBranch(event.target.value)} />
+      <label className="flex flex-col gap-1 text-xs"><span className="flex items-center gap-1"><GitBranch aria-hidden="true" className="size-3.5" />Follow branch</span><Tooltip content="Follow branch · Type to edit"><Input className="font-mono text-xs" aria-label={`Branch for ${source.identity} — ${source.folder}`} value={branch} onChange={(event) => setBranch(event.target.value)} /></Tooltip></label>
       <SkillButton
         environmentId={environmentId}
         method="skills.sources.setFollow"
@@ -261,7 +266,7 @@ export const SourceCard = ({
           >
             Confirm remove source
           </SkillButton>
-          <Button onClick={() => setRemoving(false)}>Cancel</Button>
+          <Tooltip content="Cancel · Escape"><Button onClick={() => setRemoving(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
         </DialogContent>
       </Dialog>
     </section>
