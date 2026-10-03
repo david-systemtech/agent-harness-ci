@@ -1,30 +1,32 @@
-import type { Pressure, Reading } from "@agent-harness/client-runtime";
+import type { Reading } from "@agent-harness/client-runtime";
 import { classes } from "../ui/classes.js";
 
-/** A window's bar and percent by its pressure: out and high in the danger colour, raised in the warning's, low in success's. */
-const BAR_TONES: Readonly<Record<Pressure, string>> = { out: "bg-signal", high: "bg-signal", raised: "bg-amber", low: "bg-sage" };
-const VALUE_TONES: Readonly<Record<Pressure, string>> = { out: "font-semibold text-signal", high: "font-semibold text-signal", raised: "text-amber", low: "text-ink-muted" };
-
-/** How much of a bar a window lights, in percent: some for any use, and all only when the window is full. */
-const barWidth = (utilisation: number): number => {
-  const percent = utilisation * 100;
-  if (percent <= 0) return 0;
-  if (percent >= 100) return 100;
-  return Math.min(Math.max(percent, 8), 92);
+/** docs/specs/look.md §10.5: rings encode used share, with one drawing for status and Usage. */
+export const UsageRing = ({ reading }: { readonly reading: Reading }) => {
+  const used = reading.utilisation === null ? null : Math.max(0, Math.min(100, reading.utilisation * 100));
+  const rejected = reading.pressure === "out";
+  const share = rejected ? 100 : used ?? 0;
+  const number = used === null ? (rejected ? "!" : "—") : String(Math.round(used));
+  const tone = rejected || (used !== null && used >= 90) ? "text-signal" : used !== null && used >= 75 ? "text-amber" : used === null ? "text-ink-faint" : "text-mint";
+  return (
+    <svg role="img" aria-label={`${reading.label} ${reading.value}`} viewBox="0 0 36 36" width="24" height="24" className={classes("size-6 shrink-0 font-mono", tone)}>
+      <circle cx="18" cy="18" r="16" fill="currentColor" opacity="0.12" />
+      <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="4" opacity="0.2" />
+      <circle data-usage-arc cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="4" pathLength="100" style={{ strokeDasharray: `${share} 100` }} transform="rotate(-90 18 18)" className="transition-[stroke-dasharray] duration-300 motion-reduce:transition-none" />
+      <text x="18" y="18" textAnchor="middle" dominantBaseline="central" fill="currentColor" style={{ fontSize: number === "100" ? "12px" : "13.5px" }}>{number}</text>
+    </svg>
+  );
 };
 
-/**
- * One plan window's bar, lit for any use and full only when the window is,
- * then its percent, `out` when the provider refuses it, each in its
- * pressure's colour: the status line's gauge and the Usage pane draw it.
- */
-export const WindowReading = ({ reading }: { readonly reading: Reading }) => (
-  <>
-    {reading.utilisation !== null && (
-      <span aria-hidden="true" className="h-1.5 w-10 overflow-hidden rounded-full bg-wash-strong">
-        <span className={classes("block h-full", reading.pressure === undefined ? "bg-ink-faint" : BAR_TONES[reading.pressure])} style={{ width: `${barWidth(reading.utilisation)}%` }} />
-      </span>
-    )}
-    <span className={reading.pressure === undefined ? "text-ink-faint" : VALUE_TONES[reading.pressure]}>{reading.value}</span>
-  </>
-);
+/** Detailed windows pair the same ring with a 4px bar and a percent/refusal label. */
+export const WindowReading = ({ reading }: { readonly reading: Reading }) => {
+  const width = reading.pressure === "out" ? 100 : Math.max(0, Math.min(100, (reading.utilisation ?? 0) * 100));
+  const tone = reading.pressure === "out" || reading.pressure === "high" ? "text-signal" : reading.pressure === "raised" ? "text-amber" : reading.pressure === "low" ? "text-mint" : "text-ink-faint";
+  return <>
+    <UsageRing reading={reading} />{" "}
+    <span aria-hidden="true" className="h-1 w-10 overflow-hidden rounded-full bg-wash-strong">
+      <span className={classes("block h-full bg-current", tone)} style={{ width: `${width}%` }} />
+    </span>
+    <span className={tone}>{reading.value}</span>
+  </>;
+};
