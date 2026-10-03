@@ -1,3 +1,5 @@
+import { LogIn, LogOut, Pencil, Trash2, X } from "lucide-react";
+import { ActionButton as Button, AccessField as Field } from "./action-button.js";
 import {
   KEY_MANAGER_METHOD_WORDS,
   asksAddress,
@@ -12,7 +14,7 @@ import {
 } from "@agent-harness/client-runtime";
 import { KEY_MANAGER_AUTH_METHODS, type KeyManagerAuthMethod, type KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import { useState, type FormEvent } from "react";
-import { Button, Dialog, DialogClose, DialogContent, Field, Input, Select } from "../ui/index.js";
+import { Dialog, DialogClose, DialogContent, Input, Select } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { CredentialFields, NO_CREDENTIAL } from "./add-connection.js";
 import { CaChoice } from "./certificate-check.js";
@@ -82,8 +84,8 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
           <CredentialFields provider={connection.provider} method={method} typed={typed} type={setTyped} />
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
           <div className="flex justify-end gap-2">
-            <Button onClick={close}>Cancel</Button>
-            <Button tone="primary" type="submit" disabled={sending}>
+            <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
+            <Button icon={LogIn} label="Sign in" tone="primary" type="submit" disabled={sending}>
               Sign in
             </Button>
           </div>
@@ -153,8 +155,8 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
           )}
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
           <div className="flex justify-end gap-2">
-            <Button onClick={close}>Cancel</Button>
-            <Button tone="primary" type="submit" disabled={sending}>
+            <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
+            <Button icon={Pencil} label="Save" tone="primary" type="submit" disabled={sending}>
               Save
             </Button>
           </div>
@@ -175,9 +177,9 @@ export const ConfirmSignOut = ({ environmentId, connection, close, say }: Connec
       >
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
-            <Button>Cancel</Button>
+            <Button icon={X} label="Cancel">Cancel</Button>
           </DialogClose>
-          <Button
+          <Button icon={LogOut} label="Sign out"
             tone="danger"
             onClick={() => {
               close();
@@ -216,14 +218,14 @@ export const ConfirmRemove = ({ environmentId, connection, close, say }: Connect
         {refused !== undefined && <p className="text-sm text-signal">{refused.line}</p>}
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
-            <Button>Cancel</Button>
+            <Button icon={X} label="Cancel">Cancel</Button>
           </DialogClose>
           {refused?.referenced === true ? (
-            <Button tone="danger" disabled={sending} onClick={() => remove(true)}>
+            <Button icon={Trash2} label="Remove anyway" tone="danger" disabled={sending} onClick={() => remove(true)}>
               Remove anyway
             </Button>
           ) : (
-            <Button tone="danger" disabled={sending} onClick={() => remove(false)}>
+            <Button icon={Trash2} label="Remove" tone="danger" disabled={sending} onClick={() => remove(false)}>
               Remove
             </Button>
           )}

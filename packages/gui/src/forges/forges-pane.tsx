@@ -1,10 +1,11 @@
+import { Plus } from "lucide-react";
+import { ActionButton as Button, useInlineAdd } from "../key-managers/action-button.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
 import { useMemo, useState, type ComponentType } from "react";
 import { nameOf } from "../connections/words.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
-import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AddForge, type AddForgeGh } from "./add-forge.js";
 import { ForgeCard, type ForgeCardProps } from "./forge-card.js";
@@ -33,10 +34,10 @@ export const ForgesPane = () => {
 const ROW_GH: AddForgeGh = { computer: true, machine: false };
 
 const ForgesOn = ({ view }: { readonly view: EnvironmentView }) => (
-  <>
+  <div data-access-pane className="flex max-w-[768px] flex-col gap-3.5">
     <p className="text-sm text-ink-muted">{settingsRow("access.forges").hint}</p>
     <ForgesList view={view} Account={ForgeCard} gh={ROW_GH} />
-  </>
+  </div>
 );
 
 export interface ForgesListProps {
@@ -58,7 +59,7 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
   const { environmentId } = view;
   const flagged = runtime.capability(environmentId, "forge");
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "forge.accounts.list", {}), [runtime, environmentId]));
-  const [adding, setAdding] = useState(false);
+  const { adding, setAdding, trigger } = useInlineAdd();
   const [line, say] = useState<string | undefined>(undefined);
 
   if (flagged.status === "absent" && flagged.reason === "unsupported") return <p className="text-sm text-amber">{flagged.message}</p>;
@@ -74,18 +75,20 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
         </p>
       )}
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
-      <div className="flex flex-wrap gap-2">
-        <Button tone="primary" disabled={!writable} onClick={() => setAdding(true)}>
-          Add a forge
-        </Button>
-      </div>
+      {!adding && (
+        <div className="flex flex-wrap gap-2">
+          <Button ref={trigger} icon={Plus} label="Add a forge" tone="primary" disabled={!writable} onClick={() => setAdding(true)}>
+            Add a forge
+          </Button>
+        </div>
+      )}
+      {adding && <AddForge environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} gh={gh} />}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {accounts === null
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the forge accounts…" : `The forge accounts could not be read: ${listed.error.message}`}</p>
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No forge account is on this environment.</p>
           : accounts.map((account) => <Account key={account.id} environmentId={environmentId} account={account} writable={writable} say={say} />)}
-      {adding && <AddForge environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} gh={gh} />}
     </>
   );
 };

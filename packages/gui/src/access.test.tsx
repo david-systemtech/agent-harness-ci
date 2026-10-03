@@ -118,6 +118,9 @@ describe("revoking", () => {
     const sessions = part(await openAccess(app), "Client sessions");
     await labels(sessions, "Client sessions");
 
+    const revoke = within(item(sessions, "laptop window")).getByRole("button", { name: "Revoke…" });
+    expect(revoke.querySelector("svg")).not.toBeNull();
+    expect(revoke.title).toContain("Enter or Space");
     await app.user.click(within(item(sessions, "laptop window")).getByRole("button", { name: "Revoke…" }));
     const asked = await screen.findByRole("dialog", { name: "Revoke laptop window on desk?" });
     expect(within(asked).getByText("Its sockets close and its token is refused from then on; the client has to pair again to reach it.")).toBeDefined();
@@ -163,7 +166,7 @@ describe("a program pairing", () => {
     const scopes = () =>
       within(within(form).getByRole("group", { name: "Scopes" }))
         .getAllByRole("checkbox")
-        .map((box) => [box.getAttribute("aria-label") ?? (box as HTMLInputElement).labels?.[0]?.textContent, (box as HTMLInputElement).checked]);
+        .map((box) => [box.getAttribute("aria-label") ?? (box as HTMLInputElement).labels?.[0]?.textContent, box.getAttribute("aria-checked") === "true"]);
     // A program's preset (ADR 0025): read, sessions:write and runs:drive, up to acceptEdits.
     expect(scopes()).toEqual([
       ["read", true],
@@ -179,7 +182,7 @@ describe("a program pairing", () => {
     const expiry = clockTime(new Date(app.clock.now().getTime() + 10 * 60_000).toISOString());
     await app.user.click(within(form).getByRole("button", { name: "Make a program's pairing code" }));
 
-    expect(await within(form).findByText("Code: K7Q2M-XH4RV")).toBeDefined();
+    expect(await within(form).findByText("K7Q2M-XH4RV")).toBeDefined();
     expect(within(form).getByText("Grants read and sessions:write, up to plan.")).toBeDefined();
     expect(within(form).getByText(`Expires at ${expiry}, for one use.`)).toBeDefined();
     expect(desk.requests("access.pairings.create").map((request) => request.params)).toEqual([expect.objectContaining({ scopes: ["read", "sessions:write"], ceiling: "plan" })]);
@@ -187,12 +190,12 @@ describe("a program pairing", () => {
     // Shown once: gone once the pane is left, and gone at its expiry.
     await openAccess(app, "laptop");
     await openAccess(app, "desk");
-    expect(within(pane("Access")).queryByText("Code: K7Q2M-XH4RV")).toBeNull();
+    expect(within(pane("Access")).queryByText("K7Q2M-XH4RV")).toBeNull();
     const again = await within(part(pane("Access"), "Program pairings")).findByRole("group", { name: "Pair a program" });
     await app.user.click(within(again).getByRole("button", { name: "Make a program's pairing code" }));
-    expect(await within(again).findByText("Code: K7Q2M-XH4RW")).toBeDefined();
+    expect(await within(again).findByText("K7Q2M-XH4RW")).toBeDefined();
     act(() => app.clock.advance(10 * 60_000));
-    expect(within(again).queryByText("Code: K7Q2M-XH4RW")).toBeNull();
+    expect(within(again).queryByText("K7Q2M-XH4RW")).toBeNull();
     expect(within(again).getByText(/^This code expired at \d\d:\d\d: make another\.$/)).toBeDefined();
   });
 
@@ -253,7 +256,7 @@ describe("the access log", () => {
 
     const programs = part(access, "Program pairings");
     await app.user.click(within(programs).getByRole("button", { name: "Make a program's pairing code" }));
-    await within(programs).findByText("Code: K7Q2M-XH4RV");
+    await within(programs).findByText("K7Q2M-XH4RV");
     await app.user.click(within(log).getByRole("button", { name: "Read again" }));
     await waitFor(async () => expect(await newest()).toMatch(/ A pairing code was made\. Grants read, sessions:write and runs:drive, up to acceptEdits\.$/));
   });

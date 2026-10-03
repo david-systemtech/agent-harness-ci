@@ -86,6 +86,39 @@ esac
     expect(readFileSync(output, "utf8")).toBe(reported === "0.0.0" ? "" : "digest=sha256:fixture-digest\n");
   });
 
+  it("smokes the host updater against the built image before pushing it, without applying an update", async () => {
+    const smoke = step("image", "Inspect a container update without applying it");
+    expect(job("image").join("\n").indexOf(smoke)).toBeLessThan(job("image").join("\n").indexOf(step("image", "Push the verified image on a tag")));
+    scratch = mkdtempSync(join(tmpdir(), "release-updater-smoke-"));
+    const bin = join(scratch, "bin");
+    mkdirSync(bin);
+    const log = join(scratch, "calls");
+    writeFileSync(log, "");
+    writeFileSync(join(bin, "docker"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$CALLS"
+case "$*" in
+  "compose -f "*" exec -T environment agent-harness update status --json --data-dir /data")
+    printf '{"version":"%s","pending":{"state":"current"},"manager":{"lastPoll": null}}\\n' "$VERSION" ;;
+  "compose -f "*" ps -q environment") echo container-for-tests ;;
+  "inspect --format {{.Config.Image}} container-for-tests") echo "$IMAGE_REFERENCE" ;;
+  "compose -f "*" up -d --pull never environment" | "compose -f "*" down --volumes --timeout 5") ;;
+  *) echo "unexpected docker call: $*" >&2; exit 97 ;;
+esac
+`);
+    writeFileSync(join(bin, "curl"), `#!/bin/sh\necho '{"status":"ready"}'\n`);
+    for (const tool of ["docker", "curl"]) chmodSync(join(bin, tool), 0o755);
+    const commands = smoke.split("        run: |\n")[1]?.replace(/^ {10}/gm, "") ?? "";
+    const result = await run("bash", ["-euc", commands], { cwd: root, env: {
+      ...process.env, PATH: `${bin}:${process.env["PATH"]}`, TMPDIR: scratch, CALLS: log,
+      IMAGE_REFERENCE: "example/image:1.2.3", VERSION: "1.2.3",
+    } });
+    expect(result.stdout).toContain("No pending update.");
+    const calls = readFileSync(log, "utf8").trim().split("\n");
+    expect(calls.filter((call) => call.includes(" up -d "))).toHaveLength(1);
+    expect(calls.at(-1)).toContain("down --volumes --timeout 5");
+    expect(calls.join("\n")).not.toMatch(/--host-updater|update begin|update snapshot|update restore|^pull /m);
+  });
+
   it("builds three desktops on hosted runners, preserves the package checks, and transfers all three before assembling the release", () => {
     for (const [name, runner, platform, format, filename] of [
       ["desktop-macos", "macos-latest", "darwin-arm64", "zip", "agent-harness-desktop-darwin-arm64.zip"],
@@ -107,6 +140,22 @@ esac
     expect(job("desktop-arch").join("\n")).toContain('grep -qx "pkgname = agent-harness-desktop"');
     expect(step("release", "The desktop jobs' builds")).toContain("merge-multiple: true");
     expect(job("release")).toContain("    needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
+  });
+
+  it("smokes the public headless installers without credentials on each release platform", () => {
+    for (const name of ["smoke-macos", "smoke-linux"]) {
+      const body = job(name).join("\n");
+      expect(body).toContain("actions/checkout@");
+      expect(step(name, "Resolve a public headless install without credentials")).toContain('sh scripts/install.sh --dry-run --data-dir "$RUNNER_TEMP/headless-install"');
+      expect(body).toContain("unset AGENT_HARNESS_TOKEN");
+      expect(body).toContain("https://github.com/david-systemtech/agent-harness/releases/download/");
+    }
+    const windows = job("smoke-windows").join("\n");
+    expect(windows).toContain("actions/checkout@");
+    expect(windows).toContain("scripts/install.ps1");
+    expect(windows).toContain("-DryRun -DataDir");
+    expect(windows).toContain("Remove-Item Env:\\AGENT_HARNESS_TOKEN");
+    expect(windows).toContain("https://github.com/david-systemtech/agent-harness/releases/download/");
   });
 
   it("hands the manifest writer every asset, the tag and exact ghcr image through the runner's shell", async () => {

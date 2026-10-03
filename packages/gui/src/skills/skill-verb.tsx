@@ -1,7 +1,8 @@
 import { oneLine, uuidv7 } from "@agent-harness/client-runtime";
 import type { CommandReceipt, MethodName } from "@agent-harness/contracts";
 import { useRef, useState, type ReactNode } from "react";
-import { Button } from "../ui/index.js";
+import { Plus, Pencil, Trash2, RefreshCw, ArrowUp, ArrowDown, Pin, Eye, RotateCcw, Check } from "lucide-react";
+import { Button, Tooltip } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 
 /** Admin verbs are direct requests, with fresh command ids and their refusal shown on one line. */
@@ -62,11 +63,19 @@ export const SkillButton = ({
 }) => {
   const capability = useRuntime().capability(environmentId, method);
   const why = capability.status === "absent" ? capability.message : reason;
+  const Icon = method.endsWith("create") || method.endsWith("add") ? Plus
+    : method.endsWith("remove") || method.endsWith("dismissSuggestion") ? Trash2
+    : method.endsWith("pull") || method.endsWith("readiness") ? RefreshCw
+    : method.endsWith("restoreSuggestion") ? RotateCcw
+    : method.endsWith("diff") || method.endsWith("probe") ? Eye
+    : method.endsWith("setFollow") ? Pin
+    : method.endsWith("move") ? (children === "Move up" ? ArrowUp : ArrowDown)
+    : method.endsWith("edit") ? Pencil : Check;
   return (
-    <span className="flex flex-col gap-1">
-      <Button disabled={busy || why !== undefined} onClick={onClick}>
+    <span className="flex w-fit flex-col gap-1">
+      <Tooltip content={<>{children} · Enter / Space</>}><Button size="sm" variant="outline" disabled={busy || why !== undefined} onClick={onClick}><Icon aria-hidden="true" />
         {children}
-      </Button>
+      </Button></Tooltip>
       {why !== undefined && <span className="text-xs text-ink-faint">{why}</span>}
     </span>
   );

@@ -54,7 +54,7 @@ export const YourMachines = () => {
   const unprotected = useSecretProtection() === "unprotected";
   const decline = (environmentId: string) => setAdded((now) => now.filter((id) => id !== environmentId));
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-3.5">
       {forgotten !== undefined && <p className="text-sm text-ink">{forgotten}</p>}
       {environments.map((view) => (
         <MachineCard

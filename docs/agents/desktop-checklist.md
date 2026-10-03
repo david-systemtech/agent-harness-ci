@@ -309,9 +309,22 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
 3. **The hand-over.** With the app running, run
    `<setup> /S --updated --force-run`: the setup waits for the app to exit
    (quit it), installs over it with no window and starts it again.
-4. **Uninstalled.** Uninstall it from Settings, Apps: the install directory
-   and the scheme's registry key are gone; `%LOCALAPPDATA%\agent-harness`,
-   the environment's and the desktop's data, is left.
+4. **Uninstalled (#1478).** First start the installed environment and confirm
+   `service status` says running and ready. Quit the desktop, then uninstall
+   from Settings, Apps (also repeat with `Uninstall agent-harness.exe /S`).
+   `schtasks /Query /TN agent-harness` finds nothing, nothing answers on the
+   environment's port, and its launcher and server processes are gone. The
+   install directory and scheme registry key are gone; `launcher-entry.cmd`,
+   `bin\agent-harness.cmd` and `service.json` are removed from the data directory.
+   `%LOCALAPPDATA%\agent-harness` keeps personal data, desktop preferences and
+   server versions. Reinstall and start: the retained environment is usable.
+   To remove retained data as well, delete that folder after uninstalling.
+   If service cleanup fails, uninstall exits nonzero and keeps the app's
+   resources; fix the service error before retrying.
+   The hosted release smoke covers an installed and started launcher, task
+   removal and data retention. It starts the entry directly because its
+   temporary user has no interactive logon; record the live scheduled-task
+   stop separately on a Windows desktop.
 
 ### Arch
 

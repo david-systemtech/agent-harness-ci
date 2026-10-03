@@ -40,7 +40,9 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
   let denied = false;
   const listeners = new Set<(state: SecretAccess) => void>();
   const publish = () => {
-    state = pending > 0 ? "waiting" : denied ? "denied" : null;
+    const next = pending > 0 ? "waiting" : denied ? "denied" : null;
+    if (next === state) return;
+    state = next;
     for (const listener of [...listeners]) listener(state);
   };
   const macKeychain = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -48,7 +50,9 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
     denied = false;
     publish();
     try {
-      return await operation();
+      const answer = await operation();
+      denied = false;
+      return answer;
     } catch (error) {
       denied = true;
       throw error;
@@ -88,7 +92,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
         return safeStorage.decryptString(kept);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-        const retry = os === "darwin" ? "The saved token is kept; allow Keychain access and retry. If access stays unavailable, restart this desktop." : "Pair that environment again.";
+        const retry = os === "darwin" ? "The saved token is kept; allow Keychain access and retry. If access stays unavailable, restart this desktop. If the saved token still cannot be read, pair that environment again." : "Pair that environment again.";
         const unreadable = new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}). ${retry}`);
         report(unreadable);
         if (os === "darwin") throw unreadable;
@@ -125,7 +129,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
       return () => void listeners.delete(listener);
     },
     async protection() {
-      if (os === "darwin") return await macKeychain(async () => await safeStorage.isAsyncEncryptionAvailable() ? "os" : "none");
+      if (os === "darwin") return await safeStorage.isAsyncEncryptionAvailable() ? "os" : "none";
       if (!encrypts()) return "none";
       return unprotected ? "unprotected" : "os";
     },

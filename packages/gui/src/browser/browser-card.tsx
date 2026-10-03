@@ -1,13 +1,15 @@
 import { adminCall, uuidv7, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { PairedChrome, SetupTarget } from "@agent-harness/contracts";
-import { useMemo, useState } from "react";
+import { KeyRound, Save, Square } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { BrowserSubstep } from "./setup-substep.js";
 import { BrowserDone } from "./done.js";
-import { DevelopmentSites } from "./development-sites.js";
-import { BrowserPairingCode } from "./pairing-code.js";
-import { CopyLine } from "../settings/copy-line.js";
+import { useSettingsValues } from "../settings/settings-values.js";
+import { Button, CopyButton } from "../ui/index.js";
+import { BrowserPairingCode, BrowserProblem } from "./pairing-code.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
-import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 
 /** The Browser card pairs Chrome with the environment on this client's machine (ADR 0024; #593). */
 export const BrowserCard = (props: StepCardProps) => {
@@ -35,7 +37,7 @@ export const BrowserCard = (props: StepCardProps) => {
     reload: { disabled: false, run: (targets: readonly SetupTarget[]) => say(`${targets.map((target) => target.label + ": ").join("")}Open chrome://extensions and click Reload.`) },
   };
   return (
-    <>
+    <div className="flex min-w-0 flex-col gap-3.5 text-xs">
       <StepStatus {...props} actions={actions} />
       {line !== null && <p role="status">{line}</p>}
       {local === undefined ? (
@@ -43,36 +45,38 @@ export const BrowserCard = (props: StepCardProps) => {
       ) : (
         <BrowserPairing key={local.environmentId} another={another} environmentId={local.environmentId} accountsEnvironmentId={props.environmentId} />
       )}
-    </>
+    </div>
   );
 };
 
-export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another }: { readonly environmentId: string; readonly accountsEnvironmentId: string; readonly another: number }) => {
+export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, showSites = true }: { readonly environmentId: string; readonly accountsEnvironmentId: string; readonly another: number; readonly showSites?: boolean }) => {
   const runtime = useRuntime();
   const status = useObservable(useMemo(() => runtime.requests.cached(environmentId, "browser.status", {}), [runtime, environmentId]));
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "browser.chromes.list", {}), [runtime, environmentId]));
   const chromes = listed.result?.chromes ?? [];
   const paired = chromes.length > 0;
+  const shell = useShell();
+  const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
+  const loaded = paired || (status.result?.unpairedConnected ?? false);
   return (
-    <>
-      <section aria-label="Load the extension" className="flex flex-col gap-2">
-        <label>
-          <input type="checkbox" checked={paired || (status.result?.unpairedConnected ?? false)} readOnly disabled /> Load the extension
-        </label>
-        {status.result !== null && <CopyLine label="Extension folder" text={status.result.folder.path} />}
-        {status.result?.folder.problem !== null && status.result?.folder.problem !== undefined && <p role="alert">{status.result.folder.problem}</p>}
-        {status.error !== null && <p role="alert">{status.error.message}</p>}
+    <div className="flex min-w-0 flex-col gap-3.5 text-xs">
+      <section aria-label="Load the extension" className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
+        <BrowserSubstep number={1} label="Load the extension" complete={loaded} />
+        {status.result !== null && <div className="flex flex-col gap-1"><span className="text-2xs text-ink-faint">Extension folder</span><div className="flex items-start gap-2"><pre className="min-w-0 flex-1 bg-inset p-2 font-mono text-xs break-all whitespace-pre-wrap select-all">{status.result.folder.path}</pre>{clipboard !== undefined && <CopyButton label="Copy extension folder (Enter or Space)" text={status.result.folder.path} copy={(text) => clipboard.writeText(text)} />}</div></div>}
+        {status.result?.folder.problem !== null && status.result?.folder.problem !== undefined && <BrowserProblem line={status.result.folder.problem} />}
+        {status.error !== null && <BrowserProblem line={status.error.message} code={status.error.code} />}
         <p>Open chrome://extensions. Turn on Developer mode. Click Load unpacked and choose this folder.</p>
       </section>
-      <section aria-label="Pair" className="flex flex-col gap-2">
+      <section aria-label="Pair" className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
+        <BrowserSubstep number={2} label="Pair" complete={paired} />
         {listed.result !== null && <Pair key={another} environmentId={environmentId} chromes={chromes} />}
-        {listed.error !== null && <p role="alert">{listed.error.message}</p>}
+        {listed.error !== null && <BrowserProblem line={listed.error.message} code={listed.error.code} />}
         {status.result?.listener.state === "listening" && <p>Listening on 127.0.0.1:{status.result.listener.port}.</p>}
-        {status.result?.listener.state === "not-listening" && <p role="alert">{status.result.listener.message}</p>}
+        {status.result?.listener.state === "not-listening" && <BrowserProblem line={status.result.listener.message} />}
       </section>
-      <DevelopmentSites environmentId={environmentId} />
+      {showSites && <BrowserSites environmentId={environmentId} />}
       <BrowserDone environmentId={accountsEnvironmentId} chromeEnvironmentId={environmentId} paired={paired} />
-    </>
+    </div>
   );
 };
 
@@ -80,14 +84,43 @@ export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another }
 const Pair = ({ environmentId, chromes }: { readonly environmentId: string; readonly chromes: readonly PairedChrome[] }) => {
   const [before] = useState(() => new Set(chromes.map((chrome) => chrome.id)));
   const completed = chromes.some((chrome) => !before.has(chrome.id));
+  const [showing, show] = useState(true);
   return (
     <>
-      <label>
-        <input type="checkbox" checked={chromes.length > 0} readOnly disabled /> Pair
-      </label>
       {!completed && <p>Type this code on the extension's options page.</p>}
       {chromes.length > 0 && <p>Paired: {chromes.map((chrome) => chrome.name).join(", ")}.</p>}
-      {!completed && <BrowserPairingCode environmentId={environmentId} />}
+      {!completed && <><Button title={`${showing ? "Stop" : "Show code"} (Enter or Space)`} onClick={() => show(!showing)} className="self-start">{showing ? <Square aria-hidden="true" data-icon="inline-start" /> : <KeyRound aria-hidden="true" data-icon="inline-start" />}{showing ? "Stop" : "Show code"}</Button>{showing && <BrowserPairingCode environmentId={environmentId} />}</>}
     </>
   );
+};
+
+/** The walkthrough owns this visit's third tick; the persisted policy uses the shared settings hook. */
+const BrowserSites = ({ environmentId }: { readonly environmentId: string }) => {
+  const runtime = useRuntime();
+  const settings = useSettingsValues(environmentId);
+  const id = useId();
+  const [typed, setTyped] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [line, say] = useState<string>();
+  const writable = runtime.capability(environmentId, "settings.update").status === "present" && settings.values !== null;
+  const text = typed ?? (settings.values?.["browser.devSites"] as string[] | undefined)?.join("\n") ?? "";
+  const save = async () => {
+    setBusy(true);
+    const result = await settings.save("browser.devSites", text.split(/\r?\n/).map((host) => host.trim()).filter(Boolean));
+    say(result.ok ? "Development sites saved." : `Sites not saved: ${result.line}`);
+    if (result.ok) setSaved(true);
+    setBusy(false);
+  };
+  return <section aria-label="Sites you are developing" data-browser-sites className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
+    <BrowserSubstep number={3} label="Sites you are developing" complete={saved} />
+    <label htmlFor={id} className="text-2xs text-ink-muted">Sites you are developing</label>
+    <textarea id={id} rows={4} title="Sites you are developing · Tab, Enter for a new host" value={text} disabled={!writable || busy}
+      onChange={(event) => { setTyped(event.target.value); setSaved(false); }}
+      className="min-h-32 w-full rounded-lg border border-hairline-strong bg-inset px-3 py-2.5 font-mono text-xs text-ink focus-visible:border-beam focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-beam/50 disabled:opacity-50" />
+    <p className="text-2xs text-ink-muted">One host per line. Optional.</p>
+    <p className="text-2xs text-ink-muted">Loopback and private addresses count without being listed.</p>
+    <Button variant="outline" title="Save sites · Tab, Enter or Space" className="self-start" disabled={!writable || busy} onClick={() => void save()}><Save aria-hidden="true" />Save sites</Button>
+    {line !== undefined && <p role="status">{line}</p>}
+  </section>;
 };

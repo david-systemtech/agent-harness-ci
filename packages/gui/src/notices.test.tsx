@@ -6,7 +6,7 @@ import { renderApp } from "../test/harness.js";
 
 /**
  * Notices (docs/specs/gui.md, "Parked asks, attention and notices"): every
- * notice of `projections.notices` is a toast with its action (pair again,
+ * notice of `projections.notices` is a banner with its action (pair again,
  * update this client, update the environment, start the service, a Set up
  * step, or the session it is about), stacked in one list, newest last.
  * Dismissing one, or running its action, takes it off this client only.
@@ -22,16 +22,16 @@ const twoEnvironments = () =>
     ],
   });
 
-/** The toasts' list; throws while none shows. */
-const toastList = () => screen.getByRole("region", { name: /^Notifications/ });
+/** The banners' list; throws while none shows. */
+const bannerList = () => screen.getByRole("region", { name: /^Notifications/ });
 
-/** The toasts, as each reads, oldest first. */
-const toasts = () => within(toastList()).getAllByRole("listitem");
+/** The banners, as each reads, oldest first. */
+const banners = () => within(bannerList()).getAllByRole("listitem");
 
-/** The toast whose line holds `text`. */
-const toastSaying = async (text: string) => {
-  await waitFor(() => expect(toasts().some((toast) => toast.textContent?.includes(text))).toBe(true));
-  return toasts().find((toast) => toast.textContent?.includes(text)) as HTMLElement;
+/** The banner whose line holds `text`. */
+const bannerSaying = async (text: string) => {
+  await waitFor(() => expect(banners().some((banner) => banner.textContent?.includes(text))).toBe(true));
+  return banners().find((banner) => banner.textContent?.includes(text)) as HTMLElement;
 };
 
 describe("a notice", () => {
@@ -39,33 +39,47 @@ describe("a notice", () => {
     const shell = fakeShell();
     shell.changeSecretAccess("waiting");
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
-    const pending = await toastSaying("Waiting for macOS Keychain access");
+    const pending = await bannerSaying("Waiting for macOS Keychain access");
     expect(pending.textContent).toContain("macOS may ask for approval after replacing this app");
     await app.user.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("dialog", { name: "Settings" })).toBeDefined();
     await act(async () => shell.changeSecretAccess("denied"));
     await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
-    const denied = await toastSaying("Keychain access did not complete");
+    const denied = await bannerSaying("Keychain access did not complete");
     expect(denied.textContent).toContain("Your accounts and saved connections are kept");
     await app.user.click(within(denied).getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(screen.queryByText("Keychain access did not complete")).toBeNull());
     await act(async () => shell.changeSecretAccess("waiting"));
-    await toastSaying("Waiting for macOS Keychain access");
+    expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull();
+    await act(async () => shell.changeSecretAccess("denied"));
+    expect(screen.queryByText("Keychain access did not complete")).toBeNull();
+    await act(async () => shell.changeSecretAccess(null));
+    await act(async () => shell.changeSecretAccess("waiting"));
+    await bannerSaying("Waiting for macOS Keychain access");
+    await act(async () => shell.changeSecretAccess("denied"));
+    expect((await bannerSaying("Keychain access did not complete")).textContent).toMatch(/pair.*again/i);
     await act(async () => shell.changeSecretAccess(null));
     await waitFor(() => expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull());
   });
 
-  it("shows as a toast with its action, and the toasts stack in one list, oldest first", async () => {
+  it("shows as a banner with its action, and the banners stack in one list, oldest first", async () => {
     const app = await twoEnvironments();
+    const region = screen.getByRole("main");
+    expect(within(region).queryByRole("region", { name: /^Notifications/ })).toBeNull();
     const desk = app.environment("desk");
     const laptop = app.environment("laptop");
     await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
     desk.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
-    await toastSaying("desk is draining: it takes no new runs until it restarts.");
+    await bannerSaying("desk is draining: it takes no new runs until it restarts.");
     laptop.bye("expired");
-    const expired = await toastSaying("This client's session on laptop expired; pair again to reconnect.");
+    const expired = await bannerSaying("This client's session on laptop expired; pair again to reconnect.");
 
-    expect(toasts().map((toast) => toast.textContent)).toEqual([
+    expect(region.contains(bannerList())).toBe(true);
+    expect(bannerList().compareDocumentPosition(within(region).getByRole("group", { name: "Row 1" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(bannerList()).getByRole("img", { name: "Warning" })).toBeDefined();
+    expect(within(bannerList()).getByRole("img", { name: "Error" })).toBeDefined();
+
+    expect(banners().map((banner) => banner.textContent)).toEqual([
       "desk is draining: it takes no new runs until it restarts.",
       "This client's session on laptop expired; pair again to reconnect.Pair again",
     ]);
@@ -75,11 +89,34 @@ describe("a notice", () => {
     expect(app.runtime.projections.notices.read().map((notice) => notice.message)).toEqual(["desk is draining: it takes no new runs until it restarts."]);
   });
 
+  it("keeps a long information banner until dismissed while the composer stays available", async () => {
+    const app = await twoEnvironments();
+    app.open("desk");
+    const message = "The saved workspace is available for the next run. ".repeat(3);
+    const desk = app.environment("desk");
+    await desk.wire.server.request("environment.subscribe");
+    act(() => {
+      desk.notice("routine.delivered", {
+        routineId: "0199cc00-0000-4000-8000-0000000000a1", name: "Workspace check",
+        entryId: "0199cc00-0000-4000-8000-0000000000a2", entryKind: "firing",
+        sessionId: desk.sessionId(0), outcome: "succeeded", summary: message, body: message,
+      });
+    });
+    const banner = await bannerSaying(message);
+    expect(within(banner).getByRole("img", { name: "Information" })).toBeDefined();
+    act(() => app.clock.advance(60_000));
+    expect(within(banner).getByRole("status").textContent).toContain(message);
+    expect(await screen.findByRole("button", { name: "Send" })).toBeDefined();
+    expect(within(screen.getByRole("region", { name: /^Status feedback/ })).queryByText(message)).toBeNull();
+    await app.user.click(within(banner).getByRole("button", { name: "Dismiss" }));
+    expect(within(screen.getByRole("main")).queryByRole("region", { name: /^Notifications/ })).toBeNull();
+  });
+
   it("from a newer environment offers to update this client, which opens About", async () => {
     const app = await twoEnvironments();
     app.environment("laptop").bye("protocol", { protocolVersion: PROTOCOL_VERSION + 1 });
-    const toast = await toastSaying("laptop is newer than this client.");
-    await app.user.click(within(toast).getByRole("button", { name: "Update this client" }));
+    const banner = await bannerSaying("laptop is newer than this client.");
+    await app.user.click(within(banner).getByRole("button", { name: "Update this client" }));
     expect(await screen.findByRole("region", { name: "About" })).toBeDefined();
     expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull();
   });
@@ -98,8 +135,8 @@ describe("a notice", () => {
       summary: "Three new releases; digest filed.",
       body: "Three new releases; digest filed.",
     });
-    const toast = await toastSaying("Upstream watch on laptop: Three new releases; digest filed.");
-    await app.user.click(within(toast).getByRole("button", { name: "Open the session" }));
+    const banner = await bannerSaying("Upstream watch on laptop: Three new releases; digest filed.");
+    await app.user.click(within(banner).getByRole("button", { name: "Open the session" }));
     expect(app.shown()).toEqual({ environmentId: laptop.environmentId, sessionId: laptop.sessionId(0) });
     await waitFor(() => expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull());
   });
@@ -109,10 +146,10 @@ describe("a notice", () => {
     const desk = app.environment("desk");
     await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
     desk.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
-    const toast = await toastSaying("desk is draining");
+    const banner = await bannerSaying("desk is draining");
     const sent = desk.requests().length;
 
-    await app.user.click(within(toast).getByRole("button", { name: "Dismiss" }));
+    await app.user.click(within(banner).getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull());
     expect(app.runtime.projections.notices.read()).toEqual([]);
     expect(desk.requests().slice(sent)).toEqual([]);

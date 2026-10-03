@@ -59,6 +59,9 @@ describe("drain", () => {
     const service = await openService(app);
     await within(stateOf(service)).findByText("Ready and idle.");
 
+    const drain = within(service).getByRole("button", { name: "Drain…" });
+    expect(drain.querySelector("svg")).not.toBeNull();
+    expect(drain.title).toContain("Enter or Space");
     await app.user.click(within(service).getByRole("button", { name: "Drain…" }));
     const asked = await screen.findByRole("dialog", { name: "Drain desk?" });
     expect(within(asked).getByText("desk refuses new runs, lets the running ones finish for up to 30 minutes, then stops.")).toBeDefined();

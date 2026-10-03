@@ -1,5 +1,6 @@
 import { adminCall, uuidv7 } from "@agent-harness/client-runtime";
 import type { CarryOverMemoryFolder } from "@agent-harness/contracts";
+import { FolderInput } from "lucide-react";
 import { useState } from "react";
 import { Button, Select } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
@@ -47,9 +48,10 @@ export const MemoryAssignment = ({
       });
   };
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-hairline p-3">
       <p className="text-sm text-ink-muted">Unmappable memory: {folder.path}</p>
       <Select
+        title="Choose a repository · Tab, Arrow keys"
         aria-label={`Repository for ${folder.folder}`}
         value={repository}
         disabled={!writable || busy}
@@ -62,8 +64,8 @@ export const MemoryAssignment = ({
           </option>
         ))}
       </Select>
-      <Button disabled={!writable || busy || !repositories.includes(repository)} onClick={() => void assign()}>
-        Assign memory: {folder.folder}
+      <Button variant="outline" title="Assign memory · Tab, Enter or Space" className="self-start" disabled={!writable || busy || !repositories.includes(repository)} onClick={() => void assign()}>
+        <FolderInput aria-hidden="true" />Assign memory: {folder.folder}
       </Button>
       {repositories.length === 0 && <p className="text-sm text-ink-muted">No repository identities on this environment yet.</p>}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}

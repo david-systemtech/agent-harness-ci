@@ -1,3 +1,6 @@
+import { CapabilityDots } from "./capability-dots.js";
+import { Copy, GitPullRequest, RefreshCw, ShieldCheck, Star, Trash2, X } from "lucide-react";
+import { ActionButton as Button } from "../key-managers/action-button.js";
 import {
   FORGE_KIND_WORDS,
   capabilitiesWords,
@@ -16,7 +19,7 @@ import type { ForgeAccountRecord } from "@agent-harness/contracts";
 import { useId, useState } from "react";
 import { MoveToKeyManager } from "../key-managers/move-card.js";
 import { CopyDialog } from "../settings/copy-dialog.js";
-import { Button, Dialog, DialogClose, DialogContent, Fact } from "../ui/index.js";
+import { Dialog, DialogClose, DialogContent, Fact, ToneBadge } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 
 export interface ForgeCardProps {
@@ -47,11 +50,16 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
   const sender = { runtime, clock };
   const close = () => setOpen(null);
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-base font-semibold text-ink">
-        {account.origin}
-      </h3>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+    <section data-access-card aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+      <header className="flex flex-wrap items-center gap-2">
+        <GitPullRequest aria-hidden="true" className="size-4 text-ink-muted" />
+        <h3 id={heading} className="min-w-0 break-all text-xs font-semibold text-ink">{account.origin}</h3>
+        <ToneBadge tone={account.problem === null && account.capabilities.readRepository.state === "verified" ? "success" : "warning"}>
+          <ShieldCheck aria-hidden="true" />{account.problem === null && account.capabilities.readRepository.state === "verified" ? "Verified" : "Not verified"}
+        </ToneBadge>
+        {account.primary && <span role="img" aria-label="Primary forge" className="inline-flex items-center gap-1 text-xs text-amber"><Star aria-hidden="true" className="size-3" />Primary</span>}
+      </header>
+      <dl className="grid grid-cols-[minmax(0,112px)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
         <Fact name="Kind">{FORGE_KIND_WORDS[account.kind]}</Fact>
         <Fact name="Signed in as">{forgeIdentityWords(account.identity)}</Fact>
         <Fact name="Credential">{credentialWords(account.credential)}</Fact>
@@ -60,20 +68,21 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
         <Fact name="Primary">{primaryWords(account.primary)}</Fact>
         <Fact name="Copied from">{forgeOriginWords(account)}</Fact>
       </dl>
+      <CapabilityDots capabilities={account.capabilities} />
       {account.problem !== null && <p className="text-sm text-amber">{account.problem.message}</p>}
       <div className="flex flex-wrap gap-2">
         {!account.primary && (
-          <Button disabled={!writable || sending} onClick={() => send(() => setPrimaryForge(sender, environmentId, account))}>
+          <Button icon={Star} label="Make primary" disabled={!writable || sending} onClick={() => send(() => setPrimaryForge(sender, environmentId, account))}>
             Make primary
           </Button>
         )}
-        <Button disabled={!writable || sending} onClick={() => send(() => verifyForge(runtime, environmentId, account))}>
+        <Button icon={RefreshCw} label="Verify now" disabled={!writable || sending} onClick={() => send(() => verifyForge(runtime, environmentId, account))}>
           Verify now
         </Button>
-        <Button disabled={!writable} onClick={() => setOpen("remove")}>
+        <Button icon={Trash2} label="Remove" disabled={!writable} onClick={() => setOpen("remove")}>
           Remove
         </Button>
-        <Button onClick={() => setOpen("copy")}>Copy to other environments</Button>
+        <Button icon={Copy} label="Copy to other environments" onClick={() => setOpen("copy")}>Copy to other environments</Button>
         {account.credential.kind === "stored" && <MoveToKeyManager environmentId={environmentId} />}
       </div>
       {open === "remove" && <ConfirmRemove environmentId={environmentId} account={account} close={close} say={say} />}
@@ -128,9 +137,9 @@ const ConfirmRemove = ({ environmentId, account, close, say }: Omit<ForgeCardPro
         {refused !== undefined && <p className="text-sm text-signal">{refused}</p>}
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
-            <Button>Cancel</Button>
+            <Button icon={X} label="Cancel">Cancel</Button>
           </DialogClose>
-          <Button tone="danger" disabled={sending} onClick={remove}>
+          <Button icon={Trash2} label="Remove" tone="danger" disabled={sending} onClick={remove}>
             Remove
           </Button>
         </div>

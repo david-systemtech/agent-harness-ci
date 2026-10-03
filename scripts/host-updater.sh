@@ -58,10 +58,11 @@ POLL_SECONDS=5
 
 usage() {
   cat <<USAGE
-Usage: host-updater.sh
+Usage: host-updater.sh [--dry-run]
 
 Carries out the $NAME environment's update plan for its container: one tick,
 run every five minutes by cron or a systemd timer.
+--dry-run reports the plan without applying it or saving updater state.
 
 Environment:
   AGENT_HARNESS_COMPOSE_FILE    the compose file; preset: compose.yaml beside this script
@@ -72,8 +73,11 @@ Environment:
 USAGE
 }
 
+dry_run=0
+[ "$#" -le 1 ] || { usage >&2; exit 2; }
 case ${1:-} in
   "") ;;
+  --dry-run) dry_run=1 ;;
   -h | --help) usage; exit 0 ;;
   *) printf 'Unknown argument %s.\n\n' "$1" >&2; usage >&2; exit 2 ;;
 esac
@@ -91,13 +95,17 @@ health_url=${AGENT_HARNESS_HEALTH_URL:-$DEFAULT_HEALTH_URL}
 # The .env file beside the compose file names the image; one in the updater's own environment would override it.
 unset AGENT_HARNESS_IMAGE
 
-for tool in docker curl flock; do
+tools=docker
+[ "$dry_run" = 1 ] || tools="docker curl flock"
+for tool in $tools; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool is needed and is not on the PATH."
 done
 
 # One tick at a time: a tick that finds the lock held exits at once, since the one holding it is under way.
-exec 9>>"$compose_dir/.host-updater.lock"
-flock -n 9 || exit 0
+if [ "$dry_run" = 0 ]; then
+  exec 9>>"$compose_dir/.host-updater.lock"
+  flock -n 9 || exit 0
+fi
 
 env_file="$compose_dir/.env"
 
@@ -123,6 +131,10 @@ state_file="$compose_dir/.host-updater.state"
 # was written for, across ticks, so a tick that finds what the last one found
 # writes nothing. Returns 1 when it wrote nothing.
 log_state() {
+  if [ "$dry_run" = 1 ]; then
+    printf 'Dry run: %s\n' "$2"
+    return 0
+  fi
   last=$(cat "$state_file" 2>/dev/null) || last=""
   [ "$1" != "$last" ] || return 1
   printf '%s host-updater: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2"
@@ -405,9 +417,19 @@ finish_cut_short() {
   esac
 }
 
+# Dry runs never recover an interrupted update: recovery changes the container and data.
+if [ "$dry_run" = 1 ] && [ -f "$record_file" ]; then
+  read_record
+  record_readable || fail "the update-in-flight record cannot be read; dry run leaves it untouched."
+  printf 'Dry run: update %s to %s was cut short at %s.\nPrevious image: %s\nTarget image: %s\n' "$update_id" "$to_version" "$step" "$from_image" "$reference"
+  fail "a regular tick must finish the interrupted update before a new update can be planned; dry run performs no recovery."
+fi
 [ ! -f "$record_file" ] || finish_cut_short
 
-if ! status=$(in_container update status --json --host-updater); then
+status_flag=--host-updater
+[ "$dry_run" = 0 ] || status_flag=""
+# An inspection is not an updater poll: --host-updater would persist lastPoll.
+if ! status=$(in_container update status --json $status_flag); then
   log_state unreachable "The environment's container did not answer update status: is it running, on an image with the host-side updater's verbs? ($compose_file)" || :
   exit 1
 fi
@@ -416,6 +438,47 @@ running_version=$(member_of .version "$members")
 pending_state=$(member_of .pending.state "$members")
 update_id=$(member_of .pending.updateId "$members")
 to_version=$(member_of .pending.toVersion "$members")
+
+valid_target() {
+  case $reference in
+    "") why="the ready update names no image to pull"; return 1 ;;
+    *[!A-Za-z0-9._/:-]*) why="the ready update's image reference is not one to pull ($reference)"; return 1 ;;
+  esac
+  case $digest in
+    sha256:*) ;;
+    *) why="the ready update names no image digest ($digest)"; return 1 ;;
+  esac
+  hex=${digest#sha256:}
+  case $hex in
+    *[!0-9a-f]*) why="the ready update names no image digest ($digest)"; return 1 ;;
+  esac
+  [ ${#hex} = 64 ] || { why="the ready update names no image digest ($digest)"; return 1; }
+}
+
+if [ "$dry_run" = 1 ]; then
+  [ -n "$running_version" ] && [ -n "$pending_state" ] || fail "the environment's update status is unreadable."
+  container=$(compose ps -q "$SERVICE") || fail "could not read the environment's container."
+  [ -n "$container" ] || fail "no running environment container to inspect."
+  current_image=$(docker inspect --format '{{.Config.Image}}' "$container") || fail "could not read the current image."
+  [ -n "$current_image" ] || fail "the current image is unreadable."
+  printf 'Dry run: no changes will be applied.\nCurrent version: %s\nCurrent image: %s\n' "$running_version" "$current_image"
+  case $pending_state in
+    current) printf 'No pending update.\nTarget image: none\nActions: none\n'; exit 0 ;;
+    ready | waiting | draining | switching | staging | blocked) ;;
+    *) fail "the environment's update status names an unknown pending state ($pending_state)." ;;
+  esac
+  reference=$(member_of .pending.image.reference "$members")
+  digest=$(member_of .pending.image.digest "$members")
+  printf 'Pending update: %s (%s), %s -> %s\nTarget image: %s (%s)\n' "${update_id:-not selected}" "$pending_state" "$running_version" "${to_version:-not selected}" "${reference:-not available}" "${digest:-not available}"
+  if [ "$pending_state" != ready ]; then
+    printf 'Actions: none; the pending update is %s, not ready.\n' "$pending_state"
+    exit 0
+  fi
+  [ -n "$update_id" ] && [ -n "$to_version" ] || fail "the ready update names no update id or target version."
+  valid_target || fail "cannot plan the ready update: $why."
+  printf 'Actions when applied:\n  pull %s@%s, tag %s and verify its digest\n  begin the update and drain runs; stop the container\n  snapshot the database on the old image\n  write the target and previous images to .env; recreate the container\n  wait up to %s seconds for ready, then watch for %s seconds; rollback on failure\n  discard the snapshot and remove older images after a good watch\n' "$(repository_of "$reference")" "$digest" "$reference" "$READY_WAIT_SECONDS" "$WATCH_SECONDS"
+  exit 0
+fi
 
 case $pending_state in
   ready) ;;
@@ -441,19 +504,7 @@ previous_before=$(sed -n 's/^AGENT_HARNESS_PREVIOUS_IMAGE=//p' "$env_file" 2>/de
 # its reference, and checks that the reference is the manifest's digest.
 # Sets why and returns 1 when it cannot.
 pull_target() {
-  case $reference in
-    "") why="the ready update names no image to pull"; return 1 ;;
-    *[!A-Za-z0-9._/:-]*) why="the ready update's image reference is not one to pull ($reference)"; return 1 ;;
-  esac
-  case $digest in
-    sha256:*) ;;
-    *) why="the ready update names no image digest ($digest)"; return 1 ;;
-  esac
-  hex=${digest#sha256:}
-  case $hex in
-    *[!0-9a-f]*) why="the ready update names no image digest ($digest)"; return 1 ;;
-  esac
-  [ ${#hex} = 64 ] || { why="the ready update names no image digest ($digest)"; return 1; }
+  valid_target || return 1
   repository=$(repository_of "$reference")
   docker pull "$repository@$digest" >&2 || { why="docker pull $repository@$digest failed"; return 1; }
   docker tag "$repository@$digest" "$reference" >&2 || { why="docker tag $repository@$digest $reference failed"; return 1; }

@@ -17,7 +17,13 @@ async function headerScene() {
 const prepared = await prepareWorld({ environments: [{
   name: "Desk with a deliberately long environment name", reach: "local", capabilities: ["setup", "updates"],
   sessions: [{ title: "A deliberately long session title that yields room to the window controls", workspace: { kind: "directory", path: "/work/a-deliberately-long-workspace-name" } }],
-  setup: { ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])), permissions: { state: "needs-attention", reason: "Containment is unavailable." } },
+  setup: {
+    ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+    account: { state: "needs-attention", reason: "Choose an account." },
+    "carry-over": { state: "needs-attention", reason: "Review past work." },
+    "key-manager": { state: "needs-attention", reason: "Connect a key manager." },
+    "memory-bank": { state: "needs-attention", reason: "Choose a memory bank." },
+  },
   updates: { status: { newest: "0.6.0" }, desktopBuild: { path: "/data/test-update.pkg", version: "0.6.0", sha256: "a".repeat(64) } },
 }] });
 const holders = await startWorld(prepared, prepared.paired);
@@ -69,7 +75,7 @@ const HeaderWidth = ({ width }: { readonly width: number }) => {
   </div>;
 };
 
-/** look §9.1: every chip populated, long context, at both acceptance widths. */
+/** look §9.1: four Set up steps needing attention, every chip populated, and long context at both acceptance widths. */
 return function HeaderScene({ ladder }: { readonly ladder: LadderName }) {
   useEffect(() => {
     holders.presentation.set("lightOrDark", ladder);
@@ -95,7 +101,7 @@ export const geometry = [1400, 1024].flatMap((width) => [
   { selector: `[data-header-width="${width}"] button[aria-label="Settings"]`, width: 28, height: 28 },
   { selector: `[data-header-width="${width}"] button[aria-label="Search sessions and commands"]`, height: 24 },
   { selector: `[data-header-width="${width}"] [role="radiogroup"]`, height: 30 },
-  { selector: `[data-header-width="${width}"] button[aria-label="Set up: 1 needs attention"]`, height: 22 },
+  { selector: `[data-header-width="${width}"] button[aria-label="Set up: 4 need attention"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Parked asks, 1 waiting"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Restart to update"]`, height: 22 },
 ]);

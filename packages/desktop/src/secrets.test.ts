@@ -60,11 +60,47 @@ describe("secrets", () => {
     cancel(new Error("OS approval cancelled"));
     await expect(reading).rejects.toThrow(/cancelled/);
     expect(await bridge.secrets.access()).toBe("denied");
+    expect(await bridge.secrets.protection()).toBe("os");
+    expect(await bridge.secrets.access()).toBe("denied");
     expect(readFileSync(join(folder, `${DESK}.secret`))).toEqual(kept);
     electron.safeStorage.decryptStringAsync = decrypt;
     expect(await bridge.secrets.get(DESK)).toBe("token-for-tests-desk");
     expect(await bridge.secrets.access()).toBeNull();
     expect(reported.map(String)).toEqual([expect.stringMatching(/cancelled.*kept/i)]);
+  });
+
+  it("settles access after a successful read that overlapped a refused read", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const folder = join(platform.paths.data, "secrets");
+    mkdirSync(folder);
+    const desk = electron.safeStorage.encryptString("token-for-tests-desk");
+    writeFileSync(join(folder, `${DESK}.secret`), desk);
+    writeFileSync(join(folder, `${LAPTOP}.secret`), electron.safeStorage.encryptString("token-for-tests-laptop"));
+    const decrypt = electron.safeStorage.decryptStringAsync;
+    let rejectFirst!: (error: Error) => void;
+    let allowSecond!: () => void;
+    let bothEntered!: () => void;
+    const first = new Promise<void>((_resolve, reject) => { rejectFirst = reject; });
+    const second = new Promise<void>((resolve) => { allowSecond = resolve; });
+    const entered = new Promise<void>((resolve) => { bothEntered = resolve; });
+    let pending = 0;
+    electron.safeStorage.decryptStringAsync = async (kept) => {
+      if (++pending === 2) bothEntered();
+      await (kept.equals(desk) ? first : second);
+      return decrypt(kept);
+    };
+    const { shell } = await start({ electron, platform, reportError: () => {} });
+    const secrets = shell().secrets;
+    const refused = expect(secrets.get(DESK)).rejects.toThrow(/cancelled/);
+    const allowed = secrets.get(LAPTOP);
+    await entered;
+    rejectFirst(new Error("OS approval cancelled"));
+    await refused;
+    expect(await secrets.access()).toBe("waiting");
+    allowSecond();
+    expect(await allowed).toBe("token-for-tests-laptop");
+    expect(await secrets.access()).toBeNull();
   });
 
   it("preserves a paired credential when Keychain approval is cancelled during reconnection", async () => {
