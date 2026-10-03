@@ -117,7 +117,6 @@ const fixture = async (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): 
     PATH: `${fakeBin}:${process.env["PATH"] ?? "/usr/bin:/bin"}`,
     HOME: home,
     AGENT_HARNESS_TOKEN: TOKEN,
-    EXPECTED_TOKEN: TOKEN,
     FAKE_LOG: log,
     FAKE_RELEASES: listed,
     FAKE_ASSETS: assets,
@@ -152,12 +151,12 @@ const install = async (f: Fixture, args: string[] = [], env: NodeJS.ProcessEnv =
 const pathLine = (dataDir: string) => `  export PATH="${dataDir}/bin:$PATH"\n`;
 
 describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
-  it("prints its usage, naming the token it needs, for --help", async () => {
+  it("prints its usage, describing an anonymous public install, for --help", async () => {
     const f = await fixture();
     const result = await install(f, ["--help"]);
     expect(result.code).toBe(0);
     expect(result.stdout).toMatch(/^Usage: install\.sh/);
-    expect(result.stdout).toContain("AGENT_HARNESS_TOKEN");
+    expect(result.stdout).not.toContain("AGENT_HARNESS_TOKEN");
     expect(f.calls()).toEqual([]);
   });
 
@@ -184,12 +183,12 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     }
   });
 
-  it("refuses to run without a token, saying which variable to set, with exit 2", async () => {
+  it("installs from public GitHub releases without a credential", async () => {
     const f = await fixture();
     const result = await install(f, [], { AGENT_HARNESS_TOKEN: "" });
-    expect(result.code).toBe(2);
-    expect(result.stderr).toContain("AGENT_HARNESS_TOKEN");
-    expect(f.calls()).toEqual([]);
+    expect(result.code).toBe(0);
+    expect(f.calls()).toContain(`curl ${LIST}`);
+    expect(existsSync(join(f.state, "credential"))).toBe(false);
   });
 
   it("refuses an INSTALL_READY_TIMEOUT that is no whole number of seconds, or that has a leading zero the shell would read as octal, with exit 2, before any download", async () => {
@@ -219,17 +218,17 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(f.calls()).toEqual([]);
   });
 
-  it("keeps the token off every command line, and out of the environment the CLI runs in", async () => {
+  it("ignores an inherited private forge token without sending or storing it", async () => {
     const f = await fixture();
     expect((await install(f)).code).toBe(0);
     expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
     expect(f.calls()).not.toContain("agent-harness saw AGENT_HARNESS_TOKEN");
-    expect(readFileSync(join(f.state, "credential"), "utf8")).toBe(`${TOKEN}\n`);
+    expect(existsSync(join(f.state, "credential"))).toBe(false);
   });
 
-  it("says the token was refused when the releases API refuses it", async () => {
+  it("reports a public releases API failure", async () => {
     const f = await fixture();
-    const result = await install(f, [], { EXPECTED_TOKEN: "another-token" });
+    const result = await install(f, [], { FAKE_RELEASE_ERROR: "403" });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(LIST);
   });
@@ -308,7 +307,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(readdirSync(tmp)).toEqual([]);
   });
 
-  it("installs the stable channel's newest release, starts it, waits for it, hands it the channel and the token, and ends with the pairing and the path line", async () => {
+  it("installs the stable channel's newest release, starts it, waits for it, sets its channel, and ends with the pairing and the path line", async () => {
     const f = await fixture();
     const result = await install(f, ["--name", "Build box"]);
     expect(result.stderr).toBe("");
@@ -325,11 +324,10 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
       "agent-harness service start",
       `curl ${HEALTH}`,
       "agent-harness update settings --channel stable",
-      "agent-harness update credential --stdin",
       `curl ${DISCOVERY}`,
       "agent-harness pair --preset own-client",
     ]);
-    expect(readFileSync(join(f.state, "credential"), "utf8")).toBe(`${TOKEN}\n`);
+    expect(existsSync(join(f.state, "credential"))).toBe(false);
     expect(result.stdout).toContain("\n  Code: ABCD-EFGH\n");
     expect(result.stdout.indexOf("Code: ABCD-EFGH")).toBeLessThan(result.stdout.indexOf("export PATH="));
     expect(result.stdout.endsWith(pathLine(f.dataDir))).toBe(true);
@@ -339,7 +337,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     const f = await fixture();
     const result = await install(f, [], { FAKE_AUTH_POLICY: "local-only" });
     expect(result.code).toBe(0);
-    expect(f.calls().slice(-2)).toEqual(["agent-harness update credential --stdin", `curl ${DISCOVERY}`]);
+    expect(f.calls().slice(-2)).toEqual(["agent-harness update settings --channel stable", `curl ${DISCOVERY}`]);
     expect(f.calls().filter((call) => call.startsWith("agent-harness pair"))).toEqual([]);
     expect(result.stdout).toContain(
       "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.\n",
@@ -485,7 +483,6 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
           `  ${bin} service start`,
           `  wait up to 60 seconds for ${HEALTH} to say ready`,
           `  ${bin} update settings --channel stable`,
-          `  ${bin} update credential --stdin`,
           `  ${bin} pair --preset own-client, or the Tailscale warning when only loopback is bound`,
           "Dry run: nothing was downloaded or changed.",
           "",
@@ -531,11 +528,10 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
         "shim service install --name Build box",
         `curl ${HEALTH}`,
         "shim update settings --channel beta",
-        "shim update credential --stdin",
         `curl ${DISCOVERY}`,
         "shim pair --preset own-client",
       ]);
-      expect(readFileSync(join(f.state, "credential"), "utf8")).toBe(`${TOKEN}\n`);
+      expect(existsSync(join(f.state, "credential"))).toBe(false);
       expect(readdirSync(join(f.dataDir, "versions"))).toEqual(["0.1.0"]);
       expect(result.stdout).toContain("\n  Code: ABCD-EFGH\n");
       expect(result.stdout.endsWith(pathLine(f.dataDir))).toBe(true);
@@ -555,7 +551,6 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
         `shim service install --data-dir ${dataDir}`,
         `curl ${HEALTH}`,
         `shim update settings --channel stable --data-dir ${dataDir}`,
-        `shim update credential --stdin --data-dir ${dataDir}`,
         `shim update apply --version 0.2.0 --data-dir ${dataDir}`,
         `curl ${DISCOVERY}`,
         `shim pair --preset own-client --data-dir ${dataDir}`,

@@ -9,8 +9,7 @@
 # data directory's versions directory, the version's sentinel written last.
 # Then it runs the version's `service install` and `service start`, waits for
 # the environment's health URL to say ready, sets the channel with `update
-# settings`, hands its token to the environment with `update credential
-# --stdin`, and ends with the link, QR and code of `pair --preset own-client`
+# settings`, and ends with the link, QR and code of `pair --preset own-client`
 # (my own client's grant) on the tailnet address (or the Tailscale warning
 # when only loopback is bound) and the shim's path line.
 #
@@ -20,11 +19,8 @@
 # the version changes only when --version asks, through `update apply`, which
 # stages it as any update.
 #
-# The repository is private, so the releases API and the downloads need a read
-# token: AGENT_HARNESS_TOKEN, a Forgejo access token with the read:repository
-# scope (git.systemtech.dev: Settings > Applications). It goes to curl and to
-# `update credential` on stdin, never on a command line, and the script takes
-# it out of the environment its commands inherit.
+# Releases and downloads are public on GitHub. No credential is needed or sent.
+# AGENT_HARNESS_TOKEN is ignored and removed from child processes' environment.
 #
 # A release publishes agent-harness-<os>-<arch>.tar.gz (Node's names), holding
 # the version's bin/agent-harness at its root, and beside it
@@ -40,8 +36,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 NAME=agent-harness
-FORGE=https://git.systemtech.dev:5526
-REPOSITORY=david/agent-harness
+RELEASE_API=https://api.github.com/repos/david-systemtech/agent-harness/releases
 # The environment's port when none is given, and the address it answers on for this machine.
 DEFAULT_PORT=7433
 LOOPBACK=127.0.0.1
@@ -68,7 +63,6 @@ prints a pairing for your client.
                     (INSTALL_DRY_RUN=1 does the same)
 
 Environment:
-  AGENT_HARNESS_TOKEN    a Forgejo token with read:repository scope (required: the repository is private)
   INSTALL_READY_TIMEOUT  seconds to wait for the environment to say ready (preset 60)
 USAGE
 }
@@ -140,10 +134,7 @@ case $ready_timeout in
   "" | *[!0-9]* | 0?*) usage_error "INSTALL_READY_TIMEOUT takes a number of seconds; got $ready_timeout." ;;
 esac
 
-[ -n "${AGENT_HARNESS_TOKEN:-}" ] ||
-  usage_error "Set AGENT_HARNESS_TOKEN to a Forgejo token with read:repository scope: the repository is private."
-# The token reaches curl and `update credential` on stdin only, never a command's environment.
-token=$AGENT_HARNESS_TOKEN
+# A private forge token inherited from a user's shell must never reach public downloads.
 unset AGENT_HARNESS_TOKEN
 
 [ "$(id -u)" != 0 ] ||
@@ -180,9 +171,9 @@ versions="$environment_dir/versions"
 shim_dir="$environment_dir/bin"
 environment_url="http://$LOOPBACK:${port:-$DEFAULT_PORT}"
 
-# curl to the forge, with the token read from stdin as a config line, so it never shows in a process listing.
+# Fetch public releases and assets anonymously.
 forge_curl() {
-  printf 'header = "Authorization: token %s"\n' "$token" | curl -K - -fsSL "$@"
+  curl -fsSL "$@"
 }
 
 # The release JSON, one member per line. The values read here (tags, download
@@ -308,19 +299,19 @@ double_quoted() {
 # Finds the release to install, the channel's newest or the one --version names,
 # and sets tag, release_version and the download URLs of the artefact and its digest.
 resolve_release() {
-  api="$FORGE/api/v1/repos/$REPOSITORY/releases"
+  api=$RELEASE_API
   if [ -n "$version" ]; then
     # Read by its tag, as the environment reads a pin; a draft there is none.
     release_url="$api/tags/v$version"
     release=$(forge_curl "$release_url") ||
-      fail "could not read release v$version from $release_url: no such release is published, or AGENT_HARNESS_TOKEN cannot read it."
+      fail "could not read release v$version from $release_url: no such public release is published, or GitHub could not be reached."
     members=$(members_of "$release")
     tag=$(printf '%s\n' "$members" | newest_tag any)
     [ "$tag" = "v$version" ] || fail "release v$version is a draft, not published; nothing was installed."
   else
-    listing="$api?limit=$RELEASE_LIST_LIMIT"
+    listing="$api?per_page=$RELEASE_LIST_LIMIT"
     listed=$(forge_curl "$listing") ||
-      fail "could not read the releases from $listing; check AGENT_HARNESS_TOKEN."
+      fail "could not read the releases from $listing; check connectivity and the GitHub API rate limit."
     members=$(members_of "$listed")
     tag=$(printf '%s\n' "$members" | newest_tag "$channel")
     [ -n "$tag" ] || fail "no release is published on the $channel channel."
@@ -407,7 +398,6 @@ if [ -n "$name" ]; then cli_verb service install --name "$name"; else cli_verb s
 [ "$running" = 1 ] || step "$cli" service start
 wait_until_ready
 cli_verb update settings --channel "$channel"
-printf '%s\n' "$token" | cli_verb update credential --stdin
 if [ "$running" = 1 ] && [ -n "$version" ]; then cli_verb update apply --version "$version"; fi
 
 if [ "$dry_run" = 1 ]; then

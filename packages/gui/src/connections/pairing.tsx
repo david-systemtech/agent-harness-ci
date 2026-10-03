@@ -11,7 +11,7 @@ import { Dialog, DialogClose, DialogContent, Input } from "../ui/index.js";
 import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { DialogFooter } from "../ui/dialog.js";
 import { DialogAction as Button } from "../ui/dialog-action.js";
-import { Link, QrCode, X } from "lucide-react";
+import { KeyRound, Link, QrCode, X } from "lucide-react";
 import { nameOf } from "./words.js";
 
 /**
@@ -118,10 +118,10 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
   return (
     <div className="flex flex-col gap-4">
       <form aria-label="Pair by link" className="flex flex-col gap-1.5" onSubmit={byLink}>
-        <label className="text-sm text-ink-muted" htmlFor={linkField}>
-          Pairing link
+        <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={linkField}>
+          <Link aria-hidden="true" className="size-4" />Pairing link
         </label>
-        <Input id={linkField} value={link} placeholder="http://desk:7433/pair#K7Q2M-XH4RT" onChange={(event) => setLink(event.target.value)} disabled={pairing} autoFocus={autoFocus} className="font-mono" />
+        <Input title="Pairing link (paste; Enter to pair)" id={linkField} value={link} placeholder="http://desk:7433/pair#K7Q2M-XH4RT" onChange={(event) => setLink(event.target.value)} disabled={pairing} autoFocus={autoFocus} className="font-mono" />
         <div className="flex flex-wrap gap-2 pt-2">
           <Button icon={Link} keys="Enter" type="submit" tone="primary" disabled={pairing}>Pair</Button>
           {scanQr !== undefined && <Button icon={QrCode} disabled={pairing} onClick={() => void scan()}>Scan a QR</Button>}
@@ -129,10 +129,10 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
       </form>
       <form aria-label="Pair by address and code" className="flex flex-col gap-2 rounded-lg border border-hairline bg-inset/60 p-3" onSubmit={byCode}>
         <p className="text-sm text-ink-muted">Or the environment's address and its code</p>
-        <label className="text-sm font-medium" htmlFor={addressField}>Address</label>
-        <Input id={addressField} value={address} placeholder="desk:7433" onChange={(event) => setAddress(event.target.value)} disabled={pairing} className="font-mono" />
-        <label className="text-sm font-medium" htmlFor={codeField}>Pairing code</label>
-        <Input id={codeField} value={code} placeholder="K7Q2M-XH4RT" onChange={(event) => setCode(event.target.value)} disabled={pairing} className="font-mono" />
+        <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={addressField}><Link aria-hidden="true" className="size-4" />Address</label>
+        <Input title="Address (type the environment address)" id={addressField} value={address} placeholder="desk:7433" onChange={(event) => setAddress(event.target.value)} disabled={pairing} className="font-mono" />
+        <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={codeField}><KeyRound aria-hidden="true" className="size-4" />Pairing code</label>
+        <Input title="Pairing code (type; Enter to pair)" id={codeField} value={code} placeholder="K7Q2M-XH4RT" onChange={(event) => setCode(event.target.value)} disabled={pairing} className="font-mono" />
         <Button icon={Link} keys="Enter" type="submit" disabled={pairing} className="self-start mt-2">Pair with the code</Button>
       </form>
       <div role="status" className="flex min-h-8 items-center gap-2 text-sm text-ink">
@@ -199,7 +199,7 @@ export const PairingProvider = ({ children }: { readonly children: ReactNode }) 
             className="max-w-[32rem] max-h-[calc(100dvh-4rem)] overflow-y-auto"
           >
             <PairingForm key={request.opened} rePair={request.rePair} link={request.link} />
-            <DialogFooter><DialogClose asChild><Button icon={X} keys="Escape">Close</Button></DialogClose></DialogFooter>
+            <DialogFooter><DialogClose asChild><Button icon={X} keys="Enter / Space / Escape">Close</Button></DialogClose></DialogFooter>
           </DialogContent>
         )}
       </Dialog>
