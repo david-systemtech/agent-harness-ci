@@ -132,13 +132,13 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
         {drainable !== null && (
           <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
             <div className="flex justify-end gap-2">
-              <DialogClose asChild>
-                <Button title="Cancel · Esc"><X aria-hidden="true" />Cancel</Button>
-              </DialogClose>
-              <Button tone="danger" title="Drain and update · Enter / Space" onClick={() => update("now")}>
+              <Tooltip content="Cancel · Esc"><DialogClose asChild>
+                <Button><X aria-hidden="true" />Cancel</Button>
+              </DialogClose></Tooltip>
+              <Tooltip content="Drain and update · Enter / Space"><Button tone="danger" onClick={() => update("now")}>
                 <CircleStop aria-hidden="true" />
                 Drain and update
-              </Button>
+              </Button></Tooltip>
             </div>
           </DialogContent>
         )}

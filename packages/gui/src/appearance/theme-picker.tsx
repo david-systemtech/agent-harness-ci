@@ -297,10 +297,10 @@ const Exported = ({ theme }: { readonly theme: Theme }) => {
         {fileName}
       </h4>
       <CopyLine label="The theme file: the name and the seven seeds" text={text} />
-      <a href={`data:application/json;charset=utf-8,${encodeURIComponent(text)}`} download={fileName} className="flex items-center gap-1.5 text-sm text-beam-text underline" title="Download theme · Enter">
+      <Tooltip content="Download theme · Enter"><a href={`data:application/json;charset=utf-8,${encodeURIComponent(text)}`} download={fileName} className="flex items-center gap-1.5 text-sm text-beam-text underline">
         <Download aria-hidden="true" className="size-4" />
         Download {fileName}
-      </a>
+      </a></Tooltip>
     </section>
   );
 };

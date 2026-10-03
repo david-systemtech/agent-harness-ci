@@ -11,5 +11,5 @@ export const geometry = (viewport: SceneViewport) => [
   { selector: 'button[aria-label="Decrease text size"]', width: 24, height: 24 },
   { selector: 'button[aria-label="Increase text size"]', width: 24, height: 24 },
   { selector: '[role="img"][title]', width: 24, height: 24 },
-  { selector: 'button[role="switch"]', width: 32, height: 18.4 },
+  { selector: '[data-settings-pane] button[role="switch"]', width: 32, height: 18.4 },
 ];

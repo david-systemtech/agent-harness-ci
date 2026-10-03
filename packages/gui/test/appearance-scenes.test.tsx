@@ -20,6 +20,11 @@ it.each(["light", "dark"] as const)("draws the Theme scene in %s with client con
   expect((pane.getByRole("spinbutton", { name: "Text size" }) as HTMLInputElement).value).toBe("14");
   expect(pane.getByRole("radiogroup", { name: "Reading width" })).toBeDefined();
   expect(pane.getByRole("switch", { name: "Streaming fade" })).toBeDefined();
+  const switchGeometry = (JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; width?: number; height?: number }[])
+    .find((entry) => entry.width === 32 && entry.height === 18.4);
+  expect(switchGeometry).toBeDefined();
+  const measuredSwitches = [...document.querySelectorAll(switchGeometry!.selector)];
+  expect(measuredSwitches).toEqual(pane.getAllByRole("switch"));
   for (const name of ["Light ladder", "Dark ladder"]) expect(within(pane.getByRole("group", { name })).getAllByRole("img")).toHaveLength(7);
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: 'input[aria-label="Search settings"]', height: 32 });
   expect(document.documentElement.dataset["ladder"]).toBe(ladder);
