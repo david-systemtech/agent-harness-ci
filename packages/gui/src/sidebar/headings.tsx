@@ -118,8 +118,8 @@ export const EnvironmentSection = ({ heading, rows }: { readonly heading: Enviro
       <div {...target.handlers} className={classes("relative flex h-[24px] shrink-0 items-center gap-1.5 rounded-sm", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
         <EnvironmentGlyph view={view} />
         <Tooltip content={`${named} · ${heading.block.rows.length} ${heading.block.rows.length === 1 ? "session" : "sessions"}${heading.holds === "unidentified" ? " · No repository" : ""}`}>
-          <h2 tabIndex={0} id={name} className={classes("chrome-label flex h-[24px] min-w-0 items-center truncate outline-none focus-visible:outline-2 focus-visible:outline-beam", heading.dim ? "text-ink-faint" : "text-ink-muted")}>
-            {heading.holds === "unidentified" ? `${named} · no repository` : named}
+          <h2 tabIndex={0} id={name} className={classes("chrome-label flex h-[24px] min-w-0 items-center outline-none focus-visible:outline-2 focus-visible:outline-beam", heading.dim ? "text-ink-faint" : "text-ink-muted")}>
+            <span className="min-w-0 truncate">{heading.holds === "unidentified" ? `${named} · no repository` : named}</span>
           </h2>
         </Tooltip>
         <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-ink-faint">{heading.block.rows.length}</span>
