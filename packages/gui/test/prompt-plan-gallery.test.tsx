@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { measureSceneGeometry } from "../gallery/geometry.js";
 import { mountGallery } from "../gallery/mount.js";
@@ -25,12 +25,14 @@ for (const scene of ["prompt-plan", "prompt-plan-error"] as const) {
         document.body.append(root);
         const gallery = await mountGallery(root, scene, ladder);
         close = gallery.close;
-        const card = await screen.findByRole("region", { name: "Parked prompt" });
+        // Error scenes briefly remove the card while their refused answer is in flight.
+        expect(await gallery.ready).toBe(true);
+        expect(root.dataset["galleryReady"]).toBe(scene);
+        const card = screen.getByRole("region", { name: "Parked prompt" });
         const note = within(card).getByRole("textbox", { name: "Note" });
         const keepPlanning = within(card).getByRole("button", { name: "Keep planning" });
         const approve = within(card).getByRole("button", { name: "Approve · continue in acceptEdits" });
         expect(within(card).getByRole("heading", { name: "Check the receipts" })).toBeDefined();
-        await waitFor(() => expect(root.dataset["galleryReady"]).toBe(scene));
         if (scene === "prompt-plan-error") {
           expect(within(card).getByRole("status").textContent).toBe("Not answered: The prompt was already answered.");
         }
