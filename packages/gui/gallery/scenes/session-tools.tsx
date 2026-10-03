@@ -24,7 +24,7 @@ const SessionToolsScene = () => <main data-scene="session-tools" className="h-sc
     <CallCard call={call("running", "Bash", { command: "pnpm typecheck" }, null, "running")} quietMs={0} />
     <CallCard call={call("quiet", "Bash", { command: "pnpm build" }, null, "running")} quietMs={180_000} />
     <CallCard call={call("failed", "Read", { file_path: "missing.ts" }, "not_found: No file missing.ts in the workspace.", "error")} quietMs={0} />
-    <div className="flex gap-2"><DocumentTile path="site/index.html" kind="Page" preview={() => {}} /><DocumentTile path="notes.md" kind="Markdown" preview={() => {}} /><DocumentTile path="chart.svg" kind="SVG" absent="Preview is unavailable in this client." preview={() => {}} /></div>
+    <div className="flex items-start gap-2 self-start"><DocumentTile path="site/index.html" kind="Page" preview={() => {}} /><DocumentTile path="notes.md" kind="Markdown" preview={() => {}} /><DocumentTile path="chart.svg" kind="SVG" absent="Preview is unavailable in this client." preview={() => {}} /></div>
     <section aria-label="Shared diff"><DiffView text={diff} /></section>
   </div>
 </main>;

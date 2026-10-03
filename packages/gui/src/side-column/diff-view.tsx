@@ -18,16 +18,17 @@ const COLOURS: Readonly<Record<LineKind, string>> = {
 /** Parse each hunk's own coordinates; metadata and no-newline markers consume neither side. */
 const readDiff = (text: string) => {
   const input = text.replace(/\n$/, "").split("\n", 20_001);
-  let old = 0, next = 0, inHunk = false;
+  let old = 0, next = 0, oldRemaining = 0, nextRemaining = 0, inHunk = false;
   const lines: DiffLine[] = [];
   for (const text of input.slice(0, 20_000)) {
     let kind: LineKind = "context", before: number | null = null, after: number | null = null;
-    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
-    if (HEADERS.test(text)) { kind = "header"; inHunk = false; }
-    else if (hunk) { kind = "hunk"; old = Number(hunk[1]); next = Number(hunk[2]); inHunk = true; }
-    else if (inHunk && text.startsWith("+")) { kind = "added"; after = next++; }
-    else if (inHunk && text.startsWith("-")) { kind = "removed"; before = old++; }
-    else if (inHunk && text.startsWith(" ")) { before = old++; after = next++; }
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(text);
+    if (text.startsWith("diff --git ") || (!inHunk && HEADERS.test(text))) { kind = "header"; inHunk = false; }
+    else if (hunk) { kind = "hunk"; old = Number(hunk[1]); next = Number(hunk[3]); oldRemaining = Number(hunk[2] ?? 1); nextRemaining = Number(hunk[4] ?? 1); inHunk = true; }
+    else if (inHunk && text.startsWith("+")) { kind = "added"; after = next++; nextRemaining--; }
+    else if (inHunk && text.startsWith("-")) { kind = "removed"; before = old++; oldRemaining--; }
+    else if (inHunk && text.startsWith(" ")) { before = old++; oldRemaining--; after = next++; nextRemaining--; }
+    if (oldRemaining <= 0 && nextRemaining <= 0) inHunk = false;
     lines.push({ text, kind, old: before, next: after });
     if (lines.length === 600) break;
   }
@@ -64,7 +65,11 @@ export const DiffView = ({ text }: { readonly text: string }) => {
     <div data-diff-body className="max-h-96 overflow-auto font-mono text-2xs leading-[1.45]">
       {lines.map((line, index) => {
         const range = ranges.get(index);
-        const path = line.text.startsWith("+++ ") ? line.text.slice(4).replace(/^b\//, "") : null;
+        const fileHeader = line.kind === "header" && line.text.startsWith("+++ ");
+        const oldPath = lines[index - 1]?.text.slice(4).replace(/^a\//, "");
+        const path = fileHeader ? (line.text === "+++ /dev/null" ? oldPath ?? "Deleted file" : line.text.slice(4).replace(/^b\//, "")) : null;
+        // Unified metadata is consumed by the parser; the visible file header is one path row.
+        if (line.kind === "header" && (line.text.startsWith("--- ") || line.text.startsWith("index ") || (line.text.startsWith("diff --git ") && lines.slice(index + 1).some((candidate) => candidate.text.startsWith("+++ "))))) return null;
         const end = lines.findIndex((candidate, next) => next > index && candidate.kind === "header");
         const changes = path === null ? [] : lines.slice(index + 1, end < 0 ? undefined : end);
         const writing = path !== null && lines[index - 1]?.text === "--- /dev/null";
@@ -77,8 +82,8 @@ export const DiffView = ({ text }: { readonly text: string }) => {
           <span className={classes("px-2.5", line.kind === "header" && "flex items-center gap-2 py-1")}>
             {path !== null && <Icon aria-hidden="true" className="size-3 shrink-0" />}
             {line.text.startsWith("new file mode") && <FilePlus2 aria-hidden="true" className="size-3 shrink-0" />}
-            {range === undefined ? (line.text.length === 0 ? " " : line.text) : <>{line.text.slice(0, range[0])}<span data-diff-change className={classes("rounded-[2px] px-px", line.kind === "added" ? "bg-mint/25" : "bg-signal/25")}>{line.text.slice(range[0], range[1])}</span>{line.text.slice(range[1])}</>}
-          {path !== null && <><span className="rounded-sm bg-wash-strong px-1 text-ink-muted">{path.split(".").at(-1)}</span><span className="text-mint">+{changes.filter((change) => change.kind === "added").length}</span><span className="text-signal">-{changes.filter((change) => change.kind === "removed").length}</span></>}
+            {range === undefined ? (path ?? (line.text.length === 0 ? " " : line.text)) : <>{line.text.slice(0, range[0])}<span data-diff-change className={classes("rounded-[2px] px-px", line.kind === "added" ? "bg-mint/25" : "bg-signal/25")}>{line.text.slice(range[0], range[1])}</span>{line.text.slice(range[1])}</>}
+          {path !== null && <><span className="rounded-sm bg-wash-strong px-1 text-ink-muted">{path.split(".").at(-1)}</span>{!clipped && <><span className="text-mint">+{changes.filter((change) => change.kind === "added").length}</span><span className="text-signal">-{changes.filter((change) => change.kind === "removed").length}</span></>}</>}
           </span>
         </div>;
       })}
