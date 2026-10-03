@@ -224,8 +224,8 @@ describe("an update's notices", () => {
     expect(notice("environment.update-failed", { updateId, fromVersion: "0.4.2", toVersion: "0.5.0", stage: "trial", reason: "", rolledBack: true }).success).toBe(false);
   });
 
-  it("say a pending update was withdrawn, by updates.cancel or because the settings stopped calling for it", () => {
-    expect(UPDATE_CANCEL_CAUSES).toEqual(["requested", "settings"]);
+  it("say a pending update was withdrawn by request, settings or a superseding running release", () => {
+    expect(UPDATE_CANCEL_CAUSES).toEqual(["requested", "settings", "superseded"]);
     for (const cause of UPDATE_CANCEL_CAUSES) {
       const payload = { updateId, toVersion: "0.5.0", cause };
       expect(notice("environment.update-cancelled", payload).data, cause).toEqual({ type: "environment.update-cancelled", payload });

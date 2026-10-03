@@ -720,6 +720,14 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     outcomes: () => readUpdateHistory(log).outcomes,
 
     async settle() {
+      // An external version change can supersede a channel target without beginning its update.
+      // Persist the withdrawal before opening the wire so no host poll can revive the old image.
+      if (held.state === "waiting" && held.update.source === "channel" &&
+        ReleaseVersion.safeParse(held.update.toVersion).success && ReleaseVersion.safeParse(harnessVersion).success &&
+        compareReleaseVersions(held.update.toVersion, harnessVersion) <= 0) {
+        log.append(stream, [cancelledEvent(held.update, "superseded")], { actor: UPDATES_ACTOR });
+        held = { state: "current" };
+      }
       settleLatestUpdate({ log, stream, dataDir: options.dataDir, harnessVersion, actor: UPDATES_ACTOR });
       await settleInterruptedRuns({
         log,
