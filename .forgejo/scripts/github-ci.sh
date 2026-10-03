@@ -195,11 +195,14 @@ print(int(items[0]["id"]))')
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
     gh_api --fail -L --max-filesize 33554432 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
-    if python3 - "$gl/gallery.zip" <<'PYLEGACY'
-import sys,zipfile
-with zipfile.ZipFile(sys.argv[1]) as z: sys.exit(0 if 'report.json' not in z.namelist() else 1)
-PYLEGACY
-    then
+    gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
+import pathlib,sys,zipfile
+archive=pathlib.Path(sys.argv[1])
+if archive.stat().st_size > 32*1024*1024: sys.exit('gallery zip is too large')
+with zipfile.ZipFile(archive) as z: print('report' if 'report.json' in z.namelist() else 'captures')
+PYFORMAT
+    )
+    if [ "$gallery_format" = captures ]; then
       # A workflow rollout can finish an earlier capture-only artifact.
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
@@ -226,7 +229,7 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    if len(entries) > 602 or sum(f.file_size for f in entries) > 24*1024*1024: sys.exit('gallery payload is too large')
+    if len(entries) > 602 or sum(f.filename.endswith('.png') for f in entries) > 600 or sum(f.file_size for f in entries) > 24*1024*1024: sys.exit('gallery payload is too large')
     names = [f.filename for f in entries]
     if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     report = json.loads(z.read('report.json'))

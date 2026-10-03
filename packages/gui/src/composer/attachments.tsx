@@ -1,6 +1,9 @@
 import { attachmentFromBytes, attachmentRefused, mediaTypeOf, overLimit, type ShellContent, type ShellFile } from "@agent-harness/client-runtime";
 import { MAX_ATTACHMENT_BYTES, type AdapterCapabilities, type AttachmentInput } from "@agent-harness/contracts";
 import { useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type RefObject } from "react";
+import { File, X } from "lucide-react";
+import { Button, Tooltip } from "../ui/index.js";
+import { classes } from "../ui/classes.js";
 import { useRuntime, useShell } from "../window-context.js";
 
 /**
@@ -155,18 +158,20 @@ export const AttachmentPicker = ({ attachments }: { readonly attachments: Attach
 /** The attachments as chips, each with a way to take it off before sending. */
 export const AttachmentChips = ({ attachments }: { readonly attachments: Attachments }) =>
   attachments.list.length === 0 ? null : (
-    <ul aria-label="Attachments" className="flex flex-wrap gap-1.5">
+    <ul aria-label="Attachments" className="flex flex-wrap gap-1.5 px-3 pt-2.5">
       {attachments.list.map((attachment, index) => (
-        <li key={`${String(index)} ${attachment.name}`} className="flex items-center gap-1 rounded-full border border-line bg-raised py-0.5 pr-1 pl-2.5 text-xs text-ink">
-          <span>{attachment.name}</span>
-          <button
-            type="button"
-            aria-label={`Remove ${attachment.name}`}
-            onClick={() => attachments.set(attachments.current().filter((_, other) => other !== index))}
-            className="rounded-full px-1 text-ink-muted hover:bg-wash hover:text-ink"
-          >
-            ×
-          </button>
+        <li key={`${String(index)} ${attachment.name}`} data-attachment-chip className={classes("relative flex h-14 max-w-56 items-center gap-2 rounded-md border border-hairline-strong bg-raised text-xs text-ink", attachment.kind === "image" ? "w-14" : "pr-7 pl-2.5")}>
+          <span className={attachment.kind === "image" ? "sr-only" : "min-w-0 truncate"} title={attachment.name}>{attachment.name}</span>
+          {attachment.kind === "image" ? <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} className="size-full rounded-md object-cover" /> : <File aria-hidden="true" className="order-first size-4 shrink-0 text-ink-muted" />}
+          <Tooltip content={`Remove ${attachment.name} · Enter or Space`}>
+            <Button
+              aria-label={`Remove ${attachment.name}`}
+              onClick={() => attachments.set(attachments.current().filter((_, other) => other !== index))}
+              className="absolute top-0.5 right-0.5 size-[18px] rounded-full bg-float p-0 text-ink-muted hover:bg-wash-strong hover:text-ink"
+            >
+              <X aria-hidden="true" className="size-3!" />
+            </Button>
+          </Tooltip>
         </li>
       ))}
     </ul>
