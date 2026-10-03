@@ -39,7 +39,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
       <div data-setup-introduction className="m-auto flex w-[720px] max-w-full flex-col gap-6 rounded-lg border border-hairline bg-panel p-7">
         <div className="flex flex-col gap-3">
           <div data-setup-tile className="flex size-11 items-center justify-center rounded-lg bg-beam text-beam-ink"><Sparkles aria-hidden="true" className="size-6" /></div>
-          <h1 id={heading} className="text-[28px] leading-9 font-semibold tracking-[-0.025em]">Welcome to agent-harness</h1>
+          <h1 id={heading} className="text-[1.75rem] leading-9 font-semibold tracking-[-0.025em]">Welcome to agent-harness</h1>
           <p className="max-w-[60ch] text-lg leading-6">A place to work with coding agents.</p>
           <p className="max-w-[60ch] text-sm leading-6 text-ink-muted">Give an agent a task, follow its work, and keep the conversation with your project. agent-harness brings your accounts, sessions and tools into one window, on this machine or across your machines.</p>
         </div>
