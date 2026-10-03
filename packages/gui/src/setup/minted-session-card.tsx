@@ -1,5 +1,6 @@
 import { adminCall, isLive, isRegisteredStep, uuidv4, uuidv7, type CardAction } from "@agent-harness/client-runtime";
 import type { PromptVariant, SetupTarget } from "@agent-harness/contracts";
+import { BookOpen, ExternalLink } from "lucide-react";
 import { useMemo, useState } from "react";
 import { SessionPane } from "../grid/session-pane.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
@@ -81,7 +82,7 @@ export const MintedSessionCard = ({ environmentId, step, subject, artefact, outc
   return <>
     <StepStatus environmentId={environmentId} step={step} cardAction={act} />
     <AuthoringPicker picker={picker} />
-    {sessionId === undefined && !step.result?.actions.includes("start-over") && <Button onClick={() => void mint()}>{startLabel}</Button>}
+    {sessionId === undefined && !step.result?.actions.includes("start-over") && <Button title={`${startLabel} · Tab, Enter or Space`} onClick={() => void mint()}><BookOpen aria-hidden="true" />{startLabel}</Button>}
     {line !== undefined && <p role="alert">{line}</p>}
     {sessionId !== undefined && <MintedConversation environmentId={environmentId} sessionId={sessionId} outcome={outcome ?? (step.result?.state === "done" ? "landed" : undefined)} />}
   </>;
@@ -94,8 +95,9 @@ const MintedConversation = ({ environmentId, sessionId, outcome }: { readonly en
   const open = useOpenInFocusedPane();
   const checklist = useChecklist();
   const session = { environmentId, sessionId };
-  return <PaneLines><SessionPane session={session} focused={true} marked={false} close={() => undefined} header={<header>
-    <p role="status" aria-label="Authoring status">{projection.parkedPrompts.length > 0 ? "waiting for you" : isLive(runs.state) ? "running" : outcome ?? (projection.draft !== null ? "waiting for you" : "needs attention")}</p>
-    <Button onClick={() => { open(session); checklist.leaveForMain(); }}>Open in the main window</Button>
-  </header>} /></PaneLines>;
+  return <section aria-label="Authoring conversation" data-authoring-frame className="flex h-[480px] min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-hairline bg-panel"><PaneLines><SessionPane session={session} focused={true} marked={false} close={() => undefined} header={<header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-hairline bg-raised/50 px-3 py-2">
+    <h3 className="min-w-0 text-xs font-medium text-ink">{projection.summary?.title ?? "Authoring conversation"}</h3>
+    <p role="status" aria-label="Authoring status" className="text-2xs text-ink-muted">{projection.parkedPrompts.length > 0 ? "waiting for you" : isLive(runs.state) ? "running" : outcome ?? (projection.draft !== null ? "waiting for you" : "needs attention")}</p>
+    <Button variant="outline" size="sm" title="Open in the main window · Tab, Enter or Space" onClick={() => { open(session); checklist.leaveForMain(); }}><ExternalLink aria-hidden="true" />Open in the main window</Button>
+  </header>} /></PaneLines></section>;
 };

@@ -36,8 +36,9 @@ describe("the Browser settings pane", () => {
     desk.wire.answer("browser.pairing.code", () => ({ result: { code: "ABCD2345", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
     await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
     const load = await within(pane).findByRole("region", { name: "Load the extension" });
-    expect(within(load).getByRole("heading", { name: "1 Load the extension" })).toBeDefined();
+    expect(within(load).getByRole("heading", { name: "Load the extension" })).toBeDefined();
     expect(within(load).queryByRole("checkbox")).toBeNull();
+    expect(within(pane).getAllByRole("textbox", { name: "Sites you are developing" })).toHaveLength(1);
     const code = await within(pane).findByRole("textbox", { name: "Pairing code" });
     expect((code as HTMLInputElement).value).toBe("ABCD2345");
     await app.user.click(within(pane).getByRole("button", { name: "Copy pairing code (Enter or Space)" }));

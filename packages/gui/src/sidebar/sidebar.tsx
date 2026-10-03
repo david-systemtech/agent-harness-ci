@@ -9,6 +9,7 @@ import { useOpenInPane } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
 import { Button, IconButton, Input, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { ScheduledStrip } from "../routines/scheduled-strip.js";
 import { SidebarDialogs } from "./dialogs.js";
 import { useDropTarget } from "./drag.js";
 import { EnvironmentSection, FoldingSection } from "./headings.js";
@@ -105,6 +106,7 @@ const Headings = () => {
           </NewSessionButton>
         </Tooltip>
       </div>
+      <ScheduledStrip />
       <div className="flex shrink-0 items-center gap-1 px-1.5 pt-2 pb-1.5">
         {(list.rows.length > 8 || searchShown || filter !== "") && (
           <div className="relative min-w-0 flex-1">

@@ -13,11 +13,14 @@ import {
   type MergedGroupHeading,
   type SessionRow,
 } from "@agent-harness/client-runtime";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import type { Offer } from "../keys/key-dispatch.js";
-import { Button, Dialog, DialogClose, DialogContent, Input } from "../ui/index.js";
+import { Dialog, DialogClose, DialogContent, Input } from "../ui/index.js";
+import { DialogAction as Button } from "../ui/dialog-action.js";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, DialogFooter } from "../ui/dialog.js";
+import { ArchiveRestore, Trash2, X, Clock, Plus } from "lucide-react";
 import { useObservable, useRuntime } from "../window-context.js";
 import { useOrganise } from "./organise.js";
 import { notDone, quoted } from "./words.js";
@@ -43,16 +46,16 @@ const nameOf = (environments: readonly EnvironmentView[], environmentId: string)
   environments.find((view) => view.environmentId === environmentId)?.name ?? THIS_MACHINE;
 
 /** A dialog that closes when dismissed (Esc, the overlay, a Close button). */
-const Shown = ({ close, title, description, children }: { close(): void; readonly title: string; readonly description?: string; readonly children: ReactNode }) => (
+const Shown = ({ close, title, description, children, wide = false }: { close(): void; readonly title: string; readonly description?: string; readonly children: ReactNode; readonly wide?: boolean }) => (
   <Dialog open onOpenChange={(open) => !open && close()}>
-    <DialogContent title={title} {...(description !== undefined && { description })}>
+    <DialogContent title={title} onKeyDown={(event) => { if (event.key === "Escape") close(); }} {...(description !== undefined && { description })} className={wide ? "max-w-[32rem] max-h-[calc(100dvh-4rem)] overflow-y-auto" : "max-h-[calc(100dvh-4rem)] overflow-y-auto"}>
       {children}
     </DialogContent>
   </Dialog>
 );
 
 /** A dialog's buttons, at its foot. */
-const Actions = ({ children }: { readonly children: ReactNode }) => <div className="flex justify-end gap-2">{children}</div>;
+const Actions = ({ children }: { readonly children: ReactNode }) => <DialogFooter>{children}</DialogFooter>;
 
 /** One of a dialog's choices: its name, then a detail; dim, with the line saying why under it, while it cannot be chosen. */
 const Choice = ({ offer, detail, onClick, children }: { readonly offer: Offer; readonly detail?: string; onClick(): void; readonly children: string }) => {
@@ -98,9 +101,9 @@ const SnoozeDialog = ({ row, close }: { readonly row: SessionRow; close(): void 
         </p>
         <Actions>
           <DialogClose asChild>
-            <Button>Cancel</Button>
+            <Button icon={X} keys="Escape">Cancel</Button>
           </DialogClose>
-          <Button type="submit" tone="primary" disabled={!(at instanceof Date)}>
+          <Button icon={Clock} type="submit" tone="primary" disabled={!(at instanceof Date)}>
             Snooze
           </Button>
         </Actions>
@@ -148,7 +151,7 @@ const SnoozePresetsDialog = ({ row, close }: { readonly row: SessionRow; close()
       </ul>
       <Actions>
         <DialogClose asChild>
-          <Button>Cancel</Button>
+          <Button icon={X} keys="Escape">Cancel</Button>
         </DialogClose>
       </Actions>
     </Shown>
@@ -175,8 +178,7 @@ const TagsDialog = ({ row, close }: { readonly row: SessionRow; close(): void })
           {summary.tags.map((held) => (
             <li key={held} className="flex items-center gap-1 rounded-sm bg-wash pl-2 text-sm">
               #{held}
-              <Button aria-label={`Take #${held} off`} onClick={() => organise.send(environmentId, "sessions.untag", { sessionId: summary.id, tag: held })}>
-                ×
+              <Button icon={X} aria-label={`Take #${held} off`} onClick={() => organise.send(environmentId, "sessions.untag", { sessionId: summary.id, tag: held })}>
               </Button>
             </li>
           ))}
@@ -184,7 +186,7 @@ const TagsDialog = ({ row, close }: { readonly row: SessionRow; close(): void })
       )}
       <form onSubmit={submitted(add)} className="flex gap-2">
         <Input aria-label="A tag to add" maxLength={TAG_MOST} value={typed} onChange={(event) => setTyped(event.target.value)} />
-        <Button type="submit" disabled={tag === "" || held}>
+        <Button icon={Plus} type="submit" disabled={tag === "" || held}>
           Add
         </Button>
       </form>
@@ -213,7 +215,7 @@ const NewGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): voi
         <Input aria-label="The group's name" maxLength={GROUP_NAME_MOST} value={typed} onChange={(event) => setTyped(event.target.value)} />
         <Actions>
           <DialogClose asChild>
-            <Button>Cancel</Button>
+            <Button icon={X} keys="Escape">Cancel</Button>
           </DialogClose>
           <Button type="submit" tone="primary" disabled={name === ""}>
             Move
@@ -253,7 +255,7 @@ const MoveToGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): 
       </ul>
       <Actions>
         <DialogClose asChild>
-          <Button>Cancel</Button>
+          <Button icon={X} keys="Escape">Cancel</Button>
         </DialogClose>
       </Actions>
     </Shown>
@@ -264,6 +266,19 @@ const DeleteDialog = ({ row, close }: { readonly row: SessionRow; close(): void 
   const runtime = useRuntime();
   const organise = useOrganise();
   const environments = useObservable(runtime.projections.environments);
+  const [checked, setChecked] = useState<"checking" | "idle" | "live" | "failed">("checking");
+  const [failure, setFailure] = useState("");
+  const runs = useObservable(runtime.projections.runs);
+  const live = runs.sessions.get(row.environmentId)?.get(row.summary.id)?.state;
+  useEffect(() => {
+    let current = true;
+    void runtime.requests.call(row.environmentId, "sessions.get", { sessionId: row.summary.id }).then((answer) => {
+      if (!current) return;
+      if (!answer.ok) { setFailure(answer.error.message); setChecked("failed"); return; }
+      setChecked(answer.result.summary.activity.state === "idle" ? "idle" : "live");
+    });
+    return () => { current = false; };
+  }, [runtime, row.environmentId, row.summary.id]);
   const title = quoted(row.summary.title);
   const remove = () => {
     organise.send(row.environmentId, "sessions.delete", { sessionId: row.summary.id });
@@ -271,16 +286,17 @@ const DeleteDialog = ({ row, close }: { readonly row: SessionRow; close(): void 
     close();
   };
   return (
-    <Shown close={close} title={`Delete ${title} on ${nameOf(environments, row.environmentId)}?`} description="Restore brings it back within 30 days; after that it is gone.">
-      <Actions>
-        <DialogClose asChild>
-          <Button>Keep it</Button>
-        </DialogClose>
-        <Button tone="danger" onClick={remove}>
-          Delete
-        </Button>
-      </Actions>
-    </Shown>
+    <AlertDialog open onOpenChange={(open) => !open && close()}>
+      <AlertDialogContent title={`Delete ${title} on ${nameOf(environments, row.environmentId)}?`} description="Restore brings it back within 30 days; after that it is gone.">
+        {checked === "checking" && <p role="status" className="text-sm text-ink-muted">Checking whether a run is live…</p>}
+        {checked === "failed" && <p role="status" className="text-sm text-signal">Could not check the run: {failure}</p>}
+        {checked !== "checking" && (live === "running" || live === "parked" || live === "starting" || (live === undefined && checked === "live")) && <p className="text-sm text-amber">A run is live on this session. Deleting it stops the run.</p>}
+        <Actions>
+          <AlertDialogCancel asChild><Button icon={X} keys="Escape" onClick={close}>Keep it</Button></AlertDialogCancel>
+          <Button icon={Trash2} tone="danger" disabled={checked === "checking" || checked === "failed"} onClick={remove}>Delete</Button>
+        </Actions>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 };
 
@@ -294,16 +310,14 @@ const DeleteGroupDialog = ({ group, close }: { readonly group: MergedGroupHeadin
     close();
   };
   return (
-    <Shown close={close} title={`Delete the group ${quoted(group.name)}?`} description={`On ${on}. Its sessions stay, in no group.`}>
-      <Actions>
-        <DialogClose asChild>
-          <Button>Keep it</Button>
-        </DialogClose>
-        <Button tone="danger" onClick={remove}>
-          Delete
-        </Button>
-      </Actions>
-    </Shown>
+    <AlertDialog open onOpenChange={(open) => !open && close()}>
+      <AlertDialogContent title={`Delete the group ${quoted(group.name)}?`} description={`On ${on}. Its sessions stay, in no group.`}>
+        <Actions>
+          <AlertDialogCancel asChild><Button icon={X} keys="Escape" onClick={close}>Keep it</Button></AlertDialogCancel>
+          <Button icon={Trash2} tone="danger" onClick={remove}>Delete</Button>
+        </Actions>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 };
 
@@ -318,7 +332,7 @@ const RestoreDialog = ({ query, close }: { readonly query: string; close(): void
   const needle = query.trim().toLowerCase();
   const found = deleted.filter(({ summary }) => summary.title.toLowerCase().includes(needle));
   return (
-    <Shown close={close} title="Restore a deleted session" description="What each environment deleted in the last 30 days; after that it is purged.">
+    <Shown wide close={close} title="Restore a deleted session" description="What each environment deleted in the last 30 days; after that it is purged.">
       {asking > 0 && <p className="text-sm text-ink-muted">Asking each environment what it deleted…</p>}
       {failed.map(({ environmentId, message }) => (
         <p key={environmentId} className="text-sm text-ink-muted">{`${nameOf(environments, environmentId)} could not be asked: ${message}`}</p>
@@ -332,11 +346,12 @@ const RestoreDialog = ({ query, close }: { readonly query: string; close(): void
             const absent = offer.status === "absent" ? offer.message : undefined;
             const view = environments.find((candidate) => candidate.environmentId === environmentId);
             return (
-              <li key={`${environmentId}/${summary.id}`} className="flex flex-wrap items-center gap-2 text-sm">
+              <li key={`${environmentId}/${summary.id}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-inset/60 px-3 py-2 text-sm">
                 <EnvironmentGlyph view={view} label={view?.name ?? THIS_MACHINE} />
                 <span className="min-w-0 flex-1 truncate">{summary.title}</span>
                 <span className="text-xs text-ink-muted">{`restorable until ${whenWords(new Date(summary.purgeAt))}`}</span>
                 <Button
+                  icon={ArchiveRestore}
                   aria-label={`Restore ${quoted(summary.title)}`}
                   disabled={absent !== undefined}
                   onClick={() => {
@@ -354,7 +369,7 @@ const RestoreDialog = ({ query, close }: { readonly query: string; close(): void
       )}
       <Actions>
         <DialogClose asChild>
-          <Button>Close</Button>
+          <Button icon={X} keys="Escape">Close</Button>
         </DialogClose>
       </Actions>
     </Shown>

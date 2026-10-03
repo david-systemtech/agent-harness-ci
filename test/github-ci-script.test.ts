@@ -10,7 +10,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import { join } from "node:path";
@@ -108,7 +108,7 @@ if stage == 'dispatch':
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
 elif stage == 'artifacts':
-    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else [{'id':99,'name':'window-gallery','size_in_bytes':100,'expired':False}]}))
+    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
 elif stage == 'archive':
     if os.environ.get('FAKE_GALLERY_ZIP'):
         import shutil
@@ -411,7 +411,7 @@ describe("the advisory gallery relay", () => {
     expect(result.stdout).toContain("Gallery posted on pull request 1336");
     expect(readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8")).toContain("![window-empty.dark.png](https://forge.example.invalid/attachments/screenshot)");
     const archive = apiCalls(f).find((call) => call.stage === "archive");
-    expect(archive?.args).toContain("33554432");
+    expect(archive?.args).toContain("67108864");
     expect(archive?.args).toContain("--max-time");
     const forgejoCalls = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && line.includes("/api/v1/"));
     expect(forgejoCalls).toHaveLength(4);
@@ -512,12 +512,12 @@ it("publishes all 34 captures from seventeen scenes without rebuilding the artif
   for (const name of names) expect(comment).toContain(`![${name}](`);
 });
 
-it("rejects a PNG payload above 24 MiB before posting, leaving ZIP overhead within the 32 MiB transport cap", async () => {
+it("rejects a PNG payload above 48 MiB before posting, leaving ZIP overhead within the 64 MiB transport cap", async () => {
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
   const result = await relay(f, {
     GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
-    FAKE_PR_SHA: sha, FAKE_PNG_SIZE: String(24*1024*1024 + 1),
+    FAKE_PR_SHA: sha, FAKE_PNG_SIZE: String(48*1024*1024 + 1),
   });
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("gallery payload is too large");
@@ -543,9 +543,9 @@ mode=sys.argv[2]
 with zipfile.ZipFile(sys.argv[1], 'w', compression=zipfile.ZIP_DEFLATED if mode=='compressed-payload' else zipfile.ZIP_STORED) as z:
     if mode=='empty': pass
     elif mode=='too-many':
-        for i in range(601): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
+        for i in range(1201): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\nimage')
     else:
-        size=(24*1024*1024+1 if mode=='compressed-payload' else 32*1024*1024+1 if mode=='large-zip' else 15)
+        size=(48*1024*1024+1 if mode=='compressed-payload' else 64*1024*1024+1 if mode=='large-zip' else 15)
         name=('geometry.json' if mode=='unexpected' else '../escape.dark.png' if mode=='traversal' else 'window-empty.dark.png')
         data=(b'not a PNG' if mode=='not-png' else b'\\x89PNG\\r\\n\\x1a\\n'+b'x'*(size-8))
         z.writestr(name, data)
@@ -581,15 +581,15 @@ path=pathlib.Path(sys.argv[1]); kind=sys.argv[2]
 png=b'\\x89PNG\\r\\n\\x1a\\n'
 with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
     if kind=='count':
-        for i in range(601): z.writestr(f'scene-{i}.dark.png', png)
-    elif kind=='expanded': z.writestr('scene.dark.png', png+b'x'*(24*1024*1024+1-len(png)))
+        for i in range(1201): z.writestr(f'scene-{i}.dark.png', png)
+    elif kind=='expanded': z.writestr('scene.dark.png', png+b'x'*(48*1024*1024+1-len(png)))
     elif kind=='path': z.writestr('../scene.dark.png', png)
     elif kind=='duplicate':
         z.writestr('scene.dark.png', png); z.writestr('scene.dark.png', png)
     elif kind=='signature': z.writestr('scene.dark.png', b'not a PNG')
     elif kind!='empty': z.writestr('scene.dark.png', png)
 if kind=='zip':
-    with path.open('ab') as f: f.truncate(32*1024*1024+1)
+    with path.open('ab') as f: f.truncate(64*1024*1024+1)
 if kind=='truncated': path.write_bytes(b'PK')`, zip, kind]);
   const result = await relay(f, {
     GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests",
@@ -605,14 +605,22 @@ if kind=='truncated': path.write_bytes(b'PK')`, zip, kind]);
   if (kind === "truncated" || kind === "zip") expect(readFileSync(f.log, "utf8")).not.toContain("/api/v1/");
 });
 
-it("counts only PNGs against the 600-image limit when report JSON is present", async () => {
+it.each([
+  ["count", "gallery payload is too large"],
+  ["expanded", "gallery payload is too large"],
+  ["zip", "gallery zip is too large"],
+])("refuses an oversized report %s before publication", async (kind, message) => {
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
   const zip = join(f.checkout, "gallery.zip");
-  await run("python3", ["-c", `import sys,zipfile
-with zipfile.ZipFile(sys.argv[1], 'w') as z:
-    for i in range(601): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\n')
-    z.writestr('report.json', '{}')`, zip]);
+  await run("python3", ["-c", `import pathlib,sys,zipfile
+with zipfile.ZipFile(sys.argv[1], 'w', compression=zipfile.ZIP_DEFLATED) as z:
+    if sys.argv[2]=='count':
+        for i in range(1201): z.writestr(f'scene-{i}.dark.png', b'\\x89PNG\\r\\n\\x1a\\n')
+    else: z.writestr('scene.dark.png', b'\\x89PNG\\r\\n\\x1a\\n'+b'x'*(48*1024*1024 if sys.argv[2]=='expanded' else 0))
+    z.writestr('report.json', '{}')
+if sys.argv[2]=='zip':
+    with pathlib.Path(sys.argv[1]).open('ab') as f: f.truncate(64*1024*1024+1)`, zip, kind]);
   const methods: string[] = [];
   const server = createServer((request, response) => {
     methods.push(request.method ?? "");
@@ -628,8 +636,8 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
       FORGEJO_URL: `http://127.0.0.1:${address.port}`, FORGEJO_REPOSITORY: "example/project",
     });
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("gallery payload is too large");
-    expect(methods).toEqual(["GET"]);
+    expect(result.stderr).toContain(message);
+    expect(methods).toEqual(kind === "zip" ? [] : ["GET"]);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
 
@@ -647,15 +655,15 @@ sizes=[pathlib.Path(p).stat().st_size for p in sys.argv[1:] if not p.startswith(
 print(str(sum(sizes))+'\\ttotal')
 `, { mode: 0o755 });
   const check = () => run("bash", ["-e", "-c", guards], { cwd: f.checkout, env: { ...process.env, ...f.env } });
-  for (let i = 0; i < 600; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  for (let i = 0; i < 1200; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
   writeFileSync(join(images, "report.json"), "{}");
   writeFileSync(join(images, "geometry.json"), "{}");
   await expect(check()).resolves.toBeDefined();
-  const extra = join(images, "scene-600.dark.png");
+  const extra = join(images, "scene-1200.dark.png");
   writeFileSync(extra, "image");
   await expect(check()).rejects.toMatchObject({ code: 1 });
   rmSync(extra);
-  writeFileSync(join(images, "scene-0.dark.png"), Buffer.alloc(24*1024*1024+1));
+  writeFileSync(join(images, "scene-0.dark.png"), Buffer.alloc(48*1024*1024+1));
   await expect(check()).rejects.toMatchObject({ code: 1 });
 });
 
@@ -754,6 +762,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
   const zip = join(f.checkout, "gallery.zip");
   const captures = new Map<string, Buffer>();
+  const attachments: string[] = [];
   const comments: { id: number; body: string }[] = [];
   let base = "", failure = "";
   const server = createServer(async (request, response) => {
@@ -774,6 +783,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
       comments[id - 1]!.body = (JSON.parse(data.toString()) as { body: string }).body;
       response.end("{}");
     } else if (request.method === "POST" && path.endsWith("/assets")) {
+      attachments.push(/filename="([^"]+)"/.exec(data.toString())?.[1] ?? "");
       if (failure === "attachment") { response.writeHead(503).end(); return; }
       response.end(JSON.stringify({ browser_download_url: failure === "asset-url" ? "https://elsewhere.example.invalid/capture" : `${base}/attachments/capture-${comments.length}` }));
     } else if (path.startsWith("/api/packages/")) {
@@ -792,21 +802,115 @@ async function storedGallery(packagesToken = "token-for-tests") {
   base = `http://127.0.0.1:${address.port}`;
   const env = { PACKAGES_TOKEN: packagesToken, GH_CI_EVENT: "gallery", FAKE_GALLERY_ZIP: zip, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project" };
   return {
-    f, sha, comments, captures, env,
+    f, sha, comments, captures, attachments, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number) => {
+    capture: async (pixel: number, count = 1) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
 png=b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1400,900,8,6,0,0,0))+chunk(b'IDAT',zlib.compress((b'\\0'+bytes([pixel,pixel,pixel,255])*1400)*900))+chunk(b'IEND',b'')
 pathlib.Path(sys.argv[1]+'.png').write_bytes(png)
 with zipfile.ZipFile(sys.argv[1],'w') as z:
-    z.writestr('window-empty.dark.png',png)
-    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':'window-empty.dark','status':'new','pixelFailed':True,'geometryFailures':[]}]}))`, zip, String(pixel)]);
+    scenes=[]
+    for i in range(int(sys.argv[3])):
+        name='window-empty.dark' if int(sys.argv[3])==1 else f'scene-{i}.dark'
+        z.writestr(name+'.png',png)
+        scenes.append({'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]})
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':scenes}))`, zip, String(pixel), String(count)]);
       return readFileSync(`${zip}.png`);
     },
   };
 }
+
+it.each([{ count: 212, status: "new" }, { count: 212, status: "changed" }, { count: 400, status: "changed" }])("publishes $count $status captures across both widths and ladders", async ({ count, status }) => {
+  const g = await storedGallery();
+  await run("python3", ["-c", `import json,sys,zipfile
+scenes=[]
+# 32 KiB per PNG exercises more than the old expanded and transport byte caps at 400 rows.
+png=b'\\x89PNG\\r\\n\\x1a\\n'+b'x'*(32768-8)
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    for i in range(int(sys.argv[2])):
+        name=f'scene-{i//4}'+('-narrow' if i%4>=2 else '')+('.dark' if i%2 else '.light')
+        scenes.append({'name':name,'status':sys.argv[3],'pixelFailed':True,'geometryFailures':[]})
+        for suffix in (('png','baseline.png','difference.png') if sys.argv[3]=='changed' else ('png',)): z.writestr(name+'.'+suffix,png)
+    z.writestr('geometry.json','{}')
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':scenes}))`, g.env.FAKE_GALLERY_ZIP, String(count), status]);
+  const result = await relay(g.f, { ...g.env, FAKE_ARTIFACT_SIZE: String(statSync(g.env.FAKE_GALLERY_ZIP).size) });
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(1);
+  expect(g.captures.size).toBe(count);
+  expect(g.attachments).toHaveLength(status === "changed" ? count * 3 : count);
+  expect(new Set(g.attachments).size).toBe(g.attachments.length);
+  const body = g.comments[0]!.body;
+  expect(body.match(/\| Baseline \| Capture \| Difference \|/g) ?? []).toHaveLength(status === "changed" ? count : 0);
+  const manifest = /<!-- window-gallery (.*) -->/.exec(body)?.[1];
+  expect(manifest).toBeDefined();
+  expect((JSON.parse(manifest!) as { captures: unknown[] }).captures).toHaveLength(count);
+  for (const width of ["", "-narrow"]) {
+    for (const ladder of ["light", "dark"]) {
+      expect(body).toContain(`![capture scene-0${width}.${ladder}]`);
+      if (status === "changed") {
+        expect(body).toContain(`![baseline scene-0${width}.${ladder}]`);
+        expect(body).toContain(`![difference scene-0${width}.${ladder}]`);
+      }
+    }
+  }
+});
+
+it.each([
+  ["scenes", "invalid gallery scene list"],
+  ["pngs", "gallery payload is too large"],
+  ["entries", "gallery payload is too large"],
+  ["expanded", "gallery payload is too large"],
+  ["zip", "gallery zip is too large"],
+  ["duplicate-scene", "invalid gallery scene name"],
+  ["scene-name", "invalid gallery scene name"],
+  ["missing-triplet", "incomplete gallery triplet"],
+  ["status", "incomplete gallery triplet"],
+  ["empty-scenes", "invalid gallery scene list"],
+])("rejects a report with invalid %s before publishing", async (kind, message) => {
+  const g = await storedGallery();
+  await run("python3", ["-c", `import json,pathlib,sys,zipfile
+kind=sys.argv[2]; path=pathlib.Path(sys.argv[1])
+count=401 if kind=='scenes' else 1201 if kind=='pngs' else 1200 if kind=='entries' else 1
+scenes=[]
+with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED) as z:
+    for i in range(count):
+        name=f'scene-{i}.dark'
+        scenes.append({'name':name,'status':'new','pixelFailed':False,'geometryFailures':[]})
+        z.writestr(name+'.png',b'\\x89PNG\\r\\n\\x1a\\n'+(b'x'*(48*1024*1024) if kind=='expanded' else b'image'))
+    if kind in ('pngs','entries'): scenes=scenes[:1]
+    if kind=='entries':
+        z.writestr('geometry.json','{}'); z.writestr('extra.json','{}')
+    if kind=='duplicate-scene': scenes+=scenes
+    if kind=='scene-name': scenes[0]['name']='../scene.dark'
+    if kind=='missing-triplet': scenes[0]['status']='changed'
+    if kind=='status': scenes[0]['status']='invalid'
+    if kind=='empty-scenes': scenes=[]
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':scenes}))
+if kind=='zip':
+    with path.open('ab') as f: f.truncate(64*1024*1024+1)`, g.env.FAKE_GALLERY_ZIP, kind]);
+  const result = await relay(g.f, g.env);
+  expect(result.code).not.toBe(0);
+  expect(result.stderr).toContain(message);
+  expect(g.comments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+});
+
+it("publishes and accepts a 204-capture report within the existing payload budgets", async () => {
+  const g = await storedGallery();
+  const image = await g.capture(255, 204);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.captures.size).toBe(204);
+  const manifest = /<!-- window-gallery (.*?) -->/.exec(g.comments[0]!.body)?.[1];
+  expect(manifest).toBeDefined();
+  expect((JSON.parse(manifest!) as { captures: unknown[] }).captures).toHaveLength(204);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  const baselines = join(g.f.checkout, "packages/gui/gallery/baselines");
+  expect(readdirSync(baselines)).toHaveLength(204);
+  for (let i = 0; i < 204; i++) expect(readFileSync(join(baselines, `scene-${i}.dark.png`))).toEqual(image);
+});
 
 it("finalizes a rerun on the same head and accepts its newly reviewed bytes while keeping the earlier manifest immutable", async () => {
   const g = await storedGallery();

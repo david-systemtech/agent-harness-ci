@@ -23,7 +23,6 @@ export { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./popover.js";
 export { Select } from "./select.js";
 export { Switch } from "./switch.js";
-export { Toast, Toasts, type ToastProps } from "./toast.js";
 export { TOOLTIP_DELAY_MS, Tooltip } from "./tooltip.js";
 
 export { Badge, ToneBadge, type StatusTone } from "./badge.js";

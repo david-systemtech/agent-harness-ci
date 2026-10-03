@@ -615,7 +615,7 @@ describe("a download cut short", () => {
 
     const kept = join(tempDir(), "a.tgz");
     writeFileSync(kept, "what was there");
-    expect(await provider.downloadAsset(await unreachableOrigin(), "token-for-tests", "david/x", asset, kept)).toMatchObject({ outcome: "unreachable" });
+    expect(await provider.downloadAsset(await unreachableOrigin(onCleanup), "token-for-tests", "owner/repository", asset, kept)).toMatchObject({ outcome: "unreachable" });
     expect(readFileSync(kept, "utf8")).toBe("what was there");
   });
 });

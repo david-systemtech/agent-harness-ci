@@ -1,7 +1,9 @@
 import { baseName, heldWords, presetBranch, problemLine, whenWords, type RefusalPlace, type RequestAnswer } from "@agent-harness/client-runtime";
 import { WORKSPACES_INSPECT_BRANCH_CAP, type InspectedRepository, type WorkspaceRequest } from "@agent-harness/contracts";
 import { useEffect, useState } from "react";
-import { Button, Input } from "../ui/index.js";
+import { Input } from "../ui/index.js";
+import { DialogAction as Button } from "../ui/dialog-action.js";
+import { ArrowLeft } from "lucide-react";
 import { useRuntime } from "../window-context.js";
 import { Entry, PickerLine, ViewTitle } from "./parts.js";
 
@@ -87,7 +89,7 @@ export const Branches = ({ place, repository, sessionId, choose, back, line, wai
       </ViewTitle>
       {usable && (
         <>
-          <Input aria-label="A new branch's name" placeholder="a new branch's name, or pick one below" value={typed} onChange={(event) => setTyped(event.target.value)} />
+          <Input className="min-w-0 font-mono" aria-label="A new branch's name" placeholder="a new branch's name, or pick one below" value={typed} onChange={(event) => setTyped(event.target.value)} />
           <ul aria-label={`Branches of ${name}`} className="flex max-h-64 flex-col overflow-y-auto">
             {named && <Entry name={`New branch ${needle}`} detail={`from ${base}`} disabled={waiting} choose={make({ newBranch: { name: needle } })} />}
             {named && read === null && <Entry name={`Branch ${needle}`} detail="one the repository has" disabled={waiting} choose={make({ branch: needle })} />}
@@ -103,7 +105,7 @@ export const Branches = ({ place, repository, sessionId, choose, back, line, wai
         </>
       )}
       <PickerLine line={line ?? own} />
-      <Button className="self-start" disabled={waiting} onClick={back}>
+      <Button icon={ArrowLeft} className="self-start" disabled={waiting} onClick={back}>
         Back
       </Button>
     </>

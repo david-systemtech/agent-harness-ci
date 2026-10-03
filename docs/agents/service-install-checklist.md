@@ -319,6 +319,18 @@ release's `compose.yaml`, with cron or the systemd timer, and set
 Record the result in the pull request that changes the script, or list the
 section as not run.
 
+Before running these ticks, run `./host-updater.sh --dry-run` with nothing
+pending and again with a ready update. It exits 0 and reports no actions
+for the first, and the current/target images, digest and replacement actions
+for the second. The container, images, `.env`, updater state and application
+content stay unchanged, and the manager's last poll is unchanged (the local
+status read still records authentication metadata). Stop the
+container and inspect again: it exits 1 with a failed status read, without
+creating updater state; start the container again before continuing. The
+public release image job exercises the no-pending inspection against its
+built image before pushing it; the ready plan is covered by the scripted
+Docker tests and this manual check.
+
 1. With nothing to update, the first tick logs "Nothing to update" and the next ticks log nothing; `docker compose exec environment agent-harness update status --data-dir /data` shows the updates managed outside, with the updater's last poll.
 2. `docker compose exec environment agent-harness update apply --version <newer> --now --data-dir /data`. Within five minutes the updater logs the pull and the begin, the stop (which waits for a run under way), the snapshot, the recreate and the watch, and ten minutes later `updated`; `logger` shows it once. `.env` holds `AGENT_HARNESS_IMAGE=<newer>` and `AGENT_HARNESS_PREVIOUS_IMAGE=<older>`, `docker image ls` holds only those two of the repository, `/data/snapshots` is empty, and `update status` shows the last update `updated`.
 3. Run the script by hand while a tick is under way (during step 2's stop): it exits at once, printing nothing.

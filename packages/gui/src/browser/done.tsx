@@ -1,5 +1,7 @@
 import { adminCall, uuidv7 } from "@agent-harness/client-runtime";
 import { BrowserReach } from "@agent-harness/contracts";
+import { Check } from "lucide-react";
+import { BrowserSubstep } from "./setup-substep.js";
 import { useState } from "react";
 import { Button } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -51,21 +53,18 @@ export const BrowserDone = ({ environmentId, chromeEnvironmentId, paired }: { re
   };
   const writable = runtime.capability(environmentId, "settings.update").status === "present";
   return (
-    <section aria-label="Done" className="flex flex-col gap-2">
-      <label>
-        <input type="checkbox" checked={done} readOnly disabled /> Done
-      </label>
-      <Button disabled={!paired || !writable || busy || done} onClick={() => void finish()}>
-        Done
+    <section aria-label="Done" className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3 text-xs">
+      <BrowserSubstep number={4} label="Done" complete={done} />
+      <Button variant="default" title="Done · Tab, Enter or Space" className="self-start" disabled={!paired || !writable || busy || done} onClick={() => void finish()}>
+        <Check aria-hidden="true" />Done
       </Button>
       {line !== null && <p role="status">{line}</p>}
       {done && (
         <section aria-label="Using your browser" className="flex flex-col gap-2">
-          <h3>Using your browser</h3>
-          <dl>
+          <h3 className="text-sm font-medium text-ink">Using your browser</h3>
+          <dl data-browser-definitions className="grid min-w-0 grid-cols-1 gap-x-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] [&_dt]:py-2 [&_dt]:font-medium [&_dd]:py-2 [&_dd]:text-ink-muted">
             <dt>My Chrome (agent-harness extension)</dt>
-            <dd>Your real Chrome, with your logins. The agent works in a tab group it keeps to itself, and some sites are refused.</dd>
-            <dd>Whichever of them is open.</dd>
+            <dd>Your real Chrome, with your logins. The agent works in a tab group it keeps to itself, and some sites are refused.<p>Whichever of them is open.</p></dd>
             <dt>My Chrome: &lt;name&gt;</dt>
             <dd>Always this browser, whatever else is open.</dd>
             <dt>Headless browser</dt>

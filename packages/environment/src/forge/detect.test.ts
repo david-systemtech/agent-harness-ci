@@ -107,7 +107,7 @@ describe("forge.detect", () => {
     const gitlab = await fakeForge();
     gitlab.answer(null, "GET /.well-known/openid-configuration", { status: 200, body: { issuer: gitlab.origin, scopes_supported: ["api", "read_api", "read_repository", "openid"] } });
     const nothing = await fakeForge();
-    const nowhere = await unreachableOrigin();
+    const nowhere = await unreachableOrigin(onCleanup);
 
     expect(await refusal(detect(client, `${gitlab.origin}/group/project`))).toEqual({ code: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } });
     expect(await refusal(detect(client, nothing.origin))).toEqual({ code: "not_a_forge", data: { origin: nothing.origin } });
@@ -144,7 +144,7 @@ describe("forge.accounts.add without a kind", () => {
     const gitlab = await fakeForge();
     gitlab.answer(null, "GET /api/v4/version", { status: 401, body: { message: "401 Unauthorized" } });
     const nothing = await fakeForge();
-    const nowhere = await unreachableOrigin();
+    const nowhere = await unreachableOrigin(onCleanup);
     const from = t.env.log.head();
 
     expect(rejection((await add(client, { url: gitlab.origin })).receipt)).toMatchObject({ reason: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } });

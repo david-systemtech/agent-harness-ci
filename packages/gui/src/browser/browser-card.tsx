@@ -1,10 +1,11 @@
 import { adminCall, uuidv7, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { PairedChrome, SetupTarget } from "@agent-harness/contracts";
-import { CheckCircle2, Circle, FolderOpen, KeyRound, Square } from "lucide-react";
-import { Button, CopyButton } from "../ui/index.js";
-import { useMemo, useState } from "react";
+import { KeyRound, Save, Square } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { BrowserSubstep } from "./setup-substep.js";
 import { BrowserDone } from "./done.js";
-import { DevelopmentSites } from "./development-sites.js";
+import { useSettingsValues } from "../settings/settings-values.js";
+import { Button, CopyButton } from "../ui/index.js";
 import { BrowserPairingCode, BrowserProblem } from "./pairing-code.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
@@ -59,22 +60,21 @@ export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, 
   const loaded = paired || (status.result?.unpairedConnected ?? false);
   return (
     <div className="flex min-w-0 flex-col gap-3.5 text-xs">
-      <section aria-label="Load the extension" className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
-        <h4 className="flex items-center gap-2 text-xs font-medium"><span className="flex size-5 items-center justify-center rounded-full bg-wash-strong font-mono text-2xs">1</span>{" "}<FolderOpen aria-hidden="true" className="size-4" />Load the extension</h4>
-        <p role="status" aria-label="Extension installation" className="flex items-center gap-1.5 text-2xs text-ink-muted">{loaded ? <CheckCircle2 aria-hidden="true" className="size-4 text-mint" /> : <Circle aria-hidden="true" className="size-4" />}{loaded ? "Extension connected" : "Waiting for the extension"}</p>
+      <section aria-label="Load the extension" className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
+        <BrowserSubstep number={1} label="Load the extension" complete={loaded} />
         {status.result !== null && <div className="flex flex-col gap-1"><span className="text-2xs text-ink-faint">Extension folder</span><div className="flex items-start gap-2"><pre className="min-w-0 flex-1 bg-inset p-2 font-mono text-xs break-all whitespace-pre-wrap select-all">{status.result.folder.path}</pre>{clipboard !== undefined && <CopyButton label="Copy extension folder (Enter or Space)" text={status.result.folder.path} copy={(text) => clipboard.writeText(text)} />}</div></div>}
         {status.result?.folder.problem !== null && status.result?.folder.problem !== undefined && <BrowserProblem line={status.result.folder.problem} />}
         {status.error !== null && <BrowserProblem line={status.error.message} code={status.error.code} />}
         <p>Open chrome://extensions. Turn on Developer mode. Click Load unpacked and choose this folder.</p>
       </section>
-      <section aria-label="Pair" className="flex flex-col gap-2 rounded-lg border border-hairline p-3">
-        <h4 className="flex items-center gap-2 text-xs font-medium"><span className="flex size-5 items-center justify-center rounded-full bg-wash-strong font-mono text-2xs">2</span>{" "}<KeyRound aria-hidden="true" className="size-4" />Pair</h4>
+      <section aria-label="Pair" className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
+        <BrowserSubstep number={2} label="Pair" complete={paired} />
         {listed.result !== null && <Pair key={another} environmentId={environmentId} chromes={chromes} />}
         {listed.error !== null && <BrowserProblem line={listed.error.message} code={listed.error.code} />}
         {status.result?.listener.state === "listening" && <p>Listening on 127.0.0.1:{status.result.listener.port}.</p>}
         {status.result?.listener.state === "not-listening" && <BrowserProblem line={status.result.listener.message} />}
       </section>
-      {showSites && <DevelopmentSites environmentId={environmentId} />}
+      {showSites && <BrowserSites environmentId={environmentId} />}
       <BrowserDone environmentId={accountsEnvironmentId} chromeEnvironmentId={environmentId} paired={paired} />
     </div>
   );
@@ -87,10 +87,40 @@ const Pair = ({ environmentId, chromes }: { readonly environmentId: string; read
   const [showing, show] = useState(true);
   return (
     <>
-      <p role="status" aria-label="Chrome pairing" className="flex items-center gap-1.5 text-2xs text-ink-muted">{chromes.length > 0 ? <CheckCircle2 aria-hidden="true" className="size-4 text-mint" /> : <Circle aria-hidden="true" className="size-4" />}{chromes.length > 0 ? "Chrome paired" : "Waiting for pairing"}</p>
       {!completed && <p>Type this code on the extension's options page.</p>}
       {chromes.length > 0 && <p>Paired: {chromes.map((chrome) => chrome.name).join(", ")}.</p>}
       {!completed && <><Button title={`${showing ? "Stop" : "Show code"} (Enter or Space)`} onClick={() => show(!showing)} className="self-start">{showing ? <Square aria-hidden="true" data-icon="inline-start" /> : <KeyRound aria-hidden="true" data-icon="inline-start" />}{showing ? "Stop" : "Show code"}</Button>{showing && <BrowserPairingCode environmentId={environmentId} />}</>}
     </>
   );
+};
+
+/** The walkthrough owns this visit's third tick; the persisted policy uses the shared settings hook. */
+const BrowserSites = ({ environmentId }: { readonly environmentId: string }) => {
+  const runtime = useRuntime();
+  const settings = useSettingsValues(environmentId);
+  const id = useId();
+  const [typed, setTyped] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [line, say] = useState<string>();
+  const writable = runtime.capability(environmentId, "settings.update").status === "present" && settings.values !== null;
+  const text = typed ?? (settings.values?.["browser.devSites"] as string[] | undefined)?.join("\n") ?? "";
+  const save = async () => {
+    setBusy(true);
+    const result = await settings.save("browser.devSites", text.split(/\r?\n/).map((host) => host.trim()).filter(Boolean));
+    say(result.ok ? "Development sites saved." : `Sites not saved: ${result.line}`);
+    if (result.ok) setSaved(true);
+    setBusy(false);
+  };
+  return <section aria-label="Sites you are developing" data-browser-sites className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3 text-xs">
+    <BrowserSubstep number={3} label="Sites you are developing" complete={saved} />
+    <label htmlFor={id} className="text-2xs text-ink-muted">Sites you are developing</label>
+    <textarea id={id} rows={4} title="Sites you are developing · Tab, Enter for a new host" value={text} disabled={!writable || busy}
+      onChange={(event) => { setTyped(event.target.value); setSaved(false); }}
+      className="min-h-32 w-full rounded-lg border border-hairline-strong bg-inset px-3 py-2.5 font-mono text-xs text-ink focus-visible:border-beam focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-beam/50 disabled:opacity-50" />
+    <p className="text-2xs text-ink-muted">One host per line. Optional.</p>
+    <p className="text-2xs text-ink-muted">Loopback and private addresses count without being listed.</p>
+    <Button variant="outline" title="Save sites · Tab, Enter or Space" className="self-start" disabled={!writable || busy} onClick={() => void save()}><Save aria-hidden="true" />Save sites</Button>
+    {line !== undefined && <p role="status">{line}</p>}
+  </section>;
 };

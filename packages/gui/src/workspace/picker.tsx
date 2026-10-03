@@ -2,7 +2,10 @@ import { repositoryWords, whenWords, type EnvironmentView, type KnownDirectory }
 import { RequestedDirectory, type WorkspaceRequest } from "@agent-harness/contracts";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { nameOf } from "../connections/words.js";
-import { Button, Input, PopoverContent } from "../ui/index.js";
+import { Input, PopoverContent } from "../ui/index.js";
+import { DialogAction as Button } from "../ui/dialog-action.js";
+import { Folder, ArrowLeft, EyeOff, GitBranch, Check } from "lucide-react";
+import { Tooltip } from "../ui/tooltip.js";
 import { useRuntime, useShell } from "../window-context.js";
 import { Branches } from "./branches.js";
 import { Browse, type BrowseAt } from "./browse.js";
@@ -38,7 +41,8 @@ export interface WorkspacePickerProps {
 
 /** The picker as a popover's content, beside what opens it, named for the environment it picks on. */
 export const WorkspacePopover = ({ align, ...picker }: WorkspacePickerProps & { readonly align: "start" | "end" }) => (
-  <PopoverContent align={align} aria-label={`Where it works on ${nameOf(picker.environment)}`} className="flex w-96 flex-col gap-2">
+  <PopoverContent align={align} aria-label={`Where it works on ${nameOf(picker.environment)}`} className="flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col gap-4 rounded-xl p-4">
+    <p className="text-sm text-ink-muted">Changing a workspace may need a new session.</p>
     <WorkspacePicker {...picker} />
   </PopoverContent>
 );
@@ -176,14 +180,14 @@ const WorkspacePicker = ({ environment, sessionId, known, take, close }: Workspa
             ))}
         </ul>
         <form onSubmit={repository} className="flex gap-1.5">
-          <Input aria-label={`A repository on ${where}`} placeholder="a path in a repository" value={path} onChange={(event) => setPath(event.target.value)} />
-          <Button type="submit" disabled={path.trim() === ""}>
+          <Input className="min-w-0 font-mono" aria-label={`A repository on ${where}`} placeholder="a path in a repository" value={path} onChange={(event) => setPath(event.target.value)} />
+          <Button icon={Check} keys="Enter" type="submit" disabled={path.trim() === ""}>
             Next
           </Button>
         </form>
         {browse("repository")}
         <PickerLine line={line} />
-        <Button className="self-start" onClick={() => show(view.back)}>
+        <Button icon={ArrowLeft} className="self-start" onClick={() => show(view.back)}>
           Back
         </Button>
       </>
@@ -207,8 +211,8 @@ const WorkspacePicker = ({ environment, sessionId, known, take, close }: Workspa
         </ul>
       )}
       <form onSubmit={submit} className="flex gap-1.5">
-        <Input aria-label={`A directory on ${where}`} placeholder="/full/path or ~/in/home" value={path} onChange={(event) => setPath(event.target.value)} />
-        <Button type="submit" disabled={path.trim() === "" || waiting}>
+        <Input className="min-w-0 font-mono" aria-label={`A directory on ${where}`} placeholder="/full/path or ~/in/home" value={path} onChange={(event) => setPath(event.target.value)} />
+        <Button icon={Check} keys="Enter" type="submit" disabled={path.trim() === "" || waiting}>
           Use
         </Button>
       </form>
@@ -218,10 +222,10 @@ const WorkspacePicker = ({ environment, sessionId, known, take, close }: Workspa
           Pick on this computer…
         </Way>
       )}
-      <Button className="self-start" disabled={waiting} onClick={() => show({ kind: "repository", back: view })}>
+      <Button icon={GitBranch} className="self-start" disabled={waiting} onClick={() => show({ kind: "repository", back: view })}>
         A worktree…
       </Button>
-      <Button className="self-start" disabled={waiting} onClick={() => choose({ kind: "scratch" })}>
+      <Button icon={Folder} className="self-start" disabled={waiting} onClick={() => choose({ kind: "scratch" })}>
         Scratch: a directory of its own
       </Button>
       <PickerLine line={line} />
@@ -232,7 +236,7 @@ const WorkspacePicker = ({ environment, sessionId, known, take, close }: Workspa
 /** A way to choose a workspace that the connection or the shell may not offer: dim, with why under it, when not. */
 const Way = ({ absent, disabled, onClick, children }: { readonly absent: string | undefined; readonly disabled: boolean; onClick(): void; readonly children: string }) => (
   <div className="flex flex-col items-start">
-    <Button disabled={absent !== undefined || disabled} onClick={onClick}>
+    <Button icon={Folder} title={absent} disabled={absent !== undefined || disabled} onClick={onClick}>
       {children}
     </Button>
     {absent !== undefined && <span className="px-3 text-xs text-ink-faint">{absent}</span>}
@@ -244,17 +248,21 @@ const KnownDirectoryRow = ({ directory, disabled, take, hide }: { readonly direc
   const gone = directory.missingSince === null ? undefined : `gone since ${whenWords(new Date(directory.missingSince))}`;
   const under = gone ?? (directory.repositoryIdentity === null ? undefined : repositoryWords(directory.repositoryIdentity));
   return (
-    <li className="flex items-center gap-1">
+    <li className="flex items-center gap-2 rounded-lg border border-hairline bg-inset/60 px-2 py-1">
+      <Tooltip content={`${directory.path} · Enter / Space${gone ? ` · ${gone}` : ""}`}>
+      <span role={gone ? "group" : undefined} tabIndex={gone ? 0 : undefined} aria-label={gone ? `${directory.path} · ${gone}` : undefined} className="min-w-0 flex-1">
       <button
         type="button"
         disabled={gone !== undefined || disabled}
         onClick={take}
-        className="flex min-w-0 flex-1 flex-col rounded-sm px-2 py-1 text-left text-sm text-ink outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam disabled:text-ink-faint disabled:hover:bg-transparent"
+        className="flex w-full min-w-0 flex-col rounded-lg px-2 py-1 text-left text-sm text-ink outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam disabled:text-ink-faint disabled:hover:bg-transparent"
       >
-        <span className="truncate">{directory.path}</span>
+        <span className="flex min-w-0 items-center gap-2 font-mono"><Folder aria-hidden="true" className="size-4 shrink-0" /><span className="truncate">{directory.path}</span></span>
         {under !== undefined && <span className="truncate text-xs text-ink-faint">{under}</span>}
       </button>
-      <Button aria-label={`Hide ${directory.path}`} title="Hide it from this client's list" className="h-6 px-1.5 text-xs font-normal text-ink-muted" onClick={hide}>
+      </span>
+      </Tooltip>
+      <Button icon={EyeOff} aria-label={`Hide ${directory.path}`} title="Hide it from this client's list" className="h-6 px-1.5 text-xs font-normal text-ink-muted" onClick={hide}>
         Hide
       </Button>
     </li>

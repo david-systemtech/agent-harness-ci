@@ -188,17 +188,17 @@ if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == fai
 import json,sys
 items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
 if not items: sys.exit(0)
-if len(items)!=1 or items[0]["size_in_bytes"]>32*1024*1024: sys.exit("oversized or duplicate gallery artifact")
+if len(items)!=1 or items[0]["size_in_bytes"]>64*1024*1024: sys.exit("oversized or duplicate gallery artifact")
 print(int(items[0]["id"]))')
   if [ -z "$artifact" ]; then
     echo "No gallery artifact was uploaded; reading the failed job logs."
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
-    gh_api --fail -L --max-filesize 33554432 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
+    gh_api --fail -L --max-filesize 67108864 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
     gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
 import pathlib,sys,zipfile
 archive=pathlib.Path(sys.argv[1])
-if archive.stat().st_size > 32*1024*1024: sys.exit('gallery zip is too large')
+if archive.stat().st_size > 64*1024*1024: sys.exit('gallery zip is too large')
 with zipfile.ZipFile(archive) as z: print('report' if 'report.json' in z.namelist() else 'captures')
 PYFORMAT
     )
@@ -229,7 +229,10 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    if len(entries) > 602 or sum(f.filename.endswith('.png') for f in entries) > 600 or sum(f.file_size for f in entries) > 24*1024*1024: sys.exit('gallery payload is too large')
+    # 100 source scenes at two widths and two ladders, each with a three-PNG triplet.
+    max_scenes = 400
+    max_pngs = max_scenes * 3
+    if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
     names = [f.filename for f in entries]
     if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     report = json.loads(z.read('report.json'))
@@ -237,7 +240,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     for data in images.values():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
     scenes = report['scenes']
-    if not scenes or len(scenes) > 200: sys.exit('invalid gallery scene list')
+    if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
     seen = set()
     for scene in scenes:
         name = scene['name']
