@@ -9,9 +9,13 @@ import { renderApp } from "../test/harness.js";
  * client runtime, each region through the harness.
  */
 describe("the frame", () => {
-  it("draws the header across the window, naming the product, with New session, the grid's split actions, Parked asks and Settings", async () => {
+  it("draws the header across the window with context, search, More, Settings and theme choices", async () => {
     await renderApp({ environments: [{ name: "desk", reach: "local" }] });
-    expect(screen.getByRole("banner")).toHaveProperty("textContent", `${PRODUCT_NAME}New sessionSplit rightSplit downParked asksSettings`);
+    const header = within(screen.getByRole("banner"));
+    expect(header.getByRole("button", { name: "Settings" })).toBeDefined();
+    expect(header.getByRole("button", { name: "More" })).toBeDefined();
+    expect(header.getByRole("radiogroup", { name: "Theme" })).toBeDefined();
+    expect(header.queryByText(PRODUCT_NAME)).toBeNull();
   });
 
   it("draws the sidebar region with a heading for each environment the runtime reaches, the local one and one paired", async () => {

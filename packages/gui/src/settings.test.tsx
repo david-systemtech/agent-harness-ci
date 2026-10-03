@@ -420,7 +420,7 @@ describe("the command palette", () => {
     const app = await opened();
     await app.user.keyboard("{Control>}k{/Control}");
     const listed = entriesUnder("Settings");
-    expect(listed).toHaveLength(19);
+    expect(listed).toHaveLength(20);
     expect(listed).toContain("Key managerssecrets, tokens");
     expect(listed).toContain("Memory banksmemory-banks, cerebro, memory");
     expect(listed).toContain("BotsbotsBots arrive in milestone 2, with the Bot object.");
@@ -433,7 +433,7 @@ describe("the command palette", () => {
 
     // Open or close Settings is the window's, listed with its key.
     await app.user.keyboard("{Control>}k{/Control}");
-    expect(entriesUnder("Anywhere")).toContain("Open or close SettingsCtrl+,");
+    expect(entriesUnder("Settings")).toContain("Open or close SettingsCtrl+,");
   });
 });
 
@@ -467,7 +467,7 @@ describe("/settings in a session pane's composer", () => {
     act(() => screen.getByRole("textbox", { name: "Message" }).focus());
     await app.user.keyboard("{Control>}k{/Control}");
     const palette = screen.getByRole("dialog", { name: "Command palette" });
-    const listed = within(within(palette).getByRole("group", { name: "Slash commands" }))
+    const listed = within(within(palette).getByRole("group", { name: "Settings" }))
       .getAllByRole("option")
       .map((option) => option.textContent);
     expect(listed).toContain("/settingsEvery environment setting under its row, in a generic editor; a row's id opens that row");

@@ -1,54 +1,41 @@
+import { BookOpen, PanelRightClose, PanelRightOpen, PanelsTopLeft, FileDiff, Files, ListTodo } from "lucide-react";
 import { focusedPane } from "../grid/layout.js";
-import { SIDE_PANES, type PaneSession } from "../presentation.js";
-import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../ui/index.js";
+import type { PaneSession } from "../presentation.js";
+import { MenuItem, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { hideColumn, showPane, useSideColumn } from "./column.js";
 import { PANES, paneCapability } from "./panes.js";
 
-/**
- * The header's side panes menu (docs/specs/gui.md, "The window and the
- * sidebar": the header holds the focused pane's actions): each pane, opened
- * and shown in the focused pane's side column when chosen, dim with the
- * capability's line where the connection cannot call its method; and the
- * column hidden or shown again while a pane is open in it. Not drawn while
- * no session is open.
- */
-export const SidePanesMenu = () => {
+const ITEMS = [
+  { pane: "files", Icon: Files }, { pane: "diff", Icon: FileDiff },
+  { pane: "documents", Icon: BookOpen }, { pane: "tasks", Icon: ListTodo },
+  { pane: "preview", Icon: PanelsTopLeft },
+] as const;
+
+/** The focused session's dock entries in More, with unsupported actions kept discoverable. */
+export const SidePaneMenuItems = () => {
   const [layout] = usePresentation("paneLayout");
   const { session } = focusedPane(layout);
-  return session === null ? null : <MenuFor session={session} />;
+  return session === null ? ITEMS.map(({ pane, Icon }) => <Tooltip key={pane} content={`${PANES[pane].label} · Open a session first.`}><MenuItem aria-label={PANES[pane].label} disabled><Icon aria-hidden="true" /><span>{PANES[pane].label}<span className="block text-xs text-ink-faint">Open a session first.</span></span></MenuItem></Tooltip>) : <ItemsFor session={session} />;
 };
 
-const MenuFor = ({ session }: { readonly session: PaneSession }) => {
+const ItemsFor = ({ session }: { readonly session: PaneSession }) => {
   const runtime = useRuntime();
-  // The connections' phases: each pane's capability is asked again whenever one moves.
   useObservable(runtime.projections.environments);
   const [column, change] = useSideColumn(session);
-  return (
-    <Menu>
-      <MenuTrigger asChild>
-        <Button className="h-7 px-2 text-xs">Side panes</Button>
-      </MenuTrigger>
-      <MenuContent align="end">
-        {SIDE_PANES.map((pane) => {
-          const capability = paneCapability(runtime, session.environmentId, pane);
-          const absent = capability.status === "absent" ? capability.message : undefined;
-          return (
-            <MenuItem key={pane} aria-disabled={absent === undefined ? undefined : true} onSelect={() => change((held) => showPane(held, pane))}>
-              <span className="flex flex-col">
-                <span className={absent === undefined ? undefined : "text-ink-faint"}>{PANES[pane].label}</span>
-                {absent !== undefined && <span className="max-w-64 text-xs text-ink-faint">{absent}</span>}
-              </span>
-            </MenuItem>
-          );
-        })}
-        {column.open.length > 0 && (
-          <>
-            <MenuSeparator />
-            <MenuItem onSelect={() => change((held) => hideColumn(held, !held.hidden))}>{column.hidden ? "Show the side column" : "Hide the side column"}</MenuItem>
-          </>
-        )}
-      </MenuContent>
-    </Menu>
-  );
+  return <>
+    {ITEMS.map(({ pane, Icon }) => {
+      const capability = paneCapability(runtime, session.environmentId, pane);
+      const absent = capability.status === "absent" ? capability.message : undefined;
+      const label = PANES[pane].label;
+      return <Tooltip key={pane} content={[label, absent].filter(Boolean).join(" · ")}>
+        <MenuItem aria-label={label} disabled={absent !== undefined} onSelect={() => change((held) => showPane(held, pane))}>
+          <Icon aria-hidden="true" /><span>{label}{absent !== undefined && <span className="block text-xs text-ink-faint">{absent}</span>}</span>
+        </MenuItem>
+      </Tooltip>;
+    })}
+    {column.open.length > 0 && <Tooltip content={column.hidden ? "Show the side column" : "Hide the side column"}>
+      <MenuItem onSelect={() => change((held) => hideColumn(held, !held.hidden))}>{column.hidden ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}{column.hidden ? "Show the side column" : "Hide the side column"}</MenuItem>
+    </Tooltip>}
+  </>;
 };
