@@ -21,13 +21,13 @@ it("renders the file-view scene with source text, four numbered lines and the me
 });
 
 
-it.each(["dock-diff", "dock-documents", "dock-tasks"])("measures only visible controls in %s when Files is retained but hidden", async (scene) => {
+it.each(["dock-diff", "dock-documents", "dock-tasks", "dock-browser", "dock-preview", "dock-terminal"])("measures only visible controls in %s without requiring visible Files", async (scene) => {
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
-  await within(await screen.findByRole("complementary", { name: "Side column" })).findByRole("tab", { name: "Files" });
+  await screen.findByRole("complementary", { name: "Side column" });
   const geometry: readonly SceneGeometry[] = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
   await waitFor(() => {
     for (const measurement of geometry) {
