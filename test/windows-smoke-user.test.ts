@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -22,6 +22,9 @@ const execute = async (exitCode: number) => {
   const script = command.split("\n").map((line) => line.replace(/^ {10}/, "")).join("\n");
   mkdirSync(join(scratch, "desktop"));
   writeFileSync(join(scratch, "desktop/agent-harness-desktop-win32-x64-setup.exe"), "fixture setup");
+  mkdirSync(join(scratch, "scripts"));
+  copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-extension.mjs"),
+    join(scratch, "scripts/check-packaged-extension.mjs"));
   const harness = join(scratch, "harness.ps1");
   writeFileSync(harness, `
 $ErrorActionPreference = 'Stop'
