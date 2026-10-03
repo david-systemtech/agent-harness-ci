@@ -794,15 +794,18 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number) => {
+    capture: async (pixel: number, names = ["window-empty.dark"]) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
-png=b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1400,900,8,6,0,0,0))+chunk(b'IDAT',zlib.compress((b'\\0'+bytes([pixel,pixel,pixel,255])*1400)*900))+chunk(b'IEND',b'')
+def image(width,height): return b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))+chunk(b'IDAT',zlib.compress((b'\\0'+bytes([pixel,pixel,pixel,255])*width)*height))+chunk(b'IEND',b'')
+png=image(1400,900); narrow=image(1024,768)
 pathlib.Path(sys.argv[1]+'.png').write_bytes(png)
 with zipfile.ZipFile(sys.argv[1],'w') as z:
-    z.writestr('window-empty.dark.png',png)
-    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':'window-empty.dark','status':'new','pixelFailed':True,'geometryFailures':[]}]}))`, zip, String(pixel)]);
+    names=json.loads(sys.argv[3])
+    for name in names: z.writestr(name+'.png',narrow if '-narrow.' in name else png)
+    z.writestr('geometry.json','{}')
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names)]);
       return readFileSync(`${zip}.png`);
     },
   };
@@ -838,26 +841,31 @@ it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure
   expect(body).not.toContain("token-for-tests");
 });
 
-it("attaches every registered scene in both ladders, including the Settings scenes", async () => {
-  const f = await apiFixture();
-  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
-  const scenes = new Set([
-    ...readdirSync(join(root, "packages/gui/gallery/scenes")).filter((name) => name.endsWith(".tsx")).map((name) => name.slice(0, -4)),
-    "settings-accounts", "settings-search",
-  ]);
-  const images = [...scenes].flatMap((scene) => [`${scene}.light.png`, `${scene}.dark.png`]);
-  expect(images.length).toBeGreaterThanOrEqual(32);
-  const result = await relay(f, {
-    FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery", FORGEJO_PR: "1336", FORGEJO_TOKEN: "token-for-tests",
-    FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
-    FAKE_PNG_NAMES: images.join(","), FAKE_PNG_SIZE: String(64 * 1024),
-  });
-  expect(result.code).toBe(0);
-  const comment = readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8");
-  for (const name of images) {
-    expect(comment).toContain(`![${name}](https://forge.example.invalid/attachments/screenshot)`);
+it("publishes and accepts all four captures per registered scene through a report manifest", async () => {
+  const g = await storedGallery();
+  const scenes = readdirSync(join(root, "packages/gui/gallery/scenes")).filter((name) => name.endsWith(".tsx")).map((name) => name.slice(0, -4));
+  const names = scenes.flatMap((scene) => [`${scene}.light`, `${scene}.dark`, `${scene}-narrow.light`, `${scene}-narrow.dark`]);
+  expect(names.length).toBeGreaterThan(200);
+  await g.capture(255, names);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(1);
+  const body = g.comments[0]!.body;
+  expect(body).toContain("Geometry: passed");
+  const marker = /<!-- window-gallery (.*?) -->/.exec(body)?.[1];
+  expect(marker).toBeDefined();
+  const manifest = JSON.parse(marker!) as { captures: { name: string }[] };
+  expect(manifest.captures.map(({ name }) => name)).toEqual(names.map((name) => `${name}.png`));
+  expect(g.captures.size).toBe(names.length);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  const baselines = join(g.f.checkout, "packages/gui/gallery/baselines");
+  expect(readdirSync(baselines).sort()).toEqual(names.map((name) => `${name}.png`).sort());
+  for (const name of names) {
+    const image = readFileSync(join(baselines, `${name}.png`));
+    const stored = g.captures.get(`/api/packages/example/generic/window-gallery/${g.sha}-1/${name}.png`);
+    expect(image).toEqual(stored);
+    expect([image.readUInt32BE(16), image.readUInt32BE(20)]).toEqual(name.includes("-narrow.") ? [1024, 768] : [1400, 900]);
   }
-  expect(comment).toContain("light and dark");
 });
 
 

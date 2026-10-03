@@ -19,7 +19,7 @@ const png = PNG.sync.write({ width: 1400, height: 900, data: Buffer.alloc(1400 *
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-async function fixture(mode = "current") {
+async function fixture(mode = "current", names = ["window-empty.dark.png"]) {
   const image = mode === "large" ? PNG.sync.write({ width: 1400, height: 900, data: randomBytes(1400 * 900 * 4) }) : png;
   const folder = mkdtempSync(join(tmpdir(), "gallery-accept-"));
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
@@ -34,7 +34,7 @@ async function fixture(mode = "current") {
     if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ head: { sha: "test-head", ref: "build/42-gallery" } }));
     else if (request.url?.includes("/comments")) {
       const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
-      const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
+      const captures = names.map((name) => ({ name, url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }));
       if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
       const manifest = { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
@@ -145,4 +145,21 @@ it("accepts a valid capture larger than 4 MiB within the gallery report budget",
   expect(f.image.byteLength).toBeGreaterThan(4 * 1024 * 1024);
   await run("bash", [script, "42"], { env: f.env });
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(f.image);
+});
+
+
+it.each([600, 601])("enforces the archive's 600-capture bound during baseline acceptance (%s captures)", async (count) => {
+  const names = Array.from({ length: count }, (_, index) => `scene-${index}.dark.png`);
+  const f = await fixture("versioned", names);
+  const result = run("bash", [script, "42"], { env: f.env });
+  const baselines = join(f.folder, "packages/gui/gallery/baselines");
+  if (count === 601) {
+    await expect(result).rejects.toMatchObject({ stderr: expect.stringContaining("No gallery captures on the current PR head") });
+    expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
+    expect(existsSync(baselines)).toBe(false);
+  } else {
+    await result;
+    for (const name of names) expect(readFileSync(join(baselines, name))).toEqual(png);
+    expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(600);
+  }
 });
