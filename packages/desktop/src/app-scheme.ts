@@ -30,6 +30,7 @@ export const CONTENT_POLICY = [
   "default-src 'none'",
   `script-src ${APP_ORIGIN}`,
   `style-src ${APP_ORIGIN}`,
+  `font-src ${APP_ORIGIN} data:`,
   `img-src ${APP_ORIGIN} data:`,
   `frame-src ${PREVIEW_SCHEME}:`,
   "connect-src ws: wss:",
@@ -39,9 +40,7 @@ export const CONTENT_POLICY = [
 
 /**
  * The media types of what the policy lets the page load (its page, scripts,
- * stylesheets and pictures) and the source maps DevTools reads. The `gui`
- * build bundles no font, so there is no `font-src` and no font type: a build
- * that bundles one adds both.
+ * stylesheets, bundled fonts and pictures) and the source maps DevTools reads.
  */
 const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -49,6 +48,7 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".map": "application/json",
+  ".woff2": "font/woff2",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",

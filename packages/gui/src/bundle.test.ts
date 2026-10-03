@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { build } from "vite";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -40,6 +40,35 @@ describe("the static browser bundle", () => {
       expect(path.startsWith("./")).toBe(true);
       expect(existsSync(join(outDir, path))).toBe(true);
     }
+  });
+
+  it("bundles upright and italic text and machine fonts, and uses the measured window type scale", async () => {
+    await built;
+    const page = readFileSync(join(outDir, "index.html"), "utf8");
+    const href = /<link[^>]*rel="stylesheet"[^>]*href="\.\/([^"]+)"/.exec(page)?.[1];
+    expect(href).toBeDefined();
+    const stylesheet = readFileSync(join(outDir, href ?? ""), "utf8");
+    for (const family of ["Archivo Variable", "JetBrains Mono Variable"]) {
+      const faces = [...stylesheet.matchAll(/@font-face\{([^}]+)\}/g)].map((match) => match[1] ?? "").filter((face) => face.includes(family));
+      expect(faces.some((face) => face.includes("font-style:normal"))).toBe(true);
+      expect(faces.some((face) => face.includes("font-style:italic"))).toBe(true);
+      for (const face of faces) {
+        const font = /url\(([^)]+)\)/.exec(face)?.[1]?.replace(/["']/g, "");
+        expect(font).toBeDefined();
+        if (font?.startsWith("data:")) {
+          expect(font).toMatch(/^data:font\/woff2;base64,/);
+          expect(Buffer.from(font.split(",")[1] ?? "", "base64").subarray(0, 4).toString()).toBe("wOF2");
+        } else {
+          expect(font).toMatch(/\.woff2$/);
+          expect(existsSync(join(outDir, dirname(href ?? ""), font ?? ""))).toBe(true);
+        }
+      }
+    }
+    expect(stylesheet).toMatch(/--font-sans:[^;]*Archivo Variable/);
+    expect(stylesheet).toMatch(/--text-sm:\s*\.8125rem/);
+    expect(stylesheet).toMatch(/--text-sm--line-height:\s*1.25rem/);
+    expect(stylesheet).toMatch(/body\{[^}]*font-family:var\(--font-sans\)/);
+    expect(stylesheet).toMatch(/--radius-md:\s*calc\(var\(--radius\)\s*\*\s*\.8\)/);
   });
 
   it("keeps every gallery module and the gallery page out of the shipped bundle", async () => {

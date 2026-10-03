@@ -90,12 +90,17 @@ const WindowTheme = ({ preview }: { readonly preview: Theme | undefined }) => {
   const shell = useShell();
   const [cached, cache] = usePresentation("cachedTheme");
   const [lightOrDark] = usePresentation("lightOrDark");
+  const [textSize] = usePresentation("textSize");
   const os = useOsLadder(window);
   const ladder = lightOrDark === "system" ? os : lightOrDark;
   const theme = cached ?? DEFAULT_THEME;
   const derived = useMemo(() => derive(theme), [theme]);
   const painted = useMemo(() => (preview === undefined ? derived : derive(preview)), [preview, derived]);
 
+  useLayoutEffect(() => {
+    const size = Number.isFinite(textSize) ? Math.min(20, Math.max(11, Math.round(textSize))) : 14;
+    document.documentElement.style.setProperty("--font-scale", String(size / 14));
+  }, [textSize]);
   useLayoutEffect(() => paintLadder(document.documentElement, painted[ladder], ladder), [painted, ladder]);
   const handed = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
