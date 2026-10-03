@@ -218,7 +218,7 @@ export interface DialogFilter {
   extensions: string[];
 }
 
-/** The `dialog` module, always modal to the window. */
+/** The native dialogs: file pickers attached to the window, and an asynchronous message. */
 export interface ElectronDialog {
   showOpenDialog(
     window: ElectronWindow,
@@ -251,6 +251,10 @@ export interface ElectronClipboard {
  */
 export interface ElectronSafeStorage {
   isEncryptionAvailable(): boolean;
+  /** macOS: initializes the Keychain provider on a worker thread. */
+  isAsyncEncryptionAvailable(): Promise<boolean>;
+  encryptStringAsync(plainText: string): Promise<Buffer>;
+  decryptStringAsync(encrypted: Buffer): Promise<{ result: string; shouldReEncrypt: boolean }>;
   /** Throws when encryption is not available. */
   encryptString(plainText: string): Buffer;
   /** Throws when encryption is not available, or `encrypted` was not encrypted under this key. */

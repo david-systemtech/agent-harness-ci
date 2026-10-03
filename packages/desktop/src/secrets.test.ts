@@ -1,6 +1,9 @@
-import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createRuntime } from "@agent-harness/client-runtime";
+import { inMemoryPlatform, manualClock } from "@agent-harness/client-runtime/testing";
+import { fakeWire, flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { fakeElectron } from "../test/fake-electron.js";
 import { cleanUp, platformOn, start } from "../test/harness.js";
 
@@ -17,6 +20,129 @@ const DESK = "0199aa00-0000-7000-8000-00000000d35c";
 const LAPTOP = "0199aa00-0000-7000-8000-0000000019a7";
 
 describe("secrets", () => {
+  it("reads a prior macOS install's credential without accessing Keychain on the main thread", async () => {
+    const platform = platformOn("darwin");
+    const electron = fakeElectron({ os: "darwin" });
+    const folder = join(platform.paths.data, "secrets");
+    mkdirSync(folder);
+    writeFileSync(join(folder, `${DESK}.secret`), electron.safeStorage.encryptString("token-for-tests-desk"));
+    const synchronousAccess = () => { throw new Error("Keychain access would block the main thread"); };
+    electron.safeStorage.isEncryptionAvailable = synchronousAccess;
+    electron.safeStorage.encryptString = synchronousAccess;
+    electron.safeStorage.decryptString = synchronousAccess;
+    const { shell } = await start({ electron, platform, reportError: () => {} });
+
+    expect(await shell().secrets.get(DESK)).toBe("token-for-tests-desk");
+    await shell().secrets.set(LAPTOP, "token-for-tests-laptop");
+    expect(await shell().secrets.get(LAPTOP)).toBe("token-for-tests-laptop");
+    expect(await shell().secrets.protection()).toBe("os");
+  });
+
+  it("keeps the window usable while macOS approval is pending or cancelled, and preserves the prior credential", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const folder = join(platform.paths.data, "secrets");
+    mkdirSync(folder);
+    const kept = electron.safeStorage.encryptString("token-for-tests-desk");
+    writeFileSync(join(folder, `${DESK}.secret`), kept);
+    const decrypt = electron.safeStorage.decryptStringAsync;
+    let cancel!: (error: Error) => void;
+    electron.safeStorage.decryptStringAsync = () => new Promise((_resolve, reject) => { cancel = reject; });
+    const reported: unknown[] = [];
+    const { shell } = await start({ electron, platform, reportError: (error) => reported.push(error) });
+    const bridge = shell();
+    const waiting = new Promise<void>((resolve) => bridge.secrets.onAccess((state) => { if (state === "waiting") resolve(); }));
+    const reading = bridge.secrets.get(DESK);
+    await waiting;
+    expect(await bridge.secrets.access()).toBe("waiting");
+    expect(await bridge.system()).toMatchObject({ platform: "darwin" });
+    expect(await bridge.window.state?.()).toMatchObject({ platform: "darwin" });
+    cancel(new Error("OS approval cancelled"));
+    await expect(reading).rejects.toThrow(/cancelled/);
+    expect(await bridge.secrets.access()).toBe("denied");
+    expect(await bridge.secrets.protection()).toBe("os");
+    expect(await bridge.secrets.access()).toBe("denied");
+    expect(readFileSync(join(folder, `${DESK}.secret`))).toEqual(kept);
+    electron.safeStorage.decryptStringAsync = decrypt;
+    expect(await bridge.secrets.get(DESK)).toBe("token-for-tests-desk");
+    expect(await bridge.secrets.access()).toBeNull();
+    expect(reported.map(String)).toEqual([expect.stringMatching(/cancelled.*kept/i)]);
+  });
+
+  it("settles access after a successful read that overlapped a refused read", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const folder = join(platform.paths.data, "secrets");
+    mkdirSync(folder);
+    const desk = electron.safeStorage.encryptString("token-for-tests-desk");
+    writeFileSync(join(folder, `${DESK}.secret`), desk);
+    writeFileSync(join(folder, `${LAPTOP}.secret`), electron.safeStorage.encryptString("token-for-tests-laptop"));
+    const decrypt = electron.safeStorage.decryptStringAsync;
+    let rejectFirst!: (error: Error) => void;
+    let allowSecond!: () => void;
+    let bothEntered!: () => void;
+    const first = new Promise<void>((_resolve, reject) => { rejectFirst = reject; });
+    const second = new Promise<void>((resolve) => { allowSecond = resolve; });
+    const entered = new Promise<void>((resolve) => { bothEntered = resolve; });
+    let pending = 0;
+    electron.safeStorage.decryptStringAsync = async (kept) => {
+      if (++pending === 2) bothEntered();
+      await (kept.equals(desk) ? first : second);
+      return decrypt(kept);
+    };
+    const { shell } = await start({ electron, platform, reportError: () => {} });
+    const secrets = shell().secrets;
+    const refused = expect(secrets.get(DESK)).rejects.toThrow(/cancelled/);
+    const allowed = secrets.get(LAPTOP);
+    await entered;
+    rejectFirst(new Error("OS approval cancelled"));
+    await refused;
+    expect(await secrets.access()).toBe("waiting");
+    allowSecond();
+    expect(await allowed).toBe("token-for-tests-laptop");
+    expect(await secrets.access()).toBeNull();
+  });
+
+  it("preserves a paired credential when Keychain approval is cancelled during reconnection", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const { shell } = await start({ electron, platform, reportError: () => {} });
+    const secrets = shell().secrets;
+    const clock = manualClock();
+    const wire = fakeWire({ clock });
+    const runtime = createRuntime(inMemoryPlatform({ clock, fetch: wire.fetch, webSocket: wire.webSocket, secrets }));
+    try {
+      await runtime.start();
+      const adding = runtime.connections.add({ link: wire.link });
+      await wire.server.accept();
+      expect(await adding).toMatchObject({ status: "paired" });
+      const file = join(platform.paths.data, "secrets", `${wire.environmentId}.secret`);
+      const kept = readFileSync(file);
+      const decrypt = electron.safeStorage.decryptStringAsync;
+      let cancel!: (error: Error) => void;
+      electron.safeStorage.decryptStringAsync = () => new Promise((_resolve, reject) => { cancel = reject; });
+      const waiting = new Promise<void>((resolve) => secrets.onAccess((state) => { if (state === "waiting") resolve(); }));
+      wire.server.drop();
+      await flush();
+      const reconnecting = runtime.connections.retryNow(wire.environmentId);
+      await waiting;
+      cancel(new Error("OS approval cancelled"));
+      await reconnecting;
+      expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "backoff", blocked: null })]);
+      expect(await secrets.access()).toBe("denied");
+      expect(readFileSync(file)).toEqual(kept);
+      expect(runtime.projections.notices.read()).not.toContainEqual(expect.objectContaining({ kind: "revoked" }));
+      electron.safeStorage.decryptStringAsync = decrypt;
+      const retrying = runtime.connections.retryNow(wire.environmentId);
+      await wire.server.accept();
+      await retrying;
+      expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "ready", blocked: null })]);
+      expect(readFileSync(file)).toEqual(kept);
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it("keeps each token in a file of its own, encrypted, which a later launch reads back", async () => {
     const platform = platformOn("linux");
     const first = await start({ platform });
@@ -87,7 +213,7 @@ describe("secrets", () => {
     expect(reported.map(String)).toEqual([expect.stringMatching(/no secret service.*unprotected/i)]);
   });
 
-  it("refuses to keep a token where the OS keeps no key for the app, keeping nothing, and takes one it cannot read as none, saying why", async () => {
+  it("refuses unavailable macOS storage without treating a saved credential as absent", async () => {
     const electron = fakeElectron({ os: "darwin" });
     const reported: unknown[] = [];
     const platform = platformOn("darwin");
@@ -100,11 +226,11 @@ describe("secrets", () => {
     expect(await shell().secrets.protection()).toBe("none");
     await expect(shell().secrets.set(LAPTOP, "token-for-tests-laptop")).rejects.toThrow(/cannot keep a client session token/);
     expect(readdirSync(join(platform.paths.data, "secrets"))).toEqual([`${DESK}.secret`]);
-    expect(await shell().secrets.get(DESK)).toBeUndefined();
+    await expect(shell().secrets.get(DESK)).rejects.toThrow();
 
     electron.safeStorage.keychain = true;
     electron.safeStorage.changeKey();
-    expect(await shell().secrets.get(DESK)).toBeUndefined();
+    await expect(shell().secrets.get(DESK)).rejects.toThrow();
     expect(reported.map(String)).toEqual([expect.stringMatching(/cannot read the token kept for 0199aa00/), expect.stringMatching(/cannot read the token kept for 0199aa00/)]);
   });
 
