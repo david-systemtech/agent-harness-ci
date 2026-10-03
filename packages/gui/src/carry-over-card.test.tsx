@@ -65,11 +65,13 @@ describe("Carry over in Set up", () => {
   it("shows the adopted account's counts and imports with the skills tick on", async () => {
     const app = await opened();
     const personal = account();
-    expect(await personal.findByText("5 sessions; 2 archived; 1 missing directory.")).toBeDefined();
-    expect(personal.getByText("2 memory folders; 1 repositories; 0 unmappable folders.")).toBeDefined();
-    expect(personal.getByText("3 skills; 1 commands; 0 checkouts offered; 0 invalid.")).toBeDefined();
-    expect(personal.getByText("Not carried: 1 agents; 1 plugins.")).toBeDefined();
-    expect(personal.getByText("Does not carry: 2 hooks; 3 personal MCP servers; 4 permission rules.")).toBeDefined();
+    const counts = await personal.findByLabelText("Sessions");
+    expect(within(counts).getByText("Sessions").nextElementSibling?.textContent).toBe("5");
+    expect(within(counts).getByText("Archived").nextElementSibling?.textContent).toBe("2");
+    expect(within(counts).getByText("Missing directory").nextElementSibling?.textContent).toBe("1");
+    for (const [group, name, value] of [["Memory", "Memory folders", "2"], ["Memory", "Repositories", "1"], ["Skills and commands", "Skills", "3"], ["Skills and commands", "Commands", "1"], ["Not carried", "Agents", "1"], ["Not carried", "Plugins", "1"], ["Not carried", "Hooks", "2"], ["Not carried", "Personal MCP servers", "3"], ["Not carried", "Permission rules", "4"]] as const) {
+      expect(within(personal.getByLabelText(group)).getByText(name).nextElementSibling?.textContent).toBe(value);
+    }
     expect(personal.getByRole("checkbox", { name: "Copy skills and commands" })).toHaveProperty("checked", true);
     await app.user.click(personal.getByRole("button", { name: "Import" }));
     await waitFor(() => expect(app.environment("desk").requests("carryOver.run")).toHaveLength(1));
@@ -78,7 +80,7 @@ describe("Carry over in Set up", () => {
       dryRun: false,
       skills: true,
     });
-    expect(await personal.findByText("Imported 5 sessions; 2 archived; 1 missing directory; 0 already held.")).toBeDefined();
+    expect(within(await personal.findByLabelText("Imported sessions")).getByText("Imported").nextElementSibling?.textContent).toBe("5");
   });
   it("imports without skills when the tick is off, then offers two new sessions on a re-run", async () => {
     const app = await opened();
@@ -249,7 +251,7 @@ describe("Carry over in Set up", () => {
       },
       listed,
     );
-    await account().findByText("5 sessions; 2 archived; 1 missing directory.");
+    await waitFor(() => expect(within(account().getByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("5"));
     const capability = app.runtime.capability(app.environment("desk").environmentId, "carryOver.run");
     expect(capability.status).toBe("absent");
     if (capability.status === "absent") expect(screen.getAllByText(`Read-only: ${capability.message}`)).toHaveLength(1);
@@ -279,12 +281,14 @@ describe("Carry over in Set up", () => {
   it("refreshes counts when another client imports and says nothing is new when all sessions are held", async () => {
     const app = await opened();
     const desk = app.environment("desk");
-    await account().findByText("5 sessions; 2 archived; 1 missing directory.");
+    await waitFor(() => expect(within(account().getByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("5"));
     const next = inventory();
     next.sessions = { total: 7, archived: 3, missingDirectory: 2, new: 2 };
     desk.wire.answer("carryOver.inventory", () => ({ result: next }));
     await act(async () => desk.notice("carry-over.imported", report()));
-    expect(await account().findByText("7 sessions; 3 archived; 2 missing directory.")).toBeDefined();
+    await waitFor(() => expect(within(account().getByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("7"));
+    expect(within(account().getByLabelText("Sessions")).getByText("Archived").nextElementSibling?.textContent).toBe("3");
+    expect(within(account().getByLabelText("Sessions")).getByText("Missing directory").nextElementSibling?.textContent).toBe("2");
     expect(account().getByRole("button", { name: "Import 2 new sessions" })).toBeDefined();
     next.sessions = { ...next.sessions, new: 0 };
     await act(async () => desk.notice("carry-over.imported", report()));
@@ -363,8 +367,10 @@ describe("Carry over in Set up", () => {
       },
     }));
     await app.user.click(await account().findByRole("button", { name: "Import" }));
-    expect(await account().findByText("Memory: 1 copied; 0 carried; 0 kept; 1 unmappable.")).toBeDefined();
-    expect(account().getByText("Skills and commands: 1 copied; 0 kept; 0 checkouts offered; 1 invalid.")).toBeDefined();
+    expect(within(await account().findByLabelText("Imported memory")).getByText("Copied").nextElementSibling?.textContent).toBe("1");
+    expect(within(account().getByLabelText("Imported memory")).getByText("Unmappable").nextElementSibling?.textContent).toBe("1");
+    expect(within(account().getByLabelText("Imported skills and commands")).getByText("Copied").nextElementSibling?.textContent).toBe("1");
+    expect(within(account().getByLabelText("Imported skills and commands")).getByText("Invalid").nextElementSibling?.textContent).toBe("1");
     expect(account().getByText("/home/milo/.claude/skills/broken: A description is required.")).toBeDefined();
   });
 
@@ -383,7 +389,7 @@ describe("Carry over in Set up", () => {
   });
   it("reads the directory again when Carry over is reopened for a re-run", async () => {
     const app = await opened();
-    await account().findByText("5 sessions; 2 archived; 1 missing directory.");
+    await waitFor(() => expect(within(account().getByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("5"));
     const rail = within(screen.getByRole("navigation", { name: "Set up steps" }));
     await app.user.click(rail.getByRole("button", { name: "Appearance" }));
     const next = inventory();
@@ -397,7 +403,7 @@ describe("Carry over in Set up", () => {
     const empty = inventory();
     empty.skills = { ...empty.skills, skills: 0, commands: 0 };
     const app = await opened({}, empty);
-    await account().findByText("0 skills; 0 commands; 0 checkouts offered; 0 invalid.");
+    await waitFor(() => expect(within(account().getByLabelText("Skills and commands")).getByText("Skills").nextElementSibling?.textContent).toBe("0"));
     const rail = within(screen.getByRole("navigation", { name: "Set up steps" }));
     await app.user.click(rail.getByRole("button", { name: "Appearance" }));
     const answers: ((answer: { result: CarryOverInventory }) => void)[] = [];
@@ -406,7 +412,7 @@ describe("Carry over in Set up", () => {
     await waitFor(() => expect(answers).toHaveLength(1));
     expect(await account().findByRole("checkbox", { name: "Copy skills and commands" })).toHaveProperty("checked", false);
     await act(async () => answers[0]?.({ result: inventory() }));
-    await account().findByText("3 skills; 1 commands; 0 checkouts offered; 0 invalid.");
+    await waitFor(() => expect(within(account().getByLabelText("Skills and commands")).getByText("Skills").nextElementSibling?.textContent).toBe("3"));
     expect(account().getByRole("checkbox", { name: "Copy skills and commands" })).toHaveProperty("checked", true);
     await app.user.click(account().getByRole("button", { name: "Import" }));
     await waitFor(() => expect(app.environment("desk").requests("carryOver.run")).toHaveLength(1));
@@ -421,7 +427,7 @@ describe("Carry over in Set up", () => {
     const next = { ...empty, sessions: { ...empty.sessions, total: 6 } };
     app.environment("desk").wire.answer("carryOver.inventory", () => ({ result: next }));
     await act(async () => app.environment("desk").notice("carry-over.imported", report()));
-    await account().findByText("6 sessions; 2 archived; 1 missing directory.");
+    await waitFor(() => expect(within(account().getByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("6"));
     expect(account().getByRole("checkbox", { name: "Copy skills and commands" })).toHaveProperty("checked", true);
     await app.user.click(account().getByRole("button", { name: "Import 5 new sessions" }));
     await waitFor(() => expect(app.environment("desk").requests("carryOver.run")).toHaveLength(1));
