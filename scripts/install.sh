@@ -37,6 +37,7 @@ trap 'exit 143' TERM
 
 NAME=agent-harness
 RELEASE_API=https://api.github.com/repos/david-systemtech/agent-harness/releases
+PUBLIC_RELEASES=https://github.com/david-systemtech/agent-harness/releases
 # The environment's port when none is given, and the address it answers on for this machine.
 DEFAULT_PORT=7433
 LOOPBACK=127.0.0.1
@@ -296,6 +297,122 @@ double_quoted() {
   printf '%s' "$1" | sed 's/[\\"$`]/\\&/g'
 }
 
+# Parse the public manifest without adding a runtime dependency. Unlike the API's
+# line reader, this validates JSON structure and field types before using a version.
+manifest_version() {
+  LC_ALL=C awk -v wanted="$asset" -v pinned="$version" -v channel="$channel" -v pattern="$VERSION_PATTERN" '
+    function invalid() { failed = 1; exit 1 }
+    function space() { while (substr(text, at, 1) ~ /^[ \t\r\n]$/) at++ }
+    function take(c) { space(); if (substr(text, at++, 1) != c) invalid() }
+    function string(    c, e, h, n, i, result) {
+      take("\"")
+      result = ""
+      while (at <= length(text)) {
+        c = substr(text, at++, 1)
+        if (c == "\"") { scalar = result; kind = "string"; return }
+        if (c ~ /[[:cntrl:]]/) invalid()
+        if (c == "\\") {
+          e = substr(text, at++, 1)
+          if (e == "u") {
+            h = substr(text, at, 4)
+            if (length(h) != 4 || h ~ /[^0-9a-fA-F]/) invalid()
+            at += 4; n = 0
+            for (i = 1; i <= 4; i++) n = n * 16 + index("0123456789abcdef", tolower(substr(h, i, 1))) - 1
+            # Relevant fields are ASCII. Keep other escapes distinct rather than
+            # coercing them into an ASCII field name, version or digest.
+            c = n >= 32 && n < 127 ? sprintf("%c", n) : "\\u" h
+          } else if (e == "\"" || e == "\\" || e == "/") c = e
+          else if (e ~ /^[bfnrt]$/) c = "\\" e
+          else invalid()
+        }
+        result = result c
+      }
+      invalid()
+    }
+    function value(role, depth,    c, id, key, name, size, digest, version, assets, number) {
+      if (depth > 64) invalid()
+      space(); c = substr(text, at, 1)
+      if (c == "\"") { string(); return }
+      if (c == "{") {
+        id = ++objects; at++; space()
+        if (substr(text, at, 1) != "}") {
+          while (1) {
+            string(); key = scalar
+            if (seen[id, key]++) invalid()
+            take(":")
+            value(role == "root" && key == "assets" ? "assets" : "other", depth + 1)
+            if (role == "root" && key == "version") { if (kind != "string") invalid(); version = scalar }
+            if (role == "root" && key == "assets") { if (kind != "array") invalid(); assets = 1 }
+            if (role == "asset" && key == "name") { if (kind != "string") invalid(); name = scalar }
+            if (role == "asset" && key == "size") { if (kind != "number" || scalar !~ /^[1-9][0-9]*$/) invalid(); size = 1 }
+            if (role == "asset" && key == "sha256") { if (kind != "string" || length(scalar) != 64 || scalar ~ /[^0-9a-f]/) invalid(); digest = 1 }
+            space(); c = substr(text, at++, 1)
+            if (c == "}") break
+            if (c != ",") invalid()
+          }
+        } else at++
+        if (role == "root") {
+          if (!assets || version !~ pattern || (pinned != "" && version != pinned)) invalid()
+          number = version; sub(/[+].*$/, "", number)
+          if (pinned == "" && (channel != "stable" || number ~ /-/)) invalid()
+          resolved = version
+        }
+        if (role == "asset") {
+          if (name == "" || !size || !digest) invalid()
+          if (name == wanted) matches++
+        }
+        kind = "object"; scalar = ""; return
+      }
+      if (c == "[") {
+        at++; space()
+        if (substr(text, at, 1) != "]") {
+          while (1) {
+            value(role == "assets" ? "asset" : "other", depth + 1)
+            if (role == "assets" && kind != "object") invalid()
+            space(); c = substr(text, at++, 1)
+            if (c == "]") break
+            if (c != ",") invalid()
+          }
+        } else at++
+        kind = "array"; scalar = ""; return
+      }
+      number = substr(text, at)
+      if (match(number, /^-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][+-]?[0-9]+)?/)) {
+        scalar = substr(number, 1, RLENGTH); at += RLENGTH; kind = "number"; return
+      }
+      if (match(number, /^(true|false|null)/)) {
+        scalar = substr(number, 1, RLENGTH); at += RLENGTH; kind = "literal"; return
+      }
+      invalid()
+    }
+    { text = text $0 "\n" }
+    END {
+      if (failed) exit 1
+      at = 1; value("root", 0); space()
+      if (kind != "object" || at <= length(text) || matches != 1 || resolved == "") invalid()
+      print resolved
+    }
+  '
+}
+
+# GitHub serves published manifests without the anonymous API quota. The latest
+# endpoint is stable only; a beta channel cannot silently become a stable pin.
+resolve_public_manifest() {
+  if [ -n "$version" ]; then
+    manifest_url="$PUBLIC_RELEASES/download/v$version/release.json"
+  elif [ "$channel" = stable ]; then
+    manifest_url="$PUBLIC_RELEASES/latest/download/release.json"
+  else
+    return 1
+  fi
+  manifest=$(forge_curl "$manifest_url" 2>/dev/null) || return 1
+  release_version=$(printf '%s\n' "$manifest" | manifest_version) ||
+    fail "invalid public release manifest at $manifest_url for $asset; nothing was installed."
+  tag="v$release_version"
+  asset_url="$PUBLIC_RELEASES/download/$tag/$asset"
+  checksum_url="$asset_url.sha256"
+}
+
 # Finds the release to install, the channel's newest or the one --version names,
 # and sets tag, release_version and the download URLs of the artefact and its digest.
 resolve_release() {
@@ -303,15 +420,19 @@ resolve_release() {
   if [ -n "$version" ]; then
     # Read by its tag, as the environment reads a pin; a draft there is none.
     release_url="$api/tags/v$version"
-    release=$(forge_curl "$release_url") ||
+    if ! release=$(forge_curl "$release_url"); then
+      if resolve_public_manifest; then return; fi
       fail "could not read release v$version from $release_url: no such public release is published, or GitHub could not be reached."
+    fi
     members=$(members_of "$release")
     tag=$(printf '%s\n' "$members" | newest_tag any)
     [ "$tag" = "v$version" ] || fail "release v$version is a draft, not published; nothing was installed."
   else
     listing="$api?per_page=$RELEASE_LIST_LIMIT"
-    listed=$(forge_curl "$listing") ||
+    if ! listed=$(forge_curl "$listing"); then
+      if resolve_public_manifest; then return; fi
       fail "could not read the releases from $listing; check connectivity and the GitHub API rate limit."
+    fi
     members=$(members_of "$listed")
     tag=$(printf '%s\n' "$members" | newest_tag "$channel")
     [ -n "$tag" ] || fail "no release is published on the $channel channel."

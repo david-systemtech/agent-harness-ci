@@ -61,6 +61,7 @@ esac
 `;
 
 interface Fixture {
+  readonly root: string;
   readonly home: string;
   readonly log: string;
   /** The data directory the script uses when no --data-dir is given. */
@@ -124,6 +125,7 @@ const fixture = async (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): 
     FAKE_DATA_DIR: dataDir,
   };
   return {
+    root,
     home,
     log,
     dataDir,
@@ -145,6 +147,16 @@ const install = async (f: Fixture, args: string[] = [], env: NodeJS.ProcessEnv =
     const failed = error as { code: number; stdout: string; stderr: string };
     return { code: failed.code, stdout: failed.stdout, stderr: failed.stderr };
   }
+};
+
+/** The same public manifest layout shipped beside the archives and checksum sidecars. */
+const publishManifest = (f: Fixture, version = "0.1.0", asset = "agent-harness-linux-x64.tar.gz") => {
+  const archive = readFileSync(join(f.root, "assets", `v${version}`, asset));
+  const manifest = { version, assets: [{ name: asset, size: archive.byteLength, sha256: createHash("sha256").update(archive).digest("hex") }] };
+  const json = JSON.stringify(manifest);
+  write(join(f.root, "releases", "latest-manifest.json"), json);
+  write(join(f.root, "assets", `v${version}`, "release.json"), json);
+  return manifest;
 };
 
 /** The line the script ends with: the shim's folder put first on the PATH. */
@@ -224,6 +236,115 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
     expect(f.calls()).not.toContain("agent-harness saw AGENT_HARNESS_TOKEN");
     expect(existsSync(join(f.state, "credential"))).toBe(false);
+  });
+
+  it("resolves stable from the public manifest when the anonymous API returns 403", async () => {
+    const f = await fixture();
+    const asset = "agent-harness-linux-x64.tar.gz";
+    const latest = `${DOWNLOAD.replace("/download", "/latest/download")}/release.json`;
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: asset, size: 1, sha256: "0".repeat(64) }] }));
+    const result = await install(f, ["--dry-run"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Release: v0.1.0");
+    expect(result.stdout).toContain(`Download: ${DOWNLOAD}/v0.1.0/${asset}`);
+    expect(result.stdout).toContain(`Digest: ${DOWNLOAD}/v0.1.0/${asset}.sha256`);
+    expect(f.calls()).toEqual([`curl ${LIST}`, `curl ${latest}`]);
+    expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
+    expect(readdirSync(f.home)).toEqual([]);
+  });
+
+  it.each([
+    ["Linux", "x86_64", "linux-x64", ".local/state"],
+    ["Darwin", "arm64", "darwin-arm64", "Library/Application Support"],
+  ])("installs and verifies a public manifest fallback on %s", async (system, machine, platform, statePath) => {
+    const asset = `agent-harness-${platform}.tar.gz`;
+    const f = await fixture([{ tag: "v0.1.0", assetName: asset }]);
+    publishManifest(f, "0.1.0", asset);
+    const dataDir = join(f.home, statePath, "agent-harness");
+    const result = await install(f, [], { FAKE_API_ERROR: "403", FAKE_UNAME_S: system, FAKE_UNAME_M: machine, FAKE_DATA_DIR: dataDir });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`Verified the SHA-256 of ${asset}.`);
+    expect(existsSync(join(dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
+    expect(f.calls()).toContain(`curl ${DOWNLOAD}/v0.1.0/${asset}.sha256`);
+    expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
+  });
+
+  it("uses the exact pinned manifest, including a prerelease, when the API fails", async () => {
+    const f = await fixture([{ tag: "v0.2.0-beta.1" }]);
+    publishManifest(f, "0.2.0-beta.1");
+    const result = await install(f, ["--version", "0.2.0-beta.1", "--dry-run"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Release: v0.2.0-beta.1");
+    expect(f.calls()).toEqual([`curl ${API}/tags/v0.2.0-beta.1`, `curl ${DOWNLOAD}/v0.2.0-beta.1/release.json`]);
+  });
+
+  it("does not replace a beta channel with the stable latest manifest", async () => {
+    const f = await fixture();
+    publishManifest(f);
+    const result = await install(f, ["--channel", "beta", "--dry-run"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(1);
+    expect(f.calls()).toEqual([`curl ${LIST}`]);
+    expect(readdirSync(f.home)).toEqual([]);
+  });
+
+  it("still refuses a corrupt archive when the manifest fallback resolves", async () => {
+    const f = await fixture([{ tag: "v0.1.0", checksum: "wrong" }]);
+    publishManifest(f);
+    const result = await install(f, [], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("not the published");
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(false);
+    expect(f.calls().some((call) => call.startsWith("agent-harness "))).toBe(false);
+  });
+
+  it.each([
+    ["array root", (m: ReturnType<typeof publishManifest>) => JSON.stringify([m])],
+    ["array version", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, version: [m.version] })],
+    ["invalid version", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, version: "../0.1.0" })],
+    ["prerelease stable", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, version: "0.1.0-beta.1" })],
+    ["object assets", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: m.assets[0] })],
+    ["array asset", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [m.assets] })],
+    ["array name", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [{ ...m.assets[0], name: [m.assets[0]?.name] }] })],
+    ["array digest", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [{ ...m.assets[0], sha256: [m.assets[0]?.sha256] }] })],
+    ["invalid digest", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [{ ...m.assets[0], sha256: "invalid" }] })],
+    ["string size", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [{ ...m.assets[0], size: "123" }] })],
+    ["zero size", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [{ ...m.assets[0], size: 0 }] })],
+    ["missing asset", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [] })],
+    ["duplicate asset", (m: ReturnType<typeof publishManifest>) => JSON.stringify({ ...m, assets: [...m.assets, ...m.assets] })],
+    ["duplicate version", (m: ReturnType<typeof publishManifest>) => JSON.stringify(m).replace('"version":"0.1.0"', '"version":"0.1.0","version":"0.1.0"')],
+    ["truncated JSON", (m: ReturnType<typeof publishManifest>) => JSON.stringify(m).slice(0, -1)],
+    ["trailing data", (m: ReturnType<typeof publishManifest>) => `${JSON.stringify(m)} false`],
+    ["trailing comma", (m: ReturnType<typeof publishManifest>) => JSON.stringify(m).replace(/}$/, ",}")],
+    ["invalid escape", (m: ReturnType<typeof publishManifest>) => JSON.stringify(m).replace("0.1.0", String.raw`0.1.0\q`)],
+  ])("rejects a public manifest with %s before downloading an archive", async (_defect, json) => {
+    const f = await fixture();
+    const manifest = publishManifest(f);
+    write(join(f.root, "releases", "latest-manifest.json"), json(manifest));
+    const result = await install(f, [], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("invalid public release manifest");
+    expect(f.calls()).toHaveLength(2);
+    expect(f.calls().some((call) => call.includes(".tar.gz"))).toBe(false);
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(false);
+  });
+
+  it("rejects a manifest that names a different version from the requested pin", async () => {
+    const f = await fixture();
+    publishManifest(f);
+    write(join(f.root, "assets", "v0.1.0", "release.json"), JSON.stringify({ version: "0.2.0", assets: [{ name: "agent-harness-linux-x64.tar.gz", size: 1, sha256: "0".repeat(64) }] }));
+    const result = await install(f, ["--version", "0.1.0"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("invalid public release manifest");
+    expect(f.calls()).toHaveLength(2);
+  });
+
+  it("reads formatted JSON, reordered fields, escaped ASCII and unrelated manifest metadata", async () => {
+    const f = await fixture();
+    const manifest = publishManifest(f);
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ image: { note: 'quotes: " slash: / unicode: café', flags: [true, false, null, -1.25e10] }, assets: manifest.assets, version: manifest.version }, null, 2).replace("0.1.0", String.raw`\u0030.1.0`));
+    const result = await install(f, ["--dry-run"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Release: v0.1.0");
   });
 
   it("reports a public releases API failure", async () => {
@@ -417,7 +538,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
       const result = await install(f, ["--version", version]);
       expect(result.code, version).toBe(1);
       expect(result.stderr, version).toContain(`v${version}`);
-      expect(f.calls(), version).toEqual([`curl ${API}/tags/v${version}`]);
+      expect(f.calls(), version).toEqual([`curl ${API}/tags/v${version}`, ...(version === "0.9.0" ? [`curl ${DOWNLOAD}/v${version}/release.json`] : [])]);
     }
   });
 
