@@ -33,8 +33,6 @@ const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
   return { app, env: app.environment("desk") };
 };
 
-/** The header's terminal action. */
-
 const column = () => screen.queryByRole("complementary", { name: "Side column" });
 
 /** The Terminal pane in the side column, hidden or shown. */
