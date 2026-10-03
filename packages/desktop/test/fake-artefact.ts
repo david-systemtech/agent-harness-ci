@@ -23,7 +23,7 @@ export interface FakeServiceState {
   /** How many `service status` runs after a start pass before it answers: preset none. */
   readonly answersAfter: number;
   /** A verb that fails, with the one sentence the CLI prints for it. */
-  readonly fails?: { readonly verb: string; readonly message: string };
+  readonly fails?: { readonly verb: string; readonly message: string; readonly stream?: "stderr" | "stdout" };
 }
 
 export interface FakeArtefact {
@@ -45,7 +45,7 @@ appendFileSync(join(root, "runs.jsonl"), JSON.stringify(args) + "\\n");
 const save = () => writeFileSync(file, JSON.stringify(state));
 const verb = args[0] === "service" ? args[1] : undefined;
 if (state.fails && state.fails.verb === verb) {
-  process.stderr.write(state.fails.message + "\\n");
+  process[state.fails.stream ?? "stderr"].write(state.fails.message + "\\n");
   process.exit(1);
 }
 switch (verb) {
