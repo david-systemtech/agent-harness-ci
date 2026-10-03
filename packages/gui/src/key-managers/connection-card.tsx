@@ -1,3 +1,5 @@
+import { Copy, LogIn, LogOut, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Vault } from "lucide-react";
+import { ActionButton as Button } from "./action-button.js";
 import {
   KEY_MANAGER_PROVIDER_WORDS,
   KEY_MANAGER_STATUS_ADVICE,
@@ -16,7 +18,7 @@ import {
 } from "@agent-harness/client-runtime";
 import type { KeyManagerStatusKind, ListedKeyManagerConnection } from "@agent-harness/contracts";
 import { useId, useState } from "react";
-import { Button, Fact } from "../ui/index.js";
+import { Fact, ToneBadge } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { CertificateCheck } from "./certificate-check.js";
 import { ConfirmRemove, ConfirmSignOut, EditConnection, SignInAgain } from "./connection-dialogs.js";
@@ -71,11 +73,15 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
   const dialog = { environmentId, connection, close, say };
   const advice = KEY_MANAGER_STATUS_ADVICE[kind];
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-base font-semibold text-ink">
-        {connection.label}
-      </h3>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+    <section data-access-card aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+      <header className="flex flex-wrap items-center gap-2">
+        <Vault aria-hidden="true" className="size-4 text-ink-muted" />
+        <h3 id={heading} className="min-w-0 break-words text-xs font-semibold text-ink">{connection.label}</h3>
+        <ToneBadge tone={kind === "signed-in" ? "success" : "warning"}>
+          <ShieldCheck aria-hidden="true" />{kind === "signed-in" ? "Verified" : "Not verified"}
+        </ToneBadge>
+      </header>
+      <dl className="grid grid-cols-[minmax(0,112px)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs [&_dt]:py-0 [&_dd]:py-0">
         <Fact name="Provider">{KEY_MANAGER_PROVIDER_WORDS[connection.provider]}</Fact>
         <Fact name="Address">{connection.address}</Fact>
         <Fact name="Signs in by">{methodWords(connection)}</Fact>
@@ -95,31 +101,31 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
       </p>
       <div className="flex flex-wrap gap-2">
         {kind === "certificate-rejected" && (
-          <Button tone="primary" disabled={!writable} onClick={() => setOpen("certificate")}>
+          <Button icon={ShieldCheck} label="Check its certificate" tone="primary" disabled={!writable} onClick={() => setOpen("certificate")}>
             Check its certificate
           </Button>
         )}
-        <Button tone={SIGN_IN_FIXES.has(kind) ? "primary" : "quiet"} disabled={!writable} onClick={() => setOpen("sign-in")}>
+        <Button icon={LogIn} label={awaiting ? "Sign in" : "Sign in again"} tone={SIGN_IN_FIXES.has(kind) ? "primary" : "quiet"} disabled={!writable} onClick={() => setOpen("sign-in")}>
           {awaiting ? "Sign in" : "Sign in again"}
         </Button>
-        <Button disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection))}>
+        <Button icon={RefreshCw} label="Verify now" disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection))}>
           Verify now
         </Button>
         {!connection.injects && (
-          <Button disabled={!writable || sending} onClick={() => send(() => setInjected(sender, environmentId, connection))}>
+          <Button icon={Plus} label="Inject its variables" disabled={!writable || sending} onClick={() => send(() => setInjected(sender, environmentId, connection))}>
             Inject its variables
           </Button>
         )}
-        <Button disabled={!writable} onClick={() => setOpen("edit")}>
+        <Button icon={Pencil} label="Edit" disabled={!writable} onClick={() => setOpen("edit")}>
           Edit
         </Button>
-        <Button disabled={!writable || awaiting} onClick={() => setOpen("sign-out")}>
+        <Button icon={LogOut} label="Sign out" disabled={!writable || awaiting} onClick={() => setOpen("sign-out")}>
           Sign out
         </Button>
-        <Button disabled={!writable} onClick={() => setOpen("remove")}>
+        <Button icon={Trash2} label="Remove" disabled={!writable} onClick={() => setOpen("remove")}>
           Remove
         </Button>
-        <Button onClick={() => setOpen("copy")}>Copy to other environments</Button>
+        <Button icon={Copy} label="Copy to other environments" onClick={() => setOpen("copy")}>Copy to other environments</Button>
       </div>
       {open === "certificate" && (
         <CertificateCheck
