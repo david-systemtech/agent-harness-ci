@@ -196,6 +196,45 @@ describe("a session dragged onto the grid", () => {
 });
 
 describe("a pane dragged by its caption", () => {
+  it("keeps unsent attachments and surviving pane mounts through splits, closes, swaps and moves between rows", async () => {
+    const app = await withTrain();
+    const original = paneOf("Train tidy");
+    const message = within(original).getByRole("textbox", { name: "Message" });
+    fireEvent.drop(message, { dataTransfer: { types: ["Files"], files: [new File([Uint8Array.of(0x89, 0x50, 0x4e, 0x47)], "ledger.png", { type: "image/png" })] } });
+    await within(original).findByRole("button", { name: "Remove ledger.png" });
+    const retained = () => {
+      expect(paneOf("Train tidy")).toBe(original);
+      expect(within(original).getByRole("textbox", { name: "Message" })).toBe(message);
+      expect(within(original).getByRole("button", { name: "Remove ledger.png" })).toBeDefined();
+    };
+    await press(app, SPLIT_RIGHT);
+    retained();
+    await app.user.click(within(paneOf("·")).getByRole("button", { name: "Close the pane" }));
+    retained();
+    await press(app, SPLIT_DOWN);
+    retained();
+    await app.user.click(within(paneOf("·")).getByRole("button", { name: "Close the pane" }));
+    retained();
+    await press(app, SPLIT_RIGHT);
+    await app.user.click(row("Fix the rail"));
+    const neighbour = paneOf("Fix the rail");
+    const drag = (label: string) => {
+      const caption = original.querySelector("[data-pane-caption]") as HTMLElement;
+      const carried = dataTransfer();
+      fireEvent.dragStart(caption, { dataTransfer: carried });
+      const target = within(neighbour.closest("[data-panel]") as HTMLElement).getByLabelText(label);
+      fireEvent.drop(target, { dataTransfer: carried });
+      fireEvent.dragEnd(caption, { dataTransfer: carried });
+      retained();
+      expect(paneOf("Fix the rail")).toBe(neighbour);
+    };
+    drag("Swap panes");
+    drag("Move below");
+    drag("Move to the right");
+    await app.user.click(within(neighbour).getByRole("button", { name: "Close the pane" }));
+    retained();
+  });
+
   it("does not start a pane drag from its controls or from text selection in the rename field", async () => {
     const app = await withTrain();
     await press(app, SPLIT_RIGHT);

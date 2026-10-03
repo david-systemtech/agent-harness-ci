@@ -1,4 +1,5 @@
-import { Fragment, useRef } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Group, Panel, Separator, useGroupRef, type Layout, type LayoutChangedMeta } from "react-resizable-panels";
 import { KeysAnswered } from "../keys/key-dispatch.js";
 import type { GridPane, GridRow } from "../presentation.js";
@@ -54,27 +55,33 @@ const useShares = (shares: Readonly<Record<string, number>>, keep: (layout: Layo
 
 export const PaneGrid = () => {
   const [layout, setLayout] = usePresentation("paneLayout");
+  const targets = useRef(new Map<string, HTMLDivElement>());
   const heights = useShares(
     sharesOf(layout.rows, (row) => row.height),
     (shares) => setLayout((held) => resizeRows(held, shares)),
   );
   const several = panesOf(layout).length > 1;
   return (
-    <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
-      {layout.rows.map((row, at) => (
-        <Fragment key={row.id}>
-          {at > 0 && <Separator aria-label="Resize the rows" className={`h-[7px] ${DIVIDER}`} />}
-          <Panel id={row.id} minSize={ROW_LEAST}>
-            <PaneRow row={row} place={at + 1} focused={layout.focused} several={several} />
-          </Panel>
-        </Fragment>
-      ))}
-    </Group>
+    <>
+      <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
+        {layout.rows.map((row, at) => (
+          <Fragment key={row.id}>
+            {at > 0 && <Separator aria-label="Resize the rows" className={`h-[7px] ${DIVIDER}`} />}
+            <Panel id={row.id} minSize={ROW_LEAST}>
+              <PaneRow row={row} place={at + 1} targets={targets} />
+            </Panel>
+          </Fragment>
+        ))}
+      </Group>
+      {panesOf(layout).map((pane) => <MountedPane key={pane.id} pane={pane} focused={pane.id === layout.focused} several={several} targets={targets} />)}
+    </>
   );
 };
 
+type PaneTargets = RefObject<Map<string, HTMLDivElement>>;
+
 /** A row of the grid, named by its place from the top. */
-const PaneRow = ({ row, place, focused, several }: { readonly row: GridRow; readonly place: number; readonly focused: string; readonly several: boolean }) => {
+const PaneRow = ({ row, place, targets }: { readonly row: GridRow; readonly place: number; readonly targets: PaneTargets }) => {
   const [, setLayout] = usePresentation("paneLayout");
   const widths = useShares(
     sharesOf(row.panes, (pane) => pane.width),
@@ -86,12 +93,32 @@ const PaneRow = ({ row, place, focused, several }: { readonly row: GridRow; read
         <Fragment key={pane.id}>
           {at > 0 && <Separator aria-label="Resize the panes" className={`w-[7px] ${DIVIDER}`} />}
           <Panel id={pane.id} minSize={PANE_LEAST}>
-            <GridPaneView pane={pane} focused={pane.id === focused} several={several} />
+            <div className="h-full" ref={(node) => { if (node !== null) targets.current.set(pane.id, node); }} />
           </Panel>
         </Fragment>
       ))}
     </Group>
   );
+};
+
+/**
+ * Keep pane contents in one keyed list, independent of rows and resizer groups.
+ * A group rebuilds its constraints when its panel order changes; only its empty
+ * targets remount. Moving the same portal host preserves unsent attachments,
+ * file selections and every other local pane state, including across rows.
+ */
+const MountedPane = ({ pane, targets, ...contents }: { readonly pane: GridPane; readonly targets: PaneTargets; readonly focused: boolean; readonly several: boolean }) => {
+  const [host] = useState(() => {
+    const element = document.createElement("div");
+    element.className = "h-full";
+    return element;
+  });
+  useLayoutEffect(() => {
+    const target = targets.current.get(pane.id);
+    if (target !== undefined && host.parentNode !== target) target.appendChild(host);
+  });
+  useLayoutEffect(() => () => { targets.current.delete(pane.id); }, [pane.id, targets]);
+  return createPortal(<GridPaneView pane={pane} {...contents} />, host);
 };
 
 /** One pane of the grid: focused by a press or the focus inside it, answering the window's keys while it is. */
