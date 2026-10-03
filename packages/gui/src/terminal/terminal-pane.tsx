@@ -1,6 +1,7 @@
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "../ui/index.js";
+import { Plus } from "lucide-react";
+import { Button, Tooltip } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { createPaneTerminal, type PaneTerminal, type PaneView } from "./pane-terminal.js";
 import { useTerminalPanes } from "./terminal-panes.js";
@@ -78,13 +79,15 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
             </p>
           )}
           {renew && (
-            <Button className="ml-auto h-7 shrink-0 px-2 text-xs" onClick={() => terminal.current?.ask({ kind: "shell", focus: true })}>
-              New terminal
-            </Button>
+            <Tooltip content="New terminal · Enter / Space">
+              <Button size="xs" className="ml-auto" onClick={() => terminal.current?.ask({ kind: "shell", focus: true })}>
+                <Plus aria-hidden="true" />New terminal
+              </Button>
+            </Tooltip>
           )}
         </div>
       )}
-      <div ref={host} aria-label="Terminal screen" className="min-h-0 flex-1 overflow-hidden bg-inset px-2 py-1" />
+      <div ref={host} aria-label="Terminal screen" className="min-h-0 flex-1 overflow-hidden bg-wash px-2 py-1.5" />
     </div>
   );
 };
