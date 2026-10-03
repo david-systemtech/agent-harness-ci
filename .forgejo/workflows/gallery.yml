@@ -4,6 +4,7 @@ name: gallery
 on:
   # Credentials and the publisher come only from the base branch. The PR is data.
   pull_request_target:
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - 'packages/gui/**'

@@ -462,6 +462,7 @@ it("relays a PR head as data without executing its credential-stealing script", 
   expect(existsSync(stolen)).toBe(false);
   const workflow = readFileSync(join(root, ".forgejo", "workflows", "gallery.yml"), "utf8");
   expect(workflow).toContain("pull_request_target:");
+  expect(workflow).toContain("branches: [main]");
   expect(workflow).not.toMatch(/^ {2}pull_request:/m);
   expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}");
   expect(workflow).toContain("GH_CI_SHA: ${{ github.event.pull_request.head.sha }}");
