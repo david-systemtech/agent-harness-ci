@@ -18,6 +18,11 @@ const discoveryPath = "/.well-known/agent-harness/environment";
 const credentialName = "packaged-update-check";
 const baseline = "0.0.0-0";
 
+/** Copies a packaged desktop for the prior install and its replacement. */
+export function copyPackagedDesktop(source, destination) {
+  cpSync(source, destination, { recursive: true, verbatimSymlinks: true });
+}
+
 /** Prepares the prior install's runtime versions before installing its service. */
 export function stampPriorPackagedServer(server, version) {
   // The release keeps only the CLI under packages; its workspace dependencies live under their scope.
@@ -169,7 +174,7 @@ async function runSmoke(source, version) {
     await until(() => desktop.exitCode !== null || desktop.signalCode !== null, "The packaged desktop did not respond to SIGTERM", 10_000);
   };
   try {
-    cpSync(source, installed, { recursive: true });
+    copyPackagedDesktop(source, installed);
     const resources = join(installed, "Contents", "Resources");
     // A prior-install fixture of the release's server code, stamped lower, tests the real launcher handover.
     // Actual 0.1.0 data migration and interactive OS approval are the manual checklist.
@@ -228,7 +233,7 @@ try {
     cpSync(server, cleanupServer, { recursive: true });
     fixtureCli = [join(cleanupServer, "node", "bin", "node"), join(cleanupServer, "packages", "cli", "dist", "main.js")];
     rmSync(installed, { recursive: true });
-    cpSync(source, installed, { recursive: true });
+    copyPackagedDesktop(source, installed);
     const port = 19280;
     desktop = spawn(executable(installed), [`--remote-debugging-port=${port}`], { stdio: "ignore" });
     // Record a spawn failure so it is surfaced by the bounded page check and still cleans the service.
