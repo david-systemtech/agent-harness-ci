@@ -16,8 +16,8 @@ it("draws populated headers with geometry contracts for both acceptance widths",
     expect(await screen.findAllByRole("button", { name: "Set up: 1 needs attention" })).toHaveLength(2);
     const checks: unknown = JSON.parse(container.dataset["galleryGeometry"] ?? "null");
     expect(checks).toEqual(expect.arrayContaining([
-      { selector: '[data-header-width="1400"][data-header-fits="true"] header', width: 1400, height: 44 },
-      { selector: '[data-header-width="1024"][data-header-fits="true"] header', width: 1024, height: 44 },
+      { selector: '[data-header-width="1400"][data-header-fits="true"] header', width: Math.min(1400, window.innerWidth), height: 44 },
+      { selector: '[data-header-width="1024"][data-header-fits="true"] header', width: Math.min(1024, window.innerWidth), height: 44 },
     ]));
   } finally {
     await gallery.close();

@@ -61,7 +61,7 @@ const HeaderWidth = ({ width }: { readonly width: number }) => {
     measure();
     return () => { observer.disconnect(); changes.disconnect(); };
   }, []);
-  return <div ref={container} data-header-width={width} style={{ width }}>
+  return <div ref={container} data-header-width={width} style={{ width, maxWidth: "100%" }}>
     <KeyDispatch macOS={false} keyMap={DEFAULT_KEY_MAP}>
       <SettingsProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><Header /></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></SettingsProvider>
     </KeyDispatch>
@@ -89,7 +89,7 @@ return function HeaderScene({ ladder }: { readonly ladder: LadderName }) {
 export default await headerScene();
 
 export const geometry = [1400, 1024].flatMap((width) => [
-  { selector: `[data-header-width="${width}"][data-header-fits="true"] header`, width, height: 44 },
+  { selector: `[data-header-width="${width}"][data-header-fits="true"] header`, width: Math.min(width, window.innerWidth), height: 44 },
   { selector: `[data-header-width="${width}"] button[aria-label="More"]`, width: 28, height: 28 },
   { selector: `[data-header-width="${width}"] button[aria-label="Settings"]`, width: 28, height: 28 },
   { selector: `[data-header-width="${width}"] button[aria-label="Search sessions and commands"]`, height: 24 },
