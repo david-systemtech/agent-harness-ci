@@ -241,6 +241,9 @@ try {
     await cdp.evaluate("window.desktopShell.window.close()");
     await until(() => desktop.exitCode !== null, "The replacement window did not quit", 10_000);
     console.log(`Packaged replacement read the existing credential and upgraded ${baseline} to ${version}`);
+  } catch (error) {
+    console.error("Packaged replacement failed before cleanup:", error);
+    throw error;
   } finally {
     cdp?.close();
     let cleanupError;
