@@ -16,6 +16,8 @@ import { sideColumnKey, type PaneSession } from "../presentation.js";
  */
 
 export type TerminalAsk =
+  /** Opens a fresh session shell, leaving the one held by the environment running. */
+  | { readonly kind: "new" }
   /** Show the session's shell, in place of a `!` command's terminal, with the keys when `focus`. */
   | { readonly kind: "shell"; readonly focus: boolean }
   /** Run `command` in a terminal of its own, shown in the pane; the composer keeps the keys. */

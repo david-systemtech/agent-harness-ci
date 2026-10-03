@@ -51,7 +51,7 @@ export interface PaneContentsProps extends CaptionProps {
 export const SessionPane = ({ session, focused, header, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode }) => {
   const { environmentId, sessionId } = session;
   return (
-    <div className="flex min-h-0 flex-1">
+    <div data-dock-owner className="relative flex min-h-0 min-w-0 flex-1">
       <PaneLine key={`${environmentId} ${sessionId}`} environmentId={environmentId} sessionId={sessionId}>
         <PaneDocumentsProvider session={session}>
           <SessionQueueProvider environmentId={environmentId} sessionId={sessionId}>
