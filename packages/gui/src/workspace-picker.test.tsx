@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { describe, expect, it } from "vitest";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
@@ -116,17 +116,31 @@ const picker = () => screen.getByRole("dialog", { name: /^Where it works on / })
 /** The picker's one line. */
 const pickerLine = () => within(picker()).queryByRole("status")?.textContent;
 
+it("explains workspace continuity and gives every picker action an icon and a keyboard hint", async () => {
+  const app = await launch();
+  const view = await openPicker(app);
+  expect(within(view).getByText("Changing a workspace may need a new session.")).toBeTruthy();
+  for (const action of within(view).getAllByRole("button")) expect(action.querySelector("svg")).not.toBeNull();
+  const use = within(view).getByRole("button", { name: "Use" });
+  const path = within(view).getByRole("textbox", { name: "A directory on desk" });
+  await app.user.type(path, "/work/harness");
+  act(() => use.focus());
+  expect((await screen.findByRole("tooltip")).textContent).toContain("Enter");
+});
+
 describe("the caption's workspace chip", () => {
   it("shows the kind, the directory's name and a worktree's branch, with the path on hover", async () => {
     const app = await launch();
+    await app.user.keyboard("{Control>}\\{/Control}");
+    fireEvent.pointerDown(pane());
     const chip = () => within(pane()).getByRole("note", { name: /^Workspace/ });
 
     await app.user.click(row("Fix the rail"));
-    await waitFor(() => expect(chip().textContent).toBe("directory harness"));
+    await waitFor(() => expect(chip().getAttribute("aria-label")).toBe("Workspace: directory harness"));
     expect(chip().getAttribute("title")).toBe("/work/harness");
 
     await app.user.click(row("Review it"));
-    await waitFor(() => expect(chip().textContent).toBe("worktree harness on review"));
+    await waitFor(() => expect(chip().getAttribute("aria-label")).toBe("Workspace: worktree harness on review"));
     expect(chip().getAttribute("title")).toBe(REVIEW_TREE);
 
     await app.user.click(row("Sketch"));
@@ -270,7 +284,8 @@ describe("a worktree", () => {
     await app.user.keyboard("Tidy the rail{Enter}");
     await waitFor(() => expect(params(app, "desk", "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "worktree", repository: "/work/harness", newBranch: {} } })]));
     // The session opens in the pane, its caption naming the worktree made on the preset branch.
-    await waitFor(() => expect(within(pane()).getByRole("note", { name: /^Workspace/ }).textContent).toBe(`worktree harness on ${preset}`));
+    await app.user.keyboard("{Control>}\\{/Control}");
+    await waitFor(() => expect(within(pane()).getByRole("note", { name: /^Workspace/ }).getAttribute("aria-label")).toBe(`Workspace: worktree harness on ${preset}`));
   });
 
   it("names a branch taken since the branches were read in one line on the picker, which stays open for another branch, and makes a new branch named as typed", async () => {
@@ -372,7 +387,8 @@ describe("a session whose workspace is missing", () => {
     ]);
     expect(screen.queryByRole("dialog", { name: /^Where it works on / })).toBeNull();
     expect(within(pane()).queryByText(GONE)).toBeNull();
-    expect(within(pane()).getByRole("note", { name: /^Workspace/ }).textContent).toBe("directory notes");
+    await app.user.keyboard("{Control>}\\{/Control}");
+    expect(within(pane()).getByRole("note", { name: /^Workspace/ }).getAttribute("aria-label")).toBe("Workspace: directory notes");
   });
 
   it("says the environment's refusal in one line on the picker, which stays open for another choice", async () => {
@@ -395,6 +411,8 @@ describe("a session whose workspace is missing", () => {
     await app.user.click(row("Old one"));
     await waitFor(() => expect(within(pane()).getByText(GONE)).toBeDefined());
 
+    await app.user.keyboard("{Control>}\\{/Control}");
+    fireEvent.pointerDown(pane());
     // An organisation command still works: the caption renames it.
     await app.user.click(within(pane()).getByRole("button", { name: "Rename “Old one”" }));
     await app.user.keyboard("{Control>}a{/Control}Old and moved{Enter}");

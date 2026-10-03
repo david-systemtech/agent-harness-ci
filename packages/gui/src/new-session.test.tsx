@@ -1,6 +1,6 @@
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RenderedApp, ScriptedEnvironment } from "../test/harness.js";
 import { renderApp } from "../test/harness.js";
 import { dataTransfer, heading, inUtc, region, row, sidebar } from "../test/sidebar-fixtures.js";
@@ -78,17 +78,12 @@ const withOpen = async (title = "Train tidy", options: Parameters<typeof launch>
 };
 
 const header = () => screen.getByRole("banner");
-const gridLine = async (app: RenderedApp) => {
-  const menu = await openHeaderMenu(app);
-  const text = within(menu).queryByRole("status")?.textContent;
-  await app.user.keyboard("{Escape}");
-  return text;
-};
+const gridLine = () => document.querySelector('[data-sonner-toast]:not([data-removed="true"]) [data-title]')?.textContent;
 const panes = () => within(screen.getByRole("main")).getAllByRole("region", { name: "Session pane" });
 const surfaceOf = (pane: HTMLElement) => within(pane).queryByRole("region", { name: "New session" });
 
 /** A pane as the grid test reads it: its session's title, "+" for the new-session surface, "·" for neither. */
-const titleOf = (pane: HTMLElement) => within(pane).queryByRole("button", { name: /^Rename / })?.textContent ?? (surfaceOf(pane) === null ? "·" : "+");
+const titleOf = (pane: HTMLElement) => pane.querySelector('button[aria-label^="Rename "]')?.textContent ?? (surfaceOf(pane) === null ? "·" : "+");
 
 /** The grid, each row's panes left to right, the focused one starred. */
 const grid = () =>
@@ -496,27 +491,44 @@ describe("a new session in a new pane", () => {
     for (const name of ["desk", "laptop"]) expect(params(app, name, "sessions.create")).toEqual([]);
   });
 
-  it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in the grid's line", async () => {
+  it("shows a fresh refusal while the previous toast is leaving", async () => {
+    await twoPanes();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    try {
+      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(gridLine()).toBe("A new session opens in a pane.");
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+      expect(gridLine()).toBeUndefined();
+      expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(gridLine()).toBe("A new session opens in a pane.");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("is refused off the grid, and with every other way of adding a pane at eight panes, each with its reason in a toast", async () => {
     const app = await twoPanes();
     expect(dropControl(headingControl("laptop"), () => heading("desk"))).toBe(false);
-    expect(await gridLine(app)).toBe("A new session opens in a pane.");
+    await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
     await openHeaderMenu(app);
     expect(dropControl(headerControl(), () => header())).toBe(false);
-    expect(await gridLine(app)).toBe("A new session opens in a pane.");
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(gridLine()).toBe("A new session opens in a pane."));
     expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]);
 
     for (let split = 2; split < 8; split += 1) await app.user.keyboard(split % 2 === 0 ? SPLIT_DOWN : SPLIT_RIGHT);
     expect(panes()).toHaveLength(8);
-    expect(await gridLine(app)).toBeUndefined();
+    expect(gridLine()).toBeUndefined();
 
     await app.user.keyboard(NEW_IN_PANE);
-    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     await openHeaderMenu(app);
     expect(dropControl(headerControl(), zone(() => paneOf("Train tidy"), "New session to the right"))).toBe(false);
+    await app.user.keyboard("{Escape}");
     expect(dropControl(headingControl("desk"), zone(() => paneOf("Train tidy"), "New session beside the focused pane"))).toBe(false);
-    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(dropControl(headingControl("desk"), () => heading("laptop"))).toBe(false);
-    expect(await gridLine(app)).toBe("The grid holds eight panes; close one first.");
+    await waitFor(() => expect(gridLine()).toBe("The grid holds eight panes; close one first."));
     expect(panes()).toHaveLength(8);
     expect(surfaces()).toHaveLength(0);
 
