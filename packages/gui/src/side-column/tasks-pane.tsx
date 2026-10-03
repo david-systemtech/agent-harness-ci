@@ -114,7 +114,7 @@ export const TasksPane = ({ environmentId, sessionId }: TasksPaneProps) => {
     );
   };
 
-  if (live.length === 0 && finished.length === 0) return <p className="px-3 py-2 text-sm text-ink-faint">No delegated work in this session.</p>;
+  if (live.length === 0 && finished.length === 0) return <p className="p-1.5 text-sm text-ink-faint">No delegated work in this session.</p>;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-1.5">
       {live.length === 0 ? (
