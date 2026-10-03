@@ -1,6 +1,7 @@
 import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import type { ComponentType } from "react";
+import type { PresentationValues } from "../src/presentation.js";
 
 /** Every matching element must have these dimensions; missing selectors fail capture. */
 export interface SceneGeometry {
@@ -14,6 +15,7 @@ export interface SceneGeometry {
 export interface SceneModule {
   readonly default?: ComponentType<{ readonly ladder: LadderName }>;
   readonly script?: Script;
+  readonly presentation?: Partial<PresentationValues>;
   readonly geometry?: readonly SceneGeometry[];
 }
 export type SceneRegistry = Readonly<Record<string, SceneModule>>;
