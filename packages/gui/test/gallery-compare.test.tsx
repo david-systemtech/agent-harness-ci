@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { sceneFiles } from "../gallery/capture-plan.js";
 import { captureName, compareCapture, geometryFailures } from "../gallery/compare.js";
 import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
 
