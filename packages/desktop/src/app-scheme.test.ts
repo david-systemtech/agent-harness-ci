@@ -40,6 +40,17 @@ describe("the app scheme", () => {
     expect(stylesheet.headers.get("content-type")).toMatch(/^text\/css/);
   });
 
+  it("serves bundled variable fonts from the app origin with the font media type and a local-only font policy", async () => {
+    const { electron, platform } = await start();
+    const bytes = new Uint8Array([119, 79, 70, 50, 0, 1]);
+    writeFileSync(join(platform.paths.renderer, "assets/text.woff2"), bytes);
+    const font = await electron.protocol.load("agent-harness://app/assets/text.woff2");
+    expect(font.status).toBe(200);
+    expect(font.headers.get("content-type")).toBe("font/woff2");
+    expect(new Uint8Array(await font.arrayBuffer())).toEqual(bytes);
+    expect(directives(font.headers.get("content-security-policy"))["font-src"]).toEqual(["agent-harness://app", "data:"]);
+  });
+
   it("answers every page and file with a policy of default-src 'none', scripts and styles from the app scheme only", async () => {
     const { electron } = await start();
     for (const url of ["agent-harness://app/", "agent-harness://app/assets/index.js", "agent-harness://app/missing.js"]) {

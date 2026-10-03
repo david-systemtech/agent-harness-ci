@@ -1,4 +1,54 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/archivo";
+@import "@fontsource-variable/archivo/wght-italic.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/jetbrains-mono/wght-italic.css";
+
+@custom-variant dark (&:where([data-ladder="dark"], [data-ladder="dark"] *));
+@custom-variant data-open (&:where([data-state="open"]));
+@custom-variant data-closed (&:where([data-state="closed"]));
+@custom-variant data-checked (&:where([data-state="checked"]));
+@custom-variant data-unchecked (&:where([data-state="unchecked"]));
+@custom-variant data-selected (&:where([data-selected="true"]));
+@custom-variant data-disabled (&:where([data-disabled]));
+@custom-variant data-active (&:where([data-state="active"]));
+@custom-variant data-horizontal (&:where([data-orientation="horizontal"]));
+@custom-variant data-vertical (&:where([data-orientation="vertical"]));
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+:root {
+  --radius: 0.5rem;
+  --radius-machine: 0;
+}
+
+@theme {
+  --font-sans: "Archivo Variable", ui-sans-serif, -apple-system, "Segoe UI", system-ui, "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", "Cascadia Code", "Menlo", "Consolas", monospace;
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.4375rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
 
 /* The desktop preload's camera modal uses the same theme as the client window. */
 .shell-camera {
@@ -94,103 +144,108 @@
 /* The window's ground and ink before and around the frame, so nothing but the canvas shows while it mounts. */
 @layer base {
   html {
+    font-size: calc(var(--font-scale, 1) * 100%);
     background-color: var(--abyss);
     color: var(--ink);
   }
-}
-
-/*
- * The transcript (docs/specs/gui.md, "A session pane"). A word of streaming
- * text fades in: `streaming-text.tsx` names these keyframes and times them,
- * and draws no fade where the system asks for reduced motion.
- */
-@keyframes word-in {
-  from {
-    opacity: 0;
+  body {
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
-  to {
-    opacity: 1;
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :where(:focus-visible) {
+    outline: 2px solid var(--beam);
+    outline-offset: 1px;
+    border-radius: var(--radius-sm);
   }
-}
-
-/* Markdown as a reply draws it: the spacing and wells Tailwind's reset takes away, every colour a token. */
-@layer components {
-  .markdown > * + * {
-    margin-top: 0.75em;
-  }
-  .markdown h1,
-  .markdown h2,
-  .markdown h3,
-  .markdown h4 {
-    font-weight: 600;
+  ::selection {
+    background: color-mix(in oklch, var(--beam) 35%, transparent);
     color: var(--ink);
   }
-  .markdown h1 {
-    font-size: 1.2em;
+  * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
   }
-  .markdown h2 {
-    font-size: 1.1em;
-  }
-  .markdown ul {
-    list-style: disc;
-    padding-left: 1.4em;
-  }
-  .markdown ol {
-    list-style: decimal;
-    padding-left: 1.4em;
-  }
-  .markdown li + li {
-    margin-top: 0.25em;
-  }
-  .markdown a {
-    color: var(--beam-text);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  .markdown code {
-    border-radius: 4px;
-    background-color: var(--wash);
-    padding: 0.1em 0.3em;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.92em;
-  }
-  .markdown pre {
-    overflow-x: auto;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
-    background-color: var(--inset);
-    padding: 0.6em 0.8em;
-  }
-  .markdown pre code {
-    background-color: transparent;
-    padding: 0;
-  }
-  .markdown blockquote {
-    border-left: 2px solid var(--line-strong);
-    padding-left: 0.8em;
-    color: var(--ink-muted);
-  }
-  .markdown table {
-    border-collapse: collapse;
-  }
-  .markdown th,
-  .markdown td {
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--line-strong); }
+  .drag-region { -webkit-app-region: drag; }
+  .no-drag { -webkit-app-region: no-drag; }
+}
+
+/* The markdown alias keeps transcript callers working while surfaces adopt .md. */
+@layer components {
+  .chrome-label { font-size: var(--text-2xs); line-height: var(--text-2xs--line-height); font-weight: 500; letter-spacing: 0.01em; }
+  :is(.md, .markdown) { font-size: var(--text-sm); line-height: 1.6; overflow-wrap: anywhere; }
+  :is(.md, .markdown) > * + * { margin-top: 0.7em; }
+  :is(.md, .markdown) :is(h1, h2, h3, h4) { font-weight: 600; line-height: 1.3; color: var(--ink); }
+  :is(.md, .markdown) h1 { font-size: 1.15em; }
+  :is(.md, .markdown) h2 { font-size: 1.08em; }
+  :is(.md, .markdown) :is(h3, h4) { font-size: 1em; }
+  :is(.md, .markdown) a { color: var(--beam-text); text-decoration: underline; text-underline-offset: 2px; }
+  :is(.md, .markdown) :is(ul, ol) { padding-left: 1.35em; }
+  :is(.md, .markdown) ul { list-style: disc; }
+  :is(.md, .markdown) ol { list-style: decimal; }
+  :is(.md, .markdown) li + li { margin-top: 0.25em; }
+  :is(.md, .markdown) code {
+    font-family: var(--font-mono);
+    font-size: 0.94em;
     border: 1px solid var(--line);
-    padding: 0.25em 0.6em;
-    text-align: left;
+    border-radius: var(--radius-sm);
+    background: var(--inset);
+    padding: 0.05em 0.32em;
   }
-  .markdown hr {
-    border-color: var(--line);
+  :is(.md, .markdown) pre {
+    font-family: var(--font-mono);
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--inset);
+    padding: 0.7em 0.85em;
   }
-  mark {
-    border-radius: 2px;
-    background-color: var(--wash-strong);
-    color: inherit;
+  :is(.md, .markdown) pre code { border: 0; background: transparent; padding: 0; }
+  :is(.md, .markdown) blockquote { border-left: 2px solid var(--line-strong); padding-left: 0.8em; color: var(--ink-muted); }
+  :is(.md, .markdown) table { border-collapse: collapse; display: block; overflow-x: auto; }
+  :is(.md, .markdown) :is(th, td) { border: 1px solid var(--line); padding: 0.25em 0.55em; text-align: left; }
+  :is(.md, .markdown) th { background: var(--raised); }
+  :is(.md, .markdown) hr { border: 0; border-top: 1px solid var(--line); }
+  .md-quiet { color: var(--ink-muted); }
+  .md-quiet :is(h1, h2, h3, h4) { color: inherit; }
+  .md.ProseMirror { caret-color: var(--beam-text); }
+  .md.ProseMirror > :first-child { margin-top: 0; }
+  .md.ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder); color: var(--ink-faint); float: left; height: 0; pointer-events: none;
   }
-  mark[aria-current="true"] {
-    background-color: var(--amber);
-    color: var(--amber-ink);
-  }
+  mark { background: color-mix(in oklch, var(--amber) 30%, transparent); color: var(--ink); border-radius: 2px; }
+  mark[aria-current="true"] { background: var(--amber); color: var(--amber-ink); }
+  .word-in { animation: word-in var(--word-ms, 150ms) ease-out both; }
+  .turn-in { animation: turn-in 160ms ease-out both; }
+  .caret::after { content: ""; display: inline-block; width: 0.5em; height: 1em; background: var(--beam-text); animation: caret-blink 1.1s steps(1) infinite; }
+  .shuttle { position: relative; overflow: hidden; }
+  .shuttle::after { content: ""; position: absolute; inset-block: 0; background: var(--beam); animation: shuttle 1.9s infinite; }
+  .xterm-viewport { background: transparent !important; }
+  .xterm .xterm-helper-textarea:focus-visible { outline: none; }
+}
+
+@keyframes word-in { from { opacity: 0; filter: blur(1.5px); } to { opacity: 1; filter: blur(0); } }
+@keyframes turn-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes shuttle {
+  0% { left: 0; right: 100%; animation-timing-function: cubic-bezier(0.3, 0, 0.15, 1); }
+  46% { left: 0; right: 0; animation-timing-function: linear; }
+  56% { left: 0; right: 0; animation-timing-function: cubic-bezier(0.55, 0, 0.2, 1); }
+  100% { left: 100%; right: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .word-in, .turn-in, .caret::after { animation: none; }
+  .shuttle::after { animation: none; left: 0; right: 25%; }
 }
 
 /* Highlighted code in the theme's own tokens: the library's classes, never a theme of its own. */
@@ -209,7 +264,8 @@
 .hljs-string,
 .hljs-regexp,
 .hljs-addition,
-.hljs-attribute {
+.hljs-attribute,
+.hljs-meta .hljs-string {
   color: var(--sage);
 }
 .hljs-number,
@@ -224,7 +280,15 @@
 .hljs-section {
   color: var(--mint);
 }
+.hljs-attr,
+.hljs-property,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--ink);
+}
 .hljs-type,
+.hljs-class .hljs-title,
 .hljs-built_in,
 .hljs-params {
   color: var(--amber);
@@ -234,5 +298,7 @@
   color: var(--ink-muted);
 }
 .hljs-deletion {
-  color: var(--signal);
+  color: var(--amber);
 }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
