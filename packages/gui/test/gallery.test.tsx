@@ -156,3 +156,17 @@ it.each(["dock-terminal", "dock-browser", "dock-preview"])("renders %s with pane
     expect(preview.getByRole("code").textContent).toContain("const total");
   }
 });
+
+it("marks a scene ready after an accessible-name attribute changes to the required state", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "attribute-ready", "dark", {
+    "attribute-ready": { default: () => <button aria-label="Pending">Work</button>, readySelector: 'button[aria-label="Ready"]' },
+  });
+  close = gallery.close;
+  const action = await screen.findByRole("button", { name: "Pending" });
+  expect(container.dataset["galleryReady"]).toBeUndefined();
+  act(() => action.setAttribute("aria-label", "Ready"));
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("attribute-ready"));
+  expect(await gallery.ready).toBe(true);
+});

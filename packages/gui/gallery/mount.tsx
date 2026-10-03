@@ -45,7 +45,7 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
       };
       const stop = views.subscribe(mark);
       const observer = new MutationObserver(mark);
-      observer.observe(container.ownerDocument.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+      observer.observe(container.ownerDocument.body, { childList: true, subtree: true, attributes: true, characterData: true });
       mark();
       return () => { stopped = true; stop(); observer.disconnect(); };
     }, []);

@@ -84,3 +84,15 @@ it.each([[1400, 920], [1024, 777]])("checks responsive scene geometry at viewpor
   button.remove();
   expect(measureSceneGeometry()).toEqual(["button: no matching elements", "button: no matching elements"]);
 });
+
+
+it("captures every scene in dark and the specified light subset without exceeding the report budget", () => {
+  expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "setup-account", "setup-appearance", "settings-banks", "dock-files"])).toEqual([
+    { scene: "settings-accounts", ladder: "light", name: "settings-accounts.light" }, { scene: "settings-accounts", ladder: "dark", name: "settings-accounts.dark" },
+    { scene: "settings-permissions", ladder: "light", name: "settings-permissions.light" }, { scene: "settings-permissions", ladder: "dark", name: "settings-permissions.dark" },
+    { scene: "settings-theme", ladder: "light", name: "settings-theme.light" }, { scene: "settings-theme", ladder: "dark", name: "settings-theme.dark" },
+    { scene: "setup-account", ladder: "light", name: "setup-account.light" }, { scene: "setup-account", ladder: "dark", name: "setup-account.dark" },
+    { scene: "setup-appearance", ladder: "light", name: "setup-appearance.light" }, { scene: "setup-appearance", ladder: "dark", name: "setup-appearance.dark" },
+    { scene: "settings-banks", ladder: "dark", name: "settings-banks.dark" }, { scene: "dock-files", ladder: "dark", name: "dock-files.dark" },
+  ]);
+});

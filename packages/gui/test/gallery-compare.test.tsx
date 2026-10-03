@@ -84,7 +84,12 @@ it("gives every discovered scene a valid, distinct capture name at both viewport
   const names = captureCases(scenes).flatMap(({ scene, ladder }) =>
     ([1400, 1024] as const).map((width) => captureName(scene, width, ladder)),
   );
-  expect(new Set(names).size).toBe(scenes.length * 4);
+  expect(new Set(names).size).toBe(names.length);
+  expect(names.length).toBeLessThanOrEqual(400);
+  for (const scene of scenes) {
+    expect(names).toContain(captureName(scene, 1400));
+    expect(names).toContain(captureName(scene, 1024));
+  }
 });
 
 it("blocks missing and changed baselines as well as geometry faults", async () => {
