@@ -67,6 +67,7 @@ export const TOLD = [
   "webView.back",
   "webView.forward",
   "webView.reload",
+  "webView.stop",
 ] as const;
 export type Told = (typeof TOLD)[number];
 
