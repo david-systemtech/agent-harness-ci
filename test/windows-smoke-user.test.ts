@@ -27,13 +27,19 @@ const execute = async (exitCode: number) => {
 $ErrorActionPreference = 'Stop'
 $env:VERSION = '0.1.1'
 $env:PUBLIC = $env:FIXTURE_ROOT
+# Keep the cmdlet's typed member boundary without creating OS users.
+class FixtureLocalPrincipal { [object] $SID }
 function New-LocalUser { param($Name, $Password, [switch] $AccountNeverExpires, [switch] $PasswordNeverExpires)
   if ($Password -isnot [Security.SecureString]) { throw 'Password must stay in a secure string' }
   $script:user = $Name
-  [pscustomobject]@{ SID = [pscustomobject]@{ Value = 'fixture-user-sid' } }
+  $script:account = [FixtureLocalPrincipal]::new()
+  $script:account.SID = [pscustomobject]@{ Value = 'fixture-user-sid' }
+  $script:account
 }
-function Add-LocalGroupMember { param($SID, $Member)
+function Add-LocalGroupMember { param($SID, [FixtureLocalPrincipal[]] $Member)
   if ($SID -ne 'S-1-5-32-545') { throw 'Smoke user must join Users only' }
+  if ($Member.Count -ne 1 -or ![object]::ReferenceEquals($Member[0], $script:account)) { throw 'Group member must be the created local principal' }
+  Add-Content $env:RECORD "member:$($Member[0].SID.Value)"
 }
 function Remove-LocalUser { param($Name) Add-Content $env:RECORD "removed:$Name" }
 function icacls.exe { $global:LASTEXITCODE = 0 }
@@ -61,6 +67,7 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("the Windows smoke's user token"
     const result = await execute(0);
     expect(result.stdout).toContain("ordinary-user child output");
     const record = readFileSync(join(scratch, "record"), "utf8");
+    expect(record).toContain("member:fixture-user-sid");
     expect(record).toContain("ordinary-user launch");
     expect(record).toMatch(/removed:ah-smoke-/);
     const child = readFileSync(join(scratch, "child.ps1"), "utf8");

@@ -9,6 +9,7 @@ const detection = (): StateImportDetection => ({
 });
 const opened = async (environment: Partial<ScriptedEnvironment> = {}, found = detection(), prepare?: (app: Awaited<ReturnType<typeof renderApp>>) => void) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["stateImport"], ...environment }] }, { firstLaunch: true });
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   app.environment("desk").wire.answer("stateImport.detect", () => ({ result: found }));
   prepare?.(app);
   await screen.findByRole("region", { name: "Set up" });
@@ -81,6 +82,7 @@ describe("State import on Carry over", () => {
       ? { status: 401, json: async () => ({ code: "unauthorized", message: "The fixture grant is stale.", data: {} }) }
       : paired.world.fetch(url, request));
     const app = await paired.remount();
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     expect(app.runtime.local.read()).toMatchObject({ state: "failed", reason: "refused" });
     answerRun(app);
     await screen.findByRole("region", { name: "Set up" });
@@ -97,6 +99,7 @@ describe("State import on Carry over", () => {
       { name: "home", reach: "local" },
       { name: "desk", reach: "paired", capabilities: ["stateImport"] },
     ] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     app.environment("desk").wire.answer("stateImport.detect", () => ({ result: detection() }));
     answerRun(app);
     await screen.findByRole("region", { name: "Set up" });

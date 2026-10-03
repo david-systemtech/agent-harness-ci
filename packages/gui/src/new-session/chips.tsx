@@ -8,14 +8,17 @@ import {
   type NewSessionView,
 } from "@agent-harness/client-runtime";
 import type { WorkspaceRequest } from "@agent-harness/contracts";
-import { useState, type ComponentType, type ReactNode } from "react";
+import { useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
+import { glyphOf } from "../connections/environment-glyphs.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
 import { classes } from "../ui/classes.js";
-import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
+import { Button, Tooltip, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { WorkspacePopover } from "../workspace/picker.js";
 import { BrowserChoiceMenu } from "../browser/choice-menu.js";
+import { Check, Cpu, Folder, GitBranch, KeyRound, Server } from "lucide-react";
+import { useSettings } from "../settings/settings-window.js";
 import { checkRequest } from "./check.js";
 import { requestWords } from "./words.js";
 
@@ -41,40 +44,39 @@ export interface ChipProps {
   say(line: string): void;
 }
 
-const CHIP = "h-7 min-w-0 max-w-64 gap-1 border border-line px-2 text-xs font-normal text-ink-muted";
+/** Every chip has an icon even before its environment advertises one. */
+const ChipGlyph = ({ view }: { readonly view: EnvironmentView | undefined }) => glyphOf(view?.icon ?? null) === undefined ? <Server aria-hidden="true" className="size-3" /> : <EnvironmentGlyph view={view} />;
 
-/** A chip's face: what it picks, and the value it holds. */
-const Face = ({ name, children }: { readonly name: string; readonly children: ReactNode }) => (
-  <>
-    <span className="text-ink-faint">{name}</span>
-    <span className="flex min-w-0 items-center gap-1 truncate text-ink">{children}</span>
-  </>
-);
+const CHIP = "h-[22px] min-w-0 max-w-[240px] gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal text-ink-muted hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3";
 
-/** A chip opening a menu of its options. */
-const ChipMenu = ({ name, value, children, items }: { readonly name: string; readonly value: string; readonly children: ReactNode; readonly items: ReactNode }) => (
-  <Menu>
-    <MenuTrigger asChild>
-      <Button aria-label={`${name}: ${value}`} className={CHIP}>
-        <Face name={name}>{children}</Face>
-      </Button>
-    </MenuTrigger>
-    <MenuContent align="start" className="max-h-96 max-w-md overflow-y-auto">
+/** Keep each value on one line, with its full words in the trigger's tooltip. */
+const Face = ({ children }: { readonly children: ReactNode }) => <span className="flex min-w-0 items-center gap-1 truncate">{children}</span>;
+
+/** A chip opening its options, with the account/model dependencies in one popup. */
+const ChipMenu = ({ name, value, children, items, columns = false }: { readonly name: string; readonly value: string; readonly children: ReactNode; readonly items: ReactNode; readonly columns?: boolean }) => (
+  <Menu modal={!columns}>
+    <Tooltip content={`${name}: ${value} · Enter to open · ↑ ↓ to choose · Escape to close`}>
+      <MenuTrigger asChild>
+        <Button data-new-session-chip aria-label={`${name}: ${value}`} className={classes(CHIP, name === "Account" && "shrink")}>
+          <Face>{children}</Face>
+        </Button>
+      </MenuTrigger>
+    </Tooltip>
+    <MenuContent side="top" align="start" className={columns ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0" : "max-h-[320px] max-w-md overflow-y-auto"}>
       {items}
     </MenuContent>
   </Menu>
 );
 
-/** One option of a chip's menu, dim with its reason under it while it cannot be chosen, and with a note after it. */
-const Option = (props: { readonly onSelect: () => void; readonly absent?: string | null; readonly note?: string | undefined; readonly children: ReactNode }) => (
-  <MenuItem onSelect={props.onSelect} disabled={props.absent != null}>
-    <span className="flex min-w-0 flex-col">
-      <span className={classes("flex items-center gap-2", props.absent != null && "text-ink-faint")}>
-        {props.children}
-        {props.note !== undefined && <span className="text-xs text-ink-faint">{props.note}</span>}
-      </span>
-      {props.absent != null && <span className="text-xs text-ink-faint">{props.absent}</span>}
+/** Options carry their selection, sign-in state and reason as words and an icon. */
+const Option = (props: { readonly onSelect: () => void; readonly absent?: string | null; readonly note?: string | undefined; readonly selected?: boolean; readonly keepOpen?: boolean; readonly children: ReactNode }) => (
+  <MenuItem title={["Enter to choose · ↑ ↓ Home End · Tab next column", props.note, props.absent].filter(Boolean).join(" · ")} onSelect={(event) => { if (props.keepOpen) event.preventDefault(); props.onSelect(); }} disabled={props.absent != null} className={classes("items-start gap-2 px-2.5 py-2 text-xs", props.selected && "bg-wash")}>
+    <span className="flex min-w-0 flex-1 flex-col">
+      <span className={classes("flex items-center gap-2", props.absent != null && "text-ink-faint")}>{props.children}</span>
+      {props.note !== undefined && <span className="pl-5 text-2xs text-ink-muted [overflow-wrap:anywhere]">{props.note}</span>}
+      {props.absent != null && <span className="text-2xs text-ink-faint">{props.absent}</span>}
     </span>
+    {props.selected && <Check aria-hidden="true" className="mt-0.5 size-3" />}
   </MenuItem>
 );
 
@@ -100,77 +102,84 @@ const EnvironmentChip = ({ view, choose }: ChipProps) => {
             <Option
               key={environment.environmentId}
               absent={unusable}
+              selected={environment.environmentId === value}
               note={environment.environmentId === value ? HELD : undefined}
               onSelect={() => choose({ environmentId: environment.environmentId })}
             >
-              <EnvironmentGlyph view={environment} />
+              <ChipGlyph view={environment} />
               {nameOf(environment)}
             </Option>
           ))
         )
       }
     >
-      {chosen !== undefined && <EnvironmentGlyph view={chosen} />}
-      {words}
+      <ChipGlyph view={chosen} />
+      <span className="truncate">{words}</span>
     </ChipMenu>
   );
 };
 
-/** The account the session's runs use: the environment's accounts, with their sign-in status; its plan reading beside it. */
-const AccountChip = ({ view, choose }: ChipProps) => {
+/** Arrows stay within a dependency list; Tab moves between the two columns. */
+const moveInColumns = (event: KeyboardEvent<HTMLDivElement>) => {
+  const target = event.target as HTMLElement;
+  const column = target.closest("[data-new-session-list]");
+  if (column === null) return;
+  const rows = [...column.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-disabled])')];
+  let next: HTMLElement | undefined;
+  if (event.key === "Tab") {
+    const columns = [...event.currentTarget.querySelectorAll("[data-new-session-list]")];
+    const destination = columns[(columns.indexOf(column) + 1) % columns.length];
+    next = destination?.querySelector<HTMLElement>('[role="menuitem"]:not([data-disabled])') ?? undefined;
+  } else if (event.key === "Home") next = rows[0];
+  else if (event.key === "End") next = rows.at(-1);
+  else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    const at = rows.indexOf(target.closest<HTMLElement>('[role="menuitem"]') ?? target);
+    next = rows[(at + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length];
+  }
+  if (next !== undefined) { event.preventDefault(); event.stopPropagation(); next.focus(); }
+};
+
+/** A new session chooses through its projection; no session or hand-off exists yet. */
+const AccountModelOptions = ({ view, choose }: ChipProps) => {
+  const settings = useSettings();
   const environmentId = view.environment.value;
-  const { value, options, gauge } = view.account;
-  const words = value === null ? "none" : `${value.label} ${identityWords(value)}`;
-  const reading = readingWords(gauge ?? undefined);
-  return (
-    <ChipMenu
-      name="Account"
-      value={words}
-      items={
-        environmentId === null || options.length === 0 ? (
-          <Nothing>{environmentId === null ? "Choose an environment first." : "The environment holds no account yet."}</Nothing>
-        ) : (
-          options.map((account) => (
-            <Option
-              key={account.id}
-              note={[ACCOUNT_STATUS_WORDS[account.status.state], ...(account.id === value?.id ? [HELD] : [])].join(" · ")}
-              onSelect={() => choose({ account: { environmentId, accountId: account.id } })}
-            >
-              <span className="font-medium">{account.label}</span> <span className="text-ink-muted">{identityWords(account)}</span>
-            </Option>
-          ))
-        )
-      }
-    >
-      {words}
-      {reading !== undefined && <span className="text-ink-faint">{reading}</span>}
-    </ChipMenu>
-  );
+  const reading = readingWords(view.account.gauge ?? undefined);
+  return <div className="flex flex-col sm:flex-row" onKeyDown={moveInColumns}>
+    <div role="group" aria-label="Environment and account" className="w-[224px] max-w-full border-b border-hairline sm:border-r sm:border-b-0">
+      <p className="px-4 py-2 text-xs font-medium">Environment and account</p>
+      <div data-new-session-list className="max-h-[320px] overflow-y-auto p-1.5">
+        {view.environment.options.map(({ environment, unusable }) => <Option key={environment.environmentId} selected={environment.environmentId === environmentId} absent={unusable} keepOpen onSelect={() => choose({ environmentId: environment.environmentId })}>
+          <ChipGlyph view={environment} />{nameOf(environment)}
+        </Option>)}
+        {environmentId === null || view.account.options.length === 0 ? <Nothing>{environmentId === null ? "Choose an environment first." : "The environment holds no account yet."}</Nothing> : view.account.options.map((account) => <Option
+          key={account.id} selected={account.id === view.account.value?.id} keepOpen={account.status.state === "signed-in"}
+          note={[identityWords(account), account.provider, ACCOUNT_STATUS_WORDS[account.status.state], account.id === view.account.value?.id ? reading : undefined, account.id === view.account.value?.id ? HELD : undefined].filter(Boolean).join(" · ")}
+          onSelect={() => choose({ account: { environmentId, accountId: account.id } })}
+        ><KeyRound aria-hidden="true" className="size-3" /><span className="min-w-0 truncate font-medium">{account.label}</span></Option>)}
+        {environmentId !== null && <Option onSelect={() => settings.open("accounts.accounts", environmentId)}><KeyRound aria-hidden="true" className="size-3" />{view.account.options.length === 0 ? "Sign in an account" : "Manage accounts"}</Option>}
+      </div>
+    </div>
+    <div role="group" aria-label="Models" className="w-[256px] max-w-full">
+      <p className="px-4 py-2 text-xs font-medium">Models</p>
+      <div data-new-session-list className="max-h-[320px] overflow-y-auto p-1.5">
+        {view.model.options.length === 0 ? <Nothing>{view.account.value === null ? "Choose an account first: its models are the ones offered." : "The account offers no model yet."}</Nothing> : view.model.options.map((model) => <Option key={model.id} selected={model.id === view.model.value?.id} note={model.id === view.model.value?.id ? HELD : undefined} onSelect={() => choose({ model: model.id })}>
+          <Cpu aria-hidden="true" className="size-3" />{modelName(model)}
+        </Option>)}
+      </div>
+    </div>
+  </div>;
 };
 
-/** The model the session's runs use: the models its account offers. */
-const ModelChip = ({ view, choose }: ChipProps) => {
-  const { value, options } = view.model;
+const AccountChip = (props: ChipProps) => {
+  const value = props.view.account.value;
+  const words = value === null ? "none" : `${value.label} ${identityWords(value)}`;
+  return <ChipMenu name="Account" value={words} columns items={<AccountModelOptions {...props} />}><KeyRound aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
+};
+
+const ModelChip = (props: ChipProps) => {
+  const value = props.view.model.value;
   const words = value === null ? "none" : modelName(value);
-  return (
-    <ChipMenu
-      name="Model"
-      value={words}
-      items={
-        options.length === 0 ? (
-          <Nothing>{view.account.value === null ? "Choose an account first: its models are the ones offered." : "The account offers no model yet."}</Nothing>
-        ) : (
-          options.map((model) => (
-            <Option key={model.id} note={model.id === value?.id ? HELD : undefined} onSelect={() => choose({ model: model.id })}>
-              {modelName(model)}
-            </Option>
-          ))
-        )
-      }
-    >
-      {words}
-    </ChipMenu>
-  );
+  return <ChipMenu name="Model" value={words} columns items={<AccountModelOptions {...props} />}><Cpu aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
 };
 
 /**
@@ -197,11 +206,13 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button aria-label={`Workspace: ${words.label}`} title={words.path} disabled={environment === undefined} className={CHIP}>
-          <Face name="Workspace">{words.label}</Face>
-        </Button>
-      </PopoverTrigger>
+      <Tooltip content={[`Workspace: ${words.label}`, words.path, "Enter to open · Escape to close", environment === undefined ? "Choose an environment first." : undefined].filter(Boolean).join(" · ")}>
+        <PopoverTrigger asChild>
+          <Button data-new-session-chip aria-label={`Workspace: ${words.label}`} title={words.path} disabled={environment === undefined} className={classes(CHIP, "font-mono")}>
+            <Folder aria-hidden="true" />{value?.kind === "worktree" && <GitBranch aria-hidden="true" />}<span className="truncate">{words.label}</span>
+          </Button>
+        </PopoverTrigger>
+      </Tooltip>
       {environment !== undefined && (
         <WorkspacePopover align="start" environment={environment} sessionId={sessionId} known={options} take={(request) => take(request, environment)} close={() => setOpen(false)} />
       )}

@@ -1,5 +1,5 @@
 import { uuidv4, type ShellWebViewState } from "@agent-harness/client-runtime";
-import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCw, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useIsKeyOf } from "../keys/key-dispatch.js";
 import { hideColumn, useSideColumn } from "../side-column/column.js";
@@ -35,7 +35,7 @@ export const BrowserPane = ({
   const views = useShell()?.webView;
   const surface = useRef<HTMLDivElement>(null);
   const [id, setId] = useState<string>();
-  const [state, setState] = useState<ShellWebViewState>({ url: "about:blank", canGoBack: false, canGoForward: false });
+  const [state, setState] = useState<ShellWebViewState>({ url: "about:blank", canGoBack: false, canGoForward: false, loading: false });
   const [address, setAddress] = useState("about:blank");
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -132,8 +132,8 @@ export const BrowserPane = ({
         <IconButton label="Forward" keys="Enter / Space" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id || !state.canGoForward} onClick={() => id && views?.forward(id)}>
           <ArrowRight aria-hidden="true" />
         </IconButton>
-        <IconButton label="Reload" keys="Enter / Space" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id} onClick={() => id && views?.reload(id)}>
-          <RotateCw aria-hidden="true" />
+        <IconButton label={state.loading ? "Stop" : "Reload"} keys="Enter / Space" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id} onClick={() => id && (state.loading ? views?.stop(id) : views?.reload(id))}>
+          {state.loading ? <Square aria-hidden="true" /> : <RotateCw aria-hidden="true" />}
         </IconButton>
         <Tooltip content="Address · Enter to navigate · Escape to restore">
           <Input

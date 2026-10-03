@@ -1,15 +1,19 @@
 import { sendMessage, type NewSessionChips } from "@agent-harness/client-runtime";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { usePaneGrid } from "../grid/grid.js";
-import { KeyContext, useKeyAction } from "../keys/key-dispatch.js";
+import { KeyContext, useFirstKey, useKeyAction, useKeyMap, useMacOS, type Offer } from "../keys/key-dispatch.js";
 import type { PaneNewSession } from "../presentation.js";
 import { useOpenInPane } from "../session/pane-line.js";
-import { Button } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { KeyRound, LoaderCircle, SendHorizontal, TriangleAlert } from "lucide-react";
+import { useSettings } from "../settings/settings-window.js";
+import { Alert, AlertDescription, AlertTitle, Button, IconButton, Tooltip } from "../ui/index.js";
+import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { Welcome } from "../session/empty-state.js";
+import { COLUMN_WIDTHS } from "../transcript/transcript.js";
 import { CHIPS } from "./chips.js";
 import { useSurfaces } from "./surfaces.js";
-import { refusalLine } from "./words.js";
+import { refusalLine, signInLine } from "./words.js";
 
 /** What the surface says when no environment can start a session now. */
 const NONE_USABLE = "No environment can start a session now: the environment chip says why for each.";
@@ -29,6 +33,12 @@ const NONE_USABLE = "No environment can start a session now: the environment chi
  */
 export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSession }) => {
   const runtime = useRuntime();
+  const settings = useSettings();
+  const keyMap = useKeyMap();
+  const macOS = useMacOS();
+  const sendKey = useFirstKey("composer.send");
+  const newlineKey = useFirstKey("composer.newline");
+  const [readingWidth] = usePresentation("readingWidth");
   const grid = usePaneGrid();
   const openInPane = useOpenInPane();
   const { typed, focusAsked, askFocus } = useSurfaces();
@@ -38,6 +48,38 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   const [line, say] = useState<string | undefined>(undefined);
   const [starting, setStarting] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
+  const caret = useRef<number | null>(null);
+  const environment = view.environment.options.find((option) => option.environment.environmentId === view.environment.value)?.environment;
+  const accountLine = signInLine(view.account, environment === undefined ? "the chosen environment" : nameOf(environment));
+  const missingAccount = accountLine !== undefined;
+  const unavailable = view.environment.options.find((option) => option.environment.environmentId === view.environment.value)?.unusable;
+  const notReady = unavailable ?? (environment === undefined ? NONE_USABLE : accountLine ?? (view.workspace.value === null ? "Choose a workspace first." : undefined));
+  const sendOffer: Offer = notReady === undefined && !starting ? { status: "present" } : { status: "absent", message: starting ? "The session is starting." : notReady ?? NONE_USABLE };
+
+  useLayoutEffect(() => {
+    const editor = field.current;
+    if (editor === null) return;
+    editor.style.height = "0px";
+    editor.style.height = `${Math.max(44, editor.scrollHeight)}px`;
+    if (caret.current !== null) {
+      editor.setSelectionRange(caret.current, caret.current);
+      caret.current = null;
+    }
+  }, [text]);
+
+  useEffect(() => {
+    const editor = field.current;
+    if (editor === null) return;
+    let width = -1;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry === undefined || entry.contentRect.width === width) return;
+      width = entry.contentRect.width;
+      editor.style.height = "0px";
+      editor.style.height = `${Math.max(44, editor.scrollHeight)}px`;
+    });
+    observer.observe(editor);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (focusAsked?.id !== id) return;
@@ -59,7 +101,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     const message = text.trim();
     const environmentId = view.environment.value;
     const workspace = view.workspace.value;
-    if (message.length === 0 || starting) return;
+    if (message.length === 0 || sendOffer.status === "absent") return;
     if (environmentId === null || workspace === null) return say(NONE_USABLE);
     const environment = view.environment.options.find((option) => option.environment.environmentId === environmentId)?.environment;
     const account = view.account.value;
@@ -83,43 +125,67 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     openInPane(environmentId, id, sent.ok ? undefined : sent.line);
   };
 
+  const newline = () => {
+    const editor = field.current;
+    const at = editor?.selectionStart ?? text.length;
+    const end = editor?.selectionEnd ?? at;
+    caret.current = at + 1;
+    put(text.slice(0, at) + "\n" + text.slice(end));
+  };
+
   return (
-    <section aria-label="New session" className="flex min-h-0 flex-1 flex-col justify-end">
-      <div role="group" aria-label="Where it starts" className="flex flex-wrap items-center gap-1.5 px-4 pt-3">
-        {CHIPS.map((Chip, at) => (
-          <Chip key={at} view={view} sessionId={id} choose={choose} say={say} />
-        ))}
+    <section aria-label="New session" className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <Welcome keyMap={keyMap} macOS={macOS} sentence={environment === undefined ? "Choose an environment for your first message." : view.account.value === null ? `Start a session on ${nameOf(environment)}.` : `Start a session on ${nameOf(environment)} with ${view.account.value.label}.`}>
+          {notReady !== undefined && <Alert className="w-full bg-wash text-left">
+            <TriangleAlert aria-hidden="true" className="text-amber" />
+            <AlertTitle>Not ready to run</AlertTitle>
+            <AlertDescription>
+              <p>{notReady}</p>
+              {environment !== undefined && missingAccount && <Tooltip content="Sign in · Enter to open Accounts">
+                <Button variant="link" size="xs" onClick={() => settings.open("accounts.accounts", environment.environmentId)}><KeyRound aria-hidden="true" />Sign in</Button>
+              </Tooltip>}
+            </AlertDescription>
+          </Alert>}
+        </Welcome>
       </div>
-      <KeyContext context="composer">
-        <SendKey send={() => void start()} />
-        <div className="flex shrink-0 flex-col gap-1.5 px-4 py-3">
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={field}
-              aria-label="Message"
-              placeholder="The first message starts the session"
-              value={text}
-              onChange={(event) => put(event.target.value)}
-              rows={3}
-              className="min-w-0 flex-1 resize-none rounded-md border border-line bg-inset px-3 py-2 text-sm text-ink outline-none focus-visible:border-beam"
-            />
-            <Button tone="primary" disabled={starting || text.trim().length === 0} onClick={() => void start()}>
-              {starting ? "Starting…" : "Send"}
-            </Button>
+      <div data-composer-column className="@container mx-auto w-full shrink-0" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
+        <KeyContext context="composer">
+          <SendKey send={() => void start()} newline={newline} offer={sendOffer} />
+          <div className="px-3 pt-1.5 pb-1">
+            <div data-composer-card className="rounded-[10px] border border-hairline-strong bg-wash focus-within:ring-3 focus-within:ring-beam/50">
+              <textarea
+                ref={field}
+                aria-label="Message"
+                placeholder="The first message starts the session"
+                spellCheck={false}
+                value={text}
+                onChange={(event) => put(event.target.value)}
+                onKeyDown={(event) => { if (event.nativeEvent.isComposing) event.stopPropagation(); }}
+                rows={1}
+                className="block max-h-[35vh] min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm leading-relaxed text-ink outline-none"
+              />
+              <div className="flex items-center gap-2 px-2 pb-2">
+                <span className="ml-auto hidden text-2xs text-ink-faint @[640px]:block">{sendKey ?? "Unbound"} send / {newlineKey ?? "Unbound"} newline</span>
+                <IconButton label={starting ? "Starting…" : "Send"} {...(sendKey === undefined ? {} : { keys: sendKey })} {...(notReady === undefined ? {} : { disabledReason: notReady })} tone="primary" disabled={starting || text.trim().length === 0} className="ml-auto" onClick={() => void start()}>
+                  {starting ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <SendHorizontal aria-hidden="true" />}
+                </IconButton>
+              </div>
+            </div>
+            {line !== undefined && <p role="status" className="pt-1 text-xs text-ink-muted">{line}</p>}
           </div>
-          {line !== undefined && (
-            <p role="status" className="text-xs text-ink-muted">
-              {line}
-            </p>
-          )}
+        </KeyContext>
+        <div role="group" aria-label="Where it starts" className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1">
+          {CHIPS.map((Chip, at) => <Chip key={at} view={view} sessionId={id} choose={choose} say={say} />)}
         </div>
-      </KeyContext>
+      </div>
     </section>
   );
 };
 
-/** The composer's send key, wired in the surface's composer. */
-const SendKey = ({ send }: { readonly send: () => void }) => {
-  useKeyAction("composer.send", send);
+/** The composer's keys use the effective registry, including remapped newlines. */
+const SendKey = ({ send, newline, offer }: { readonly send: () => void; readonly newline: () => void; readonly offer: Offer }) => {
+  useKeyAction("composer.send", send, offer);
+  useKeyAction("composer.newline", newline);
   return null;
 };

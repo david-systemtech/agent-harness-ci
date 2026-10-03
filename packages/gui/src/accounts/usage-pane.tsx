@@ -34,7 +34,7 @@ export const UsagePane = () => {
   const views = useObservable(runtime.projections.environments);
   return (
     <>
-      <p className="text-sm text-ink-muted">{settingsRow("accounts.usage").hint}</p>
+      <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.usage").hint}</p>
       {usage.gauges.length === 0 && <p className="text-sm text-ink-faint">{NO_PLAN_READING}</p>}
       {usage.gauges.map((gauge) => (
         <Gauge key={gauge.accounts.map(({ environmentId, accountId }) => `${environmentId} ${accountId}`).join(" ")} gauge={gauge} views={views} />
@@ -51,11 +51,11 @@ const Gauge = ({ gauge, views }: { readonly gauge: UsageGauge; readonly views: r
   const heading = useId();
   const readings = readingsOf(gauge);
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-base font-semibold text-ink">
+    <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3">
+      <h3 id={heading} className="text-sm font-medium text-ink">
         {gaugeWho(gauge)}
       </h3>
-      <ul aria-label="Accounts" className="flex flex-wrap gap-x-3 text-sm text-ink-muted">
+      <ul aria-label="Accounts" className="flex flex-wrap gap-x-3 text-2xs text-ink-muted">
         {gauge.accounts.map(({ environmentId, accountId }) => {
           const view = views.find((each) => each.environmentId === environmentId);
           return <PooledAccount key={`${environmentId} ${accountId}`} environmentId={environmentId} accountId={accountId} environment={view === undefined ? "an environment" : nameOf(view)} />;
@@ -68,10 +68,10 @@ const Gauge = ({ gauge, views }: { readonly gauge: UsageGauge; readonly views: r
           {readings.map((reading) => {
             const reset = resetWords(reading.resetsAt);
             return (
-              <li key={reading.window} className="flex items-center gap-2">
+              <li key={reading.window} className="flex flex-wrap items-center gap-2">
                 <span className="w-20">{`${windowWords(reading.window)} `}</span>
                 <WindowReading reading={reading} />
-                {reset !== undefined && <span className="text-ink-faint">, {reset}</span>}
+                {reset !== undefined && <span className="text-2xs text-ink-faint">, {reset}</span>}
               </li>
             );
           })}

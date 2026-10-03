@@ -43,6 +43,7 @@ const opened = async (desk: Partial<ScriptedEnvironment> = {}, listed = inventor
     },
     { firstLaunch: true },
   );
+  await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const environment = app.environment("desk");
   environment.wire.answer("carryOver.inventory", (params) => ({
     result: { ...listed, accountId: String(params["accountId"]) },
