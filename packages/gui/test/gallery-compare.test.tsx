@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { captureName, compareCapture, geometryFailures } from "../gallery/compare.js";
+import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
 
 const require = createRequire(new URL("../package.json", import.meta.url));
 const core = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
@@ -68,4 +69,13 @@ it("reserves the generated narrow suffix so scenes cannot overwrite another capt
   expect(captureName("window-empty", 1400, "light")).toBe("window-empty.light");
   expect(captureName("window-empty", 1024, "light")).toBe("window-empty-narrow.light");
   expect(() => captureName("window-empty-narrow", 1400)).toThrow("Invalid gallery scene name");
+});
+
+it("gives every discovered scene a valid, distinct capture name at both viewports and ladders", async () => {
+  const scenes = await sceneFiles(join(import.meta.dirname, "../gallery/scenes"));
+  expect(scenes.length).toBeGreaterThan(0);
+  const names = captureCases(scenes).flatMap(({ scene, ladder }) =>
+    ([1400, 1024] as const).map((width) => captureName(scene, width, ladder)),
+  );
+  expect(new Set(names).size).toBe(scenes.length * 4);
 });
