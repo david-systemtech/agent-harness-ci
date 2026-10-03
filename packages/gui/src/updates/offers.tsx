@@ -1,7 +1,8 @@
 import { bundledServerWords, clientOfferAskWords, clientOfferWords, clientUpdateWords, offersClientVersion, type ActionOutcome, type BundledServerView, type EnvironmentView } from "@agent-harness/client-runtime";
+import { ArrowDownToLine } from "lucide-react";
 import { useState } from "react";
 import { nameOf } from "../connections/words.js";
-import { Button } from "../ui/index.js";
+import { Button, Tooltip } from "../ui/index.js";
 import { useClientVersion, useObservable, useRuntime } from "../window-context.js";
 import { useUpdatesStatus } from "./use-updates-status.js";
 
@@ -49,9 +50,9 @@ export const ClientOffer = ({ view }: { readonly view: EnvironmentView }) => {
       {offered && (
         <>
           <p className="text-ink">{clientOfferWords(client, name, version)}</p>
-          <Button disabled={!writable || asking} onClick={ask}>
-            {clientOfferAskWords(client, name)}
-          </Button>
+          <Tooltip content="Update environment · Enter / Space"><Button tone="primary" disabled={!writable || asking} onClick={ask}>
+            <ArrowDownToLine aria-hidden="true" />{clientOfferAskWords(client, name)}
+          </Button></Tooltip>
         </>
       )}
       {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
@@ -78,9 +79,9 @@ export const BundledServerOffer = ({ view }: { readonly view: EnvironmentView })
     <div className="flex flex-col items-start gap-1 text-sm">
       <p className={bundledServer.state === "failed" ? "text-signal" : "text-ink"}>{words}</p>
       {offered !== null && (
-        <Button disabled={!writable} onClick={() => void runtime.desktopUpdate.applyBundledServer()}>
-          Install the bundled {offered}
-        </Button>
+        <Tooltip content="Install bundled environment · Enter / Space"><Button tone="primary" disabled={!writable} onClick={() => void runtime.desktopUpdate.applyBundledServer()}>
+          <ArrowDownToLine aria-hidden="true" />Install the bundled {offered}
+        </Button></Tooltip>
       )}
     </div>
   );

@@ -50,6 +50,17 @@ const facts = (region: HTMLElement): Record<string, string> => {
 const dialog = (name: string | RegExp) => screen.findByRole("dialog", { name });
 
 describe("a forge account's card", () => {
+  it("shows verification, primary status and a named dot for every capability", async () => {
+    const app = await opened({ forges: { accounts: [{}] } });
+    await openForges(app);
+    const forge = await card("https://github.com");
+    expect(within(forge).getByText("Verified")).toBeDefined();
+    expect(within(forge).getByRole("img", { name: "Primary forge" }).querySelector("svg")).not.toBeNull();
+    const capabilities = within(forge).getByRole("list", { name: "Capabilities" });
+    expect(within(capabilities).getAllByRole("img")).toHaveLength(5);
+    expect(within(capabilities).getByRole("img", { name: /Read repositories:.*verified/i })).toBeDefined();
+  });
+
   it("shows what the cached forge.accounts.list holds of it: origin, kind, identity, credential source, status with when it changed, capabilities, primary and a copy's source", async () => {
     const app = await opened({
       forges: {
@@ -98,12 +109,28 @@ describe("a forge account's card", () => {
 });
 
 describe("Add by paste", () => {
+  it("opens Add inline with provider tiles and keeps the URL when changing providers", async () => {
+    const app = await opened();
+    const forges = await openForges(app);
+    await app.user.click(within(forges).getByRole("button", { name: "Add a forge" }));
+    const add = await within(forges).findByRole("region", { name: "Add a forge on desk" });
+    expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull();
+    expect(document.activeElement).toBe(within(add).getByRole("radio", { name: "GitHub" }));
+    await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://git.example.test");
+    await app.user.click(within(add).getByRole("radio", { name: "Forgejo" }));
+    expect((within(add).getByRole("textbox", { name: "URL" }) as HTMLInputElement).value).toBe("https://git.example.test");
+    expect(within(add).getByRole("button", { name: "Find the forge" }).querySelector("svg")).not.toBeNull();
+    await app.user.click(within(add).getByRole("button", { name: "Cancel" }));
+    expect(within(forges).queryByRole("region", { name: "Add a forge on desk" })).toBeNull();
+    expect(document.activeElement).toBe(within(forges).getByRole("button", { name: "Add a forge" }));
+  });
+
   it("names the URL's kind and token page with forge.detect, sends the token once in forge.accounts.add directly, says a refused one in one line, and keeps it nowhere on the client", async () => {
     const app = await opened({ forges: { rejects: ["token-refused-for-tests"] } });
     const forges = await openForges(app);
     expect(await within(forges).findByText("No forge account is on this environment.")).toBeDefined();
     await app.user.click(within(forges).getByRole("button", { name: "Add a forge" }));
-    const add = await dialog("Add a forge on desk");
+    const add = await screen.findByRole("region", { name: "Add a forge on desk" });
 
     await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "git@github.com:david/agent-harness.git");
     await app.user.click(within(add).getByRole("button", { name: "Find the forge" }));
@@ -124,7 +151,7 @@ describe("Add by paste", () => {
 
     await app.user.type(within(add).getByLabelText("Token"), TOKEN);
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
     expect(await within(forges).findByText("Added david on github.com.")).toBeDefined();
     expect(facts(await card("https://github.com"))["Credential"]).toBe("A pasted token, kept in this environment's vault.");
 
@@ -144,7 +171,7 @@ describe("Add by paste", () => {
   it("says in one line a URL that is no forge", async () => {
     const app = await opened({ forges: { detect: { "https://intranet.example.test": "not_a_forge" } } });
     await app.user.click(within(await openForges(app)).getByRole("button", { name: "Add a forge" }));
-    const add = await dialog("Add a forge on desk");
+    const add = await screen.findByRole("region", { name: "Add a forge on desk" });
     await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://intranet.example.test/wiki");
     await app.user.click(within(add).getByRole("button", { name: "Find the forge" }));
     expect(await within(add).findByText("The forge could not be told: https://intranet.example.test answered, but not as a forge the harness knows: name its kind to add it anyway.")).toBeDefined();
@@ -154,7 +181,7 @@ describe("Add by paste", () => {
   it("drops what forge.detect found once the URL was edited while it answered, and the add carries no kind for the URL typed", async () => {
     const app = await opened();
     await app.user.click(within(await openForges(app)).getByRole("button", { name: "Add a forge" }));
-    const add = await dialog("Add a forge on desk");
+    const add = await screen.findByRole("region", { name: "Add a forge on desk" });
     const desk = app.environment("desk");
     const url = within(add).getByRole("textbox", { name: "URL" });
     await app.user.type(url, "https://github.com");
@@ -169,7 +196,7 @@ describe("Add by paste", () => {
 
     await app.user.type(within(add).getByLabelText("Token"), TOKEN);
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
     const [added] = desk.requests("forge.accounts.add");
     expect(added?.params).toMatchObject({ url: "https://git.example.test" });
     expect(added?.params).not.toHaveProperty("kind");
@@ -182,7 +209,7 @@ describe("Add from this computer's gh", () => {
     shell.answer("gh.token", async (host) => (host === "github.com" ? "gh-token-for-tests" : undefined));
     const app = await opened({}, [], shell);
     await app.user.click(within(await openForges(app)).getByRole("button", { name: "Add a forge" }));
-    const add = await dialog("Add a forge on desk");
+    const add = await screen.findByRole("region", { name: "Add a forge on desk" });
     await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://git.example.test");
     await app.user.click(within(add).getByRole("button", { name: "Use the gh signed in on this computer" }));
     expect(
@@ -194,7 +221,7 @@ describe("Add from this computer's gh", () => {
     await app.user.clear(within(add).getByRole("textbox", { name: "URL" }));
     await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://github.com");
     await app.user.click(within(add).getByRole("button", { name: "Use the gh signed in on this computer" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
     expect(facts(await card("https://github.com"))["Credential"]).toBe("The gh token milo@desk handed over once: it will not follow gh's rotations.");
 
     expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([
@@ -210,7 +237,7 @@ describe("Add from this computer's gh", () => {
   it("is absent with its reason where the shell has no gh", async () => {
     const app = await opened({}, [], { ...fakeShell(), gh: undefined } as unknown as FakeShell);
     await app.user.click(within(await openForges(app)).getByRole("button", { name: "Add a forge" }));
-    const add = await dialog("Add a forge on desk");
+    const add = await screen.findByRole("region", { name: "Add a forge on desk" });
     expect(within(add).queryByRole("button", { name: "Use the gh signed in on this computer" })).toBeNull();
     expect(within(add).getByText("This client cannot read the gh signed in on this computer: its shell has no shell.gh.")).toBeDefined();
   });
@@ -313,6 +340,7 @@ describe("pull requests where sessions are drawn", () => {
     expect(await within(row).findByRole("img", { name: "Pull request #12, merged" })).toBeDefined();
 
     await app.user.click(row);
+    await app.user.keyboard("{Control>}\\{/Control}");
     const link = await screen.findByRole("button", { name: "Pull request #12, merged" });
     expect(link.textContent).toBe("PR #12 merged");
     await app.user.click(link);

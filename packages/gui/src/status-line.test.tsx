@@ -276,7 +276,10 @@ describe("run info", () => {
 
     await app.user.keyboard("{Control>}i{/Control}");
     const info = await screen.findByRole("region", { name: "The latest run" });
-    const fact = (term: string) => within(info).getByText(term).nextElementSibling?.textContent;
+    const dialog = screen.getByRole("dialog", { name: "Run info" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    for (const name of ["Run", "Account", "Usage", "Capabilities", "Tools"]) expect(within(dialog).getByRole("region", { name })).toBeTruthy();
+    const fact = (term: string) => within(info).getByText(term, { selector: "dt" }).nextElementSibling?.textContent;
     expect(fact("Started by")).toBe("client, attended");
     await waitFor(() => expect(fact("Account")).toBe("work (milo@work.test)"));
     expect(fact("Model")).toBe("claude-opus-4");
@@ -293,7 +296,7 @@ describe("run info", () => {
 
   it("says there is no run yet, and closes on Esc", async () => {
     const { app } = await opened();
-    await app.user.click(within(screen.getByRole("region", { name: "Session pane" })).getByRole("button", { name: "Run info" }));
+    await app.user.keyboard("{Control>}i{/Control}");
     expect(await screen.findByText("No run yet: the session's first message starts one.")).toBeTruthy();
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByText("No run yet: the session's first message starts one.")).toBeNull());

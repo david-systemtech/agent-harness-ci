@@ -5,7 +5,7 @@ import type { PaneSession } from "../presentation.js";
 import { useDraggedRow } from "../sidebar/window-sidebar.js";
 import { classes } from "../ui/classes.js";
 import { usePaneGrid } from "./grid.js";
-import type { SplitDirection } from "./layout.js";
+import { GRID_FULL, type SplitDirection } from "./layout.js";
 
 /**
  * Where a session dragged from the sidebar, or a New session control, lands
@@ -18,7 +18,7 @@ import type { SplitDirection } from "./layout.js";
  * control never replaces a session: at an edge it splits that pane, and at
  * a centre it splits the focused pane right, the new pane holding the
  * new-session surface. With eight panes open every target that would add a
- * pane refuses the drop: the pointer shows none, and the grid's line says
+ * pane refuses the drop: the pointer shows none, and a transient toast says
  * why. Nothing covers the pane while nothing is dragged.
  */
 
@@ -33,6 +33,7 @@ const PLACES: Readonly<Record<Zone, string>> = {
 const ZONES: readonly Zone[] = ["centre", "right", "down"];
 
 const SESSION_LABELS: Readonly<Record<Zone, string>> = { centre: "Open here", right: "Open to the right", down: "Open below" };
+const PANE_LABELS: Readonly<Record<Zone, string>> = { centre: "Swap panes", right: "Move to the right", down: "Move below" };
 const NEW_SESSION_LABELS: Readonly<Record<Zone, string>> = { centre: "New session beside the focused pane", right: "New session to the right", down: "New session below" };
 
 /** What a target does with the drop: whether it refuses it, adding a pane to a grid of eight, and what landing does. */
@@ -46,6 +47,10 @@ export const DropZones = ({ paneId }: { readonly paneId: string }) => {
   const [control, setControl] = useDraggedControl();
   const grid = usePaneGrid();
   const start = useStartNewSession();
+  if (grid.dragged !== null) {
+    if (grid.dragged === paneId) return null;
+    return <Zones labels={PANE_LABELS} landing={(zone) => ({ refused: false, land: () => grid.move(paneId, zone) })} effect="move" />;
+  }
   if (row !== null) {
     const session: PaneSession = { environmentId: row.environmentId, sessionId: row.summary.id };
     const landing = (zone: Zone): Landing => ({
@@ -93,10 +98,11 @@ const DropZone = ({ label, place, landing, effect }: DropZoneProps) => {
   const [over, setOver] = useState(false);
   return (
     <div
+      data-drop-zone
       aria-label={label}
       className={classes(
-        "pointer-events-auto absolute flex items-center justify-center border-2 border-dashed text-xs",
-        over ? "border-beam bg-wash-strong text-ink" : "border-transparent text-ink-faint",
+        "pointer-events-auto absolute flex items-center justify-center text-2xs",
+        over ? "bg-beam/15 ring-2 ring-inset ring-beam/50 text-ink" : "text-ink-faint",
         place,
       )}
       onDragOver={(event) => {
@@ -112,10 +118,11 @@ const DropZone = ({ label, place, landing, effect }: DropZoneProps) => {
       onDrop={(event) => {
         event.preventDefault();
         setOver(false);
-        landing.land();
+        if (landing.refused) grid.refuse();
+        else landing.land();
       }}
     >
-      {label}
+      <span data-drop-label className="max-w-full rounded-md border border-dashed border-beam/70 bg-panel px-3 py-1.5 shadow-lg shadow-scrim/40">{landing.refused ? GRID_FULL : label}</span>
     </div>
   );
 };
