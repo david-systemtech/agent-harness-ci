@@ -2,6 +2,7 @@ import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { ReactNode } from "react";
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
+import { useLocalService } from "../connections/local-service.js";
 import { LocalEnvironmentPane } from "../connections/local-environment.js";
 import { PairingPane } from "../connections/pairing-pane.js";
 import { RewoundStrip } from "../fork-rewind/rewound.js";
@@ -11,6 +12,8 @@ import type { PaneNewSession, PaneSession } from "../presentation.js";
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
+import { EmptyState, Welcome } from "../session/empty-state.js";
+import { useKeyMap, useMacOS } from "../keys/key-dispatch.js";
 import { PaneDocumentsProvider } from "../session/pane-documents.js";
 import { PaneLine } from "../session/pane-line.js";
 import { SideColumnView } from "../side-column/side-column.js";
@@ -107,11 +110,17 @@ export const EmptyPane = ({ focused, ...caption }: PaneContentsProps) => (
 const NoSessionOpen = () => {
   const environments = useObservable(useRuntime().projections.environments);
   const [runHere] = usePresentation("runLocalEnvironment");
+  const keyMap = useKeyMap();
+  const macOS = useMacOS();
+  const service = useLocalService();
   const local = environments.find((view) => view.kind === "local");
   const known = environments.filter((view) => view.environmentId !== LOCAL_PLACEHOLDER_ID);
   if (!environments.some((view) => view.phase === "ready")) {
-    if (runHere && local) return <LocalEnvironmentPane view={local} />;
+    if (runHere) {
+      if (local !== undefined) return <LocalEnvironmentPane view={local} />;
+      if (service.available.status === "present") return <Welcome keyMap={keyMap} macOS={macOS}><p role="status" className="text-sm text-ink-muted">Starting…</p></Welcome>;
+    }
     if (!known.some((view) => view.kind === "paired")) return <PairingPane />;
   }
-  return <p className="m-auto p-6 text-sm text-ink-faint">No session is open. Choose one from the sidebar.</p>;
+  return <EmptyState />;
 };
