@@ -1,6 +1,7 @@
 import type { ESLint } from "eslint";
 import { rule as noClientOrganisationState } from "./no-client-organisation-state.js";
 import { rule as noLiteralColour } from "./no-literal-colour.js";
+import { rule as noUnmappedColourClass } from "./no-unmapped-colour-class.js";
 import { rule as noRelativeImportInto } from "./no-relative-import-into.js";
 import { rule as noSessionTypesInShell } from "./no-session-types-in-shell.js";
 
@@ -15,6 +16,7 @@ export const plugin = {
   rules: {
     "no-client-organisation-state": noClientOrganisationState,
     "no-literal-colour": noLiteralColour,
+    "no-unmapped-colour-class": noUnmappedColourClass,
     "no-relative-import-into": noRelativeImportInto,
     "no-session-types-in-shell": noSessionTypesInShell,
   },

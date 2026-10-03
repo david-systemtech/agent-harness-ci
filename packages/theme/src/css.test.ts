@@ -11,12 +11,14 @@ describe("the tokens as CSS custom properties", () => {
 
   it("write each value as the recorded stylesheet does", () => {
     const dark = cssVariables(derive(DEFAULT_THEME).dark);
+    expect(dark["--scrim"]).toBe("oklch(0% 0 0)");
     expect(dark["--abyss"]).toBe("oklch(15.5% 0 0)");
     expect(dark["--beam"]).toBe("oklch(52% 0.21 264)");
     expect(dark["--beam-text"]).toBe("oklch(61.5% 0.14 264)");
     expect(dark["--hairline"]).toBe("oklch(96% 0 0 / 0.07)");
     expect(dark["--wash-user"]).toBe("oklch(52% 0.21 264 / 0.24)");
     const light = cssVariables(derive(DEFAULT_THEME).light);
+    expect(light["--scrim"]).toBe("oklch(0% 0 0)");
     expect(light["--panel"]).toBe("oklch(100% 0 0)");
     expect(light["--amber"]).toBe("oklch(50% 0.098 85)");
   });

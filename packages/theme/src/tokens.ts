@@ -4,8 +4,8 @@ export type LadderName = (typeof LADDERS)[number];
 
 /**
  * Every token a ladder holds, by the names the surfaces port audit records.
- * Four surfaces and a float for overlays, the hairline and the edge owed
- * 3:1 (`line-strong`), three inks; the accent as a fill (`beam`), its
+ * Four surfaces, a float for overlays, a black scrim for overlays and
+ * shadows, the hairline and the edge owed 3:1 (`line-strong`), three inks; the accent as a fill (`beam`), its
  * pressed depth, the ink on it and its text companion; the machine,
  * thinking and three status colours (`cyan`, `sage`, `mint`, `amber`,
  * `signal`) with the inks on the two status fills; and five washes, the ink
@@ -17,6 +17,7 @@ export const TOKEN_NAMES = [
   "panel",
   "raised",
   "float",
+  "scrim",
   "line",
   "line-strong",
   "ink",

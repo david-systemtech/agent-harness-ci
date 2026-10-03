@@ -55,6 +55,7 @@
   --color-panel: var(--panel);
   --color-raised: var(--raised);
   --color-float: var(--float);
+  --color-scrim: var(--scrim);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);

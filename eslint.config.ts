@@ -81,12 +81,12 @@ export default defineConfig([
     rules: { "agent-harness/no-session-types-in-shell": "error" },
   },
 
-  // ADR 0023: every colour a window paints is a token, in the painting packages' scripts, tests included, stylesheets, SVG
+  // ADR 0023: every colour a window paints is a token and every colour class names a mapped token, in scripts, tests, stylesheets, SVG
   // assets and HTML documents.
   {
     files: tokenPackages.map((p) => `packages/${p}/**/*.${scripts}`),
     ignores: literalColourAllowed,
-    rules: { "agent-harness/no-literal-colour": "error" },
+    rules: { "agent-harness/no-literal-colour": "error", "agent-harness/no-unmapped-colour-class": "error" },
   },
   // Stylesheets through ESLint's CSS language, tolerant of the at-rules and the `--color-*` reset Tailwind 4 adds to CSS.
   {
@@ -95,7 +95,7 @@ export default defineConfig([
     plugins: { css },
     language: "css/css",
     languageOptions: { tolerant: true },
-    rules: { "agent-harness/no-literal-colour": "error" },
+    rules: { "agent-harness/no-literal-colour": "error", "agent-harness/no-unmapped-colour-class": "error" },
   },
   // SVG assets and HTML documents through html-eslint's HTML language, which parses an SVG file as markup too (#455).
   {
@@ -103,7 +103,7 @@ export default defineConfig([
     ignores: literalColourAllowed,
     plugins: { html },
     language: "html/html",
-    rules: { "agent-harness/no-literal-colour": "error" },
+    rules: { "agent-harness/no-literal-colour": "error", "agent-harness/no-unmapped-colour-class": "error" },
   },
   // The terminal UI draws the terminal's sixteen, each colour a role or an environment colour the theme package maps
   // (ADR 0023, #392), so its source names no colour, by name or in hex; its tests may.

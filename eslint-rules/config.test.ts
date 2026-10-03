@@ -191,3 +191,19 @@ describe("the lint configuration", () => {
     expect(await ids("./projection-cache.js")).not.toContain("no-restricted-imports");
   });
 });
+
+describe("the unmapped-colour-class configuration", () => {
+  it.each([
+    ["packages/gui/src/app.tsx", 'export const view = <div className="bg-popover" />;'],
+    ["packages/desktop/src/preload/preload.ts", 'export const classes = "text-muted-foreground";'],
+    ["packages/web/src/app.ts", 'export const classes = "border-missing";'],
+    ["packages/gui/src/app.css", '.edge { @apply bg-popover; }'],
+    ["packages/gui/index.html", '<div class="bg-popover"></div>'],
+  ])("refuses an unmapped colour utility in %s", async (file, code) => {
+    expect(await ruleIds(file, code)).toContain("agent-harness/no-unmapped-colour-class");
+  });
+
+  it("leaves packages that do not paint tokens alone", async () => {
+    expect(await ruleIds("packages/tui/src/app.ts", 'export const classes = "bg-popover";')).not.toContain("agent-harness/no-unmapped-colour-class");
+  });
+});
