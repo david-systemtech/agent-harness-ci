@@ -368,6 +368,85 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(existsSync(join(f.state, "credential"))).toBe(false);
   });
 
+  it("resolves stable installs from the public manifest when the anonymous API refuses requests", async () => {
+    const f = fixture();
+    const latest = `${DOWNLOAD.replace("/download", "/latest/download")}/release.json`;
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }));
+    const result = await install(f, ["-DryRun"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Release: v0.1.0");
+    expect(result.stdout).toContain(`Download: ${DOWNLOAD}/v0.1.0/${ASSET}`);
+    expect(result.stdout).toContain(`Digest: ${DOWNLOAD}/v0.1.0/${ASSET}.sha256`);
+    expect(f.calls()).toEqual([`curl ${LIST}`, `curl ${latest}`]);
+    expect(readFileSync(f.log, "utf8")).not.toContain(TOKEN);
+    expect(readdirSync(f.localAppData)).toEqual([]);
+    expect(readdirSync(f.temp)).toEqual([]);
+  });
+
+  it("installs and verifies the anonymous manifest fallback without sending an inherited token", async () => {
+    const f = fixture();
+    const zip = join(f.root, "assets", "v0.1.0", ASSET);
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: readFileSync(zip).length, sha256: createHash("sha256").update(readFileSync(zip)).digest("hex") }] }));
+    const result = await install(f, [], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`Verified the SHA-256 of ${ASSET}`);
+    expect(existsSync(join(f.dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
+    expect(f.calls()).not.toContainEqual(expect.stringMatching(/saw AGENT_HARNESS_TOKEN/));
+    expect(existsSync(join(f.state, "credential"))).toBe(false);
+  });
+
+  it("still rejects a corrupt archive digest when using the public manifest", async () => {
+    const f = fixture([{ tag: "v0.1.0", checksum: "wrong" }]);
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }));
+    const result = await install(f, [], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`the SHA-256 of ${ASSET}`);
+    expect(existsSync(join(f.dataDir, "versions"))).toBe(false);
+    expect(readdirSync(f.temp)).toEqual([]);
+  });
+
+  it("resolves an explicit prerelease pin from its own manifest when the API is unavailable", async () => {
+    const f = fixture([{ tag: "v0.2.0-beta.1" }]);
+    write(join(f.root, "assets", "v0.2.0-beta.1", "release.json"), JSON.stringify({ version: "0.2.0-beta.1", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }));
+    const result = await install(f, ["-DryRun", "-Version", "0.2.0-beta.1"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Release: v0.2.0-beta.1");
+    expect(f.calls()).toEqual([`curl ${API}/tags/v0.2.0-beta.1`, `curl ${DOWNLOAD}/v0.2.0-beta.1/release.json`]);
+  });
+
+  it("does not substitute the latest stable release when beta cannot be resolved", async () => {
+    const f = fixture();
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }));
+    const result = await install(f, ["-DryRun", "-Channel", "beta"], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(1);
+    expect(f.calls()).toEqual([`curl ${LIST}`]);
+    expect(readdirSync(f.localAppData)).toEqual([]);
+  });
+
+  it.each([
+    { name: "array-wrapped object", manifest: JSON.stringify([{ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }]), version: "" },
+    { name: "array version", manifest: JSON.stringify({ version: ["0.1.0"], assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }), version: "" },
+    { name: "array asset name", manifest: JSON.stringify({ version: "0.1.0", assets: [{ name: [ASSET], size: 1, sha256: "0".repeat(64) }] }), version: "" },
+    { name: "array digest", manifest: JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: ["0".repeat(64)] }] }), version: "" },
+    { name: "invalid JSON", manifest: "{", version: "" },
+    { name: "invalid version", manifest: JSON.stringify({ version: "../bad", assets: [] }), version: "" },
+    { name: "prerelease on stable", manifest: JSON.stringify({ version: "0.2.0-beta.1", assets: [] }), version: "" },
+    { name: "different pin", manifest: JSON.stringify({ version: "0.2.0", assets: [] }), version: "0.1.0" },
+    { name: "missing platform asset", manifest: JSON.stringify({ version: "0.1.0", assets: [{ name: "agent-harness-win32-arm64.zip", size: 1, sha256: "0".repeat(64) }] }), version: "" },
+    { name: "invalid digest", manifest: JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "bad" }] }), version: "" },
+    { name: "invalid size", manifest: JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: true, sha256: "0".repeat(64) }] }), version: "" },
+    { name: "duplicate asset", manifest: JSON.stringify({ version: "0.1.0", assets: Array.from({ length: 2 }, () => ({ name: ASSET, size: 1, sha256: "0".repeat(64) })) }), version: "" },
+  ])("rejects a public manifest with $name before downloading or installing", async ({ manifest, version }) => {
+    const f = fixture();
+    write(version ? join(f.root, "assets", `v${version}`, "release.json") : join(f.root, "releases", "latest-manifest.json"), manifest);
+    const result = await install(f, ["-DryRun", ...(version ? ["-Version", version] : [])], { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("nothing was installed");
+    expect(f.calls()).toHaveLength(2);
+    expect(readdirSync(f.localAppData)).toEqual([]);
+    expect(readdirSync(f.temp)).toEqual([]);
+  });
+
   it("reports a public releases API failure", async () => {
     const f = fixture();
     const result = await install(f, [], { FAKE_RELEASE_ERROR: "403" });
@@ -533,7 +612,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
       const result = await install(f, ["-Version", version]);
       expect(result.code, version).toBe(1);
       expect(result.stderr, version).toContain(`v${version}`);
-      expect(f.calls(), version).toEqual([`curl ${API}/tags/v${version}`]);
+      expect(f.calls(), version).toEqual([`curl ${API}/tags/v${version}`, ...(version === "0.9.0" ? [`curl ${DOWNLOAD}/v${version}/release.json`] : [])]);
     }
   });
 
@@ -637,6 +716,22 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain(`${DOWNLOAD}/v0.1.0/${ASSET}`);
     expect(f.calls()).toEqual([`curl ${LIST}`]);
+  });
+
+  it("passes the unchanged hosted Windows headless smoke when the API returns 403", async () => {
+    const f = fixture();
+    write(join(f.root, "install.ps1"), readFileSync(script, "utf8"));
+    write(join(f.root, "releases", "latest-manifest.json"), JSON.stringify({ version: "0.1.0", assets: [{ name: ASSET, size: 1, sha256: "0".repeat(64) }] }));
+    const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
+    const start = workflow.indexOf("          Remove-Item Env:");
+    const end = workflow.indexOf("          $setup = Start-Process", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const result = await inSession(f, workflow.slice(start, end).replaceAll("$PSScriptRoot", `'${f.root}'`), { FAKE_API_ERROR: "403" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`${DOWNLOAD}/v0.1.0/${ASSET}`);
+    expect(f.calls()).toHaveLength(2);
+    expect(readdirSync(f.localAppData)).toEqual([]);
   });
 
   it("prints the plan of a re-run over a running service for -DryRun, changing nothing", async () => {
