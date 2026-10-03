@@ -42,11 +42,11 @@ version_of() {
   echo "$version"
 }
 
-# Builds the Dockerfile as $1 for linux/amd64, with the source and revision
-# labels and any further labels given, and checks the platform it came out as.
+# Builds the Dockerfile as $1 at version $2 for linux/amd64, with the source
+# and revision labels and any further labels, then checks platform and version.
 build() {
-  local tag=$1
-  shift
+  local tag=$1 version=$2
+  shift 2
   # Authentication stays in the job. Only an archive checked against the
   # lockfile enters Docker's context; public builds need no private source.
   rm -rf "$root/.image-sdk-cache"
@@ -61,10 +61,13 @@ build() {
   local label
   for label in "$@"; do labels+=(--label "$label"); done
   docker build --pull --platform linux/amd64 --provenance=false --sbom=false \
-    -f "$root/Dockerfile" -t "$tag" "${labels[@]}" "$root"
+    -f "$root/Dockerfile" -t "$tag" --build-arg "HARNESS_VERSION=$version" "${labels[@]}" "$root"
   local platform
   platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$tag")
   [ "$platform" = linux/amd64 ] || fail "the image built as $platform, not linux/amd64"
+  local reported
+  reported=$(docker run --rm "$tag" --version)
+  [ "$reported" = "agent-harness $version" ] || fail "the image reports $reported, expected agent-harness $version"
 }
 
 case "${1:-}" in
@@ -72,7 +75,7 @@ case "${1:-}" in
     # A name without the registry's host, so this image is never pushed there.
     local_tag="$repository:${GITHUB_SHA::12}"
     trap 'rm -rf "$root/.image-sdk-cache"; docker image rm "$local_tag" >/dev/null 2>&1 || true' EXIT
-    build "$local_tag"
+    build "$local_tag" 0.0.0
     ;;
   publish)
     version=$(version_of "$GITHUB_REF")
@@ -81,7 +84,7 @@ case "${1:-}" in
     push_log=$(mktemp)
     login_tried=false
     trap 'rm -rf "$root/.image-sdk-cache"; rm -f "$push_log"; [ "$login_tried" = false ] || docker logout "$registry" >/dev/null 2>&1 || true; docker image rm "$reference" >/dev/null 2>&1 || true' EXIT
-    build "$reference" "org.opencontainers.image.version=$version"
+    build "$reference" "$version" "org.opencontainers.image.version=$version"
     login_tried=true
     printf '%s\n' "$PACKAGES_TOKEN" | docker login "$registry" -u "$GITHUB_REPOSITORY_OWNER" --password-stdin
     # This one tag and no other: no latest, main, commit or channel tag.
