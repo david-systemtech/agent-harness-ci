@@ -23,7 +23,9 @@ export default function InstructionsScene({ ladder }: { readonly ladder: LadderN
     prepared.shell.openDeepLink(settingsDeepLink("knowledge.instructions"));
     let opened = false;
     const edit = () => {
-      if (document.querySelector('[aria-label="Edit Review habits"] [role="toolbar"]') !== null) {
+      const editor = document.querySelector<HTMLElement>('[aria-label="Edit Review habits"]');
+      if (editor?.querySelector('[role="toolbar"]') != null) {
+        editor.scrollIntoView({ block: "center" });
         observer.disconnect();
         setReady(true);
         return;
