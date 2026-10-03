@@ -164,7 +164,13 @@ describe("the Memory bank step's checks", () => {
     forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, sha: git(path, "rev-parse", "HEAD").trim(), state: "open" });
     const verified = await client.request("banks.verify", { bankId: bank.id });
     expect(verified.banks[0]?.status.manifest).toEqual({ state: "awaiting-review", pullRequest: `${forge.origin}/acme/bank/pulls/7`, since: MANUAL_CLOCK_START });
-    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], reason: expect.stringContaining("awaiting your review") });
+    expect(await checkMemoryBank(client)).toMatchObject({
+      state: "done",
+      failing: [],
+      actions: ["revise"],
+      targets: [target("revise", bank)],
+      reason: expect.stringContaining(`${bank.name} is landed and awaiting your review: ${forge.origin}/acme/bank/pulls/7.`),
+    });
     expect(existsSync(join(checkout, "BANK.md"))).toBe(false);
   });
 
@@ -286,9 +292,15 @@ describe("the Memory bank step's checks", () => {
     const bank = await register(client, gitBank(PERSONAL_BANK, "maya-memory"));
     const pullRequest = "https://git.example.test/maya/memory/pulls/7";
     appendBankEvent(t, "bank.awaiting-review", { bankId: bank.id, sessionId: null, pullRequest });
-    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], reason: `maya-memory is awaiting your review: ${pullRequest}.` });
+    expect(await checkMemoryBank(client)).toMatchObject({
+      state: "done",
+      failing: [],
+      actions: ["revise"],
+      targets: [target("revise", bank)],
+      reason: ALL_HOLD.replace("No landing on an enabled bank has failed.", `maya-memory is landed and awaiting your review: ${pullRequest}.`),
+    });
     appendBankEvent(t, "bank.landed", { bankId: bank.id, sessionId: null, pullRequest, files: [] });
-    expect(await checkMemoryBank(client)).toMatchObject({ state: "done", failing: [] });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "done", failing: [], reason: ALL_HOLD });
   });
 
   it("keeps a failed landing's step and reason through verifications until a landing passes, check-again targeting the bank", async () => {

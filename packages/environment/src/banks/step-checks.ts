@@ -76,10 +76,17 @@ const owners = perEnabledBank(null, ({ name, kind, status: { owners: { unresolve
     : `The owners ${listed(unresolved)} of the team bank ${name} do not resolve on its forge.`;
 });
 
-/** Landing is complete; a held review or failure offers `check-again`. */
-const landing = perEnabledBank("check-again", ({ name, status: { landing: failed } }) =>
-  failed.state === "ok" ? null : failed.state === "awaiting-review" ? `${name} is awaiting your review: ${failed.pullRequest}.` : `The last landing on ${name} failed at its ${failed.step} step: ${sentence(failed.reason)} Check again once a landing passes.`,
-);
+/** A description awaiting its owner's review has landed (ADR 0019); only a failed landing offers `check-again`. */
+const landing = (banks: readonly BankRecord[]): StateCheckAnswer => {
+  const answer = perEnabledBank("check-again", ({ name, status: { landing } }) =>
+    landing.state === "failed" ? `The last landing on ${name} failed at its ${landing.step} step: ${sentence(landing.reason)} Check again once a landing passes.` : null,
+  )(banks);
+  if (answer !== true) return answer;
+  const reviews = banks.filter((bank) => bank.enabled).flatMap(({ name, status: { landing } }) =>
+    landing.state === "awaiting-review" ? [`${name} is landed and awaiting your review: ${landing.pullRequest}.`] : [],
+  );
+  return reviews.length === 0 ? true : { holds: true, reason: reviews.join(" ") };
+};
 
 export const memoryBankStateChecks = (banks: BankRecords): { readonly [Id in MemoryBankStateCheckId]: StateChecker } => ({
   "memory-bank.present": () => banks.list().length > 0 || { reason: "No memory bank is registered on this environment." },
