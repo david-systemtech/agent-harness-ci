@@ -25,9 +25,11 @@
 #   docker compose exec environment agent-harness pair --preset own-client --data-dir /data
 #
 # Remote pairing on Linux: install Tailscale on the host, sign it in, and
-# keep it running in kernel TUN mode (the default), with a tailscale0
-# interface. This service shares the host network, so the environment
-# discovers that interface's IPv4 address even though the image has no
+# keep it running in kernel TUN mode (the default), with an interface whose
+# name starts with tailscale (tailscale0, tailscale1, ...). This service
+# shares the host network, so the environment discovers a non-internal IPv4
+# address in 100.64.0.0/10, checking the lowest-numbered interface first,
+# even though the image has no
 # tailscale CLI. No daemon socket, host CLI or extra capability is mounted.
 # Join the client machine to the same tailnet and allow TCP port 7433 in
 # the tailnet policy and host firewall. Pair using the IP link and code in

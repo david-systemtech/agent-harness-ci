@@ -65,6 +65,16 @@ describe("the Set up result vocabulary", () => {
     expect(StepResult.safeParse({ ...result, targets: [{ kind: "account", id: "account-work", label: "Work" }] }).success).toBe(false);
   });
 
+  it("carries pending scheduled reads through results, snapshots and notices without failure actions", () => {
+    const pending = { step: "your-machines", state: "pending", reason: "Waiting for the first release channel read.", failing: [], actions: [], checkedAt: "2026-09-25T08:00:00.000Z" };
+    expect(StepResult.parse(pending)).toEqual(pending);
+    expect(registry["setup.check"].result.parse({ results: [pending] })).toEqual({ results: [pending] });
+    const status = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false };
+    expect(registry["environment.subscribe"].result.parse({ status, setup: [pending] })).toEqual({ status, setup: [pending] });
+    expect(EnvironmentNotice.parse({ type: "setup.result-changed", payload: pending })).toEqual({ type: "setup.result-changed", payload: pending });
+    expect(StepResult.safeParse({ ...pending, lastGood: { state: "pending", reason: pending.reason, checkedAt: pending.checkedAt } }).success).toBe(false);
+  });
+
   it("says skipped is derived from the environment's state and never recorded", () => {
     expect(StepState.description).toContain("derived from the environment's state");
     expect(StepState.description).toContain("never recorded");
@@ -105,7 +115,7 @@ describe("the setup subscription", () => {
     expect(snapshot.parse({ status, setup: [skipped, result] })).toEqual({ status, setup: [skipped, result] });
     expect(snapshot.parse({ status, setup: [] })).toEqual({ status, setup: [] });
     expect(snapshot.parse({ status })).toEqual({ status });
-    expect(snapshot.safeParse({ status, setup: [{ ...result, state: "pending" }] }).success).toBe(false);
+    expect(snapshot.safeParse({ status, setup: [{ ...result, state: "checking" }] }).success).toBe(false);
   });
 
   it("is offered under the setup capability flag", () => {
@@ -186,7 +196,7 @@ describe("a result in a newer environment's vocabulary", () => {
     expect(registry["environment.subscribe"].result.parse({ status, setup: [later, done] })).toEqual({ status, setup: [done] });
     expect(EnvironmentNotice.safeParse({ type: "setup.result-changed", payload: later }).success).toBe(false);
     // A step of the order with a result no environment gives is no newer vocabulary: the answer is still refused.
-    expect(registry["setup.check"].result.safeParse({ results: [done, { ...attention, state: "pending" }] }).success).toBe(false);
+    expect(registry["setup.check"].result.safeParse({ results: [done, { ...attention, state: "checking" }] }).success).toBe(false);
   });
 });
 

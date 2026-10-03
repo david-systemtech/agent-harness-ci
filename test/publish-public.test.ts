@@ -417,10 +417,17 @@ it.each([false, true])("blocks a UTF-16 private term (big endian: %s)", (bigEndi
 
 it("allows documented network constants without allowing deployment addresses or names", () => {
   const f = fixture();
+  f.write("README.md", "Tailscale range: 100.64.0.0/10\n");
+  f.write("scripts/compose.yaml", "# Tailscale range: 100.64.0.0/10\n");
   f.write("docs/specs/browser.md", "Metadata addresses: 100.100.100.200 and fd00:ec2::254\n");
   f.write("packages/client-runtime/src/access/words.ts", "Example peer: 100.64.0.7");
   f.write("packages/contracts/schema/cases/repository-identity.json", '{"host":"100.101.102.103"}');
   f.commit(); f.publish("--dry-run");
+  for (const path of ["README.md", "scripts/compose.yaml"]) {
+    f.write(path, "100.64.0.9"); f.commit();
+    expect(() => f.publish("--dry-run")).toThrow(/Privacy deny-list failed/);
+    f.write(path, "Tailscale range: 100.64.0.0/10\n"); f.commit();
+  }
   f.write("docs/specs/browser.md", "10.44.55.66"); f.commit();
   expect(() => f.publish("--dry-run")).toThrow(/Privacy deny-list failed/);
   f.write("docs/specs/browser.md", "100.100.100.200");

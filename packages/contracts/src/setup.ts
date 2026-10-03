@@ -146,15 +146,15 @@ const OfferedTarget = z
 const isSetupTarget = (target: z.output<typeof OfferedTarget>): target is SetupTarget => isSetupAction(target.action) && (SETUP_TARGET_KINDS as readonly string[]).includes(target.kind);
 
 /**
- * The three states a step's check reports (ADR 0031): done and skipped both
+ * The states a step's check reports: pending while awaiting a scheduled read (#1326); done and skipped both
  * pass a re-run. Skipped is derived from state and never recorded (the Set
  * up specification, "Skipped"): a skippable step whose skip check fails is
  * skipped until something is set up there.
  */
-export const STEP_STATES = ["done", "needs-attention", "skipped"] as const;
+export const STEP_STATES = ["done", "needs-attention", "skipped", "pending"] as const;
 export const StepState = z.enum(STEP_STATES).meta({
   description:
-    "What a step's check found: done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step). Skipped is derived from the environment's state each time the step is checked, never recorded: nothing a person does skips a step.",
+    "What a step's check found: pending (waiting for a scheduled read, neutral and needing no action), done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step). Skipped is derived from the environment's state each time the step is checked, never recorded: nothing a person does skips a step.",
 });
 export type StepState = z.infer<typeof StepState>;
 
@@ -201,11 +201,11 @@ const GivenResult = z.object({
   }),
   failing: z.array(z.string().min(1)).meta({
     description:
-      "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when done or skipped.",
+      "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when pending, done or skipped.",
   }),
   actions: z.array(OfferedAction).meta({
     description:
-      "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out.",
+      "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out.",
   }),
   targets: z
     .array(OfferedTarget)

@@ -201,7 +201,7 @@ describe("auth and hello", () => {
 describe("bye", () => {
   it("protocol: a version the environment does not speak, naming both, before the token is looked at", async () => {
     const t = await start();
-    for (const version of [PROTOCOL_VERSION + 1, 99]) {
+    for (const version of [1, PROTOCOL_VERSION + 1, 99]) {
       const closed = await byeOf(t.client({ token: "not even a token", protocolVersion: version }));
       expect(closed.bye).toMatchObject({ type: "bye", reason: "protocol", protocolVersion: PROTOCOL_VERSION });
       expect(closed.bye?.message).toContain(String(version));
@@ -212,7 +212,7 @@ describe("bye", () => {
   it("protocol: even when the rest of the auth frame is in a shape this version does not know", async () => {
     const t = await start();
     const socket = await t.open();
-    socket.send({ type: "auth", protocolVersion: 2, credentials: { bearer: "x" } });
+    socket.send({ type: "auth", protocolVersion: PROTOCOL_VERSION + 1, credentials: { bearer: "x" } });
     expect((await socket.closed).bye).toMatchObject({ reason: "protocol", protocolVersion: PROTOCOL_VERSION });
   });
 

@@ -99,15 +99,16 @@ describe("the terminal UI through the real spine", { concurrent: false, timeout:
   it("exchanges the grant and renders the header and the rail", async () => {
     const t = await startTestEnvironment({ name: "smoke-desk" });
     onCleanup(() => t.close());
+    await t.env.setup.startPass;
     const stateDir = join(tempDir("agent-harness-tui-smoke-"), "tui");
     const one = terminal(t.dataDir, stateDir, "pts/1");
 
-    await until(() => one.frame().includes("● smoke-desk ready"), one.frame);
+    await until(() => one.frame().includes("● smoke-desk ready") && one.frame().includes("no sessions"), one.frame);
     const rows = one.frame().split("\n");
     expect(rows[0]).toContain(`agent-harness · ● smoke-desk ready · ${dirname(stateDir)}`);
-    expect(rows[1]).toMatch(/^Set up on smoke-desk:.*need attention/);
+    expect(one.frame()).not.toContain("Set up on smoke-desk:");
     const rail = rows.findIndex((row) => /^smoke-desk\s+│/.test(row));
-    expect(rail).toBeGreaterThan(1);
+    expect(rail).toBeGreaterThan(0);
     expect(rows[rail + 1]).toMatch(/^\s+no sessions\s+│/);
     expect(one.host.current.read().connections.list.read()).toMatchObject([{ kind: "local", phase: "ready", scopes: expect.arrayContaining(["admin"]) }]);
 

@@ -2,8 +2,8 @@ import { STEP_STATE_WORDS } from "@agent-harness/client-runtime";
 import type { StepState } from "@agent-harness/contracts";
 import { classes } from "../ui/classes.js";
 
-/** Each state's fill, a token (ADR 0023): the success colour done, the warning colour needing attention, faint skipped. */
-const TONES: { readonly [State in StepState]: string } = { done: "bg-mint", "needs-attention": "bg-amber", skipped: "bg-ink-faint" };
+/** Each state's fill, a token (ADR 0023): the success colour done, the warning colour needing attention, faint skipped and pending scheduled reads. */
+const TONES: { readonly [State in StepState]: string } = { done: "bg-mint", "needs-attention": "bg-amber", skipped: "bg-ink-faint", pending: "bg-ink-faint" };
 
 /**
  * A health dot (ADR 0031; docs/specs/gui.md, "Health dots"): a step's or a
