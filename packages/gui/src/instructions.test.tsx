@@ -49,6 +49,33 @@ describe("Instructions", () => {
     await app.user.click(within(edit).getByRole("button", { name: "Save instruction" }));
     expect(await within(await within(pane).findByRole("region", { name: "Better habits" })).findByText("Read the tests. Then read the code.")).toBeDefined();
   });
+  it("cancels inline editing with Escape while keeping Settings open", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    scriptInstructions(app.environment("desk"), [ownedInstruction()]);
+    const pane = await openInstructions(app);
+    const row = await within(pane).findByRole("region", { name: "Review habits" });
+    await app.user.click(within(row).getByRole("button", { name: "Edit" }));
+    const editor = await within(row).findByRole("region", { name: "Edit Review habits" });
+    await app.user.click(within(editor).getByRole("textbox", { name: "Title" }));
+    await app.user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeDefined();
+    expect(within(row).queryByRole("region", { name: "Edit Review habits" })).toBeNull();
+    expect(within(row).getByText("Read every comment.")).toBeDefined();
+  });
+  it("closes link editing with Escape before closing its instruction dialog", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    scriptInstructions(app.environment("desk"));
+    const pane = await openInstructions(app);
+    await app.user.click(await within(pane).findByRole("button", { name: "New instruction" }));
+    const editor = await screen.findByRole("dialog", { name: "New instruction" });
+    await app.user.click(within(editor).getByRole("button", { name: "Link" }));
+    expect(within(editor).getByRole("textbox", { name: "Link URL" })).toBeDefined();
+    await app.user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "New instruction" })).toBeDefined();
+    expect(within(editor).queryByRole("textbox", { name: "Link URL" })).toBeNull();
+    await app.user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "New instruction" })).toBeNull();
+  });
   it("switches off without removing, selects account scope, moves a row and removes it", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
     scriptInstructions(app.environment("desk"), [ownedInstruction(), ownedInstruction({ id: "22222222-2222-4222-8222-222222222222", title: "Second habit", position: "t" })]);

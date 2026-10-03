@@ -111,7 +111,7 @@ const Members = ({
   readonly say: (line: string) => void;
 }) => (
   <>
-    {skills.members.length === 0 && <div className="flex flex-col items-center gap-2 rounded-lg border border-hairline bg-panel p-6 text-center"><Sparkles aria-hidden="true" className="size-6 text-ink-muted" /><h3 className="text-xs font-medium">No skills are in this set.</h3><p className="max-w-md text-2xs text-ink-muted">Add a repository of procedures above, or create a skill in this environment. Each procedure holds a SKILL.md and is available on request.</p></div>}
+    {skills.members.length === 0 && <div className="flex flex-col items-center gap-2 rounded-lg border border-hairline bg-panel p-6 text-center"><Sparkles aria-hidden="true" className="size-6 text-ink-muted" /><h3 className="text-xs font-medium">No skills are in this set.</h3><p className="max-w-md text-2xs text-ink-muted">Add a repository of procedures, or create a skill in this environment. Each procedure holds a SKILL.md and is available on request.</p></div>}
     <MissingSkillChoices skills={skills} />
     {skills.members.map((member) => (
       <MemberCard

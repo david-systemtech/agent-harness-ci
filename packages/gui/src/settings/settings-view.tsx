@@ -27,8 +27,8 @@ export const SettingsView = () => {
             document.querySelector<HTMLInputElement>('[data-settings-dialog] input[type="search"]')?.focus();
           }}
           onEscapeKeyDown={(event) => {
-            // A key recorder owns Escape, including modified Escape chords.
-            if (event.target instanceof Element && event.target.closest("[data-recording]")) event.preventDefault();
+            // Local editors and key recorders handle Escape before this dialog dismisses.
+            if (event.target instanceof Element && event.target.closest("[data-recording], [data-local-escape]")) event.preventDefault();
             if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) event.preventDefault();
           }}
           onKeyDown={(event) => {

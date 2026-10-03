@@ -32,6 +32,13 @@ export const InstructionEditor = ({ environmentId, row, close, inline = false }:
   const form = (
         <form
           className="flex flex-col gap-3"
+          onKeyDown={(event) => {
+            if (inline && event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              close();
+            }
+          }}
           onSubmit={(event) => {
             event.preventDefault();
             if (!disabled && heading.trim() !== "") void save();
@@ -57,7 +64,7 @@ export const InstructionEditor = ({ environmentId, row, close, inline = false }:
         </form>
   );
   const title = row === undefined ? "New instruction" : `Edit ${row.title}`;
-  return inline ? <section aria-label={title} className="flex min-w-0 flex-col gap-2"><h4 className="text-xs font-medium">{title}</h4>{form}</section> : (
+  return inline ? <section data-local-escape aria-label={title} className="flex min-w-0 flex-col gap-2"><h4 className="text-xs font-medium">{title}</h4>{form}</section> : (
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent title={title} description="Markdown appended to runs of the accounts this instruction reaches.">{form}</DialogContent>
     </Dialog>
