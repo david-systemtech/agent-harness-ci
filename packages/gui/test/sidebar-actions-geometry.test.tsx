@@ -21,11 +21,22 @@ it.each([1400, 1024])("covers action text and shortcut bounds in the 20px scene 
     // §9.1 fixes the desktop frame at 44px even when rem content scales.
     expect(checks).toContainEqual({ selector: "[data-window-header]", height: 44 });
     const content = checks.filter((check) => check.contentFits);
-    expect(content).toHaveLength(3);
     for (const check of content) {
       expect(root.querySelectorAll(check.selector).length).toBeGreaterThan(0);
-      expect(check.visibleWithin).toBe("[data-sidebar-card]");
     }
+    // The text must fit its action, even if overflow still lands within the wider sidebar card.
+    const labelCheck = content.find((check) => check.selector.endsWith("span span"))!;
+    root.id = "root";
+    root.dataset["galleryGeometry"] = JSON.stringify([{ selector: labelCheck.selector, visibleWithin: labelCheck.visibleWithin }]);
+    const card = root.querySelector("[data-sidebar-card]")!;
+    const button = root.querySelector('nav[aria-label="Sessions"] button[aria-label="New session"]')!;
+    const label = root.querySelector(labelCheck.selector)!;
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue(new DOMRect(7, 51, 224, 700));
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 100, 200, 64));
+    const bounds = vi.spyOn(label, "getBoundingClientRect").mockReturnValue(new DOMRect(30, 110, 150, 20));
+    expect(measureSceneGeometry()).toEqual([]);
+    bounds.mockReturnValue(new DOMRect(30, 110, 195, 20));
+    expect(measureSceneGeometry()).toEqual([`${labelCheck.selector}[0]: clipped outside button`]);
   } finally {
     await gallery.close();
     root.remove();
