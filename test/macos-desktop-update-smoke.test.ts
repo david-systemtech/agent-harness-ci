@@ -1,15 +1,20 @@
+import { execFileSync } from "node:child_process";
+import { cpSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
+import { buildRelease } from "../packages/cli/scripts/release/build.js";
+import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings } = await import(script) as {
+const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer } = await import(script) as {
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   openPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
+  stampPriorPackagedServer: (server: string, version: string) => void;
 };
 
 /** The smoke's CDP boundary evaluates in a page exposing the preload's shell; no Electron or service manager runs. */
@@ -32,6 +37,28 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("prepares an older runtime in the release layout without changing dependencies or the replacement", async () => {
+    const build = fixtureBuild({ host: "darwin-arm64" });
+    try {
+      await buildRelease(build.options({ platforms: ["darwin-arm64"] }), build.seams);
+      const source = join(build.out, "source-server");
+      const prior = join(build.out, "prior-server");
+      mkdirSync(source);
+      execFileSync("tar", ["-xf", join(build.out, "agent-harness-darwin-arm64.tar.gz"), "-C", source]);
+      cpSync(source, prior, { recursive: true });
+      const manifest = (root: string, path: string): unknown => JSON.parse(readFileSync(join(root, path, "package.json"), "utf8"));
+      stampPriorPackagedServer(prior, "0.0.0-0");
+      expect(manifest(prior, "node_modules/@agent-harness/environment")).toMatchObject({ version: "0.0.0-0" });
+      expect(manifest(prior, "node_modules/@agent-harness/contracts")).toMatchObject({ version: "0.0.0-0" });
+      expect(manifest(prior, "packages/cli")).toMatchObject({ version: "0.0.0-0", launcherProtocol: 1 });
+      expect(manifest(prior, "node_modules/zod")).toEqual(manifest(source, "node_modules/zod"));
+      expect(manifest(source, "node_modules/@agent-harness/environment")).toMatchObject({ version: "0.5.0" });
+      expect(manifest(source, "packages/cli")).toMatchObject({ version: "0.5.0" });
+    } finally {
+      build.remove();
+    }
+  });
+
   it("retries transient page-context errors during preload, control, and Settings readiness", async () => {
     const dom = new JSDOM('<button aria-label="Settings">Settings</button>');
     try {
