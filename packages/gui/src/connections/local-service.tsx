@@ -8,9 +8,10 @@ import { useObservable, usePresentation, useRuntime, useShell } from "../window-
  * (docs/specs/gui.md, "The local environment, pairing and updates"):
  * `connections.startService`, whose shell `service` installs the service
  * from the artefact the desktop carries when none is installed and starts
- * it. On first launch, while "Run an environment on this machine" is on,
- * the window starts it once for the placeholder the runtime lists for an
- * environment never seen (#181); afterwards a service that is down is
+ * it. While "Run an environment on this machine" is on, the window
+ * starts it once for the placeholder the runtime lists for an environment
+ * never seen (#181), or a known one on an unfinished first launch;
+ * afterwards a service that is down is
  * offered a start, never started unasked. Before starting, the window asks
  * the shell whether it must install, and shows that step until it settles.
  * The start under way and why the last one failed are the window's, shared
@@ -37,15 +38,19 @@ export const LocalServiceProvider = ({ children }: { readonly children: ReactNod
   const shell = useShell();
   const environments = useObservable(runtime.projections.environments);
   const [runHere] = usePresentation("runLocalEnvironment");
+  const [marked] = usePresentation("firstLaunchDone");
   const [starting, setStarting] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const available = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.service");
 
-  /** Whether this window has started the service yet, asked or on first launch: first launch starts it only when it has not. */
+  /** Whether this window attempted startup or found the local environment already ready: later outages wait for an action. */
   const started = useRef(false);
+  const inFlight = useRef(false);
   const start = useCallback(
     (environmentId: string) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
       started.current = true;
       setStarting(true);
       setFailure(undefined);
@@ -58,8 +63,9 @@ export const LocalServiceProvider = ({ children }: { readonly children: ReactNod
         await runtime.connections.startService(environmentId);
       };
       run().then(
-        () => setStarting(false),
+        () => { inFlight.current = false; setStarting(false); },
         (error: unknown) => {
+          inFlight.current = false;
           setStarting(false);
           setInstalling(false);
           setFailure(desktopErrorMessage(error));
@@ -69,11 +75,14 @@ export const LocalServiceProvider = ({ children }: { readonly children: ReactNod
     [runtime, shell, available.status],
   );
 
-  // First launch: the placeholder for an environment never seen, its service down, started once per window while the preference is on.
-  const placeholderDown = environments.some((view) => view.environmentId === LOCAL_PLACEHOLDER_ID && view.phase === "service-down");
+  // Start once for a new machine or an unfinished first launch; known environments on later launches wait for an action.
+  const localDown = environments.find((view) => view.kind === "local" && view.phase === "service-down" && (view.environmentId === LOCAL_PLACEHOLDER_ID || !marked));
+  const startId = localDown?.environmentId;
+  const localReady = environments.some((view) => view.kind === "local" && view.phase === "ready");
   useEffect(() => {
-    if (!started.current && runHere && placeholderDown && available.status === "present") start(LOCAL_PLACEHOLDER_ID);
-  }, [runHere, placeholderDown, available.status, start]);
+    if (localReady) started.current = true;
+    if (!started.current && runHere && startId !== undefined && available.status === "present") start(startId);
+  }, [runHere, startId, localReady, available.status, start]);
 
   const value = useMemo(() => ({ available, starting, installing, failure, start }), [available, starting, installing, failure, start]);
   return <LocalServiceContext value={value}>{children}</LocalServiceContext>;

@@ -1,7 +1,8 @@
 import { DIFF_CUT_NOTE, sessionDiffNote, workingTreeNote, type Observable, type RequestFailure } from "@agent-harness/client-runtime";
 import type { SessionDiffChange } from "@agent-harness/contracts";
+import { FileDiff, GitBranch, RefreshCw } from "lucide-react";
 import { useMemo } from "react";
-import { Button } from "../ui/index.js";
+import { Button, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { DiffView } from "./diff-view.js";
 
@@ -61,20 +62,20 @@ export const DiffPane = ({ environmentId, sessionId, onScreen }: DiffPaneProps) 
   const treeNote = treeRead === null ? null : workingTreeNote(treeRead);
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="flex shrink-0 items-center gap-2 px-3 pt-1.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-2 py-1">
         {reading && <span className="text-xs text-ink-faint">Reading…</span>}
-        <Button className="ml-auto h-7 px-2 text-xs" onClick={readAgain}>
-          Read again
-        </Button>
+        <Tooltip content="Read both diffs again (Enter or Space)">
+          <Button size="icon-xs" aria-label="Read again" className="ml-auto" onClick={readAgain}><RefreshCw aria-hidden="true" /></Button>
+        </Tooltip>
       </div>
-      <div className="flex flex-col gap-2 px-3 py-2">
-        <h3 className="text-xs font-semibold text-ink">What this session changed</h3>
+      <section role="group" aria-label="What this session changed" className="flex flex-col gap-2 p-1.5">
+        <h3 className="flex items-center gap-1.5 px-1 py-1 text-xs font-medium text-ink"><FileDiff aria-hidden="true" className="size-3" />What this session changed</h3>
         {sessionNote !== null && <p className="text-sm text-ink-faint">{sessionNote}</p>}
         {sessionRead?.ok === true &&
           sessionRead.result.files.map((file) => (
             <article key={file.path} aria-label={file.path} className="flex flex-col gap-1">
               <h4 className="truncate font-mono text-xs text-ink">{file.path}</h4>
-              <ul aria-label="The calls that made it" className="flex flex-wrap gap-x-3 text-xs text-ink-muted">
+              <ul aria-label="The calls that made it" className="flex flex-wrap gap-x-3 px-1 font-mono text-2xs text-ink-muted">
                 {file.changes.map((change) => (
                   <li key={change.toolCallId}>{callWords(change)}</li>
                 ))}
@@ -83,13 +84,13 @@ export const DiffPane = ({ environmentId, sessionId, onScreen }: DiffPaneProps) 
             </article>
           ))}
         {sessionRead?.ok === true && sessionRead.result.truncated && <Cut />}
-      </div>
-      <div className="flex flex-col gap-2 px-3 py-2">
-        <h3 className="text-xs font-semibold text-ink">The working tree against HEAD</h3>
+      </section>
+      <section role="group" aria-label="The working tree against HEAD" className="flex flex-col gap-2 border-t border-hairline p-1.5">
+        <h3 className="flex items-center gap-1.5 px-1 py-1 text-xs font-medium text-ink"><GitBranch aria-hidden="true" className="size-3" />The working tree against HEAD</h3>
         {treeNote !== null && <p className="text-sm text-ink-faint">{treeNote}</p>}
         {treeRead?.ok === true && treeNote === null && <DiffView text={treeRead.result.diff} />}
         {treeRead?.ok === true && treeRead.result.repository && treeRead.result.truncated && <Cut />}
-      </div>
+      </section>
     </div>
   );
 };

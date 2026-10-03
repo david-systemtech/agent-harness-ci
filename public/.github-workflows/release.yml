@@ -322,7 +322,7 @@ jobs:
           try {
             $account = New-LocalUser -Name $user -Password $password -AccountNeverExpires -PasswordNeverExpires
             $created = $true
-            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account.SID
+            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
             New-Item -ItemType Directory -Path (Join-Path $work 'desktop') -Force | Out-Null
             Copy-Item -LiteralPath (Resolve-Path 'desktop/agent-harness-desktop-win32-x64-setup.exe').Path -Destination (Join-Path $work 'desktop')
             $smoke = @'

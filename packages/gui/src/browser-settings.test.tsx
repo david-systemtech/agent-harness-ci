@@ -13,11 +13,17 @@ const status: BrowserStatus = {
   headless: { allowRuns: false, availability: { available: true, source: { kind: "launched", executable: "/test/chromium" } }, liveContexts: 0 },
 };
 const opened = async () => {
-  const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ id: "work", label: "Work" }] }] });
-  const desk = app.environment("desk");
   let chromes = [chrome];
-  desk.wire.answer("browser.chromes.list", () => ({ result: { chromes } }));
-  desk.wire.answer("browser.status", () => ({ result: status }));
+  const app = await renderApp(
+    { environments: [{ name: "desk", reach: "local", accounts: [{ id: "work", label: "Work" }] }] },
+    {},
+    (world) => {
+      const desk = world.environment("desk");
+      desk.wire.answer("browser.chromes.list", () => ({ result: { chromes } }));
+      desk.wire.answer("browser.status", () => ({ result: status }));
+    },
+  );
+  const desk = app.environment("desk");
   await screen.findByText("No session is open. Choose one from the sidebar.");
   act(() => app.shell.openDeepLink(settingsDeepLink("access.browser")));
   const pane = await screen.findByRole("region", { name: "Browser" });
