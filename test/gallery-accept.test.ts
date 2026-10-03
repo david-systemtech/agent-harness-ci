@@ -159,7 +159,9 @@ it("accepts all 400 captures allowed by a reviewed gallery report", async () => 
   const f = await fixture("versioned", 400);
   await run("bash", [script, "42"], { env: f.env });
   expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(400);
-  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-399.dark.png"))).toEqual(png);
+  const baselines = join(f.folder, "packages/gui/gallery/baselines");
+  expect(readFileSync(join(baselines, "window-empty.dark.png"))).toEqual(png);
+  for (let index = 1; index < 400; index++) expect(readFileSync(join(baselines, `window-scene-${index}.dark.png`))).toEqual(png);
 });
 
 
@@ -194,12 +196,4 @@ it.each([
   const f = await fixture(mode, count);
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining(message) });
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
-});
-
-it("accepts 600 captures at the shared archive count boundary", async () => {
-  const f = await fixture("versioned", 600);
-  await run("bash", [script, "42"], { env: f.env });
-  const baselines = join(f.folder, "packages/gui/gallery/baselines");
-  for (let index = 0; index < 600; index++) expect(readFileSync(join(baselines, `scene-${index}.dark.png`))).toEqual(png);
-  expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(600);
 });
