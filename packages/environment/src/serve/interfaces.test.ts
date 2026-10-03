@@ -31,6 +31,42 @@ describe("the Tailscale detector", () => {
     expect(asked).toEqual(["tailscale ip -4", "tailscale status --json"]);
   });
 
+  it("reads the macOS app's address and tailnet name when the PATH CLI is absent", async () => {
+    const { run, asked } = scripted({
+      "/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4": "100.64.0.9\n",
+      "/Applications/Tailscale.app/Contents/MacOS/Tailscale status --json": status({ DNSName: "Desk.tail1234.ts.net." }),
+    });
+    const detector = tailscaleDetector(run, () => ({}), { platform: "darwin" });
+    expect(await detector.tailscaleAddress()).toBe("100.64.0.9");
+    expect(await detector.tailnetName()).toBe("desk.tail1234.ts.net");
+    expect(asked).toContain("/Applications/Tailscale.app/Contents/MacOS/Tailscale status --json");
+  });
+
+  it("falls back on macOS to a non-internal CGNAT IPv4 on utun, excluding addresses outside the range", async () => {
+    let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
+      en0: [entry("100.64.0.5")],
+      utun2: [entry("192.168.1.20"), entry("100.63.255.255"), entry("100.128.0.1"), entry("100.64.0.7", true), entry("fd7a:115c:a1e0::1")],
+      utun10: [entry("100.64.0.10")],
+      utun4: [entry("100.64.0.9")],
+    };
+    const detector = tailscaleDetector(scripted({}).run, () => interfaces, { platform: "darwin" });
+    expect(await detector.tailscaleAddress()).toBe("100.64.0.9");
+    expect(await tailscaleDetector(scripted({}).run, () => interfaces, { platform: "linux" }).tailscaleAddress()).toBeUndefined();
+    interfaces = { utun4: [entry("100.127.255.254")] };
+    expect(await detector.tailscaleAddress()).toBe("100.127.255.254");
+    interfaces = {};
+    expect(await detector.tailscaleAddress()).toBeUndefined();
+  });
+
+  it("distinguishes an installed but unreadable CLI from no installation, checking anew", async () => {
+    let installed = true;
+    const detector = tailscaleDetector(scripted({}).run, () => ({}), { platform: "darwin", readInstalled: () => installed });
+    expect(await detector.tailscaleAddress()).toBeUndefined();
+    expect(detector.tailscaleInstalled?.()).toBe(true);
+    installed = false;
+    expect(detector.tailscaleInstalled?.()).toBe(false);
+  });
+
   it("discovers the host tailnet without a CLI in a container sharing the host network, retaining loopback and leaving LAN opt-in", async () => {
     const detector = tailscaleDetector(scripted({}).run, () => ({
       lo: [entry("127.0.0.1", true)],
@@ -102,6 +138,28 @@ describe("the Tailscale detector", () => {
     expect(await detector.tailscaleAddress()).toBe("100.101.102.103");
   });
 
+  it("offers private IPv4 before unique-local IPv6 and global IPv6 on a Wi-Fi interface", () => {
+    const detector = tailscaleDetector(scripted({}).run, () => ({ en0: [
+      entry("2001:db8::8"), entry("2001:db8::7"), entry("fd00::20"),
+      entry("2001:db8::6"), entry("2001:db8::5"), entry("2001:db8::4"),
+      entry("2001:db8::3"), entry("2001:db8::2"), entry("2001:db8::1"), entry("192.168.1.20"),
+    ] }));
+    expect(detector.lanAddresses()).toEqual([
+      "192.168.1.20", "fd00::20", "2001:db8::8", "2001:db8::7", "2001:db8::6", "2001:db8::5",
+      "2001:db8::4", "2001:db8::3", "2001:db8::2", "2001:db8::1",
+    ]);
+  });
+
+  it("excludes temporary and deprecated addresses when the interface reader exposes those flags", () => {
+    const detector = tailscaleDetector(scripted({}).run, () => ({ en0: [
+      { ...entry("2001:db8::1"), temporary: true },
+      { ...entry("2001:db8::2"), deprecated: true },
+      { ...entry("fd00::20"), temporary: false, deprecated: false },
+      entry("192.168.1.20"),
+    ] }));
+    expect(detector.lanAddresses()).toEqual(["192.168.1.20", "fd00::20"]);
+  });
+
   it("reads the machine's LAN addresses from its network interfaces each time it is asked: every address but loopback, link-local and Tailscale's, each once", () => {
     let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
       lo: [entry("127.0.0.1", true), entry("::1", true)],
@@ -110,7 +168,7 @@ describe("the Tailscale detector", () => {
       tailscale0: [entry("100.101.102.103"), entry("fd7a:115c:a1e0::1")],
     };
     const detector = tailscaleDetector(scripted({}).run, () => interfaces);
-    expect(detector.lanAddresses()).toEqual(["192.168.1.20", "fd00::20", "10.0.0.7"]);
+    expect(detector.lanAddresses()).toEqual(["192.168.1.20", "10.0.0.7", "fd00::20"]);
     interfaces = { eth0: [entry("192.168.7.5")] };
     expect(detector.lanAddresses()).toEqual(["192.168.7.5"]);
   });

@@ -129,6 +129,14 @@ describe("binding", () => {
     expect(snapshot.payload).toMatchObject({ status: { binding: { tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] } } });
   });
 
+  it("reports an installed but unreadable Tailscale and refreshes installation on Check again", async () => {
+    let installed = true;
+    const t = await start({ interfaces: { ...detector(undefined), tailscaleInstalled: () => installed } });
+    expect(await binding(t)).toMatchObject({ tailnet: null, tailnetFound: null, tailscaleInstalled: true });
+    installed = false;
+    expect(await binding(t)).toMatchObject({ tailscaleInstalled: false });
+  });
+
   it("says on environment.status a Tailscale address found since its start, which it binds only at its next start, looking again at each status (#861)", async () => {
     let tailscale: string | undefined;
     const t = await start({ interfaces: { ...detector(undefined), tailscaleAddress: async () => tailscale } });

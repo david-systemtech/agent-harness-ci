@@ -1553,7 +1553,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
     startedAt: () => startedAt,
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({ ...boundBeside, tailnetFound, ...(interfaces.tailscaleInstalled !== undefined && { tailscaleInstalled: interfaces.tailscaleInstalled() }), lanAddresses: [...interfaces.lanAddresses()] }),
     lookAgain: async () => {
       if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
     },

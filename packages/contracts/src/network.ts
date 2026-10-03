@@ -83,10 +83,13 @@ export const EnvironmentBinding = z
         description:
           "A Tailscale address the machine holds that the environment does not bind, which it binds at its next start while network.bindTailnet is on: one found since its start (Tailscale installed or started since), or one found at its start with network.bindTailnet off. Looked for at the start and again at each environment.status while no tailnet address is bound; null when one is bound or none is found; absent from an environment that predates it.",
       }),
+    tailscaleInstalled: z.boolean().optional().meta({
+      description: "Whether a Tailscale CLI or macOS app is installed, even when its address could not be read; absent from an older environment or detector that cannot report installation.",
+    }),
     lan: BindAddress.nullable().meta({ description: "The LAN address the environment binds; null when it binds none." }),
     lanAddresses: z.array(BindAddress).meta({
       description:
-        "The LAN addresses the environment could bind, as its machine holds them now: every address of its network interfaces but loopback, link-local and Tailscale's; what network.bindLan may name.",
+        "The LAN addresses the environment could bind, as its machine holds them now: private IPv4 first, then unique-local IPv6, other IPv6 and other IPv4, preserving order within each group; excludes loopback, link-local, Tailscale, and addresses marked temporary or deprecated when that metadata is available; what network.bindLan may name.",
     }),
   })
   .meta({ description: "What the environment binds beside loopback, which it always binds, and the LAN addresses it could bind; the binding keys apply at its next start." });
