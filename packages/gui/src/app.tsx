@@ -14,6 +14,8 @@ import { ChecklistProvider } from "./setup/checklist-window.js";
 import { WindowSidebarProvider } from "./sidebar/window-sidebar.js";
 import { RunChoicesProvider } from "./status/run-choices.js";
 import { WindowThemeProvider } from "./theme/window-theme.js";
+import { Toaster } from "./ui/toaster.js";
+import { TooltipProvider } from "./ui/tooltip.js";
 import { WindowProvider, usePresentation } from "./window-context.js";
 
 export interface AppProps {
@@ -62,27 +64,30 @@ const WindowKeys = ({ macOS, children }: { readonly macOS: boolean; readonly chi
 export const App = ({ runtime, presentation, clock, version, macOS, shell, stepCards = STEP_CARDS }: AppProps) => (
   <WindowProvider runtime={runtime} presentation={presentation} clock={clock} version={version} shell={shell}>
     <WindowThemeProvider>
-      <LocalServiceProvider>
-        <PairingProvider>
-          <WindowKeys macOS={macOS}>
-            <SettingsProvider>
-              <StepCardsContext value={stepCards}>
-                <ChecklistProvider>
-                  <CommandPalette>
-                    <RunChoicesProvider>
-                      <WindowSidebarProvider>
-                        <Frame />
-                      </WindowSidebarProvider>
-                    </RunChoicesProvider>
-                  </CommandPalette>
-                  <WindowNotices />
-                  <WindowAttention />
-                </ChecklistProvider>
-              </StepCardsContext>
-            </SettingsProvider>
-          </WindowKeys>
-        </PairingProvider>
-      </LocalServiceProvider>
+      <TooltipProvider>
+        <LocalServiceProvider>
+          <PairingProvider>
+            <WindowKeys macOS={macOS}>
+              <SettingsProvider>
+                <StepCardsContext value={stepCards}>
+                  <ChecklistProvider>
+                    <CommandPalette>
+                      <RunChoicesProvider>
+                        <WindowSidebarProvider>
+                          <Frame />
+                        </WindowSidebarProvider>
+                      </RunChoicesProvider>
+                    </CommandPalette>
+                    <WindowNotices />
+                    <WindowAttention />
+                  </ChecklistProvider>
+                </StepCardsContext>
+              </SettingsProvider>
+            </WindowKeys>
+          </PairingProvider>
+        </LocalServiceProvider>
+        <Toaster />
+      </TooltipProvider>
     </WindowThemeProvider>
   </WindowProvider>
 );
