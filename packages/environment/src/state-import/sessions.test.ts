@@ -377,6 +377,12 @@ it("previews a deleted shared alias before a live row as one target and keeps th
   expect(rows).toHaveLength(1);
   expect(rows[0]?.id).toBe(liveSession);
   expect(rows[0]?.pinnedAt).not.toBeNull();
+  const inventory = await client.request("carryOver.inventory", { accountId: owner.id });
+  if (!("accountId" in inventory)) throw new Error("Expected an Account inventory.");
+  expect(inventory.sessions.new).toBe(0);
+  const carried = await client.request("carryOver.run", { commandId: randomUUID(), accountId: owner.id, dryRun: false, skills: true });
+  expect(carried.result?.sessions).toMatchObject({ imported: 0, held: 1 });
+  expect((await client.request("sessions.list", {})).sessions.map((session) => session.id)).toEqual([liveSession]);
 });
 
 it("retains a live shared row when a deleted duplicate has continued history", async () => {
