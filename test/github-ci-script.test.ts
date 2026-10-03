@@ -427,6 +427,7 @@ it("runs gallery independently and preserves geometry failures as blocking check
   expect(hosted).toContain("runs-on: ubuntu-24.04");
   expect(hosted).toContain("types: [gallery]");
   expect(relayWorkflow).not.toContain("continue-on-error: true");
+  expect(relayWorkflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(relayWorkflow).toContain("'packages/gui/**'");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
 });
@@ -458,7 +459,9 @@ it("rejects a PNG payload above 1.5 MiB before posting, leaving ZIP overhead wit
 });
 
 
-it.each(["success", "failure"])("posts a baseline/capture/difference triplet even when the hosted check reports %s", async (conclusion) => {
+it.each(["success", "failure", "missing-package-token"])("publishes triplets with package credentials and refuses their absence (%s)", async (state) => {
+  const missingPackageToken = state === "missing-package-token";
+  const conclusion = state === "failure" ? "failure" : "success";
   const f = await apiFixture();
   const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
   const zip = join(f.checkout, "gallery.zip");
@@ -473,7 +476,8 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
   const methods: string[] = [];
   const server = createServer(async (request, response) => {
     methods.push(request.method ?? "");
-    expect(request.headers.authorization).toBe("token token-for-tests");
+    if (request.url?.startsWith("/api/packages/") && request.headers.authorization !== "token package-token-for-tests") { response.writeHead(401).end(); return; }
+    expect(request.headers.authorization).toBe(request.url?.startsWith("/api/packages/") ? "token package-token-for-tests" : "token token-for-tests");
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = Buffer.concat(chunks).toString();
@@ -491,9 +495,16 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
   base = `http://127.0.0.1:${address.port}`;
   try {
     const result = await relay(f, {
-      GH_CI_EVENT: "gallery", FAKE_API_CONCLUSION: conclusion, FAKE_GALLERY_ZIP: zip,
+      GH_CI_EVENT: "gallery", FAKE_API_CONCLUSION: conclusion, FAKE_GALLERY_ZIP: zip, PACKAGES_TOKEN: missingPackageToken ? "" : "package-token-for-tests",
       FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project",
     });
+    if (missingPackageToken) {
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("PACKAGES_TOKEN is required to publish gallery captures.");
+      expect(methods).toEqual(["GET"]);
+      expect(comment).toBe("");
+      return;
+    }
     expect(result.code).toBe(conclusion === "success" ? 0 : 1);
     expect(result.stdout).toContain("Gallery posted on pull request 42");
     expect(comment).toContain("| Baseline | Capture | Difference |");

@@ -201,9 +201,9 @@ api = f'{base}/api/v1/repos/{repository}'
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None
 opener = urllib.request.build_opener(NoRedirect())
-def absolute_request(url, method='GET', data=None, content_type='application/json'):
+def absolute_request(url, method='GET', data=None, content_type='application/json', token=None):
     req = urllib.request.Request(url, data=data, method=method, headers={
-        'Authorization': 'token ' + os.environ['FORGEJO_TOKEN'], 'Content-Type': content_type})
+        'Authorization': 'token ' + (token or os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
     with opener.open(req, timeout=120) as response:
         reply = response.read()
         return json.loads(reply) if reply else None
@@ -230,6 +230,8 @@ with zipfile.ZipFile(sys.argv[1]) as z:
         required = [name + '.png']
         if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
         if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+package_token = os.environ.get('PACKAGES_TOKEN')
+if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
 comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
 urls = {}
 for name, data in sorted(images.items()):
@@ -259,11 +261,11 @@ captures = []
 for scene in scenes:
     name = scene['name'] + '.png'
     download = f'{base}/api/packages/{repository.split("/")[0]}/generic/window-gallery/{head}/{name}'
-    try: absolute_request(download, 'PUT', images[name], 'image/png')
+    try: absolute_request(download, 'PUT', images[name], 'image/png', package_token)
     except urllib.error.HTTPError as error:
         if error.code != 409: raise
         # A repeat run may reuse a capture only when its bytes are identical.
-        req = urllib.request.Request(download, headers={'Authorization': 'token ' + os.environ['FORGEJO_TOKEN']})
+        req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
         with opener.open(req, timeout=120) as response:
             if response.read(4*1024*1024+1) != images[name]: sys.exit('Existing gallery capture has different bytes')
     captures.append({'name': name, 'url': urls[name], 'api_url': download})
