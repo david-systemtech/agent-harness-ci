@@ -66,6 +66,9 @@ describe("Your machines", () => {
     expect(within(card(pane, "laptop")).getByRole("img", { name: "laptop, amber" }).style.color).toBe("var(--environment-amber)");
     expect(within(card(pane, "laptop")).getByText("Primary")).toBeDefined();
     expect(within(desk).queryByText("Primary")).toBeNull();
+    const access = within(desk).getByRole("button", { name: "Manage access" });
+    expect(access.querySelector("svg")).not.toBeNull();
+    expect(access.title).toContain("Enter or Space");
   });
 
   it("renames an environment and sets its icon and colour at admin, and the sidebar's badge follows each", async () => {
@@ -144,12 +147,12 @@ describe("Your machines", () => {
         .map((level) => level.textContent);
     await waitFor(() =>
       expect(levels("laptop")).toEqual([
-        "○ off: available",
-        "◐ workspace: not available: bwrap is not installed on this machine.",
-        "● no network: not available: bwrap is not installed on this machine.",
+        "Off: available",
+        "Workspace: not available: bwrap is not installed on this machine.",
+        "No network: not available: bwrap is not installed on this machine.",
       ]),
     );
-    expect(levels("desk")).toEqual(["○ off: available", "◐ workspace: available", "● no network: available"]);
+    expect(levels("desk")).toEqual(["Off: available", "Workspace: available", "No network: available"]);
 
     await app.user.click(within(card(pane, "laptop")).getByRole("button", { name: "Open Permissions" }));
     const permissions = screen.getByRole("region", { name: "Permissions" });
@@ -168,8 +171,15 @@ describe("Your machines", () => {
     expect(await within(pairing()).findByText(link)).toBeDefined();
     expect(laptop.requests("access.pairings.create")).toHaveLength(1);
     expect(within(pairing()).getByText("Address: laptop.test:7434")).toBeDefined();
-    expect(within(pairing()).getByText("Code: K7Q2M-XH4RV")).toBeDefined();
+    expect(within(pairing()).getByText("K7Q2M-XH4RV")).toBeDefined();
     expect(within(pairing()).getByText(`Expires at ${expiry}, for one use.`)).toBeDefined();
+    const copy = within(pairing()).getByRole("button", { name: "Copy pairing link" });
+    expect(copy.querySelector("svg")).not.toBeNull();
+    await app.user.click(copy);
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", link]);
+    await app.user.click(within(pairing()).getByRole("button", { name: "Copy pairing code" }));
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", "K7Q2M-XH4RV"]);
+
 
     // The QR's dark modules are the link's, each where the QR code of the link has it, inside a quiet zone.
     const qr = within(pairing()).getByRole("img", { name: "QR code of the pairing link" });
@@ -183,7 +193,7 @@ describe("Your machines", () => {
     expect(within(pairing()).queryByText(link)).toBeNull();
     expect(within(pairing()).queryByRole("img", { name: "QR code of the pairing link" })).toBeNull();
     await app.user.click(within(pairing()).getByRole("button", { name: "Make a pairing code" }));
-    expect(await within(pairing()).findByText("Code: K7Q2M-XH4RW")).toBeDefined();
+    expect(await within(pairing()).findByText("K7Q2M-XH4RW")).toBeDefined();
   });
 
   it("disables, enables and makes a connection primary from its card, and forgets it after asking once, revoking this client's session there", async () => {
@@ -247,7 +257,7 @@ describe("Your machines", () => {
       expect(control.hasAttribute("disabled"), control.getAttribute("aria-label") ?? control.textContent ?? "").toBe(true);
     }
     expect(autoUpdate().getAttribute("aria-checked")).toBe("false");
-    expect(within(laptop()).getAllByRole("listitem").map((level) => level.textContent)).toEqual(["○ off: available", "◐ workspace: available", "● no network: available"]);
+    expect(within(laptop()).getAllByRole("listitem").map((level) => level.textContent)).toEqual(["Off: available", "Workspace: available", "No network: available"]);
     // Said once, above everything it shows.
     expect(within(laptop()).getAllByText(/^Unreachable since/)).toHaveLength(1);
     expect(within(laptop()).queryByText(/^Read-only:/)).toBeNull();

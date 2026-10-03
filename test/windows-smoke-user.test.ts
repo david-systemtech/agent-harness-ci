@@ -25,6 +25,7 @@ const execute = async (exitCode: number) => {
   mkdirSync(join(scratch, "scripts"));
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-extension.mjs"),
     join(scratch, "scripts/check-packaged-extension.mjs"));
+  writeFileSync(join(scratch, "scripts/install.ps1"), "fixture installer");
   const harness = join(scratch, "harness.ps1");
   writeFileSync(harness, `
 $ErrorActionPreference = 'Stop'
@@ -52,6 +53,7 @@ function Start-Process {
   if (!$Credential -or !$LoadUserProfile -or !$UseNewEnvironment -or !$Wait) { throw 'Smoke launched without an ordinary-user profile and credential' }
   if ($Credential.UserName -notlike "*\\$script:user") { throw 'Smoke credential does not name the created user' }
   if ($ArgumentList -match [regex]::Escape($Credential.GetNetworkCredential().Password)) { throw 'Password reached process arguments' }
+  if ((Get-Content -Raw (Join-Path $WorkingDirectory 'install.ps1')) -ne 'fixture installer') { throw 'The public installer was not staged for the ordinary user' }
   $child = Join-Path $WorkingDirectory 'smoke.ps1'
   Copy-Item $child $env:CHILD_COPY
   Set-Content $RedirectStandardOutput 'ordinary-user child output'

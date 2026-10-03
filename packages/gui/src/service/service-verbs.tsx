@@ -1,3 +1,5 @@
+import { DialogFooter } from "../ui/dialog.js";
+import { Layers, Power, X, type LucideIcon } from "lucide-react";
 import { drainEnvironment, rebuildProjections, uuidv7, type EnvironmentView, type Runtime, type ServiceOutcome } from "@agent-harness/client-runtime";
 import { useState } from "react";
 import { nameOf } from "../connections/words.js";
@@ -7,6 +9,7 @@ import { useClock, useRuntime } from "../window-context.js";
 /** A verb of the Service row: its button, what its dialog asks and says it does, its confirming button, and what it sends. */
 interface Verb {
   readonly button: string;
+  readonly icon: LucideIcon;
   readonly question: (name: string) => string;
   readonly description: (name: string) => string;
   readonly confirm: string;
@@ -16,6 +19,7 @@ interface Verb {
 const VERBS: readonly Verb[] = [
   {
     button: "Drain…",
+    icon: Power,
     question: (name) => `Drain ${name}?`,
     description: (name) => `${name} refuses new runs, lets the running ones finish for up to 30 minutes, then stops.`,
     confirm: "Drain",
@@ -23,6 +27,7 @@ const VERBS: readonly Verb[] = [
   },
   {
     button: "Rebuild projections…",
+    icon: Layers,
     question: (name) => `Rebuild ${name}'s projections?`,
     description: (name) => `${name} drops its projection tables and replays its event log into them; the log itself does not change.`,
     confirm: "Rebuild",
@@ -50,32 +55,34 @@ export const ServiceVerbs = ({ view, writable }: { readonly view: EnvironmentVie
 
   return (
     <>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {VERBS.map((verb) => (
           <Button
             key={verb.button}
+            variant="outline"
+            title={`${verb.button} (Enter or Space)`}
             disabled={!writable}
             onClick={() => {
               setSaid(undefined);
               setAsking(verb);
             }}
           >
-            {verb.button}
+            <verb.icon aria-hidden="true" data-icon="inline-start" />{verb.button}
           </Button>
         ))}
       </div>
       {said !== undefined && <p className={`text-sm ${said.ok ? "text-ink-muted" : "text-signal"}`}>{said.line}</p>}
       <Dialog open={asking !== undefined} onOpenChange={(open) => !open && setAsking(undefined)}>
         {asking !== undefined && (
-          <DialogContent title={asking.question(name)} description={asking.description(name)}>
-            <div className="flex justify-end gap-2">
+          <DialogContent showClose={false} data-service-confirmation title={asking.question(name)} description={asking.description(name)}>
+            <DialogFooter>
               <DialogClose asChild>
-                <Button>Cancel</Button>
+                <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
-              <Button tone="danger" onClick={() => run(asking)}>
-                {asking.confirm}
+              <Button tone="danger" title={`${asking.confirm} (Enter or Space)`} onClick={() => run(asking)}>
+                <asking.icon aria-hidden="true" data-icon="inline-start" />{asking.confirm}
               </Button>
-            </div>
+            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>

@@ -1,3 +1,4 @@
+import { RefreshCw, Network, Radio } from "lucide-react";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import type { EnvironmentBinding, SettingsKey } from "@agent-harness/contracts";
 import { useId, useMemo, useState } from "react";
@@ -116,8 +117,8 @@ const Reached = ({ binding, name, tailnetOff, recheck }: ReachedProps) => {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {found === null ? <p className="text-amber">{tailscaleWarning(binding.tailscaleInstalled)}</p> : <p className="text-ink">{`Tailscale address ${found} found: ${name} binds it at its next start.`}</p>}
-      <Button disabled={recheck === undefined} onClick={recheck}>
-        Check again
+      <Button disabled={recheck === undefined} onClick={recheck} title="Check again (Enter or Space)">
+        <RefreshCw aria-hidden="true" data-icon="inline-start" />Check again
       </Button>
     </div>
   );
@@ -127,10 +128,10 @@ const Reached = ({ binding, name, tailnetOff, recheck }: ReachedProps) => {
 const TailnetSwitch = ({ on, writable, save }: { readonly on: boolean; readonly writable: boolean; readonly save: (on: boolean) => void }) => {
   const label = useId();
   return (
-    <span className="flex items-center gap-2">
-      <Switch aria-labelledby={label} checked={on} disabled={!writable} onCheckedChange={save} />
-      <span id={label} className="text-ink">
-        Bind the tailnet address
+    <span className="flex items-center justify-between gap-2 rounded-md bg-wash p-3">
+      <Switch title="Bind the tailnet address (Space)" aria-labelledby={label} checked={on} disabled={!writable} onCheckedChange={save} />
+      <span id={label} className="flex min-w-0 items-center gap-2 text-xs text-ink">
+        <Radio aria-hidden="true" className="size-4 shrink-0" />Bind the tailnet address
       </span>
     </span>
   );
@@ -158,13 +159,13 @@ const LanSwitch = ({ bound, addresses, writable, save }: LanSwitchProps) => {
   const address = bound ?? (picked !== undefined && addresses.includes(picked) ? picked : addresses[0]);
   return (
     <div className="flex flex-col gap-1">
-      <span className="flex flex-wrap items-center gap-2">
-        <Switch aria-labelledby={label} checked={bound !== null} disabled={!writable || address === undefined} onCheckedChange={(on) => save(on ? (address ?? null) : null)} />
-        <span id={label} className="text-ink">
-          {address === undefined ? "Bind a LAN address" : `Bind ${address} on the LAN`}
+      <span className="flex flex-wrap items-center gap-2 rounded-md bg-wash p-3">
+        <Switch title="Bind a LAN address (Space)" aria-labelledby={label} checked={bound !== null} disabled={!writable || address === undefined} onCheckedChange={(on) => save(on ? (address ?? null) : null)} />
+        <span id={label} className="flex min-w-0 items-center gap-2 text-xs text-ink">
+          <Network aria-hidden="true" className="size-4 shrink-0" />{address === undefined ? "Bind a LAN address" : `Bind ${address} on the LAN`}
         </span>
         {choices.length > 1 && (
-          <Select aria-label="LAN address" value={address} disabled={!writable} onChange={(event) => (bound === null ? pick(event.target.value) : save(event.target.value))}>
+          <Select title="LAN address (Arrow keys)" aria-label="LAN address" value={address} disabled={!writable} onChange={(event) => (bound === null ? pick(event.target.value) : save(event.target.value))}>
             {choices.map((choice) => (
               <option key={choice} value={choice}>
                 {choice}

@@ -368,6 +368,7 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'desktop/agent-harness-desktop-win32-x64-setup.exe').Path -Destination (Join-Path $work 'desktop')
             New-Item -ItemType Directory -Path (Join-Path $work 'scripts') -Force | Out-Null
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-extension.mjs').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
             $smoke = @'
           param([Parameter(Mandatory)][string] $Version)
           $ErrorActionPreference = 'Stop'
@@ -386,6 +387,13 @@ jobs:
           if ([int]$Matches[1] -ge 12288) { throw 'The smoke child still has an elevated Windows token' }
           Write-Output "Smoke user token mandatory level: $($Matches[1])"
           $PSNativeCommandUseErrorActionPreference = $false
+          Remove-Item Env:\AGENT_HARNESS_TOKEN -ErrorAction SilentlyContinue
+          $plan = & (Join-Path $PSScriptRoot 'install.ps1') -DryRun -DataDir (Join-Path $PSScriptRoot 'headless-install') 6>&1
+          if ($LASTEXITCODE -ne 0) { throw 'The anonymous headless install could not resolve a public release' }
+          $planText = $plan -join "`n"
+          Write-Output $planText
+          if ($planText -notmatch 'https://github.com/david-systemtech/agent-harness/releases/download/') { throw 'The installer did not select public assets' }
+          if ($planText -match 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/') { throw 'The installer still requires private access' }
           $setup = Start-Process -FilePath (Resolve-Path "desktop/agent-harness-desktop-win32-x64-setup.exe").Path -ArgumentList '/S' -Wait -PassThru
           if ($setup.ExitCode -ne 0) { throw "Setup exited with $($setup.ExitCode)" }
           $server = Join-Path $env:LOCALAPPDATA "Programs\agent-harness-desktop\resources\server"
@@ -529,6 +537,14 @@ jobs:
         with:
           name: desktop-darwin-arm64
           path: desktop
+      - name: Resolve a public headless install without credentials
+        run: |
+          set -euo pipefail
+          unset AGENT_HARNESS_TOKEN
+          plan=$(sh scripts/install.sh --dry-run --data-dir "$RUNNER_TEMP/headless-install")
+          printf '%s\n' "$plan"
+          grep -q 'https://github.com/david-systemtech/agent-harness/releases/download/' <<< "$plan"
+          if grep -Eq 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/' <<< "$plan"; then exit 1; fi
       - name: Run the unpacked server with its own Node
         run: |
           set -euo pipefail
@@ -640,6 +656,14 @@ jobs:
         with:
           name: desktop-linux-x64
           path: desktop
+      - name: Resolve a public headless install without credentials
+        run: |
+          set -euo pipefail
+          unset AGENT_HARNESS_TOKEN
+          plan=$(sh scripts/install.sh --dry-run --data-dir "$RUNNER_TEMP/headless-install")
+          printf '%s\n' "$plan"
+          grep -q 'https://github.com/david-systemtech/agent-harness/releases/download/' <<< "$plan"
+          if grep -Eq 'AGENT_HARNESS_TOKEN|Authorization|/api/v1/repos/' <<< "$plan"; then exit 1; fi
       - name: Run the unpacked server with its own Node
         run: |
           set -euo pipefail
