@@ -26,7 +26,7 @@ const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
  * sidebar's divider, whose drag takes it before the menu's button hears it.
  */
 const openMenu = async (app: RenderedApp) => {
-  act(() => within(screen.getByRole("banner")).getByRole("button", { name: "Side panes" }).focus());
+  act(() => within(screen.getByRole("banner")).getByRole("button", { name: "More" }).focus());
   await app.user.keyboard("{Enter}");
 };
 
@@ -219,8 +219,11 @@ describe("the side column", () => {
   it("draws a pane whose method the connection cannot call dim with the capability's reason", async () => {
     const app = await opened({ scopes: ["read", "sessions:write", "runs:drive", "admin"] });
     await openPane(app, "Files");
-    expect(named("Files").getAttribute("aria-disabled")).toBe("true");
-    expect(within(screen.getByRole("region", { name: "Files" })).getByText(/without the terminal scope\.$/)).toBeDefined();
+    const files = screen.getByRole("menuitem", { name: "Files" });
+    expect(files.getAttribute("aria-disabled")).toBe("true");
+    expect(files.textContent).toMatch(/without the terminal scope\.$/);
+    expect(screen.queryByRole("region", { name: "Files" })).toBeNull();
+    await app.user.keyboard("{Escape}");
 
     await openPane(app, "Tasks");
     expect(named("Tasks").getAttribute("aria-disabled")).toBeNull();

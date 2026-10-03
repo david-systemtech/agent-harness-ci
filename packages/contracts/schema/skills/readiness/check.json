@@ -720,6 +720,7 @@
             "titleWrite",
             "transcriptDelete",
             "planUsage",
+            "contextReadings",
             "liveModels",
             "commands",
             "imageInput",

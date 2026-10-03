@@ -510,3 +510,19 @@ describe("the read the fold takes", () => {
     }
   });
 });
+
+describe("current request context", () => {
+  it("replaces the context reading independently of spend and preserves it across snapshot continuation and run end", () => {
+    const firstReading = { runId, model: "opus", contextTokens: 350, contextWindow: 1000 };
+    const initial = foldTranscript([started(runId), event("context.reported", firstReading)]);
+    expect(initial.runs[0]?.context).toEqual({ model: "opus", contextTokens: 350, contextWindow: 1000 });
+    const folded = foldTranscript([
+      event("context.reported", { runId, model: "sonnet", contextTokens: 200, contextWindow: null }),
+      event("run.ended", { runId, reason: "completed", cause: null, error: null, usage: null, durationMs: 2000, turnCount: null, resultText: null }),
+    ], initial);
+    expect(folded.runs[0]?.context).toEqual({ model: "sonnet", contextTokens: 200, contextWindow: null });
+    expect(folded.runs[0]?.usage).toBeNull();
+    expect(folded.runs[0]?.contextWindows).toEqual({ opus: 1000 });
+    expect(initial.runs[0]?.context?.model).toBe("opus");
+  });
+});

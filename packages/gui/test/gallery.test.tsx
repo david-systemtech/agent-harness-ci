@@ -97,7 +97,7 @@ it.each(["window-not-ready", "window-start-failed"])("renders %s with the measur
   }
 });
 
-it.each(["dock-files", "dock-narrow"])("renders %s with retained Files and the measured rail and header geometry", async (scene) => {
+it.each(["dock-files", "dock-sheet"])("renders %s with retained Files and the measured rail and header geometry", async (scene) => {
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, scene);

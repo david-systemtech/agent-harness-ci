@@ -73,6 +73,7 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   titleWrite: true,
   transcriptDelete: true,
   planUsage: true,
+  contextReadings: true,
   liveModels: true,
   commands: true,
   imageInput: true,

@@ -73,6 +73,10 @@
       "type": "boolean",
       "description": "Plan usage can be read per window, with the account's identity."
     },
+    "contextReadings": {
+      "type": "boolean",
+      "description": "Runs report the latest main request context independently of cumulative token spend."
+    },
     "liveModels": {
       "type": "boolean",
       "description": "The provider's models are listed live; without it the catalogue is the adapter's static list."

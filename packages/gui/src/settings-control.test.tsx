@@ -29,9 +29,9 @@ describe("the header's Settings control", () => {
     await screen.findByText("No session is open. Choose one from the sidebar.");
     const control = within(screen.getByRole("banner")).getByRole("button", { name: "Settings" });
     act(() => control.focus());
-    expect((await screen.findByRole("tooltip")).textContent).toBe(`Settings (${keys})`);
+    expect((await screen.findByRole("tooltip")).textContent).toBe(`Settings · ${keys}`);
 
     act(() => app.presentation.set("keyRemaps", { "app.settings.toggle": ["Mod+Shift+S"] }));
-    expect(screen.getByRole("tooltip").textContent).toBe(macOS ? "Settings (⇧⌘S)" : "Settings (Ctrl+Shift+S)");
+    expect(screen.getByRole("tooltip").textContent).toBe(macOS ? "Settings · ⇧⌘S" : "Settings · Ctrl+Shift+S");
   });
 });

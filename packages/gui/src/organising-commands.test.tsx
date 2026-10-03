@@ -50,9 +50,10 @@ const about = (app: RenderedApp, environment: string, session: string) =>
 
 /** The command palette's slash commands, each as it reads (a dim one's line after its description). */
 const paletteCommands = () =>
-  within(within(screen.getByRole("dialog", { name: "Command palette" })).getByRole("group", { name: "Slash commands" }))
+  within(screen.getByRole("dialog", { name: "Command palette" }))
     .getAllByRole("option")
-    .map((option) => option.textContent);
+    .map((option) => option.textContent)
+    .filter((text) => text?.startsWith("/"));
 
 /** The entries a dialog lists, each as it reads (a dim one's line after its name). */
 const listed = (dialog: HTMLElement, name: string) =>

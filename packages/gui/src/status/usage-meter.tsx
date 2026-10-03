@@ -1,5 +1,4 @@
 import { elapsedClock, gaugeOf, gaugeWho, NO_PLAN_READING, NO_WINDOWS_READ, readingsOf, type UsageGauge, type UsageView } from "@agent-harness/client-runtime";
-import type { RunSummary } from "@agent-harness/contracts";
 import { Gauge, RefreshCw } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
 import { Button, Popover, PopoverContent, PopoverTrigger, Tooltip } from "../ui/index.js";
@@ -7,7 +6,7 @@ import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { UsageRing, WindowReading } from "./window-reading.js";
 
 /** Provider windows only, pooled by the runtime's account identity; details refresh that same cache. */
-export const UsageMeter = ({ environmentId, accountId, runs }: { readonly environmentId: string; readonly accountId: string | null; readonly runs: readonly RunSummary[] }) => {
+export const UsageMeter = ({ environmentId, accountId }: { readonly environmentId: string; readonly accountId: string | null }) => {
   const runtime = useRuntime();
   const usage = useObservable(runtime.projections.usage);
   const gauge = gaugeOf(usage.gauges, environmentId, accountId);
@@ -26,14 +25,14 @@ export const UsageMeter = ({ environmentId, accountId, runs }: { readonly enviro
         </PopoverTrigger>
       </Tooltip>
       {open && <PopoverContent side="top" align="start" aria-label="Usage details" className="w-72 px-3">
-        <UsageDetails environmentId={environmentId} gauge={gauge} usage={usage} refresh={refresh} runs={runs} />
+        <UsageDetails environmentId={environmentId} gauge={gauge} usage={usage} refresh={refresh} />
       </PopoverContent>}
     </Popover>
   </span>;
 };
 
 /** Mounting only while open limits the reading-age/countdown clock to the visible popover. */
-const UsageDetails = ({ environmentId, gauge, usage, refresh, runs }: { readonly environmentId: string; readonly gauge: UsageGauge | undefined; readonly usage: UsageView; readonly refresh: () => void; readonly runs: readonly RunSummary[] }) => {
+const UsageDetails = ({ environmentId, gauge, usage, refresh }: { readonly environmentId: string; readonly gauge: UsageGauge | undefined; readonly usage: UsageView; readonly refresh: () => void }) => {
   const runtime = useRuntime();
   const clock = useClock();
   const [tick, redraw] = useReducer((value: number) => value + 1, 0);
@@ -44,8 +43,6 @@ const UsageDetails = ({ environmentId, gauge, usage, refresh, runs }: { readonly
   const now = runtime.environmentNow(environmentId).getTime();
   const age = gauge === undefined ? null : Math.max(0, now - Date.parse(gauge.readAt));
   const readings = readingsOf(gauge);
-  const model = runs.at(-1)?.model;
-  const scale = runs.toReversed().flatMap((run) => run.usage ?? []).find((usage) => usage.model === model && usage.contextWindow !== null)?.contextWindow;
   const sources = usage.environments.filter((answer) => answer.environmentId === environmentId || gauge?.accounts.some((account) => account.environmentId === answer.environmentId));
   return <section className="flex flex-col gap-2 text-xs">
     <h3 className="font-medium text-ink">{gauge === undefined ? "Plan usage" : gaugeWho(gauge)}</h3>
@@ -56,7 +53,7 @@ const UsageDetails = ({ environmentId, gauge, usage, refresh, runs }: { readonly
     </div>)}
     {age !== null && <p aria-label="Reading age" className="text-ink-faint">Read {elapsedClock(age)} ago{age >= 360_000 ? " · stale" : ""} · <time dateTime={gauge?.readAt}>{gauge?.readAt}</time></p>}
     {sources.filter((answer) => answer.error !== null).map((answer) => <p key={answer.environmentId} className="text-amber">{answer.error?.message}</p>)}
-    <p className="text-ink-faint">Context tokens are not reported by this environment. {scale === undefined ? "Context scale unknown." : `Context window: ${scale} tokens.`}</p>
+    <p className="text-ink-faint">Current request context appears in the Ctx meter when supported.</p>
     <Tooltip content="Refresh usage · Enter to refresh"><Button aria-label="Refresh usage" className="h-6 gap-1 self-start px-2 text-xs [&_svg]:size-3" onClick={refresh}><RefreshCw aria-hidden="true" />Refresh</Button></Tooltip>
   </section>;
 };
