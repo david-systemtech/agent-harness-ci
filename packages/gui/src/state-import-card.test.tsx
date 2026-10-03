@@ -123,9 +123,9 @@ describe("State import on Carry over", () => {
     await app.user.click(section().getByRole("button", { name: "Import" }));
     await section().findByRole("heading", { name: "Import report" });
     expect(section().getByText(/secondary shares a projects folder with primary/)).toBeDefined();
-    expect(section().getByText("Font size: 24 (source: 100)")).toBeDefined();
+    expect(section().getByText("Font size: 20 (source: 100)")).toBeDefined();
     const relaunched = await app.remount();
-    expect(relaunched.presentation.values.read().textSize).toBe(24);
+    expect(relaunched.presentation.values.read().textSize).toBe(20);
   });
 
   it("does not show or detect state import without the capability flag", async () => {
