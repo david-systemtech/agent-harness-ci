@@ -29,7 +29,10 @@ it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s p
     expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] button', height: 28 });
     expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 });
     if (kind === "plan") expect(geometry).toContainEqual({ selector: '[aria-label="Plan body"]', height: 416 });
-    if (kind === "permission") expect(geometry).toContainEqual({ selector: '[aria-label="Arguments"]', height: 224 });
+    if (kind === "permission") {
+      expect(geometry).toContainEqual({ selector: '[aria-label="Arguments"]', height: 224, viewport: 1400 });
+      expect(geometry).toContainEqual({ selector: '[aria-label="Permission decision"]', visibleWithin: '[aria-label="Parked prompt"]' });
+    }
     for (const check of geometry) expect(container.querySelector(check.selector)).not.toBeNull();
     await gallery.close();
     close = undefined;

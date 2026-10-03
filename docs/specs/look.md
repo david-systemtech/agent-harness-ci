@@ -632,6 +632,9 @@ Arguments square mono max 224px; plan max 416px with bottom clipping fade and
 scroll hint; parked-card stack max 60vh. Keep draft/choices keyed by prompt
 identity across collapse and failed delivery. Busy disables duplicate decisions;
 failure one sentence inside the card, retaining the request and what was typed.
+Permission cards keep the header and decision footer (note, refusal and actions)
+visible within that bound; arguments scroll and shrink below their 224px cap
+when the viewport leaves less room.
 Settled cards keep the result/notes in compact form, not a second copy of a plan.
 
 | Card | Tone and actions |

@@ -160,6 +160,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   };
   const deny = () => (prompt.kind === "question" ? settle({ kind: "answer", answer: { decision: "deny", ...noteOf(fields.note) } }) : choose(rows[0]));
   const dim = capability.status === "absent";
+  const pinnedDecision = prompt.kind === "permission";
   const shownLine = line ?? (dim ? capability.message : undefined);
   const facts = [place, ttl].filter((fact) => fact !== undefined).join(" · ");
 
@@ -172,11 +173,12 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
         aria-label="Parked prompt"
         tabIndex={-1}
         className={classes(
-          "mx-3 flex max-h-[60vh] shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          "mx-3 flex max-h-[60vh] shrink-0 flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          pinnedDecision ? "overflow-hidden" : "overflow-y-auto",
           dim ? "border-line bg-panel text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
         )}
       >
-        <header className={classes("flex items-center gap-2 text-xs", prompt.kind === "question" ? "text-cyan" : "text-amber")}>
+        <header className={classes("flex shrink-0 items-center gap-2 text-xs", prompt.kind === "question" ? "text-cyan" : "text-amber")}>
           <Icon aria-hidden="true" className={classes("size-3.5 shrink-0", ICON_COLOURS[prompt.kind])} />
           <h2 className="font-semibold text-ink">
             {HEADINGS[prompt.kind]}
@@ -190,42 +192,46 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
             }}>{collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}{collapsed ? "Show" : "Hide"}</Button>
           </PromptTooltip>
         </header>
-        <div id={bodyId} hidden={collapsed}>
-          <div className="flex flex-col gap-2">
-            <PromptBody prompt={prompt} fields={fields} setFields={setFields} />
-            <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
-            <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
-              <Textarea
-                id={noteId}
-                rows={2}
-                className="min-h-12"
-                aria-label="Note"
-                placeholder="A note for the agent, sent with the answer: why, or what to do after"
-                maxLength={10_000}
-                value={fields.note}
-                onChange={(event) => setFields({ ...fields, note: event.target.value })}
-              />
-            </PromptTooltip>
-            {shownLine !== undefined && (
-              <p role="status" className={line === undefined ? "text-xs text-ink-muted" : "text-xs text-signal"}>
-                {shownLine}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              {prompt.kind === "question" ? (
-                <>
-                  <Answer dim={dim} keys={denyKey} hint={dim ? capability.message : undefined} onClick={deny}>
-                    Skip
-                  </Answer>
-                  <Answer dim={dim} approves keys={allowKey} hint={dim ? capability.message : undefined} onClick={allow}>
-                    {questionsOf(prompt).length > 1 ? "Send answers" : "Send answer"}
-                  </Answer>
-                </>
-              ) : (
-                rows.map((row) => <RowButton key={row.label} row={row} dim={dim} reason={dim ? capability.message : undefined} keys={row.kind === "deny" ? denyKey : row.kind === "allow" || (row.kind === "approve" && row.mode === null) ? allowKey : undefined} onClick={() => choose(row)} />)
-              )}
+        <div id={bodyId} hidden={collapsed} className={pinnedDecision ? "flex min-h-0 flex-col" : undefined}>
+          <div className={classes("flex flex-col gap-2", pinnedDecision && "min-h-0")}>
+            <div role={pinnedDecision ? "region" : undefined} aria-label={pinnedDecision ? "Permission request" : undefined} className={classes("flex flex-col gap-2", pinnedDecision && "min-h-0")}>
+              <PromptBody prompt={prompt} fields={fields} setFields={setFields} />
             </div>
-            <KeysHint kind={prompt.kind} />
+            <div role={pinnedDecision ? "group" : undefined} aria-label={pinnedDecision ? "Permission decision" : undefined} className="flex shrink-0 flex-col gap-2">
+              <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
+              <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
+                <Textarea
+                  id={noteId}
+                  rows={2}
+                  className="min-h-12"
+                  aria-label="Note"
+                  placeholder="A note for the agent, sent with the answer: why, or what to do after"
+                  maxLength={10_000}
+                  value={fields.note}
+                  onChange={(event) => setFields({ ...fields, note: event.target.value })}
+                />
+              </PromptTooltip>
+              {shownLine !== undefined && (
+                <p role="status" className={line === undefined ? "text-xs text-ink-muted" : "text-xs text-signal"}>
+                  {shownLine}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                {prompt.kind === "question" ? (
+                  <>
+                    <Answer dim={dim} keys={denyKey} hint={dim ? capability.message : undefined} onClick={deny}>
+                      Skip
+                    </Answer>
+                    <Answer dim={dim} approves keys={allowKey} hint={dim ? capability.message : undefined} onClick={allow}>
+                      {questionsOf(prompt).length > 1 ? "Send answers" : "Send answer"}
+                    </Answer>
+                  </>
+                ) : (
+                  rows.map((row) => <RowButton key={row.label} row={row} dim={dim} reason={dim ? capability.message : undefined} keys={row.kind === "deny" ? denyKey : row.kind === "allow" || (row.kind === "approve" && row.mode === null) ? allowKey : undefined} onClick={() => choose(row)} />)
+                )}
+              </div>
+              <KeysHint kind={prompt.kind} />
+            </div>
           </div>
         </div>
       </section>
@@ -241,8 +247,8 @@ const PromptBody = ({ prompt, fields, setFields }: { readonly prompt: PromptOpen
   const input = inputText(prompt.input);
   return (
     <>
-      <p>{oneLine(prompt.summary, 300)}</p>
-      {prompt.reason !== null && <p className="text-amber">{oneLine(prompt.reason, 300)}</p>}
+      <p className="shrink-0">{oneLine(prompt.summary, 300)}</p>
+      {prompt.reason !== null && <p className="shrink-0 text-amber">{oneLine(prompt.reason, 300)}</p>}
       {prompt.blockedPath !== null && <p className="text-xs text-ink-muted">Path: {prompt.blockedPath}</p>}
       {prompt.agentId !== null && <p className="text-xs text-ink-muted">Asked by the subagent {prompt.agentId}</p>}
       {prompt.denylist !== null && prompt.denylist.length > 0 && (
@@ -253,7 +259,7 @@ const PromptBody = ({ prompt, fields, setFields }: { readonly prompt: PromptOpen
         </ul>
       )}
       {input !== undefined && (
-        <pre aria-label="Arguments" className="max-h-[224px] overflow-auto rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted">{input}</pre>
+        <pre aria-label="Arguments" className={classes("max-h-[224px] overflow-auto rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted", prompt.kind === "permission" && "min-h-0")}>{input}</pre>
       )}
     </>
   );

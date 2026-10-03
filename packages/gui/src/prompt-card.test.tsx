@@ -105,6 +105,39 @@ const sentAnswers = async (env: EnvironmentHandle, count: number) => {
 };
 
 describe("an approval", () => {
+  it.each([
+    { action: "Deny", decision: "deny", remember: undefined },
+    { action: "Allow once", decision: "allow", remember: undefined },
+    { action: "Allow for this session", decision: "allow", remember: "session" },
+  ])("keeps $action and its note outside a long request, including after refusal", async ({ action, decision, remember }) => {
+    const { app, env, session } = await opened();
+    const command = Array.from({ length: 40 }, (_, at) => `printf 'Check ${at + 1}'`).join("\n");
+    const promptId = await park(env, session, { input: { command } });
+    const request = within(card() as HTMLElement).getByRole("region", { name: "Permission request" });
+    const decisions = within(card() as HTMLElement).getByRole("group", { name: "Permission decision" });
+    expect(within(request).getByLabelText("Arguments").textContent).toContain("$ printf 'Check 1'");
+    expect(within(request).getByLabelText("Arguments").textContent).toContain("printf 'Check 40'");
+    expect(within(request).queryByRole("textbox", { name: "Note" })).toBeNull();
+    expect(within(request).queryByRole("button", { name: action })).toBeNull();
+    await app.user.type(within(decisions).getByRole("textbox", { name: "Note" }), "Keep the receipts");
+    await app.user.click(button("Hide request"));
+    await app.user.click(button("Show request"));
+    expect(within(card() as HTMLElement).getByRole("textbox", { name: "Note" })).toHaveProperty("value", "Keep the receipts");
+
+    env.wire.answer("permissions.prompts.answer", () => ({ error: { code: "conflict", message: "Try the decision again.", data: {} } }));
+    await app.user.click(button(action));
+    await waitFor(() => expect(within(card() as HTMLElement).getByRole("status").textContent).toContain("Try the decision again."));
+    const returned = within(card() as HTMLElement).getByRole("group", { name: "Permission decision" });
+    expect(within(returned).getByRole("textbox", { name: "Note" })).toHaveProperty("value", "Keep the receipts");
+    expect(within(returned).getByRole("status")).toBeTruthy();
+    expect(within(card() as HTMLElement).getByRole("region", { name: "Permission request" }).textContent).toContain("printf 'Check 40'");
+    await app.user.click(within(returned).getByRole("button", { name: action }));
+    expect(await sentAnswers(env, 2)).toEqual(Array.from({ length: 2 }, () => ({
+      commandId: expect.any(String), promptId, sessionId: session, decision,
+      ...(remember !== undefined && { remember }), message: "Keep the receipts",
+    })));
+  });
+
   it("waits oldest first, 1 of N, and is allowed once by a click, and for this session by the other", async () => {
     const { app, env, transcript, session } = await opened();
     const first = await park(env, session, { summary: "Bash: rm -rf build" });
