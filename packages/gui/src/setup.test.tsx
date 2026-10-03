@@ -98,7 +98,7 @@ describe("the first-launch mark", () => {
   it("is set by closing Set up, so the next launch opens on the window, and the Set up pane's Open the full checklist brings it back", async () => {
     const app = await firstLaunch();
     await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
-  await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
+    await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
     expect(await screen.findByText(NO_SESSION)).toBeDefined();
     expect(checklist()).toBeNull();
 
