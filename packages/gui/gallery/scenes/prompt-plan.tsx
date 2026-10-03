@@ -4,4 +4,5 @@ import { PromptScene, promptGeometry } from "../prompt-scene.js";
 export default function Scene({ ladder }: { readonly ladder: LadderName }) {
   return <PromptScene kind="plan" ladder={ladder} />;
 }
+export const readySelector = '[aria-label="Parked prompt"]';
 export const geometry = promptGeometry("plan");

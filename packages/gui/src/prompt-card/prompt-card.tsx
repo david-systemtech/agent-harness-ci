@@ -172,11 +172,12 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
         aria-label="Parked prompt"
         tabIndex={-1}
         className={classes(
-          "mx-3 flex max-h-[60vh] shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          "mx-3 flex max-h-[60vh] shrink-0 flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          prompt.kind === "plan" ? "overflow-hidden" : "overflow-y-auto",
           dim ? "border-line bg-panel text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
         )}
       >
-        <header className={classes("flex items-center gap-2 text-xs", prompt.kind === "question" ? "text-cyan" : "text-amber")}>
+        <header className={classes("flex shrink-0 items-center gap-2 text-xs", prompt.kind === "question" ? "text-cyan" : "text-amber")}>
           <Icon aria-hidden="true" className={classes("size-3.5 shrink-0", ICON_COLOURS[prompt.kind])} />
           <h2 className="font-semibold text-ink">
             {HEADINGS[prompt.kind]}
@@ -190,42 +191,44 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
             }}>{collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}{collapsed ? "Show" : "Hide"}</Button>
           </PromptTooltip>
         </header>
-        <div id={bodyId} hidden={collapsed}>
-          <div className="flex flex-col gap-2">
+        <div id={bodyId} hidden={collapsed} className={classes(prompt.kind === "plan" && !collapsed && "flex min-h-0 flex-col")}>
+          <div className={classes("flex flex-col gap-2", prompt.kind === "plan" && "min-h-0")}>
             <PromptBody prompt={prompt} fields={fields} setFields={setFields} />
-            <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
-            <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
-              <Textarea
-                id={noteId}
-                rows={2}
-                className="min-h-12"
-                aria-label="Note"
-                placeholder="A note for the agent, sent with the answer: why, or what to do after"
-                maxLength={10_000}
-                value={fields.note}
-                onChange={(event) => setFields({ ...fields, note: event.target.value })}
-              />
-            </PromptTooltip>
-            {shownLine !== undefined && (
-              <p role="status" className={line === undefined ? "text-xs text-ink-muted" : "text-xs text-signal"}>
-                {shownLine}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              {prompt.kind === "question" ? (
-                <>
-                  <Answer dim={dim} keys={denyKey} hint={dim ? capability.message : undefined} onClick={deny}>
-                    Skip
-                  </Answer>
-                  <Answer dim={dim} approves keys={allowKey} hint={dim ? capability.message : undefined} onClick={allow}>
-                    {questionsOf(prompt).length > 1 ? "Send answers" : "Send answer"}
-                  </Answer>
-                </>
-              ) : (
-                rows.map((row) => <RowButton key={row.label} row={row} dim={dim} reason={dim ? capability.message : undefined} keys={row.kind === "deny" ? denyKey : row.kind === "allow" || (row.kind === "approve" && row.mode === null) ? allowKey : undefined} onClick={() => choose(row)} />)
+            <div className="flex shrink-0 flex-col gap-2">
+              <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
+              <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
+                <Textarea
+                  id={noteId}
+                  rows={2}
+                  className={classes("min-h-12", prompt.kind === "plan" && "max-h-24 resize-none overflow-y-auto")}
+                  aria-label="Note"
+                  placeholder="A note for the agent, sent with the answer: why, or what to do after"
+                  maxLength={10_000}
+                  value={fields.note}
+                  onChange={(event) => setFields({ ...fields, note: event.target.value })}
+                />
+              </PromptTooltip>
+              {shownLine !== undefined && (
+                <p role="status" className={line === undefined ? "text-xs text-ink-muted" : "text-xs text-signal"}>
+                  {shownLine}
+                </p>
               )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                {prompt.kind === "question" ? (
+                  <>
+                    <Answer dim={dim} keys={denyKey} hint={dim ? capability.message : undefined} onClick={deny}>
+                      Skip
+                    </Answer>
+                    <Answer dim={dim} approves keys={allowKey} hint={dim ? capability.message : undefined} onClick={allow}>
+                      {questionsOf(prompt).length > 1 ? "Send answers" : "Send answer"}
+                    </Answer>
+                  </>
+                ) : (
+                  rows.map((row) => <RowButton key={row.label} row={row} dim={dim} reason={dim ? capability.message : undefined} keys={row.kind === "deny" ? denyKey : row.kind === "allow" || (row.kind === "approve" && row.mode === null) ? allowKey : undefined} onClick={() => choose(row)} />)
+                )}
+              </div>
+              <KeysHint kind={prompt.kind} />
             </div>
-            <KeysHint kind={prompt.kind} />
           </div>
         </div>
       </section>
@@ -276,11 +279,11 @@ const PlanBody = ({ text }: { readonly text: string }) => {
     if (element.firstElementChild !== null) observer.observe(element.firstElementChild);
     return () => observer.disconnect();
   }, [text]);
-  return <div>
-    <div ref={body} aria-label="Plan body" onScroll={measure} className={classes("max-h-[416px] overflow-y-auto", clipped && "[mask-image:linear-gradient(to_bottom,var(--ink)_calc(100%_-_24px),transparent)]")}>
+  return <div className="flex min-h-0 flex-col">
+    <div ref={body} aria-label="Plan body" onScroll={measure} className={classes("min-h-0 max-h-[416px] overflow-y-auto", clipped && "[mask-image:linear-gradient(to_bottom,var(--ink)_calc(100%_-_24px),transparent)]")}>
       <Markdown text={text} />
     </div>
-    {clipped && <p className="mt-1 flex items-center gap-1 text-xs text-ink-faint"><ChevronDown aria-hidden="true" className="size-3.5" />Scroll to read the plan</p>}
+    {clipped && <p className="mt-1 flex shrink-0 items-center gap-1 text-xs text-ink-faint"><ChevronDown aria-hidden="true" className="size-3.5" />Scroll to read the plan</p>}
   </div>;
 };
 
