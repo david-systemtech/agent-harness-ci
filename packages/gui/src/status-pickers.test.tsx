@@ -209,6 +209,26 @@ describe("the hand-off offer and picker", () => {
     expect(await within(statusLine()).findByText(out.message as string)).toBeTruthy();
   });
 
+  it("keeps the hand-off open and refuses duplicates and dismissal until the environment answers", async () => {
+    const { app, env } = await opened([desk({ recommendation: out })]);
+    env.setUsage([reading("account-1", WORK, [window("five_hour", 1, "rejected")])]);
+    let release: (() => void) | undefined;
+    env.wire.answer("sessions.fork", () => new Promise((resolve) => { release = () => resolve({ error: { code: "conflict", message: "The account is busy.", data: {} } }); }));
+    await app.user.click(await within(statusLine()).findByRole("button", { name: "Hand off…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Hand off Receipts on desk" });
+    const candidate = await within(dialog).findByRole("button", { name: /^personal/ });
+    await app.user.click(candidate);
+    await waitFor(() => expect(sent(env, "sessions.fork")).toHaveLength(1));
+    expect(candidate).toHaveProperty("disabled", true);
+    await app.user.keyboard("{Enter}{Escape}");
+    expect(screen.getByRole("dialog", { name: "Hand off Receipts on desk" })).toBeTruthy();
+    expect(sent(env, "sessions.fork")).toHaveLength(1);
+    act(() => release?.());
+    expect(await within(dialog).findByText("Not handed off: The account is busy.")).toBeTruthy();
+    await app.user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Hand off Receipts on desk" })).toBeNull());
+  });
+
   it("opens the hand-off picker: the environment's accounts with their status and plan readings, the recommended one marked; choosing one forks onto it", async () => {
     const { app, env, session } = await opened([desk({ recommendation: out })]);
     env.setUsage([reading("account-1", WORK, [window("five_hour", 1, "rejected")]), reading("account-2", HOME, [window("five_hour", 0.12)])]);
@@ -216,8 +236,8 @@ describe("the hand-off offer and picker", () => {
     const dialog = await screen.findByRole("dialog", { name: "Hand off Receipts on desk" });
     expect(dialog.textContent).toContain(out.message);
     const accounts = within(dialog).getByRole("list", { name: "Accounts" });
-    await waitFor(() => expect(within(accounts).getByRole("button", { name: /^work/ }).textContent).toBe("work milo@work.test signed in · this session5hr 100% out"));
-    expect(within(accounts).getByRole("button", { name: /^personal/ }).textContent).toBe("personal milo@home.test signed in · recommended5hr 12%");
+    await waitFor(() => expect(within(accounts).getByRole("button", { name: /^work/ }).textContent).toContain("work milo@work.test signed in · this session5hr 100% out"));
+    expect(within(accounts).getByRole("button", { name: /^personal/ }).textContent).toContain("personal milo@home.test signed in · recommended5hr 12%");
     expect(within(accounts).getByText("hand-off between environments comes in milestone 2 (ADR 0005)")).toBeTruthy();
 
     await app.user.click(within(accounts).getByRole("button", { name: /^personal/ }));

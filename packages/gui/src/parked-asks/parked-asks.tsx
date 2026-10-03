@@ -1,12 +1,14 @@
 import { askDetail, bulkAsks, bulkQuestion, decidable, ttlWords, type ParkedAsk, type PromptTarget } from "@agent-harness/client-runtime";
-import { CircleHelp } from "lucide-react";
+import { CircleHelp, Check, X, ExternalLink } from "lucide-react";
 import type { PromptKind } from "@agent-harness/contracts";
 import { useState } from "react";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { Answer } from "../prompt-card/answer-button.js";
 import { useAnswers, type Answers } from "../prompt-card/answering.js";
-import { Button, Dialog, DialogClose, DialogContent, DialogTrigger, MenuItem, Tooltip } from "../ui/index.js";
+import { Dialog, DialogContent, DialogTrigger, MenuItem, Tooltip } from "../ui/index.js";
+import { DialogAction as Button } from "../ui/dialog-action.js";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogTrigger, DialogFooter } from "../ui/dialog.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /**
@@ -49,8 +51,8 @@ export const ParkedAsksButton = ({ menu = false }: { readonly menu?: boolean }) 
       {(menu || count > 0) && <Tooltip content={`Parked asks · ${count} waiting`}>
         <DialogTrigger asChild>
           {menu ? <MenuItem aria-label={count === 0 ? "Parked asks" : `Parked asks, ${count} waiting`} onSelect={(event) => event.preventDefault()}><CircleHelp aria-hidden="true" />Parked asks{count > 0 && <span className="ml-auto text-amber">{count}</span>}</MenuItem> :
-            <Button aria-label={`Parked asks, ${count} waiting`} size="xs" className="h-[22px] border border-amber/45 bg-amber/10 text-amber hover:bg-amber/20">
-              <CircleHelp aria-hidden="true" /><span aria-hidden="true" className="size-1.5 rounded-full bg-amber" /><span>{count} waiting</span>
+            <Button icon={CircleHelp} aria-label={`Parked asks, ${count} waiting`} size="xs" className="h-[22px] border border-amber/45 bg-amber/10 text-amber hover:bg-amber/20">
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-amber" /><span>{count} waiting</span>
             </Button>}
         </DialogTrigger>
       </Tooltip>}
@@ -64,7 +66,7 @@ const ParkedAsksView = ({ asks, answers, close }: { readonly asks: readonly Park
   const shown = asks.filter((ask) => !answers.isSent(targetOf(ask)));
   const bulk = bulkAsks(shown);
   return (
-    <DialogContent title="Parked asks" className="max-w-2xl">
+    <DialogContent title="Parked asks" className="max-w-[32rem] max-h-[calc(100dvh-4rem)] overflow-y-auto">
       {shown.length === 0 ? (
         <p className="text-sm text-ink-muted">Nothing is waiting on you.</p>
       ) : (
@@ -75,7 +77,7 @@ const ParkedAsksView = ({ asks, answers, close }: { readonly asks: readonly Park
               <BulkAnswer decision="deny" asks={bulk} shown={shown} answers={answers} />
             </div>
           )}
-          <ul aria-label="Parked asks" className="flex max-h-[60vh] flex-col overflow-y-auto">
+          <ul aria-label="Parked asks" className="flex min-h-0 flex-col gap-2 overflow-y-auto">
             {shown.map((ask) => (
               <AskRow key={`${ask.environmentId} ${ask.promptId}`} ask={ask} answers={answers} close={close} />
             ))}
@@ -107,8 +109,8 @@ const AskRow = ({ ask, answers, close }: { readonly ask: ParkedAsk; readonly ans
   const dim = offer.status === "absent";
   const line = answers.lineOf(targetOf(ask));
   return (
-    <li className="flex flex-col gap-1 border-b border-hairline py-2 text-sm last:border-b-0">
-      <div className="flex items-baseline gap-2">
+    <li className="flex flex-col gap-2 rounded-lg border border-hairline bg-inset/60 p-3 text-sm">
+      <div className="flex flex-wrap items-baseline gap-2">
         <EnvironmentBadge view={views.find((view) => view.environmentId === ask.environmentId)} />
         <span className="min-w-0 truncate font-medium text-ink">{ask.title ?? "a session"}</span>
         <span className="text-xs text-ink-muted">{KIND_WORDS[ask.kind]}</span>
@@ -131,7 +133,7 @@ const AskRow = ({ ask, answers, close }: { readonly ask: ParkedAsk; readonly ans
             </Answer>
           </>
         )}
-        <Button
+        <Button icon={ExternalLink}
           onClick={() => {
             close();
             openInPane({ environmentId: ask.environmentId, sessionId: ask.sessionId });
@@ -166,25 +168,16 @@ const BulkAnswer = ({ decision, asks, shown, answers }: BulkAnswerProps) => {
     setNamed(undefined);
   };
   return (
-    <Dialog open={named !== undefined} onOpenChange={(opened) => setNamed(opened ? asks : undefined)}>
-      <DialogTrigger asChild>
-        <Button className="border border-line">{verb} all</Button>
-      </DialogTrigger>
-      {named !== undefined && (
-        <DialogContent
-          title={bulkQuestion(decision, named.length)}
-          description={passed === 0 ? undefined : `${passed === 1 ? "The denylist prompt stays" : `The ${passed} denylist prompts stay`}: each is answered on its own.`}
-        >
-          <div className="flex justify-end gap-2">
-            <DialogClose asChild>
-              <Button>Cancel</Button>
-            </DialogClose>
-            <Button tone={decision === "allow" ? "primary" : "danger"} onClick={confirm}>
-              {verb} {named.length}
-            </Button>
-          </div>
-        </DialogContent>
-      )}
-    </Dialog>
+    <AlertDialog open={named !== undefined} onOpenChange={(opened) => setNamed(opened ? asks : undefined)}>
+      <AlertDialogTrigger asChild>
+        <Button icon={decision === "allow" ? Check : X} variant="outline">{verb} all</Button>
+      </AlertDialogTrigger>
+      {named !== undefined && <AlertDialogContent title={bulkQuestion(decision, named.length)} description={passed === 0 ? "Only the permission prompts named in this confirmation are answered." : `${passed === 1 ? "The denylist prompt stays" : `The ${passed} denylist prompts stay`}: each is answered on its own.`}>
+        <DialogFooter>
+          <AlertDialogCancel asChild><Button icon={X} keys="Escape" onClick={() => setNamed(undefined)}>Cancel</Button></AlertDialogCancel>
+          <Button icon={decision === "allow" ? Check : X} tone={decision === "allow" ? "primary" : "danger"} onKeyDown={(event) => { if (decision === "allow" && event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) event.preventDefault(); }} keys={decision === "allow" ? "Space" : "Enter / Space"} onClick={confirm}>{verb} {named.length}</Button>
+        </DialogFooter>
+      </AlertDialogContent>}
+    </AlertDialog>
   );
 };

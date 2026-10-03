@@ -242,7 +242,7 @@ describe("Tags", () => {
     const dialog = await screen.findByRole("dialog", { name: "Tags of “Fix the rail”" });
     const add = within(dialog).getByRole("textbox", { name: "A tag to add" });
     await app.user.type(add, "urgent{Enter}");
-    await waitFor(() => expect(within(within(dialog).getByRole("list", { name: "Its tags" })).getAllByRole("listitem").map((tag) => tag.textContent)).toEqual(["#urgent×", "#wip×"]));
+    await waitFor(() => expect(within(within(dialog).getByRole("list", { name: "Its tags" })).getAllByRole("listitem").map((tag) => tag.textContent)).toEqual(["#urgent", "#wip"]));
     expect(sent(app, "desk", "sessions.tag")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: FIX, tag: "urgent" }]);
 
     // One it has, in any case, is not added again.
@@ -303,16 +303,34 @@ describe("Fork", () => {
 });
 
 describe("Delete and Restore", () => {
+  it("checks activity before enabling Delete and warns when a run is live", async () => {
+    const app = await settled(await two());
+    const env = app.environment("desk");
+    const pending: (() => void)[] = [];
+    env.wire.answer("sessions.get", () => new Promise((resolve) => pending.push(() => resolve({ result: { summary: env.summary(SPARE) } }))));
+    await choose(app, "Spare", "Delete…");
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete “Spare” on desk?" });
+    expect(within(dialog).getByRole("button", { name: "Delete" })).toHaveProperty("disabled", true);
+    expect(within(dialog).getByRole("status").textContent).toBe("Checking whether a run is live…");
+    env.startRun(SPARE, "Check the receipts");
+    await waitFor(() => expect(pending.length).toBeGreaterThan(0));
+    act(() => pending.forEach((release) => release()));
+    expect(await within(dialog).findByText("A run is live on this session. Deleting it stops the run.")).toBeTruthy();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Delete" })).toHaveProperty("disabled", false));
+    await app.user.click(within(dialog).getByRole("button", { name: "Keep it" }));
+    expect(sent(app, "desk", "sessions.delete")).toEqual([]);
+  });
+
   it("asks once before deleting, and Restore lists what sessions.listDeleted holds and restores the one chosen", async () => {
     const app = await settled(await two());
     await choose(app, "Spare", "Delete…");
-    let dialog = await screen.findByRole("dialog", { name: "Delete “Spare” on desk?" });
+    let dialog = await screen.findByRole("alertdialog", { name: "Delete “Spare” on desk?" });
     await app.user.click(within(dialog).getByRole("button", { name: "Keep it" }));
     expect(row("Spare")).toBeDefined();
     expect(sent(app, "desk", "sessions.delete")).toEqual([]);
 
     await choose(app, "Spare", "Delete…");
-    dialog = await screen.findByRole("dialog", { name: "Delete “Spare” on desk?" });
+    dialog = await screen.findByRole("alertdialog", { name: "Delete “Spare” on desk?" });
     await app.user.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(within(sidebar()).queryByRole("button", { name: /Spare/ })).toBeNull());
     expect(sent(app, "desk", "sessions.delete")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: SPARE }]);
@@ -363,7 +381,7 @@ describe("a merged heading", () => {
   it("is deleted, asked once, with one groups.delete per member group, its sessions staying in no group", async () => {
     const app = await settled(await two());
     await app.user.click(within(await groupMenu(app, "Meadowstudios")).getByRole("menuitem", { name: "Delete group…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete the group “Meadowstudios”?" });
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete the group “Meadowstudios”?" });
     expect(within(dialog).getByText("On desk and laptop. Its sessions stay, in no group.")).toBeDefined();
     await app.user.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(drawn()).not.toContain("Meadowstudios"));

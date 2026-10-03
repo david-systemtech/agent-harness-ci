@@ -276,7 +276,10 @@ describe("run info", () => {
 
     await app.user.keyboard("{Control>}i{/Control}");
     const info = await screen.findByRole("region", { name: "The latest run" });
-    const fact = (term: string) => within(info).getByText(term).nextElementSibling?.textContent;
+    const dialog = screen.getByRole("dialog", { name: "Run info" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    for (const name of ["Run", "Account", "Usage", "Capabilities", "Tools"]) expect(within(dialog).getByRole("region", { name })).toBeTruthy();
+    const fact = (term: string) => within(info).getByText(term, { selector: "dt" }).nextElementSibling?.textContent;
     expect(fact("Started by")).toBe("client, attended");
     await waitFor(() => expect(fact("Account")).toBe("work (milo@work.test)"));
     expect(fact("Model")).toBe("claude-opus-4");

@@ -116,6 +116,18 @@ const picker = () => screen.getByRole("dialog", { name: /^Where it works on / })
 /** The picker's one line. */
 const pickerLine = () => within(picker()).queryByRole("status")?.textContent;
 
+it("explains workspace continuity and gives every picker action an icon and a keyboard hint", async () => {
+  const app = await launch();
+  const view = await openPicker(app);
+  expect(within(view).getByText("Changing a workspace may need a new session.")).toBeTruthy();
+  for (const action of within(view).getAllByRole("button")) expect(action.querySelector("svg")).not.toBeNull();
+  const use = within(view).getByRole("button", { name: "Use" });
+  const path = within(view).getByRole("textbox", { name: "A directory on desk" });
+  await app.user.type(path, "/work/harness");
+  act(() => use.focus());
+  expect((await screen.findByRole("tooltip")).textContent).toContain("Enter");
+});
+
 describe("the caption's workspace chip", () => {
   it("shows the kind, the directory's name and a worktree's branch, with the path on hover", async () => {
     const app = await launch();
