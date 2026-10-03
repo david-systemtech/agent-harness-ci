@@ -175,10 +175,10 @@ it("changes enabled and always-on choices through the runtime, explains readines
   const enabled = within(pane()).getByRole("switch", { name: "Enabled draft on this environment" });
   await app.user.click(enabled);
   await waitFor(() => expect(enabled.getAttribute("aria-checked")).toBe("false"));
-  const always = within(pane()).getByRole("switch", { name: "Always-on draft on writer" });
+  const always = within(pane()).getByRole("switch", { name: "Every prompt draft on writer" });
   await app.user.click(always);
   await waitFor(() => expect(always.getAttribute("aria-checked")).toBe("true"));
-  expect(within(pane()).getByText(/400 characters, about 100 tokens on every run/)).toBeDefined();
+  expect(within(pane()).getByText(/400 characters · approximately 100 tokens on every prompt/)).toBeDefined();
   const skillsPane = pane();
   await app.user.click(within(skillsPane).getByRole("button", { name: "Remove own skill" }));
   expect(within(skillsPane).getByText("Draft a clear note.")).toBeDefined();
@@ -251,7 +251,7 @@ it("keeps admin verbs visible and dim with their scope reason, and keeps cached 
   expect(within(pane()).getAllByText(/admin/).length).toBeGreaterThan(0);
   update({ ...initial(), accounts: [...initial().accounts, { accountId: "local", channel: "none", reason: "This adapter cannot append instructions." }] });
   await within(pane()).findByText("This adapter cannot append instructions.");
-  expect(within(pane()).getByRole("switch", { name: "Always-on draft on local" }).hasAttribute("disabled")).toBe(true);
+  expect(within(pane()).getByRole("switch", { name: "Every prompt draft on local" }).hasAttribute("disabled")).toBe(true);
   env.discovery("nothing");
   env.server.drop();
   await within(pane()).findByText(/^Stale:/);
@@ -436,4 +436,12 @@ it("keeps a shadowed own command visible without letting Remove delete its winni
   expect(card).toBeDefined();
   expect(within(card!).getByRole("button", { name: "Remove own skill" }).hasAttribute("disabled")).toBe(true);
   expect(within(card!).getByText("Another own member wins this name; remove that member first.")).toBeDefined();
+});
+
+it("keeps a saved choice visible when its skill disappears from the set", async () => {
+  const { update } = await opened();
+  await within(pane()).findByText("Draft a clear note.");
+  update({ ...initial(), choices: [{ kind: "enabled", name: "missing-procedure", accountId: null, enabled: true }] });
+  const missing = await within(pane()).findByRole("region", { name: "Missing skill missing-procedure" });
+  expect(missing.textContent).toContain("Saved choices apply when this skill is available again.");
 });

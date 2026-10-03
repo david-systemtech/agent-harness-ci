@@ -52,9 +52,9 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
           optipng -o2 packages/gui/gallery-images/*.png
-          # Leave room for ZIP headers under the relay's 32 MiB transport cap.
-          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 25165824
-          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 600
+          # Leave room for ZIP headers under the relay's 64 MiB transport cap.
+          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 50331648
+          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 1200
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: window-gallery
