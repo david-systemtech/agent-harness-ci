@@ -52,9 +52,12 @@ describe("the composer card", () => {
     const { runId } = env.startRun(session, "Check the receipts");
     await waitFor(() => expect(box().placeholder).toBe("Steer the run…"));
     const activity = await screen.findByRole("status", { name: "Run activity" });
-    expect(activity.textContent).toContain("1s");
+    const announcement = activity.textContent;
+    expect(announcement).not.toMatch(/\d+s/);
+    expect(screen.getByText("1s")).toBeDefined();
     act(() => app.clock.advance(2000));
-    await waitFor(() => expect(activity.textContent).toContain("2s"));
+    await screen.findByText("2s");
+    expect(activity.textContent).toBe(announcement);
     env.endRun(session, runId);
     await waitFor(() => expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull());
   });

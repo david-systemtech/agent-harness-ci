@@ -153,7 +153,8 @@ describe("the run", () => {
     });
     await waitFor(() => expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("Running a command"));
     act(() => app.clock.advance(64_000));
-    await waitFor(() => expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("1m 04s"));
+    await screen.findByText("1m 04s");
+    expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("Running a command");
     expect(lineText()).toContain("3.5k tok · $0.042");
     expect(lineText()).not.toContain("Running a command");
 

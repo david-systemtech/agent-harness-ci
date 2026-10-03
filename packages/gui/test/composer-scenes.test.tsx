@@ -25,7 +25,8 @@ it.each(["composer-idle", "composer-running", "composer-slash"])("draws %s with 
   for (const check of geometry) expect(document.querySelector(check.selector)).not.toBeNull();
   if (scene === "composer-running") {
     expect(await screen.findByRole("button", { name: "Stop" })).toBeDefined();
-    expect(screen.getByRole("status", { name: "Run activity" }).textContent).toContain("1s");
+    expect(screen.getByRole("status", { name: "Run activity" }).textContent).toBe("writing");
+    expect(screen.getByText("1s")).toBeDefined();
   } else if (scene === "composer-slash") {
     const menu = await screen.findByRole("listbox", { name: "Commands" });
     expect(within(menu).getAllByRole("option").length).toBeGreaterThan(0);
