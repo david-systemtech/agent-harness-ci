@@ -1,5 +1,6 @@
 import type { EnvironmentView } from "@agent-harness/client-runtime";
-import { Button } from "../ui/index.js";
+import { Link, Power, RotateCw } from "lucide-react";
+import { Button, Tooltip } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { useLocalService } from "./local-service.js";
 import { useOpenPairing } from "./pairing.js";
@@ -21,11 +22,11 @@ export const Remedy = ({ view, startLabel = "Start" }: { readonly view: Environm
     case "start":
       if (service.starting) return null;
       if (service.available.status === "absent") return <span className="text-xs text-ink-faint">{service.available.message}</span>;
-      return <Button onClick={() => service.start(view.environmentId)}>{startLabel}</Button>;
+      return <Tooltip content={startLabel}><Button variant="default" onClick={() => service.start(view.environmentId)}><Power aria-hidden="true" />{startLabel}</Button></Tooltip>;
     case "re-pair":
-      return <Button onClick={() => openPairing({ rePair: view.environmentId })}>Pair again</Button>;
+      return <Tooltip content="Pair again"><Button onClick={() => openPairing({ rePair: view.environmentId })}><Link aria-hidden="true" />Pair again</Button></Tooltip>;
     case "retry":
-      return <Button onClick={() => void runtime.connections.retryNow(view.environmentId).catch(() => undefined)}>Try again</Button>;
+      return <Tooltip content="Try again"><Button onClick={() => void runtime.connections.retryNow(view.environmentId).catch(() => undefined)}><RotateCw aria-hidden="true" />Try again</Button></Tooltip>;
     case undefined:
       return null;
   }
