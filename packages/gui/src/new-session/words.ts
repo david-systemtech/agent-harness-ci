@@ -1,4 +1,4 @@
-import { requestLabel, resolverRefusal, type DispatchFailure, type RefusalPlace, type SessionRow } from "@agent-harness/client-runtime";
+import { requestLabel, resolverRefusal, type DispatchFailure, type RefusalPlace, type SessionRow, type NewSessionView } from "@agent-harness/client-runtime";
 import type { WorkspaceRequest } from "@agent-harness/contracts";
 
 /**
@@ -44,4 +44,11 @@ export const refusalLine = (failure: DispatchFailure, request: WorkspaceRequest,
   if (said !== undefined) return `Not started: ${said}`;
   if (failure.code === "invalid_params" && request.kind === "directory") return `Not started: a workspace is a full path on ${place.where}, or one from its home (~).`;
   return `Not started: ${failure.message}`;
+};
+
+/** Explain the selected account without claiming other signed-in accounts are absent. */
+export const signInLine = (account: NewSessionView["account"], where: string): string | undefined => {
+  if (account.value?.status.state === "signed-in") return undefined;
+  if (account.value !== null && account.options.some((option) => option.status.state === "signed-in")) return `${account.value.label} on ${where} is not signed in.`;
+  return `No account on ${where} is signed in.`;
 };
