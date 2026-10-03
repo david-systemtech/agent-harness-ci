@@ -11,11 +11,29 @@ import { installLines } from "./install-lines.js";
  * updater's documentation.
  */
 
-const FORGEJO: ReleaseSource = { origin: "https://git.systemtech.dev:5526", kind: "forgejo", repository: "david/agent-harness" };
-const RELEASE = "https://git.systemtech.dev:5526/david/agent-harness/releases/download/v0.4.2";
+const FORGEJO: ReleaseSource = { origin: "https://git.example.test", kind: "forgejo", repository: "david/agent-harness" };
+const RELEASE = "https://git.example.test/david/agent-harness/releases/download/v0.4.2";
 const TOKEN_TO_CURL = `printf 'header = "Authorization: token %s"\\n' "$AGENT_HARNESS_TOKEN" | curl -K - -fsSL`;
 
 describe("the install lines", () => {
+  it("downloads public GitHub installers anonymously, even when a private forge token is set in the user's shell", () => {
+    const lines = installLines({ releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" }, version: "0.4.2", channel: "beta", name: "Build box" });
+    expect(lines.unix).toBe("curl -fsSL https://github.com/owner/name/releases/download/v0.4.2/install.sh | sh -s -- --channel beta --name 'Build box'");
+    expect(lines.windows).toBe("& ([scriptblock]::Create((curl.exe -fsSL https://github.com/owner/name/releases/download/v0.4.2/install.ps1) -join \"`n\")) -Channel beta -Name 'Build box'");
+    expect([lines.unix, lines.windows].join("\n")).not.toMatch(/AGENT_HARNESS_TOKEN|Authorization/);
+  });
+
+  it("fetches the versioned public compose file and updater together, makes the updater executable and starts without a registry login", () => {
+    const lines = installLines({ releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" }, version: "0.4.2", channel: "beta", name: "box" });
+    expect(lines.compose).toEqual([
+      "curl -fsSL -o compose.yaml https://github.com/owner/name/releases/download/v0.4.2/compose.yaml",
+      "curl -fsSL -o host-updater.sh https://github.com/owner/name/releases/download/v0.4.2/host-updater.sh",
+      "chmod +x host-updater.sh",
+      "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=box docker compose up -d",
+      "docker compose logs environment",
+    ]);
+  });
+
   it("pipe install.sh into sh and make a script block of install.ps1, with the channel and no name when none is given", () => {
     const lines = installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "" });
     expect(lines.unix).toBe(`${TOKEN_TO_CURL} ${RELEASE}/install.sh | sh -s -- --channel stable`);
@@ -35,19 +53,21 @@ describe("the install lines", () => {
     const lines = installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "box" });
     expect(lines.compose).toEqual([
       `${TOKEN_TO_CURL} -o compose.yaml ${RELEASE}/compose.yaml`,
-      "docker login git.systemtech.dev:5526",
+      `${TOKEN_TO_CURL} -o host-updater.sh ${RELEASE}/host-updater.sh`,
+      "chmod +x host-updater.sh",
+      "docker login git.example.test",
       "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=box docker compose up -d",
       "docker compose logs environment",
     ]);
-    expect(lines.updaterDocs).toBe("https://git.systemtech.dev:5526/david/agent-harness/src/tag/v0.4.2/docs/host-updater.md");
+    expect(lines.updaterDocs).toBe("https://git.example.test/david/agent-harness/src/tag/v0.4.2/docs/host-updater.md");
     expect(installLines({ releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" }, version: "1.0.0", channel: "stable", name: "" }).updaterDocs).toBe(
       "https://github.com/owner/name/blob/v1.0.0/docs/host-updater.md",
     );
   });
 
   it("start the container with the channel alone when no name is given, and the name quoted for sh when one is", () => {
-    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "  " }).compose[2]).toBe("AGENT_HARNESS_CHANNEL=stable docker compose up -d");
-    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Milo's box " }).compose[2]).toBe(
+    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "  " }).compose[4]).toBe("AGENT_HARNESS_CHANNEL=stable docker compose up -d");
+    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Milo's box " }).compose[4]).toBe(
       "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Milo'\\''s box' docker compose up -d",
     );
   });

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -13,7 +13,7 @@ const script = join(import.meta.dirname, "../scripts/gallery-accept.sh");
 const require = createRequire(new URL("../packages/gui/package.json", import.meta.url));
 const core = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
 const { PNG } = require(join(core, "lib/utilsBundle.js")) as {
-  PNG: { sync: { write(image: { width: number; height: number; data: Buffer }): Buffer } };
+  PNG: { sync: { write(image: { width: number; height: number; data: Buffer }, options?: { deflateLevel: number; filterType: number }): Buffer } };
 };
 const png = PNG.sync.write({ width: 1400, height: 900, data: Buffer.alloc(1400 * 900 * 4, 255) });
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -21,7 +21,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 
 async function fixture(mode = "current", captureCount = 1) {
   let image = png;
-  if (mode === "large") image = PNG.sync.write({ width: 1400, height: 900, data: randomBytes(1400 * 900 * 4) });
+  if (mode === "large") image = PNG.sync.write({ width: 1400, height: 900, data: Buffer.alloc(1400 * 900 * 4, 255) }, { deflateLevel: 0, filterType: 0 });
   else if (mode === "total-large") image = Buffer.concat([png, Buffer.alloc(25 * 1024 * 1024)]);
   else if (mode === "response-large") image = Buffer.concat([png, Buffer.alloc(48 * 1024 * 1024)]);
   const folder = mkdtempSync(join(tmpdir(), "gallery-accept-"));
@@ -43,6 +43,7 @@ async function fixture(mode = "current", captureCount = 1) {
         captures.push({ ...captures[0]!, name, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}` });
       }
       if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
+      if (mode === "duplicate") captures.push(captures[0]!);
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
       const manifest = { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
       if (mode === "marker") manifest.body = '<!-- window-gallery {"head":"test-head","captures":[]} -->\n' + manifest.body;
@@ -193,5 +194,17 @@ it.each([
 ])("refuses %s capture bytes before writing any baseline", async (mode, count, message) => {
   const f = await fixture(mode, count);
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining(message) });
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+it.each([
+  ["unsafe", "Invalid or duplicate gallery filename."],
+  ["duplicate", "Invalid or duplicate gallery filename."],
+  ["foreign", "Invalid gallery attachment origin."],
+  ["corrupt", "bytes do not match the reviewed manifest"],
+  ["digest-mismatch", "bytes do not match the reviewed manifest"],
+])("retains %s validation for 204-capture manifests without writing baselines", async (mode, error) => {
+  const f = await fixture(mode, 204);
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining(error) });
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });

@@ -100,8 +100,8 @@ it("requires a modern report version to belong to its containing relay comment",
 });
 
 
-it("preserves a 400-capture reviewed manifest after the open PR head changes", async () => {
-  const f = await fixture("", 400);
+it.each([204, 400])("preserves a %i-capture reviewed manifest after the open PR head changes", async (count) => {
+  const f = await fixture("", count);
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
 });
