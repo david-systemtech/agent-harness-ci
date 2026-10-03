@@ -503,7 +503,7 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     expect(comment).toContain("1 scene matched.");
     expect(comment).toContain("&lt;!-- window-gallery");
     expect(comment.match(/<!-- window-gallery /g)).toHaveLength(1);
-    expect(methods).toEqual(["GET", "POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
+    expect(methods.filter((method) => method !== "GET")).toEqual(["POST", "POST", "POST", "POST", "POST", "PUT", "PUT", "PATCH"]);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
 
@@ -514,6 +514,95 @@ it("prints the failing capture job log when the gallery failed before producing 
   expect(result.stdout).toContain("checks failed at: tests");
   expect(result.stdout).toContain("test failure details");
   expect(apiCalls(f).some((call) => call.stage === "archive")).toBe(false);
+});
+
+/** Real relay and acceptance over an immutable generic-package HTTP peer. */
+async function storedGallery() {
+  const f = await apiFixture();
+  const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+  await run("git", ["-C", f.checkout, "remote", "add", "origin", "https://forge.example.invalid/example/project.git"]);
+  const zip = join(f.checkout, "gallery.zip");
+  const captures = new Map<string, Buffer>();
+  const comments: { id: number; body: string }[] = [];
+  let base = "", failure = "";
+  const server = createServer(async (request, response) => {
+    const path = request.url ?? "";
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const data = Buffer.concat(chunks);
+    response.setHeader("content-type", "application/json");
+    if (request.method === "GET" && path.includes("/pulls/")) response.end(JSON.stringify({ state: "open", merged: false, head: { sha, ref: "build/42-gallery" } }));
+    else if (request.method === "GET" && path.includes("/comments")) response.end(JSON.stringify(comments));
+    else if (request.method === "POST" && path.endsWith("/comments")) {
+      const comment = { id: comments.length + 1, body: (JSON.parse(data.toString()) as { body: string }).body };
+      comments.push(comment); response.end(JSON.stringify(comment));
+    } else if (request.method === "PATCH") {
+      const id = Number(path.split("/").at(-1));
+      comments[id - 1]!.body = (JSON.parse(data.toString()) as { body: string }).body;
+      response.end("{}");
+    } else if (request.method === "POST" && path.endsWith("/assets")) {
+      if (failure === "attachment") { response.writeHead(503).end(); return; }
+      response.end(JSON.stringify({ browser_download_url: failure === "asset-url" ? "https://elsewhere.example.invalid/capture" : `${base}/attachments/capture-${comments.length}` }));
+    } else if (path.startsWith("/api/packages/")) {
+      if (request.method === "PUT") {
+        if (failure === "package") { response.writeHead(503).end(); return; }
+        if (captures.has(path)) { response.writeHead(409).end(); return; }
+        captures.set(path, data); response.writeHead(201).end();
+      } else if (captures.has(path)) response.end(captures.get(path));
+      else response.writeHead(404).end();
+    } else response.end("[]");
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  cleanups.push(() => { server.close(); });
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no fixture address");
+  base = `http://127.0.0.1:${address.port}`;
+  const env = { GH_CI_EVENT: "gallery", FAKE_GALLERY_ZIP: zip, FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests", FORGEJO_URL: base, FORGEJO_REPOSITORY: "example/project" };
+  return {
+    f, sha, comments, captures, env,
+    fail: (stage: string) => { failure = stage; },
+    capture: async (pixel: number) => {
+      await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
+pixel=int(sys.argv[2])
+def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
+png=b'\\x89PNG\\r\\n\\x1a\\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1400,900,8,6,0,0,0))+chunk(b'IDAT',zlib.compress((b'\\0'+bytes([pixel,pixel,pixel,255])*1400)*900))+chunk(b'IEND',b'')
+pathlib.Path(sys.argv[1]+'.png').write_bytes(png)
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+    z.writestr('window-empty.dark.png',png)
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':'window-empty.dark','status':'new','pixelFailed':True,'geometryFailures':[]}]}))`, zip, String(pixel)]);
+      return readFileSync(`${zip}.png`);
+    },
+  };
+}
+
+it("finalizes a rerun on the same head and accepts its newly reviewed bytes while keeping the earlier manifest immutable", async () => {
+  const g = await storedGallery();
+  const first = await g.capture(255);
+  expect((await relay(g.f, g.env)).code).toBe(0);
+  const second = await g.capture(0);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(2);
+  expect(g.comments[1]!.body).not.toContain("Uploading captures");
+  expect([...g.captures.values()]).toEqual([first, second]);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  expect(readFileSync(join(g.f.checkout, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(second);
+});
+
+it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure report when the %s upload fails", async (stage) => {
+  const g = await storedGallery();
+  await g.capture(255);
+  g.fail(stage);
+  const result = await relay(g.f, g.env);
+  expect(result.code).toBe(1);
+  expect(g.comments).toHaveLength(1);
+  const body = g.comments[0]!.body;
+  expect(body).toContain("Gallery upload failed");
+  expect(body).toContain(stage === "asset-url" ? "ValueError" : "HTTP 503");
+  expect(body).toContain("Rerun the gallery job");
+  expect(body).not.toContain("Uploading captures");
+  expect(body).not.toContain("<!-- window-gallery ");
+  expect(body).not.toContain("token-for-tests");
 });
 
 it("attaches discovered component captures in both ladders", async () => {

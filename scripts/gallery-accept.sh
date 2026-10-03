@@ -4,7 +4,7 @@ set -euo pipefail
 [[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr>' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
 python3 - "$root" "$1" <<'PY'
-import json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
+import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
 root = pathlib.Path(sys.argv[1]); number = sys.argv[2]
 remote = urllib.parse.urlsplit(subprocess.check_output(['git', '-C', str(root), 'remote', 'get-url', 'origin'], text=True).strip())
 base = os.environ.get('FORGEJO_URL', f'{remote.scheme}://{remote.netloc}').rstrip('/')
@@ -48,6 +48,9 @@ for comment in comments:
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         manifest = candidate
 if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
+version = manifest.get('version', head)
+if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
+    sys.exit('Invalid gallery capture version.')
 files = manifest.get('captures', [])
 if not files or len(files) > 200: sys.exit('Invalid gallery capture list.')
 accepted = {}; total = 0
@@ -56,9 +59,12 @@ for item in files:
     parsed = urllib.parse.urlsplit(url)
     if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) or name in accepted:
         sys.exit('Invalid or duplicate gallery filename.')
-    if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or parsed.path != f'/api/packages/{repository.split("/")[0]}/generic/window-gallery/{head}/{name}' or parsed.query or parsed.fragment:
+    if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or parsed.path != f'/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}' or parsed.query or parsed.fragment:
         sys.exit('Invalid gallery attachment origin.')
     data = get(url)
+    digest = item.get('sha256')
+    if (version != head or digest is not None) and (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest) or hashlib.sha256(data).hexdigest() != digest):
+        sys.exit('Gallery capture bytes do not match the reviewed manifest.')
     if len(data) < 33 or data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR': sys.exit('Gallery attachment is not a PNG.')
     if struct.unpack('>II', data[16:24]) not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
     total += len(data)

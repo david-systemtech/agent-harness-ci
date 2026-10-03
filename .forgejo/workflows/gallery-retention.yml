@@ -1,0 +1,21 @@
+# Expire unreferenced gallery captures after 30 days, preserving open PR manifests.
+name: gallery-retention
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+concurrency:
+  group: gallery-retention
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    runs-on: relay
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Expire unreferenced captures
+        run: python3 scripts/gallery-retention.py
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_URL: ${{ github.server_url }}
+          FORGEJO_REPOSITORY: ${{ github.repository }}

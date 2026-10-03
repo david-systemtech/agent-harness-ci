@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -31,10 +32,11 @@ async function fixture(mode = "current") {
     response.setHeader("content-type", "application/json");
     if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ head: { sha: "test-head", ref: "build/42-gallery" } }));
     else if (request.url?.includes("/comments")) {
-      const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png` }];
-      if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png` });
+      const version = ["versioned", "digest-mismatch", "wrong-version"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
+      const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : png).digest("hex") }];
+      if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
-      const manifest = { body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", captures }) + ' -->' };
+      const manifest = { body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
       if (mode === "marker") manifest.body = '<!-- window-gallery {"head":"test-head","captures":[]} -->\n' + manifest.body;
       const page = new URL(request.url, base).searchParams.get("page");
       const invalid = mode === "invalid-json" ? "{broken" : mode === "non-object" ? "[]" : mode === "invalid-shape" ? '{"head":"test-head","captures":null}' : undefined;
@@ -95,6 +97,26 @@ it("uses the final current-head manifest after a marker in reported failure text
   const f = await fixture("marker");
   await run("bash", [script, "42"], { env: f.env });
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+});
+
+
+it("accepts an immutable report version through its manifest URL", async () => {
+  const f = await fixture("versioned");
+  await run("bash", [script, "42"], { env: f.env });
+  expect(f.requests).toContain("/api/packages/example/generic/window-gallery/test-head-123/window-empty.dark.png");
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+});
+
+it("refuses bytes that differ from the reviewed manifest without writing a baseline", async () => {
+  const f = await fixture("digest-mismatch");
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("bytes do not match the reviewed manifest") });
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+it("refuses a report version for another head before downloading", async () => {
+  const f = await fixture("wrong-version");
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Invalid gallery capture version") });
+  expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
 });
 
 it.each(["invalid-json", "non-object", "invalid-shape"])("ignores %s markers in other comments while accepting the current capture report", async (mode) => {
