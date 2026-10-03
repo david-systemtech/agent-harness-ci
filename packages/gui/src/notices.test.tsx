@@ -45,8 +45,8 @@ describe("a notice", () => {
     const expired = await toastSaying("This client's session on laptop expired; pair again to reconnect.");
 
     expect(toasts().map((toast) => toast.textContent)).toEqual([
-      "desk is draining: it takes no new runs until it restarts.×",
-      "This client's session on laptop expired; pair again to reconnect.Pair again×",
+      "desk is draining: it takes no new runs until it restarts.",
+      "This client's session on laptop expired; pair again to reconnect.Pair again",
     ]);
     await app.user.click(within(expired).getByRole("button", { name: "Pair again" }));
     expect(await screen.findByRole("dialog", { name: "Pair laptop again" })).toBeDefined();
