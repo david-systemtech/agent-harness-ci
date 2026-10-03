@@ -39,7 +39,7 @@ export const PolicyTicks = ({ environmentId, connection, writable, say }: Policy
   useEffect(() => {
     if (sent !== undefined && sending.current === 0 && alike(sent, recorded)) setSent(undefined);
   }, [sent, recorded]);
-  if (connection.policies === null) return null;
+  if (connection.policies === null || connection.policies.length === 0) return null;
 
   const tick = (policy: string, ticked: boolean) => {
     const next = ticksWith({ policies: connection.policies, ticks: shown }, policy, ticked);

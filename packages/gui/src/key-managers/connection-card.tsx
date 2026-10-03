@@ -81,7 +81,7 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
           <ShieldCheck aria-hidden="true" />{kind === "signed-in" ? "Verified" : "Not verified"}
         </ToneBadge>
       </header>
-      <dl className="grid grid-cols-[minmax(0,112px)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+      <dl className="grid grid-cols-[minmax(0,112px)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs [&_dt]:py-0 [&_dd]:py-0">
         <Fact name="Provider">{KEY_MANAGER_PROVIDER_WORDS[connection.provider]}</Fact>
         <Fact name="Address">{connection.address}</Fact>
         <Fact name="Signs in by">{methodWords(connection)}</Fact>

@@ -54,7 +54,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
   const admin = runtime.capability(environmentId, "keyManagers.connections.add");
   const writable = admin.status === "present";
   return (
-    <div data-access-pane className="flex flex-col gap-3.5">
+    <div data-access-pane className="flex max-w-[768px] flex-col gap-3.5">
       {hint}
       {!ready && (
         <p className="text-sm text-amber">

@@ -1,4 +1,4 @@
-import userEvent from "@testing-library/user-event";
+import { userEvent } from "@testing-library/user-event";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
@@ -27,6 +27,10 @@ it.each([
   const pane = within(settings).getByRole("region", { name });
   const connection = await within(pane).findByRole("region", { name: card });
   expect(within(connection).getByText("Verified")).toBeDefined();
+  if (scene === "settings-key-managers") {
+    expect(within(connection).queryByRole("group", { name: "Policies runs receive" })).toBeNull();
+    expect(await within(pane).findByRole("region", { name: "Move stored tokens" })).toBeDefined();
+  }
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([
     { selector: "[data-settings-dialog]", width: dialogWidth, height: 660 },
     { selector: "[data-access-card]", paddingLeft: 12, paddingTop: 12 },

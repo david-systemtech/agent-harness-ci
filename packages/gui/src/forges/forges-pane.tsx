@@ -34,7 +34,7 @@ export const ForgesPane = () => {
 const ROW_GH: AddForgeGh = { computer: true, machine: false };
 
 const ForgesOn = ({ view }: { readonly view: EnvironmentView }) => (
-  <div data-access-pane className="flex flex-col gap-3.5">
+  <div data-access-pane className="flex max-w-[768px] flex-col gap-3.5">
     <p className="text-sm text-ink-muted">{settingsRow("access.forges").hint}</p>
     <ForgesList view={view} Account={ForgeCard} gh={ROW_GH} />
   </div>
