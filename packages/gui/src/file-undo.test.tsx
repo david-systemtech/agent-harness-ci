@@ -118,7 +118,7 @@ describe("GUI file undo", () => {
     await write(app, "/diff{Enter}");
     const diff = screen.getByRole("region", { name: "Diff" });
     await within(diff).findByRole("article", { name: "src/app.ts" });
-    await within(diff).findAllByText("+after");
+    await within(diff).findAllByText((_, element) => element?.textContent === "+after");
     const result = { changeId: CHANGE, path: "src/app.ts", action: "restored" as const };
     const consume = () => { changed.files = []; tree.diff = ""; };
     if (source === "receipt") {

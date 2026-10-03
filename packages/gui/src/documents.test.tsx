@@ -184,6 +184,8 @@ describe("the Preview pane", () => {
     env.writeFile(session, runId, "src/app.ts", "export {};\n");
     const transcript = screen.getByRole("region", { name: "Transcript" });
     const tile = await within(transcript).findByRole("button", { name: "Preview site/index.html" });
+    expect(tile.querySelector("svg")).not.toBeNull();
+    expect(tile.getAttribute("title")).toContain("Enter or Space");
     // One tile a document, however many of the run's calls wrote it; none for a file that is no document.
     expect(within(transcript).getAllByRole("button", { name: /^Preview / })).toHaveLength(1);
 
