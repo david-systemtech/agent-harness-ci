@@ -2,8 +2,8 @@ import { ceilingAboveOwn, offeredPresets, type EnvironmentView } from "@agent-ha
 import { MODES, SCOPES, pairingPreset, presetGrant, type Ceiling, type PairingPresetId, type Scope } from "@agent-harness/contracts";
 import { useId, useState } from "react";
 import { nameOf } from "../connections/words.js";
-import { classes } from "../ui/classes.js";
-import { Select } from "../ui/index.js";
+import { ChoiceList } from "../settings/part.js";
+import { Checkbox, Select } from "../ui/index.js";
 import { PairingCode } from "./pairing-code.js";
 
 /**
@@ -22,7 +22,6 @@ export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentVi
   const [chosen, choose] = useState<PairingPresetId>(offered.preset.id);
   const [ceilings, pickCeiling] = useState<Partial<Record<PairingPresetId, Ceiling>>>({});
   const [ticked, tick] = useState<readonly Scope[]>(pairingPreset("custom").scopes);
-  const group = useId();
   const ceilingId = useId();
 
   // A choice made before this client's own ceiling was known may be dim now: the one offered first stands in for it.
@@ -38,41 +37,26 @@ export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentVi
 
   return (
     <div className="flex flex-col gap-2">
-      <fieldset className="flex flex-col gap-1.5">
-        <legend className="mb-1 text-xs text-ink-muted">What the code grants</legend>
-        {offered.presets.map(({ preset: offer, words, dim }) => (
-          <div key={offer.id} className="flex flex-wrap items-baseline gap-x-2">
-            <label className={classes("flex items-center gap-1.5 text-sm", dim === null ? "text-ink" : "text-ink-faint")}>
-              <input
-                type="radio"
-                name={group}
-                className="accent-beam"
-                checked={current === offer.id}
-                disabled={!writable || dim !== null}
-                onChange={() => choose(offer.id)}
-              />
-              {offer.name}
-            </label>
-            <span className={classes("text-xs", dim === null ? "text-ink-muted" : "text-ink-faint")}>{dim ?? words}</span>
-          </div>
-        ))}
-      </fieldset>
+      <ChoiceList label="What the code grants" value={current} choices={offered.presets.map(({ preset: offer, words, dim }) => ({
+        value: offer.id, label: offer.name, note: words,
+        ...(!writable ? { disabledReason: "Read-only on this environment." } : dim !== null ? { disabledReason: dim } : {}),
+      }))} onValueChange={(value) => choose(value as PairingPresetId)} />
       {preset.chooses === "scopes-and-ceiling" && (
         <div role="group" aria-label="Scopes" className="flex flex-wrap gap-3">
           {SCOPES.map((scope) => (
-            <label key={scope} className="flex items-center gap-1.5 text-sm text-ink">
-              <input type="checkbox" className="accent-beam" checked={ticked.includes(scope)} disabled={!writable} onChange={(event) => setTicked(scope, event.target.checked)} />
+            <label key={scope} className="flex items-center gap-1.5 font-mono text-2xs text-ink">
+              <Checkbox aria-label={scope} title={`${scope} (Space)`} checked={ticked.includes(scope)} disabled={!writable} onCheckedChange={(on) => setTicked(scope, on === true)} />
               {scope}
             </label>
           ))}
         </div>
       )}
       {preset.chooses !== "nothing" && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <label htmlFor={ceilingId} className="text-xs text-ink-muted">
             Ceiling
           </label>
-          <Select id={ceilingId} value={ceiling} disabled={!writable} onChange={(event) => pickCeiling((now) => ({ ...now, [current]: event.target.value as Ceiling }))}>
+          <Select title="Ceiling (Arrow keys)" id={ceilingId} value={ceiling} disabled={!writable} onChange={(event) => pickCeiling((now) => ({ ...now, [current]: event.target.value as Ceiling }))}>
             {MODES.map((mode) => (
               <option key={mode} value={mode} disabled={ceilingAboveOwn(mode, view.ceiling, environment) !== null}>
                 {mode}

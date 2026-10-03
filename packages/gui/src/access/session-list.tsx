@@ -1,7 +1,8 @@
+import { KeyRound, Laptop, Terminal, Bot } from "lucide-react";
 import { OWN_CEILING, clientSessionWords, type ClientSessionSummary } from "@agent-harness/client-runtime";
 import { MODES, type Ceiling } from "@agent-harness/contracts";
 import { useId } from "react";
-import { Button, Select } from "../ui/index.js";
+import { Badge, Button, Select } from "../ui/index.js";
 import { useClock } from "../window-context.js";
 
 export interface SessionListProps {
@@ -39,13 +40,15 @@ interface SessionItemProps extends Pick<SessionListProps, "writable" | "setCeili
 const SessionItem = ({ session, own, writable, setCeiling, revoke }: SessionItemProps) => {
   const clock = useClock();
   const ceiling = useId();
+  const Icon = session.kind === "program" ? Bot : session.kind === "tui" ? Terminal : Laptop;
   const why = useId();
   return (
-    <li aria-label={session.label} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line p-3">
+    <li aria-label={session.label} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-panel p-3">
       <div className="flex min-w-0 flex-col gap-0.5 text-sm">
-        <p className="text-ink">
-          <span className="font-semibold">{session.label}</span>
-          {own && <span className="ml-2 rounded-sm bg-wash px-1.5 text-xs text-ink-muted">This client</span>}
+        <p className="flex flex-wrap items-center gap-2 text-xs text-ink">
+          <Icon aria-hidden="true" className="size-4 shrink-0" />
+          <span className="font-medium">{session.label}</span>
+          {own && <Badge variant="secondary">This client</Badge>}
         </p>
         <p className="text-xs text-ink-muted">{clientSessionWords(session, clock.now())}</p>
         {own && (
@@ -54,12 +57,13 @@ const SessionItem = ({ session, own, writable, setCeiling, revoke }: SessionItem
           </p>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={ceiling} className="text-xs text-ink-muted">
           Ceiling
         </label>
         <Select
           id={ceiling}
+          title="Ceiling (Arrow keys)"
           value={session.ceiling}
           disabled={!writable || own}
           {...(own && { "aria-describedby": why })}
@@ -71,8 +75,8 @@ const SessionItem = ({ session, own, writable, setCeiling, revoke }: SessionItem
             </option>
           ))}
         </Select>
-        <Button tone="danger" disabled={!writable} onClick={() => revoke(session)}>
-          Revoke…
+        <Button tone="danger" disabled={!writable} onClick={() => revoke(session)} title="Revoke… (Enter or Space)">
+          <KeyRound aria-hidden="true" data-icon="inline-start" />Revoke…
         </Button>
       </div>
     </li>

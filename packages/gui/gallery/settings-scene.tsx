@@ -1,3 +1,5 @@
+import type { Script } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { SettingsRowId } from "@agent-harness/contracts";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect } from "react";
@@ -6,16 +8,16 @@ import type { SceneGeometry, SceneViewport } from "./scene-registry.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 /** Real Settings over the session window, with only fake accounts and environments. */
-export async function settingsScene(search: boolean) {
-  const prepared = await prepareWorld({ environments: [
+export async function settingsScene(search: boolean, row: SettingsRowId = "accounts.accounts", script: Script = { environments: [
     { name: "desk", reach: "local", accounts: [{ label: "Personal" }, { label: "Project" }] },
     { name: "laptop", reach: "paired", accounts: [{ label: "Travel" }] },
-  ] }, { presentation: { settingsRow: "accounts.accounts" } });
+  ] }, action?: string) {
+  const prepared = await prepareWorld(script, { presentation: { settingsRow: row } });
   const holders = await startWorld(prepared, prepared.paired);
   return function SettingsScene({ ladder }: { readonly ladder: LadderName }) {
     useEffect(() => {
       holders.presentation.set("lightOrDark", ladder);
-      prepared.shell.openDeepLink(settingsDeepLink("accounts.accounts"));
+      prepared.shell.openDeepLink(settingsDeepLink(row));
       if (!search) return;
       const fill = () => {
         const field = document.querySelector<HTMLInputElement>('[data-settings-dialog] input[type="search"]');
@@ -29,6 +31,20 @@ export async function settingsScene(search: boolean) {
       fill();
       return () => observer.disconnect();
     }, [ladder]);
+    useEffect(() => {
+      if (action === undefined) return;
+      const activate = () => {
+        const button = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-settings-pane] button"))
+          .find((candidate) => candidate.textContent === action && !candidate.disabled);
+        if (button === undefined) return;
+        observer.disconnect();
+        button.click();
+      };
+      const observer = new MutationObserver(activate);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+      activate();
+      return () => observer.disconnect();
+    }, []);
     useEffect(() => () => {
       holders.stopFollowing();
       void holders.presentation.close();
