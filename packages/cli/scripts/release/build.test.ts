@@ -58,8 +58,8 @@ describe("the release build", { timeout: BUILD_MS }, () => {
     expect(modulePath).toBeDefined();
     await buildRelease(build.options({ platforms: ["darwin-arm64"] }), {
       ...build.seams,
-      compile: async (repository) => {
-        await build.seams.compile?.(repository);
+      compile: async (repository, version) => {
+        await build.seams.compile?.(repository, version);
         const directory = join(repository, "packages/environment/dist/serve");
         mkdirSync(directory, { recursive: true });
         writeFileSync(join(directory, "interfaces.js"), "export const tailscaleDetector = () => {}; export const bindPlan = () => {};\n");
@@ -110,7 +110,7 @@ describe("the release build", { timeout: BUILD_MS }, () => {
     expect(readdirSync(join(root, "node"), { recursive: true }).sort()).toEqual(["LICENSE", "bin", "bin/node"]);
     expect(readdirSync(join(root, "packages"))).toEqual(["cli"]);
     expect(text(join(root, "packages", "cli", "dist", "main.js"))).toBe(text(join(build.root, "packages", "cli", "dist", "main.js")));
-    expect(readdirSync(join(root, "node_modules", "@agent-harness")).sort()).toEqual(["contracts", "environment"]);
+    expect(readdirSync(join(root, "node_modules", "@agent-harness")).sort()).toEqual(["contracts", "environment", "extension"]);
     expect(text(join(root, "node_modules", "@agent-harness", "environment", "dist", "index.js"))).toBe(text(join(build.root, "packages", "environment", "dist", "index.js")));
     expect(existsSync(join(root, "node_modules", "@agent-harness", "environment", "node_modules"))).toBe(false);
     expect(readdirSync(join(root, "node_modules")).filter((name) => name.startsWith("."))).toEqual([]);
@@ -146,7 +146,7 @@ describe("the release build", { timeout: BUILD_MS }, () => {
     await buildRelease(build.options({ tag: "v1.2.0-beta.3", platforms: ["linux-x64"] }), build.seams);
     const root = unpack("agent-harness-linux-x64.tar.gz");
     expect(declaredVersion(root)).toEqual({ version: "1.2.0-beta.3", launcherProtocol: LAUNCHER_PROTOCOL });
-    for (const name of ["contracts", "environment"]) {
+    for (const name of ["contracts", "environment", "extension"]) {
       expect(JSON.parse(text(join(root, "node_modules", "@agent-harness", name, "package.json")))).toMatchObject({ name: `@agent-harness/${name}`, version: "1.2.0-beta.3" });
     }
     expect(JSON.parse(text(join(build.root, "packages", "cli", "package.json")))).toMatchObject({ version: "0.0.0" });

@@ -14,8 +14,8 @@ it("ships the built validator as a resolvable contracts asset in the server arte
   fixture = fixtureBuild();
   await buildRelease(fixture.options({ platforms: ["linux-x64"] }), {
     ...fixture.seams,
-    compile: async (root) => {
-      await fixture.seams.compile!(root);
+    compile: async (root, version) => {
+      await fixture.seams.compile!(root, version);
       const asset = join(root, "packages/contracts/dist/bank-validator/validate.mjs");
       mkdirSync(dirname(asset), { recursive: true });
       await buildBankValidator({ outFile: asset });

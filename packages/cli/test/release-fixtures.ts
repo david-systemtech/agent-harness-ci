@@ -41,7 +41,7 @@ const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /**
  * The fixture workspace: the CLI depending on contracts and the environment,
- * the environment on contracts, and a GUI package no artefact carries; each
+ * the environment on contracts, the separately bundled extension, and a GUI package no artefact carries; each
  * with a `dist`, and a lockfile whose importers name them all.
  */
 const writeWorkspace = (root: string): void => {
@@ -65,6 +65,8 @@ const writeWorkspace = (root: string): void => {
       "  packages/contracts: {}",
       "",
       "  packages/environment: {}",
+      "",
+      "  packages/extension: {}",
       "",
       "  packages/gui: {}",
       "",
@@ -92,6 +94,7 @@ const writeWorkspace = (root: string): void => {
       dependencies: { "@agent-harness/contracts": "workspace:*", "@anthropic-ai/claude-agent-sdk": "0.3.283" },
       optionalDependencies: { "@napi-rs/keyring": "2.1.0", "node-pty": "1.1.0" },
     },
+    extension: { name: "@agent-harness/extension", version: "0.0.0", private: true, type: "module", dependencies: { "@agent-harness/contracts": "workspace:*" } },
     gui: { name: "@agent-harness/gui", version: "0.0.0", private: true, type: "module", dependencies: { "@agent-harness/contracts": "workspace:*" } },
   };
   for (const [dir, manifest] of Object.entries(packages)) {
@@ -163,8 +166,10 @@ export const bundledExecutable = () => {
 };
 `;
 
-/** What `tsc -b packages/cli` leaves: each package's `dist`, the GUI's included; the CLI and the environment as their stand-ins. */
-export const compileWorkspace = (root: string, quirks: CliQuirks = {}): void => {
+/** What the workspace compilation and extension build leave: each package's `dist`, the GUI's included; the CLI, environment and extension as stand-ins. */
+export const compileWorkspace = (root: string, quirks: CliQuirks = {}, version = "0.5.0"): void => {
+  write(join(root, "packages/extension/dist/manifest.json"), json({ manifest_version: 3, version_name: version, background: { service_worker: "worker.js" }, options_ui: { page: "options.html" } }));
+  for (const asset of ["worker.js", "options.js", "options.html"]) write(join(root, "packages/extension/dist", asset), "fixture extension asset\n");
   write(join(root, "packages", "cli", "dist", "main.js"), fixtureCli(quirks));
   write(join(root, "packages", "environment", "dist", "index.js"), fixtureEnvironment(quirks));
   for (const dir of ["contracts", "gui"]) write(join(root, "packages", dir, "dist", "index.js"), `export const name = ${JSON.stringify(dir)};\n`);
@@ -285,9 +290,9 @@ export const fixtureBuild = ({ host = "linux-x64", runHostArtefact = false, quir
     repoRoot: root,
     host,
     work: join(base, "work"),
-    compile: async (repository) => {
+    compile: async (repository, version) => {
       state.compiled += 1;
-      compileWorkspace(repository, quirks);
+      compileWorkspace(repository, quirks, version);
     },
     installDependencies: fixtureInstall,
     nodeRuntime: { version: FIXTURE_NODE_VERSION, sha256 },
