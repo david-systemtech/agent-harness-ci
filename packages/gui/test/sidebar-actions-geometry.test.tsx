@@ -18,6 +18,8 @@ it.each([1400, 1024])("covers action text and shortcut bounds in the 20px scene 
   try {
     await waitFor(() => expect(root.dataset["galleryReady"]).toBe("window-scale-20"));
     const checks = JSON.parse(root.dataset["galleryGeometry"] ?? "[]") as SceneGeometry[];
+    // §9.1 fixes the desktop frame at 44px even when rem content scales.
+    expect(checks).toContainEqual({ selector: "[data-window-header]", height: 44 });
     const content = checks.filter((check) => check.contentFits);
     expect(content).toHaveLength(3);
     for (const check of content) {
