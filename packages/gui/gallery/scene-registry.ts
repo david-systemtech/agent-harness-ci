@@ -32,6 +32,8 @@ export interface SceneModule {
   /** Arrange readings or run events on each fresh world before the app mounts. */
   readonly arrange?: (world: ScriptedWorld, shell: FakeShell) => void;
   readonly presentation?: Partial<PresentationValues>;
+  /** Run scene steps once the window and its event handlers have mounted. */
+  readonly activate?: () => void;
   readonly geometry?: readonly SceneGeometry[] | ((viewport: SceneViewport) => readonly SceneGeometry[]);
   /** Wait for asynchronously drawn pane content before measuring or capturing it. */
   readonly readySelector?: string;
