@@ -5,10 +5,11 @@ import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings } = await import(script) as {
+const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings } = await import(script) as {
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
+  openPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
 };
 
 /** The smoke's CDP boundary evaluates in a page exposing the preload's shell; no Electron or service manager runs. */
@@ -31,6 +32,30 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("retries transient page-context errors during preload, control, and Settings readiness", async () => {
+    const dom = new JSDOM('<button aria-label="Settings">Settings</button>');
+    try {
+      const attempts = new Map<string, number>();
+      let clicks = 0;
+      dom.window.document.querySelector("button")?.addEventListener("click", () => {
+        clicks++;
+        dom.window.document.body.innerHTML += '<section aria-label="Settings"></section>';
+      });
+      const evaluate = async (expression: string): Promise<unknown> => {
+        const count = (attempts.get(expression) ?? 0) + 1;
+        attempts.set(expression, count);
+        if (count === 1) throw new Error("Packaged page evaluation failed");
+        return runInNewContext(expression, { document: dom.window.document, window: { desktopShell: {} } });
+      };
+      await openPackagedSettings(evaluate);
+      expect([...attempts.values()]).toEqual([2, 2, 2]);
+      expect(clicks).toBe(1);
+      expect(await packagedSettingsOpen(evaluate)).toBe(true);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("waits for the Settings control to mount before clicking it", async () => {
     const dom = new JSDOM("<main></main>");
     try {

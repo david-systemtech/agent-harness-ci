@@ -33,6 +33,15 @@ export async function clickPackagedSettings(evaluate) {
   })()`);
 }
 
+/** Waits for the packaged page and opens its Settings control through CDP. */
+export async function openPackagedSettings(evaluate) {
+  // The target can appear while its execution context is still being replaced.
+  const ready = (check, message) => until(() => check().catch(() => false), message);
+  await ready(() => evaluate("typeof window.desktopShell === 'object'"), "The packaged preload did not load");
+  await ready(() => clickPackagedSettings(evaluate), "The Settings control did not mount");
+  await ready(() => packagedSettingsOpen(evaluate), "Settings did not open after replacement");
+}
+
 /** Runs on hosted macOS only. The credential stays inside the page; no token is returned or logged. */
 export async function askForPackagedUpdate(evaluate, version) {
   const result = await evaluate(`(async () => {
@@ -217,9 +226,7 @@ try {
     // Record a spawn failure so it is surfaced by the bounded page check and still cleans the service.
     desktop.on("error", () => {});
     cdp = await connectCdp(port);
-    await until(() => cdp.evaluate("typeof window.desktopShell === 'object'"), "The packaged preload did not load");
-    await until(() => clickPackagedSettings(cdp.evaluate), "The Settings control did not mount");
-    await until(() => packagedSettingsOpen(cdp.evaluate), "Settings did not open after replacement");
+    await openPackagedSettings(cdp.evaluate);
     await askForPackagedUpdate(cdp.evaluate, version);
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Reading the existing credential must preserve it");
     const after = await until(async () => {
