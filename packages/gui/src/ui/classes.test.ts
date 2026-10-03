@@ -1,4 +1,3 @@
-/* eslint-disable agent-harness/no-unmapped-colour-class -- text-2xs is the typography step declared in styles.css, not a colour. */
 import { describe, expect, it } from "vitest";
 import { cn, classes } from "./classes.js";
 

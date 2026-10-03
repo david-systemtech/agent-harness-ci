@@ -1,5 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
+import { discoverScenes, type SceneModule } from "../gallery/scene-registry.js";
 import { mountGallery } from "../gallery/mount.js";
 
 let close: (() => Promise<void>) | undefined;
@@ -26,4 +27,38 @@ it("renders the real empty window on a ready environment and marks the scene rea
 
 it("refuses an unknown scene rather than capturing a different window", async () => {
   await expect(mountGallery(document.createElement("div"), "missing-scene")).rejects.toThrow("Unknown gallery scene");
+});
+
+it("renders the scripted window in the requested light ladder", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "window-empty", "light");
+  close = gallery.close;
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("window-empty"));
+  expect(document.documentElement.dataset["ladder"]).toBe("light");
+  expect(gallery.world.presentation.values.read().lightOrDark).toBe("light");
+});
+
+it("discovers a component scene and mounts its controls and geometry in each ladder", async () => {
+  const registry = discoverScenes(import.meta.glob<SceneModule>("./fixtures/gallery/*.tsx", { eager: true }));
+  expect(Object.keys(registry)).toEqual(["sample-controls"]);
+  for (const ladder of ["light", "dark"] as const) {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const gallery = await mountGallery(container, "sample-controls", ladder, registry);
+    close = gallery.close;
+    await waitFor(() => expect(container.dataset["galleryReady"]).toBe("sample-controls"));
+    expect(screen.getByRole("button", { name: "Add item" }).getAttribute("data-ladder")).toBe(ladder);
+    expect(screen.getByRole("textbox", { name: "Item name" })).not.toBeNull();
+    expect(screen.queryByRole("region", { name: "Session pane" })).toBeNull();
+    expect(document.documentElement.dataset["ladder"]).toBe(ladder);
+    expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual([
+      { selector: "button", height: 32 }, { selector: "input", height: 32 },
+    ]);
+    await gallery.close();
+    close = undefined;
+    expect(container.dataset["galleryReady"]).toBeUndefined();
+    expect(container.dataset["galleryGeometry"]).toBeUndefined();
+    container.remove();
+  }
 });
