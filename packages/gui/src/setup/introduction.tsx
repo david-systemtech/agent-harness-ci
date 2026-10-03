@@ -30,7 +30,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
   const starting = !localReady && !failed && !off && !unavailable && (service.starting || local === undefined || ["starting", "connecting", "syncing", "draining", "updating"].includes(local.phase));
   const StateIcon = localReady ? Check : failed ? CircleAlert : starting ? LoaderCircle : Monitor;
   const status = localReady ? "The environment on this machine is ready" : failed ? "The environment could not start on this machine." : off ? "This machine’s environment is turned off" : unavailable ? "This machine cannot start an environment" : stopped ? "The environment on this machine is not running" : local === undefined || service.starting || local.phase === "starting" ? "Starting the environment on this machine" : phaseSentence(local, false);
-  const description = localReady ? "You can sign in and start a session here." : failed ? "Try again to get this machine ready for your first session." : off ? "Turn on this machine’s environment or pair with another machine to begin set up." : unavailable ? "Pair with an environment on another machine to begin set up." : stopped ? "Start it again to get this machine ready for your first session." : starting ? "This background service runs your agents and keeps your sessions available. This usually takes a few seconds." : "You can pair with another environment or set up later.";
+  const description = localReady ? "You can sign in and start a session here." : failed ? "Try again to get this machine ready for your first session." : off ? "Turn on this machine’s environment to run sessions here, or use another machine’s environment." : unavailable ? "You can pair with an environment on another machine." : stopped ? "Start it again to get this machine ready for your first session." : starting ? "This background service runs your agents and keeps your sessions available. This usually takes a few seconds." : "You can pair with another environment or set up later.";
   return <section aria-labelledby={heading} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-abyss text-ink">
     <header data-setup-frame className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline bg-panel px-4">
       <Sparkles aria-hidden="true" className="size-4 text-beam-text" /><span className="text-sm font-semibold">agent-harness</span>
@@ -67,7 +67,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
             {service.available.status !== "present" && <p className="text-xs text-ink-muted">{service.available.reason}</p>}
             {failed && <Tooltip content="Start details · Tab, Enter"><div><Fold summary="Start details" open={details} onOpenChange={showDetails}><p className="break-words text-xs text-ink-muted">{service.failure}</p></Fold></div></Tooltip>}
             {(failed || stopped) && runHere && service.available.status === "present" && <Tooltip content="Try again · Tab, Enter"><Button variant="outline" className="self-start" disabled={service.starting || service.available.status !== "present"} onClick={() => service.start(local?.environmentId ?? LOCAL_PLACEHOLDER_ID)}><RotateCw aria-hidden="true" />Try again</Button></Tooltip>}
-            {ready && !localReady && <p className="text-sm text-mint">Your home environment is ready. You can set it up while this machine starts.</p>}
+            {ready && !localReady && <p className="text-sm text-mint">Your home environment is ready. You can begin set up.</p>}
           </div>
         </div>
         <div className="flex flex-col gap-3">
