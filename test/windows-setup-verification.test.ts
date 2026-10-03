@@ -33,7 +33,7 @@ const setup = (payload?: Uint8Array) => {
   packZip(join(scratch, "wrapper"), join(scratch, "desktop/agent-harness-desktop-win32-x64-setup.exe"));
   mkdirSync(join(scratch, "scripts"));
   const bootstrap = join(root, "scripts/7zip.sh");
-  if (existsSync(bootstrap)) copyFileSync(bootstrap, join(scratch, "scripts/7zip.sh"));
+  copyFileSync(bootstrap, join(scratch, "scripts/7zip.sh"));
   const bin = join(scratch, "bin");
   mkdirSync(bin);
   const tools = join(scratch, "reader");
