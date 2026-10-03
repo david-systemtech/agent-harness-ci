@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContextReportedPayload",
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contextTokens": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Input tokens of the latest main request, including cache reads and writes; excludes output and delegated requests."
+    },
+    "contextWindow": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "This model's context window, only when reported by the provider."
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    }
+  },
+  "required": [
+    "model",
+    "contextTokens",
+    "contextWindow",
+    "runId"
+  ],
+  "description": "context.reported: replaces the run's latest main request context reading."
+}

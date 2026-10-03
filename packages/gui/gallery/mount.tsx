@@ -17,7 +17,10 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
   definition.arrange?.(world.world);
   const root = createRoot(container);
   const Component = definition.default;
-  container.dataset["galleryGeometry"] = JSON.stringify(definition.geometry ?? []);
+  const geometry = typeof definition.geometry === "function"
+    ? definition.geometry({ width: window.innerWidth, height: window.innerHeight })
+    : definition.geometry ?? [];
+  container.dataset["galleryGeometry"] = JSON.stringify(geometry);
   const Ready = () => {
     useEffect(() => {
       if (Component !== undefined) paintLadder(document.documentElement, derive(DEFAULT_THEME)[ladder], ladder);

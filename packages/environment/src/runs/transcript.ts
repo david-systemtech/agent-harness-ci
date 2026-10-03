@@ -30,6 +30,7 @@ import {
   type ToolUpdatedPayload,
   type TranscriptItem,
   type UsageReportedPayload,
+  type ContextReportedPayload,
 } from "@agent-harness/contracts";
 import { parseActor } from "../event-log/envelope.js";
 import { decodeEvent, type EventRow } from "../event-log/database.js";
@@ -311,6 +312,15 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
           usage: payload.usage ?? run.usage,
           durationMs: payload.durationMs,
         });
+        break;
+      }
+      case "context.reported": {
+        const { runId, ...context } = event.payload as ContextReportedPayload;
+        const run = runs.get(runId);
+        if (run !== undefined) {
+          run.context = context;
+          if (context.contextWindow !== null) run.contextWindows = { ...run.contextWindows, [context.model]: context.contextWindow };
+        }
         break;
       }
       case "usage.reported": {

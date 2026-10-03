@@ -61,6 +61,7 @@ const VOCABULARY = [
   "command.ran",
   "tasks.changed",
   "usage.reported",
+  "context.reported",
   "plan.limit",
   "session.provider-linked",
   "session.forked",

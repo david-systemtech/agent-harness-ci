@@ -214,7 +214,7 @@ describe("a run", () => {
     const promptId = input.prompt[0]?.messageId as string;
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [promptId]), sdk.blockStart(0), sdk.textDelta(0, "Hel"), sdk.textDelta(0, "lo."), sdk.text("msg_1", "Hello."), sdk.result(PROVIDER_SESSION));
     const events = await drain(run);
-    expect(events.map((event) => event.type)).toEqual(["session.provider-linked", "assistant.delta", "assistant.text", "end"]);
+    expect(events.map((event) => event.type)).toEqual(["session.provider-linked", "assistant.delta", "context.reported", "assistant.text", "end"]);
     expect(events[1]).toEqual({ type: "assistant.delta", payload: { itemId: "msg_1:0", fragments: [{ kind: "text", text: "Hello." }] } });
     expect(ends(events)).toEqual([{ type: "end", reason: "completed", cause: null, error: null, usage: null, turnCount: 1, resultText: "Done." }]);
   });
@@ -266,7 +266,7 @@ describe("a run", () => {
     const query = await started();
     query.emit(sdk.init(PROVIDER_SESSION), sdk.text("msg_1", "Hi."), sdk.result(PROVIDER_SESSION));
     await vi.waitFor(() => expect(query.prompts).toHaveLength(1));
-    expect((await drain(run)).map((event) => event.type)).toEqual(["session.provider-linked", "assistant.text", "end"]);
+    expect((await drain(run)).map((event) => event.type)).toEqual(["session.provider-linked", "context.reported", "assistant.text", "end"]);
     expect(() => run.events[Symbol.asyncIterator]()).toThrow(/read once/);
   });
 
@@ -1906,7 +1906,7 @@ describe("a turn the provider opens on its own", () => {
     expect(adopted.messageIds).toEqual([]);
     adopted.onAdopted?.("run-adopted");
     const events = await drain(adopted);
-    expect(events.map((event) => event.type)).toEqual(["session.provider-linked", "tasks.changed", "assistant.text", "end"]);
+    expect(events.map((event) => event.type)).toEqual(["session.provider-linked", "tasks.changed", "context.reported", "assistant.text", "end"]);
     expect(events[1]).toMatchObject({ payload: { tasks: [expect.objectContaining({ taskId: "task_1", status: "completed" })] } });
     expect(ends(events)).toHaveLength(1);
   });

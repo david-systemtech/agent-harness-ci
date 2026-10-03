@@ -1,3 +1,4 @@
+import type { SceneGeometry, SceneViewport } from "../scene-registry.js";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect } from "react";
 import { App } from "../../src/app.js";
@@ -56,7 +57,8 @@ export async function sessionScene(kind: "conversation" | "streaming" | "find") 
 
 export default await sessionScene("conversation");
 
-export const geometry = [
-  { selector: '[aria-label="Transcript"] > div', width: 920 },
+/** Comfortable column: at most 920px, inside the 224px sidebar, 21px frame and 2px card border. */
+export const geometry = ({ width }: SceneViewport): readonly SceneGeometry[] => [
+  { selector: '[aria-label="Transcript"] > div', width: Math.min(920, width - 247) },
   { selector: '[data-measure="transcript-spine"]', width: 56 },
 ];
