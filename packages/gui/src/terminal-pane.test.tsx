@@ -5,7 +5,6 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { FitAddon } from "@xterm/addon-fit";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
-import { XTERM_FALLBACK_THEME } from "./terminal/xterm-fallback-theme.js";
 
 /**
  * The Terminal pane (docs/specs/gui.md, "The seven panes and the grid";
@@ -201,7 +200,7 @@ describe("the Terminal pane", () => {
     expect(line()).toBeNull();
   });
 
-  it("draws in the theme's tokens, the colours no token names in its fallback theme, and again in the tokens of a theme painted after", async () => {
+  it("draws transparent mono output and the measured ANSI tokens, then rethemes the mounted terminal", async () => {
     const { app } = await opened({ terminals: [{ id: FIRST, output: "$ " }] });
     await open(app);
     await drawn(["$"]);
@@ -215,14 +214,31 @@ describe("the Terminal pane", () => {
     const written = (hex: string) => Object.assign(document.createElement("span").style, { color: hex }).color;
 
     expect(colourOf(".xterm-rows")).toBe(written(toHex(dark.ink)));
-    // The accent in magenta and thinking in blue, as the terminal UI's roles map them; black is no role's.
-    expect(colourOf(".xterm-fg-5")).toBe(written(toHex(dark.beam)));
-    expect(colourOf(".xterm-fg-4")).toBe(written(toHex(dark.sage)));
-    expect(colourOf(".xterm-fg-0")).toBe(written(XTERM_FALLBACK_THEME.black));
-    expect((pane().querySelector(".xterm-scrollable-element") as HTMLElement).style.backgroundColor).toBe(written(toHex(dark.inset)));
+    expect(colourOf(".xterm-fg-5")).toBe(written(toHex(dark["beam-text"])));
+    expect(colourOf(".xterm-fg-4")).toBe(written(toHex(dark.cyan)));
+    expect(colourOf(".xterm-fg-0")).toBe(written(toHex(dark.abyss)));
+    expect((pane().querySelector(".xterm-scrollable-element") as HTMLElement).style.backgroundColor).toBe(written(`${toHex(dark.panel)}00`));
 
+    expect(rules()).toContain("JetBrains Mono");
+    expect(rules()).toContain("font-size: 12px");
+    expect(colourOf(".xterm-fg-10")).toBe(written(toHex(dark.sage)));
     act(() => app.presentation.set("lightOrDark", "light"));
-    await waitFor(() => expect(colourOf(".xterm-rows")).toBe(written(toHex(derive(DEFAULT_THEME).light.tokens.ink))));
+    const light = derive(DEFAULT_THEME).light.tokens;
+    await waitFor(() => expect(colourOf(".xterm-rows")).toBe(written(toHex(light.ink))));
+    expect(colourOf(".xterm-fg-0")).toBe(written(toHex(light.ink)));
+    expect(colourOf(".xterm-fg-7")).toBe(written(toHex(light.abyss)));
+  });
+
+  it("scales a mounted terminal when the window text size changes", async () => {
+    const { app } = await opened({ terminals: [{ id: FIRST, output: "$ " }] });
+    await open(app);
+    await drawn(["$"]);
+    act(() => app.presentation.set("textSize", 20));
+    await waitFor(() => {
+      const rules = document.adoptedStyleSheets.flatMap((sheet) => [...sheet.cssRules]).map((rule) => rule.cssText).join("\n");
+      const size = /font-size: ([\d.]+)px/.exec(rules)?.[1];
+      expect(Number(size)).toBeCloseTo(12 * 20 / 14);
+    });
   });
 
   it("resubscribes from its cursor after a dropped socket and replays what it missed, each chunk once and in order, then goes on live", async () => {

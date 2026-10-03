@@ -15,6 +15,35 @@ const opened = async (shell?: FakeShell) => {
 };
 
 describe("the browser dock", () => {
+  it("restores the current address on Escape without navigating or hiding the browser", async () => {
+    const app = await opened();
+    await chooseHeaderAction(app, "Browser");
+    const dock = await screen.findByRole("region", { name: "Browser" });
+    await waitFor(() => expect(app.shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
+    act(() => app.shell.changeWebView("view-1", { url: "https://example.org/current", canGoBack: true, canGoForward: false }));
+    const address = within(dock).getByRole("textbox", { name: "Address" });
+    await app.user.clear(address);
+    await app.user.type(address, "unfinished");
+    await app.user.keyboard("{Escape}");
+    expect((address as HTMLInputElement).value).toBe("https://example.org/current");
+    expect(app.shell.calls.some(([name]) => name === "webView.navigate")).toBe(false);
+    expect(screen.getByRole("region", { name: "Browser" })).toBe(dock);
+  });
+
+  it("says a navigation failure in the browser and clears it on the next navigation", async () => {
+    const shell = fakeShell();
+    shell.answer("webView.navigate", async () => { throw new Error("This page could not be reached."); });
+    const app = await opened(shell);
+    await chooseHeaderAction(app, "Browser");
+    const dock = await screen.findByRole("region", { name: "Browser" });
+    await waitFor(() => expect(within(dock).getByRole("button", { name: "Go" }).hasAttribute("disabled")).toBe(false));
+    await app.user.click(within(dock).getByRole("button", { name: "Go" }));
+    expect((await within(dock).findByRole("status")).textContent).toContain("This page could not be reached.");
+    shell.answer("webView.navigate", async () => {});
+    await app.user.click(within(dock).getByRole("button", { name: "Go" }));
+    await waitFor(() => expect(within(dock).queryByRole("status")).toBeNull());
+  });
+
   it.each([
     ["localhost:3000/path", "https://localhost:3000/path"],
     ["example.org:8443/path", "https://example.org:8443/path"],
@@ -84,6 +113,7 @@ describe("the browser dock", () => {
     expect(app.shell.calls.filter(([name]) => name === "webView.create")).toHaveLength(1);
     await app.user.keyboard("{Control>},{/Control}");
     await screen.findByRole("region", { name: "Settings" });
+    await waitFor(() => expect(app.shell.calls.at(-1)).toEqual(["webView.hide", "view-1"]));
     expect(app.shell.calls.some(([name]) => name === "webView.destroy")).toBe(false);
     await app.user.keyboard("{Escape}");
     await screen.findByRole("region", { name: "Browser" });

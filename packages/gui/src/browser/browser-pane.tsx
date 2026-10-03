@@ -1,11 +1,13 @@
 import { uuidv4, type ShellWebViewState } from "@agent-harness/client-runtime";
+import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useIsKeyOf } from "../keys/key-dispatch.js";
 import { hideColumn, useSideColumn } from "../side-column/column.js";
 import { useGridPaneId } from "../grid/grid.js";
-import { Button, Input } from "../ui/index.js";
+import { IconButton, Input, Tooltip } from "../ui/index.js";
 import { sideColumnKey } from "../presentation.js";
 import { usePresentation, useShell } from "../window-context.js";
+import { useSettings } from "../settings/settings-window.js";
 import { useBrowserPanes } from "./browser-panes.js";
 
 /** The native page occupies only the rectangle below the address line; controls stay in the renderer. */
@@ -18,6 +20,8 @@ export const BrowserPane = ({
   readonly sessionId: string;
   readonly onScreen: boolean;
 }) => {
+  const { shown: settingsShown } = useSettings();
+  const visible = onScreen && !settingsShown;
   const paneId = useGridPaneId();
   const panes = useBrowserPanes();
   const [partitions, setPartitions] = usePresentation("browserPartitions");
@@ -67,7 +71,7 @@ export const BrowserPane = ({
   }, [views, id]);
   useEffect(() => {
     if (!views || !id) return;
-    if (!onScreen) {
+    if (!visible) {
       views.hide(id);
       return;
     }
@@ -96,13 +100,13 @@ export const BrowserPane = ({
       cancelAnimationFrame(frame);
       views.hide(id);
     };
-  }, [views, id, onScreen]);
+  }, [views, id, visible]);
   useEffect(() => {
-    if (!views || !id || !onScreen) return;
+    if (!views || !id || !visible) return;
     return views.onKey((pressedId, key) => {
       if (pressedId === id && isToggle(key)) changeColumn((held) => hideColumn(held, true));
     });
-  }, [views, id, onScreen, isToggle, changeColumn]);
+  }, [views, id, visible, isToggle, changeColumn]);
   const navigate = () => {
     if (!views || !id) return;
     setError(undefined);
@@ -116,28 +120,41 @@ export const BrowserPane = ({
     <>
       <form
         aria-label="Browser navigation"
-        className="flex shrink-0 items-center gap-1 border-b border-hairline p-2"
+        className="flex shrink-0 items-center gap-1 border-b border-hairline bg-panel px-2 py-1"
         onSubmit={(event) => {
           event.preventDefault();
           navigate();
         }}
       >
-        <Button type="button" aria-label="Back" disabled={!id || !state.canGoBack} onClick={() => id && views?.back(id)}>
-          ←
-        </Button>
-        <Button type="button" aria-label="Forward" disabled={!id || !state.canGoForward} onClick={() => id && views?.forward(id)}>
-          →
-        </Button>
-        <Button type="button" aria-label="Reload" disabled={!id} onClick={() => id && views?.reload(id)}>
-          ↻
-        </Button>
-        <Input aria-label="Address" value={address} onChange={(event) => setAddress(event.target.value)} className="min-w-0 flex-1" />
-        <Button type="submit" disabled={!id}>
-          Go
-        </Button>
+        <IconButton label="Back" keys="Enter / Space" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id || !state.canGoBack} onClick={() => id && views?.back(id)}>
+          <ArrowLeft aria-hidden="true" />
+        </IconButton>
+        <IconButton label="Forward" keys="Enter / Space" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id || !state.canGoForward} onClick={() => id && views?.forward(id)}>
+          <ArrowRight aria-hidden="true" />
+        </IconButton>
+        <IconButton label="Reload" keys="Enter / Space" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id} onClick={() => id && views?.reload(id)}>
+          <RotateCw aria-hidden="true" />
+        </IconButton>
+        <Tooltip content="Address · Enter to navigate · Escape to restore">
+          <Input
+            aria-label="Address"
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              event.stopPropagation();
+              setAddress(state.url);
+            }}
+            className="h-auto min-w-0 flex-1 rounded-md border-hairline-strong bg-wash px-2 py-1 font-mono text-xs md:text-xs dark:bg-wash"
+          />
+        </Tooltip>
+        <IconButton label="Go" keys="Enter" type="submit" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id}>
+          <ArrowRight aria-hidden="true" />
+        </IconButton>
       </form>
       {error && (
-        <p role="status" className="px-3 py-2 text-sm text-ink-faint">
+        <p role="status" className="shrink-0 border-b border-amber/45 bg-amber/10 px-2 py-1 text-xs text-amber">
           {error}
         </p>
       )}
