@@ -101,7 +101,13 @@ export const promptGeometry = (kind: PromptKind): readonly SceneGeometry[] => [
   { selector: '[aria-label="Parked prompt"] button', height: 28 },
   { selector: '[aria-label="Parked prompt"] header > svg', width: 14, height: 14 },
   { selector: '[aria-label="Parked prompt"] kbd', height: 20 },
-  ...(kind === "permission" ? [{ selector: '[aria-label="Arguments"]', height: 224 }] : []),
+  ...(kind === "permission" ? [
+    { selector: '[aria-label="Arguments"]', height: 224, viewport: 1400 },
+    { selector: '[aria-label="Arguments"]', visibleWithin: '[aria-label="Parked prompt"]' },
+    { selector: '[aria-label="Permission decision"]', visibleWithin: '[aria-label="Parked prompt"]' },
+    { selector: '[aria-label="Permission decision"] textarea', visibleWithin: '[aria-label="Parked prompt"]', minimumHeight: 48 },
+    { selector: '[aria-label="Permission decision"] button', visibleWithin: '[aria-label="Parked prompt"]' },
+  ] : []),
   ...(kind === "plan" ? [
     { selector: '[aria-label="Plan body"]', maxHeight: 416, visibleWithin: '[aria-label="Parked prompt"]' },
     { selector: '[aria-label="Parked prompt"] textarea', minimumHeight: 48, visibleWithin: '[aria-label="Parked prompt"]' },
