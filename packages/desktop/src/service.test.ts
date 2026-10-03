@@ -1,3 +1,5 @@
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
 import { fakeArtefact, type FakeArtefact } from "../test/fake-artefact.js";
@@ -26,6 +28,32 @@ const carrying = (os: ShellPlatform, artefact: FakeArtefact): DesktopPlatform =>
 };
 
 describe("service", () => {
+  it("reads and applies a pending update with the installed version's CLI through the shell bridge", async () => {
+    const pending = {
+      state: "waiting", updateId: "0199aa00-0000-4000-8000-00000000000a", toVersion: "0.6.0", source: "desktop",
+      since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z", image: null,
+      waitsOn: { reason: "recent-activity", until: "2026-09-24T00:10:00.000Z" },
+    } as const;
+    for (const os of ["linux", "darwin", "win32"] as const) {
+      const carried = fakeArtefact(os);
+      const installed = fakeArtefact(os, { pendingUpdate: pending });
+      const platform = carrying(os, carried);
+      const data = platform.paths.environment;
+      mkdirSync(join(data, "versions"), { recursive: true });
+      symlinkSync(installed.root, join(data, "versions", "0.5.0"));
+      writeFileSync(join(installed.root, ".complete"), "");
+      writeFileSync(join(data, "service-state.json"), JSON.stringify({ activeVersion: "0.5.0" }));
+      const { shell } = await start({ electron: fakeElectron({ os }), platform });
+      expect(await shell().service.pendingUpdate!()).toEqual(pending);
+      await shell().service.applyUpdateNow!();
+      expect(installed.runs()).toEqual([
+        ["update", "status", "--json", "--data-dir", data],
+        ["update", "apply", "--now", "--data-dir", data],
+      ]);
+      expect(carried.runs()).toEqual([]);
+    }
+  });
+
   it("installs from the artefact when nothing is installed, starts it, and settles once the environment answers", async () => {
     const artefact = fakeArtefact("linux", { answersAfter: 2 });
     const { shell } = await start({ platform: carrying("linux", artefact), serviceWait: QUICK });

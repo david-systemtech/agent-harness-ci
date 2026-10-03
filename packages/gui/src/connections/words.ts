@@ -1,4 +1,4 @@
-import { clockTime, type EnvironmentView } from "@agent-harness/client-runtime";
+import { pendingUpdateWords, clockTime, type EnvironmentView } from "@agent-harness/client-runtime";
 
 /**
  * What the window says of a connection (docs/specs/gui.md, "The local
@@ -48,7 +48,7 @@ const unreachableWords = (since: string): string => `Unreachable since ${clockTi
  * it is ready, or reached and catching its list up, which the list's
  * freshness says.
  */
-export const phaseWords = (view: EnvironmentView, starting: boolean, installing = false): string | undefined => {
+export const phaseWords = (view: EnvironmentView, starting: boolean, installing: boolean, now: Date): string | undefined => {
   switch (view.phase) {
     case "ready":
     case "syncing":
@@ -62,8 +62,9 @@ export const phaseWords = (view: EnvironmentView, starting: boolean, installing 
     case "backoff":
       return view.unreachableSince === null ? "Cannot be reached" : unreachableWords(view.unreachableSince);
     case "draining":
-    case "updating":
       return "Restarting for an update…";
+    case "updating":
+      return updateWords(view, now) ?? "Restarting for an update…";
     case "disabled":
       return "Disabled";
     case "blocked":
@@ -71,8 +72,19 @@ export const phaseWords = (view: EnvironmentView, starting: boolean, installing 
   }
 };
 
+/** Progress across an older protocol, before the wire can report updates.status. */
+export const updateWords = (view: EnvironmentView, now: Date): string | undefined => {
+  const update = view.update;
+  if (update === undefined) return undefined;
+  if (update.restarting) return "Restarting for an update…";
+  if (update.pending !== null) return pendingUpdateWords(update.pending, nameOf(view), now) ?? "Update requested; checking progress…";
+  return update.error !== null
+    ? `Update requested; progress could not be read: ${update.error}`
+    : "Update requested; waiting for idle before restarting…";
+};
+
 /** The phase as a sentence, where the window waits on the environment. */
-export const phaseSentence = (view: EnvironmentView, starting: boolean, installing = false): string => {
+export const phaseSentence = (view: EnvironmentView, starting: boolean, installing: boolean, now: Date): string => {
   const subject = subjectOf(view);
   switch (view.phase) {
     case "ready":
@@ -87,8 +99,9 @@ export const phaseSentence = (view: EnvironmentView, starting: boolean, installi
     case "backoff":
       return `${subject} cannot be reached; this client tries again.`;
     case "draining":
-    case "updating":
       return `${subject} is restarting for an update…`;
+    case "updating":
+      return updateWords(view, now) ?? `${subject} is restarting for an update…`;
     case "disabled":
       return `${subject} is disabled on this client.`;
     case "blocked":
