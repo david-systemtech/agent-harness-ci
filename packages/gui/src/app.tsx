@@ -5,7 +5,6 @@ import { LocalServiceProvider } from "./connections/local-service.js";
 import { PairingProvider } from "./connections/pairing.js";
 import { Frame } from "./frame/frame.js";
 import { KeyDispatch } from "./keys/key-dispatch.js";
-import { WindowNotices } from "./notices/window-notices.js";
 import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
 import { SettingsProvider } from "./settings/settings-window.js";
@@ -56,7 +55,7 @@ const WindowKeys = ({ macOS, children }: { readonly macOS: boolean; readonly chi
  * client's remaps, Settings,
  * Set up as the whole window on first launch (the full checklist) with the
  * step cards registered, the command palette over it, every notice as a
- * toast, and the window's title, badge and notifications (#405). What the
+ * banner above the grid, and the window's title, badge and notifications (#405). What the
  * window chose for a session's next runs
  * is held for the life of the window (`RunChoicesProvider`), as is what the
  * sidebar keeps while it is hidden (`WindowSidebarProvider`).
@@ -78,7 +77,6 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell, stepC
                         </WindowSidebarProvider>
                       </RunChoicesProvider>
                     </CommandPalette>
-                    <WindowNotices />
                     <WindowAttention />
                   </ChecklistProvider>
                 </StepCardsContext>

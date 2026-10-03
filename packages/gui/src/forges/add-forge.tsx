@@ -1,7 +1,10 @@
+import { RadioGroup as ProviderRadio } from "radix-ui";
+import { GitPullRequest, LogIn, Plus, RefreshCw, X } from "lucide-react";
+import { ActionButton as Button, AccessField as Field } from "../key-managers/action-button.js";
 import { FORGE_KIND_WORDS, addFromGh, addFromMachineGh, addPastedForge, detectForge, machineGhAbsence, tokenPageWords, type ForgeOutcome } from "@agent-harness/client-runtime";
 import type { ForgeTokenPage, GhProbe, ResultOf } from "@agent-harness/contracts";
 import { useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Dialog, DialogContent, Field, Input } from "../ui/index.js";
+import { Input, RadioGroup, Tooltip } from "../ui/index.js";
 import { ExternalLink } from "../session/external-link.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 
@@ -40,6 +43,7 @@ export interface AddForgeProps {
 export const AddForge = ({ environmentId, environmentName, close, say, gh: paths }: AddForgeProps) => {
   const runtime = useRuntime();
   const clock = useClock();
+  const [provider, setProvider] = useState("github");
   const [url, setUrl] = useState("");
   // The URL as typed now, which an answer to Find the forge is checked against when it lands.
   const typed = useRef(url);
@@ -77,6 +81,7 @@ export const AddForge = ({ environmentId, environmentName, close, say, gh: paths
       if (typed.current !== asked) return;
       if (!detection.ok) return setLine(detection.line);
       setFound(detection.found);
+      setProvider(detection.found.kind);
     });
   };
   const submit = (event: FormEvent) => {
@@ -98,14 +103,25 @@ export const AddForge = ({ environmentId, environmentName, close, say, gh: paths
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && close()}>
-      <DialogContent title={`Add a forge on ${environmentName}`} className="max-w-lg">
+    <section aria-label={`Add a forge on ${environmentName}`} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+      <h3 className="text-xs font-semibold">Add a forge on {environmentName}</h3>
         <form aria-label="Add a forge" className="flex flex-col gap-3" onSubmit={submit}>
+          <RadioGroup aria-label="Provider" value={provider} onValueChange={(next) => { setProvider(next); setFound(undefined); }} className="grid grid-cols-3 gap-2">
+            {(["github", "forgejo", "gitea"] as const).map((kind) => (
+              <Tooltip key={kind} content={`${FORGE_KIND_WORDS[kind]} · Arrow keys to choose`}>
+                <ProviderRadio.Item autoFocus={kind === "github"} value={kind} className="flex min-h-9 items-center gap-2 rounded-lg border border-hairline px-3 py-2 text-xs text-ink-muted data-[state=checked]:border-beam data-[state=checked]:bg-wash-strong data-[state=checked]:text-ink focus-visible:outline-2 focus-visible:outline-beam">
+                  <GitPullRequest aria-hidden="true" className="size-4 shrink-0" />
+                  {FORGE_KIND_WORDS[kind]}
+                </ProviderRadio.Item>
+              </Tooltip>
+            ))}
+          </RadioGroup>
+          <p className="text-xs text-ink-muted">Give the URL of your {FORGE_KIND_WORDS[provider as "github" | "forgejo" | "gitea"]} repository. Find the forge checks its kind before adding it.</p>
           <Field label="URL">
-            <Input value={url} placeholder="https://github.com" onChange={(event) => type(event.target.value)} />
+            <Input value={url} placeholder="https://git.example.test/project/repository" onChange={(event) => type(event.target.value)} />
           </Field>
           <div className="flex flex-wrap gap-2">
-            <Button disabled={sending} onClick={find}>
+            <Button icon={RefreshCw} label="Find the forge" disabled={sending} onClick={find}>
               Find the forge
             </Button>
           </div>
@@ -127,7 +143,7 @@ export const AddForge = ({ environmentId, environmentName, close, say, gh: paths
             (gh.status === "present" ? (
               <div className="flex flex-col gap-1">
                 <div className="flex flex-wrap gap-2">
-                  <Button disabled={sending} onClick={handOver}>
+                  <Button icon={LogIn} label="Use the gh signed in on this computer" disabled={sending} onClick={handOver}>
                     Use the gh signed in on this computer
                   </Button>
                 </div>
@@ -138,14 +154,13 @@ export const AddForge = ({ environmentId, environmentName, close, say, gh: paths
             ))}
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
           <div className="flex justify-end gap-2">
-            <Button onClick={close}>Cancel</Button>
-            <Button tone="primary" type="submit" disabled={sending}>
+            <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
+            <Button icon={Plus} label="Add" tone="primary" type="submit" disabled={sending}>
               Add
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
+    </section>
   );
 };
 
@@ -185,7 +200,7 @@ const MachineGh = ({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap gap-2">
-        <Button disabled={sending} onClick={() => onUse(probe)}>
+        <Button icon={LogIn} label="Use this machine's gh" disabled={sending} onClick={() => onUse(probe)}>
           Use this machine's gh
         </Button>
       </div>

@@ -27,12 +27,12 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
       const views = world.runtime.projections.environments;
       const mark = () => {
         const connected = Component !== undefined || views.read().every((view) => view.phase === "ready");
-        const drawn = definition.readySelector === undefined || document.querySelector(definition.readySelector) !== null;
+        const drawn = definition.readySelector === undefined || container.ownerDocument.querySelector(definition.readySelector) !== null;
         if (connected && drawn) container.dataset["galleryReady"] = scene;
       };
       const stop = views.subscribe(mark);
       const observer = new MutationObserver(mark);
-      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+      observer.observe(container.ownerDocument.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
       mark();
       return () => { stop(); observer.disconnect(); };
     }, []);

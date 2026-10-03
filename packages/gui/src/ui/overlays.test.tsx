@@ -114,15 +114,15 @@ describe("window overlays", () => {
     await user.keyboard("{Escape}");
     expect(close).toHaveBeenCalledWith(false);
   });
-  it("shows transient status feedback and lets it be dismissed", async () => {
+  it.each(["Copied", "Saved"])("shows transient %s feedback and lets it be dismissed", async (message) => {
     const user = userEvent.setup();
     render(<Toaster />);
     expect(screen.getByRole("region", { name: /^Status feedback/ })).toBeTruthy();
     let id: string | number = 0;
-    act(() => { id = toast.success("Copied", { duration: Infinity }); });
-    await screen.findByText("Copied");
+    act(() => { id = toast.success(message, { duration: Infinity }); });
+    await screen.findByText(message);
     await user.click(screen.getByRole("button", { name: "Close toast" }));
-    await waitFor(() => expect(screen.queryByText("Copied")).toBeNull());
+    await waitFor(() => expect(screen.queryByText(message)).toBeNull());
     act(() => toast.dismiss(id));
   });
   it("keeps both menu examples and all floating parts in the menus scene", async () => {
