@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 let close: (() => Promise<void>) | undefined;
@@ -16,5 +16,6 @@ it.each(["settings-routines", "sidebar-scheduled"])("draws %s with cached routin
     const strip = await screen.findByRole("region", { name: "Scheduled" });
     expect(within(strip).getByRole("button", { name: "and 2 more…" })).toBeDefined();
   }
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]").length).toBeGreaterThan(0);
 });

@@ -3,6 +3,7 @@ import type { RoutineRow } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
 import { CalendarClock, ChevronDown, History, Pause, Pencil, Play, Plus, Trash2, X } from "lucide-react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
+import { useSettings } from "../settings/settings-window.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -18,13 +19,14 @@ const RoutineHistory = ({ row }: { readonly row: RoutineRow }) => {
   const history = useMemo(() => runtime.projections.routineHistory(row.environmentId, row.routineId), [runtime, row.environmentId, row.routineId]);
   const view = useObservable(history);
   const open = useOpenInPane();
+  const settings = useSettings();
   return <div className="flex flex-col gap-2 border-t border-hairline pt-2 text-2xs text-ink-muted">
     {view.loading && <p role="status">Loading history…</p>}
     {view.error !== null && <p role="alert" className="text-signal">{view.error.message}</p>}
     {!view.loading && view.entries.length === 0 && <p>No runs yet.</p>}
     {view.entries.map((entry) => <div key={entry.id} className="rounded-md bg-wash p-2">
       <p>{stamp(entry.dueAt)} · {entryWords(entry)}</p>
-      {entry.kind === "firing" ? <><p className="whitespace-pre-wrap">{entry.text}</p><RoutineAction label="Open session" icon={<Play aria-hidden="true" />} onClick={() => open(row.environmentId, entry.sessionId)} /></> : entry.detail !== null && <p>{entry.detail}</p>}
+      {entry.kind === "firing" ? <><p className="whitespace-pre-wrap">{entry.text}</p><RoutineAction label="Open session" icon={<Play aria-hidden="true" />} onClick={() => { open(row.environmentId, entry.sessionId); settings.close(); }} /></> : entry.detail !== null && <p>{entry.detail}</p>}
     </div>)}
     {!view.complete && <RoutineAction label="Load older runs" icon={<ChevronDown aria-hidden="true" />} disabled={view.loading} onClick={() => void history.more()} />}
   </div>;
@@ -70,7 +72,7 @@ export const RoutinesPane = () => {
     <div className="flex items-start justify-between gap-3"><p className="text-2xs leading-relaxed text-ink-muted">Runs on a schedule, in the same sessions and history as a prompt you type. Each environment runs its routines even when this window is closed.</p><RoutineAction label="New routine" icon={<Plus aria-hidden="true" />} disabled={view.groups.length === 0} onClick={() => setCreating(true)} /></div>
     {creating && <RoutineForm close={() => setCreating(false)} />}
     {view.attention > 0 && <p className="text-xs text-amber">{view.attention} routines need attention.</p>}
-    {view.groups.every((group) => group.routines.length === 0) && <p className="py-2 text-2xs leading-relaxed text-ink-faint">Nothing scheduled. A routine is a prompt with an appointment — a morning triage, a nightly digest — run under the account you pick.</p>}
+    {view.groups.every((group) => group.fetchedAt !== null && !group.loading && group.error === null && group.routines.length === 0) && <p className="py-2 text-2xs leading-relaxed text-ink-faint">Nothing scheduled. A routine is a prompt with an appointment — a morning triage, a nightly digest — run under the account you pick.</p>}
     {view.groups.map((group) => {
       const environment = environments.find((held) => held.environmentId === group.environmentId);
       return <section key={group.environmentId} aria-label={group.name} className="flex flex-col gap-2">

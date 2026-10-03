@@ -28,7 +28,7 @@ const RoutineEditor = ({ row, environmentId, choose, close }: { readonly row?: R
   const [issues, setIssues] = useState<string>();
   const [routineId] = useState(() => row?.routineId ?? uuidv4());
   const command = useRoutineCommand();
-  const account = accounts.find((held) => JSON.stringify(held.identity) === JSON.stringify(form.account));
+  const account = form.account === null ? undefined : accounts.find((held) => JSON.stringify(held.identity) === JSON.stringify(form.account));
   const models = catalogues.filter((catalogue) => account === undefined || catalogue.accountId === account.id).flatMap((catalogue) => catalogue.models);
   const uniqueModels = [...new Map(models.map((model) => [model.id, model])).values()];
   const efforts = uniqueModels.find((model) => model.id === form.model)?.efforts ?? [...new Set(models.flatMap((model) => model.efforts))];
@@ -36,6 +36,7 @@ const RoutineEditor = ({ row, environmentId, choose, close }: { readonly row?: R
   const method = row === undefined ? "routines.create" : "routines.update";
   const submit = () => {
     setIssues(undefined);
+    if (row !== undefined && !form.timezone) { setIssues("Choose a time zone when editing a routine."); return; }
     const parsed = RoutineDefinitionInput.safeParse({ ...form, name: form.name.trim(), instructions: form.instructions.trim() });
     if (!parsed.success) { setIssues(parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")); return; }
     if (parsed.data.workspace.kind === "directory" && parsed.data.workspace.path.trim() === "") { setIssues("Choose a workspace directory."); return; }
@@ -60,7 +61,7 @@ const RoutineEditor = ({ row, environmentId, choose, close }: { readonly row?: R
     {form.mode === "bypassPermissions" && <p className="text-xs text-amber">{BYPASS_SENTENCE}</p>}
     {form.workspace.kind === "directory" ? <RoutineField label="Workspace" icon={<Folder aria-hidden="true" />}><Input aria-label="Workspace" value={form.workspace.path} onChange={(event) => patch({ workspace: { kind: "directory", path: event.target.value, repositoryIdentity: null } })} /></RoutineField> : <p className="text-xs text-ink-muted">Workspace: {form.workspace.kind} (preserved)</p>}
     <ScheduleFields schedule={form.schedule} change={(schedule) => patch({ schedule })} />
-    <RoutineField label="Time zone" icon={<Globe aria-hidden="true" />}><Input aria-label="Time zone" placeholder="Environment time zone" value={form.timezone ?? ""} onChange={(event) => patch({ timezone: event.target.value || undefined })} /></RoutineField>
+    <RoutineField label="Time zone" icon={<Globe aria-hidden="true" />}><Input aria-label="Time zone" placeholder={row === undefined ? "Environment time zone" : "IANA time zone"} value={form.timezone ?? ""} onChange={(event) => patch({ timezone: event.target.value || undefined })} /></RoutineField>
     <RoutineField label="Instructions" icon={<FileText aria-hidden="true" />}><Textarea aria-label="Instructions" rows={4} value={form.instructions} onChange={(event) => patch({ instructions: event.target.value })} /></RoutineField>
     {(issues || command.line) && <p role="alert" className="text-xs text-signal">{issues ?? command.line}</p>}
     <div className="flex justify-end gap-2"><RoutineAction label="Cancel" icon={<X aria-hidden="true" />} disabled={command.busy} onClick={close} /><RoutineAction label={row ? "Save" : "Create"} icon={<Save aria-hidden="true" />} environmentId={environmentId} method={method} disabled={command.busy} onClick={submit} /></div>
