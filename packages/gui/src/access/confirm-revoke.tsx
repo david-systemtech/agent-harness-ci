@@ -31,7 +31,7 @@ export const ConfirmRevoke = ({ environment, session, own, close, revoke }: Conf
       )}
       <DialogFooter>
         <DialogClose asChild>
-          <Button title="Cancel (Enter or Space)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
+          <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
         </DialogClose>
         <Button tone="danger" onClick={revoke} title="Revoke (Enter or Space)">
           <KeyRound aria-hidden="true" data-icon="inline-start" />Revoke

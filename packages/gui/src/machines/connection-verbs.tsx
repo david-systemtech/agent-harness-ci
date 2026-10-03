@@ -75,7 +75,7 @@ export const ConnectionVerbs = ({ view, forgotten }: { readonly view: Environmen
           >
             <DialogFooter>
               <DialogClose asChild>
-                <Button title="Cancel (Enter or Space)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
+                <Button title="Cancel (Enter, Space or Escape)"><X aria-hidden="true" data-icon="inline-start" />Cancel</Button>
               </DialogClose>
               <Button tone="danger" onClick={() => void forget()} title="Forget (Enter or Space)">
                 <Trash2 aria-hidden="true" data-icon="inline-start" />Forget
