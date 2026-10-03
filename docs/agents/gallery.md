@@ -12,6 +12,10 @@ Captures run on hosted CI. Local acceptance downloads existing captures and laun
 
 Pixel differences remain advisory until the shell wave (#1343–#1347) lands, then the hosted `GALLERY_PIXEL_BLOCKING` variable enables the pixel gate. Geometry failures block throughout. Each discovered scene has light and dark captures at 1400 × 900 and 1024 × 768; scene names reserve the generated `-narrow` suffix.
 
+The hosted workflow and both relay publishers allow at most 600 PNGs, 24 MiB of expanded payload (including report JSON), and a 32 MiB ZIP. The report publisher also allows its two JSON entries. Capture filenames must be flat scene names ending in `.light.png` or `.dark.png`; reports may additionally contain their baseline and difference PNGs. Duplicate names, unexpected entries and invalid PNG signatures are refused before a comment is created.
+
+A capture-only artifact from an earlier hosted run can be recovered without rebuilding its commit. Download that run's `window-gallery` ZIP, then use the trusted checkout's `bash .forgejo/scripts/gallery-comment.sh <archive.zip> <full-head-sha>` with `FORGEJO_URL`, `FORGEJO_REPOSITORY`, `FORGEJO_PR` and `FORGEJO_TOKEN` set. It validates the complete archive before uploading, and posts only while the destination PR is open and still has that head. Inspect an old artifact locally when the PR's head has moved.
+
 ## Retries, failures and retention
 
 Each completed report stores immutable capture bytes in the `window-gallery` generic package under version `<head>-<comment-id>`. Repeating a hosted run on the same head creates another report version, so a retry cannot replace bytes in an earlier review. The comment manifest records the version, exact package download URL and SHA-256 of each capture. Acceptance selects the latest completed manifest for the current head and verifies its hashes before writing any baseline. Existing head-only manifests remain downloadable for compatibility.
