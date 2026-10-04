@@ -53,7 +53,7 @@ export const Highlighted = ({ path, text }: { readonly path: string; readonly te
   }, [path, displayed]);
   return <>
     {clipped && <p className="shrink-0 px-3 py-1 font-mono text-2xs text-amber">Only the first 20,000 lines are shown.</p>}
-    <div className="min-h-0 flex-1 overflow-auto py-[4px]">
+    <div data-file-code className="min-h-0 min-w-0 flex-1 overflow-auto py-[4px]">
       <pre className="flex min-w-max gap-[12px] px-[12px] font-mono text-[11px] leading-relaxed text-ink">
         <span aria-label="Line numbers" className="w-[40px] shrink-0 select-none text-right text-ink-faint" data-file-gutter>
           {Array.from({ length: Math.min(count, FILE_DISPLAY_LINES) }, (_, index) => <span key={index} className="block">{index + 1}</span>)}

@@ -1,6 +1,7 @@
+import "./side-column.css";
 import { directoryOf, outsideWorkspace, typedPath } from "@agent-harness/client-runtime";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { BrowserPane } from "../browser/browser-pane.js";
 import { useBrowserPanes } from "../browser/browser-panes.js";
@@ -91,6 +92,10 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
 
   const dockId = useId();
   const host = useRef<HTMLDivElement>(null);
+  const sheet = useRef<HTMLElement>(null);
+  const reopen = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const wasVisible = useRef(false);
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
     const owner = host.current?.parentElement;
@@ -104,12 +109,46 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
 
   const { shown } = column;
   const hide = () => change((held) => hideColumn(held, true));
+  const visibleSheet = narrow && shown !== null && !column.hidden;
+  useEffect(() => {
+    if (visibleSheet) return;
+    const remember = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && !target.closest('[role="menu"], [data-dock-reopen]') && !sheet.current?.contains(target)) opener.current = target;
+    };
+    document.addEventListener("focusin", remember);
+    return () => document.removeEventListener("focusin", remember);
+  }, [visibleSheet]);
+  useLayoutEffect(() => {
+    if (visibleSheet) {
+      const active = document.activeElement;
+      if (!wasVisible.current || !sheet.current?.contains(active) || active?.closest("[hidden]")) {
+        sheet.current?.querySelector<HTMLButtonElement>('[aria-label="Close side sheet"]')?.focus();
+      }
+    } else if (wasVisible.current) {
+      if (narrow && column.hidden && shown !== null) reopen.current?.focus();
+      else if (opener.current?.isConnected) opener.current.focus();
+      else host.current?.parentElement?.querySelector<HTMLElement>('[aria-label="Message"]')?.focus();
+    }
+    wasVisible.current = visibleSheet;
+  }, [visibleSheet, narrow, column.hidden, shown]);
   return <div ref={host} className="contents">
     {shown !== null && <>
-      {narrow && column.hidden && <IconButton label="Show the side column" keys="Enter / Space"
+      {narrow && column.hidden && <IconButton ref={reopen} data-dock-reopen label="Show the side column" keys="Enter / Space"
         onClick={() => change((held) => hideColumn(held, false))}
         className="absolute inset-y-[6px] right-0 z-30 h-auto w-[16px] rounded-l-md border-hairline bg-panel p-0"><ChevronLeft aria-hidden="true" /></IconButton>}
-      <aside aria-label="Side column" hidden={column.hidden} data-dock-sheet={narrow ? "" : undefined}
+      <aside ref={sheet} role={narrow ? "dialog" : undefined} aria-modal={narrow ? true : undefined} onKeyDown={(event) => {
+        if (!narrow) return;
+        // Match DialogContent's modal key boundary after pane-local handlers run.
+        event.stopPropagation();
+        if (event.key === "Escape") { event.preventDefault(); hide(); }
+        if (event.key !== "Tab" || !sheet.current?.contains(event.target as Node)) return;
+        const stops = Array.from(sheet.current.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]'))
+          .filter(element => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[hidden]") && getComputedStyle(element).display !== "none");
+        const first = stops[0], last = stops.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }} aria-label="Side column" hidden={column.hidden} data-dock-sheet={narrow ? "" : undefined}
         className={classes("flex min-w-[240px] shrink-0 border-l border-hairline bg-panel", narrow
           ? "absolute inset-y-[6px] right-[6px] z-30 w-[min(480px,85%)] rounded-lg border shadow-xl shadow-scrim/40"
           : "w-[38%] max-w-3xl")}>
@@ -122,7 +161,7 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
             const capability = capabilityOf(pane);
             return (
               <section key={pane} id={`${dockId}-${pane}`} aria-label={PANES[pane].label} hidden={pane !== shown} className="flex min-h-0 flex-1 flex-col">
-                <DockHeader pane={pane} hide={hide} />
+                <DockHeader pane={pane} hide={hide} close={() => close(pane)} />
                 {capability.status === "absent" && !PANES[pane].drawnWhileAbsent ? (
                   <p className="px-3 py-2 text-sm text-ink-faint">{capability.message}</p>
                 ) : (
@@ -175,6 +214,6 @@ const PaneBody = ({ pane, environmentId, sessionId, onScreen, files, goFiles, so
     case "browser":
       return <BrowserPane environmentId={environmentId} sessionId={sessionId} onScreen={onScreen} />;
     case "preview":
-      return <PreviewPane environmentId={environmentId} sessionId={sessionId} />;
+      return <PreviewPane environmentId={environmentId} sessionId={sessionId} source={source} />;
   }
 };

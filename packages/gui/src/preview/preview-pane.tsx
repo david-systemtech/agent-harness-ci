@@ -1,6 +1,9 @@
 import { binaryNote, clockTime, documentKindOf, fileMarks, type DocumentKind } from "@agent-harness/client-runtime";
+import { Download, FileCode } from "lucide-react";
 import { FILES_READ_CAP } from "@agent-harness/contracts";
 import { useEffect, useState } from "react";
+import { webPreview } from "../platform/web-preview.js";
+import { Button, Tooltip } from "../ui/index.js";
 import { usePaneDocuments, type Previewed } from "../session/pane-documents.js";
 import { Markdown } from "../transcript/markdown.js";
 import { useClock, useRuntime, useShell } from "../window-context.js";
@@ -17,13 +20,14 @@ import { PREVIEW_FRAME_CANVAS } from "./preview-frame-content.js";
  * window, as the transcript draws it, never framed. It is a snapshot: what
  * the run writes afterwards is not shown until the document is opened
  * again, which reads it again, as does the pane opened afresh. The side
- * column draws it only while the shell has `preview` (a browser tab has
- * none: `no-shell`) and the connection can call `files.read`.
+ * column requires `files.read`. Without a desktop preview grant, HTML/SVG
+ * are static srcdoc snapshots: scripts, forms, navigation and network are disabled.
  */
 
 export interface PreviewPaneProps {
   readonly environmentId: string;
   readonly sessionId: string;
+  source(path: string): void;
 }
 
 /** The media type a framed document is granted with: the text `files.read` answers, as UTF-8. */
@@ -34,16 +38,17 @@ type Shown =
   | { readonly state: "reading" }
   | { readonly state: "said"; readonly words: string }
   | { readonly state: "framed"; readonly url: string; readonly marks: string; readonly at: string }
+  | { readonly state: "static"; readonly text: string; readonly snapshot: string; readonly marks: string; readonly at: string }
   | { readonly state: "markdown"; readonly text: string; readonly marks: string; readonly at: string };
 
-export const PreviewPane = ({ environmentId, sessionId }: PreviewPaneProps) => {
+export const PreviewPane = ({ environmentId, sessionId, source }: PreviewPaneProps) => {
   const { previewed } = usePaneDocuments();
   if (previewed === null) return <p className="px-3 py-2 text-sm text-ink-faint">Nothing to preview: choose a page, an SVG or a markdown file in Documents.</p>;
-  return <Opened key={previewed.opening} environmentId={environmentId} sessionId={sessionId} previewed={previewed} />;
+  return <Opened key={previewed.opening} environmentId={environmentId} sessionId={sessionId} source={source} previewed={previewed} />;
 };
 
 /** One opening of a document: read once, as it stands now. */
-const Opened = ({ environmentId, sessionId, previewed }: PreviewPaneProps & { readonly previewed: Previewed }) => {
+const Opened = ({ environmentId, sessionId, previewed, source }: PreviewPaneProps & { readonly previewed: Previewed }) => {
   const runtime = useRuntime();
   const shell = useShell();
   const clock = useClock();
@@ -66,7 +71,7 @@ const Opened = ({ environmentId, sessionId, previewed }: PreviewPaneProps & { re
       const marks = fileMarks(answer.result).join(" · ");
       const at = clockTime(clock.now().toISOString());
       if (kind === "markdown") return show({ state: "markdown", text, marks, at });
-      if (shell?.preview === undefined) return say("Not previewed: this window has no preview.");
+      if (shell?.preview === undefined) return show({ state: "static", text, snapshot: webPreview(text), marks, at });
       try {
         const url = await shell.preview.grant({ bytes: new TextEncoder().encode(text), mediaType: MEDIA_TYPES[kind] });
         if (current) show({ state: "framed", url, marks, at });
@@ -88,6 +93,13 @@ const Opened = ({ environmentId, sessionId, previewed }: PreviewPaneProps & { re
         {" · "}
         <span className="text-ink-muted">{`${shown.marks} · read at ${shown.at}`}</span>
       </h3>
+      {shown.state === "static" && <div className="shrink-0 border-b border-hairline px-3 py-2 text-xs text-ink-muted">
+        <p>Static preview. Preview scripts require the desktop client; forms and network are disabled here.</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Tooltip content="Open the document's source · Enter / Space"><Button size="xs" onClick={() => source(path)}><FileCode aria-hidden="true" />Source</Button></Tooltip>
+          <Tooltip content="Download this snapshot's source · Enter / Space"><a className="inline-flex min-h-[44px] min-w-[44px] items-center gap-1 rounded-md px-2 text-xs text-ink-muted hover:bg-raised focus-visible:outline-2 focus-visible:outline-beam" href={`data:text/plain;charset=utf-8,${encodeURIComponent(shown.text)}`} download={path.split("/").at(-1)}><Download aria-hidden="true" className="size-3" />Download</a></Tooltip>
+        </div>
+      </div>}
       {shown.state === "markdown" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm text-ink">
           <div className="mx-auto max-w-[48rem]" data-preview-markdown><Markdown text={shown.text} /></div>
@@ -95,9 +107,9 @@ const Opened = ({ environmentId, sessionId, previewed }: PreviewPaneProps & { re
       ) : (
         <iframe
           title={`Preview of ${path}`}
-          src={shown.url}
-          // Scripts run; same-origin is never granted beside them, which would let the document reach the window.
-          sandbox="allow-scripts"
+          {...(shown.state === "static" ? { srcDoc: shown.snapshot } : { src: shown.url })}
+          // Browser snapshots grant nothing; desktop scripts never receive same-origin.
+          sandbox={shown.state === "static" ? "" : "allow-scripts"}
           referrerPolicy="no-referrer"
           className="min-h-0 w-full flex-1 border-0"
           style={{ background: PREVIEW_FRAME_CANVAS }}
