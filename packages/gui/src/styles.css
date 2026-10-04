@@ -305,7 +305,7 @@
 
 /* The first web slice has one conversation. Surface owners extend these hooks. */
 [data-web-client] {
-  height: 100dvh;
+  height: var(--phone-viewport-height, 100dvh);
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 [data-web-client] :is(button, select, input) { min-height: 44px; }
@@ -319,6 +319,6 @@
 [data-web-gallery] [data-web-client] { height: 100%; }
 
 /* A long permission card remains reachable when larger text fills the phone. */
-[data-web-client] [data-composer-column] { min-height: 0; max-height: 100%; flex-shrink: 1; overflow-y: auto; }
+[data-web-client] [data-composer-column] { min-height: 0; max-height: 100%; flex-shrink: 1; }
 [data-web-client] [aria-label="Parked prompt"] { max-height: none; }
 [data-web-client] [aria-label="Permission decision"] > div > span { flex-wrap: wrap; }

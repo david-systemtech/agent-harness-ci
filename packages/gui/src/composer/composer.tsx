@@ -35,6 +35,9 @@ import { MenuList, optionId, useMenus, type Menu } from "./menus.js";
 import { useSessionDraft } from "./session-draft.js";
 import { notWired, typedCommand, useSlashCommand, useWiredCommands } from "./slash-commands.js";
 import { useWorkspaceChecks, WorkspaceCheck, WorkspaceRow } from "./workspace-checks.js";
+import { useComposition } from "./composition.js";
+import { usePhoneViewport } from "./phone-viewport.js";
+import "./phone-conversation.css";
 import { usePromptWalk } from "./walk.js";
 
 export interface ComposerProps {
@@ -94,6 +97,8 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const [line, say] = usePaneLine();
   const checks = useWorkspaceChecks(environmentId, sessionId, say);
   const box = useBox();
+  const { composing, ...composition } = useComposition();
+  usePhoneViewport(box.field);
   useSessionDraft(environmentId, sessionId, projection, box);
   const sendKey = useFirstKey("composer.send");
   const newlineKey = useFirstKey("composer.newline");
@@ -217,7 +222,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     const row = menu.rows[at];
     if (row !== undefined) box.put(`/${row.name}${row.usage.includes(" ") ? " " : ""}`);
   };
-  const submit = () => (menu !== null && at >= 0 ? choose(at) : send(box.current()));
+  const submit = () => !composing.current && (menu !== null && at >= 0 ? choose(at) : send(box.current()));
   /**
    * ↑ in an empty composer: the newest queued message a withdraw can reach (the runtime's `withdrawTarget`) taken back into
    * the draft; with none to reach, the key is declined, and ↑ walks the prompts.
@@ -230,12 +235,14 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   };
   return (
     <>
+      <div data-composer-above>
       <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />
       <RewoundStrip />
       {gone === undefined && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
       <PromptCard environmentId={environmentId} sessionId={sessionId} />
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
+      </div>
       <KeyContext context="composer" conditions={conditions}>
         <ComposerKeys
           send={submit}
@@ -265,6 +272,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
               <AttachmentChips attachments={attachments} />
               <textarea
                 ref={box.field}
+                {...composition}
                 aria-label="Message"
                 aria-controls={menu === null ? undefined : menus.listId}
                 aria-activedescendant={menu === null || at < 0 ? undefined : optionId(menus.listId, at)}

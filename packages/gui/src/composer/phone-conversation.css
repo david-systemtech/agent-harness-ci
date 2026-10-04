@@ -1,0 +1,40 @@
+/* Surface rules stay with the conversation; the web frame supplies safe-area padding. */
+[data-web-client] [data-composer-above] { min-height: 0; }
+@media (max-width: 639px) {
+  [data-web-client] [data-composer-column] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  [data-web-client] [data-composer-above] {
+    flex-shrink: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  [data-web-client] [aria-label="Parked prompt"] { overflow-wrap: anywhere; }
+  [data-web-client] [aria-label="Parked prompt"] header { flex-wrap: wrap; }
+  [data-web-client] [aria-label="Parked prompt"] button { height: auto; white-space: normal; }
+  [data-web-client] [aria-label="Parked prompt"] header > button { margin-left: auto; }
+  [data-web-client] [data-phone-status="closed"] > :not([data-phone-status-toggle]) { display: none; }
+  [data-web-client] [data-phone-status-toggle] { display: inline-flex; }
+  [data-web-client] [data-phone-status="open"] { max-height: 30dvh; overflow-y: auto; }
+  [data-web-client] [data-message-verbs] { visibility: visible !important; }
+  [data-web-client] [data-question-option] > span { width: 44px; height: 44px; }
+  [data-web-client] [data-question-option] input { width: 44px; height: 44px; }
+  [data-web-client] [data-question-option] svg { inset: 14px; }
+  [data-web-client] [data-question-option] label { min-height: 44px; min-width: 0; justify-content: center; }
+  [data-web-client] [data-question-option] { overflow-wrap: anywhere; }
+  [data-web-client] [aria-label="Notifications"] { max-height: 12dvh; }
+  [data-web-client] [data-notice-tone] { padding-right: 52px; }
+  [data-web-client] [data-attachment-chip]:not(:has(img)) { padding-right: 48px; max-width: 100%; }
+  [data-web-client] [data-attachment-chip] button { top: 6px; right: 4px; }
+  [data-web-client] [data-tool-call] > button { flex-wrap: wrap; }
+}
+@media (hover: none) {
+  [data-message-verbs] { visibility: visible !important; }
+}
+@media (max-width: 639px) {
+  [data-web-client] [aria-label="Message"] {
+    max-height: max(44px, min(35vh, calc(var(--phone-viewport-height, 100dvh) * 0.25)));
+  }
+}
