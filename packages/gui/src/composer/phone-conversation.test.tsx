@@ -2,6 +2,7 @@ import { mountGallery } from "../../gallery/mount.js";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { renderApp } from "../../test/harness.js";
+import { route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
 it("keeps the composing draft until the input method commits, including an Enter without isComposing", async () => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
@@ -38,6 +39,33 @@ it("fits the web conversation to the visual viewport and leaves pinch zoom alone
   expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("400px");
   await gallery.close();
   expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("");
+});
+
+it("fits a missing-workspace conversation before and after its message field returns", async () => {
+  const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1 });
+  vi.stubGlobal("visualViewport", viewport);
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "phone-missing-workspace", "light", {
+    "phone-missing-workspace": {
+      platform: "web", route,
+      script: { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], sessions: Array.from({ length: 1 }, () => ({ title: "Receipts", workspaceMissingSince: "2026-01-01T00:00:00Z" })) }] },
+      readySelector: '[aria-label="The workspace is gone"]',
+    },
+  });
+  onTestFinished(async () => { await gallery.close(); root.remove(); });
+  await gallery.ready;
+  expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+  const frame = root.querySelector<HTMLElement>("[data-web-client]")!;
+  expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("480px");
+  const env = gallery.world.world.environment("desk");
+  await act(async () => {
+    await gallery.world.runtime.commands.dispatch(env.environmentId, "sessions.setWorkspace", { sessionId: env.sessionId(), workspace: { kind: "directory", path: "/work/receipts" } });
+  });
+  await screen.findByRole("textbox", { name: "Message" });
+  viewport.height = 400;
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("400px");
 });
 
 it("opens the phone run settings by tap without taking space from the waiting card initially", async () => {
@@ -84,6 +112,7 @@ it.each(["long", "question", "plan"])("mounts the phone-conversation-%s surface 
   expect(screen.getByRole("button", { name: decision })).toBeDefined();
   if (kind === "long") {
     expect(screen.getByRole("list", { name: "Attachments" }).textContent).toContain("unusually-long-receipt-filename-for-the-quarter.txt");
+    expect(screen.getAllByRole("button", { name: /^Remove unusually-long-receipt-filename/ })).toHaveLength(20);
     expect(screen.getByRole("region", { name: "Queued messages" }).textContent).toContain("1 message queued");
     await waitFor(() => expect([...root.querySelectorAll("[data-tool-raw]")].map(element => element.textContent).join("\n")).toContain("All receipt totals match."));
   }

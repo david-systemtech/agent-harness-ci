@@ -1,9 +1,9 @@
 import { useEffect, type RefObject } from "react";
 
 /** Keep the conversation above the keyboard on browsers whose layout viewport stays tall. */
-export const usePhoneViewport = (field: RefObject<HTMLTextAreaElement | null>) => {
+export const usePhoneViewport = (anchor: RefObject<HTMLElement | null>) => {
   useEffect(() => {
-    const frame = field.current?.closest<HTMLElement>("[data-web-client]");
+    const frame = anchor.current?.closest<HTMLElement>("[data-web-client]");
     const viewport = window.visualViewport;
     if (!frame || !viewport) return;
     const fit = () => {
@@ -24,5 +24,5 @@ export const usePhoneViewport = (field: RefObject<HTMLTextAreaElement | null>) =
       frame.removeEventListener("focusin", fit);
       frame.style.removeProperty("--phone-viewport-height");
     };
-  }, [field]);
+  }, [anchor]);
 };

@@ -12,7 +12,7 @@ import {
   type CapabilityAnswer,
   type Lock,
 } from "@agent-harness/client-runtime";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CircleStop, LoaderCircle, Paperclip, SendHorizontal } from "lucide-react";
 import { KeyContext, useFirstKey, useKeyAction, type Offer } from "../keys/key-dispatch.js";
 import { useSessionQueue } from "../queue/session-queue.js";
@@ -98,7 +98,8 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const checks = useWorkspaceChecks(environmentId, sessionId, say);
   const box = useBox();
   const { composing, ...composition } = useComposition();
-  usePhoneViewport(box.field);
+  const above = useRef<HTMLDivElement>(null);
+  usePhoneViewport(above);
   useSessionDraft(environmentId, sessionId, projection, box);
   const sendKey = useFirstKey("composer.send");
   const newlineKey = useFirstKey("composer.newline");
@@ -235,7 +236,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   };
   return (
     <>
-      <div data-composer-above>
+      <div ref={above} data-composer-above>
       <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />
       <RewoundStrip />
       {gone === undefined && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}

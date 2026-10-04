@@ -24,7 +24,7 @@ export const activate = () => {
     if (!input || !call) return;
     if (!attached) {
       attached = true;
-      Object.defineProperty(input, "files", { configurable: true, value: [new File(["Receipt totals"], "unusually-long-receipt-filename-for-the-quarter.txt", { type: "text/plain" })] });
+      Object.defineProperty(input, "files", { configurable: true, value: Array.from({ length: 20 }, (_, index) => new File(["Receipt totals"], `unusually-long-receipt-filename-for-the-quarter${index === 0 ? "" : `-${String(index + 1)}`}.txt`, { type: "text/plain" })) });
       input.dispatchEvent(new Event("change", { bubbles: true }));
       call.click();
     }
@@ -32,6 +32,7 @@ export const activate = () => {
     result?.click();
     if (document.querySelector("[data-attachment-chip]") && call.getAttribute("aria-expanded") === "true") {
       call.scrollIntoView({ block: "start" });
+      document.querySelector('[aria-label="Attachments"] li:last-child button')?.scrollIntoView({ block: "nearest" });
       observer.disconnect();
     }
   };
@@ -40,4 +41,8 @@ export const activate = () => {
   prepare();
   return () => observer.disconnect();
 };
-export const geometry = conversationGeometry('[aria-label="Send"]');
+export const geometry: SceneModule["geometry"] = viewport => [
+  ...conversationGeometry('[aria-label="Send"]'),
+  { selector: '[aria-label="Attachments"]', maxHeight: Math.min(112, viewport.height * 0.15), visibleWithin: "[data-web-client]" },
+  { selector: '[aria-label="Attachments"] li:last-child button', visibleWithin: '[aria-label="Attachments"]' },
+];
