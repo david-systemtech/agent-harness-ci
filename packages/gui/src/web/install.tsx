@@ -5,20 +5,20 @@ import type { WebModule } from "../platform/web-registrations.js";
 
 export interface InstallFeatures { readonly secure: boolean; readonly standalone: boolean; readonly ios: boolean; readonly worker: boolean }
 interface InstallOffer extends Event { prompt(): Promise<void>; readonly userChoice: Promise<{ readonly outcome: string }> }
-interface InstallState extends InstallFeatures { readonly offered: boolean; readonly busy: boolean; readonly line?: string | undefined }
+interface InstallState extends InstallFeatures { readonly installed: boolean; readonly offered: boolean; readonly busy: boolean; readonly line?: string | undefined }
 export class InstallController {
   private readonly state;
   readonly read;
   readonly subscribe;
   private offer: InstallOffer | undefined;
   private readonly offered = (event: Event) => {
-    if (!this.read().secure || this.read().standalone) return;
+    if (!this.read().secure || this.read().standalone || this.read().installed) return;
     event.preventDefault(); this.offer = event as InstallOffer;
     this.state.update(state => ({ ...state, offered: true, line: undefined }));
   };
-  private readonly installed = () => { this.offer = undefined; this.state.update(state => ({ ...state, standalone: true, offered: false, line: "Client installed. Open its Home Screen icon." })); };
+  private readonly installed = () => { this.offer = undefined; this.state.update(state => ({ ...state, installed: true, offered: false, line: "Client installed. Open its Home Screen icon." })); };
   constructor(private readonly events: EventTarget, features: InstallFeatures) {
-    this.state = writable<InstallState>({ ...features, offered: false, busy: false });
+    this.state = writable<InstallState>({ ...features, installed: features.standalone, offered: false, busy: false });
     this.read = this.state.read; this.subscribe = this.state.subscribe;
     events.addEventListener("beforeinstallprompt", this.offered);
     events.addEventListener("appinstalled", this.installed);

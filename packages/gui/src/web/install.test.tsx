@@ -33,3 +33,17 @@ it("plain HTTP only offers a shortcut with honest secure-origin limitations", ()
   expect(screen.queryByRole("button", { name: "Install client" })).toBeNull();
   controller.dispose();
 });
+
+it("keeps the installing browser tab separate from the installed standalone client", () => {
+  const events = new EventTarget();
+  const controller = new InstallController(events, { secure: true, standalone: false, ios: false, worker: true });
+  render(<InstallGuidance controller={controller} />);
+  act(() => { events.dispatchEvent(new Event("appinstalled")); });
+  expect(controller.read().standalone).toBe(false);
+  expect(screen.queryByText("This client is running from its Home Screen icon.")).toBeNull();
+  expect(screen.getByRole("status").textContent).toBe("Client installed. Open its Home Screen icon.");
+  const offer = Object.assign(new Event("beforeinstallprompt", { cancelable: true }), { prompt: async () => undefined, userChoice: Promise.resolve({ outcome: "accepted" }) });
+  act(() => { events.dispatchEvent(offer); });
+  expect(screen.queryByRole("button", { name: "Install client" })).toBeNull();
+  controller.dispose();
+});
