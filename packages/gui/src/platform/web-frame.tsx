@@ -1,0 +1,95 @@
+import { useEffect, useRef, useState } from "react";
+import { Settings, Plus, Link } from "lucide-react";
+import { BrowserPanesProvider } from "../browser/browser-panes.js";
+import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
+import { PairingForm } from "../connections/pairing.js";
+import { InGridPane, PaneGridProvider, usePaneGrid } from "../grid/grid.js";
+import { focusedPane, showSession } from "../grid/layout.js";
+import { EmptyPane, NewSessionPane, SessionPane } from "../grid/session-pane.js";
+import { NewSessionSurfaces } from "../new-session/surfaces.js";
+import { PaneLines } from "../session/pane-line.js";
+import { SettingsView } from "../settings/settings-view.js";
+import { useSettings } from "../settings/settings-window.js";
+import { WindowNotices } from "../notices/window-notices.js";
+import { Button } from "../ui/button.js";
+import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { sessionLink, type BrowserRoute } from "./browser-boot.js";
+import type { BrowserPlatform } from "./browser-platform.js";
+import { WebRegisteredSurfaces } from "./web-registrations.js";
+
+export interface WebFrameProps { readonly platform: BrowserPlatform; readonly route: BrowserRoute }
+/** The first browser slice uses the same session components and environment-owned work. */
+export const WebFrame = (props: WebFrameProps) => (
+  <BrowserPanesProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><PaneLines>
+    <WebConversation {...props} />
+  </PaneLines></NewSessionSurfaces></PaneGridProvider></TerminalPanesProvider></BrowserPanesProvider>
+);
+
+const WebConversation = ({ platform, route }: WebFrameProps) => {
+  const runtime = useRuntime();
+  const environments = useObservable(runtime.projections.environments);
+  const sessions = useObservable(runtime.projections.sessionList);
+  const persistence = useObservable(platform.persistence);
+  const [layout, setLayout] = usePresentation("paneLayout");
+  const pane = focusedPane(layout);
+  const grid = usePaneGrid();
+  const settings = useSettings();
+  const [line, setLine] = useState<string>();
+  const [pairing, setPairing] = useState(false);
+  const [handedLink, setHandedLink] = useState<string>();
+  const paired = environments.filter(env => env.kind === "paired");
+  const selected = paired.find(env => env.environmentId === pane.session?.environmentId) ?? paired[0];
+  const consumed = useRef(false);
+  useEffect(() => {
+    const input = route.pairing;
+    if (consumed.current || input === undefined) return;
+    consumed.current = true;
+    setLine("Pairing…");
+    void runtime.connections.add(input).then(outcome => {
+      if (outcome.status === "re-pair-offered") {
+        setHandedLink("link" in input ? input.link : `${input.address}/pair#${input.code}`);
+        setPairing(true);
+      }
+      setLine(outcome.status === "failed" ? outcome.failure.message : outcome.status === "re-pair-offered" ? "Already paired. Confirm this link to replace the connection deliberately." : undefined);
+    }, () => setLine("Pairing failed. Make a new code and try again."));
+  }, [runtime, route]);
+  const openedRoute = useRef(false);
+  useEffect(() => {
+    if (openedRoute.current || !route.session || !sessions.rows.some(row => row.environmentId === route.session?.environmentId && row.summary.id === route.session.sessionId)) return;
+    openedRoute.current = true;
+    const session = route.session;
+    setLayout(held => showSession(held, held.focused, session));
+  }, [route, sessions.rows, setLayout]);
+  const open = (key: string) => {
+    const row = sessions.rows.find(row => `${row.environmentId}/${row.summary.id}` === key);
+    if (!row) return;
+    const session = { environmentId: row.environmentId, sessionId: row.summary.id };
+    setLayout(held => showSession(held, held.focused, session));
+    history.replaceState(null, "", sessionLink(session));
+  };
+  const content = { focused: true, marked: false, close: undefined };
+  return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">
+    <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
+      <label className="sr-only" htmlFor="web-session">Sessions</label>
+      <select id="web-session" aria-label="Sessions" className="min-w-0 flex-1 rounded-md border border-hairline bg-panel px-2 text-ink" value={pane.session ? `${pane.session.environmentId}/${pane.session.sessionId}` : ""} onChange={event => open(event.target.value)}>
+        <option value="">Open a session</option>
+        {sessions.rows.map(row => <option key={`${row.environmentId}/${row.summary.id}`} value={`${row.environmentId}/${row.summary.id}`}>{row.summary.title ?? "Untitled session"}</option>)}
+      </select>
+      <Button title="New session" aria-label="New session" onClick={() => grid.newSession(null)}><Plus aria-hidden="true" className="size-4" /></Button>
+      <Button title="Pair with an environment" aria-label="Pair with an environment" onClick={() => setPairing(value => !value)}><Link aria-hidden="true" className="size-4" /></Button>
+      <Button title="Settings" aria-label="Settings" onClick={() => settings.open()}><Settings aria-hidden="true" className="size-4" /></Button>
+    </header>
+    {persistence === "visit-only" && <p role="status" className="shrink-0 border-b border-hairline bg-panel px-3 py-2 text-sm">Storage is unavailable. Pair for this visit; this connection will be forgotten when you close or reload.</p>}
+    {selected && <p data-web-grant className="shrink-0 break-words border-b border-hairline px-3 py-2 text-xs text-ink-muted">{selected.name ?? "Environment"} · {selected.phase} · Scopes: {selected.scopes.join(", ")} · Ceiling: {selected.ceiling ?? "connecting"}</p>}
+    {selected?.phase === "blocked" && <p role="status" className="px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
+    {line && <p role="status" className="px-3 py-2 text-sm">{line}</p>}
+    {(paired.length === 0 || pairing) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} onPaired={() => { setPairing(false); setHandedLink(undefined); setLine(undefined); }} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <WindowNotices />
+      <InGridPane id={pane.id}>
+        {pane.session ? <SessionPane session={pane.session} {...content} /> : pane.newSession ? <NewSessionPane surface={pane.newSession} {...content} /> : <EmptyPane {...content} />}
+      </InGridPane>
+    </main>}
+    {settings.shown && <SettingsView />}
+    <WebRegisteredSurfaces />
+  </div>;
+};

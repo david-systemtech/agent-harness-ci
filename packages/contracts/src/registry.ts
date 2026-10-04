@@ -1,3 +1,5 @@
+import { webOriginMethods } from "./web/origin-policy.js";
+import { webAttentionMethods } from "./web/attention.js";
 import { banksValidatorUpdate } from "./bank-validator-update.js";
 import { banksMigrate } from "./bank-migration.js";
 import { banksSplitPropose, banksSplitApply } from "./bank-split.js";
@@ -209,6 +211,7 @@ import {
  * dispatch, its scope check and the typed client are all read from it.
  */
 export const methods = [
+  ...webOriginMethods, ...webAttentionMethods,
   environmentStatus,
   environmentSubscribe,
   environmentDrain,

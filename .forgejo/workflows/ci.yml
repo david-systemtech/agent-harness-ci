@@ -4,6 +4,8 @@
 # with it (.forgejo/scripts/github-ci.sh). The `ci / ci` status the bots and
 # the pull request page read is still this job's.
 #
+# The suite includes test/web-smoke.test.ts: the real served client over HTTPS,
+# Chromium and WebKit, only on a hosted runner under its ordinary uid.
 # The secret scan, install, typecheck, lint, suite and schema export drift
 # check are in agent-harness-ci's .github/workflows/ci.yml; change them there.
 #

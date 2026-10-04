@@ -29,6 +29,17 @@
       "chooses": "ceiling"
     },
     {
+      "id": "phone",
+      "name": "Phone",
+      "scopes": [
+        "read",
+        "sessions:write",
+        "runs:drive"
+      ],
+      "ceiling": "acceptEdits",
+      "chooses": "nothing"
+    },
+    {
       "id": "custom",
       "name": "Custom",
       "scopes": [

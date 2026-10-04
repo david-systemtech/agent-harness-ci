@@ -131,7 +131,7 @@ describe("agent-harness pair", () => {
     for (const [args, message] of [
       [["--preset", "own-client", "--ceiling", "plan"], "My own client grants every scope, up to bypassPermissions: it takes no other scopes or ceiling."],
       [["--preset", "program", "--scopes", "read"], "A program grants read, sessions:write and runs:drive: only its ceiling may be picked."],
-      [["--preset", "everything"], "--preset takes one of own-client, program, custom; got everything."],
+      [["--preset", "everything"], "--preset takes one of own-client, program, phone, custom; got everything."],
     ] as const) {
       const cli = harness();
       expect(await runCli(["pair", ...args], cli.context), args.join(" ")).toBe(2);
@@ -223,7 +223,7 @@ describe("agent-harness pair", () => {
     ]) {
       const cli = harness();
       expect(await runCli(args, cli.context), args.join(" ")).toBe(2);
-      expect(cli.err()).toContain("agent-harness pair [--preset <own-client|program|custom>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]");
+      expect(cli.err()).toContain("agent-harness pair [--preset <own-client|program|phone|custom>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]");
       if (args[1] === "--ceiling") expect(cli.err()).toContain("--ceiling takes one of plan, acceptEdits, auto, bypassPermissions");
     }
   });

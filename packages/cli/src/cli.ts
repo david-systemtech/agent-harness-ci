@@ -29,7 +29,7 @@ import {
   type EnvironmentOptions,
   type PreflightSeams,
 } from "@agent-harness/environment";
-import { parseOptions, parsePort, UsageError } from "./args.js";
+import { parseOptions, parsePort, parseWebOrigin, UsageError } from "./args.js";
 import { BANK_USAGE, bank } from "./bank.js";
 import { BROWSER_USAGE, browser } from "./browser.js";
 import { harnessCommand } from "./harness-command.js";
@@ -48,7 +48,7 @@ import { UPDATE_USAGE, update } from "./update.js";
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
-  `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
+  `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>] [--web-origin <https-origin>]`,
   `       ${PRODUCT_NAME} ${LAUNCH_USAGE}`,
   `       ${PRODUCT_NAME} ${PREFLIGHT_USAGE}`,
   `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
@@ -108,9 +108,10 @@ const given = (value: string | undefined): string | undefined => {
  * variables the published compose file passes into the container. Only the
  * start that creates the environment uses either.
  */
-const parseServe = (args: readonly string[], env: Readonly<Record<string, string | undefined>>): Pick<EnvironmentOptions, "dataDir" | "port" | "name" | "channel"> => {
-  const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
+const parseServe = (args: readonly string[], env: Readonly<Record<string, string | undefined>>): Pick<EnvironmentOptions, "dataDir" | "port" | "name" | "channel" | "webOrigin"> => {
+  const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" }, "web-origin": { type: "string" } });
   const port = parsePort(values.port, 0);
+  const webOrigin = parseWebOrigin(values["web-origin"] ?? given(env["AGENT_HARNESS_WEB_ORIGIN"]));
   const name = values.name ?? given(env[NEW_ENVIRONMENT_NAME_VARIABLE]);
   const channelValue = given(env[NEW_ENVIRONMENT_CHANNEL_VARIABLE]);
   let channel: ReleaseChannel | undefined;
@@ -124,6 +125,7 @@ const parseServe = (args: readonly string[], env: Readonly<Record<string, string
     ...(port !== undefined && { port }),
     ...(name !== undefined && { name }),
     ...(channel !== undefined && { channel }),
+    ...(webOrigin !== undefined && { webOrigin }),
   };
 };
 

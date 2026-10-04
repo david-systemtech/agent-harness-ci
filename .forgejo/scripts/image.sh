@@ -68,6 +68,7 @@ build() {
   local reported
   reported=$(docker run --rm "$tag" --version)
   [ "$reported" = "agent-harness $version" ] || fail "the image reports $reported, expected agent-harness $version"
+  docker run --rm --entrypoint node "$tag" /opt/agent-harness/scripts/image-web-smoke.mjs
 }
 
 case "${1:-}" in

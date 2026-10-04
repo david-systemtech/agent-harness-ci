@@ -2,14 +2,20 @@ import { describe, expect, it } from "vitest";
 import { PAIRING_PRESETS, PAIRING_PRESET_IDS, PairingPreset, SCOPES, pairingPreset, presetGrant } from "./index.js";
 
 describe("the pairing presets", () => {
-  it("are My own client, A program and Custom, in that order, each valid against its schema", () => {
+  it("are My own client, A program, Phone and Custom, in that order, each valid against its schema", () => {
     expect(PAIRING_PRESETS.map((preset) => [preset.id, preset.name])).toEqual([
       ["own-client", "My own client"],
       ["program", "A program"],
+      ["phone", "Phone"],
       ["custom", "Custom"],
     ]);
     expect(PAIRING_PRESETS.map((preset) => preset.id)).toEqual([...PAIRING_PRESET_IDS]);
     for (const preset of PAIRING_PRESETS) expect(PairingPreset.parse(preset), preset.id).toEqual(preset);
+  });
+
+  it("grant Phone read, session writing and run driving up to acceptEdits, without terminal or admin", () => {
+    expect(presetGrant(pairingPreset("phone"))).toEqual({ ok: true, scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
+    expect(presetGrant(pairingPreset("phone"), { ceiling: "bypassPermissions" }).ok).toBe(false);
   });
 
   it("grant my own client every scope and bypassPermissions, which nobody changes", () => {

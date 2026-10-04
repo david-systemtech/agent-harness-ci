@@ -108,6 +108,8 @@ export interface TestEnvironmentOptions {
   readonly bindLan?: boolean;
   readonly lanAddress?: string;
   readonly tailnetName?: string;
+  readonly webOrigin?: string;
+  readonly webClientDirectory?: string;
   /** Subscription seams: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
   /** Preset: whatever the machine is, reported as no container, so updates are not managed outside. */
@@ -391,6 +393,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.bindLan !== undefined && { bindLan: options.bindLan }),
     ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
+    ...(options.webOrigin !== undefined && { webOrigin: options.webOrigin }),
+    ...(options.webClientDirectory !== undefined && { webClientDirectory: options.webClientDirectory }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
     ...(options.fileUndoHooks !== undefined && { fileUndoHooks: options.fileUndoHooks }),
     ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),

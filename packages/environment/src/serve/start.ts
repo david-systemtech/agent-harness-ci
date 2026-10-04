@@ -1,3 +1,6 @@
+import { webOriginPolicy } from "../web/origin-policy.js";
+import { webAttention } from "../web/attention.js";
+import { externalWebOrigin, serveWebClient } from "./web-client.js";
 import { reconcileImportedSessions } from "../sessions/import-dedupe.js";
 import { validatorUpdateMethods } from "../banks/validator-update.js";
 import { migrationMethods } from "../banks/migrate.js";
@@ -355,6 +358,10 @@ export interface EnvironmentOptions {
   readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
+  /** Canonical HTTPS origin for web links, configured independently of the TLS proxy. */
+  readonly webOrigin?: string;
+  /** Override the packaged public bundle directory, for hosted verification. */
+  readonly webClientDirectory?: string;
   /** The environment's own IANA time zone, which a routine that names none is saved in (#521). Preset: the process's. */
   readonly timeZone?: string;
   /** What is found to bind beside loopback. Preset: the `tailscale` CLI and the machine's network interfaces (`tailscaleDetector`); tests pass their own. */
@@ -836,6 +843,7 @@ const passwdName = (): string | undefined => {
  */
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   refusePrivilegedUser(options.user ?? processUserCheck());
+  const webOrigin = externalWebOrigin(options.webOrigin);
   // Past the refusal, the environment does not run as root (ADR 0006): what `permissions.settings.get` answers as
   // `isRoot`, and the not-root line the Permissions and Your machines steps' checks read from it (#141).
   const isRoot = false;
@@ -1460,7 +1468,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // `updates.status` says why. Read as discovery answers and as each hello is sent.
   const flags = (): CapabilityFlags => (launcher.present() || hostUpdater.selfUpdate() ? ["self-update", ...capabilities] : [...capabilities]);
 
-  const surface = createHttpSurface({ tailnetName: () => tailnetName });
+  let allowsAdditionalOrigin: (origin: string) => boolean = () => false;
+  const surface = createHttpSurface({ tailnetName: () => tailnetName ?? (webOrigin ? new URL(webOrigin).hostname : undefined), ...(webOrigin && { webOrigin }), webOriginAllowed: origin => allowsAdditionalOrigin(origin) });
+  const origins = webOriginPolicy(log, surface);
+  serveWebClient(surface, options.webClientDirectory, [], origins.connectOrigins);
+  allowsAdditionalOrigin = origins.allows;
+  const attention = webAttention({ log, clock, environmentId: record.id, webOrigin: () => webOrigin });
+  closers.push(attention.close);
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
     const { name, icon, colour } = look.read();
@@ -1829,6 +1843,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     });
   const table = createMethodTable({
+    ...origins.handlers, ...attention.handlers,
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
     // result (#569).
@@ -2055,7 +2070,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const tailnet = boundOn("tailnet");
     boundBeside = { tailnet: tailnet === null ? null : { address: tailnet, name: tailnetName ?? null }, lan: boundOn("lan") };
     tailnetFound = tailnet === null ? (tailscaleAddress ?? null) : null;
-    linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
+    linkOrigin = webOrigin ?? `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());
     closers.push(() => grant.remove());
