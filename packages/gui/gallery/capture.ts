@@ -35,9 +35,7 @@ try {
   const geometry: Record<string, readonly Measurement[]> = {};
   const names = await sceneFiles(resolve(import.meta.dirname, "scenes"));
   if (names.length === 0) throw new Error("The gallery has no scenes.");
-  const shards = capturePlan(names).shards;
-  const plan = shards.find(shard => shard.name === process.env["GALLERY_SHARD"]);
-  if (!plan) throw new Error("Choose a gallery shard: desktop or phone.");
+  const plan = capturePlan(names);
   console.log(`Capture budget: ${plan.budget.desktop} desktop + ${plan.budget.phone} phone = ${plan.budget.total}/${plan.budget.limit}; ${plan.budget.remaining} reserved.`);
   for (const { scene, ladder, viewport, name, platform, textSize } of plan.captures) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
@@ -85,7 +83,12 @@ try {
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
   const pixelBlocking = true;
-  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, shard: { name: plan.name, all: shards.map(shard => shard.name) }, captureBudget: plan.budget, scenes: report }, null, 2));
+  const shards = plan.shards.map(shard => {
+    const names = new Set(shard.captures.map(capture => capture.name));
+    return { name: shard.name, scenes: report.filter(row => names.has(row.name)) };
+  });
+  // Flat rows support a trusted publisher from before sharding while the tree still fits 400 captures.
+  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: plan.budget, scenes: report, shards }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);

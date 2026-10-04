@@ -8,6 +8,7 @@ import {
   type ResponseFrame,
 } from "@agent-harness/contracts";
 import { exchangeGrant, readsGrant, type GrantExchange, type LocalStatus } from "../bootstrap.js";
+import { isStoredCredentialUnavailable } from "../credential-unavailable.js";
 import { admitHello, checkDiscovery, readDiscovery } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
 import type { Notices } from "../notices.js";
@@ -777,7 +778,15 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         message: `This client was paired with ${name} without the admin scope, so its client session there is still live: revoke it from a client that has admin.`,
       };
     }
-    const token = await platform.secrets.get(environmentId);
+    let token: string | undefined;
+    try { token = await platform.secrets.get(environmentId); }
+    catch (error) {
+      if (!isStoredCredentialUnavailable(error)) throw error;
+      return {
+        revoked: false, reason: "unreachable",
+        message: `The stored credentials for ${name} could not be read, so this client's session there is still live: revoke it from another client.`,
+      };
+    }
     const clientSessionId = entry.saved.clientSessionId;
     if (clientSessionId !== null && token !== undefined && (await revokeClientSession({ environmentId, origin, token, clientSessionId, socket }))) {
       return { revoked: true };
@@ -810,8 +819,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     const previous = entries.get(id);
     previous?.runner.stop();
     if (previous?.saved.kind === "paired") {
-      const token = await platform.secrets.get(id);
-      if (previous.saved.clientSessionId !== null && token !== undefined) {
+      // The local grant already supplied an admin token. Reading the earlier
+      // paired token here would make local bootstrap wait on OS approval.
+      if (previous.saved.clientSessionId !== null) {
         await revokeClientSession({ environmentId: id, origin: exchange.origin, token: exchange.credential.token, clientSessionId: previous.saved.clientSessionId });
       }
       await platform.secrets.delete(id);

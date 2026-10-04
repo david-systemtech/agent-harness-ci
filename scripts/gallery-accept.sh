@@ -3,10 +3,12 @@
 set -euo pipefail
 [[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr> [reviewed-capture.png ...]' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
-python3 - "$root" "$@" <<'PY'
+python3 - "$root" "$(dirname "${BASH_SOURCE[0]}")" "$@" <<'PY'
 import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
-root = pathlib.Path(sys.argv[1]); number = sys.argv[2]
-selected = set(sys.argv[3:])
+sys.path.insert(0, sys.argv[2])
+from gallery_allocation import captures_fit_allocation, LIMITS
+root = pathlib.Path(sys.argv[1]); number = sys.argv[3]
+selected = set(sys.argv[4:])
 if any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) for name in selected):
     sys.exit('Expected exact reviewed capture filenames.')
 remote = urllib.parse.urlsplit(subprocess.check_output(['git', '-C', str(root), 'remote', 'get-url', 'origin'], text=True).strip())
@@ -37,7 +39,7 @@ if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=T
 # Forgejo returns the entire per-issue comment thread; page and limit are ignored.
 comments = json.loads(get(f'{api}/issues/{number}/comments'))
 if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
-manifests = []
+manifest = None
 for comment in comments:
     # Only the reserved Forgejo Actions identity can supply relay reports.
     author = comment.get('user')
@@ -50,31 +52,22 @@ for comment in comments:
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
-        if not isinstance(files, list) or not files or len(files) > 400: continue
+        if not isinstance(files, list) or not files or len(files) > sum(LIMITS.values()): continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
-        manifests.append(candidate)
-if not manifests: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
-latest = manifests[-1]
-shard = latest.get('shard')
-if shard is None:
-    manifests = [latest]
-else:
-    if not isinstance(shard, dict) or shard.get('all') != ['desktop', 'phone'] or shard.get('name') not in shard['all'] or not isinstance(shard.get('batch'), str) or not re.fullmatch(r'[1-9][0-9]*', shard['batch']): sys.exit('Invalid gallery shard manifest.')
-    manifests = [m for m in manifests if isinstance(m.get('shard'), dict) and m['shard'].get('batch') == shard['batch']]
-    if len(manifests) != 2 or {m['shard'].get('name') for m in manifests} != {'desktop', 'phone'} or any(m['shard'].get('all') != shard['all'] for m in manifests):
-        sys.exit('Incomplete gallery shard batch. Wait for both desktop and phone reports from the same run.')
-files = []
-for manifest in manifests:
-    version = manifest.get('version', head)
-    if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version): sys.exit('Invalid gallery capture version.')
-    if shard is not None and version == head: sys.exit('Sharded gallery reports require immutable versions.')
-    files.extend({**item, 'version': version} for item in manifest['captures'])
+        if not captures_fit_allocation([item['name'] for item in files]): continue
+        manifest = candidate
+if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
+version = manifest.get('version', head)
+if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
+    sys.exit('Invalid gallery capture version.')
+files = manifest.get('captures', [])
+if not files or len(files) > sum(LIMITS.values()): sys.exit('Invalid gallery capture list.')
 names = [item['name'] for item in files]
 if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
 if selected - set(names): sys.exit('A requested capture is absent from the current report.')
-accepted = {}; totals = {}
+accepted = {}; total = 0
 for item in files:
-    name, url, version = item['name'], item['api_url'], item['version']
+    name, url = item['name'], item['api_url']
     parsed = urllib.parse.urlsplit(url)
     if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) or name in accepted:
         sys.exit('Invalid or duplicate gallery filename.')
@@ -92,8 +85,8 @@ for item in files:
         profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
         if phone is None or dimensions != profiles[phone[1]]: sys.exit('Unexpected phone gallery dimensions.')
     elif dimensions not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
-    totals[version] = totals.get(version, 0) + len(data)
-    if totals[version] > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
+    total += len(data)
+    if total > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
     accepted[name] = data
 # Validate and download every selected capture before writing any baseline.
 folder = root / 'packages/gui/gallery/baselines'
