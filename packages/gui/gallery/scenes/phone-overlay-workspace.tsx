@@ -20,8 +20,8 @@ export const activate = () => {
   return () => observer.disconnect();
 };
 export const readySelector = "[data-workspace-picker]";
-export const geometry = ({ width, height }: { readonly width: number; readonly height: number }) => [
-  { selector: "[data-workspace-picker]", maxWidth: width - 16, maxHeight: height - 16 },
+export const geometry = [
+  { selector: "[data-workspace-picker]", visibleWithin: "[data-workspace-picker]" },
   { selector: "[data-workspace-picker] button", minimumWidth: 44, minimumHeight: 44 },
   { selector: '[data-workspace-picker] input', minimumHeight: 44 },
   { selector: '[data-workspace-picker] button[type="submit"]', visibleWithin: "[data-workspace-picker]" },

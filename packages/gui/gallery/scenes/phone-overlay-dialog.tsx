@@ -34,7 +34,7 @@ export const activate = () => {
 };
 export const readySelector = '[aria-label="Text to copy manually"]';
 export const geometry = [
-  { selector: '[role="dialog"]', maxWidth: 390 },
+  { selector: '[role="dialog"]', visibleWithin: '[role="dialog"]' },
   { selector: '[role="dialog"] button', minimumWidth: 44, minimumHeight: 44 },
   { selector: '[role="dialog"] input', minimumHeight: 44 },
   { selector: '[role="dialog"] textarea', minimumHeight: 44 },

@@ -15,7 +15,7 @@ export const activate = () => {
 };
 export const readySelector = '[data-measure="palette"]';
 export const geometry = [
-  { selector: '[data-measure="palette"]', maxWidth: 390 },
+  { selector: '[data-measure="palette"]', visibleWithin: '[data-palette-overlay]' },
   { selector: '[data-measure="palette"] [cmdk-input]', minimumHeight: 44 },
   { selector: '[data-measure="palette"] [cmdk-item]', minimumHeight: 44 },
   { selector: '[aria-label="Close command palette"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: '[data-palette-overlay]' },
