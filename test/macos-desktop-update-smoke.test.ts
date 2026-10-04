@@ -10,14 +10,16 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+  checkPackagedCredentialRepair: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<void>;
+  checkReplacedPackagedCredential: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<"retained" | "unavailable">;
   waitForCredentialHelpersExit: (helpers: number[], running?: (pid: number) => boolean) => Promise<void>;
   quitWithPendingPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   startUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   credentialHelperPids: (pid: number, executable: string, run?: (command: string, args: string[]) => string) => number[];
   checkUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>, observe?: () => Promise<void>) => Promise<void>;
   checkFreshPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
-  askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
+  askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string, outcome?: "retained" | "unavailable") => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   openPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
@@ -54,6 +56,106 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  const replacedPage = (unavailable: boolean, message = "Stored credentials from the previous build could not be read", repairWorks = true) => {
+    const content = (row: string) => `<section aria-label="Settings"><nav aria-label="Settings rows"><button aria-label="About">About</button></nav><section aria-label="Credential access"><p>macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them.</p><p>${message}. New credentials use a fresh OS-protected item. Pair again with the environments that were paired.</p><button data-repair>Pair again</button></section><section aria-label="${row}"></section></section>`;
+    const dom = new JSDOM(content("Your machines"));
+    dom.window.document.querySelector('[aria-label="About"]')?.addEventListener("click", () => {
+      dom.window.document.body.innerHTML = content("About");
+      dom.window.document.querySelector('[data-repair]')?.addEventListener("click", () => {
+        if (repairWorks) dom.window.document.body.innerHTML = content("Your machines");
+      });
+    });
+    const p = page("token-for-tests-kept");
+    const window = { desktopShell: {
+      secrets: { get: async () => { if (unavailable) throw new Error("Stored credentials from the previous build could not be read. Native access deadline."); return "token-for-tests-kept"; }, access: async () => unavailable ? "denied" : null },
+      localGrant: { read: async () => ({ secret: "grant-for-tests", address: { host: "127.0.0.1", port: 4777 } }) },
+      installer: { bundledServer: async () => ({ version: "0.2.0", path: "/fixture/app/server" }) },
+      system: async () => ({ platform: "darwin" }),
+      http: async (address: string, request?: { method: string; headers: Record<string, string>; body: string }) => {
+        if (address.endsWith("/api/bootstrap")) {
+          expect(JSON.parse(request!.body)).toMatchObject({ secret: "grant-for-tests", kind: "tui" });
+          return { status: 200, json: async () => ({ token: "token-for-tests-fresh" }) };
+        }
+        if (address.endsWith("/api/update")) {
+          p.updates.push({ address, ...request! });
+          return { status: 200, json: async () => ({ toVersion: "0.2.0" }) };
+        }
+        return { status: 200, json: async () => ({ harnessVersion: "0.0.0-0" }) };
+      },
+    } };
+    return { ...p, document: dom.window.document, evaluate: async (expression: string) => {
+      const result = await runInNewContext(expression, { window, document: dom.window.document }) as unknown;
+      p.results.push(result);
+      return result;
+    } };
+  };
+
+  it.each([false, true])("proves replacement outcome and upgrades through its retained credential or local recovery, unavailable=%s", async (unavailable) => {
+    const p = replacedPage(unavailable);
+    const outcome = await checkReplacedPackagedCredential(p.evaluate);
+    expect(outcome).toBe(unavailable ? "unavailable" : "retained");
+    await askForPackagedUpdate(p.evaluate, "0.2.0", outcome);
+    expect(p.updates[0]?.headers.authorization).toBe(unavailable ? "Bearer token-for-tests-fresh" : "Bearer token-for-tests-kept");
+    expect(JSON.stringify(p.results)).not.toMatch(/token-for-tests|grant-for-tests/);
+  });
+
+  it("fails unavailable recovery when its explanation or repair action is missing", async () => {
+    const p = replacedPage(true, "Something went wrong");
+    await expect(checkReplacedPackagedCredential(p.evaluate)).rejects.toThrow(/explanation/);
+    const actionless = replacedPage(true);
+    actionless.document.querySelector("[data-repair]")?.remove();
+    await expect(checkReplacedPackagedCredential(actionless.evaluate)).rejects.toThrow(/repair action/);
+  });
+
+  it("requires the repair action to navigate from another Settings row, rather than accepting an already-open target", async () => {
+    const p = replacedPage(true);
+    await checkPackagedCredentialRepair(p.evaluate);
+    expect(p.document.querySelector('section[aria-label="Your machines"]')).not.toBeNull();
+    vi.useFakeTimers();
+    try {
+      const broken = replacedPage(true, undefined, false);
+      const failed = expect(checkPackagedCredentialRepair(broken.evaluate)).rejects.toThrow(/repair action did not open/);
+      await vi.advanceTimersByTimeAsync(5000);
+      await failed;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("rejects arbitrary read errors and missing pending explanations rather than counting them as recovery", async () => {
+    vi.useFakeTimers();
+    try {
+      for (const pending of [false, true]) {
+        const p = replacedPage(false, "Something went wrong");
+        p.document.querySelector('[aria-label="Credential access"]')?.remove();
+        const window = { desktopShell: {
+          secrets: { get: () => pending ? new Promise(() => {}) : Promise.reject(new Error("Unexpected renderer error")), access: async () => pending ? "waiting" : "denied" },
+          system: async () => ({ platform: "darwin" }),
+        } };
+        const evaluate = async (expression: string) => await runInNewContext(expression, { window, document: p.document }) as unknown;
+        const failed = expect(checkReplacedPackagedCredential(evaluate)).rejects.toThrow(pending ? /pending macOS access explanation/ : /Only the product's unavailable/);
+        await vi.advanceTimersByTimeAsync(1000);
+        await failed;
+      }
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("fails a hung prior read at the product deadline while proving main and window responsiveness", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = replacedPage(false);
+      // The external OS never answers; the shell still serves independent IPC.
+      const window = { desktopShell: { secrets: { get: () => new Promise(() => {}), access: async () => "waiting" }, system: async () => ({ platform: "darwin" }) } };
+      let polls = 0;
+      const evaluate = async (expression: string, stage?: string) => {
+        if (stage?.includes("responsiveness")) polls++;
+        return await runInNewContext(expression, { window, document: p.document }) as unknown;
+      };
+      const failed = expect(checkReplacedPackagedCredential(evaluate)).rejects.toThrow(/deadline/);
+      await vi.advanceTimersByTimeAsync(45_000);
+      await failed;
+      expect(polls).toBeGreaterThan(2);
+    } finally { vi.useRealTimers(); }
+  });
+
   it.each(["waiting", "denied"])("refuses to claim pending shutdown when the specific prior read already failed and access is %s", async (access) => {
     let closed = false;
     const window = { desktopShell: {
@@ -161,6 +263,9 @@ describe("the packaged macOS update smoke", () => {
     expect(tokens.size).toBe(0);
     protection = "none";
     await expect(checkFreshPackagedCredential(evaluate)).rejects.toThrow(/OS-protected/);
+    protection = "os";
+    window.desktopShell.secrets.get = async () => "credential-for-tests-wrong";
+    await expect(checkFreshPackagedCredential(evaluate)).rejects.toThrow(/read back correctly/);
   });
 
   it("keeps the combined update request within its existing two-minute deadline", async () => {
@@ -369,7 +474,7 @@ assert.deepEqual(phases, ['ready', 'encrypt', 'exit']);
   });
 
   it("fails when the kept credential cannot authorize the update", async () => {
-    await expect(askForPackagedUpdate(page("token-for-tests", 401).evaluate, "0.2.0")).rejects.toThrow(/existing credential must authorize/);
+    await expect(askForPackagedUpdate(page("token-for-tests", 401).evaluate, "0.2.0")).rejects.toThrow(/retained or recovered credential must authorize/);
   });
 
   it("refuses to count a fresh install already at the release version as an upgrade", async () => {

@@ -112,7 +112,7 @@ export async function startUnavailablePackagedCredential(evaluate) {
     const check = { settled: false };
     window.__packagedCredentialCheck = check;
     check.result = window.desktopShell.secrets.get(${JSON.stringify(credentialName)})
-      .then(() => { check.settled = true; return 'read'; }, () => { check.settled = true; return 'unavailable'; });
+      .then(token => { check.token = token; check.settled = true; return 'read'; }, error => { check.expectedRefusal = String(error?.message).includes('Stored credentials from the previous build could not be read'); check.settled = true; return 'unavailable'; });
     return true;
   })()`, "begin locked prior credential");
   assert.equal(await evaluate("window.desktopShell.system().then(s => s.platform)", "main responsiveness during locked credential access"), "darwin");
@@ -189,34 +189,63 @@ export async function checkFreshPackagedCredential(evaluate) {
   assert.equal(result, true, "Fresh storage must be OS-protected and read back correctly");
 }
 
-/** Clicks the OS's own approval control, as a user would, only on the hosted smoke account. */
-async function approveHostedKeychain(desktop, completed) {
-  const deadline = Date.now() + 120_000;
-  while (!completed() && desktop.exitCode === null && Date.now() < deadline) {
-    const prompt = spawn("osascript", ["-e", `tell application "System Events"
-      if exists process "SecurityAgent" then
-        tell process "SecurityAgent"
-          repeat with panel in windows
-            if exists button "Always Allow" of panel then
-              click button "Always Allow" of panel
-            else if exists button "Allow" of panel then
-              click button "Allow" of panel
-            end if
-          end repeat
-        end tell
-      end if
-    end tell`], { stdio: "ignore" });
-    await new Promise(resolve => {
-      const timeout = globalThis.setTimeout(() => { prompt.kill("SIGKILL"); resolve(); }, 2000);
-      prompt.on("error", () => { globalThis.clearTimeout(timeout); resolve(); });
-      prompt.on("exit", () => { globalThis.clearTimeout(timeout); resolve(); });
-    });
-    await delay(250);
+/** Start elsewhere so a visible but inert repair button cannot pass. */
+export async function checkPackagedCredentialRepair(evaluate) {
+  assert.equal(await evaluate(`(() => {
+    const row = document.querySelector('nav[aria-label="Settings rows"] button[aria-label="About"]');
+    row?.click(); return !!row;
+  })()`, "open About before checking credential repair", 5000), true, "Settings must offer About before checking repair");
+  await until(() => evaluate(`!!document.querySelector('section[aria-label="About"]') && !document.querySelector('section[aria-label="Your machines"]')`, "About readiness before credential repair", 5000), "About must open before the repair action", 5000);
+  assert.equal(await evaluate(`(() => {
+    const buttons = document.querySelectorAll('section[aria-label="Settings"] section[aria-label="Credential access"] button');
+    const button = Array.from(buttons).find(button => button.textContent.trim() === 'Pair again' && !button.disabled);
+    button?.click(); return !!button;
+  })()`, "open credential recovery action", 5000), true, "The credential repair action must be enabled");
+  await until(() => evaluate(`!!document.querySelector('section[aria-label="Your machines"]')`, "credential recovery machines readiness", 5000), "The credential repair action did not open Your machines", 5000);
+}
+
+/** Both replacement outcomes must keep IPC responsive; only a bounded, explained refusal passes. */
+export async function checkReplacedPackagedCredential(evaluate) {
+  const started = Date.now();
+  const deadline = started + 45_000;
+  await startUnavailablePackagedCredential((expression, stage) => evaluate(expression, stage.replaceAll("locked", "replacement"), 5000));
+  while (Date.now() < deadline) {
+    assert.equal(await evaluate("window.desktopShell.system().then(s => s.platform)", "main responsiveness during replacement credential read", 5000), "darwin");
+    const state = await evaluate(`(async () => {
+      const access = await window.desktopShell.secrets.access();
+      const check = window.__packagedCredentialCheck;
+      const settings = document.querySelector('section[aria-label="Settings"]');
+      const notices = settings?.querySelector('section[aria-label="Credential access"]');
+      const visible = notices && !notices.closest('[aria-hidden="true"], [hidden]');
+      const text = visible ? notices.textContent : '';
+      return { settled: check.settled, retained: !!check.token, expectedRefusal: check.expectedRefusal === true,
+        access, settings: !!settings,
+        waiting: text.includes('macOS is asking for access to the stored credentials') && text.includes('Answering the macOS prompt keeps them'),
+        unavailable: text.includes('Stored credentials from the previous build could not be read') && text.includes('fresh OS-protected item') && text.includes('Pair again with the environments that were paired'),
+        repair: !!visible && Array.from(notices.querySelectorAll('button')).some(button => button.textContent.trim() === 'Pair again' && !button.disabled) };
+    })()`, "window responsiveness and credential recovery explanation", 5000);
+    assert.equal(state.settings, true, "Settings must stay responsive during the prior read");
+    if (state.settled && state.retained) return "retained";
+    if (Date.now() - started >= 1000) {
+      if (!state.settled) assert.equal(state.waiting, true, "The pending macOS access explanation must be visible");
+      else {
+        assert.equal(state.expectedRefusal, true, "Only the product's unavailable credential outcome permits recovery");
+        assert.equal(state.access, "denied", "The unavailable prior item must be reported");
+        assert.equal(state.unavailable, true, "The unavailable credential explanation must be visible");
+        assert.equal(state.repair, true, "The unavailable credential repair action must be visible");
+        await checkPackagedCredentialRepair(evaluate);
+        if (Date.now() >= deadline) throw smokeTimeout("credential recovery exceeded its deadline", "window.__packagedCredentialCheck.settled");
+        return "unavailable";
+      }
+    }
+    await new Promise(resolve => globalThis.setTimeout(resolve, 250));
   }
+  throw smokeTimeout("prior credential did not settle inside the product deadline", "window.__packagedCredentialCheck.settled");
 }
 
 /** Runs on hosted macOS only. The credential stays inside the page; no token is returned or logged. */
-export async function askForPackagedUpdate(evaluate, version) {
+export async function askForPackagedUpdate(evaluate, version, outcome) {
+  assert.ok(outcome === undefined || outcome === "retained" || outcome === "unavailable");
   const deadline = Date.now() + 120_000;
   const run = (expression, stage) => {
     const remaining = deadline - Date.now();
@@ -225,9 +254,12 @@ export async function askForPackagedUpdate(evaluate, version) {
   };
   // State stays inside the trusted page and is removed after the check. No credential returns over CDP.
   await run(`(async () => {
-    const token = await window.desktopShell.secrets.get(${JSON.stringify(credentialName)});
-    if (!token) throw new Error("The replacement could not read the prior install's credential");
+    const outcome = ${JSON.stringify(outcome ?? "direct")};
+    const token = outcome === 'unavailable' ? undefined : outcome === 'retained'
+      ? window.__packagedCredentialCheck?.token : await window.desktopShell.secrets.get(${JSON.stringify(credentialName)});
+    if (outcome !== 'unavailable' && !token) throw new Error("The replacement could not read the prior install's credential");
     window.__packagedUpdateSmoke = { token };
+    delete window.__packagedCredentialCheck;
     return true;
   })()`, "read prior credential");
   await run(`(async () => {
@@ -236,6 +268,18 @@ export async function askForPackagedUpdate(evaluate, version) {
     state.origin = 'http://' + state.grant.address.host + ':' + state.grant.address.port;
     return true;
   })()`, "read local grant");
+  if (outcome === "unavailable") await run(`(async () => {
+    const state = window.__packagedUpdateSmoke;
+    const response = await window.desktopShell.http(state.origin + '/api/bootstrap', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret: state.grant.secret, kind: 'tui', label: 'Packaged update smoke' }),
+    });
+    if (response.status !== 200) throw new Error('The local environment must remain available through its grant');
+    state.token = (await response.json()).token;
+    if (!state.token) throw new Error('The local grant exchange returned no credential');
+    delete state.grant.secret;
+    return true;
+  })()`, "exchange local grant after unavailable credential");
   await run(`(async () => {
     const state = window.__packagedUpdateSmoke;
     state.before = await (await window.desktopShell.http(state.origin + ${JSON.stringify(discoveryPath)})).json();
@@ -272,7 +316,7 @@ export async function askForPackagedUpdate(evaluate, version) {
   })()`, "finish carried update check");
   assert.notEqual(result.fromVersion, version, "This must exercise an upgrade, not a fresh install");
   assert.equal(result.carriedVersion, version);
-  assert.equal(result.status, 200, "The existing credential must authorize the carried update");
+  assert.equal(result.status, 200, "The retained or recovered credential must authorize the carried update");
   assert.equal(result.toVersion, version);
   assert.equal(result.platform, "darwin", "The main process still answers after the Keychain read");
 }
@@ -471,18 +515,14 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     await waitForCredentialHelpersExit(credentialHelpers);
     cdp.close();
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
-    await launchDesktop();
-    await checkUnavailablePackagedCredential(cdp.evaluate);
-    assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
-    // Unlock is the user's repair action. Approval is through the native prompt; no ACL or partition-list rewrite.
+    // Unlock before reading the replacement: a stable identity may retain the item;
+    // an unsigned identity must prove bounded recovery without pre-authorising it.
     execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
-    let completed = false;
-    const approval = approveHostedKeychain(desktop, () => completed);
-    try {
-      await askForPackagedUpdate(cdp.evaluate, version);
-      await checkFreshPackagedCredential(cdp.evaluate);
-    } finally { completed = true; await approval; }
-    assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Reading the existing credential must preserve it");
+    await launchDesktop();
+    const outcome = await checkReplacedPackagedCredential(cdp.evaluate);
+    await checkFreshPackagedCredential(cdp.evaluate);
+    await askForPackagedUpdate(cdp.evaluate, version, outcome);
+    assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Recovery must preserve earlier ciphertext");
     const after = await until(async () => {
       try {
         const current = JSON.parse(readFileSync(join(data, "bootstrap-grant.json"), "utf8"));
@@ -491,10 +531,14 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
       } catch { return undefined; }
     }, "The carried environment upgrade did not complete", 240_000);
     assert.equal(after.environmentId, discovery.environmentId, "The replacement must preserve the environment's identity");
+    await until(() => cdp.evaluate(`Array.from(document.querySelectorAll('section[aria-label="Your machines"] [data-machine-card] header')).some(header => {
+      const labels = Array.from(header.querySelectorAll('span')).map(span => span.textContent.trim());
+      return labels.includes('This machine') && labels.includes('Ready');
+    })`, "local environment ready in the replacement window", 5000), "The replacement's local environment must be ready in the window", 60_000);
     assert.equal(await cdp.evaluate("window.desktopShell.system().then(s => s.platform)", "post-upgrade main responsiveness"), "darwin");
     await cdp.evaluate("window.desktopShell.window.close()", "close replacement window");
     await until(() => desktop.exitCode !== null, "The replacement window did not quit", 10_000);
-    console.log(`Packaged replacement read the existing credential and upgraded ${baseline} to ${version}`);
+    console.log(`Packaged replacement proved ${outcome} credential recovery and upgraded ${baseline} to ${version}`);
   } catch (error) {
     failure = error;
     logFailure("Packaged replacement failed before cleanup:", error);
