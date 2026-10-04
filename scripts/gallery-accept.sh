@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 python3 - "$(dirname "${BASH_SOURCE[0]}")" "$root" "$@" <<'PY'
 import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
 sys.path.insert(0, sys.argv[1])
-from gallery_reports import validate_shard, complete_set, MAX_BYTES
+from gallery_reports import validate_shard, complete_set, MAX_BYTES, MAX_THREAD_BYTES
 root = pathlib.Path(sys.argv[2]); number = sys.argv[3]
 selected = set(sys.argv[4:])
 if any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) for name in selected):
@@ -37,14 +37,26 @@ head = pr['head']['sha']
 if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip() != head:
     sys.exit('Check out the PR head before accepting its captures.')
 # Forgejo returns the entire per-issue comment thread; page and limit are ignored.
-comments = json.loads(get(f'{api}/issues/{number}/comments'))
+comments = json.loads(get(f'{api}/issues/{number}/comments', limit=MAX_THREAD_BYTES))
 if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
 manifests = []
+latest_attempt = None
+finalized = set()
 for comment in comments:
     # Only the reserved Forgejo Actions identity can supply relay reports.
     author = comment.get('user')
     if not isinstance(author, dict) or author.get('id') != -2: continue
-    matches = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
+    body = comment.get('body', '')
+    attempts = re.findall(r'<!-- window-gallery-attempt (.*?) -->', body, re.S)
+    if attempts:
+        try: attempt = json.loads(attempts[-1])
+        except json.JSONDecodeError: attempt = None
+        if isinstance(attempt, dict) and attempt.get('head') == head:
+            latest_attempt = comment.get('id')
+    # Recognize unfinished reports from before structured attempt markers existed.
+    if body.startswith(f'Window gallery for `{head}`.') and ('Uploading captures…' in body or 'Gallery upload failed during ' in body):
+        latest_attempt = comment.get('id')
+    matches = re.findall(r'<!-- window-gallery (.*?) -->', body, re.S)
     if matches:
         try: candidate = json.loads(matches[-1])
         except json.JSONDecodeError: continue
@@ -58,6 +70,10 @@ for comment in comments:
             try: validate_shard(candidate['shard'], len(files))
             except ValueError as error: sys.exit(str(error))
         manifests.append(candidate)
+        finalized.add(comment.get('id'))
+        latest_attempt = comment.get('id')
+if latest_attempt is not None and latest_attempt not in finalized:
+    sys.exit('Latest gallery publication is incomplete. Wait for every report or retry the gallery job.')
 if not manifests: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
 try: reports = complete_set(manifests)
 except ValueError as error: sys.exit(str(error))

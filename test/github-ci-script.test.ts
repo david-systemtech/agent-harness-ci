@@ -946,6 +946,7 @@ it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure
   expect(body).toContain("Rerun the gallery job");
   expect(body).not.toContain("Uploading captures");
   expect(body).not.toContain("<!-- window-gallery ");
+  expect(body).toContain('<!-- window-gallery-attempt {"head": "' + g.sha + '"');
   expect(body).not.toContain("token-for-tests");
 });
 
@@ -1117,4 +1118,32 @@ it("executes the hosted shard guard against bounded, inconsistent and ungated re
 it("plans the one-report artifact name without launching the renderer", async () => {
   const result = await run(process.execPath, ["--import", "tsx", "gallery/plan.ts"], { cwd: join(root, "packages/gui") });
   expect(result.stdout.trim()).toBe('matrix={"include":[{"shard":1,"artifact":"window-gallery"}]}');
+});
+
+it("plans and validates a bounded single report on heads predating shard support", async () => {
+  const f = await fixture();
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const plan = /- id: plan\n {8}run: ([\s\S]*?)\n {2}gallery:/.exec(hosted)?.[1];
+  if (plan === undefined) throw new Error("no hosted planning step");
+  const output = join(f.checkout, "gallery-output");
+  const command = plan.startsWith("|\n") ? plan.slice(2).split("\n").map(line => line.slice(10)).join("\n") : plan;
+  await run("bash", ["-e", "-c", command], { cwd: f.checkout, env: { ...process.env, GITHUB_OUTPUT: output } });
+  expect(readFileSync(output, "utf8").trim()).toBe('matrix={"include":[{"shard":1,"artifact":"window-gallery","legacy":true}]}');
+  const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1];
+  if (guard === undefined) throw new Error("no hosted report guard");
+  const code = guard.split("\n").map(line => line.slice(10)).join("\n");
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  const report = { pixelBlocking: true, scenes: Array.from({ length: 400 }, () => ({})) };
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  const check = (legacy: string, shard = "1") => run("python3", ["-c", code], { cwd: f.checkout, env: { ...process.env, GALLERY_LEGACY: legacy, GALLERY_SHARD: shard, GALLERY_RUN: "hosted-run" } });
+  await expect(check("true")).resolves.toBeDefined();
+  await expect(check("false")).rejects.toMatchObject({ code: 1 });
+  await expect(check("true", "2")).rejects.toMatchObject({ code: 1 });
+  report.scenes.push({});
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check("true")).rejects.toMatchObject({ code: 1 });
+  report.scenes.pop(); report.pixelBlocking = false;
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check("true")).rejects.toMatchObject({ code: 1 });
 });

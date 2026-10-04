@@ -65,7 +65,21 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
           const shard = { run: mode === "sharded-mixed-run" && index === 1 ? "another-run" : "capture-run", index: index + 1, count, total: captures.length };
           if (mode === "sharded-invalid") shard.index = 3;
           if (mode === "sharded-duplicate" && index === 1) files[0]!.name = captures[0]!.name;
-          comments.push({ id, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: "test-head", version: shardVersion, shard, captures: files }) + ' -->' });
+          const triplets = mode === "sharded-thread" ? files.map(file => `\n**${file.name}**\n\n| Baseline | Capture | Difference |\n| --- | --- | --- |\n| ${["baseline", "capture", "difference"].map(kind => `![${kind} ${file.name}](${base}/attachments/${file.name}-${kind})`).join(" | ")} |\n`).join("") : "";
+          comments.push({ id, user: { id: -2 }, body: triplets + '<!-- window-gallery ' + JSON.stringify({ head: "test-head", version: shardVersion, shard, captures: files }) + ' -->' });
+        }
+        if (mode === "sharded-uploading" || mode === "sharded-failed") {
+          const message = mode === "sharded-uploading" ? "Uploading captures…" : "Gallery upload failed during attachment window-empty.dark.png (HTTP 503).";
+          comments.push({ id: 125, user: { id: -2 }, body: `Window gallery for \`test-head\`. ${message}` });
+        }
+        if (mode === "sharded-duplicate-index") {
+          const replacement = comments[0]!.body.replaceAll("test-head-123", "test-head-125");
+          comments.push({ id: 125, user: { id: -2 }, body: replacement });
+        }
+        if (mode === "sharded-thread") {
+          const history = comments.map((comment, index) => ({ ...comment, id: 23 + index, body: comment.body.replaceAll(`test-head-${comment.id}`, `test-head-${23 + index}`).replaceAll("capture-run", "earlier-run") }));
+          comments.unshift(...history);
+          expect(Buffer.byteLength(JSON.stringify(comments))).toBeGreaterThan(4 * 1024 * 1024);
         }
       }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
@@ -284,11 +298,19 @@ it("accepts 472 captures across a complete independently bounded report set", as
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-471.dark.png"))).toEqual(png);
 });
 
+it.each(["sharded-uploading", "sharded-failed"])("refuses an older complete run when the latest report is %s", async (mode) => {
+  const f = await fixture(mode, 472);
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Latest gallery publication is incomplete") });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toEqual([]);
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
 it.each([
   ["sharded-missing", "Incomplete gallery shard set"],
   ["sharded-mixed-run", "Incomplete gallery shard set"],
   ["sharded-invalid", "Invalid gallery shard counts"],
   ["sharded-duplicate", "Duplicate gallery filename across shards"],
+  ["sharded-duplicate-index", "Duplicate gallery shard index"],
 ])("refuses %s before downloading or writing any baseline", async (mode, message) => {
   const f = await fixture(mode, 472);
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining(message) });
@@ -302,4 +324,12 @@ it("accepts a reviewed subset from both shards without downloading other capture
   expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(2);
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-471.dark.png"))).toEqual(png);
+});
+
+it("accepts a reviewed subset from a 6400-capture changed-report thread with prior run history", async () => {
+  const f = await fixture("sharded-thread", 6400);
+  await run("bash", [script, "42", "window-empty.dark.png", "window-scene-6399.dark.png"], { env: f.env });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(2);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-6399.dark.png"))).toEqual(png);
 });

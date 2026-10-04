@@ -8,7 +8,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from gallery_reports import validate_shard
+from gallery_reports import validate_shard, MAX_THREAD_BYTES
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -29,14 +29,14 @@ def main():
         raise ValueError('Invalid gallery origin')
     opener = urllib.request.build_opener(NoRedirect())
 
-    def request(path, method='GET'):
+    def request(path, method='GET', limit=4*1024*1024):
         # Package APIs are owner-scoped; the workflow's repository token cannot use them.
         token = (os.environ.get('PACKAGES_TOKEN') or os.environ['FORGEJO_TOKEN']) if path.startswith('/packages/') else os.environ['FORGEJO_TOKEN']
         req = urllib.request.Request(api + path, method=method, headers={
             'Authorization': 'token ' + token})
         with opener.open(req, timeout=120) as response:
-            data = response.read(4*1024*1024+1)
-        if len(data) > 4*1024*1024:
+            data = response.read(limit+1)
+        if len(data) > limit:
             raise ValueError('Gallery response exceeds its size limit')
         return json.loads(data) if data else None
 
@@ -57,7 +57,7 @@ def main():
     for pr in pages(f'/repos/{repository}/pulls?state=open'):
         heads.add(pr['head']['sha'])
         # Per-issue comments are an unpaginated full thread in Forgejo.
-        comments = request(f'/repos/{repository}/issues/{pr["number"]}/comments')
+        comments = request(f'/repos/{repository}/issues/{pr["number"]}/comments', limit=MAX_THREAD_BYTES)
         if not isinstance(comments, list):
             raise ValueError('Incomplete gallery comment listing')
         for comment in comments:

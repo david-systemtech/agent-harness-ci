@@ -41,6 +41,19 @@ async function fixture(failure = "", captureCount = 1) {
         comments.push({ id: 456, user: { id: 7 }, body: '<!-- window-gallery ' + JSON.stringify({ head: "active-head", version: "active-head-456", captures: [{ name: "window-empty.dark.png", api_url: "https://elsewhere.example.invalid/capture.png" }] }) + ' -->' });
       }
       if (failure === "unbound") comments.push({ ...manifest("expired-head", "expired-head-99"), id: 100 });
+      if (failure === "thread") {
+        for (let index = 1; index <= 16; index++) {
+          const id = 200 + index;
+          const report = manifest("earlier-head", `earlier-head-${id}`);
+          const text = report.body.replaceAll("window-scene-", `window-shard-${index}-scene-`).replace('"captures":', '"shard":' + JSON.stringify({ run: "full-run", index, count: 16, total: 6400 }) + ',"captures":');
+          const triplets = Array.from({ length: 400 }, (_, row) => {
+            const name = `window-shard-${index}-scene-${row}.dark`;
+            return `\n**${name}**\n\n| Baseline | Capture | Difference |\n| --- | --- | --- |\n| ${["baseline", "capture", "difference"].map(kind => `![${kind} ${name}](${base}/attachments/${name}-${kind})`).join(" | ")} |\n`;
+          }).join("");
+          comments.push({ ...report, body: triplets + text });
+        }
+        expect(Buffer.byteLength(JSON.stringify(comments))).toBeGreaterThan(4 * 1024 * 1024);
+      }
       // Forgejo's per-issue comments endpoint ignores page and limit and returns the whole thread.
       response.end(JSON.stringify(comments));
     } else if (url.pathname === "/api/v1/packages/example") {
@@ -123,4 +136,10 @@ it("does not protect an earlier-head report with invalid shard metadata", async 
   const f = await fixture("sharded-invalid", 72);
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "earlier-head-2", "legacy-head", "expired-second-page"]);
+});
+
+it("reads a 6400-capture changed-report thread before deleting expired packages", async () => {
+  const f = await fixture("thread", 400);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
 });

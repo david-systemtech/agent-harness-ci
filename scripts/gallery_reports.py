@@ -6,6 +6,8 @@ MAX_ROWS = 400
 MAX_SHARDS = 16
 MAX_BYTES = 48 * 1024 * 1024
 MAX_ZIP = 64 * 1024 * 1024
+# Full unpaginated threads include sixteen changed reports and earlier attempts.
+MAX_THREAD_BYTES = MAX_SHARDS * 4 * 1024 * 1024
 
 
 def validate_shard(shard, rows):
@@ -36,6 +38,8 @@ def complete_set(manifests):
             continue
         if (other['count'], other['total']) != (shard['count'], shard['total']):
             raise ValueError('Inconsistent gallery shard metadata')
+        if other['index'] in by_index:
+            raise ValueError('Duplicate gallery shard index')
         by_index[other['index']] = manifest
     if set(by_index) != set(range(1, shard['count'] + 1)):
         raise ValueError('Incomplete gallery shard set. Wait for every report.')

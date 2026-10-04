@@ -72,7 +72,8 @@ elif len(reports) != 1: sys.exit('Duplicate gallery artifact')
 package_token = os.environ.get('PACKAGES_TOKEN')
 if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
 for report, images, scenes in reports:
-    comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
+    attempt = '\n<!-- window-gallery-attempt ' + json.dumps({'head': head, **({'shard': report['shard']} if 'shard' in report else {})}) + ' -->\n'
+    comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…' + attempt}).encode())['id']
     stage = 'uploads'
     try:
         version = f'{head}-{comment}'
@@ -122,12 +123,13 @@ for report, images, scenes in reports:
             manifest['shard'] = report['shard']
             body += f"\nReport shard {report['shard']['index']}/{report['shard']['count']}; {len(scenes)} of {report['shard']['total']} captures.\n"
         body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
+        body += attempt
         stage = 'final report'
         request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
     except Exception as error:
         # Never include the API's response, credentials, or untrusted exception text.
         reason = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
-        failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.'
+        failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.' + attempt
         try: request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
         except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
         sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')

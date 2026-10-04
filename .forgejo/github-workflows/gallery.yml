@@ -30,7 +30,12 @@ jobs:
       - run: corepack enable && corepack prepare --activate
       - run: pnpm install --frozen-lockfile
       - id: plan
-        run: pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/plan.ts >> "$GITHUB_OUTPUT"
+        run: |
+          if [ -f packages/gui/gallery/plan.ts ]; then
+            pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/plan.ts >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"include":[{"shard":1,"artifact":"window-gallery","legacy":true}]}' >> "$GITHUB_OUTPUT"
+          fi
   gallery:
     needs: [plan]
     strategy:
@@ -40,6 +45,7 @@ jobs:
     env:
       GALLERY_SHARD: ${{ matrix.shard }}
       GALLERY_RUN: ${{ github.event.client_payload.id }}-${{ github.run_attempt }}
+      GALLERY_LEGACY: ${{ matrix.legacy || false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -80,14 +86,18 @@ jobs:
           python3 - <<'PY'
           import json, os, sys
           sys.path.insert(0, "scripts")
-          from gallery_reports import validate_shard
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
           assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
-          shard = validate_shard(report['shard'], len(report['scenes']))
-          assert shard['index'] == int(os.environ['GALLERY_SHARD'])
-          assert shard['run'] == os.environ['GALLERY_RUN']
+          if 'shard' in report:
+              from gallery_reports import validate_shard
+              shard = validate_shard(report['shard'], len(report['scenes']))
+              assert shard['index'] == int(os.environ['GALLERY_SHARD'])
+              assert shard['run'] == os.environ['GALLERY_RUN']
+          else:
+              assert os.environ.get('GALLERY_LEGACY') == 'true', 'Missing gallery shard metadata'
+              assert os.environ['GALLERY_SHARD'] == '1', 'Legacy reports must be unsharded'
           PY
       - name: Optimise the PNGs losslessly
         run: |
