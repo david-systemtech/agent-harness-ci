@@ -25,7 +25,7 @@ export const SettingsView = () => {
         <RadixDialog.Overlay className={DIALOG_SCRIM} />
         <RadixDialog.Content
           data-settings-dialog
-          className="fixed left-1/2 top-1/2 z-50 flex h-[min(660px,calc(100dvh-3rem))] w-[min(1000px,calc(100vw-3rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-float text-ink ring-1 ring-ink/10 outline-none"
+          className="fixed sm:left-1/2 sm:top-1/2 z-50 flex h-[min(660px,calc(100dvh-3rem))] w-[min(1000px,calc(100vw-3rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 flex-col overflow-hidden rounded-xl bg-float text-ink ring-1 ring-ink/10 outline-none"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             if (phone) { document.querySelector<HTMLButtonElement>(".phone-navigation-trigger")?.focus(); return; }
