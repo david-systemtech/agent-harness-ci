@@ -101,8 +101,9 @@ it.each([[1400, 900, "light"], [1400, 900, "dark"], [1024, 768, "light"], [1024,
 
 
 it("awaits pairing capture readiness while fonts stay held beyond a polling deadline", async () => {
-  const fonts = Promise.withResolvers<void>();
-  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fonts.promise } });
+  let releaseFonts!: () => void;
+  const fontsReady = new Promise<void>((resolve) => { releaseFonts = resolve; });
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fontsReady } });
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await act(async () => {
@@ -117,7 +118,7 @@ it("awaits pairing capture readiness while fonts stay held beyond a polling dead
   await vi.advanceTimersByTimeAsync(2000);
   expect(container.dataset["galleryReady"]).toBeUndefined();
   expect(await Promise.race([result, Promise.resolve("pending")])).toBe("pending");
-  await act(async () => { fonts.resolve(); });
+  await act(async () => { releaseFonts(); });
   expect(await result).toBe(true);
   expect(container.dataset["galleryReady"]).toBe("settings-browser-pairing");
   expect(screen.getByRole("textbox", { name: "Pairing code" })).toHaveProperty("value", "ABCD2345");
