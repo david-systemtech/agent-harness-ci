@@ -188,26 +188,38 @@ if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == fai
 import json,sys
 items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
 if not items: sys.exit(0)
-if len(items)!=1 or items[0]["size_in_bytes"]>64*1024*1024: sys.exit("oversized or duplicate gallery artifact")
+if len(items)!=1 or items[0]["size_in_bytes"]>128*1024*1024: sys.exit("oversized or duplicate gallery artifact")
 print(int(items[0]["id"]))')
   if [ -z "$artifact" ]; then
     echo "No gallery artifact was uploaded; reading the failed job logs."
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
-    gh_api --fail -L --max-filesize 67108864 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
+    gh_api --fail -L --max-filesize 134217728 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
     gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
-import pathlib,sys,zipfile
+import json,pathlib,sys,zipfile
 archive=pathlib.Path(sys.argv[1])
-if archive.stat().st_size > 64*1024*1024: sys.exit('gallery zip is too large')
-with zipfile.ZipFile(archive) as z: print('report' if 'report.json' in z.namelist() else 'captures')
+if archive.stat().st_size > 128*1024*1024: sys.exit('gallery zip is too large')
+try:
+    with zipfile.ZipFile(archive) as z:
+        if archive.stat().st_size > 64*1024*1024:
+            if 'report.json' not in z.namelist(): sys.exit('gallery zip is too large')
+            if z.getinfo('report.json').file_size > 4*1024*1024: sys.exit('gallery payload is too large')
+            if 'reports' not in json.loads(z.read('report.json')): sys.exit('gallery zip is too large')
+        print('report' if 'report.json' in z.namelist() else 'captures')
+except zipfile.BadZipFile:
+    if archive.stat().st_size > 64*1024*1024: sys.exit('gallery zip is too large')
+    raise
 PYFORMAT
     )
     if [ "$gallery_format" = captures ]; then
       # A workflow rollout can finish an earlier capture-only artifact.
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
-      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
+      python3 - "$gl/gallery.zip" "$sha" "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)" <<'PYGALLERY'
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[3])
+from gallery_reports import report_groups
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
@@ -229,13 +241,18 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
-    max_scenes = 400
-    max_pngs = max_scenes * 3
-    if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
+    if len(entries) > 2402 or sum(f.file_size for f in entries) > 96*1024*1024 or z.getinfo('report.json').file_size > 4*1024*1024: sys.exit('gallery payload is too large')
+    # Two explicitly bounded reports share one immutable artifact and acceptance manifest.
     names = [f.filename for f in entries]
-    if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     report = json.loads(z.read('report.json'))
+    shards = len(report['reports']) if isinstance(report.get('reports'), list) else 1
+    if shards not in (1, 2): sys.exit('invalid gallery report shards')
+    if os.path.getsize(sys.argv[1]) > shards*64*1024*1024: sys.exit('gallery zip is too large')
+    max_pngs = shards * 1200
+    if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > shards*48*1024*1024: sys.exit('gallery payload is too large')
+    if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
+    try: groups = report_groups(report, 'scenes')
+    except ValueError as error: sys.exit(str(error))
     images = {n: z.read(n) for n in names if n.endswith('.png')}
     for name, data in images.items():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
@@ -243,8 +260,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
             phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
             profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
             if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
-    scenes = report['scenes']
-    if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
+    scenes = [scene for _, items in groups for scene in items]
     seen = set()
     for scene in scenes:
         name = scene['name']
@@ -253,6 +269,13 @@ with zipfile.ZipFile(sys.argv[1]) as z:
         required = [name + '.png']
         if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
         if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+    referenced = set()
+    metadata_bytes = sum(entry.file_size for entry in entries if entry.filename.endswith('.json'))
+    for shard, items in groups:
+        shard_images = {name + suffix for scene in items for name in [scene['name']] for suffix in ('.png', '.baseline.png', '.difference.png') if name + suffix in images}
+        if sum(len(images[name]) for name in shard_images) + metadata_bytes > 48*1024*1024: sys.exit('gallery payload is too large')
+        referenced.update(shard_images)
+    if referenced != set(images): sys.exit('unexpected gallery entry')
 package_token = os.environ.get('PACKAGES_TOKEN')
 if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
 comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
@@ -272,6 +295,8 @@ try:
     budget = report.get('captureBudget')
     if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
         body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
+    if 'reports' in report:
+        for shard, items in groups: body += f'\n{shard.capitalize()} report: {len(items)}/400 captures; {400-len(items)} slots reserved.\n'
     geometry_failed = any(s['geometryFailures'] for s in scenes)
     pixel_failed = any(s['pixelFailed'] for s in scenes)
     body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
@@ -300,7 +325,10 @@ try:
             with opener.open(req, timeout=120) as response:
                 if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
         captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
-    manifest = {'head': head, 'version': version, 'captures': captures}
+    manifest = {'head': head, 'version': version}
+    if 'reports' in report:
+        manifest['reports'] = [{'name': shard, 'captures': [capture for capture in captures if capture['name'].removesuffix('.png') in {scene['name'] for scene in items}]} for shard, items in groups]
+    else: manifest['captures'] = captures
     body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
     stage = 'final report'
     request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())

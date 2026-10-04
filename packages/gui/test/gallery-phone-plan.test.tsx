@@ -4,7 +4,7 @@ import { capturePlan, sceneFiles } from "../gallery/capture-plan.js";
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
-  expect(plan.budget).toEqual({ desktop: 4, phone: 8, total: 12, limit: 400, remaining: 388 });
+  expect(plan.budget).toEqual({ desktop: 4, phone: 8, total: 12, limit: 800, remaining: 788 });
   expect(plan.captures.filter(c => c.platform === "desktop").map(c => c.name)).toEqual([
     "window-empty.light", "window-empty.dark", "window-empty-narrow.light", "window-empty-narrow.dark",
   ]);
@@ -22,7 +22,7 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
 
 it("reserves capacity for the existing 354 desktop captures and the bounded phone subset", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
-  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 400, remaining: 0 });
+  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 800, remaining: 400 });
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
     "phone-gallery-continue-phone-390-text-20.light", "phone-gallery-continue-phone-390-text-20.dark",
@@ -32,5 +32,24 @@ it("reserves capacity for the existing 354 desktop captures and the bounded phon
 });
 
 it("refuses capacity exhaustion before capturing or publishing a partial gallery", () => {
-  expect(() => capturePlan(Array.from({ length: 101 }, (_, i) => `window-empty-${i}`).concat(Array.from({ length: 26 }, (_, i) => `phone-sample-${i}`)))).toThrow("Gallery capture budget exceeded");
+  expect(() => capturePlan(Array.from({ length: 201 }, (_, i) => `window-empty-${i}`).concat(Array.from({ length: 26 }, (_, i) => `phone-sample-${i}`)))).toThrow("Gallery capture budget exceeded");
+});
+
+
+it("allocates a separate phone report for every leaf owner without dropping desktop captures", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  // Seven owners can each add six dedicated states, including Settings grants and Set up.
+  const leaves = Array.from({ length: 7 }, (_, owner) =>
+    Array.from({ length: 6 }, (_, state) => `phone-leaf-${owner}-state-${state}`)).flat();
+  const plan = capturePlan([...scenes, ...leaves]);
+  expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(capturePlan(scenes).captures.filter(c => c.platform === "desktop"));
+  expect(plan.reports.map(report => [report.name, report.captures.length, report.budget.remaining])).toEqual([
+    ["desktop", 354, 46], ["phone", 382, 18],
+  ]);
+  expect(plan.reports.flatMap(report => report.captures)).toEqual(plan.captures);
+});
+
+
+it("refuses a phone report above 400 captures even when the desktop report has room", () => {
+  expect(() => capturePlan(["window-empty", ...Array.from({ length: 51 }, (_, i) => `phone-leaf-${i}`)])).toThrow("phone has 408 captures > 400");
 });

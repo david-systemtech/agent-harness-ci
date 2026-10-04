@@ -8,6 +8,8 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+sys.dont_write_bytecode = True
+from gallery_reports import report_groups
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -79,9 +81,11 @@ def main():
             version = manifest.get('version', head)
             if not re.fullmatch(r'[A-Za-z0-9_-]+', head) or (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')):
                 continue
-            captures = manifest.get('captures')
-            if not isinstance(captures, list) or not captures or len(captures) > 400:
+            try:
+                groups = report_groups(manifest, 'captures')
+            except ValueError:
                 continue
+            captures = [item for _, items in groups for item in items]
             if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in captures):
                 continue
             valid = True

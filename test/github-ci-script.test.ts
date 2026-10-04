@@ -411,7 +411,7 @@ describe("the advisory gallery relay", () => {
     expect(result.stdout).toContain("Gallery posted on pull request 1336");
     expect(readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8")).toContain("![window-empty.dark.png](https://forge.example.invalid/attachments/screenshot)");
     const archive = apiCalls(f).find((call) => call.stage === "archive");
-    expect(archive?.args).toContain("67108864");
+    expect(archive?.args).toContain("134217728");
     expect(archive?.args).toContain("--max-time");
     const forgejoCalls = readFileSync(f.log, "utf8").split("\n").filter((line) => line.startsWith("forgejo ") && line.includes("/api/v1/"));
     expect(forgejoCalls).toHaveLength(4);
@@ -665,6 +665,12 @@ print(str(sum(sizes))+'\\ttotal')
   rmSync(extra);
   writeFileSync(join(images, "scene-0.dark.png"), Buffer.alloc(48*1024*1024+1));
   await expect(check()).rejects.toMatchObject({ code: 1 });
+  writeFileSync(join(images, "scene-0.dark.png"), "image");
+  writeFileSync(join(images, "report.json"), JSON.stringify({ reports: [{ name: "desktop" }, { name: "phone" }] }));
+  for (let i = 1200; i < 2400; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  await expect(check()).resolves.toBeDefined();
+  writeFileSync(join(images, "scene-2400.dark.png"), "image");
+  await expect(check()).rejects.toMatchObject({ code: 1 });
 });
 
 it.each(["success", "failure", "missing-package-token", "reused-large", "reused-extra"])("validates package credentials and stored capture bytes while publishing triplets (%s)", async (state) => {
@@ -733,7 +739,7 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
       expect(comment).not.toContain("<!-- window-gallery ");
       return;
     }
-    expect(result.code).toBe(conclusion === "success" ? 0 : 1);
+    expect(result.code, result.stderr).toBe(conclusion === "success" ? 0 : 1);
     expect(result.stdout).toContain("Gallery posted on pull request 42");
     expect(comment).toContain("| Baseline | Capture | Difference |");
     expect(comment).toContain(`![capture window-empty.dark](${base}/attachments/window-empty.dark.png)`);
@@ -804,7 +810,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, attachments, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }) => {
+    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }, sharded = false) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
@@ -822,7 +828,11 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
         else: data=narrow if '-narrow.' in name else png
         z.writestr(name+'.png',data)
     z.writestr('geometry.json','{}')
-    z.writestr('report.json',json.dumps({'pixelBlocking':False,'captureBudget':{'desktop':sum(not n.startswith('phone-') for n in names),'phone':sum(n.startswith('phone-') for n in names),'total':len(names),'limit':400,'remaining':400-len(names)},'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names), JSON.stringify(viewport ?? null)]);
+    scenes=[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]
+    report={'pixelBlocking':False,'captureBudget':{'desktop':sum(not n.startswith('phone-') for n in names),'phone':sum(n.startswith('phone-') for n in names),'total':len(names),'limit':400,'remaining':400-len(names)}, 'scenes':scenes}
+    if sys.argv[5]=='true':
+        report={'pixelBlocking':True,'reports':[{'name':kind,'scenes':[s for s in scenes if s['name'].startswith('phone-')==(kind=='phone')]} for kind in ('desktop','phone')]}
+    z.writestr('report.json',json.dumps(report))`, zip, String(pixel), JSON.stringify(names), JSON.stringify(viewport ?? null), String(sharded)]);
       return readFileSync(`${zip}.png`);
     },
   };
@@ -948,13 +958,13 @@ it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure
   expect(body).not.toContain("token-for-tests");
 });
 
-it("publishes and accepts the required captures per registered scene through a report manifest", async () => {
+it("publishes and accepts the desktop and new phone leaf captures together through bounded report manifests", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { captureCases, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(captureCases(await sceneFiles("./packages/gui/gallery/scenes"))));'], { cwd: root });
-  const cases = JSON.parse(plan.stdout) as { scene: string; ladder: "light" | "dark" }[];
-  const names = cases.flatMap(({ scene, ladder }) => [`${scene}.${ladder}`, `${scene}-narrow.${ladder}`]);
-  expect(names.length).toBeGreaterThan(200);
-  await g.capture(255, names.length, names);
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan([...(await sceneFiles("./packages/gui/gallery/scenes")), "phone-settings-constrained", "phone-settings-full", "phone-settings-setup"]).captures));'], { cwd: root });
+  const cases = JSON.parse(plan.stdout) as { name: string; viewport: { width: number; height: number } }[];
+  const names = cases.map(({ name }) => name);
+  expect(names.length).toBeGreaterThan(400);
+  await g.capture(255, names.length, names, undefined, true);
   const result = await relay(g.f, g.env);
   expect(result.code, result.stderr).toBe(0);
   expect(g.comments).toHaveLength(1);
@@ -962,8 +972,8 @@ it("publishes and accepts the required captures per registered scene through a r
   expect(body).toContain("Geometry: passed");
   const marker = /<!-- window-gallery (.*?) -->/.exec(body)?.[1];
   expect(marker).toBeDefined();
-  const manifest = JSON.parse(marker!) as { captures: { name: string }[] };
-  expect(manifest.captures.map(({ name }) => name)).toEqual(names.map((name) => `${name}.png`));
+  const manifest = JSON.parse(marker!) as { reports: { name: string; captures: { name: string }[] }[] };
+  expect(manifest.reports.flatMap(report => report.captures.map(({ name }) => name))).toEqual(names.map((name) => `${name}.png`));
   expect(g.captures.size).toBe(names.length);
   await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
   const baselines = join(g.f.checkout, "packages/gui/gallery/baselines");
@@ -972,7 +982,7 @@ it("publishes and accepts the required captures per registered scene through a r
     const image = readFileSync(join(baselines, `${name}.png`));
     const stored = g.captures.get(`/api/packages/example/generic/window-gallery/${g.sha}-1/${name}.png`);
     expect(image).toEqual(stored);
-    expect([image.readUInt32BE(16), image.readUInt32BE(20)]).toEqual(name.includes("-narrow.") ? [1024, 768] : [1400, 900]);
+    expect([image.readUInt32BE(16), image.readUInt32BE(20)]).toEqual(Object.values(cases.find(c => c.name === name)!.viewport));
   }
 });
 
@@ -1036,4 +1046,32 @@ it("refuses to publish a phone capture whose dimensions disagree with its profil
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("unexpected phone gallery dimensions");
   expect(g.comments).toHaveLength(0);
+});
+
+
+it.each(["desktop-count", "phone-count", "membership", "duplicate-shard", "shard-bytes", "metadata-bytes"])("refuses invalid %s in a two-report artifact before publication", async kind => {
+  const g = await storedGallery();
+  await run("python3", ["-c", `import json,struct,sys,zipfile
+kind=sys.argv[2]
+reports=[]
+with zipfile.ZipFile(sys.argv[1],'w',compression=zipfile.ZIP_DEFLATED) as z:
+    for shard in ('desktop','phone'):
+        scenes=[]
+        count=401 if kind==shard+'-count' else 1
+        for i in range(count):
+            name=(f'phone-leaf-{i}-phone-390' if shard=='phone' else f'window-leaf-{i}')+'.dark'
+            scenes.append({'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]})
+            data=b'\\x89PNG\\r\\n\\x1a\\n'+struct.pack('>I',13)+b'IHDR'+struct.pack('>II',390,844)+b'\\0'*9
+            if kind=='shard-bytes' and shard=='desktop': data+=b'x'*(48*1024*1024)
+            z.writestr(name+'.png',data)
+        reports.append({'name':shard,'scenes':scenes})
+    if kind=='membership': reports[0]['name']='phone'; reports[1]['name']='desktop'
+    if kind=='duplicate-shard': reports[1]['name']='desktop'
+    z.writestr('geometry.json',json.dumps({'measurements':'x'*(48*1024*1024)}) if kind=='metadata-bytes' else '{}')
+    z.writestr('report.json',json.dumps({'pixelBlocking':True,'reports':reports}))`, g.env.FAKE_GALLERY_ZIP, kind]);
+  const result = await relay(g.f, g.env);
+  expect(result.code).not.toBe(0);
+  expect(result.stderr).toContain(kind.endsWith("bytes") ? "gallery payload is too large" : kind.endsWith("count") ? "invalid gallery scene list" : kind === "membership" ? "wrong report" : "invalid gallery report shards");
+  expect(g.comments).toEqual([]);
+  expect(g.captures.size).toBe(0);
 });

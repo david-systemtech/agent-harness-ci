@@ -3,10 +3,13 @@
 set -euo pipefail
 [[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr> [reviewed-capture.png ...]' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
-python3 - "$root" "$@" <<'PY'
+python3 - "$root" "$1" "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" "${@:2}" <<'PY'
 import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
 root = pathlib.Path(sys.argv[1]); number = sys.argv[2]
-selected = set(sys.argv[3:])
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[3])
+from gallery_reports import report_groups
+selected = set(sys.argv[4:])
 if any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) for name in selected):
     sys.exit('Expected exact reviewed capture filenames.')
 remote = urllib.parse.urlsplit(subprocess.check_output(['git', '-C', str(root), 'remote', 'get-url', 'origin'], text=True).strip())
@@ -49,20 +52,22 @@ for comment in comments:
         if not isinstance(candidate, dict) or candidate.get('head') != head: continue
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
-        files = candidate.get('captures')
-        if not isinstance(files, list) or not files or len(files) > 400: continue
+        try: groups = report_groups(candidate, 'captures')
+        except ValueError: continue
+        files = [item for _, items in groups for item in items]
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         manifest = candidate
 if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
 version = manifest.get('version', head)
 if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
     sys.exit('Invalid gallery capture version.')
-files = manifest.get('captures', [])
-if not files or len(files) > 400: sys.exit('Invalid gallery capture list.')
+groups = report_groups(manifest, 'captures')
+files = [item for _, items in groups for item in items]
+report_for = {item['name']: name for name, items in groups for item in items}
 names = [item['name'] for item in files]
 if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
 if selected - set(names): sys.exit('A requested capture is absent from the current report.')
-accepted = {}; total = 0
+accepted = {}; totals = {}
 for item in files:
     name, url = item['name'], item['api_url']
     parsed = urllib.parse.urlsplit(url)
@@ -82,8 +87,9 @@ for item in files:
         profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
         if phone is None or dimensions != profiles[phone[1]]: sys.exit('Unexpected phone gallery dimensions.')
     elif dimensions not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
-    total += len(data)
-    if total > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
+    report = report_for[name]
+    totals[report] = totals.get(report, 0) + len(data)
+    if totals[report] > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
     accepted[name] = data
 # Validate and download every selected capture before writing any baseline.
 folder = root / 'packages/gui/gallery/baselines'

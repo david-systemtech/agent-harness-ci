@@ -47,7 +47,12 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit: 400, remaining: 400 - captures.length };
-  if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > ${budget.limit}. Shard publication and acceptance together before adding scenes.`);
-  return { captures, budget };
+  const reports = ([{ name: "desktop", captures: desktop }, { name: "phone", captures: phone }] as const)
+    .filter(report => report.captures.length > 0)
+    .map(report => ({ ...report, budget: { total: report.captures.length, limit: 400, remaining: 400 - report.captures.length } }));
+  for (const report of reports) {
+    if (report.budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${report.name} has ${report.budget.total} captures > ${report.budget.limit}.`);
+  }
+  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit: 800, remaining: 800 - captures.length };
+  return { captures, reports, budget };
 }
