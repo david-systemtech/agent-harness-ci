@@ -58,7 +58,9 @@ export const browserCamera = (
         dialog.addEventListener("cancel", event => { event.preventDefault(); close(); });
         dialog.addEventListener("close", close);
         view.addEventListener("pagehide", close);
-        view.document.body.append(dialog);
+        // Remain inside the active Radix modal's pointer, focus and accessibility boundary.
+        const modal = returnTo instanceof view.Element ? returnTo.closest('[role="dialog"], [role="alertdialog"]') : null;
+        (modal ?? view.document.body).append(dialog);
         if (typeof dialog.showModal === "function") dialog.showModal();
         else { dialog.setAttribute("open", ""); dialog.setAttribute("role", "dialog"); dialog.setAttribute("aria-modal", "true"); }
         button.focus();

@@ -382,6 +382,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // Settings changed (#391): the status holds none of them; the request cache fetches settings.get and
       // permissions.settings.get again (`QUERY_REFRESH_NOTICES`).
       case "settings.changed":
+      case "web.origins.updated":
         return data;
       // The skill set changing (#494) changes no status: the request cache reads skills.get again.
       case "skills.updated":

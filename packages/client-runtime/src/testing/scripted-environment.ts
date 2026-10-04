@@ -1657,6 +1657,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("web.origins.set");
     if (refused) return refused;
     webOrigins = { clientOrigins: params["clientOrigins"] as string[], connectOrigins: params["connectOrigins"] as string[] };
+    notice("web.origins.updated", {});
     return acceptedWith(webOrigins);
   });
   wire.answer("settings.get", (params) => {

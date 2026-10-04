@@ -57,6 +57,15 @@ it("the explicit policy survives an environment restart and remains revocable", 
   await admin.apply("web.origins.set", { commandId: randomUUID(), clientOrigins: [], connectOrigins: [] });
   expect(await admin.request("web.origins.get", {})).toEqual({ clientOrigins: [], connectOrigins: [] });
 });
+it("origin changes publish a notice to every client in the settings transaction", async () => {
+  const t = await startTestEnvironment(); onCleanup(() => t.close());
+  const admin = await t.client();
+  const head = t.env.log.head(); const commandId = randomUUID();
+  await admin.apply("web.origins.set", { commandId, clientOrigins: ["https://client.example.test"], connectOrigins: [] });
+  expect(t.env.log.readStream({ kinds: ["environment"] }, head)).toEqual([
+    expect.objectContaining({ streamId: t.env.id, type: "web.origins.updated", payload: {}, commandId, actor: `client_session:${admin.hello.clientSessionId}` }),
+  ]);
+});
 it("the browser bundle admits only configured HTTPS targets and their secure WebSockets", async () => {
   const directory = mkdtempSync(join(tmpdir(), "web-origin-assets-"));
   onCleanup(() => rmSync(directory, { recursive: true, force: true }));

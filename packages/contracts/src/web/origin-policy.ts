@@ -13,3 +13,5 @@ const get = defineMethod({ name: "web.origins.get", scope: "read", kind: "query"
 const set = defineMethod({ name: "web.origins.set", scope: "admin", kind: "command", params: commandParams(settings), result: z.object(settings), errors: [] });
 /** Incoming browser clients and outgoing browser connections are separate deliberate admin choices. */
 export const webOriginMethods = [get, set] as const;
+/** Invalidate every connected client's cached origin settings after the transaction commits. */
+export const WebOriginsUpdatedPayload = z.object({});

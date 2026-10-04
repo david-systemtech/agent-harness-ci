@@ -3019,6 +3019,10 @@
       "title": "SettingsChangedNoticePayload"
     },
     {
+      "path": "web/notices/origins.updated.json",
+      "title": "WebOriginsUpdatedPayload"
+    },
+    {
       "path": "settings/band-id.json",
       "title": "SettingsBandId"
     },

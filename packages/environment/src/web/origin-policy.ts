@@ -7,7 +7,7 @@ const stream = { kind: "settings", id: "web-origins" } as const;
 interface OriginSettings { readonly clientOrigins: string[]; readonly connectOrigins: string[] }
 
 /** Trusted admins admit exact browser Origins; Host checks and token authentication remain independent. */
-export const webOriginPolicy = (log: EventLog, http: HttpSurface): { readonly allows: (origin: string) => boolean; readonly handlers: MethodHandlers; readonly connectOrigins: () => readonly string[] } => {
+export const webOriginPolicy = (log: EventLog, http: HttpSurface, environmentId: string): { readonly allows: (origin: string) => boolean; readonly handlers: MethodHandlers; readonly connectOrigins: () => readonly string[] } => {
   log.registerProjector({
     name: "web-origins",
     tables: { web_origins: "CREATE TABLE web_origins (id INTEGER PRIMARY KEY CHECK(id = 1), value TEXT NOT NULL) STRICT" },
@@ -51,7 +51,10 @@ export const webOriginPolicy = (log: EventLog, http: HttpSurface): { readonly al
     allows, connectOrigins: () => read().connectOrigins,
     handlers: {
       "web.origins.get": () => read(),
-      "web.origins.set": ({ clientOrigins, connectOrigins }) => ({ aggregate: stream, result: { clientOrigins, connectOrigins }, events: [{ type: "web.origins.updated", payload: { clientOrigins, connectOrigins } }] }),
+      "web.origins.set": ({ clientOrigins, connectOrigins }, context) => {
+        log.append({ kind: "environment", id: environmentId }, [{ type: "web.origins.updated", payload: {} }], context);
+        return { aggregate: stream, result: { clientOrigins, connectOrigins }, events: [{ type: "web.origins.updated", payload: { clientOrigins, connectOrigins } }] };
+      },
     },
   };
 };
