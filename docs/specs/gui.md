@@ -10,7 +10,7 @@ Phase A built the environment, the client runtime and the terminal UI over one w
 
 ## Solution
 
-`agent-harness` ships a desktop app that is a client like any other. Its renderer is a new React shell whose every value is a client-runtime projection, carrying existing leaf components once they take props; the same bundle runs in a browser tab in milestone 2. A small desktop shell on Electron gives the renderer what only a desktop can: the app's own scheme, the keychain, native dialogs, notifications, the embedded browser, the preview frame, the local service and the desktop's own update. On first launch it installs and starts the environment on this machine, connects through the bootstrap grant and opens Set up as the whole window.
+`agent-harness` ships a desktop app that is a client like any other. Its renderer is a new React shell whose every value is a client-runtime projection, carrying existing leaf components once they take props; the same bundle runs in a browser tab in milestone 1. A small desktop shell on Electron gives the renderer what only a desktop can: the app's own scheme, the keychain, native dialogs, notifications, the embedded browser, the preview frame, the local service and the desktop's own update. On first launch it installs and starts the environment on this machine, connects through the bootstrap grant and opens Set up as the whole window.
 
 The window keeps its layout: a sidebar of every environment's sessions, a grid of up to eight session panes with transcript, composer, parked-prompt card and status line, and beside each the seven existing panes, the terminal now environment-owned. Fork and Rewind sit under every message David sent; a queued message offers Read now and Edit; a rewind can be undone until the next run; the Stop button and the command palette stop a run, and no key does unless David turns "Esc stops the run" on. Every colour is a token of the home environment's theme. Settings is a rail of eight bands with search, each pane naming the environment it edits, every existing settings address landing on a row, and every key a named action with a GUI column beside the terminal's.
 
@@ -47,10 +47,30 @@ The window keeps its layout: a sidebar of every environment's sessions, a grid o
 
 ## Implementation Decisions
 
+### Phone browser projection
+
+[web-client.md](web-client.md) is the current milestone-1 phone specification.
+Below 640px retain one visible conversation and the saved desktop grid, with
+session drawer, phone header and side-column sheet at the existing 900px
+pane-width breakpoint. Phone size 16, inputs at least 16 CSS px and 44px hit
+areas apply; composer/status sit above the keyboard using dvh/VisualViewport
+and safe areas, and only transcript scrolls. Hiding/switching panes never stops
+runs or PTYs. Settings is full-height with registered-row navigation as a drawer;
+Set up retains its eleven steps/sticky footer. Browser adapters supply supported
+inputs/preview/external navigation without pretending to be a desktop shell.
+
+Phone grants exclude terminal/admin by default; missing Files/Diff/terminal
+or Settings/sign-in authority explains deliberate Custom re-pairing. My own
+client links retain their full minted grant on a phone. Connected Parked asks
+remain; durable environment attention, push and configured signed fallback
+cover closed clients, with no transcript/secrets in delivery payloads. Hosted
+real-client browser tests complement the gallery; the human checklist blocks
+no builder/release and alone establishes handset proof.
+
 ### Packages and the platform
 
 - **`theme`** (ADR 0023), no UI and no session state, depending on contracts alone: the seed-to-ladder derivation in OKLCH for the light and dark ladders; the existing contrast (WCAG 2 AA: 4.5:1 text, 3:1 components), gamut and hue-separation rules inside it, an unreachable seed clamped and the clamp reported; the existing token names; a light and a dark token per environment colour name (workspace-picker spec); the terminal UI's role-to-ANSI mapping; the icon master's render for milestone 2. The environment uses it for the Appearance check.
-- **`gui`**, the renderer: React 19, Tailwind 4 through the inline theme mapping, the existing Radix-based `ui` primitives, cmdk, react-resizable-panels and xterm.js (the existing stack). It imports the runtime, contracts and theme, never Electron or a Node built-in, so the bundle runs in a browser tab in milestone 2.
+- **`gui`**, the renderer: React 19, Tailwind 4 through the inline theme mapping, the existing Radix-based `ui` primitives, cmdk, react-resizable-panels and xterm.js (the existing stack). It imports the runtime, contracts and theme, never Electron or a Node built-in, so the bundle runs in a browser tab in milestone 1.
 - **`desktop`**, the Electron shell: implements the runtime's shell interface behind a preload, carries the `gui` build and the platform's server artefact, and builds the launcher-update spec's three desktop artefacts.
 - **The desktop platform** (client-runtime spec): documents in IndexedDB; tokens through the shell's `secrets`; the browser's WebSocket; `fetch` through the shell's `http`; the system clock; the network signal from the browser's online and visibility events; kind `desktop`, label `<user>@<hostname>` from the shell's `system`; the grant through `localGrant`; `reportError` to the desktop's log.
 
@@ -101,9 +121,9 @@ The first-run walk-through uses variant A from #1334: introduction from the firs
 - **The side column** beside each session pane shows one of its open panes at a time from a dock with a 40px icon rail and a 30px header ([look.md §9.3](look.md#93-grid-and-per-session-dock)). Opening another session in the pane shows that session's column; a terminal or browser dock leaving the screen is hidden, never closed (the existing rule).
 - **Terminal**: xterm.js over `terminals.subscribe` (the scrollback's snapshot, then live chunks); keys batched per animation frame into one `terminals.write` (the receipt cost the tui spec measured); `terminals.resize` on fit; the newest running terminal of `terminals.list` reused; only its close button sends `terminals.close`; token colours handed to xterm.
 - **Files**: one directory at a time from `files.list`, a file in a file view through `files.read` (2 MiB; binary said, not drawn). **Diff**: `diffs.session` per file with its calls, and `diffs.workingTree`, in the existing diff view.
-- **Browser dock**: a page from the shell's `webView`, one per session pane; absent with `no-shell` elsewhere. Whether a run drives it (ADR 0014's "embedded dock") is the browser workstream's.
+- **Browser dock**: a page from the desktop shell's `webView`, one per session pane; the web client uses Open page plus environment driver/status selection, never an arbitrary-site iframe. Whether a run drives it (ADR 0014's "embedded dock") is the browser workstream's.
 - **Documents**: `projections.documents`, each row opening the preview, the source, or the transcript at the call that made it. **Tasks**: delegated work, live on top and finished folded, with a stop (`runs.stopTask`) and each agent's transcript (`sessions.subagentTranscript`).
-- **Preview**: a page or SVG read through `files.read`, framed from the shell's `preview` URL in a frame sandboxed with scripts and without same-origin (the existing hardening layers); markdown drawn in the window; a snapshot, re-read on reopening; absent with `no-shell` in a browser tab.
+- **Preview**: a page or SVG read through `files.read`, framed from the shell's `preview` URL in a frame sandboxed with scripts and without same-origin (the existing hardening layers); markdown drawn in the window; a snapshot, re-read on reopening. The web client renders HTML/SVG as a static sandboxed srcdoc snapshot without scripts, forms, same-origin privilege or network, with source/download and a desktop-only active-preview explanation (web-client spec).
 
 ### Parked asks, attention and notices
 
@@ -235,8 +255,8 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 ## Out of Scope
 
 - The Appearance picker, shipped themes, import and export, live preview (phase D, ADR 0023); the tinted icon (milestone 2).
-- The browser tab's platform, the environment serving the bundle, and cross-origin rules for it (milestone 2, ADR 0001); hand-off between environments (milestone 2).
-- A tray, several windows, mobile, and the existing follow-up suggestion chips (no carrier, #146).
+- Hand-off between environments remains milestone 2. The browser platform, environment-served bundle and exact-origin policy are milestone 1 work under [web-client.md](web-client.md).
+- A tray, several windows and the existing follow-up suggestion chips (no carrier, #146). Phone browser layout belongs to milestone 1; a separate native mobile app is not required.
 - Every step's card (88), the content of the phase C panes (89 to 93), the browser dock as a run's driver (93), the what's-new checklist (ADR 0016).
 
 ## Further Notes
@@ -295,7 +315,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
   - **`sidebarWidth`**, the frame's first key, is the divider's place as the sidebar's share of the window in percent, the unit react-resizable-panels lays out in and persists; the sidebar opens at 280 px, keeps between 200 and 560 px, and keeps its pixel width as the window is resized. Its visibility (`sidebarShown`) and `app.sidebar.toggle` came with the sidebar (#397).
   - **Painting before the theme is read** (#396 reads it): the preset theme's ladder the OS prefers, dark where the OS says nothing, and the root's `color-scheme` with it, so the browser's own controls match.
   - **Keys**: a surface marks where its keys mean what they mean with a region of its context (`KeyContext`) and wires its actions with `useKeyAction`; a key is offered to the region it is pressed in, then each region around it, then the window (`anywhere`), so an inner surface's Esc comes first. Within a context the actions holding a key are asked narrowest condition first, a region answering each condition of its context; a key no wired action takes is left to the page. `off` keys are unbound. With Mod, Ctrl or Alt held, a key is read by its place on the keyboard (`KeyboardEvent.code`), so Mod+Shift+\ is not read as Mod+|; a character typed with Shift alone is the character (`@`). Off macOS a Ctrl the column writes is Mod.
-  - **The bundle** is Vite's (`vite.config.ts`): `index.html`, one script and one stylesheet at paths relative to the page, workspace packages built from their source, and a plugin that fails the build on any import of a Node built-in. Until the desktop platform (#395) its entry ran the runtime on the browser's clock, network signal, WebSocket and `fetch` with documents and client session tokens held in memory, kind `web`, label "Browser tab"; since, it does so only outside the desktop.
+  - **The bundle** is Vite's (`vite.config.ts`): `index.html`, one script and one stylesheet at paths relative to the page, workspace packages built from their source, and a plugin that fails the build on any import of a Node built-in. Until the desktop platform (#395) its entry ran the runtime on the browser's clock, network signal, WebSocket and `fetch` with documents and client session tokens initially held in memory, kind `web`, label "Browser tab"; #1539 adds separate durable IndexedDB stores and visit-only fallback outside the desktop.
   - **The primitives** wrap Radix's: `Menu`, `ContextMenu`, `Dialog` (named by its title), `Popover`, `Tooltip` (its own provider), `Switch`, `Toasts` with `Toast`, and a plain `Button` and `Input`; focus is drawn with the accent's outline. cmdk is a dependency for the palette's ticket (#406).
   - **The harness** (`test/harness.tsx`): `renderApp(script, {macOS, shell})` answers the world, the runtime, the platform, the fake shell and `user`, and `remount()` opens the window again on the same documents and secrets. jsdom lays nothing out, so the tests' setup gives every element a 1280 by 800 size for react-resizable-panels, and fills pointer capture for Radix's toast; the GUI's tests run React's development build whatever the shell's `NODE_ENV`, since Testing Library renders through `act`.
   - **The parity gaps** are filed as #465 (browser dock), #466 (preview), #467 (drag reordering), #468 (images beyond the terminal protocols) and #469 (pane grid), each labelled `parity` and `ready-for-human`, and listed in `packages/contracts/src/parity.ts`.
@@ -427,7 +447,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
   - **The data directory** is `<user state directory>/agent-harness/desktop`, beside the terminal UI's, and is Chromium's `userData`: Electron's default on macOS would be the environment's own directory. The manual checklist is `docs/agents/desktop-checklist.md`, which the desktop build (#423) grows.
 
 - Chosen defaults not decided on a ticket, from the first launch's build (#395):
-  - **The desktop platform** (`packages/gui/src/platform/desktop-platform.ts`): the bundle's entry runs it when the desktop's preload has exposed `window.desktopShell` with `secrets`, `localGrant`, `http`, `network` and `system`, and the browser tab's in-memory platform otherwise. Documents are one IndexedDB database, `agent-harness`, with one object store, `documents`, each document kept as its JSON text so a value that is not JSON is refused as every platform's store refuses it; a write settles once its transaction has committed. The label is `<user>@<hostname>`, read from `system` once at start. A fault goes to the window's console with its stack; the main process hears the console's errors (`console-message`) and writes them, beside its own faults, to the desktop's log, `logs/desktop.log` in the desktop's data directory, one dated entry each; a log past 5 MiB when the desktop starts is set aside as `desktop.log.1`.
+  - **The desktop platform** (`packages/gui/src/platform/desktop-platform.ts`): the bundle's entry runs it when the desktop's preload has exposed `window.desktopShell` with `secrets`, `localGrant`, `http`, `network` and `system`, and the browser platform otherwise (initially in-memory; #1539 adds separate origin-scoped IndexedDB documents/secrets with visit-only fallback). Documents are one IndexedDB database, `agent-harness`, with one object store, `documents`, each document kept as its JSON text so a value that is not JSON is refused as every platform's store refuses it; a write settles once its transaction has committed. The label is `<user>@<hostname>`, read from `system` once at start. A fault goes to the window's console with its stack; the main process hears the console's errors (`console-message`) and writes them, beside its own faults, to the desktop's log, `logs/desktop.log` in the desktop's data directory, one dated entry each; a log past 5 MiB when the desktop starts is set aside as `desktop.log.1`.
   - **The lockdown from the renderer**: the window declares every connection's address through `network.allow` whenever the set of them changes (the local one's is loopback). A WebSocket to an address not declared yet, as a pairing's first, which tries the client session before the connection is kept, opens only once its address is declared, and keeps it declared until it opens or closes, after which only the connections' addresses are, so a pairing that failed leaves its address undeclared; one to loopback opens at once.
   - **Secrets**: `secrets/<environment id>.secret` in the desktop's data directory, the bytes `safeStorage` encrypted, 0600 in a 0700 folder, written whole and renamed into place. A token that cannot be decrypted (the OS's key changed, or is unavailable) reads as none and is reported, so the connection blocks as revoked and pairing again replaces it; keeping one where the OS keeps no key is refused with one line.
   - **The local grant**: `bootstrap-grant.json` in the environment's default data directory, of which the desktop's data directory is the `desktop` folder; none for no file or one no environment wrote, and an unreadable one reported once until a read succeeds.

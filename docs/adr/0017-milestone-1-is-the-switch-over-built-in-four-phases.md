@@ -4,7 +4,32 @@ status: accepted
 
 # Milestone 1 is the switch-over, built in four phases; one spec per ADR area; later milestones stand as placed
 
-Decided 2026-09-23 on the map ticket "Decision: milestones and the first buildable milestone" (david/agent-harness issue 34). The ADRs written so far placed work in milestones as they went, and most of what they placed landed in milestone 1, which left it large: the environment service with its wire, event log and pairing; session state; the client runtime; the GUI and the TUI with all seven panes; the Claude adapter and the completions surface; permissions; the launcher and auto-update; routines; skills; banks with the structure contract; key managers and orientation; the forge; the browser; the ten wizard steps. The harness keeps **milestone 1 as one milestone, "Switch-over"**, with one meaning of done, and builds it in **four phases**. Phase A, the spine: the environment service (wire, event log, pairing), session state, the client runtime, the TUI as the first client, the Claude adapter with the adapter contract and the completions surface, and permissions. Phase B, daily use: the GUI renderer and desktop shell, workspace and the environment picker, the launcher and auto-update, the forge with pull-request links and status, and Set up with its step registry and the Account, Your machines, Permissions and Appearance steps. Phase C, the organs: skills and standing instructions, banks with the structure contract and the migration of notebook and meadowstudios, key managers with the orientation block, the scrub registry and managed tools, routines, the browser, and the remaining six steps. Phase D, the switch-over: the state import, Hermes moved onto the completions surface, Milo on the TUI, today's desktop app and server stopped. **Milestone 1 is done** when David's daily sessions, routines and the Hermes fleet run on the harness on every machine he uses, Milo works on the TUI, the state import is complete and today's desktop app and server are stopped on those machines, the contract tests the ADRs name pass (session fields, ADR 0003; shortcut defaults and labelled parity gaps, ADR 0004; the step registry, ADR 0016), and every milestone-1 step has a working health check. **One implementation-ready specification per ADR area**, sixteen plus the switch-over, each a task ticket on the map: phase A unblocked, phases B and C behind the environment-service and client-runtime specifications, phase D behind every other, and each behind the wizard-step tickets of its feature, so a specification is written knowing its step. **The later milestones stand as the ADRs placed them**: milestone 2, "Every provider, every client", opens with the OpenAI-compatible adapter and the Codex rewrite (ADR 0015), then bots and the roster, routine webhook and API-token triggers and the fallback environment (ADR 0008), hand-off (ADR 0005), the web client (ADR 0001), the GitHub device flow and review panes (ADR 0012) and async questions (ADR 0006); milestone 3, "Bots without Hermes", is the inbound chat adapters and the Hermes retirement (issue 29); milestone 4, "Models on environments", is model download and device placement (issue 32). A milestone is named by its number and a theme; work still in the fog is placed when it graduates.
+Decided 2026-09-23 on the map ticket “Decision: milestones and the first
+buildable milestone” (issue 34). Milestone 1 remains one milestone,
+**Switch-over**, built in four phases with one meaning of done:
+
+- Phase A, the spine: environment wire/event log/pairing, session state, client
+  runtime, TUI, adapter contract/completions and permissions.
+- Phase B, daily use: GUI/desktop shell, workspace/environment picker,
+  launcher/update, forge links/status and initial Set up registry/cards.
+- Phase C, the organs: skills/instructions, banks/migration, key managers,
+  scrub registry/managed tools, routines, browser and remaining Set up steps.
+- Phase D, switch-over: state import, program integration on completions,
+  daily TUI use and retirement of replaced services.
+
+Done retains daily sessions/routines/program integration across the owner's
+inventory, TUI use, completed import, stopped source services, the ADR 0003/0004/
+0016 contract tests and working milestone-1 health checks. One implementation-ready
+specification per ADR area records its step before build; phase D follows the
+other areas.
+
+Later placements remain: milestone 2, “Every provider, every client”, opens with
+other adapters (ADR 0015), then Bots/roster, Routine webhook/API triggers and
+fallback environments (ADR 0008), Hand-off (ADR 0005), forge device flow/review
+panes (ADR 0012) and async questions (ADR 0006); milestone 3, “Bots without
+Hermes”, owns native inbound chat and integration retirement; milestone 4,
+“Models on environments”, owns model download/device placement. The web client
+is moved to milestone 1 by the dated amendment below.
 
 ## Considered options
 
@@ -13,7 +38,7 @@ Decided 2026-09-23 on the map ticket "Decision: milestones and the first buildab
 - The GUI as the client that proves the spine: rejected; the TUI ships inside the server artefact, needs no Electron and exercises the wire and the client runtime end to end, and Milo gets an early build.
 - Coarser specifications, one per phase or about eight by theme: rejected; one ADR area fits one to-spec session in one context, and a phase does not.
 - Specifications written only for phase A now, or all at once with no blocking: rejected; the organs' commands ride the wire, so their specifications wait for the two spine specifications, and the frontier stays visible in the tracker.
-- The web client, or bots, opening milestone 2: rejected; ADR 0015 already opens it with the adapters, and the bot object needs the completions surface and the Hermes lean proven first.
+- Bots opening milestone 2: rejected; ADR 0015 opens it with the adapters, and the bot object needs the completions surface and the Hermes lean proven first. Browser/phone use is now milestone 1 under the amendment below.
 
 ## Consequences
 
@@ -21,4 +46,21 @@ Decided 2026-09-23 on the map ticket "Decision: milestones and the first buildab
 - All of ADR 0007 belongs to milestone 1, phase B: the launcher, channels, pin, trial and rollback, the desktop updater, and the host-side updater for containerised environments, since the agent box on SAMPLE-SERVER is a container and switch-over covers every machine David uses.
 - The harness's name (issue 33) gates nothing: specifications use `agent-harness` as a placeholder token wherever the service, data directory, binary or configuration paths are named, and the rename is one find-and-replace before the first build session.
 - The "completions surface for programs" is no longer fog: ADR 0015 keeps it, with client-tool passthrough, in milestone 1 phase A.
-- Every milestone line in ADRs 0001 to 0016 stands unedited.
+- Unrelated later milestone placements stand. The 2026-10-04 phone amendment below reconciles the affected ADRs/specs only.
+
+## Amendment: phone web client in milestone 1 (2026-10-04)
+
+The owner's instruction of **2026-10-04** pulls the web client, including phone
+use, into milestone 1. [web-client.md](../specs/web-client.md) records the decided
+platform seam, HTTPS/Origin boundary, browser storage, Phone and unchanged My
+own client grants, phone panes/layout/keyboard, attention/fallback and install.
+Affected env/client-runtime/gui/look/permissions/setup/switch-over specifications
+and ADRs 0001/0004/0006/0008/0025 follow that amendment; unrelated later work stays
+where placed.
+
+Repository completion uses hosted real-client browser CI, isolated environments
+and scripted providers, gallery geometry and packaged-asset checks. The
+coordinator owns deployment, managed HTTPS/tailnet and external receiver/live QA.
+The single handset checklist (#1556) blocks no builder or release, references
+the existing provider-sign-in ask (#1492), and alone establishes phone-proven
+status. The original switch-over operational acceptance remains required.

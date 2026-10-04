@@ -1150,3 +1150,50 @@ never regenerate a baseline silently to erase a failure. A deliberate design
 improvement names its geometry/state change and updates this contract if it
 changes a stated value. Neither private screenshots nor private names are
 committed as baselines; baseline scenes contain invented neutral data.
+
+## 17. Phone browser projection (milestone 1)
+
+The owner's 2026-10-04 milestone amendment is specified in
+[web-client.md](web-client.md). Desktop dimensions above still govern the
+wide layout; the following rules govern phone use and its gallery evidence.
+
+Below 640px show one conversation with a session drawer and phone header
+(More, Settings, attention). Preserve the desktop pane arrangement for return
+to wide mode; disable Split with a width reason. The existing below-900px
+pane-width dock rule becomes the side-column sheet, `min(480px, 85%)`. Closing
+or switching hides work without stopping a run, delegated task or terminal.
+Drawers/sheets trap and restore focus and close predictably.
+
+Keep abyss/panel/float/hairline tokens, rounded human controls and square
+machine output wells, the icon names, focus and contrast. Phone preset text
+size 16 uses the existing 11–20 preference; inputs are at least 16 CSS px and
+all tap hit areas at least 44px, including icons. Touch exposes actions that
+otherwise need hover. Long labels wrap without horizontal page overflow;
+keep pinch zoom and enlarged text at 20.
+
+Use `100dvh` and VisualViewport fallback with `viewport-fit=cover` and
+`env(safe-area-inset-*)`. Composer/status sit in the bottom flex region above
+the visible keyboard; only transcript scrolls. Keep activity/asks/composer
+order, scroll active input/card into view, and prevent notices from covering
+composer or waiting cards. Send/Stop, Allow/Deny and Continue/Finish remain
+visible at keyboard height, including long cards and IME composition. Settings
+is full-height with registered-row drawer navigation; Set up keeps eleven
+steps and its sticky Back/Continue footer.
+
+Hosted gallery subsets at 390×844 and 360×740 cover dark/light, text 20,
+keyboard-height viewport, safe areas and long content. Assert 44px hit areas,
+no page overflow, visible Send/Allow/Continue, drawer/sheet focus and no notice
+occlusion. Use web-platform scene mode exposing actual browser capabilities;
+phone scenes do not silently use fake desktop capabilities. #1541 owns
+capture/registry/report integration and budgets from 342 captures against the
+400 cap, or shards publication/acceptance together without weakening validation.
+Surface owners add uniquely named scene/baseline modules and inspect their PR
+captures. Desktop captures remain gated with the same validation.
+
+Gallery is rendering evidence. Hosted real-client Chromium/WebKit CI under an
+ordinary uid against an isolated real environment/scripted provider proves
+pairing, grants, wire/replay, storage, preview isolation, worker upgrades and
+delivery transports; only #1556 proves actual handset keyboard/camera, Home
+Screen storage and background/locked push/tap. That human evidence blocks no
+builder or release. No browser/Electron/dev server or image runs on the shared
+agent box; deployment/live QA belong to the coordinator.

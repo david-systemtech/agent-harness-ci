@@ -8,7 +8,7 @@ David archives a session on his desktop and it is still active in the terminal. 
 
 ## Solution
 
-One UI-free package, the **client runtime**, that every client renders from and nothing else: the desktop window, the terminal UI and, in milestone 2, the browser tab. It keeps the saved connections, pairs with environments and holds their client sessions, keeps one WebSocket per environment alive through backoff and a watchdog, subscribes to the session list and to open sessions with a cursor per stream so a reconnect catches up exactly, keeps every command in an outbox with a command id so a retry never applies twice, shows David's edits at once and reconciles them by the environment's sequence, and turns the streams into the projections a sidebar, a transcript and a run status read. What only a desktop can do is reached through a small shell interface behind the same capability flags as everything else; absent, a feature says why. The runtime is the parity test's target: whatever the wire expresses, it projects, and both renderers show.
+One UI-free package, the **client runtime**, that every client renders from and nothing else: the desktop window, the terminal UI and the milestone-1 browser tab. It keeps the saved connections, pairs with environments and holds their client sessions, keeps one WebSocket per environment alive through backoff and a watchdog, subscribes to the session list and to open sessions with a cursor per stream so a reconnect catches up exactly, keeps every command in an outbox with a command id so a retry never applies twice, shows the owner's edits at once and reconciles them by the environment's sequence, and turns the streams into the projections a sidebar, a transcript and a run status read. What only a desktop can do is reached through a small shell interface behind the same capability flags as everything else; absent, a feature says why. The runtime is the parity test's target: whatever the wire expresses, it projects, and both renderers show.
 
 ## User Stories
 
@@ -43,8 +43,26 @@ One UI-free package, the **client runtime**, that every client renders from and 
 ### Package and platform
 
 - **One package, `client-runtime`**, depending on the `contracts` package and nothing else at runtime; no React, no Ink, no Electron, no Effect (ADR 0001 rejected Effect RPC for lock-in). Chosen default: its public values are observables with `read()` and `subscribe(listener)`, so React reads them with `useSyncExternalStore` and Ink with the same primitive (ADR 0004).
-- **The platform** supplies what the runtime cannot own: key-value document storage (the GUI renderer uses IndexedDB; the terminal UI a directory under the user's state directory, distinct from the environment's data directory), secret storage for client session tokens (the OS keychain through the shell on a desktop, a 0600 file for the terminal UI), a WebSocket factory, a clock, a network signal (online, offline, foreground, background), the client kind (`desktop`, `tui`, `web`) and label, an optional bootstrap-grant reader for a local environment, and an optional **shell** (below). The GUI and TUI workstreams deliver the two platforms; tests use an in-memory one.
+- **The platform** supplies what the runtime cannot own: key-value document storage (the GUI renderer uses IndexedDB; the terminal UI a directory under the user's state directory, distinct from the environment's data directory), secret storage for client session tokens (the OS keychain through the shell on a desktop, a 0600 file for the terminal UI, a separate origin-scoped IndexedDB SecretStore for the browser), a WebSocket factory, a clock, a network signal (online, offline, foreground, background), the client kind (`desktop`, `tui`, `web`) and label, an optional bootstrap-grant reader for a local environment, and an optional **shell** (below). The GUI, TUI and web workstreams deliver the platforms; tests use an in-memory one.
 - **The runtime is a client.** It defines no wire method. Every `area.verb` name below is either a method of the environment-service specification it consumes or an in-process call of the runtime's own API, marked as such.
+
+### Browser platform (milestone 1)
+
+The implemented `browserPlatform` separates `indexedDocuments` (records,
+cursors, outbox) from `indexedSecrets` (origin-local tokens). This is
+JavaScript-readable storage without OS protection. Denial falls back to memory
+with “pair for this visit”; eviction/revocation requires deliberate re-pairing.
+Forget attempts token erasure even after a transient storage failure. Refresh
+and concurrent tabs must preserve usable credentials. No local grant/service
+bootstrap is attempted. Codes leave the fragment before rendering or network;
+tokens never enter URLs, logs or worker caches. Browser identity changes no
+minted scopes or ceiling. The existing token auth frame and command receipts
+still apply, including one prompt answer after reconnect.
+
+Shared web registrations expose leaf startup/surface slots; environment
+method registries/origin/attention hooks remain with their owning tickets.
+[web-client.md](web-client.md) defines grants, exact HTTPS origins and tests;
+a registered slot does not claim its leaf implementation exists.
 
 ### The connection registry
 
@@ -108,7 +126,7 @@ Every projection is a pure function of stream state, overlays and client prefere
 
 ### The desktop shell seam
 
-- The platform's optional **shell** is a small interface of optional members: `dialogs` (open file, open a file's contents, open directory, save), `window` (title, focus, badge, background colour), `notifications` (`show` with an optional tag, `onActivate` handing the tag back on a click), `tray`, `deepLinks.onOpen`, `webView` (create, attach, navigate, for the browser dock and preview panes), `preview.grant` (bytes and a media type in, a URL on the preview scheme out), `installer` and `update` (the desktop updater, launcher workstream), `service` (install, start and status of the local environment's service, ADR 0001), `clipboard` (text, and an image read for pasting), `openExternal`, `localGrant.read`, `secrets` (and `secrets.protection`: whether the OS keeps their key, tokens are stored unprotected under a fixed one, or none can be kept: `os`, `unprotected` or `none`), `http` (a request the desktop's main process makes, so an environment needs no cross-origin headers), `network.allow` (the whole list of addresses the renderer may open a WebSocket to, each call replacing the last), `system` (platform, architecture, hostname and user) and `camera.scanQr` (a QR code read with a camera the platform gives the window, for Add a machine's Scan a QR, #577; the desktop probes video inputs before mounting the GUI and provides a modal scanner with a portable QR decoder, #845). Each member is a capability with reason `no-shell` when absent (`shell.http`, `shell.network`, `shell.system`, `shell.preview`, `shell.notifications.onActivate`, `shell.secrets.protection` and `shell.camera` among them); the terminal UI and the browser tab provide none and degrade absent-with-reason (ADR 0004). The GUI specification says what the desktop does with each.
+- The platform's optional **shell** is a small interface of optional members: `dialogs` (open file, open a file's contents, open directory, save), `window` (title, focus, badge, background colour), `notifications` (`show` with an optional tag, `onActivate` handing the tag back on a click), `tray`, `deepLinks.onOpen`, `webView` (create, attach, navigate, for the browser dock and preview panes), `preview.grant` (bytes and a media type in, a URL on the preview scheme out), `installer` and `update` (the desktop updater, launcher workstream), `service` (install, start and status of the local environment's service, ADR 0001), `clipboard` (text, and an image read for pasting), `openExternal`, `localGrant.read`, `secrets` (and `secrets.protection`: whether the OS keeps their key, tokens are stored unprotected under a fixed one, or none can be kept: `os`, `unprotected` or `none`), `http` (a request the desktop's main process makes, so an environment needs no cross-origin headers), `network.allow` (the whole list of addresses the renderer may open a WebSocket to, each call replacing the last), `system` (platform, architecture, hostname and user) and `camera.scanQr` (a QR code read with a camera the platform gives the window, for Add a machine's Scan a QR, #577; the desktop probes video inputs before mounting the GUI and provides a modal scanner with a portable QR decoder, #845). Each member is a capability with reason `no-shell` when absent (`shell.http`, `shell.network`, `shell.system`, `shell.preview`, `shell.notifications.onActivate`, `shell.secrets.protection` and `shell.camera` among them); the terminal UI provides no shell and degrades absent-with-reason (ADR 0004). The browser platform also has no desktop shell; web leaf adapters supply supported browser inputs, external links, camera and static preview without session state, while unsupported desktop capabilities retain their reasons (web-client spec). The GUI specification says what the desktop does with each.
 - **Nothing about sessions, runs or organisation passes through it.** No member takes or returns a session, run, group, event or summary; a deep link delivers a string the runtime parses (a pairing link, an open-session link); a notification takes a title and body the renderer composed, and a tag, a string, that a click hands back. A lint fails the build when the shell interface module imports any session, run or group type from the contracts package, the cousin of the ADR 0003 lint. Pane layout is the renderer's client-local presentation, not the runtime's (glossary: Pane).
 
 ### What this workstream does not decide
@@ -130,7 +148,7 @@ The wire, frames, scopes, receipts, replay bounds, pairing routes and the grant 
 ## Out of Scope
 
 - Everything named under "What this workstream does not decide", in particular the environment side of the wire (78), the session vocabulary (79), the renderers (81, 84) and the browser relay's page driver (93).
-- Milestone 2 and later: the browser tab's platform, a relay, a peer list, hand-off, push to a phone, transcript full-text search, SSH-launched environments, auto-balance.
+- Milestone 2 and later: a relay, a peer list, hand-off, transcript full-text search, SSH-launched environments and auto-balance. Browser platform and phone attention/push belong to milestone 1; their platform and delivery requirements are [web-client.md](web-client.md).
 - Layout, pane state and the light, dark or system mode: client-local presentation in the renderers. The theme itself (a name and seven seeds) is the environment setting `appearance.theme`; a client paints its home environment's theme and caches it for first paint (ADR 0023).
 
 ## Further Notes
