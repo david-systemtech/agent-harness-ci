@@ -310,7 +310,7 @@ const RowButton = ({ row, dim, keys, reason, onClick }: { readonly row: ChoiceRo
   const id = useId();
   const described = row.detail.length > 0 ? id : undefined;
   return (
-    <span className="inline-flex items-baseline gap-1.5">
+    <span data-prompt-choice className="inline-flex items-baseline gap-1.5">
       <Answer dim={dim} approves={row.kind !== "deny"} greyed={row.kind === "approve" && row.above} describedBy={described} keys={keys} hint={reason ?? row.detail} onClick={onClick}>
         {row.label}
       </Answer>

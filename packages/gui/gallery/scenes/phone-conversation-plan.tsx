@@ -1,6 +1,6 @@
 import type { SceneModule } from "../scene-registry.js";
 import { conversationGeometry, revealPhoneDecision } from "../phone-conversation-scene.js";
-export { platform, script, route } from "./phone-gallery-conversation.js";
+export { platform, script, route } from "./phone-conversation-long.js";
 
 export const arrangeWeb: SceneModule["arrangeWeb"] = world => {
   const env = world.environment("desk"), sessionId = env.sessionId();

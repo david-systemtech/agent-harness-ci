@@ -14,7 +14,7 @@ import { useSlashCommand } from "../composer/slash-commands.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { Button, Tooltip } from "../ui/index.js";
-import { useFollowed, useObservable, useRuntime } from "../window-context.js";
+import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, modeLabel } from "./pickers.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
@@ -47,6 +47,7 @@ export interface StatusLineProps {
  *   picker whenever; naming another environment, it says that is milestone 2's.
  */
 export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
+  const web = useShell() === undefined;
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
   const runtime = useRuntime();
@@ -82,7 +83,7 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
 
   return (
     <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">
-      <Button data-phone-status-toggle className="hidden" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><Settings2 aria-hidden="true" />Run settings<ChevronDown aria-hidden="true" /></Button>
+      {web && <Button data-phone-status-toggle className="hidden" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><Settings2 aria-hidden="true" />Run settings<ChevronDown aria-hidden="true" /></Button>}
       <div id={detailsId} className="flex min-w-0 grow basis-[352px] flex-wrap items-center gap-x-2 gap-y-1">
         <span data-status-chip className="inline-flex h-[22px] max-w-[240px] items-center overflow-hidden rounded-md bg-wash px-1.5 [&_svg]:size-3 [&>span]:min-w-0 [&>span>span]:truncate" title={`${environment?.name ?? "This machine"}: ${environment?.phase ?? "connecting"}`}><EnvironmentBadge view={environment} /></span>
         <AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} />

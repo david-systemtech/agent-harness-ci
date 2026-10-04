@@ -21,7 +21,7 @@ it("keeps the composing draft until the input method commits, including an Enter
 it("fits the web conversation to the visual viewport and leaves pinch zoom alone", async () => {
   const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
-  onTestFinished(() => vi.unstubAllGlobals());
+  onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root";
   document.body.append(root);
   const gallery = await mountGallery(root, "phone-gallery-conversation");
@@ -82,6 +82,11 @@ it.each(["long", "question", "plan"])("mounts the phone-conversation-%s surface 
   expect(gallery.world.shell).toBeUndefined();
   const decision = kind === "plan" ? "Approve · continue in acceptEdits" : kind === "question" ? "Send answer" : "Send";
   expect(screen.getByRole("button", { name: decision })).toBeDefined();
+  if (kind === "long") {
+    expect(screen.getByRole("list", { name: "Attachments" }).textContent).toContain("unusually-long-receipt-filename-for-the-quarter.txt");
+    expect(screen.getByRole("region", { name: "Queued messages" }).textContent).toContain("1 message queued");
+    await waitFor(() => expect([...root.querySelectorAll("[data-tool-raw]")].map(element => element.textContent).join("\n")).toContain("All receipt totals match."));
+  }
   if (kind === "question") {
     const own = screen.getByRole("textbox", { name: "Your own answer" });
     act(() => own.focus());
