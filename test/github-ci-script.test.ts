@@ -1098,6 +1098,33 @@ with zipfile.ZipFile(path,'w') as z:
   expect(g.captures.size).toBe(0);
 });
 
+it.each([
+  ["single", ".png"], ["single", ".baseline.png"], ["single", ".difference.png"],
+  ["sharded", ".png"], ["sharded", ".baseline.png"], ["sharded", ".difference.png"],
+])("refuses an unreported %s report image ending in %s before any publication", async (format, suffix) => {
+  const g = await storedGallery();
+  await g.capture(230);
+  await run("python3", ["-c", `import json,sys,zipfile
+path,format,suffix=sys.argv[1:]
+with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
+report=json.loads(entries['report.json'])
+scenes=report['scenes']
+if format=='sharded':
+    report['pixelBlocking']=True
+    report['shards']=[{'name':'desktop','scenes':scenes},{'name':'phone','scenes':[]}]
+entries['unreported.dark'+suffix]=entries[scenes[0]['name']+'.png']
+entries['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(path,'w') as z:
+    for name,data in entries.items(): z.writestr(name,data)
+`, g.env.FAKE_GALLERY_ZIP, format, suffix]);
+  const result = await relay(g.f, g.env);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("unexpected gallery entry");
+  expect(g.comments).toEqual([]);
+  expect(g.attachments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+});
+
 it("publishes complete changed triplets at both shard limits", async () => {
   const g = await storedGallery();
   const names = [...Array.from({ length: 400 }, (_, i) => `scene-${i}.dark`), ...Array.from({ length: 400 }, (_, i) => `phone-scene-${i}-phone-390.dark`)];
