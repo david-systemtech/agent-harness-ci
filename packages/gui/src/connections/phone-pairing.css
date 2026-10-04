@@ -1,0 +1,12 @@
+.web-camera {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+}
+.web-camera video { width: 100%; max-height: 55dvh; object-fit: contain; }
+.web-camera button { min-width: 44px; min-height: 44px; }
+@media (max-width: 639px) {
+  [data-phone-pairing] { overflow-wrap: anywhere; }
+  [data-phone-pairing] input { min-height: 44px; font-size: 16px; }
+  [data-phone-pairing] button { min-height: 44px; min-width: 44px; }
+}

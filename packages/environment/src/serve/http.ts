@@ -134,6 +134,9 @@ export interface HttpSurface extends HttpRoutes {
   listen(host: string, port: number): Promise<Address>;
   /** Closes every listener; after a failure, closing again retries the ones that did not close. */
   close(): Promise<void>;
+  /** Request policies run after Host validation; true means the response is complete. */
+  acceptsOrigin(request: IncomingMessage): boolean;
+  intercept(handler: (request: IncomingMessage, response: ServerResponse) => boolean): void;
 }
 
 export interface HttpSurfaceOptions {
@@ -156,6 +159,7 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
   const routes = new Map<string, Map<string, RouteHandler>>();
   const prefixes: { readonly prefix: string; readonly handler: RouteHandler }[] = [];
   const upgrades = new Map<string, UpgradeHandler>();
+  const interceptors: ((request: IncomingMessage, response: ServerResponse) => boolean)[] = [];
   const servers: { readonly server: Server; readonly host: string }[] = [];
 
   const allowed = (header: string | undefined): boolean => {
@@ -202,6 +206,7 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
       sendJson(response, 400, { error: "bad_request", message: "The request target could not be parsed." });
       return;
     }
+    if (interceptors.some(handler => handler(request, response))) return;
     if (request.method === "POST" && path === "/api/pair" && !allowedOrigin(request)) {
       sendJson(response, 403, { error: "origin_refused", message: "This browser Origin is not allowed. Open this environment's HTTPS address." });
       return;
@@ -255,6 +260,8 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
   };
 
   return {
+    acceptsOrigin: allowedOrigin,
+    intercept(handler) { interceptors.push(handler); },
     upgrade(path, handler) {
       if (upgrades.has(path)) throw new Error(`Upgrades at ${path} are already routed.`);
       upgrades.set(path, handler);
