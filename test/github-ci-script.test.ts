@@ -662,6 +662,8 @@ print(str(sum(sizes))+'\\ttotal')
   const extra = join(images, "scene-1200.dark.png");
   writeFileSync(extra, "image");
   await expect(check()).rejects.toMatchObject({ code: 1 });
+  writeFileSync(join(images, "report-2.json"), "{}");
+  await expect(check()).resolves.toBeDefined();
   rmSync(extra);
   writeFileSync(join(images, "scene-0.dark.png"), Buffer.alloc(48*1024*1024+1));
   await expect(check()).rejects.toMatchObject({ code: 1 });
@@ -1036,4 +1038,50 @@ it("refuses to publish a phone capture whose dimensions disagree with its profil
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("unexpected phone gallery dimensions");
   expect(g.comments).toHaveLength(0);
+});
+
+it("publishes every capture across bounded reports on one head", async () => {
+  const g = await storedGallery();
+  await g.capture(255, 416);
+  await shardReports(g.env.FAKE_GALLERY_ZIP);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(2);
+  const manifests = g.comments.map(c => JSON.parse(/<!-- window-gallery (.*?) -->/.exec(c.body)![1]!) as { head: string; captures: { name: string }[]; shard: { batch: string; index: number; count: number } });
+  expect(manifests.map(m => m.captures.length)).toEqual([400, 16]);
+  expect(manifests.map(m => m.head)).toEqual([g.sha, g.sha]);
+  expect(manifests.map(m => m.shard)).toEqual([
+    { batch: `${g.sha}-1`, index: 0, count: 2 }, { batch: `${g.sha}-1`, index: 1, count: 2 },
+  ]);
+  expect(new Set(manifests.flatMap(m => m.captures.map(c => c.name))).size).toBe(416);
+  expect(g.captures.size).toBe(416);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  expect(readdirSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toHaveLength(416);
+  expect(readFileSync(join(g.f.checkout, "packages/gui/gallery/baselines/scene-415.dark.png"))).toEqual(readFileSync(g.env.FAKE_GALLERY_ZIP + ".png"));
+});
+
+async function shardReports(archive: string, kind = "") {
+  await run("python3", ["-c", `import json,sys,zipfile
+path=sys.argv[1]; kind=sys.argv[2]
+with zipfile.ZipFile(path) as z: files={n:z.read(n) for n in z.namelist()}
+report=json.loads(files.pop('report.json')); rows=report['scenes']
+with zipfile.ZipFile(path,'w') as z:
+    for n,data in files.items(): z.writestr(n,data)
+    for index in range(1 if kind=='missing' else 2):
+        shard={**report,'scenes':rows[index*400:(index+1)*400],'shard':{'index':index,'count':2}}
+        if kind=='duplicate' and index==1: shard['scenes']=[rows[0]]
+        if kind=='overfull' and index==0: shard['scenes']=rows[:401]
+        z.writestr('report.json' if index==0 else 'report-2.json',json.dumps(shard))`, archive, kind]);
+}
+
+
+it.each(["missing", "duplicate", "overfull"])("rejects %s sharded reports before publishing anything", async kind => {
+  const g = await storedGallery();
+  await g.capture(255, 416);
+  await shardReports(g.env.FAKE_GALLERY_ZIP, kind);
+  const result = await relay(g.f, g.env);
+  expect(result.code).not.toBe(0);
+  expect(g.comments).toEqual([]);
+  expect(g.attachments).toEqual([]);
+  expect(g.captures.size).toBe(0);
 });

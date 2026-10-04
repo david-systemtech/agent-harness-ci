@@ -229,13 +229,16 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
+    # Every report has its own 400-row/1200-PNG bound; transport bytes stay bounded.
+    names = [f.filename for f in entries]
+    report_names = [n for n in names if re.fullmatch(r'report(?:-[1-9][0-9]*)?[.]json', n)]
+    count = len(report_names)
+    expected_reports = ['report.json'] + [f'report-{i}.json' for i in range(2, count + 1)]
+    if not count or set(report_names) != set(expected_reports): sys.exit('incomplete gallery reports')
     max_scenes = 400
     max_pngs = max_scenes * 3
-    if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
-    names = [f.filename for f in entries]
-    if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
-    report = json.loads(z.read('report.json'))
+    if len(entries) > count * (max_pngs + 1) + 1 or sum(f.filename.endswith('.png') for f in entries) > count * max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
+    if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report(?:-[1-9][0-9]*)?[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     images = {n: z.read(n) for n in names if n.endswith('.png')}
     for name, data in images.items():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
@@ -243,75 +246,89 @@ with zipfile.ZipFile(sys.argv[1]) as z:
             phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
             profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
             if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
-    scenes = report['scenes']
-    if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
+    reports = []
     seen = set()
-    for scene in scenes:
-        name = scene['name']
-        if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)', name) or name in seen: sys.exit('invalid gallery scene name')
-        seen.add(name)
-        required = [name + '.png']
-        if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
-        if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+    for index, filename in enumerate(expected_reports):
+        report = json.loads(z.read(filename))
+        if (count > 1 or 'shard' in report) and report.get('shard') != {'index': index, 'count': count}: sys.exit('incomplete gallery reports')
+        scenes = report['scenes']
+        if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
+        shard_images = {}
+        for scene in scenes:
+            name = scene['name']
+            if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)', name) or name in seen: sys.exit('invalid gallery scene name')
+            seen.add(name)
+            required = [name + '.png']
+            if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
+            if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+            for suffix in ('.png', '.baseline.png', '.difference.png'):
+                if name + suffix in images: shard_images[name + suffix] = images[name + suffix]
+        reports.append((report, shard_images))
+    if set(images) != {n for _, shard_images in reports for n in shard_images}: sys.exit('unexpected gallery entry')
 package_token = os.environ.get('PACKAGES_TOKEN')
 if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
-comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
-stage = 'uploads'
-try:
-    version = f'{head}-{comment}'
-    urls = {}
-    for name, data in sorted(images.items()):
-        stage = f'attachment {name}'
-        boundary = 'gallery-upload-boundary'
-        body = (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="{name}"\r\nContent-Type: image/png\r\n\r\n'.encode() + data + f'\r\n--{boundary}--\r\n'.encode())
-        asset = request(f'/issues/comments/{comment}/assets', 'POST', body, f'multipart/form-data; boundary={boundary}')
-        url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
-        if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): raise ValueError('invalid asset URL')
-        urls[name] = url
-    body = f'Window gallery for `{head}` (desktop 1400 × 900 / 1024 × 768; phone 390 × 844 / 360 × 740; text size 20; keyboard 390 × 480; light and dark).\n'
-    budget = report.get('captureBudget')
-    if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
-        body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
-    geometry_failed = any(s['geometryFailures'] for s in scenes)
-    pixel_failed = any(s['pixelFailed'] for s in scenes)
-    body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
-    matched = sum(s['status'] == 'unchanged' for s in scenes)
-    body += f'\n{matched} scene{"" if matched == 1 else "s"} matched.\n'
-    for scene in scenes:
-        name = scene['name']
-        if scene['status'] == 'changed':
-            body += f'\n**{name}**\n\n| Baseline | Capture | Difference |\n| --- | --- | --- |\n'
-            body += '| ' + ' | '.join(f'![{kind} {name}]({urls[name+suffix]})' for kind,suffix in [('baseline','.baseline.png'),('capture','.png'),('difference','.difference.png')]) + ' |\n'
-        elif scene['status'] == 'new' or scene['geometryFailures']:
-            body += f'\n**{name}** ({scene["status"]})\n\n![capture {name}]({urls[name+".png"]})\n'
-        for failure in scene['geometryFailures']: body += f'\n- {html.escape(failure)}\n'
-    # The web attachment route can be behind SSO while the tracker API accepts tokens.
-    # Publish capture bytes through the generic package API too, so acceptance needs no browser cookie.
-    captures = []
-    for scene in scenes:
-        name = scene['name'] + '.png'
-        stage = f'capture storage {name}'
-        download = f'{base}/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}'
-        try: absolute_request(download, 'PUT', images[name], 'image/png', token=package_token)
-        except urllib.error.HTTPError as error:
-            if error.code != 409: raise
-            # Reusing this report version is safe only when its bytes are identical.
-            req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
-            with opener.open(req, timeout=120) as response:
-                if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
-        captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
-    manifest = {'head': head, 'version': version, 'captures': captures}
-    body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
-    stage = 'final report'
-    request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
-except Exception as error:
-    # Never include the API's response, credentials, or untrusted exception text.
-    reason = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
-    failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.'
-    try: request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
-    except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
-    sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
-print(f'Gallery posted on pull request {pr}')
+batch = None
+for index, (report, images) in enumerate(reports):
+    scenes = report['scenes']
+    comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
+    if index == 0: batch = f'{head}-{comment}'
+    stage = 'uploads'
+    try:
+        version = f'{head}-{comment}'
+        urls = {}
+        for name, data in sorted(images.items()):
+            stage = f'attachment {name}'
+            boundary = 'gallery-upload-boundary'
+            body = (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="{name}"\r\nContent-Type: image/png\r\n\r\n'.encode() + data + f'\r\n--{boundary}--\r\n'.encode())
+            asset = request(f'/issues/comments/{comment}/assets', 'POST', body, f'multipart/form-data; boundary={boundary}')
+            url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
+            if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): raise ValueError('invalid asset URL')
+            urls[name] = url
+        body = f'Window gallery for `{head}` (report {index + 1}/{len(reports)}; desktop 1400 × 900 / 1024 × 768; phone 390 × 844 / 360 × 740; text size 20; keyboard 390 × 480; light and dark).\n'
+        budget = report.get('captureBudget')
+        if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
+            body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
+        geometry_failed = any(s['geometryFailures'] for s in scenes)
+        pixel_failed = any(s['pixelFailed'] for s in scenes)
+        body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
+        matched = sum(s['status'] == 'unchanged' for s in scenes)
+        body += f'\n{matched} scene{"" if matched == 1 else "s"} matched.\n'
+        for scene in scenes:
+            name = scene['name']
+            if scene['status'] == 'changed':
+                body += f'\n**{name}**\n\n| Baseline | Capture | Difference |\n| --- | --- | --- |\n'
+                body += '| ' + ' | '.join(f'![{kind} {name}]({urls[name+suffix]})' for kind,suffix in [('baseline','.baseline.png'),('capture','.png'),('difference','.difference.png')]) + ' |\n'
+            elif scene['status'] == 'new' or scene['geometryFailures']:
+                body += f'\n**{name}** ({scene["status"]})\n\n![capture {name}]({urls[name+".png"]})\n'
+            for failure in scene['geometryFailures']: body += f'\n- {html.escape(failure)}\n'
+        # The web attachment route can be behind SSO while the tracker API accepts tokens.
+        # Publish capture bytes through the generic package API too, so acceptance needs no browser cookie.
+        captures = []
+        for scene in scenes:
+            name = scene['name'] + '.png'
+            stage = f'capture storage {name}'
+            download = f'{base}/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}'
+            try: absolute_request(download, 'PUT', images[name], 'image/png', token=package_token)
+            except urllib.error.HTTPError as error:
+                if error.code != 409: raise
+                # Reusing this report version is safe only when its bytes are identical.
+                req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
+                with opener.open(req, timeout=120) as response:
+                    if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
+            captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
+        manifest = {'head': head, 'version': version, 'captures': captures}
+        if len(reports) > 1: manifest['shard'] = {'batch': batch, 'index': index, 'count': len(reports)}
+        body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
+        stage = 'final report'
+        request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
+    except Exception as error:
+        # Never include the API's response, credentials, or untrusted exception text.
+        reason = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+        failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.'
+        try: request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
+        except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
+        sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
+    print(f'Gallery posted on pull request {pr}')
 PYGALLERY
       # Cleanup failure must not invalidate a completed, downloadable report.
       python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \

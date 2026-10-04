@@ -36,7 +36,7 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
     response.setHeader("content-type", "application/json");
     if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ head: { sha: "test-head", ref: "build/42-gallery" } }));
     else if (request.url?.includes("/comments")) {
-      const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large", "total-large", "response-large"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
+      const version = ["sharded", "partial-shards", "duplicate-shards", "versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large", "total-large", "response-large"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
       const captureName = phone?.name ?? "window-empty.dark.png";
       const captures = [{ name: captureName, url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${captureName}`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
       for (let index = 1; index < captureCount; index++) {
@@ -54,6 +54,17 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
       if (mode === "spoofed" || mode === "unbound") {
         const bogus = { head: "test-head", version: "test-head-999", captures: [{ ...captures[0], api_url: `${base}/api/packages/example/generic/window-gallery/test-head-999/window-empty.dark.png` }] };
         comments.push({ id: mode === "spoofed" ? 999 : 1000, user: { id: mode === "spoofed" ? 7 : -2 }, body: '<!-- window-gallery ' + JSON.stringify(bogus) + ' -->' });
+      }
+      if (["sharded", "partial-shards", "duplicate-shards"].includes(mode)) {
+        comments.splice(0);
+        for (let index = 0; index < (mode === "partial-shards" ? 1 : 2); index++) {
+          const id = 123 + index, reportVersion = `test-head-${id}`;
+          const rows = mode === "duplicate-shards" && index === 1 ? [captures[0]!] : captures.slice(index * 400, (index + 1) * 400);
+          comments.push({ id, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: "test-head", version: reportVersion,
+            shard: { batch: "test-head-123", index, count: 2 },
+            captures: rows.map(c => ({ ...c, api_url: `${base}/api/packages/example/generic/window-gallery/${reportVersion}/${c.name}` })),
+          }) + ' -->' });
+        }
       }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
@@ -260,5 +271,29 @@ it.each([
 ] as const)("rejects %s with incorrect dimensions before writing baselines", async (name, width, height) => {
   const f = await fixture("versioned", 1, { name, width, height });
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Unexpected phone gallery dimensions") });
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+
+it("accepts every capture from the same completed sharded run", async () => {
+  const f = await fixture("sharded", 416);
+  await run("bash", [script, "42"], { env: f.env });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(416);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-415.dark.png"))).toEqual(png);
+});
+
+it("accepts a reviewed subset from the second report", async () => {
+  const f = await fixture("sharded", 416);
+  await run("bash", [script, "42", "window-scene-415.dark.png"], { env: f.env });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toEqual([
+    expect.stringContaining("test-head-124/window-scene-415.dark.png"),
+  ]);
+});
+
+it.each(["partial-shards", "duplicate-shards"])("refuses %s before downloading or writing baselines", async mode => {
+  const f = await fixture(mode, 416);
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toThrow();
+  expect(f.requests.some(url => url.startsWith("/api/packages/"))).toBe(false);
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });

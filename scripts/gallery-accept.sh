@@ -37,7 +37,7 @@ if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=T
 # Forgejo returns the entire per-issue comment thread; page and limit are ignored.
 comments = json.loads(get(f'{api}/issues/{number}/comments'))
 if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
-manifest = None
+groups = {}
 for comment in comments:
     # Only the reserved Forgejo Actions identity can supply relay reports.
     author = comment.get('user')
@@ -52,19 +52,38 @@ for comment in comments:
         files = candidate.get('captures')
         if not isinstance(files, list) or not files or len(files) > 400: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
-        manifest = candidate
-if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
-version = manifest.get('version', head)
-if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
-    sys.exit('Invalid gallery capture version.')
-files = manifest.get('captures', [])
-if not files or len(files) > 400: sys.exit('Invalid gallery capture list.')
+        shard = candidate.get('shard')
+        if shard is None:
+            groups[f'legacy-{comment.get("id")}'] = [(comment.get('id', 0), candidate)]
+        else:
+            if version != f'{head}-{comment.get("id")}': continue
+            if not isinstance(shard, dict) or type(shard.get('index')) is not int or type(shard.get('count')) is not int: continue
+            if not 0 <= shard['index'] < shard['count'] <= len(comments): continue
+            batch = shard.get('batch')
+            if not isinstance(batch, str) or not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', batch): continue
+            if shard['index'] == 0 and batch != version: continue
+            groups.setdefault(batch, []).append((comment['id'], candidate))
+complete = []
+for group in groups.values():
+    first = group[0][1]
+    shard = first.get('shard')
+    if shard is not None:
+        count = shard['count']
+        if len(group) != count or any(m.get('shard', {}).get('count') != count for _, m in group): continue
+        if {m['shard']['index'] for _, m in group} != set(range(count)): continue
+        group.sort(key=lambda pair: pair[1]['shard']['index'])
+        if group[0][1]['shard']['batch'] != group[0][1].get('version'): continue
+    complete.append(group)
+if not complete: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
+reports = max(complete, key=lambda group: max(id for id, _ in group))
+files = [dict(item, report_version=manifest.get('version', head)) for _, manifest in reports for item in manifest['captures']]
 names = [item['name'] for item in files]
 if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
 if selected - set(names): sys.exit('A requested capture is absent from the current report.')
 accepted = {}; total = 0
 for item in files:
     name, url = item['name'], item['api_url']
+    version = item['report_version']
     parsed = urllib.parse.urlsplit(url)
     if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) or name in accepted:
         sys.exit('Invalid or duplicate gallery filename.')

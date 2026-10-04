@@ -31,6 +31,18 @@ it("reserves capacity for the existing 354 desktop captures and the bounded phon
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(plan.budget.total);
 });
 
-it("refuses capacity exhaustion before capturing or publishing a partial gallery", () => {
-  expect(() => capturePlan(Array.from({ length: 101 }, (_, i) => `window-empty-${i}`).concat(Array.from({ length: 26 }, (_, i) => `phone-sample-${i}`)))).toThrow("Gallery capture budget exceeded");
+it("keeps all existing captures when two phone terminal leaves exceed one report", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const original = capturePlan(scenes);
+  const expanded = capturePlan([...scenes, "phone-terminal", "phone-terminal-disconnected"]);
+  expect(expanded.captures).toHaveLength(416);
+  expect(expanded.reports.map(report => report.captures.length)).toEqual([400, 16]);
+  expect(expanded.reports.flatMap(report => report.captures)).toEqual(expanded.captures);
+  expect(expanded.captures.slice(0, 400)).toEqual(original.captures);
+});
+
+it("bounds every report as more phone leaves are registered", () => {
+  const plan = capturePlan(Array.from({ length: 101 }, (_, i) => `phone-sample-${i}`));
+  expect(plan.reports.map(report => report.captures.length)).toEqual([400, 400, 8]);
+  expect(new Set(plan.reports.flatMap(report => report.captures.map(c => c.name))).size).toBe(808);
 });
