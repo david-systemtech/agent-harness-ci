@@ -10,13 +10,45 @@ concurrency:
 permissions:
   contents: write
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check the payload
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+        run: '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Discover bounded capture shards
+        id: plan
+        run: echo "shards=$(if [ -f packages/gui/gallery/shards.ts ]; then pnpm --silent --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/shards.ts; else printf '%s' '["legacy"]'; fi)" >> "$GITHUB_OUTPUT"
   gallery:
+    needs: [plan]
     strategy:
       fail-fast: false
       matrix:
-        shard: [desktop, phone]
-    env:
-      GALLERY_SHARD: ${{ matrix.shard }}
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -51,28 +83,48 @@ jobs:
         id: capture
         # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
+        env:
+          GALLERY_SHARD: ${{ matrix.shard }}
         run: pnpm --filter @agent-harness/gui capture-gallery
-      - name: Check this shard's report budget
+      - name: Check each desktop or phone shard budget
+        env:
+          GALLERY_SHARD: ${{ matrix.shard }}
         run: |
           python3 - <<'PY'
-          import json
+          import json, os, pathlib, sys
+          sys.path.insert(0, "scripts")
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
-          assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
-          assert report['shard']['name'] == __import__('os').environ['GALLERY_SHARD'], 'Wrong shard'
+          if os.environ.get('GALLERY_SHARD', 'legacy') != 'legacy':
+              scenes = report['scenes']
+              assert 0 < len(scenes) <= 400, 'Capture budget exceeded'
+              assert report['shard']['id'] == os.environ['GALLERY_SHARD'], 'Wrong capture shard'
+          elif pathlib.Path('scripts/gallery_allocation.py').is_file() and pathlib.Path('scripts/gallery-allocation.json').is_file():
+              from gallery_allocation import report_scenes
+              scenes = report_scenes(report)
+          else:
+              scenes = report.get('scenes')
+              assert 'shards' not in report and isinstance(scenes, list) and 0 < len(scenes) <= 400, 'Capture budget exceeded'
+          assert len({s['name'] for s in scenes}) == len(scenes), 'Duplicate gallery capture name'
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
           PY
       - name: Optimise the PNGs losslessly
+        env:
+          GALLERY_SHARD: ${{ matrix.shard }}
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
           optipng -o2 packages/gui/gallery-images/*.png
           # Leave room for ZIP headers under the relay's 64 MiB transport cap.
           test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 50331648
-          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 1200
+          if [ -f scripts/gallery_allocation.py ] && [ -f scripts/gallery-allocation.json ] && [ "${GALLERY_SHARD:-legacy}" = legacy ]; then
+            MAX_GALLERY_PNGS=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); from gallery_allocation import MAX_PNGS; print(MAX_PNGS)')
+          else
+            MAX_GALLERY_PNGS=1200
+          fi
+          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le "$MAX_GALLERY_PNGS"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          # Keep phone captures visible through the trusted publisher during rollout.
-          name: ${{ matrix.shard == 'phone' && 'window-gallery' || 'window-gallery-desktop' }}
+          name: ${{ matrix.shard == 'legacy' && 'window-gallery' || format('window-gallery-{0}', matrix.shard) }}
           path: |
             packages/gui/gallery-images/*.png
             packages/gui/gallery-images/*.json
@@ -83,7 +135,7 @@ jobs:
         if: steps.capture.outcome == 'failure'
         run: exit 1
   cleanup:
-    needs: [gallery]
+    needs: [plan, gallery]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
