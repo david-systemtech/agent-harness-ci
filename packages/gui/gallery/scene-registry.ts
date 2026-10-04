@@ -2,6 +2,7 @@ import type { FakeShell } from "@agent-harness/client-runtime/testing";
 import type { Script, ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import type { ComponentType } from "react";
+import type { BrowserRoute } from "../src/platform/browser-boot.js";
 import type { PresentationValues } from "../src/presentation.js";
 
 /** Every matching element must have these dimensions; missing selectors fail capture. */
@@ -23,6 +24,7 @@ export interface SceneGeometry {
   readonly tolerance?: number;
   /** Content may grow beyond a scene’s viewport-height floor. */
   readonly minimumHeight?: number;
+  readonly minimumWidth?: number;
 }
 
 export interface SceneViewport {
@@ -32,13 +34,17 @@ export interface SceneViewport {
 
 /** A scene file exports a default component or an app script, plus optional geometry. */
 export interface SceneModule {
+  /** Web scenes use the actual browser platform and never receive a desktop shell. */
+  readonly platform?: "web";
+  readonly route?: (world: ScriptedWorld) => BrowserRoute;
+  readonly arrangeWeb?: (world: ScriptedWorld) => void;
   readonly default?: ComponentType<{ readonly ladder: LadderName }>;
   readonly script?: Script;
   /** Arrange readings or run events on each fresh world before the app mounts. */
   readonly arrange?: (world: ScriptedWorld, shell: FakeShell) => void;
   readonly presentation?: Partial<PresentationValues>;
   /** Run scene steps once the window and its event handlers have mounted. */
-  readonly activate?: () => void;
+  readonly activate?: () => void | (() => void);
   readonly geometry?: readonly SceneGeometry[] | ((viewport: SceneViewport) => readonly SceneGeometry[]);
   /** Wait for asynchronously drawn pane content before measuring or capturing it. */
   readonly readySelector?: string;
@@ -51,6 +57,8 @@ export function discoverScenes(modules: Readonly<Record<string, SceneModule>>): 
     const name = sceneName(path);
     if (registry.has(name)) throw new Error(`Duplicate gallery scene: ${name}`);
     if (scene.default === undefined && scene.script === undefined) throw new Error(`Gallery scene ${name} exports neither a component nor a script.`);
+    if (name.startsWith("phone-") && scene.platform !== "web") throw new Error(`Phone gallery scene ${name} must declare platform: web.`);
+    if (scene.platform === "web" && scene.arrange !== undefined) throw new Error(`Web gallery scene ${name} must use arrangeWeb without a desktop shell.`);
     registry.set(name, scene);
   }
   return Object.fromEntries(registry);

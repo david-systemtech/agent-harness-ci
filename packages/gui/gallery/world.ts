@@ -13,6 +13,7 @@ import {
 } from "@agent-harness/client-runtime/testing";
 import { FAKE_HARNESS_VERSION } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { browserPlatform } from "../src/platform/browser-platform.js";
 import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
 import { openPresentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
 import type { StepCards } from "../src/setup/cards.js";
@@ -102,4 +103,21 @@ export const prepareWorld = async (script: Script, options: RenderOptions = {}) 
     protocolVersion: options.protocolVersion, stepCards: options.stepCards,
     version: options.version ?? FAKE_HARNESS_VERSION, paired,
   };
+};
+
+/** The browser's storage, capabilities and identity; only the environment wire and clock are scripted. */
+export const startWebWorld = async (script: Script, presentationValues: Partial<PresentationValues>) => {
+  const clock = manualClock();
+  const world = scriptedWorld(clock, script);
+  const platform = { ...browserPlatform(window, FAKE_HARNESS_VERSION), clock, fetch: world.fetch, webSocket: world.webSocket, random: seededRandom() };
+  const runtime = createRuntime(platform);
+  await runtime.start();
+  for (const environment of script.environments.filter(e => e.reach === "paired")) {
+    const outcome = await runtime.connections.add({ link: world.environment(environment.name).wire.link });
+    if (outcome.status !== "paired") throw new Error(`The gallery could not pair ${environment.name}.`);
+  }
+  const presentation = await openPresentation(platform.documents, platform.reportError);
+  const values: Partial<PresentationValues> = { firstLaunchDone: true, ...presentationValues, runLocalEnvironment: false };
+  for (const [key, value] of Object.entries(values) as [PresentationKey, never][]) presentation.set(key, value);
+  return { world, clock, platform, runtime, presentation, shell: undefined, macOS: false, version: platform.client.version, stopFollowing: () => {} };
 };

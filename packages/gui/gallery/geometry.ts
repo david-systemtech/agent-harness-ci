@@ -28,7 +28,7 @@ export function measureSceneGeometry(): string[] {
       }
       return [...visibility, ...(["width", "height", "paddingLeft", "paddingTop", "fontSize", "maxWidth", "maxHeight"] as const).flatMap((dimension) => {
         const expected = check[dimension];
-        const minimum = dimension === "height" ? check.minimumHeight : undefined;
+        const minimum = dimension === "height" ? check.minimumHeight : dimension === "width" ? check.minimumWidth : undefined;
         if (expected === undefined && minimum === undefined) return [];
         const actual = dimension === "width" || dimension === "height" ? rect[dimension] : Number.parseFloat(style[dimension]);
         const tolerance = check.tolerance ?? 0.5;

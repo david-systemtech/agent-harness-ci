@@ -134,12 +134,14 @@ it("captures the loading browser dock, then restores Reload on Stop and completi
   const stop = dock.getByRole("button", { name: "Stop" });
   expect(stop.querySelector("svg")).not.toBeNull();
   act(() => stop.click());
-  expect(gallery.world.shell.calls).toContainEqual(["webView.stop", "view-1"]);
+  const shell = gallery.world.shell;
+  if (shell === undefined) throw new Error("Desktop scene has no shell.");
+  expect(shell.calls).toContainEqual(["webView.stop", "view-1"]);
   expect(dock.getByRole("button", { name: "Reload" })).toBeDefined();
-  const state = await gallery.world.shell.webView.state("view-1");
-  act(() => gallery.world.shell.changeWebView("view-1", { ...state, loading: true }));
+  const state = await shell.webView.state("view-1");
+  act(() => shell.changeWebView("view-1", { ...state, loading: true }));
   expect(dock.getByRole("button", { name: "Stop" })).toBeDefined();
-  act(() => gallery.world.shell.changeWebView("view-1", { ...state, loading: false }));
+  act(() => shell.changeWebView("view-1", { ...state, loading: false }));
   expect(dock.getByRole("button", { name: "Reload" })).toBeDefined();
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: '[aria-label="Stop"]', width: 24, height: 24 });
 });

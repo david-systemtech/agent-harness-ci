@@ -63,7 +63,7 @@ it("allows at most 0.05 percent different pixels and rejects missing baselines a
   expect(compareCapture(image(), image(101, 100)).pixelFailed).toBe(true);
 });
 
-it("has a baseline for every required scene, ladder and viewport", async () => {
+it("has a baseline for every required desktop scene, ladder and viewport", async () => {
   const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
   for (const { scene, ladder } of captureCases(scenes)) {
     for (const [width, height] of [[1400, 900], [1024, 768]] as const) {
@@ -104,7 +104,7 @@ it("gives every discovered scene a valid, distinct capture name at both viewport
   );
   expect(new Set(names).size).toBe(names.length);
   expect(names.length).toBeLessThanOrEqual(400);
-  for (const scene of scenes) {
+  for (const scene of scenes.filter(scene => !scene.startsWith("phone-"))) {
     expect(names).toContain(captureName(scene, 1400));
     expect(names).toContain(captureName(scene, 1024));
   }

@@ -3,10 +3,10 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
-import { captureCases, sceneFiles } from "./capture-plan.js";
+import { capturePlan, sceneFiles } from "./capture-plan.js";
 import { measureSceneGeometry } from "./geometry.js";
 import { waitForFloatingLayout } from "./floating-layout.js";
-import { captureName, compareCapture, geometryFailures, galleryFailed } from "./compare.js";
+import { compareCapture, geometryFailures, galleryFailed } from "./compare.js";
 import type { Measurement } from "./compare.js";
 
 // This executable starts a server and Chromium. Its only execution site is a hosted CI runner.
@@ -35,52 +35,55 @@ try {
   const geometry: Record<string, readonly Measurement[]> = {};
   const names = await sceneFiles(resolve(import.meta.dirname, "scenes"));
   if (names.length === 0) throw new Error("The gallery has no scenes.");
-  for (const viewport of [{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const) {
-    for (const { scene, ladder } of captureCases(names)) {
-      const name = captureName(scene, viewport.width, ladder);
-      const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, reducedMotion: "reduce" });
-      const page = await context.newPage();
-      const errors: string[] = [];
-      page.on("pageerror", (error) => errors.push(error.message));
-      await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}`);
-      await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
-      await page.evaluate(waitForFloatingLayout);
-      if (errors.length > 0) throw new Error(errors.join("\n"));
-      const capturePath = resolve(output, `${name}.png`);
-      await page.screenshot({ path: capturePath, animations: "disabled", caret: "hide", scale: "css" });
-      const measured = await page.evaluate(() => {
-        const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-measure]"));
-        return [
-          { measure: "$window", width: innerWidth, height: innerHeight, overflow: Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth) },
-          ...elements.map((element) => {
-            const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
-            return {
-              measure: element.dataset["measure"] ?? "", x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-              fontSize: parseFloat(style.fontSize), lineHeight: parseFloat(style.lineHeight), fontFamily: style.fontFamily,
-              maxChildHeight: Math.max(0, ...Array.from(element.children, (child) => child.getBoundingClientRect().height)),
-            };
-          }),
-        ];
-      });
-      geometry[name] = measured;
-      const failures = [
-        ...await page.evaluate(measureSceneGeometry),
-        ...geometryFailures(measured, [{ measure: "$window", property: "overflow", maximum: 0 }]),
+  const plan = capturePlan(names);
+  console.log(`Capture budget: ${plan.budget.desktop} desktop + ${plan.budget.phone} phone = ${plan.budget.total}/${plan.budget.limit}; ${plan.budget.remaining} reserved.`);
+  for (const { scene, ladder, viewport, name, platform, textSize } of plan.captures) {
+    const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}&platform=${platform}${platform === "web" ? `&textSize=${textSize}` : ""}`);
+    await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
+    await page.evaluate(waitForFloatingLayout);
+    if (errors.length > 0) throw new Error(errors.join("\n"));
+    const capturePath = resolve(output, `${name}.png`);
+    await page.screenshot({ path: capturePath, animations: "disabled", caret: "hide", scale: "css" });
+    const measured = await page.evaluate(() => {
+      const elements = Array.from(document.querySelectorAll<HTMLElement>("[data-measure]"));
+      return [
+        { measure: "$window", width: innerWidth, height: innerHeight, overflow: Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth) },
+        ...elements.map((element) => {
+          const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+          return {
+            measure: element.dataset["measure"] ?? "", x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+            fontSize: parseFloat(style.fontSize), lineHeight: parseFloat(style.lineHeight), fontFamily: style.fontFamily,
+            maxChildHeight: Math.max(0, ...Array.from(element.children, (child) => child.getBoundingClientRect().height)),
+          };
+        }),
       ];
-      const baselinePath = resolve(import.meta.dirname, "baselines", `${name}.png`);
-      let baseline: Buffer | undefined;
-      try { baseline = await readFile(baselinePath); }
-      catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
-      const compared = compareCapture(baseline, await readFile(capturePath));
-      if (baseline !== undefined && compared.status === "changed") await copyFile(baselinePath, resolve(output, `${name}.baseline.png`));
-      if (compared.difference !== undefined) await writeFile(resolve(output, `${name}.difference.png`), compared.difference);
-      report.push({ name, status: compared.status, differentPixels: compared.differentPixels, pixelFailed: compared.pixelFailed, geometryFailures: failures });
-      await context.close();
-    }
+    });
+    geometry[name] = measured;
+    const failures = [
+      ...await page.evaluate(measureSceneGeometry),
+      ...geometryFailures(measured, [{ measure: "$window", property: "overflow", maximum: 0 }]),
+      ...(platform === "web" ? await page.evaluate((size) => {
+        const actual = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+        return Math.abs(actual - 16 * size / 14) <= 0.5 ? [] : [`html.fontSize: got ${actual}, expected ${16 * size / 14}`];
+      }, textSize) : []),
+    ];
+    const baselinePath = resolve(import.meta.dirname, "baselines", `${name}.png`);
+    let baseline: Buffer | undefined;
+    try { baseline = await readFile(baselinePath); }
+    catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+    const compared = compareCapture(baseline, await readFile(capturePath));
+    if (baseline !== undefined && compared.status === "changed") await copyFile(baselinePath, resolve(output, `${name}.baseline.png`));
+    if (compared.difference !== undefined) await writeFile(resolve(output, `${name}.difference.png`), compared.difference);
+    report.push({ name, status: compared.status, differentPixels: compared.differentPixels, pixelFailed: compared.pixelFailed, geometryFailures: failures });
+    await context.close();
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
   const pixelBlocking = true;
-  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, scenes: report }, null, 2));
+  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: plan.budget, scenes: report }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);

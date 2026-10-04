@@ -76,7 +76,12 @@ for item in files:
     if (version != head or digest is not None) and (not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest) or hashlib.sha256(data).hexdigest() != digest):
         sys.exit('Gallery capture bytes do not match the reviewed manifest.')
     if len(data) < 33 or data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR': sys.exit('Gallery attachment is not a PNG.')
-    if struct.unpack('>II', data[16:24]) not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
+    dimensions = struct.unpack('>II', data[16:24])
+    phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)[.]png$', name)
+    if name.startswith('phone-'):
+        profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
+        if phone is None or dimensions != profiles[phone[1]]: sys.exit('Unexpected phone gallery dimensions.')
+    elif dimensions not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
     total += len(data)
     if total > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
     accepted[name] = data

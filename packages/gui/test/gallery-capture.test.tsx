@@ -135,3 +135,18 @@ it.each([11, 20])("measures text size %i with the preset root scale and fixed de
   expect(geometry.find((check) => check.selector === "html")).toEqual({ selector: "html", fontSize: 16 * size / 14 });
   expect(geometry.find((check) => check.selector === "[data-window-header]")).toEqual({ selector: "[data-window-header]", height: 44 });
 });
+
+it("requires a 44px touch target in both dimensions and a visible Continue above the keyboard", () => {
+  vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 480);
+  const root = document.createElement("div"); root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: 'button[aria-label="Continue"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: "section" }]);
+  root.innerHTML = '<section><button aria-label="Continue">Continue</button></section>'; document.body.append(root);
+  vi.spyOn(root.querySelector("section")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 480));
+  const button = vi.spyOn(root.querySelector("button")!, "getBoundingClientRect");
+  button.mockReturnValue(new DOMRect(10, 430, 30, 44));
+  expect(measureSceneGeometry()).toEqual(['button[aria-label="Continue"][0].width: got 30, expected at least 44 ±0.5']);
+  button.mockReturnValue(new DOMRect(10, 450, 44, 44));
+  expect(measureSceneGeometry()).toEqual(['button[aria-label="Continue"][0]: clipped outside section']);
+  button.mockReturnValue(new DOMRect(10, 430, 44, 44));
+  expect(measureSceneGeometry()).toEqual([]);
+});

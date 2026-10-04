@@ -46,6 +46,15 @@ jobs:
         # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
         run: pnpm --filter @agent-harness/gui capture-gallery
+      - name: Check the shared desktop and phone report budget
+        run: |
+          python3 - <<'PY'
+          import json
+          with open('packages/gui/gallery-images/report.json') as source:
+              report = json.load(source)
+          assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
+          assert report['pixelBlocking'] is True, 'Every capture remains gated'
+          PY
       - name: Optimise the PNGs losslessly
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
