@@ -53,7 +53,16 @@ globalThis.addEventListener("message", event => {
 }
 
 export async function auditPublicCache(page: Page, engine: string, phase: string): Promise<string[]> {
-  // Audit from the worker's storage realm without changing or writing the production cache.
+  const windowCapability = await page.evaluate<{ matched: boolean; keys: number }>(`(async () => {
+    const name = "__smoke-window-cache-capability";
+    const cache = await caches.open(name);
+    try {
+      await cache.put("/", new Response("fixture window cache capability"));
+      return { matched: Boolean(await cache.match("/")), keys: (await cache.keys()).length };
+    } finally { await caches.delete(name); }
+  })()`);
+  console.log(`PHONE-INSTALL ${engine}: ${phase} window capability ${JSON.stringify(windowCapability)}`);
+  // Audit from the worker's storage realm without changing the production cache.
   await page.evaluate(`void (async () => {
     const worker = navigator.serviceWorker.controller;
     if (!worker) throw new Error("No public worker for the audit.");
