@@ -32,11 +32,11 @@ export function installPublicWorker(scope: PublicWorkerScope, version: string, a
   scope.addEventListener("install", event => event.waitUntil((async () => {
     const cache = await scope.caches.open(cacheName);
     // A partial install never becomes the active version.
-    await Promise.all(assets.map(async path => {
+    for (const path of assets) {
       const response = await scope.fetch(request(path));
       if (!response.ok || response.redirected || response.headers.has("set-cookie")) throw new Error("Public asset unavailable.");
       await cache.put(request(path), response);
-    }));
+    }
   })()));
   scope.addEventListener("activate", event => event.waitUntil(scope.clients.claim()));
   scope.addEventListener("message", event => {
