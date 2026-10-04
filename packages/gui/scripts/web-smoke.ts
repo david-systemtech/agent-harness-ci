@@ -1,4 +1,4 @@
-import { phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
+import { addCacheAudit, auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -21,22 +21,11 @@ const output = process.env["WEB_SMOKE_OUTPUT"];
 const bundle = process.env["WEB_SMOKE_BUNDLE"];
 assert(output && bundle, "The hosted workflow must supply its build and output directories.");
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(output, "key.pem"), "-out", join(output, "cert.pem"), "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost"], { stdio: "ignore" });
+addCacheAudit(bundle);
 let upstream: Address | undefined = undefined;
 const publicRequests: { path: string; mode: string | undefined; status?: number; finished: boolean }[] = [];
-const cacheAuditWorker = `self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
-self.addEventListener("message", event => event.waitUntil((async () => {
-  const urls = [];
-  for (const name of await caches.keys()) {
-    const cache = await caches.open(name);
-    for (const request of await cache.keys()) urls.push(request.url);
-  }
-  event.ports[0].postMessage({ urls });
-})().catch(error => event.ports[0].postMessage({ error: String(error) }))));`;
 const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: readFileSync(join(output, "cert.pem")) }, (incoming, response) => {
   if (!upstream) { response.writeHead(503).end(); return; }
-  if (incoming.url === "/__smoke-cache-audit.js") {
-    response.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" }).end(cacheAuditWorker); return;
-  }
   const path = incoming.url ?? "";
   const publicRequest: (typeof publicRequests)[number] | undefined = /^\/(?:assets\/[a-zA-Z0-9_.-]+|phone-icons\/[a-zA-Z0-9_.-]+|manifest\.webmanifest)?$/.test(path)
     ? { path, mode: incoming.headers["sec-fetch-mode"]?.toString(), finished: false } : undefined;
@@ -104,6 +93,7 @@ try {
       assert.equal(new URL(page.url()).hash, "", "Pairing credentials leave the address bar.");
       try { await waitForPublicWorker(page, name); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
+      await auditPublicCache(page, name, "initial installation");
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await page.getByRole("combobox", { name: "Sessions", exact: true }).selectOption(`${environment.env.id}/${sessionId}`);

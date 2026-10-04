@@ -1,7 +1,46 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Page, BrowserContext } from "playwright";
 import { expect } from "playwright/test";
+
+export function addCacheAudit(bundle: string): void {
+  appendFileSync(join(bundle, "service-worker.js"), `
+;globalThis.addEventListener("message", event => {
+    if (event.data !== "__smoke-cache-audit") return;
+    event.waitUntil((async () => {
+      const names = await globalThis.caches.keys();
+      const urls = [];
+      for (const name of names) {
+        const cache = await globalThis.caches.open(name);
+        for (const request of await cache.keys()) urls.push(request.url);
+      }
+      event.ports[0].postMessage({ names, urls });
+    })().catch(error => event.ports[0].postMessage({ error: String(error) })));
+  });`);
+}
+
+export async function auditPublicCache(page: Page, engine: string, phase: string): Promise<string[]> {
+  // Audit from the worker's storage realm without changing or writing the production cache.
+  await page.evaluate(`void (async () => {
+    const worker = navigator.serviceWorker.controller;
+    if (!worker) throw new Error("No public worker for the audit.");
+    const channel = new MessageChannel();
+    channel.port1.onmessage = event => {
+      document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify(event.data));
+      channel.port1.close();
+    };
+    worker.postMessage("__smoke-cache-audit", [channel.port2]);
+  })().catch(error => document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify({ error: String(error) })))`);
+  await page.locator("html[data-smoke-cache-audit]").waitFor({ state: "attached" });
+  const audit = await page.evaluate<{ urls?: string[]; names?: string[]; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
+  await page.evaluate("document.documentElement.removeAttribute('data-smoke-cache-audit')");
+  assert(audit.urls, audit.error ?? "The worker cache audit answered.");
+  console.log(`PHONE-INSTALL ${engine}: ${phase} cache ${JSON.stringify({ names: audit.names, entries: audit.urls.length })}`);
+  return audit.urls;
+
+}
 
 export async function waitForPublicWorker(page: Page, engine: string): Promise<void> {
   console.log(`PHONE-INSTALL ${engine}: waiting for the public worker`);
@@ -39,11 +78,13 @@ export async function waitForPublicWorker(page: Page, engine: string): Promise<v
 /** Hosted real-client seam: no test server or browser is started by this leaf. */
 export async function phoneInstallSmoke(page: Page, context: BrowserContext, bundle: string, engine: string): Promise<void> {
   await waitForPublicWorker(page, engine);
+  await auditPublicCache(page, engine, "before update");
   const textbox = page.getByRole("textbox", { name: "Message", exact: true });
   await textbox.fill("Draft retained across a client update.");
   await textbox.dispatchEvent("compositionstart");
   // The actual serving directory changes underneath the current, still-usable client.
   execFileSync("pnpm", ["exec", "vite", "build", "--outDir", bundle], { env: { ...process.env, HARNESS_VERSION: `0.0.0-phone-update-${engine}` }, stdio: "pipe" });
+  addCacheAudit(bundle);
   await page.evaluate("navigator.serviceWorker.getRegistration().then(registration => { if (!registration) throw new Error('No public worker registration.'); void registration.update(); })");
   console.log(`PHONE-INSTALL ${engine}: waiting for the updated bundle`);
   const reload = page.getByRole("button", { name: "Reload client", exact: true });
@@ -56,38 +97,13 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   await textbox.waitFor();
   await expect(textbox, "The runtime persists the draft before activating the waiting bundle.").toHaveValue("Draft retained across a client update.", { timeout: 60_000 });
   console.log(`PHONE-INSTALL ${engine}: draft survived the explicit update`);
+  await auditPublicCache(page, engine, "after update");
   // Authenticated requests and pairing paths must bypass the public worker entirely.
   await page.evaluate(`(async () => {
     await fetch("/api/not-a-route", { headers: { Authorization: "token-for-tests" } });
     await fetch("/pair?code=code-for-tests");
   })()`);
-  // Audit from the worker's storage realm without changing or writing the production cache.
-  await page.evaluate(`void (async () => {
-    const registration = await navigator.serviceWorker.register("/__smoke-cache-audit.js", { scope: "/__smoke-cache-audit/" });
-    const worker = registration.installing ?? registration.waiting ?? registration.active;
-    if (!worker) throw new Error("No cache audit worker.");
-    if (worker.state !== "activated") await new Promise((resolve, reject) => {
-      const changed = () => {
-        if (worker.state === "activated" || worker.state === "redundant") {
-          worker.removeEventListener("statechange", changed);
-          if (worker.state === "activated") resolve(); else reject(new Error("Cache audit worker failed."));
-        }
-      };
-      worker.addEventListener("statechange", changed);
-      changed();
-    });
-    const channel = new MessageChannel();
-    channel.port1.onmessage = event => {
-      document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify(event.data));
-      channel.port1.close();
-    };
-    worker.postMessage("audit", [channel.port2]);
-  })().catch(error => document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify({ error: String(error) })))`);
-  await page.locator("html[data-smoke-cache-audit]").waitFor({ state: "attached" });
-  const audit = await page.evaluate<{ urls?: string[]; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
-  await page.evaluate("document.documentElement.removeAttribute('data-smoke-cache-audit')");
-  assert(audit.urls, audit.error ?? "The worker cache audit answered.");
-  const cacheUrls = audit.urls;
+  const cacheUrls = await auditPublicCache(page, engine, "after credential bypass");
   assert(cacheUrls.length > 0, "The production worker cached public assets.");
   assert(cacheUrls.every(value => {
     const url = new URL(value);
