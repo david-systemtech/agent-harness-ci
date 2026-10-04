@@ -15,30 +15,46 @@ export const activate = () => {
   let keyboardChecked = window.innerHeight > 480;
   let keyboardChanged = false;
   let initialRows = 0;
-  const observer = new MutationObserver(() => {
+  let frame: number | undefined;
+  let previous = "";
+  let stableFrames = 0;
+  const schedule = () => {
+    if (!selected && frame === undefined) frame = requestAnimationFrame(settle);
+  };
+  const settle = () => {
+    frame = undefined;
     if (selected || !document.querySelector(".xterm-fg-2")) return;
+    const screen = document.querySelector(".xterm-screen")?.getBoundingClientRect();
+    const host = document.querySelector('[aria-label="Terminal screen"]')?.getBoundingClientRect();
+    if (!screen || !host || screen.width <= 0) return;
+    const dimensions = `${screen.x}/${screen.y}/${screen.width}/${screen.height}/${host.x}/${host.y}/${host.width}/${host.height}`;
+    stableFrames = dimensions === previous ? stableFrames + 1 : 0;
+    previous = dimensions;
+    // Selection starts after React layout and the real ResizeObserver/FitAddon settle.
+    if (stableFrames < 2) { schedule(); return; }
     if (!keyboardChecked) {
       const rows = document.querySelector(".xterm-rows")?.children.length ?? 0;
-      const frame = document.querySelector<HTMLElement>("[data-web-client]");
-      if (!frame || rows === 0) return;
+      const browserFrame = document.querySelector<HTMLElement>("[data-web-client]");
+      if (!browserFrame || rows === 0) return;
       if (!keyboardChanged) {
         initialRows = rows;
         // Keep innerHeight unchanged: only the keyboard's visual viewport shrinks.
         Object.defineProperty(window.visualViewport, "height", { configurable: true, value: 360 });
         keyboardChanged = true;
         window.visualViewport!.dispatchEvent(new Event("resize"));
+        stableFrames = 0;
+        schedule();
         return;
       }
       // The actual FitAddon and browser layout must reduce the terminal's rows.
-      if (Math.abs(frame.getBoundingClientRect().height - 360) > 0.5 || rows >= initialRows) return;
+      if (Math.abs(browserFrame.getBoundingClientRect().height - 360) > 0.5 || rows >= initialRows) { schedule(); return; }
       keyboardChecked = true;
-      frame.dataset["terminalKeyboardFit"] = `${initialRows} → ${rows}`;
+      browserFrame.dataset["terminalKeyboardFit"] = `${initialRows} → ${rows}`;
     }
     const select = [...document.querySelectorAll("button")].find(button => button.textContent === "Select");
     const overlay = document.querySelector<HTMLElement>('[aria-label="Select terminal text"]');
-    if (!overlay) { if (select?.getAttribute("aria-pressed") === "false") select.click(); return; }
-    const rect = document.querySelector(".xterm-screen")?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return;
+    if (!overlay) { if (select?.getAttribute("aria-pressed") === "false") select.click(); schedule(); return; }
+    const rect = screen;
     selected = true;
     const position = { clientX: rect.left + 2, clientY: rect.top + 2, pointerId: 1, pointerType: "touch", bubbles: true };
     for (const [type, clientX] of [["pointerdown", position.clientX], ["pointermove", rect.left + rect.width / 2], ["pointerup", rect.left + rect.width / 2]] as const) {
@@ -47,7 +63,11 @@ export const activate = () => {
       overlay.dispatchEvent(event);
     }
     observer.disconnect();
-  });
+  };
+  const observer = new MutationObserver(schedule);
   observer.observe(document.body, { subtree: true, childList: true, attributes: true });
-  return () => observer.disconnect();
+  return () => {
+    observer.disconnect();
+    if (frame !== undefined) cancelAnimationFrame(frame);
+  };
 };

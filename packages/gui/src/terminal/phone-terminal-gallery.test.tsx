@@ -24,3 +24,27 @@ it.each(["phone-terminal", "phone-terminal-no-authority"])("draws %s on the brow
     expect(gallery.world.world.environment("desk").requests("terminals.open")).toEqual([]);
   } else expect(screen.getByLabelText("Terminal screen").textContent).toContain("40 checks passed");
 });
+
+
+it("waits for the terminal font before mounting its output", async () => {
+  const previous = Object.getOwnPropertyDescriptor(document, "fonts");
+  let loaded!: () => void;
+  const mono = new Promise<FontFace[]>((resolve) => { loaded = () => resolve([]); });
+  const load = vi.fn((font: string) => font.includes("JetBrains") ? mono : Promise.resolve([]));
+  Object.defineProperty(document, "fonts", { configurable: true, value: { load, ready: Promise.resolve() } });
+  const registry = discoverScenes(import.meta.glob<SceneModule>("../../gallery/scenes/phone-terminal*.tsx", { eager: true }));
+  const scene = registry["phone-terminal"]!;
+  const root = document.createElement("div"); document.body.append(root);
+  const gallery = await mountGallery(root, "phone-terminal", "dark", { ...registry, "phone-terminal": { ...scene, activate: () => undefined, readySelector: ".xterm-fg-2" } }, { platform: "web" });
+  onTestFinished(async () => {
+    loaded(); await gallery.close(); root.remove();
+    if (previous) Object.defineProperty(document, "fonts", previous);
+    else delete (document as { fonts?: unknown }).fonts;
+  });
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Environment terminal" })).toBeDefined());
+  expect(screen.queryByLabelText("Terminal screen")).toBeNull();
+  expect(load).toHaveBeenCalledWith('12px "JetBrains Mono Variable"');
+  loaded();
+  expect(await gallery.ready).toBe(true);
+  expect(screen.getByLabelText("Terminal screen").textContent).toContain("40 checks passed");
+});
