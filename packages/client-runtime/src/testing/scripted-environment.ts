@@ -1650,6 +1650,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     values = { ...values, ...patch };
     if (keys.length > 0) notice("settings.changed", { keys });
   };
+  // Browser-origin controls share the same scripted settings seam as their neighbours.
+  let webOrigins = { clientOrigins: [] as string[], connectOrigins: [] as string[] };
+  wire.answer("web.origins.get", () => ({ result: webOrigins }));
+  wire.answer("web.origins.set", params => {
+    const refused = rejection("web.origins.set");
+    if (refused) return refused;
+    webOrigins = { clientOrigins: params["clientOrigins"] as string[], connectOrigins: params["connectOrigins"] as string[] };
+    return acceptedWith(webOrigins);
+  });
   wire.answer("settings.get", (params) => {
     const keys = (params["keys"] as readonly (keyof SettingsValues)[] | undefined) ?? (Object.keys(values) as (keyof SettingsValues)[]);
     return { result: { values: Object.fromEntries(keys.map((key) => [key, values[key]])) } };
@@ -1904,6 +1913,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "accounts.signin.code",
     "accounts.signin.cancel",
     "settings.update",
+    "web.origins.set",
     "updates.settings.set",
     "updates.apply",
     "permissions.settings.set",

@@ -38,3 +38,14 @@ it("Custom cannot grant a missing scope or a ceiling above the minter", async ()
   const ceiling = within(part).getByRole("combobox", { name: "Ceiling" });
   expect((within(ceiling).getByRole("option", { name: "bypassPermissions" }) as HTMLOptionElement).disabled).toBe(true);
 });
+it("a trusted admin can save separate client and connection origins", async () => {
+  vi.stubGlobal("innerWidth", 390);
+  const container = document.createElement("div"); document.body.append(container);
+  await act(async () => { const gallery = await mountGallery(container, "phone-connections-custom"); close = gallery.close; });
+  const clients = await screen.findByRole("textbox", { name: "Allowed client origins" });
+  const user = userEvent.setup();
+  await user.type(clients, "https://client.example.test:8443");
+  await user.type(screen.getByRole("textbox", { name: "Allowed connection origins" }), "https://second.example.test");
+  await user.click(screen.getByRole("button", { name: "Save origins" }));
+  expect(await screen.findByText(/Origins saved/)).toBeDefined();
+});
