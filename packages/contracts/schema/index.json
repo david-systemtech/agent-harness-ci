@@ -3019,6 +3019,10 @@
       "title": "SettingsChangedNoticePayload"
     },
     {
+      "path": "web/notices/origins.updated.json",
+      "title": "WebOriginsUpdatedPayload"
+    },
+    {
       "path": "settings/band-id.json",
       "title": "SettingsBandId"
     },
@@ -3981,6 +3985,34 @@
     {
       "path": "frames/bye-reason.json",
       "title": "ByeReason"
+    },
+    {
+      "path": "methods/web.origins.get/params.json",
+      "title": "web.origins.get params"
+    },
+    {
+      "path": "methods/web.origins.get/result.json",
+      "title": "web.origins.get result"
+    },
+    {
+      "path": "methods/web.origins.get/error.json",
+      "title": "web.origins.get error"
+    },
+    {
+      "path": "methods/web.origins.set/params.json",
+      "title": "web.origins.set params"
+    },
+    {
+      "path": "methods/web.origins.set/result.json",
+      "title": "web.origins.set result"
+    },
+    {
+      "path": "methods/web.origins.set/response.json",
+      "title": "web.origins.set response"
+    },
+    {
+      "path": "methods/web.origins.set/error.json",
+      "title": "web.origins.set error"
     },
     {
       "path": "methods/attention.targets.list/params.json",
@@ -7454,6 +7486,25 @@
     }
   ],
   "methods": [
+    {
+      "name": "web.origins.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/web.origins.get/params.json",
+      "result": "methods/web.origins.get/result.json",
+      "error": "methods/web.origins.get/error.json"
+    },
+    {
+      "name": "web.origins.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/web.origins.set/params.json",
+      "result": "methods/web.origins.set/result.json",
+      "response": "methods/web.origins.set/response.json",
+      "error": "methods/web.origins.set/error.json"
+    },
     {
       "name": "attention.targets.list",
       "scope": "read",

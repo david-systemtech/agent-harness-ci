@@ -8,19 +8,24 @@ import { expect, it, onTestFinished } from "vitest";
 import { App } from "../app.js";
 import { WebViewport } from "./web-frame.js";
 import { openPresentation } from "../presentation.js";
-import { browserPlatform } from "./browser-platform.js";
+import { browserPlatform, type BrowserPlatform } from "./browser-platform.js";
 
 it("pairs without a desktop shell, discloses the minted grant and opens a shared conversation", async () => {
   const clock = manualClock();
   const world = scriptedWorld(clock, { environments: [{ name: "desk", reach: "unpaired", scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Check the receipts" }] }] });
   const view = Object.assign(Object.create(window) as Window & typeof globalThis, { indexedDB: new IDBFactory() });
-  const platform = { ...browserPlatform(view, "0.0.0"), clock, fetch: world.fetch, webSocket: world.webSocket };
+  // HTTPS is the browser-facing transport; the scripted peer has no TLS listener.
+  const platform: BrowserPlatform = { ...browserPlatform(view, "0.0.0"), clock,
+    fetch: (url, request) => world.fetch(url.replace(/^https:/, "http:"), request),
+    webSocket: (url, handlers) => world.webSocket(url.replace(/^wss:/, "ws:"), handlers),
+  };
   const runtime = createRuntime(platform);
   await runtime.start();
   const presentation = await openPresentation(platform.documents);
   presentation.set("runLocalEnvironment", false); presentation.set("firstLaunchDone", true);
   const env = world.environment("desk");
-  const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link: env.wire.link } } }} />);
+  const link = env.wire.link.replace(/^http:/, "https:");
+  const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
   await screen.findByText(/Scopes: read, sessions:write, runs:drive · Ceiling: acceptEdits/);
   expect(screen.queryByText(/Starting this machine/)).toBeNull();
@@ -43,9 +48,9 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   });
   await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The next receipt agrees. "));
   await waitFor(() => expect(platform.shell).toBeUndefined());
-  const incoming = new URL(env.wire.link);
+  const incoming = new URL(link);
   app.rerender(<App key="new-pairing-visit" runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { address: incoming.origin, code: incoming.hash.slice(1) } } }} />);
-  await screen.findByDisplayValue(env.wire.link);
+  await screen.findByDisplayValue(link);
   expect(screen.getByText(/Scopes: read, sessions:write, runs:drive · Ceiling: acceptEdits/)).toBeDefined();
   await user.click(screen.getByRole("button", { name: "Pair" }));
   await user.click(await screen.findByRole("button", { name: "Pair again" }));

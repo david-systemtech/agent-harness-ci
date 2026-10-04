@@ -1,3 +1,4 @@
+import { webCameraFor } from "../platform/web-camera.js";
 import { LOCAL_PLACEHOLDER_ID, homeEnvironment, installLines, type EnvironmentView } from "@agent-harness/client-runtime";
 import { ReleaseChannel } from "@agent-harness/contracts";
 import { Laptop, TextCursorInput } from "lucide-react";
@@ -87,7 +88,7 @@ export const AddAMachine = ({ added }: { readonly added: (environmentId: string)
       <Part title="Pair with it">
         <p className="text-sm text-ink-muted">Paste the link or the code the other machine shows: in its own Set up, from its terminal's pair, or in the install script's last lines.</p>
         <PairingForm onPaired={added} scanQr={scanQr} autoFocus={part === "add-a-machine"} />
-        {camera.status === "absent" && <p className="text-xs text-ink-faint">Scan a QR: {camera.message}</p>}
+        {camera.status === "absent" && webCameraFor(runtime) === undefined && <p className="text-xs text-ink-faint">Scan a QR: {camera.message}</p>}
       </Part>
       <Part title="Install on another machine">
         {home === undefined ? <p className="text-sm text-ink-muted">No environment of yours has answered yet, so there is no release to install from.</p> : <InstallLinesOf view={home} />}

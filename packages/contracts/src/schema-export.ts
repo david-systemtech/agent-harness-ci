@@ -1,4 +1,5 @@
 import { AttentionPayload, AttentionTargetInput, AttentionTargetStatus } from "./attention.js";
+import { WebOriginsUpdatedPayload } from "./web/origin-policy.js";
 import { BankValidatorStatus } from "./banks.js";
 import { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
@@ -1455,6 +1456,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
   { path: "settings/notices/settings.changed.json", title: "SettingsChangedNoticePayload", schema: SettingsChangedNoticePayload },
+  { path: "web/notices/origins.updated.json", title: "WebOriginsUpdatedPayload", schema: WebOriginsUpdatedPayload },
   { path: "settings/band-id.json", title: "SettingsBandId", schema: SettingsBandId },
   { path: "settings/band.json", title: "SettingsBand", schema: SettingsBand },
   { path: "settings/row-scope.json", title: "SettingsRowScope", schema: SettingsRowScope },

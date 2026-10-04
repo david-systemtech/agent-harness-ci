@@ -1470,7 +1470,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   let allowsAdditionalOrigin: (origin: string) => boolean = () => false;
   const surface = createHttpSurface({ tailnetName: () => tailnetName ?? (webOrigin ? new URL(webOrigin).hostname : undefined), ...(webOrigin && { webOrigin }), webOriginAllowed: origin => allowsAdditionalOrigin(origin) });
-  const origins = webOriginPolicy(log, surface);
+  const origins = webOriginPolicy(log, surface, record.id);
   serveWebClient(surface, options.webClientDirectory, [], origins.connectOrigins);
   allowsAdditionalOrigin = origins.allows;
   const noStore = { "cache-control": "no-store" };

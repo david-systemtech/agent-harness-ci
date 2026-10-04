@@ -230,6 +230,7 @@ describe("the method registry", () => {
       expect(method.params.shape, method.name).toHaveProperty("commandId", CommandId);
     }
     expect(methods.filter((m) => m.kind === "command").map((m) => m.name)).toEqual([
+      "web.origins.set",
       "attention.targets.set",
       "attention.targets.remove",
       "attention.routes.set",
@@ -419,6 +420,8 @@ describe("the method registry", () => {
 
   it("types params and results from the table", () => {
     expectTypeOf<MethodName>().toEqualTypeOf<
+      | "web.origins.get"
+      | "web.origins.set"
       | "attention.targets.list"
       | "attention.targets.set"
       | "attention.targets.remove"

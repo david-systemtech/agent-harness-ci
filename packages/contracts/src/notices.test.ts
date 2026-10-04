@@ -75,6 +75,7 @@ describe("environment notices", () => {
       "routine.endpoint-set",
       "routine.endpoint-removed",
       "settings.changed",
+      "web.origins.updated",
       "setup.result-changed",
       "skills.updated",
       "trust.updated",

@@ -775,6 +775,28 @@ describe("the request cache", () => {
     expect(runtime.requests.cached(id, "trust.list", {}).read()).toEqual({ result: null, fetchedAt: null, error: null, loading: false });
   });
 
+  it("refreshes origin settings from another client, including while the editor is closed", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let settings = { clientOrigins: [] as string[], connectOrigins: [] as string[] };
+    wire.answer("web.origins.get", () => ({ result: settings }));
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const origins = runtime.requests.cached(id, "web.origins.get", {});
+    const stop = origins.subscribe(() => undefined);
+    await flush();
+    settings = { clientOrigins: ["https://client.example.test"], connectOrigins: [] };
+    environment?.event(noticeEvent(1, id, "web.origins.updated", {}));
+    await flush();
+    expect(origins.read().result).toEqual(settings);
+    stop();
+    settings = { clientOrigins: [], connectOrigins: ["https://second.example.test"] };
+    environment?.event(noticeEvent(2, id, "web.origins.updated", {}));
+    await flush();
+    origins.subscribe(() => undefined);
+    await flush();
+    expect(origins.read().result).toEqual(settings);
+    expect(asked()).toBe(1);
+  });
+
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
     const { clock, wire, runtime, id, asked, environment } = await counting({ environmentStream: true });
     const cached = runtime.requests.cached(id, "groups.list", {});

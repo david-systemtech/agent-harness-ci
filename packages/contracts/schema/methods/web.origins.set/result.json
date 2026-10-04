@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "web.origins.set result",
+  "type": "object",
+  "properties": {
+    "clientOrigins": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^https:\\/\\/(?:\\[[0-9a-f:]+\\]|[a-z0-9.-]+)(?::(?!443$)[1-9][0-9]{0,4})?$"
+      },
+      "uniqueItems": true
+    },
+    "connectOrigins": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^https:\\/\\/(?:\\[[0-9a-f:]+\\]|[a-z0-9.-]+)(?::(?!443$)[1-9][0-9]{0,4})?$"
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "clientOrigins",
+    "connectOrigins"
+  ]
+}
