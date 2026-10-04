@@ -5,7 +5,7 @@ import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { MenuShortcut } from "../ui/menu.js";
 import { useRef, useState } from "react";
 import type { KeyActionId } from "@agent-harness/contracts";
-import { Columns2, Ellipsis, Globe, Rows2, Terminal } from "lucide-react";
+import { Columns2, Ellipsis, Globe, Link, Rows2, Terminal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { BrowserAction } from "../browser/browser-action.js";
 import { GridLine } from "../grid/grid.js";
@@ -31,7 +31,7 @@ const ActionItem = ({ id, label, icon: Icon, select }: { readonly id: KeyActionI
 };
 
 /** Bindings live outside the dropdown so keys and palette entries survive its dismissal. */
-export const HeaderMenu = () => {
+export const HeaderMenu = ({ onPair }: { readonly onPair?: () => void }) => {
   const { narrow } = usePhoneFrame();
   const [open, setOpen] = useState(false);
   const afterClose = useRef<(() => void) | undefined>(undefined);
@@ -55,6 +55,7 @@ export const HeaderMenu = () => {
       <ActionItem select={select} id="app.pane.splitDown" label="Split down" icon={Rows2} />
       <MenuSeparator />
       <HeaderNewSessionItems select={select} onDragStart={() => select(() => undefined)} onDragEnd={() => setOpen(false)} />
+      {narrow && onPair && <MenuItem aria-label="Pair with an environment" onSelect={() => select(onPair)}><Link aria-hidden="true" />Pair with an environment</MenuItem>}
       <MenuSeparator />
       <ParkedAsksButton menu />
       {narrow && <><MenuSeparator /><div className="flex flex-wrap items-center gap-2 p-1"><SetupLine /><RestartToUpdate /><ThemeToggle /></div></>}

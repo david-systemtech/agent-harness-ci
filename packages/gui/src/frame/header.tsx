@@ -38,7 +38,7 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
 };
 
 /** One 44px line of window context and actions (look §9.1); the title yields space first. */
-export const Header = () => {
+export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
   const [sidebarShown, setSidebarShown] = usePresentation("sidebarShown");
   const [layout] = usePresentation("paneLayout");
   const pane = focusedPane(layout);
@@ -53,7 +53,7 @@ export const Header = () => {
     <SessionDrawerTrigger asChild><IconButton label="Show sessions" {...(sidebarKeys !== undefined && { keys: sidebarKeys })}><PanelLeft aria-hidden="true" /></IconButton></SessionDrawerTrigger>
     <div className="flex min-w-0 flex-1">{pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <span className="truncate text-sm text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>}</div>
     <ParkedAsksButton />
-    <HeaderMenu />
+    <HeaderMenu {...(onPair !== undefined && { onPair })} />
     <IconButton label="Settings" {...(settingsKeys !== undefined && { keys: settingsKeys })} onClick={() => settings.open()}><Settings aria-hidden="true" /></IconButton>
   </header>;
   return (

@@ -88,7 +88,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   };
   useEffect(() => { if (pane.session) history.replaceState(null, "", sessionLink(pane.session)); }, [pane.session]);
   return <WebViewport narrow={phone.narrow}>
-    {phone.narrow ? <Header /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
+    {phone.narrow ? <Header onPair={() => setPairing(value => !value)} /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
       <label className="sr-only" htmlFor="web-session">Sessions</label>
       <select id="web-session" aria-label="Sessions" className="min-w-0 flex-1 rounded-md border border-hairline bg-panel px-2 text-ink" value={pane.session ? `${pane.session.environmentId}/${pane.session.sessionId}` : ""} onChange={event => open(event.target.value)}>
         <option value="">Open a session</option>

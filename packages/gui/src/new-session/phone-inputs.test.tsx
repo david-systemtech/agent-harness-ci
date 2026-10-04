@@ -25,12 +25,21 @@ const open = async (receipts: Record<string, ScriptedReceipt> = {}, secondEnviro
   const env = world.environment("desk");
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link: env.wire.link } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); history.replaceState(null, "", "/"); });
-  await screen.findByRole("option", { name: "Notes" });
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "New session" }));
+  await screen.findByText(/Scopes: read, sessions:write, runs:drive/);
+  await user.click(screen.getByRole("button", { name: "Show sessions" }));
+  await within(screen.getByRole("dialog", { name: "Sessions" })).findByRole("button", { name: /desk Notes/ });
+  await user.click(screen.getByRole("button", { name: "Close sessions" }));
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(await screen.findByRole("menuitem", { name: "New session" }));
   const surface = await screen.findByRole("region", { name: "New session" });
   const box = within(surface).getByRole("textbox", { name: "Message" });
   return { user, env, surface, box, platform, runtime, world };
+};
+
+const togglePairing = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Pair with an environment" }));
 };
 
 it("attaches phone file contents to the first message and keeps the draft after picker cancellation", async () => {
@@ -103,9 +112,9 @@ it("keeps a refused first message's files and accepted session through the pairi
   await within(surface).findByRole("list", { name: "Attachments" });
   await user.click(within(surface).getByRole("button", { name: "Send" }));
   await within(surface).findByText("Not sent: Try again.");
-  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  await togglePairing(user);
   expect(screen.queryByRole("region", { name: "New session" })).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  await togglePairing(user);
   const restored = await screen.findByRole("region", { name: "New session" });
   expect(within(restored).getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Read this note");
   expect(within(restored).getByRole("list", { name: "Attachments" }).textContent).toContain("note.png");
@@ -156,9 +165,9 @@ it("observes pending creation and its refusal after pairing remounts the editor"
   await within(surface).findByRole("list", { name: "Attachments" });
   await user.click(within(surface).getByRole("button", { name: "Send" }));
   await waitFor(() => expect(env.requests("sessions.create")).toHaveLength(1));
-  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  await togglePairing(user);
   expect(screen.queryByRole("region", { name: "New session" })).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  await togglePairing(user);
   const restored = await screen.findByRole("region", { name: "New session" });
   expect(within(restored).getByRole("button", { name: "Starting…" })).toHaveProperty("disabled", true);
   release();
