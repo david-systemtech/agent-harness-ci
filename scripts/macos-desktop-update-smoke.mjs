@@ -38,6 +38,25 @@ export function stampPriorPackagedServer(server, version) {
   }
 }
 
+/** Writes the prior signed app that seeds the existing encrypted credential. */
+export function prepareCredentialFixture(app) {
+  mkdirSync(app, { recursive: true });
+  writeFileSync(join(app, "package.json"), JSON.stringify({ name: "agent-harness", productName: "agent-harness", version: baseline, type: "module", main: "main.js" }));
+  writeFileSync(join(app, "main.js"), `import { app, safeStorage } from 'electron';
+import { readFileSync, writeFileSync } from 'node:fs';
+app.setName('agent-harness');
+app.setPath('userData', process.env.DESKTOP_FIXTURE);
+// Entry import must finish before Electron can emit ready.
+app.whenReady().then(() => {
+  try {
+    const seed = JSON.parse(readFileSync(process.env.CREDENTIAL_FIXTURE, 'utf8'));
+    writeFileSync(seed.file, safeStorage.encryptString(seed.token), { mode: 0o600 });
+    app.exit(0);
+  } catch { app.exit(1); }
+}).catch(() => app.exit(1));
+`);
+}
+
 /** Whether Settings has opened, queried through the packaged page's CDP boundary. */
 export async function packagedSettingsOpen(evaluate) {
   return await evaluate("!!document.querySelector('section[aria-label=Settings]')");
@@ -204,19 +223,7 @@ async function runSmoke(source, version) {
     // Seed with synchronous safeStorage in a differently signed app, then replace that app at the same path.
     rmSync(join(resources, "app.asar"), { force: true });
     const app = join(resources, "app");
-    mkdirSync(app, { recursive: true });
-    writeFileSync(join(app, "package.json"), JSON.stringify({ name: "agent-harness", productName: "agent-harness", version: baseline, type: "module", main: "main.js" }));
-    writeFileSync(join(app, "main.js"), `import { app, safeStorage } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
-app.setName('agent-harness');
-app.setPath('userData', process.env.DESKTOP_FIXTURE);
-await app.whenReady();
-try {
-  const seed = JSON.parse(readFileSync(process.env.CREDENTIAL_FIXTURE, 'utf8'));
-  writeFileSync(seed.file, safeStorage.encryptString(seed.token), { mode: 0o600 });
-  app.exit(0);
-} catch { app.exit(1); }
-`);
+    prepareCredentialFixture(app);
     execute("codesign", ["--force", "--deep", "--sign", "-", installed]);
     execute("security", ["create-keychain", "-p", "password-for-tests", keychain]);
     execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
