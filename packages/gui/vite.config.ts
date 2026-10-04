@@ -24,10 +24,14 @@ const refuseNodeBuiltins = (): Plugin => ({
 const { version: packageVersion } = JSON.parse(readFileSync(new URL("package.json", import.meta.url), "utf8")) as { readonly version: string };
 
 const version = process.env["HARNESS_VERSION"] ?? packageVersion;
-const stampWebVersion = (): Plugin => ({
-  name: "agent-harness:web-version",
-  generateBundle() { this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version }) }); },
-});
+const stampWebVersion = (): Plugin => {
+  let stampedVersion = version;
+  return {
+    name: "agent-harness:web-version",
+    configResolved(config) { const defined = config.define?.["__HARNESS_VERSION__"]; if (defined !== undefined) stampedVersion = JSON.parse(String(defined)) as string; },
+    generateBundle() { this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version: stampedVersion }) }); },
+  };
+};
 
 const worker = new URL("src/web/service-worker.ts", import.meta.url).pathname;
 

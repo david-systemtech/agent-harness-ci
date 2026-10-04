@@ -39,7 +39,8 @@ describe("the packaged gui build", () => {
   it("is the page and its script, stamped with the desktop's version, the client version the window reports", async () => {
     const outDir = join(scratch(), "renderer");
     await build(rendererBuildConfig(outDir, "0.5.0-stamp.1"));
-    expect(readdirSync(outDir).sort()).toEqual(["assets", "index.html"]);
+    expect(readdirSync(outDir).sort()).toEqual(["assets", "index.html", "version.json"]);
+    expect(JSON.parse(readFileSync(join(outDir, "version.json"), "utf8"))).toEqual({ version: "0.5.0-stamp.1" });
     const scripts = readdirSync(join(outDir, "assets")).filter((name) => name.endsWith(".js"));
     expect(scripts.some((name) => readFileSync(join(outDir, "assets", name), "utf8").includes("0.5.0-stamp.1"))).toBe(true);
   });

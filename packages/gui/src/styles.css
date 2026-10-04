@@ -317,3 +317,7 @@
   [data-web-client] [data-measure="transcript-spine"] { width: 32px; }
 }
 [data-web-gallery] [data-web-client] { height: 100%; }
+
+/* A long permission card remains reachable when larger text fills the phone. */
+[data-web-client] [data-composer-column] { min-height: 0; max-height: 100%; flex-shrink: 1; overflow-y: auto; }
+[data-web-client] [aria-label="Parked prompt"] { max-height: none; }

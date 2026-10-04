@@ -43,7 +43,7 @@ const origin = `https://localhost:${(secure.address() as AddressInfo).port}`;
 let releaseStream: (() => void) | undefined;
 const adapter = fakeAdapter({ script: async function* ({ input, context }) {
   const reply = `Streaming the hosted reply: ${input.prompt.at(-1)?.text ?? ""}`;
-  yield { type: "assistant.delta", payload: { itemId: "stream", fragments: [{ kind: "text", text: reply }] } };
+  yield { type: "assistant.delta", payload: { itemId: "stream", fragments: [{ kind: "text", text: `${reply} ` }] } };
   await new Promise<void>(resolve => { releaseStream = resolve; });
   yield say(reply, "stream");
   const decision = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "permission", detail: { toolName: "Bash", toolCallId: "web-smoke-tool", input: { command: "printf smoke" }, summary: "Run the scripted smoke command" } });
@@ -79,13 +79,13 @@ try {
       await page.getByRole("combobox", { name: "Sessions", exact: true }).selectOption(`${environment.env.id}/${sessionId}`);
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
-      await page.getByText("Streaming the hosted reply: Allow this scripted reply.", { exact: true }).last().waitFor();
+      await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();
       assert(releaseStream, "The streamed reply reached the browser before completion."); releaseStream();
       await page.getByRole("button", { name: /^Allow once/ }).click();
       await page.getByText("Permission allow.", { exact: true }).last().waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Deny this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
-      await page.getByText("Streaming the hosted reply: Deny this scripted reply.", { exact: true }).last().waitFor();
+      await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Deny this scripted reply." }).last().waitFor();
       assert(releaseStream); releaseStream();
       await page.getByRole("button", { name: /^Deny/ }).click();
       await page.getByText("Permission deny.", { exact: true }).last().waitFor();

@@ -10,7 +10,7 @@ import { browserPlatform } from "../src/platform/browser-platform.js";
 /** Actual web identity and capabilities, with the gallery's scripted wire; no desktop shell. */
 export const phoneFirstScene = async (kind: "pairing" | "conversation" | "permission", width: number, height: number, textSize = 16) => {
   const clock = manualClock();
-  const world = scriptedWorld(clock, { environments: [{ name: "desk", reach: "unpaired", scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Check the receipts" }] }] });
+  const world = scriptedWorld(clock, { environments: [{ name: "desk", reach: "unpaired", capabilities: ["workspaceChecks"], accounts: [{ id: "account-1", label: "Scripted account" }], scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Check the receipts", model: "scripted-model" }] }] });
   const platform = { ...browserPlatform(window, "0.0.0"), fetch: world.fetch, webSocket: world.webSocket, clock };
   const runtime = createRuntime(platform);
   await runtime.start();
@@ -28,6 +28,17 @@ export const phoneFirstScene = async (kind: "pairing" | "conversation" | "permis
   return function PhoneFirstScene({ ladder }: { readonly ladder: LadderName }) {
     useEffect(() => { presentation.set("lightOrDark", ladder); }, [ladder]);
     useEffect(() => () => { void runtime.close(); void presentation.close(); }, []);
+    useEffect(() => {
+      if (kind !== "permission") return;
+      const reveal = () => {
+        const decision = document.querySelector<HTMLElement>('[aria-label="Allow once"]');
+        if (decision) { decision.scrollIntoView({ block: "nearest" }); observer.disconnect(); }
+      };
+      const observer = new MutationObserver(reveal);
+      observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
+      reveal();
+      return () => observer.disconnect();
+    }, []);
     return <div data-web-gallery style={{ width, height: `min(${height}px, 100dvh)`, margin: "auto" }}><App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: kind === "pairing" ? {} : { session } }} /></div>;
   };
 };

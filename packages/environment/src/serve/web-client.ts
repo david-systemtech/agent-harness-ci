@@ -1,7 +1,7 @@
 import { readFile, realpath } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sendJson, type HttpSurface } from "./http.js";
+import { sendJson, type RouteHandler, type HttpSurface } from "./http.js";
 
 /** Only public bundle files are served; API misses never become an app page. */
 export const WEB_CLIENT_DIRECTORY = fileURLToPath(new URL("./web-client/", import.meta.url));
@@ -14,7 +14,7 @@ const TYPES: Readonly<Record<string, string>> = {
 export interface WebPublicFile { readonly path: string; readonly file: string }
 export const serveWebClient = (http: HttpSurface, root = WEB_CLIENT_DIRECTORY, publicFiles: readonly WebPublicFile[] = [], connectOrigins: () => readonly string[] = () => []): void => {
   const pages = new Map([["/manifest.webmanifest", "manifest.webmanifest"], ["/service-worker.js", "service-worker.js"], ["/version.json", "version.json"], ["/", "index.html"], ["/pair", "index.html"], ...publicFiles.map(({ path, file }) => [path, file] as const)]);
-  http.prefix("/", async (request, response) => {
+  const serve: RouteHandler = async (request, response) => {
     const target = request.url ?? "/";
     const missing = () => sendJson(response, 404, { error: "not_found", message: "No public file is served here." }, { "cache-control": "no-store" });
     // Check the raw target: URL parsing normalises traversal before routing.
@@ -41,7 +41,9 @@ export const serveWebClient = (http: HttpSurface, root = WEB_CLIENT_DIRECTORY, p
       if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR") return missing();
       throw error;
     }
-  });
+  };
+  for (const path of pages.keys()) http.route("GET", path, serve);
+  for (const prefix of ["/assets/", "/phone-icons/"]) http.prefix(prefix, serve);
 };
 
 /** A configured public origin, never a proxy header. */

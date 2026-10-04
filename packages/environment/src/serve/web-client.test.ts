@@ -45,6 +45,7 @@ describe("the environment's web client", () => {
     expect((await ask("/api/health")).text).toContain("ready");
     expect((await ask("/v1/models")).text).toContain("completion");
     expect((await ask("/ws")).status).toBe(426);
+    expect(JSON.parse((await ask("/api/missing")).text)).toEqual({ error: "not_found", message: "Nothing is served at /api/missing." });
     expect((await ask("/", { Host: "evil.example" })).status).toBe(421);
     for (const path of ["/api/missing", "/private.txt", "/assets/../private.txt", "/assets/%2e%2e/private.txt", "/assets/%2fetc/passwd", "/assets/app.js?token=token-for-tests"]) {
       expect((await ask(path)).status, path).toBe(404);
@@ -66,6 +67,7 @@ describe("the environment's web client", () => {
     for (const origin of [undefined, "https://web.example:8443", `http://127.0.0.1:${address.port}`, "agent-harness://app"]) {
       expect((await ask("/api/pair", origin ? { Origin: origin } : {}, "POST")).status).toBe(200);
     }
+    expect((await ask("/api/step/../pair", { Origin: "https://evil.example" }, "POST")).status).toBe(403);
     for (const origin of ["null", "https://evil.example", "https://web.example", "https://web.example:8443.evil.example", "agent-harness://evil"]) {
       expect((await ask("/api/pair", { Origin: origin }, "POST")).status, origin).toBe(403);
     }

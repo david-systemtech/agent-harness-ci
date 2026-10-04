@@ -30,9 +30,9 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   expect(location.hash).toContain(`/session/${env.environmentId}/${env.sessionId()}`);
   await act(async () => {
     const { runId } = env.startRun(env.sessionId(), "Check the receipts");
-    env.emit(env.sessionId(), "assistant.text", { runId, itemId: "reply", text: "The receipt totals agree.", aborted: false });
+    env.emit(env.sessionId(), "assistant.delta", { runId, itemId: "reply", fragments: [{ kind: "text", text: "The receipt totals agree. " }] });
   });
-  await screen.findByText("The receipt totals agree.");
+  await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The receipt totals agree. "));
   await waitFor(() => expect(platform.shell).toBeUndefined());
   history.replaceState(null, "", "/");
 });

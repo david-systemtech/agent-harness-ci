@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HEALTH_PATH } from "../packages/contracts/dist/index.js";
 import { startEnvironment } from "../packages/environment/dist/index.js";
 const dataDir = await mkdtemp(join(tmpdir(), "image-web-smoke-"));
 const environment = await startEnvironment({ dataDir, port: 0, bindTailnet: false });
@@ -20,7 +21,9 @@ try {
     assert.equal((await globalThis.fetch(new URL(script, `${origin}/`))).status, 200);
   }
   const stamp = await (await globalThis.fetch(`${origin}/version.json`)).json();
-  const health = await (await globalThis.fetch(`${origin}/api/health`)).json();
+  const healthResponse = await globalThis.fetch(`${origin}${HEALTH_PATH}`);
+  assert.equal(healthResponse.status, 200);
+  const health = await healthResponse.json();
   assert.equal(stamp.version, health.version, "The image ships one server and client version.");
   assert.equal((await globalThis.fetch(`${origin}/api/missing`)).status, 404);
   globalThis.console.log("Image web routes and version matched.");

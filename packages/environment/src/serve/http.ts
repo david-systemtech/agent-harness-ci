@@ -194,16 +194,16 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
       });
       return;
     }
-    if (request.method === "POST" && request.url?.split("?")[0] === "/api/pair" && !allowedOrigin(request)) {
-      sendJson(response, 403, { error: "origin_refused", message: "This browser Origin is not allowed. Open this environment's HTTPS address." });
-      return;
-    }
     // Node forwards request targets the URL parser refuses (`//`, `http://`); a bad target is a 400, never a crash.
     let path: string;
     try {
       path = new URL(request.url ?? "/", "http://localhost").pathname;
     } catch {
       sendJson(response, 400, { error: "bad_request", message: "The request target could not be parsed." });
+      return;
+    }
+    if (request.method === "POST" && path === "/api/pair" && !allowedOrigin(request)) {
+      sendJson(response, 403, { error: "origin_refused", message: "This browser Origin is not allowed. Open this environment's HTTPS address." });
       return;
     }
     const byMethod = routes.get(path);
@@ -240,13 +240,14 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
         message: "The Host header names neither loopback, this environment's tailnet name, nor an address it is bound to.",
       });
     }
-    if (!allowedOrigin(request)) return refuseUpgrade(socket, 403, { error: "origin_refused", message: "This browser Origin is not allowed." });
     let path: string;
     try {
       path = new URL(request.url ?? "/", "http://localhost").pathname;
     } catch {
       return refuseUpgrade(socket, 400, { error: "bad_request", message: "The request target could not be parsed." });
     }
+    // The extension bridge checks its own fixed extension Origin in its handler.
+    if (path === "/ws" && !allowedOrigin(request)) return refuseUpgrade(socket, 403, { error: "origin_refused", message: "This browser Origin is not allowed." });
     const handler = upgrades.get(path);
     if (!handler) return refuseUpgrade(socket, 404, { error: "not_found", message: `Nothing upgrades at ${path}.` });
     socket.off("error", onError);

@@ -317,3 +317,27 @@ describe("the workflows that run it", () => {
     }
   });
 });
+
+
+describe("the image's web smoke", () => {
+  it("checks the production health route and compares its version with the served bundle", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "image-web-check-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    for (const folder of ["scripts", "packages/environment/dist", "packages/contracts/dist"]) mkdirSync(join(dir, folder), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
+    writeFileSync(join(dir, "scripts/image-web-smoke.mjs"), readFileSync(join(root, "scripts/image-web-smoke.mjs")));
+    writeFileSync(join(dir, "packages/contracts/dist/index.js"), 'export const HEALTH_PATH = "/health";');
+    writeFileSync(join(dir, "packages/environment/dist/index.js"), `
+      globalThis.fetch = async url => {
+        const path = new URL(url).pathname;
+        if (path === "/" || path === "/pair") return new Response('<script src="/assets/app.js"></script>', { headers: { "cache-control": "no-store", "content-security-policy": "default-src 'self'" } });
+        if (path === "/assets/app.js") return new Response("app");
+        if (path === "/version.json" || path === "/health") return Response.json({ version: "0.0.0-test" });
+        return Response.json({ error: "not_found" }, { status: 404 });
+      };
+      export const startEnvironment = async () => ({ address: { host: "127.0.0.1", port: 7433 }, close: async () => {} });
+    `);
+    const result = await run(process.execPath, [join(dir, "scripts/image-web-smoke.mjs")]);
+    expect(result.stdout).toContain("Image web routes and version matched.");
+  });
+});
