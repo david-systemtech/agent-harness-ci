@@ -50,11 +50,15 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, sys
-          sys.path.insert(0, "scripts")
-          from gallery_reports import report_groups
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
-          report_groups(report, 'scenes')
+          if 'reports' in report:
+              sys.path.insert(0, "scripts")
+              from gallery_reports import report_groups
+              report_groups(report, 'scenes')
+          else:
+              # PR heads from before this rollout have no shared report helper.
+              assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
           PY
       - name: Optimise the PNGs losslessly

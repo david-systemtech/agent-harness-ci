@@ -1075,3 +1075,17 @@ with zipfile.ZipFile(sys.argv[1],'w',compression=zipfile.ZIP_DEFLATED) as z:
   expect(g.comments).toEqual([]);
   expect(g.captures.size).toBe(0);
 });
+
+it("the installed hosted workflow still validates older PR heads without the report helper", async () => {
+  const f = await fixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  writeFileSync(join(images, "report.json"), JSON.stringify({ pixelBlocking: true, scenes: [{ name: "window-empty.dark" }] }));
+  const workflow = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const validation = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(workflow)?.[1];
+  if (!validation) throw new Error("no hosted report validation");
+  const python = validation.split("\n").map(line => line.slice(10)).join("\n");
+  await expect(run("python3", ["-c", python], { cwd: f.checkout })).resolves.toBeDefined();
+  writeFileSync(join(images, "report.json"), JSON.stringify({ pixelBlocking: false, scenes: [{ name: "window-empty.dark" }] }));
+  await expect(run("python3", ["-c", python], { cwd: f.checkout })).rejects.toThrow();
+});
