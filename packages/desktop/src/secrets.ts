@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Clock, SecretAccess, ShellPlatform, ShellSecrets } from "@agent-harness/client-runtime";
+import { StoredCredentialUnavailableError, type Clock, type SecretAccess, type ShellPlatform, type ShellSecrets } from "@agent-harness/client-runtime";
 import type { MacCredentials } from "./mac-credentials.js";
 import type { ElectronSafeStorage } from "./electron.js";
 
@@ -71,6 +71,9 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
     state = next;
     for (const listener of [...listeners]) listener(state);
   };
+  const recovery = async () => {
+    if (mac.recovery) { denied = await mac.recovery(); publish(); }
+  };
   const macKeychain = async <T>(operation: (signal: AbortSignal) => Promise<T>, presents = true): Promise<T> => {
     if (closed) throw new Error("Desktop credential access was cancelled at shutdown.");
     const request = new AbortController();
@@ -85,7 +88,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
     try {
       // Race only observes the result. A late native answer cannot publish or write a token.
       const answer = await Promise.race([operation(request.signal), cancelled]);
-      if (presents) denied = false;
+      if (presents) denied = mac.recovery ? await mac.recovery() : false;
       return answer;
     } catch (error) {
       denied = true;
@@ -120,14 +123,23 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
   return {
     async get(name) {
       const file = fileOf(name);
-      // An absent file is no token. Refused macOS access rejects so the runtime retries without revoking or deleting it.
+      let kept: Buffer | undefined;
+      // A refused earlier OS item remains on disk and blocks re-pairably, without revocation.
       try {
-        const kept = await readFile(file);
-        if (os === "darwin") return await macKeychain((signal) => mac.decrypt(kept, signal));
+        const bytes = await readFile(file);
+        kept = bytes;
+        if (os === "darwin") return await macKeychain((signal) => mac.decrypt(bytes, signal));
         if (!encrypts()) throw new Error("the OS keeps no key for this app now");
         return safeStorage.decryptString(kept);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        if (os === "darwin" && kept && !closed) {
+          await mac.recover?.(kept);
+          await recovery();
+          const unavailable = new StoredCredentialUnavailableError(`The desktop could not read ${name} (${reasonOf(error)}).`);
+          report(unavailable);
+          throw unavailable;
+        }
         const retry = os === "darwin" ? "The saved token is kept. In Your machines, choose Try again and allow macOS Keychain access when prompted." : "Pair that environment again.";
         const unreadable = new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}). ${retry}`);
         report(unreadable);
@@ -152,6 +164,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
         await writeFile(next, encrypted, { mode: 0o600 });
         if (closed) throw new Error("Desktop credential access was cancelled at shutdown.");
         await rename(next, file);
+        await recovery();
       } catch (error) {
         await rm(next, { force: true });
         throw error;
@@ -164,11 +177,13 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
     },
     async delete(name) {
       await rm(fileOf(name), { force: true });
+      await recovery();
     },
-    async access() { return state; },
+    async access() { await recovery(); return state; },
     onAccess(listener) {
       listeners.add(listener);
       listener(state);
+      void recovery().catch(report);
       return () => void listeners.delete(listener);
     },
     async protection() {
