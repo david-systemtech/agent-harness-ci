@@ -11,6 +11,8 @@ on:
       - 'scripts/gallery-accept.sh'
       - 'scripts/gallery-allocation.json'
       - 'scripts/gallery_allocation.py'
+      - 'scripts/gallery-publish.py'
+      - 'scripts/gallery_reports.py'
       - '.forgejo/workflows/gallery.yml'
       - '.forgejo/github-workflows/gallery.yml'
       - '.forgejo/scripts/gallery-comment.sh'

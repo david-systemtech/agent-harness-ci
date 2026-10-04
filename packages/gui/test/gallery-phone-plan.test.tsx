@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { capturePlan, sceneFiles } from "../gallery/capture-plan.js";
+import { capturePlan, captureShard, sceneFiles } from "../gallery/capture-plan.js";
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
@@ -85,4 +85,28 @@ it("allocates the frame conversation and drawer profiles without spending deskto
       `${scene}-phone-390-keyboard.light`, `${scene}-phone-390-keyboard.dark`,
     ]);
   }
+});
+
+
+it("adds all nine pane scenes in independently bounded reports", async () => {
+  const panes = ["phone-pane-agent", "phone-pane-diff", "phone-pane-documents", "phone-pane-file", "phone-pane-files", "phone-pane-markdown", "phone-pane-preview", "phone-pane-scope", "phone-pane-tasks"];
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => !panes.includes(scene));
+  const existing = capturePlan(scenes);
+  const plan = capturePlan([...scenes, ...panes]);
+  expect(plan.budget.desktop).toBe(existing.budget.desktop);
+  expect(plan.budget.phone).toBe(existing.budget.phone + 72);
+  expect(plan.budget.total).toBe(existing.budget.total + 72);
+  expect(plan.captures.filter(c => !panes.includes(c.scene))).toEqual(existing.captures);
+  expect(plan.shards.every(shard => shard.captures.length <= 400 && shard.budget.remaining >= 0)).toBe(true);
+  expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
+});
+
+
+it("requires a discovered shard before capture", () => {
+  const plan = capturePlan(Array.from({ length: 51 }, (_, i) => `phone-pane-${i}`));
+  expect(() => captureShard(plan, undefined)).toThrow("Invalid gallery shard selection");
+  const selected = captureShard(plan, "phone-002");
+  expect(selected.captures).toHaveLength(8);
+  expect(selected.shard).toEqual({ id: "phone-002", index: 1, count: 2 });
+  expect(() => captureShard(plan, "phone-003")).toThrow("Invalid gallery shard selection");
 });
