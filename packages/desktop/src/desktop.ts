@@ -16,6 +16,8 @@ import type { DesktopPlatform } from "./platform.js";
 import { PREVIEW_SCHEME_REGISTRATION, previews } from "./preview.js";
 import { APP_SCHEME, APP_URL, PREVIEW_SCHEME, isAppPage } from "./schemes.js";
 import { webViews } from "./web-view.js";
+import type { Clock } from "@agent-harness/client-runtime";
+import type { MacCredentials } from "./mac-credentials.js";
 import { keychainSecrets } from "./secrets.js";
 import { bundledInstaller } from "./installer.js";
 import { bundledService, type ServiceWait } from "./service.js";
@@ -92,6 +94,8 @@ export interface DesktopOptions {
   readonly ghProcess?: GhProcess;
   /** The desktop's variables, which `gh` runs with: preset the process's own. */
   readonly environment?: Readonly<Record<string, string | undefined>>;
+  readonly macCredentials?: MacCredentials;
+  readonly credentialClock?: Clock;
 }
 
 /**
@@ -104,7 +108,7 @@ export interface DesktopOptions {
 export const startDesktop = async (
   electron: DesktopElectron,
   platform: DesktopPlatform,
-  { reportError = console.error, serviceWait, updateSystem = NODE_UPDATE_SYSTEM, ghProcess = NODE_GH_PROCESS, environment = process.env }: DesktopOptions = {},
+  { reportError = console.error, serviceWait, updateSystem = NODE_UPDATE_SYSTEM, ghProcess = NODE_GH_PROCESS, environment = process.env, macCredentials, credentialClock }: DesktopOptions = {},
 ): Promise<void> => {
   const { app, protocol } = electron;
   // First: Electron keeps the single-instance lock in the data directory in force when it is asked for.
@@ -165,7 +169,10 @@ export const startDesktop = async (
     os: platform.os,
     dir: join(platform.paths.data, SECRETS_DIRECTORY),
     report: reportError,
+    ...(macCredentials && { macCredentials }),
+    ...(credentialClock && { clock: credentialClock }),
   });
+  app.on("will-quit", () => secrets.close());
   const stopAccess = secrets.onAccess((state) => window.webContents.send(SECRET_ACCESS_CHANNEL, state));
   window.on("closed", stopAccess);
   const localGrant = grantFile(platform.paths.environment, reportError);

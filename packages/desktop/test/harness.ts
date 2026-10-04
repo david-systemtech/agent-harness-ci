@@ -1,11 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ShellPlatform } from "@agent-harness/client-runtime";
+import type { Clock, ShellPlatform } from "@agent-harness/client-runtime";
 import { startDesktop } from "../src/desktop.js";
 import type { DesktopPlatform } from "../src/platform.js";
 import type { ServiceWait } from "../src/service.js";
 import type { GhProcess } from "../src/gh.js";
+import type { MacCredentials } from "../src/mac-credentials.js";
 import type { UpdateSystem } from "../src/update.js";
 import { shellBridge, type DesktopShell, type PreloadIpc } from "../src/preload/bridge.js";
 import { APP_URL } from "../src/schemes.js";
@@ -79,6 +80,8 @@ export const start = async ({
   system,
   gh,
   environment,
+  credentialClock,
+  macCredentials,
 }: {
   electron?: FakeElectron;
   platform?: DesktopPlatform;
@@ -87,8 +90,10 @@ export const start = async ({
   system?: UpdateSystem;
   gh?: GhProcess;
   environment?: Readonly<Record<string, string | undefined>>;
+  credentialClock?: Clock;
+  macCredentials?: MacCredentials;
 } = {}): Promise<Started> => {
-  await startDesktop(electron, platform, { reportError, ...(serviceWait && { serviceWait }), ...(system && { updateSystem: system }), ...(gh && { ghProcess: gh }), ...(environment && { environment }) });
+  await startDesktop(electron, platform, { reportError, ...(serviceWait && { serviceWait }), ...(system && { updateSystem: system }), ...(gh && { ghProcess: gh }), ...(environment && { environment }), ...(credentialClock && { credentialClock }), ...(macCredentials && { macCredentials }) });
   return { electron, platform, shell: (from = APP_URL) => rendererShell(electron, from) };
 };
 

@@ -10,7 +10,13 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+  waitForCredentialHelpersExit: (helpers: number[], running?: (pid: number) => boolean) => Promise<void>;
+  quitWithPendingPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
+  startUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
+  credentialHelperPids: (pid: number, executable: string, run?: (command: string, args: string[]) => string) => number[];
+  checkUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>, observe?: () => Promise<void>) => Promise<void>;
+  checkFreshPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
@@ -48,6 +54,115 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it.each(["waiting", "denied"])("refuses to claim pending shutdown when the specific prior read already failed and access is %s", async (access) => {
+    let closed = false;
+    const window = { desktopShell: {
+      secrets: { get: async () => { throw new Error("OS refused"); }, access: async () => access },
+      system: async () => ({ platform: "darwin" }), window: { close: () => { closed = true; } },
+    } };
+    const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
+    const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
+    await startUnavailablePackagedCredential(evaluate);
+    await expect(quitWithPendingPackagedCredential(evaluate)).rejects.toThrow(/prior credential read is no longer pending/);
+    expect(closed).toBe(false);
+  });
+
+  it("quits only while the specific prior read is outstanding and access is waiting", async () => {
+    let closed = false;
+    const window = { desktopShell: {
+      secrets: { get: () => new Promise(() => {}), access: async () => "waiting" },
+      system: async () => ({ platform: "darwin" }), window: { close: () => { closed = true; } },
+    } };
+    const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
+    const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
+    await startUnavailablePackagedCredential(evaluate);
+    await quitWithPendingPackagedCredential(evaluate);
+    expect(closed).toBe(true);
+  });
+
+  it("requires the captured helper to exit rather than accepting only the desktop's exit", async () => {
+    vi.useFakeTimers();
+    try {
+      let live = true;
+      let exited = false;
+      const waiting = waitForCredentialHelpersExit([1201], () => live).then(() => { exited = true; });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(exited).toBe(false);
+      live = false;
+      await vi.advanceTimersByTimeAsync(250);
+      await waiting;
+      expect(exited).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("fails the shutdown check if the captured helper survives or no helper was observed", async () => {
+    vi.useFakeTimers();
+    try {
+      const survived = expect(waitForCredentialHelpersExit([1201], () => true)).rejects.toThrow(/helper did not exit/);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await survived;
+      await expect(waitForCredentialHelpersExit([], () => false)).rejects.toThrow(/helper must be observed/);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("captures only the credential helper among the desktop's own child processes, without reading command arguments", () => {
+    const calls: [string, string[]][] = [];
+    const run = (command: string, args: string[]) => {
+      calls.push([command, args]);
+      if (command === "pgrep") return "1201\n1202\n";
+      return args.includes("1201") ? "/fixture/agent-harness.app/Contents/MacOS/agent-harness" : "/fixture/agent-harness.app/Contents/Frameworks/agent-harness Helper (Renderer).app/Contents/MacOS/agent-harness Helper (Renderer)";
+    };
+    expect(credentialHelperPids(1200, "/fixture/agent-harness.app/Contents/MacOS/agent-harness", run)).toEqual([1201]);
+    expect(calls).toEqual([
+      ["pgrep", ["-P", "1200"]], ["ps", ["-ww", "-p", "1201", "-o", "comm="]], ["ps", ["-ww", "-p", "1202", "-o", "comm="]],
+    ]);
+  });
+
+  it("proves main and Settings responsiveness before an unavailable prior read settles, then requires its rejection", async () => {
+    let refuse!: () => void;
+    const events: string[] = [];
+    const window = { desktopShell: {
+      secrets: { get: () => new Promise((_resolve, reject) => { events.push("read"); refuse = () => reject(new Error("Keychain unavailable")); }) },
+      system: async () => { events.push("system"); return { platform: "darwin" }; },
+    } };
+    const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
+    const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
+    await checkUnavailablePackagedCredential(evaluate, async () => {
+      expect(events).toEqual(["read", "system"]);
+      refuse();
+    });
+    expect(JSON.stringify(window)).not.toContain("__packagedCredentialCheck");
+  });
+
+  it("does not pass the unavailable-access check when a locked prior item unexpectedly reads successfully", async () => {
+    const window = { desktopShell: { secrets: { get: async () => "token-for-tests" }, system: async () => ({ platform: "darwin" }) } };
+    const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
+    const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
+    await expect(checkUnavailablePackagedCredential(evaluate)).rejects.toThrow(/unavailable/);
+  });
+
+  it("requires fresh OS protection and readback, without returning the value through CDP", async () => {
+    const tokens = new Map<string, string>();
+    let protection = "os";
+    const window = { desktopShell: { secrets: {
+      protection: async () => protection,
+      set: async (name: string, value: string) => { tokens.set(name, value); },
+      get: async (name: string) => tokens.get(name),
+      delete: async (name: string) => { tokens.delete(name); },
+    } } };
+    const results: unknown[] = [];
+    const evaluate = async (expression: string) => {
+      const result = await runInNewContext(expression, { window }) as unknown;
+      results.push(result);
+      return result;
+    };
+    await checkFreshPackagedCredential(evaluate);
+    expect(JSON.stringify(results)).not.toContain("credential-for-tests");
+    expect(tokens.size).toBe(0);
+    protection = "none";
+    await expect(checkFreshPackagedCredential(evaluate)).rejects.toThrow(/OS-protected/);
+  });
+
   it("keeps the combined update request within its existing two-minute deadline", async () => {
     vi.useFakeTimers();
     try {

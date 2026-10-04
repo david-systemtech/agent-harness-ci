@@ -64,6 +64,9 @@ describe("a notice", () => {
     await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
     const denied = await bannerSaying("Keychain access did not complete");
     expect(denied.textContent).toContain("Your accounts and saved connections are kept");
+    await app.user.click(within(denied).getByRole("button", { name: "Open Your machines" }));
+    expect(await screen.findByRole("heading", { name: "Your machines" })).toBeDefined();
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
     await app.user.click(within(denied).getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(screen.queryByText("Keychain access did not complete")).toBeNull());
     await act(async () => shell.changeSecretAccess("waiting"));

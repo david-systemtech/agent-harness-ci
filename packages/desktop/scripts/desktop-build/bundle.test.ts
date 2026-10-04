@@ -1,9 +1,11 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { join } from "node:path";
 import { build } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cleanUp, scratch } from "../../test/harness.js";
+import { CREDENTIAL_HELPER_ARGUMENT, macCredentialProcess } from "../../src/mac-credentials.js";
 import { mainBundleConfig, rendererBuildConfig } from "./bundle.js";
 
 /**
@@ -27,6 +29,39 @@ const specifiers = (code: string): string[] => [
 ];
 
 describe("the packaged main process", () => {
+  it("runs the packaged credential entry over private process IPC without starting the desktop", async () => {
+    const helperDir = scratch();
+    writeFileSync(join(helperDir, "main.js"), readFileSync(join(outDir, "main.js")));
+    const electron = join(helperDir, "node_modules", "electron");
+    mkdirSync(electron, { recursive: true });
+    writeFileSync(join(helperDir, "package.json"), JSON.stringify({ type: "module" }));
+    writeFileSync(join(electron, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }));
+    writeFileSync(join(electron, "index.js"), `
+export const app = {
+  setPath: (name, path) => { if (name !== 'userData' || !path.endsWith('credential-provider')) throw new Error('Wrong helper profile'); },
+  whenReady: async () => {}, dock: { hide: () => {} },
+  requestSingleInstanceLock: () => { throw new Error('Helper must not claim the desktop lock'); },
+};
+export const safeStorage = {
+  isAsyncEncryptionAvailable: async () => true,
+  encryptStringAsync: async value => Buffer.from('ciphertext-for-tests:' + value),
+  decryptStringAsync: async value => ({ result: value.toString().slice('ciphertext-for-tests:'.length) }),
+};
+export const BrowserWindow = () => { throw new Error('Helper must not open a window'); };
+export const WebContentsView = BrowserWindow;
+export const clipboard = {}, dialog = {}, ipcMain = {}, nativeTheme = {}, Notification = {}, protocol = {}, shell = {};
+`);
+    const boot = join(helperDir, "helper-test.mjs");
+    writeFileSync(boot, "Object.defineProperty(process, 'platform', { value: 'darwin' });\nawait import('./main.js');\n");
+    const provider = macCredentialProcess(() => spawn(process.execPath, [boot, CREDENTIAL_HELPER_ARGUMENT], { stdio: ["ignore", "ignore", "pipe", "ipc"] }));
+    try {
+      const signal = new AbortController().signal;
+      expect(await provider.available(signal)).toBe(true);
+      const kept = await provider.encrypt("token-for-tests", signal);
+      expect(await provider.decrypt(kept, signal)).toBe("token-for-tests");
+    } finally { provider.close(); }
+  });
+
   it("is one ES module, main.js, which imports Electron and Node's built-ins and nothing else", () => {
     expect(readdirSync(outDir)).toEqual(["main.js"]);
     const imported = specifiers(readFileSync(join(outDir, "main.js"), "utf8"));

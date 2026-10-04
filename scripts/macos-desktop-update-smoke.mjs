@@ -7,7 +7,7 @@ import process from "node:process";
 import { spawn, execFileSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
@@ -94,6 +94,125 @@ export async function openPackagedSettings(evaluate) {
   await ready(() => evaluate("typeof window.desktopShell === 'object'", "packaged preload readiness"), "The packaged preload did not load");
   await ready(() => clickPackagedSettings(evaluate), "The Settings control did not mount");
   await ready(() => packagedSettingsOpen(evaluate), "Settings did not open after replacement");
+}
+
+/** Your machines must mount during native access, rather than only the Settings frame. */
+export async function openPackagedMachines(evaluate) {
+  assert.equal(await evaluate(`(() => {
+    const row = document.querySelector('nav[aria-label="Settings rows"] button[aria-label="Your machines"]');
+    row?.click();
+    return !!row;
+  })()`, "open Your machines during credential access"), true);
+  await until(() => evaluate(`!!document.querySelector('section[aria-label="Your machines"]')`, "Your machines readiness"), "Your machines did not mount during credential access");
+}
+
+/** Starts a real prior read without awaiting it, so responsiveness is checked while access is pending/refused. */
+export async function startUnavailablePackagedCredential(evaluate) {
+  await evaluate(`(() => {
+    const check = { settled: false };
+    window.__packagedCredentialCheck = check;
+    check.result = window.desktopShell.secrets.get(${JSON.stringify(credentialName)})
+      .then(() => { check.settled = true; return 'read'; }, () => { check.settled = true; return 'unavailable'; });
+    return true;
+  })()`, "begin locked prior credential");
+  assert.equal(await evaluate("window.desktopShell.system().then(s => s.platform)", "main responsiveness during locked credential access"), "darwin");
+  assert.equal(await packagedSettingsOpen(evaluate), true, "Settings must remain open during locked credential access");
+}
+
+/** Checks this read, not a different request that may still be waiting in the shared provider. */
+export async function pendingPackagedCredential(evaluate) {
+  return await evaluate(`(async () => {
+    const access = await window.desktopShell.secrets.access();
+    const check = window.__packagedCredentialCheck;
+    if (!check || check.settled) throw new Error('The prior credential read is no longer pending');
+    return access === 'waiting';
+  })()`, "specific prior credential read pending");
+}
+
+/** Rechecks after the access query, in the same page turn that sends close. */
+export async function quitWithPendingPackagedCredential(evaluate) {
+  assert.equal(await evaluate(`(async () => {
+    const access = await window.desktopShell.secrets.access();
+    const check = window.__packagedCredentialCheck;
+    if (!check || check.settled || access !== 'waiting') throw new Error('The prior credential read is no longer pending');
+    window.desktopShell.window.close();
+    return true;
+  })()`, "quit with native credential access pending"), true);
+}
+
+/** Native hosted observation of this desktop's helpers; comm contains the executable, never its arguments. */
+export function credentialHelperPids(pid, executable, run = (command, args) => execFileSync(command, args, { encoding: 'utf8', timeout: 2000 })) {
+  let children;
+  try { children = run('pgrep', ['-P', String(pid)]).trim().split(/\s+/).map(Number).filter(child => Number.isSafeInteger(child) && child > 0); }
+  catch (error) { if (error.status === 1) return []; throw error; }
+  const suffix = '/Contents/MacOS/' + basename(executable);
+  return children.filter(child => {
+    try { return run('ps', ['-ww', '-p', String(child), '-o', 'comm=']).trim().endsWith(suffix); }
+    catch (error) { if (error.status === 1) return false; throw error; }
+  });
+}
+
+const processRunning = pid => {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+};
+
+/** Keep the captured PIDs after the parent quits, since an orphan is no longer its child. */
+export async function waitForCredentialHelpersExit(helpers, running = processRunning) {
+  assert.notEqual(helpers.length, 0, 'A native credential helper must be observed before pending quit');
+  await until(() => helpers.every(pid => !running(pid)), 'The credential helper did not exit after pending desktop quit', 10_000);
+}
+
+/** Requires bounded settlement, rather than treating a harness timeout as a successful refusal. */
+export async function checkUnavailablePackagedCredential(evaluate, observe = async () => {}) {
+  await startUnavailablePackagedCredential(evaluate);
+  await observe();
+  const result = await evaluate(`(async () => {
+    const result = await window.__packagedCredentialCheck.result;
+    delete window.__packagedCredentialCheck;
+    return result;
+  })()`, "settle unavailable prior credential", 45_000);
+  assert.equal(result, "unavailable", "The locked prior credential must be unavailable");
+}
+
+/** Exercises fresh storage after repair through the real packaged shell, without returning secrets. */
+export async function checkFreshPackagedCredential(evaluate) {
+  const result = await evaluate(`(async () => {
+    const secrets = window.desktopShell.secrets;
+    if (await secrets.protection() !== 'os') return false;
+    const name = 'packaged-fresh-check';
+    const value = 'credential-for-tests-fresh';
+    await secrets.set(name, value);
+    try { return await secrets.get(name) === value; }
+    finally { await secrets.delete(name); }
+  })()`, "fresh OS-protected credential storage and readback");
+  assert.equal(result, true, "Fresh storage must be OS-protected and read back correctly");
+}
+
+/** Clicks the OS's own approval control, as a user would, only on the hosted smoke account. */
+async function approveHostedKeychain(desktop, completed) {
+  const deadline = Date.now() + 120_000;
+  while (!completed() && desktop.exitCode === null && Date.now() < deadline) {
+    const prompt = spawn("osascript", ["-e", `tell application "System Events"
+      if exists process "SecurityAgent" then
+        tell process "SecurityAgent"
+          repeat with panel in windows
+            if exists button "Always Allow" of panel then
+              click button "Always Allow" of panel
+            else if exists button "Allow" of panel then
+              click button "Allow" of panel
+            end if
+          end repeat
+        end tell
+      end if
+    end tell`], { stdio: "ignore" });
+    await new Promise(resolve => {
+      const timeout = globalThis.setTimeout(() => { prompt.kill("SIGKILL"); resolve(); }, 2000);
+      prompt.on("error", () => { globalThis.clearTimeout(timeout); resolve(); });
+      prompt.on("exit", () => { globalThis.clearTimeout(timeout); resolve(); });
+    });
+    await delay(250);
+  }
 }
 
 /** Runs on hosted macOS only. The credential stays inside the page; no token is returned or logged. */
@@ -315,8 +434,8 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
     execute("security", ["default-keychain", "-d", "user", "-s", keychain]);
     execute("security", ["list-keychains", "-d", "user", "-s", keychain, ...originalSearchList]);
-    // Both signatures are authorized for unattended CI; a real approval/cancel is checked manually.
-    execute("security", ["add-generic-password", "-a", "agent-harness", "-s", "agent-harness Safe Storage", "-w", "password-for-tests", "-T", executable(installed), "-T", executable(source), keychain]);
+    // Only the prior app is authorized. Replacement access follows a real OS request and repair.
+    execute("security", ["add-generic-password", "-a", "agent-harness", "-s", "agent-harness Safe Storage", "-w", "password-for-tests", "-T", executable(installed), keychain]);
     const seedLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
     try { execute(executable(installed), [], { env: { ...process.env, CREDENTIAL_FIXTURE: seed, DESKTOP_FIXTURE: join(data, "desktop") }, stdio: ["ignore", seedLog, seedLog] }); }
     finally { closeSync(seedLog); }
@@ -330,14 +449,39 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     rmSync(installed, { recursive: true });
     copyPackagedDesktop(source, installed);
     const port = 19280;
-    const desktopLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
-    try { desktop = spawn(executable(installed), [`--remote-debugging-port=${port}`], { stdio: ["ignore", desktopLog, desktopLog] }); }
-    finally { closeSync(desktopLog); }
-    // Record a spawn failure so it is surfaced by the bounded page check and still cleans the service.
-    desktop.on("error", () => {});
-    cdp = await connectCdp(port, { onTimeout: capture, redact: text => redactDiagnostic(text, secretsToRedact) });
-    await openPackagedSettings(cdp.evaluate);
-    await askForPackagedUpdate(cdp.evaluate, version);
+    const launchDesktop = async () => {
+      const desktopLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
+      try { desktop = spawn(executable(installed), [`--remote-debugging-port=${port}`], { stdio: ["ignore", desktopLog, desktopLog] }); }
+      finally { closeSync(desktopLog); }
+      // Record a spawn failure so it is surfaced by the bounded page check and still cleans the service.
+      desktop.on("error", () => {});
+      cdp = await connectCdp(port, { onTimeout: capture, redact: text => redactDiagnostic(text, secretsToRedact) });
+      await openPackagedSettings(cdp.evaluate);
+      await openPackagedMachines(cdp.evaluate);
+    };
+    // A locked test Keychain creates actual native pending/refused access, with no provider stub.
+    execute("security", ["lock-keychain", keychain]);
+    await launchDesktop();
+    await startUnavailablePackagedCredential(cdp.evaluate);
+    await until(() => pendingPackagedCredential(cdp.evaluate), "Native credential access did not start");
+    const credentialHelpers = credentialHelperPids(desktop.pid, executable(installed));
+    assert.notEqual(credentialHelpers.length, 0, 'The desktop must own a native credential helper during pending access');
+    await quitWithPendingPackagedCredential(cdp.evaluate);
+    await until(() => desktop.exitCode !== null, "The replacement did not quit during pending Keychain access", 10_000);
+    await waitForCredentialHelpersExit(credentialHelpers);
+    cdp.close();
+    assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
+    await launchDesktop();
+    await checkUnavailablePackagedCredential(cdp.evaluate);
+    assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
+    // Unlock is the user's repair action. Approval is through the native prompt; no ACL or partition-list rewrite.
+    execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
+    let completed = false;
+    const approval = approveHostedKeychain(desktop, () => completed);
+    try {
+      await askForPackagedUpdate(cdp.evaluate, version);
+      await checkFreshPackagedCredential(cdp.evaluate);
+    } finally { completed = true; await approval; }
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Reading the existing credential must preserve it");
     const after = await until(async () => {
       try {
