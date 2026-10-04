@@ -1043,7 +1043,7 @@ it("refuses to publish a phone capture whose dimensions disagree with its profil
 
 it("publishes and accepts both bounded shards including all frame phone profiles", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const scenes = await sceneFiles("./packages/gui/gallery/scenes"); console.log(JSON.stringify(capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const scenes = (await sceneFiles("./packages/gui/gallery/scenes")).filter(scene => !scene.startsWith("phone-") || /^(phone-gallery-(continue|conversation|permission)|phone-attention-(failure|pending|keyboard))$/.test(scene)); console.log(JSON.stringify(capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
   expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(400);
   expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);

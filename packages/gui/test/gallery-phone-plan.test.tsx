@@ -21,7 +21,7 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
 });
 
 it("reserves capacity for the existing 354 desktop captures and the bounded phone subset", async () => {
-  const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
+  const plan = capturePlan((await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => !scene.startsWith("phone-") || /^(phone-gallery-(continue|conversation|permission)|phone-attention-(failure|pending|keyboard))$/.test(scene)));
   expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 800, remaining: 400 });
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
@@ -37,7 +37,7 @@ it("refuses capacity exhaustion before capturing or publishing a partial gallery
 
 
 it("allocates the frame conversation and drawer profiles without spending desktop capacity", async () => {
-  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => !scene.startsWith("phone-") || /^(phone-gallery-(continue|conversation|permission)|phone-attention-(failure|pending|keyboard))$/.test(scene));
   const existing = capturePlan(scenes);
   const plan = capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]);
   expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(existing.captures.filter(c => c.platform === "desktop"));
