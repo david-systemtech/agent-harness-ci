@@ -1,14 +1,19 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
 
+const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
+  vi.useRealTimers();
   await close?.();
   close = undefined;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
+  if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
+  else Object.defineProperty(document, "fonts", originalFonts);
 });
 
 const details = [
@@ -29,7 +34,8 @@ it.each(details)("prepares %s with its reviewed controls and scroll anchor befor
   document.body.append(container);
   const gallery = await mountGallery(container, name);
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(name));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe(name);
   const pane = screen.getByRole("region", { name: paneName });
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; visibleWithin?: string }[];
   const visible = geometry.filter((check) => check.visibleWithin !== undefined);
@@ -85,9 +91,35 @@ it.each([[1400, 900, "light"], [1400, 900, "dark"], [1024, 768, "light"], [1024,
   document.body.append(container);
   const gallery = await mountGallery(container, "settings-browser-pairing", ladder);
   close = gallery.close;
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("settings-browser-pairing"));
+  expect(await gallery.ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe("settings-browser-pairing");
   expect(screen.getByRole("region", { name: "Browser" }).scrollTop).toBe(780);
   expect(screen.getByRole("textbox", { name: "Pairing code" })).toHaveProperty("value", "ABCD2345");
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; width?: number }[];
   expect(geometry.find((check) => check.selector === "[data-settings-dialog]")?.width).toBe(width === 1400 ? 1000 : 976);
+});
+
+
+it("awaits pairing capture readiness while fonts stay held beyond a polling deadline", async () => {
+  let releaseFonts!: () => void;
+  const fontsReady = new Promise<void>((resolve) => { releaseFonts = resolve; });
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fontsReady } });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await act(async () => {
+    const mounted = await mountGallery(container, "settings-browser-pairing");
+    close = mounted.close;
+    return mounted;
+  });
+  expect(screen.getByRole("textbox", { name: "Pairing code" })).toHaveProperty("value", "ABCD2345");
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const readiness = gallery.ready;
+  const result = readiness.catch((error: unknown) => error);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(container.dataset["galleryReady"]).toBeUndefined();
+  expect(await Promise.race([result, Promise.resolve("pending")])).toBe("pending");
+  await act(async () => { releaseFonts(); });
+  expect(await result).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe("settings-browser-pairing");
+  expect(screen.getByRole("textbox", { name: "Pairing code" })).toHaveProperty("value", "ABCD2345");
 });
