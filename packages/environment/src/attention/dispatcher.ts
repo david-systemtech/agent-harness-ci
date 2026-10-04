@@ -1,6 +1,6 @@
 import { AttentionPayload } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
-import type { Clock } from "../serve/clock.js";
+import type { Clock, Timer } from "../serve/clock.js";
 import { attentionProjector, attentionStore, attentionStream, type PendingDelivery } from "./store.js";
 import type { AttentionTransports } from "./targets.js";
 
@@ -20,6 +20,7 @@ export const createAttentionDispatcher = ({ log, clock, environmentId, webOrigin
   const store = attentionStore(log);
   const inFlight = new Map<string, { readonly controller: AbortController; readonly done: Promise<void>; readonly version: string }>();
   let closed = false;
+  let timer: Timer | undefined;
   const remove = (id: string) => log.append(attentionStream, [{ type: "attention.target.removed", payload: { id } }], { actor: ACTOR });
   const prune = () => {
     const live = new Set(log.clientSessions.all().filter(client => client.revokedAt === null && Date.parse(client.expiresAt) > clock.now().getTime()).map(client => client.id));
@@ -64,18 +65,31 @@ export const createAttentionDispatcher = ({ log, clock, environmentId, webOrigin
       const stored = store.targets().find(t => t.target.id === d.targetId);
       if (!stored) continue;
       const controller = new AbortController();
-      const done = Promise.resolve().then(() => send(d, stored.version, controller.signal)).finally(() => inFlight.delete(d.id));
+      const done = Promise.resolve().then(() => send(d, stored.version, controller.signal)).finally(() => { inFlight.delete(d.id); schedule(); });
       inFlight.set(d.id, { controller, done, version: stored.version });
     }
+    schedule();
+  };
+  const schedule = () => {
+    timer?.cancel(); timer = undefined;
+    if (closed) return;
+    const now = clock.now().getTime();
+    let next = Infinity;
+    for (const d of store.deliveries("pending")) {
+      next = Math.min(next, d.expiresAt);
+      if (!inFlight.has(d.id)) next = Math.min(next, d.nextAt > now ? d.nextAt : now + 1000);
+    }
+    const owners = new Set(store.targets().flatMap(t => t.owner === null ? [] : [t.owner]));
+    if (owners.size) for (const client of log.clientSessions.all()) if (owners.has(client.id)) next = Math.min(next, Date.parse(client.expiresAt));
+    if (Number.isFinite(next)) timer = clock.setTimeout(tick, Math.max(1, next - now));
   };
   const unsubscribe = log.subscribe(event => {
-    if (!closed && (event.streamKind === "access" || event.type.startsWith("attention.") || ["prompt.answered", "session.deleted", "session.purged"].includes(event.type))) {
-      prune(); cancelStale();
+    if (!closed && (event.streamKind === "access" || event.type.startsWith("attention.") || ["prompt.opened", "prompt.answered", "routine.firing-ended", "session.deleted", "session.purged"].includes(event.type))) {
+      prune(); cancelStale(); schedule();
     }
   });
-  const timer = clock.setInterval(tick, 1000);
   tick();
   return { store, remove, flush: async () => { tick(); await Promise.all([...inFlight.values()].map(item => item.done)); },
-    close: () => { closed = true; timer.cancel(); unsubscribe(); for (const item of inFlight.values()) item.controller.abort(); },
+    close: () => { closed = true; timer?.cancel(); unsubscribe(); for (const item of inFlight.values()) item.controller.abort(); },
   };
 };

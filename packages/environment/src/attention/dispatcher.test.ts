@@ -16,6 +16,25 @@ const deferred = <T>() => {
   return { promise, resolve };
 };
 
+it("schedules no attention work while idle, then wakes for a newly parked ask", async () => {
+  const clock = manualClock();
+  const log = openEventLog({ path: ":memory:", clock: clock.now });
+  const sent: string[] = [];
+  const dispatcher = createAttentionDispatcher({ log, clock, environmentId: "env-1", webOrigin: () => "https://example.test", transports: {
+    push: { validate: () => undefined, send: async d => { sent.push(d.id); return { status: "sent" }; } },
+  } });
+  onCleanup(() => { dispatcher.close(); log.close(); });
+  expect(clock.pending()).toBe(0);
+  log.append(attentionStream, [{ type: "attention.target.set", payload: { target, owner: null } }], { actor: "system:attention" });
+  expect(clock.pending()).toBe(0);
+  clock.advance(30 * 24 * 60 * 60 * 1000);
+  log.append(parked, [{ type: "prompt.opened", payload: { promptId: "after-idle", ttlExpiresAt: null } }], { actor: "system:permissions" });
+  clock.advance(6000);
+  await dispatcher.flush();
+  expect(sent).toHaveLength(1);
+  expect(clock.pending()).toBe(0);
+});
+
 it("enqueues once, keeps the ID across restart, and sends only generic text after six seconds", async () => {
   const clock = manualClock();
   const path = join(tempDir(), "events.db");
