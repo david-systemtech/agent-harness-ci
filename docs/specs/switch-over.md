@@ -160,7 +160,25 @@ The eleven ordered ids are `account`, `carry-over`, `your-machines`, `forges`, `
 
 In both TUI and GUI on Claude, demonstrate fork from a user-message anchor while its source continues, draft and organisation inheritance, rewind with later history hidden, undo before another Run, and refusal during a live Run. Demonstrate read-now consuming the whole queue exactly once and withdraw returning unread text to the Session draft; late withdrawal is refused. Check the TUI's Esc/Ctrl+C defaults, Ctrl+Enter and empty-composer Up, row `w`/`f`, and `/rewind undo`. In a fresh GUI configuration Esc leaves a Run running and Ctrl+C copies; Stop and its palette action work, and Ctrl+C cannot be bound to stop. ADR 0022's parity contract must name these behaviors (#152 corrections).
 
-Prove David's daily Sessions across the inventory and Milo's normal TUI workflow, including four commands/GUI parity. Final sign-off follows one week of normal use after cut-over and at least one scheduled Firing of each enabled Routine. Run-now does not substitute; wait past the week for schedules still unfired. Resolve not-carried/re-enter entries; deferred providers belong to milestone 2. Record release-head CI/manual checks and inapplicable platforms; required unrun checks block done. Prove no source listener/process/scheduler, disabled restart paths and successful harness Client/Hermes exchange afterwards. David signs acceptance; the spec completes no deployment.
+Prove the owner's daily Sessions across the inventory and the terminal user’s normal TUI workflow, including four commands/GUI parity. Final sign-off follows one week of normal use after cut-over and at least one scheduled Firing of each enabled Routine. Run-now does not substitute; wait past the week for schedules still unfired. Resolve not-carried/re-enter entries; deferred providers belong to milestone 2. Record release-head CI/manual checks and inapplicable platforms; required unrun switch-over checks block done. The phone human checklist (#1556) is a separate evidence track: it blocks no builder or release; only its dated handset evidence establishes phone-proven status. Prove no source listener/process/scheduler, disabled restart paths and successful harness Client/Hermes exchange afterwards. The owner signs acceptance; the spec completes no deployment.
+
+### Phone completion added 2026-10-04
+
+Milestone 1 includes the packaged web Client and the phone requirements in
+[web-client.md](web-client.md), amending ADR 0017. Repository completion requires
+hosted real-client Chromium/WebKit tests under an ordinary uid, both pairing
+presets without grant downgrade, stream/permission/reconnect/revoke/storage
+cases, phone geometry, preview/Origin isolation, asset-only worker upgrade,
+push test gateway/signed receiver doubles and version-matched release assets.
+Keep existing desktop/TUI regressions covered. No owner account or handset is
+needed for those gates.
+
+The coordinator handles deployment, managed tailnet HTTPS, receiver routing and
+live QA. The sole human phone checklist (#1556) references the existing provider
+sign-in ask (#1492); it blocks no builder or release. Its actual keyboard/camera,
+Home Screen storage and locked-phone delivery evidence is reported separately
+from automated completion. This amendment does not waive the established
+switch-over operational acceptance or move unrelated later milestones.
 
 ### What this workstream does not decide
 
@@ -182,7 +200,7 @@ Contract tests register new import/undo/check schemas/events, one scope per meth
 
 ## Out of Scope
 
-Milestone 2 owns other adapters/carry-over, Bots/roster, bot-cron transfer, Hand-off, web Client and new Routine triggers. Milestone 3 owns native chat adapters and Hermes retirement; milestone 4 owns model placement. Continuous synchronisation, reverse import, automatic file restoration during conversation rewind, imported browser Pairing secrets and automatic source-data disposal are excluded.
+Milestone 2 owns other adapters/carry-over, Bots/roster, bot-cron transfer, Hand-off and new Routine triggers. Milestone 3 owns native chat adapters and Hermes retirement; milestone 4 owns model placement. Continuous synchronisation, reverse import, automatic file restoration during conversation rewind, imported browser Pairing secrets and automatic source-data disposal are excluded.
 
 ## Further Notes
 

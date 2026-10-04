@@ -29,6 +29,18 @@ let scratch: string | undefined;
 afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
 
 describe("the public GitHub release workflow", () => {
+  it("uploads only the sanitized macOS diagnostic directory after a smoke failure", () => {
+    const replacement = step("smoke-macos", "Replace the packaged desktop with an existing client credential");
+    expect(replacement).toContain('SMOKE_DIAGNOSTICS: ${{ runner.temp }}/macos-update-diagnostics');
+    const upload = step("smoke-macos", "Keep macOS timeout diagnostics");
+    expect(upload).toContain("if: failure()");
+    expect(upload).toContain("uses: actions/upload-artifact@");
+    expect(upload).toContain("path: ${{ runner.temp }}/macos-update-diagnostics");
+    expect(upload).toContain("name: macos-update-diagnostics");
+    expect(upload).toContain("retention-days: 7");
+    expect(upload).not.toContain("continue-on-error");
+  });
+
   it("runs only for public v tags or manual dry runs", () => {
     expect(lines.slice(lines.indexOf("on:") + 1, lines.indexOf("permissions:"))).toEqual([
       "  push:", '    tags: ["v*"]', "  workflow_dispatch:", "",

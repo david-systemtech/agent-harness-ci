@@ -7,6 +7,7 @@ it("shows long notice banners, all three tones, and separate transient feedback 
   document.body.append(container);
   const gallery = await mountGallery(container, "notices");
   try {
+    expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe("notices"));
     const notices = screen.getByRole("region", { name: "Notifications" });
     expect(within(notices).getAllByRole("listitem")).toHaveLength(3);

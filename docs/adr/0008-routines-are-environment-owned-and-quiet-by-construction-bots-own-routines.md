@@ -20,3 +20,19 @@ Decided 2026-09-23 on the map ticket "Decision: routines as first-class and the 
 - Triggers: schedule and run-now in milestone 1; signed inbound webhook and per-routine API token in milestone 2, both wrapping the payload as untrusted.
 - Every routine and bot exports to a YAML file without secrets (accounts by identity, key-manager paths by name) and imports on any environment; a git-backed bot bundle an environment tracks is a later milestone.
 - Milestone 1 shows a routines list grouped by environment; the bots roster (state from the environments' logs, never read from Hermes; configure inline; open the latest session) arrives with the bot object in milestone 2. Hermes keeps running the fleet on the completions surface under a ceiling until then.
+
+## Amendment: phone web client in milestone 1 (2026-10-04)
+
+Milestone 1 adds durable parked-ask attention independently of Routine firing,
+with opt-in Web Push and the existing outbound signed-webhook delivery
+infrastructure as fallback (the milestone-1 delivery targets above). Inbound
+webhook triggers remain milestone 2.
+Default payloads are generic session-needs-you text and HTTPS links, with no
+prompt/transcript/secrets; routine completion delivery stays opt-in and quiet.
+The environment owns dispatch/retry/cancellation, not a client socket or worker.
+A separately configured delivery-only receiver routes the signed fallback to
+Matrix/Element X; repository receiver doubles prove the sender boundary, and
+the coordinator alone configures/proves live routing. This is not a native chat
+adapter and does not move Bots/roster, new Routine triggers, fallback environments
+or Hermes retirement into milestone 1. See
+[web-client.md](../specs/web-client.md).

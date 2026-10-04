@@ -1,6 +1,11 @@
-import { screen, waitFor, within } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { act, screen, within } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
+
+const assertCaptureReady = async (container: HTMLElement, scene: string, ready: Promise<boolean>) => {
+  expect(await ready).toBe(true);
+  expect(container.dataset["galleryReady"]).toBe(scene);
+};
 
 it.each([
   ["settings-accounts", "Accounts"],
@@ -11,7 +16,7 @@ it.each([
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   try {
-    await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
+    await assertCaptureReady(container, scene, gallery.ready);
     const pane = within(await screen.findByRole("region", { name: "Settings" })).getByRole("region", { name: label });
     if (scene === "settings-accounts") {
       const personal = await within(pane).findByRole("region", { name: "Personal" });
@@ -41,7 +46,7 @@ it("draws the default-model dependency picker with friendly model names and boun
   document.body.append(container);
   const gallery = await mountGallery(container, "settings-default-model-picker");
   try {
-    await waitFor(() => expect(container.dataset["galleryReady"]).toBe("settings-default-model-picker"));
+    await assertCaptureReady(container, "settings-default-model-picker", gallery.ready);
     const picker = await screen.findByLabelText("New-session defaults");
     expect(within(picker).getByRole("menuitem", { name: "Claude Sonnet 5" })).toBeDefined();
     expect(within(picker).getByRole("menuitem", { name: "Refresh models" })).toBeDefined();
@@ -49,5 +54,34 @@ it("draws the default-model dependency picker with friendly model names and boun
   } finally {
     await gallery.close();
     container.remove();
+  }
+});
+
+it("keeps account capture pending while fonts remain held beyond a polling deadline", async () => {
+  const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+  let releaseFonts!: () => void;
+  const fontsReady = new Promise<void>(resolve => { releaseFonts = resolve; });
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fontsReady } });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await act(async () => mountGallery(container, "settings-accounts"));
+  try {
+    expect(screen.getByRole("region", { name: "Accounts" })).toBeDefined();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const result = assertCaptureReady(container, "settings-accounts", gallery.ready).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(container.dataset["galleryReady"]).toBeUndefined();
+    expect(await Promise.race([result, Promise.resolve("pending")])).toBe("pending");
+    await act(async () => { releaseFonts(); });
+    expect(await result).toBeUndefined();
+    expect(container.dataset["galleryReady"]).toBe("settings-accounts");
+    expect(screen.getByRole("region", { name: "Personal" })).toBeDefined();
+  } finally {
+    releaseFonts();
+    vi.useRealTimers();
+    await gallery.close();
+    container.remove();
+    if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
+    else Object.defineProperty(document, "fonts", originalFonts);
   }
 });

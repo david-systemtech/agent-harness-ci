@@ -1,3 +1,4 @@
+import { AttentionPayload, AttentionTargetInput, AttentionTargetStatus } from "./attention.js";
 import { BankValidatorStatus } from "./banks.js";
 import { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
@@ -796,6 +797,9 @@ export const methodPath = (name: string, part: "params" | "result" | "response" 
 
 /** Every schema the export writes, in a stable order. */
 export const exportedSchemas = (): ExportedSchema[] => [
+  { path: "attention/payload.json", title: "AttentionPayload", schema: AttentionPayload },
+  { path: "attention/target-input.json", title: "AttentionTargetInput", schema: AttentionTargetInput },
+  { path: "attention/target-status.json", title: "AttentionTargetStatus", schema: AttentionTargetStatus },
   { path: "protocol-version.json", title: "ProtocolVersion", schema: ProtocolVersion },
   { path: "capability-flag.json", title: "CapabilityFlag", schema: CapabilityFlag },
   { path: "capability-flags.json", title: "CapabilityFlags", schema: CapabilityFlags },

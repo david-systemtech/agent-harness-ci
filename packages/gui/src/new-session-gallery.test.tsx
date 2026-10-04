@@ -15,6 +15,7 @@ it.each(["new-session", "new-session-not-ready"])("renders %s with the welcome, 
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
   const surface = within(await screen.findByRole("region", { name: "New session" }));
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   expect(surface.getByRole("textbox", { name: "Message" })).toBeDefined();
   expect(surface.getByRole("button", { name: "Send" }).querySelector("svg")).not.toBeNull();

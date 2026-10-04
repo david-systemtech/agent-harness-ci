@@ -19,3 +19,20 @@ Decided 2026-09-23 on the map ticket "Decision: permissions for unattended serve
 - Asking the user a question without stopping the turn is supported wherever a provider offers it (Codex does); milestone 2 or 3.
 - Every permission decision is an event with its outcome and who or what answered; the environment keeps an access log of pairings, connections, scope grants and ceiling changes; clients offer an "Unattended review" view of runs with denials or auto-approvals.
 - Codex mapping: acceptEdits is on-request with a workspace-write sandbox, plan is a read-only sandbox, auto is the `auto_review` reviewer, bypassPermissions is approval `never` with full access; the retired `untrusted` value is never sent.
+
+## Amendment: phone web client in milestone 1 (2026-10-04)
+
+Phone is a distinct pairing preset: read/session-write/run-drive at acceptEdits;
+My own client still grants every scope at bypassPermissions, including on a
+phone. A browser never rewrites a link's minted grant. Terminal and admin
+remain explicit grants, obtainable only by deliberately re-pairing a trusted
+Custom code within the minter's scopes/ceiling; no client self-raise. Prompt
+answers still need only runs:drive and may answer another client's run.
+
+Environment-owned parked-ask attention adds a six-second grace and durable,
+deduplicated delivery cancelled on answer/TTL; revoked/expired clients lose
+targets. Payloads contain only generic attention text and an HTTPS session link.
+Read clients manage their own targets; global routes require admin. This
+complements connected-client notices without changing run ownership, TTLs or
+permission decisions. Failures never stop runs; completion delivery is opt-in.
+See [web-client.md](../specs/web-client.md).

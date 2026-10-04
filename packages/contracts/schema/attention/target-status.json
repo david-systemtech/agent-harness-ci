@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttentionTargetStatus",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "transport": {
+      "type": "string",
+      "enum": [
+        "webhook",
+        "push"
+      ],
+      "description": "Closed-client delivery transport: signed webhook or Web Push."
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "completion": {
+      "type": "boolean"
+    },
+    "global": {
+      "type": "boolean"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "disabled",
+        "ready",
+        "pending",
+        "failed",
+        "unavailable"
+      ],
+      "description": "Disabled by choice, ready, delivery pending, a failed attempt, or a transport/HTTPS origin unavailable."
+    },
+    "failure": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "transport",
+    "enabled",
+    "completion",
+    "global",
+    "state",
+    "failure"
+  ],
+  "additionalProperties": false
+}

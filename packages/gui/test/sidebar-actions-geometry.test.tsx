@@ -16,6 +16,7 @@ it.each([1400, 1024])("covers action text and shortcut bounds in the 20px scene 
   document.body.append(root);
   const gallery = await mountGallery(root, "window-scale-20");
   try {
+    expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(root.dataset["galleryReady"]).toBe("window-scale-20"));
     const checks = JSON.parse(root.dataset["galleryGeometry"] ?? "[]") as SceneGeometry[];
     // §9.1 fixes the desktop frame at 44px even when rem content scales.

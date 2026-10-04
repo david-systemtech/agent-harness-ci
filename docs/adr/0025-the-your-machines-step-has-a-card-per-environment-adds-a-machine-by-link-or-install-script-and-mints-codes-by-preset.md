@@ -21,3 +21,20 @@ Decided 2026-09-24 on the map ticket "Server and remote step: card behaviour, bu
 - The Set up spec (issue 88) holds the cards, the two paths, the presets, the health check and the copy; the launcher spec (issue 86) holds the install script's asset, its platform variants and the service-install and health wait it performs; the environment spec's pair verb prints the link, the ASCII QR and the code.
 - Chosen defaults for review: a fixed set of machine icons (laptop, desktop, server, cloud, container and a few more); the terminal UI shows the step's summary and pointer and its pair verb shows link, QR and code; the QR encodes the link; the program preset's label defaults to the program's name; the container snippet links to the host-side updater's documentation rather than printing a pairing link, since the container's environment pairs from its own log output.
 - Fog: desktop-managed SSH launch of a remote environment (ADR 0005), environment peer lists, a relay for machines off the tailnet.
+
+## Amendment: phone web client in milestone 1 (2026-10-04)
+
+Phone is an additive fixed preset granting `read`, `sessions:write`, `runs:drive`
+at `acceptEdits`. My own client retains every scope and `bypassPermissions`, is
+valid for the owner's phone, and is never silently downgraded by browser kind.
+Existing links disclose and retain their minted grant. A program and Custom
+retain their choices/defaults; Custom expansion for terminal/admin is deliberate
+re-pairing, never self-raising and never above the minter's scopes/ceiling.
+
+Phone links/QR use the explicitly configured external HTTPS origin, including
+its port; desktop/TUI HTTP remains supported. Browser pairing opens sessions
+without local service/bootstrap, scrubs the code fragment before rendering or
+network, supports manual address+code and HTTPS QR scanning with denial/cancel
+fallback and track cleanup. Browser Forget erases its local token and revokes
+when reachable; it has no unforgettably local environment. See
+[web-client.md](../specs/web-client.md).

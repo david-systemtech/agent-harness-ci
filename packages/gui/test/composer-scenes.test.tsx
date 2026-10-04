@@ -15,6 +15,7 @@ it.each(["composer-idle", "composer-running", "composer-slash"])("draws %s with 
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
   const field = await screen.findByRole("textbox", { name: "Message" });
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   expect(field.getAttribute("spellcheck")).toBe("false");
   expect(screen.getByRole("button", { name: "Attach files" })).toBeDefined();

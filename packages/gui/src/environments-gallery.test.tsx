@@ -9,6 +9,7 @@ const mount = async (name: string, ladder: LadderName) => {
   document.body.append(container);
   const gallery = await mountGallery(container, name, ladder);
   onTestFinished(async () => { await gallery.close(); container.remove(); });
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(name));
 };
 

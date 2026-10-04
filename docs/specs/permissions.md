@@ -60,6 +60,22 @@ Seven pieces in the env spec's `environment` package, with schemas, the mode ord
 - **Raising and lowering**: `access.sessions.setCeiling` (scope `admin`) is refused with `conflict` (`own_session`) when the target is the caller's own session, so no session changes its own ceiling whatever its scopes. Raising another session above the caller's own ceiling is refused the same way, `forbidden` with `data.reason` `ceiling` (#180); lowering is always allowed, even to a ceiling still above the caller's, and a value equal to the target's is no raise. The change is an `access.ceiling.changed` event and applies to the session's next run; running runs keep their resolved policy.
 - Answering a prompt needs scope `runs:drive` only; the answering session's ceiling does not bound the answer, since an environment belongs to one person (ADR 0001).
 
+### Phone authority and attention
+
+Phone grants `read`, `sessions:write`, `runs:drive` at `acceptEdits`; My own
+client keeps all scopes and `bypassPermissions`, even on a phone. Browser kind
+never changes a minted grant. Expanded Custom codes require a trusted minter
+within its scopes/ceiling and deliberate re-pairing; no self-raise. Files/Diff/
+terminal retain `terminal`, Settings writes/sign-in retain `admin`. Prompt
+answers retain the `runs:drive`-only rule above, including another client's ask.
+
+Durable attention follows parked events after six seconds, cancelled on answer
+or TTL, deduplicated by event/target across restart and cleaned up on client
+revocation/expiry. Generic HTTPS session links contain no prompt/transcript
+text or secrets. Clients with `read` manage only their own targets; global
+routes need `admin`. Failures are audited/visible and never stop a run. Held-clock
+fake transports and hosted real-client tests prove these rules (web-client spec).
+
 ### Attended and unattended runs; the unattended default
 
 - A run is **attended** when its starting actor is a client session and **unattended** when its actor is a routine, a bot or the completions surface. Attendance is fixed at run start: a run belongs to the environment and continues in its mode when the client goes (ADR 0006), with no grace timer and no keep-alive.
@@ -162,7 +178,7 @@ The wire, envelope, scopes, pairing and `access` stream mechanics (78 env); the 
 ## Out of Scope
 
 - The Codex and local mappings as code, Codex's permission escalation and auto review (milestone 2, ADR 0015); a harness-run reviewer for local accounts (set aside, ADR 0006); async questions that continue the turn (milestone 2 or 3).
-- Server-side notification sinks for a parked prompt (Matrix, Telegram through Hermes): delivery targets belong to routines (ADR 0008); in milestone 1 a prompt reaches clients only.
+- Native chat adapters remain later work (ADR 0008). Milestone 1 adds environment-owned durable parked-ask attention, opt-in Web Push and a configured signed-webhook fallback; connected-client notices alone cannot alert a closed browser. See [web-client.md](web-client.md); external receiver deployment/live proof belong to the coordinator.
 - Persistent permission rules written to settings files; Claude's `defer` and resume; per-domain network approvals as a UI; prompt relay for completions callers (the existing remote-permissions relay is not carried; programs run unattended); wrapping the provider process itself in bubblewrap (milestone 2).
 
 ## Further Notes

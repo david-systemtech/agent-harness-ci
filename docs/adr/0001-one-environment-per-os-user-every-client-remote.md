@@ -20,3 +20,15 @@ Decided 2026-09-23 on the map ticket "Decision: server-per-machine topology, one
 - WSL, containers or a second data dir are separate environments added deliberately; auto-spawning them is a far-future nice-to-have.
 - An environment belongs to one person: every paired client is the same human. A teammate runs their own environment; sharing goes through memory banks and the forge.
 - The server is its own installable artefact per platform. The desktop app bundles a copy and installs or repairs the user service from it; headless machines install the same artefact by script. A desktop with no local environment is permitted by the design but not offered in milestone 1.
+
+## Amendment: phone web client in milestone 1 (2026-10-04)
+
+The owner's 2026-10-04 instruction brings browser/phone use into milestone 1,
+as specified in [web-client.md](../specs/web-client.md). The environment serves
+the version-matched shared GUI in every server artefact/container. A browser
+pairs rather than installing/starting a local environment; it uses the same
+wire and environment-owned runs. Managed tailnet HTTPS forwards to loopback,
+with an explicitly configured external origin for links, QR and wss, not proxy
+headers. Origin/Host checks retain desktop and origin-less CLI/TUI compatibility;
+additional HTTPS environments require exact trusted-admin origin allowlisting.
+A relay, peer lists and SSH launch remain deferred.

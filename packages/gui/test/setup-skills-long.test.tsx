@@ -9,6 +9,7 @@ it("captures the real long Skills card with its navigation outside the scrolling
   const gallery = await mountGallery(container, "setup-skills-long");
   try {
     await screen.findByRole("heading", { name: "Skills", level: 2 });
+    expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe("setup-skills-long"));
     expect(screen.getByRole("region", { name: "Skills catalogue" })).toBeDefined();
     const footer = screen.getByRole("navigation", { name: "Step navigation" });
