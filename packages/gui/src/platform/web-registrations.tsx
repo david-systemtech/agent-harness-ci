@@ -13,7 +13,7 @@ export interface WebModule { readonly slot: WebModuleSlot; readonly registration
 
 const leaves = import.meta.glob<{ readonly webModule: WebModule }>([
   "./web-inputs.ts", "./web-camera.ts", "./web-preview.ts", "./web-browser.ts",
-  "../web/install.tsx", "../web/service-worker.ts", "../web/updates.tsx", "../web/push.tsx", "../settings/web-attention.tsx",
+  "../web/install.tsx", "../web/service-worker.ts", "../web/updates.tsx", "../web/push.tsx", "../web/attention-settings.tsx",
 ], { eager: true });
 export const webRegistrations: readonly WebModule[] = Object.values(leaves).map(leaf => leaf.webModule);
 export const WebRegisteredSurfaces = () => <>{webRegistrations.map(({ slot, registration }) => {
