@@ -1,3 +1,4 @@
+import { attentionMethodFixtures, attentionSchemaFixtures } from "./attention-fixtures.js";
 import { bankValidatorUpdateMethodFixtures, bankValidatorUpdateSchemaFixtures } from "./bank-validator-update-fixtures.js";
 import { bankMigrationSchemaFixtures, bankMigrationMethodFixtures } from "./bank-migration-fixtures.js";
 import { bankSplitSchemaFixtures, bankSplitMethodFixtures } from "./bank-split-fixtures.js";
@@ -419,6 +420,7 @@ const invalidStatuses = [
 
 /** Params and result instances for every registered method. */
 const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  ...attentionMethodFixtures,
   "environment.status": {
     params: { valid: [{}], invalid: [[], "status"] },
     result: { valid: validStatuses, invalid: invalidStatuses },
@@ -636,6 +638,7 @@ const methodSchemaFixtures = Object.fromEntries(
 
 /** A valid and an invalid instance of every file the JSON Schema export writes. */
 export const schemaFixtures: Record<string, Fixtures> = {
+  ...attentionSchemaFixtures,
   "protocol-version.json": { valid: [1, 2], invalid: [0, 1.5, "1"] },
   "capability-flag.json": { valid: ["terminal"], invalid: ["", 1] },
   "capability-flags.json": { valid: [[], ["terminal", "environment.subscribe"]], invalid: [["a", "a"], [1], "a"] },

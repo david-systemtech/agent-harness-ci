@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "attention.targets.configure result",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ]
+}

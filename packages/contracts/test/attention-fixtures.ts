@@ -1,0 +1,14 @@
+const target = { id: "target-1", transport: "push", enabled: true, completion: false, configuration: {} };
+const status = { id: "target-1", transport: "push", enabled: true, completion: false, global: false, state: "ready", failure: null };
+const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+export const attentionSchemaFixtures = {
+  "attention/payload.json": { valid: [{ message: "A session needs you", url: "https://example.test:8443/#/session/env-1/session-1" }], invalid: [{ message: "Prompt text", url: "https://example.test/" }, { message: "A session needs you", url: "http://example.test/#/session/env-1/session-1" }] },
+  "attention/target-input.json": { valid: [target], invalid: [{ ...target, transport: "email" }, { ...target, completion: undefined }] },
+  "attention/target-status.json": { valid: [status], invalid: [{ ...status, state: "unknown" }] },
+};
+export const attentionMethodFixtures = {
+  "attention.targets.list": { params: { valid: [{}], invalid: [[]] }, result: { valid: [{ targets: [status] }, { targets: [] }], invalid: [{ targets: [{}] }] } },
+  ...Object.fromEntries(["attention.targets.set", "attention.routes.set"].map(name => [name, { params: { valid: [{ commandId, target }], invalid: [{ commandId, target: {} }] }, result: { valid: [{ id: "target-1" }], invalid: [{}] } }])),
+  ...Object.fromEntries(["attention.targets.configure", "attention.routes.configure"].map(name => [name, { params: { valid: [{ commandId, id: "target-1", enabled: false, completion: false }], invalid: [{ commandId, id: "target-1" }] }, result: { valid: [{ id: "target-1" }], invalid: [{}] } }])),
+  ...Object.fromEntries(["attention.targets.remove", "attention.routes.remove"].map(name => [name, { params: { valid: [{ commandId, id: "target-1" }], invalid: [{ commandId, id: "" }] }, result: { valid: [{ id: "target-1" }], invalid: [{}] } }])),
+};

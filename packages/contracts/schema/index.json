@@ -3,6 +3,18 @@
   "protocolVersion": 2,
   "schemas": [
     {
+      "path": "attention/payload.json",
+      "title": "AttentionPayload"
+    },
+    {
+      "path": "attention/target-input.json",
+      "title": "AttentionTargetInput"
+    },
+    {
+      "path": "attention/target-status.json",
+      "title": "AttentionTargetStatus"
+    },
+    {
       "path": "protocol-version.json",
       "title": "ProtocolVersion"
     },
@@ -3971,6 +3983,114 @@
       "title": "ByeReason"
     },
     {
+      "path": "methods/attention.targets.list/params.json",
+      "title": "attention.targets.list params"
+    },
+    {
+      "path": "methods/attention.targets.list/result.json",
+      "title": "attention.targets.list result"
+    },
+    {
+      "path": "methods/attention.targets.list/error.json",
+      "title": "attention.targets.list error"
+    },
+    {
+      "path": "methods/attention.targets.set/params.json",
+      "title": "attention.targets.set params"
+    },
+    {
+      "path": "methods/attention.targets.set/result.json",
+      "title": "attention.targets.set result"
+    },
+    {
+      "path": "methods/attention.targets.set/response.json",
+      "title": "attention.targets.set response"
+    },
+    {
+      "path": "methods/attention.targets.set/error.json",
+      "title": "attention.targets.set error"
+    },
+    {
+      "path": "methods/attention.targets.remove/params.json",
+      "title": "attention.targets.remove params"
+    },
+    {
+      "path": "methods/attention.targets.remove/result.json",
+      "title": "attention.targets.remove result"
+    },
+    {
+      "path": "methods/attention.targets.remove/response.json",
+      "title": "attention.targets.remove response"
+    },
+    {
+      "path": "methods/attention.targets.remove/error.json",
+      "title": "attention.targets.remove error"
+    },
+    {
+      "path": "methods/attention.routes.set/params.json",
+      "title": "attention.routes.set params"
+    },
+    {
+      "path": "methods/attention.routes.set/result.json",
+      "title": "attention.routes.set result"
+    },
+    {
+      "path": "methods/attention.routes.set/response.json",
+      "title": "attention.routes.set response"
+    },
+    {
+      "path": "methods/attention.routes.set/error.json",
+      "title": "attention.routes.set error"
+    },
+    {
+      "path": "methods/attention.routes.remove/params.json",
+      "title": "attention.routes.remove params"
+    },
+    {
+      "path": "methods/attention.routes.remove/result.json",
+      "title": "attention.routes.remove result"
+    },
+    {
+      "path": "methods/attention.routes.remove/response.json",
+      "title": "attention.routes.remove response"
+    },
+    {
+      "path": "methods/attention.routes.remove/error.json",
+      "title": "attention.routes.remove error"
+    },
+    {
+      "path": "methods/attention.targets.configure/params.json",
+      "title": "attention.targets.configure params"
+    },
+    {
+      "path": "methods/attention.targets.configure/result.json",
+      "title": "attention.targets.configure result"
+    },
+    {
+      "path": "methods/attention.targets.configure/response.json",
+      "title": "attention.targets.configure response"
+    },
+    {
+      "path": "methods/attention.targets.configure/error.json",
+      "title": "attention.targets.configure error"
+    },
+    {
+      "path": "methods/attention.routes.configure/params.json",
+      "title": "attention.routes.configure params"
+    },
+    {
+      "path": "methods/attention.routes.configure/result.json",
+      "title": "attention.routes.configure result"
+    },
+    {
+      "path": "methods/attention.routes.configure/response.json",
+      "title": "attention.routes.configure response"
+    },
+    {
+      "path": "methods/attention.routes.configure/error.json",
+      "title": "attention.routes.configure error"
+    },
+    {
       "path": "methods/environment.status/params.json",
       "title": "environment.status params"
     },
@@ -7334,6 +7454,75 @@
     }
   ],
   "methods": [
+    {
+      "name": "attention.targets.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/attention.targets.list/params.json",
+      "result": "methods/attention.targets.list/result.json",
+      "error": "methods/attention.targets.list/error.json"
+    },
+    {
+      "name": "attention.targets.set",
+      "scope": "read",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/attention.targets.set/params.json",
+      "result": "methods/attention.targets.set/result.json",
+      "response": "methods/attention.targets.set/response.json",
+      "error": "methods/attention.targets.set/error.json"
+    },
+    {
+      "name": "attention.targets.remove",
+      "scope": "read",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/attention.targets.remove/params.json",
+      "result": "methods/attention.targets.remove/result.json",
+      "response": "methods/attention.targets.remove/response.json",
+      "error": "methods/attention.targets.remove/error.json"
+    },
+    {
+      "name": "attention.routes.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/attention.routes.set/params.json",
+      "result": "methods/attention.routes.set/result.json",
+      "response": "methods/attention.routes.set/response.json",
+      "error": "methods/attention.routes.set/error.json"
+    },
+    {
+      "name": "attention.routes.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/attention.routes.remove/params.json",
+      "result": "methods/attention.routes.remove/result.json",
+      "response": "methods/attention.routes.remove/response.json",
+      "error": "methods/attention.routes.remove/error.json"
+    },
+    {
+      "name": "attention.targets.configure",
+      "scope": "read",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/attention.targets.configure/params.json",
+      "result": "methods/attention.targets.configure/result.json",
+      "response": "methods/attention.targets.configure/response.json",
+      "error": "methods/attention.targets.configure/error.json"
+    },
+    {
+      "name": "attention.routes.configure",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/attention.routes.configure/params.json",
+      "result": "methods/attention.routes.configure/result.json",
+      "response": "methods/attention.routes.configure/response.json",
+      "error": "methods/attention.routes.configure/error.json"
+    },
     {
       "name": "environment.status",
       "scope": "read",
