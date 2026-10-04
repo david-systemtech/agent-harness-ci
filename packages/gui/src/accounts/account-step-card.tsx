@@ -5,7 +5,7 @@ import { Part } from "../settings/part.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { useHoldContinue } from "../setup/continue-hold.js";
 import { StepStatus } from "../setup/step-status.js";
-import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 import { AccountsList } from "./accounts-pane.js";
 import { DefaultChoices } from "./default-model-pane.js";
 
@@ -28,6 +28,7 @@ const WAITS_ON_AN_ACCOUNT = "Continue once an account is signed in.";
  */
 export const AccountStepCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
+  const shell = useShell();
   const view = useObservable(runtime.projections.environments).find((environment) => environment.environmentId === environmentId);
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value;
   const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
@@ -38,7 +39,7 @@ export const AccountStepCard = ({ environmentId, step }: StepCardProps) => {
       <StepStatus environmentId={environmentId} step={step} />
       {view !== undefined && (
         <>
-          <AccountsList view={view} add={accounts?.length ? "Sign in another account" : "Sign in an account"} />
+          <AccountsList inlineSignIn={shell === undefined} view={view} add={accounts?.length ? "Sign in another account" : "Sign in an account"} />
           <Defaults view={view} accounts={accounts} />
         </>
       )}

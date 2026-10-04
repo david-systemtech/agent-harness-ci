@@ -142,7 +142,7 @@ export const RowPane = ({ row, filtered = false, clearSearch }: { readonly row: 
   const Built = BUILT_PANES[row];
   useCheckHomedSteps(row);
   return (
-    <section aria-label={entry.label} className="min-w-0 flex-1 overflow-y-auto">
+    <section data-settings-scroll aria-label={entry.label} className="min-w-0 flex-1 overflow-y-auto">
       <SettingsPane title={entry.label} pinned={row === "about.about" ? <ClientBuild /> : undefined} actions={entry.scope === "environment" ? <EnvironmentPicker /> : undefined}>
         {filtered && <Button title="Clear search" className="self-start" onClick={clearSearch}><SearchX aria-hidden="true" className="size-4" />Clear search</Button>}
         {Built === undefined ? <UnbuiltRow row={row} /> : <Built />}

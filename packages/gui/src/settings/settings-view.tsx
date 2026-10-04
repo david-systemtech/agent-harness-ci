@@ -7,10 +7,13 @@ import { Button } from "../ui/index.js";
 import { DIALOG_SCRIM } from "../ui/dialog.js";
 import { SettingsRail } from "./rail.js";
 import { RowPane } from "./row-pane.js";
+import { PhoneNavigation, usePhoneSettings } from "./phone-navigation.js";
 import { useSettings } from "./settings-window.js";
 
 /** Settings overlays the mounted session window, bounded by look.md §12.1. */
 export const SettingsView = () => {
+  const phone = usePhoneSettings();
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [query, setQuery] = useState("");
   const { row, close } = useSettings();
   const isToggle = useIsKeyOf("app.settings.toggle");
@@ -24,6 +27,7 @@ export const SettingsView = () => {
           className="fixed left-1/2 top-1/2 z-50 flex h-[min(660px,calc(100dvh-3rem))] w-[min(1000px,calc(100vw-3rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-float text-ink ring-1 ring-ink/10 outline-none"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
+            if (phone) { document.querySelector<HTMLButtonElement>(".phone-navigation-trigger")?.focus(); return; }
             document.querySelector<HTMLInputElement>('[data-settings-dialog] input[type="search"]')?.focus();
           }}
           onEscapeKeyDown={(event) => {
@@ -44,8 +48,10 @@ export const SettingsView = () => {
               </div>
               <Button title={`Close Settings · Escape${toggleKey === undefined ? "" : ` · ${toggleKey}`}`} aria-label="Close Settings" size="icon-xs" onClick={close}><X aria-hidden="true" /></Button>
             </header>
-            <div className="flex min-h-0 flex-1">
-              <SettingsRail current={row} query={query} setQuery={setQuery} />
+            <div data-settings-body className="flex min-h-0 flex-1">
+              {phone ? <PhoneNavigation title="Settings rows" open={navigationOpen} onOpenChange={setNavigationOpen}>
+                <SettingsRail current={row} query={query} setQuery={setQuery} onChoose={() => { setNavigationOpen(false); setQuery(""); }} />
+              </PhoneNavigation> : <SettingsRail current={row} query={query} setQuery={setQuery} />}
               <RowPane key={row} row={row} filtered={!matchSettingsRows(query).includes(row)} clearSearch={() => setQuery("")} />
             </div>
           </section>

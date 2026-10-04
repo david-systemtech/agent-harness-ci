@@ -8,6 +8,8 @@ import { focusedPane, showSession } from "../grid/layout.js";
 import { EmptyPane, NewSessionPane, SessionPane } from "../grid/session-pane.js";
 import { NewSessionSurfaces } from "../new-session/surfaces.js";
 import { PaneLines } from "../session/pane-line.js";
+import { ChecklistView } from "../setup/checklist-view.js";
+import { useChecklist } from "../setup/checklist-window.js";
 import { SettingsView } from "../settings/settings-view.js";
 import { useSettings } from "../settings/settings-window.js";
 import { WindowNotices } from "../notices/window-notices.js";
@@ -34,6 +36,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   const pane = focusedPane(layout);
   const grid = usePaneGrid();
   const settings = useSettings();
+  const checklist = useChecklist();
   const [line, setLine] = useState<string>();
   const [pairing, setPairing] = useState(false);
   const [handedLink, setHandedLink] = useState<string>();
@@ -68,6 +71,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     history.replaceState(null, "", sessionLink(session));
   };
   const content = { focused: true, marked: false, close: undefined };
+  if (checklist.shown) return <ChecklistView />;
   return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">
     <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
       <label className="sr-only" htmlFor="web-session">Sessions</label>

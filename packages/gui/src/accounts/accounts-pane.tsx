@@ -8,7 +8,7 @@ import { StepLinks } from "../settings/step-links.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { AccountAction } from "./action.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { AccountCard } from "./account-card.js";
 import { AdoptOffer } from "./adopt-offer.js";
 import { ConfirmRemove } from "./confirm-remove.js";
@@ -68,6 +68,7 @@ export interface AccountsListProps {
  */
 export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListProps) => {
   const runtime = useRuntime();
+  const shell = useShell();
   const { environmentId } = view;
   const listed = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
   const { values } = useSettingsValues(environmentId);
@@ -92,7 +93,7 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
           {reachWords(runtime, view)}: {accounts === null ? "this window has read none of its accounts." : "its accounts as this window last read them, read-only."}
         </p>
       )}
-      {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {ready && admin.status === "absent" && <p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">Read-only: {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p>}
       {ready && <AdoptOffer environmentId={environmentId} environment={nameOf(view)} writable={writable} say={say} />}
       <div className="flex flex-wrap gap-2">
         <AccountAction icon={Plus} variant="default" disabled={!writable || signing !== undefined} onClick={() => signIn({ account: null })}>

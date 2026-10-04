@@ -3,6 +3,7 @@ import { ListChecks, X } from "lucide-react";
 import { useId, useState } from "react";
 import { EnvironmentPicker } from "../settings/environment-picker.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
+import { PhoneNavigation, usePhoneSettings } from "../settings/phone-navigation.js";
 import { classes } from "../ui/classes.js";
 import { Button, Tooltip } from "../ui/index.js";
 import { useChecklist } from "./checklist-window.js";
@@ -20,6 +21,7 @@ import { useCheckOnOpen, useSetupView } from "./use-setup.js";
  * every step there.
  */
 export const ChecklistView = () => {
+  const phone = usePhoneSettings();
   const { step: shown, choose, close } = useChecklist();
   const picked = usePickedEnvironment();
   const view = useSetupView(picked?.environmentId);
@@ -28,25 +30,8 @@ export const ChecklistView = () => {
   const railId = useId();
   const [railOpen, setRailOpen] = useState(false);
   const step = view?.steps.find((candidate) => candidate.id === shown);
-  return (
-    <section aria-labelledby={heading} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-abyss text-ink">
-      <header className="flex h-11 shrink-0 items-center gap-4 border-b border-hairline bg-panel px-4">
-        <h1 id={heading} className="text-base font-semibold text-ink">
-          Set up
-        </h1>
-        <Tooltip content="Choose an environment · Tab, arrow keys">
-          <span className="inline-flex items-center gap-2"><ListChecks aria-hidden="true" className="size-4 text-ink-muted" /><EnvironmentPicker /></span>
-        </Tooltip>
-        <Tooltip content="Close Set up · Tab, Enter">
-          <Button aria-label="Close Set up" className="ml-auto" onClick={close}><X aria-hidden="true" />Close</Button>
-        </Tooltip>
-      </header>
-      {view !== undefined && picked !== undefined && <ReachLine view={view} environment={picked} />}
-      <Tooltip content="Show or hide steps · Tab, Enter">
-        <Button aria-expanded={railOpen} aria-controls={railId} onClick={() => setRailOpen(!railOpen)} className="m-2 self-start md:hidden"><ListChecks aria-hidden="true" />Steps</Button>
-      </Tooltip>
-      <div className="relative flex min-h-0 flex-1">
-        <nav id={railId} aria-label="Set up steps" className={classes("z-10 w-[280px] max-w-full shrink-0 flex-col overflow-y-auto border-r border-hairline bg-panel px-2.5 pt-4 pb-2.5 md:static md:flex", railOpen ? "absolute inset-y-0 left-0 flex shadow-lg" : "hidden")}>
+  const rail = (
+    <nav id={railId} aria-label="Set up steps" className="flex w-[280px] max-w-full min-h-0 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-panel px-2.5 pt-4 pb-2.5">
           <ol className="flex flex-col gap-0.5">
             {view?.steps.map((candidate, index) => {
               const Icon = STEP_ICONS[candidate.id];
@@ -80,6 +65,23 @@ export const ChecklistView = () => {
             })}
           </ol>
         </nav>
+  );
+  return (
+    <section data-phone-setup aria-labelledby={heading} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-abyss text-ink">
+      <header className="flex h-11 shrink-0 items-center gap-4 border-b border-hairline bg-panel px-4">
+        <h1 id={heading} className="text-base font-semibold text-ink">
+          Set up
+        </h1>
+        <Tooltip content="Choose an environment · Tab, arrow keys">
+          <span className="inline-flex items-center gap-2"><ListChecks aria-hidden="true" className="size-4 text-ink-muted" /><EnvironmentPicker /></span>
+        </Tooltip>
+        <Tooltip content="Close Set up · Tab, Enter">
+          <Button aria-label="Close Set up" className="ml-auto" onClick={close}><X aria-hidden="true" />Close</Button>
+        </Tooltip>
+      </header>
+      {view !== undefined && picked !== undefined && <ReachLine view={view} environment={picked} />}
+      <div className="relative flex min-h-0 flex-1 flex-col min-[640px]:flex-row">
+        {phone ? <PhoneNavigation title="Set up steps" open={railOpen} onOpenChange={setRailOpen}>{rail}</PhoneNavigation> : rail}
         {step !== undefined && picked !== undefined && <StepCard key={`${picked.environmentId} ${step.id}`} environmentId={picked.environmentId} step={step} />}
       </div>
     </section>

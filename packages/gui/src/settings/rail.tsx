@@ -27,7 +27,7 @@ export const dimReason = (row: (typeof SETTINGS_ROWS)[number]): string | undefin
  * the environment the dots follow; a placeholder dim with its reason under
  * it, opening nothing.
  */
-const RailRow = ({ row, current, setup }: { readonly row: (typeof SETTINGS_ROWS)[number]; readonly current: boolean; readonly setup: SetupView | undefined }) => {
+const RailRow = ({ row, current, setup, onChoose }: { readonly row: (typeof SETTINGS_ROWS)[number]; readonly current: boolean; readonly setup: SetupView | undefined; readonly onChoose?: (() => void) | undefined }) => {
   const { open } = useSettings();
   const reasonId = useId();
   const dim = dimReason(row);
@@ -41,7 +41,7 @@ const RailRow = ({ row, current, setup }: { readonly row: (typeof SETTINGS_ROWS)
         aria-current={current ? "page" : undefined}
         aria-disabled={dim === undefined ? undefined : true}
         aria-describedby={dim === undefined ? undefined : reasonId}
-        onClick={() => dim === undefined && open(row.id)}
+        onClick={() => { if (dim === undefined) { open(row.id); onChoose?.(); } }}
         className={classes(
           "flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left outline-none focus-visible:outline-2 focus-visible:outline-beam",
           current && "bg-wash-strong",
@@ -69,7 +69,7 @@ const RailRow = ({ row, current, setup }: { readonly row: (typeof SETTINGS_ROWS)
  * the environment the last `environment` pane picked, else the home
  * environment, and show only on home rows (`rowHealth`).
  */
-export const SettingsRail = ({ current, query, setQuery }: { readonly current: SettingsRowId; readonly query: string; readonly setQuery: (query: string) => void }) => {
+export const SettingsRail = ({ current, query, setQuery, onChoose }: { readonly current: SettingsRowId; readonly query: string; readonly setQuery: (query: string) => void; readonly onChoose?: (() => void) | undefined }) => {
   const found = useMemo(() => new Set(matchSettingsRows(query)), [query]);
   const setup = useSetupView(usePickedEnvironment()?.environmentId);
   return (
@@ -86,7 +86,7 @@ export const SettingsRail = ({ current, query, setQuery }: { readonly current: S
             <h2 className="chrome-label px-2.5 text-ink-faint">{band.label}</h2>
             <ul className="flex flex-col gap-0.5">
               {inBand.map((row) => (
-                <RailRow key={row.id} row={row} current={row.id === current} setup={setup} />
+                <RailRow key={row.id} row={row} current={row.id === current} setup={setup} onChoose={onChoose} />
               ))}
             </ul>
           </div>
