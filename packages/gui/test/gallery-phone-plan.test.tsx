@@ -73,12 +73,18 @@ it("allocates the frame conversation and drawer profiles without spending deskto
 
 
 it("adds all nine pane scenes in independently bounded reports", async () => {
-  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
-  const plan = capturePlan([...scenes, ...["phone-pane-agent", "phone-pane-diff", "phone-pane-documents", "phone-pane-file", "phone-pane-files", "phone-pane-markdown", "phone-pane-preview", "phone-pane-scope", "phone-pane-tasks"]]);
-  expect(plan.budget).toEqual({ desktop: 354, phone: 118, total: 472, limit: 800, remaining: 328 });
-  expect(plan.shards.map(shard => [shard.id, shard.captures.length])).toEqual([["desktop-001", 354], ["phone-001", 118]]);
+  const panes = ["phone-pane-agent", "phone-pane-diff", "phone-pane-documents", "phone-pane-file", "phone-pane-files", "phone-pane-markdown", "phone-pane-preview", "phone-pane-scope", "phone-pane-tasks"];
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => !panes.includes(scene));
+  const existing = capturePlan(scenes);
+  const plan = capturePlan([...scenes, ...panes]);
+  expect(plan.budget.desktop).toBe(existing.budget.desktop);
+  expect(plan.budget.phone).toBe(existing.budget.phone + 72);
+  expect(plan.budget.total).toBe(existing.budget.total + 72);
+  expect(plan.captures.filter(c => !panes.includes(c.scene))).toEqual(existing.captures);
+  expect(plan.shards.every(shard => shard.captures.length <= 400 && shard.budget.remaining >= 0)).toBe(true);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
+
 
 it("requires a discovered shard before capture", () => {
   const plan = capturePlan(Array.from({ length: 51 }, (_, i) => `phone-pane-${i}`));
