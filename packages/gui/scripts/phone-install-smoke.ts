@@ -19,6 +19,26 @@ Cache.prototype.put = async function(request, response) {
 globalThis.addEventListener("message", event => {
     if (event.data !== "__smoke-cache-audit") return;
     event.waitUntil((async () => {
+      const capabilityName = "__smoke-cache-capability";
+      const capability = await globalThis.caches.open(capabilityName);
+      let capabilityResult;
+      try {
+        const root = new Request(new URL("/", globalThis.location.origin), { credentials: "omit", cache: "no-store" });
+        await putPublicBytes.call(capability, root, new Response("fixture cache capability"));
+        const synthetic = Boolean(await capability.match(root));
+        const manifest = new Request(new URL("/manifest.webmanifest", globalThis.location.origin), { credentials: "omit", cache: "no-store" });
+        const fetchedResponse = await fetch(manifest);
+        const buffered = new Response(await fetchedResponse.clone().arrayBuffer(), { headers: fetchedResponse.headers, status: fetchedResponse.status });
+        await putPublicBytes.call(capability, manifest, fetchedResponse);
+        const fetched = Boolean(await capability.match(manifest));
+        await putPublicBytes.call(capability, manifest, buffered);
+        const bufferedMatch = Boolean(await capability.match(manifest));
+        const icon = new URL("/phone-icons/icon-192.png", globalThis.location.origin).href;
+        await putPublicBytes.call(capability, icon, new Response("fixture string-key capability"));
+        capabilityResult = { synthetic, fetched, buffered: bufferedMatch, stringKey: Boolean(await capability.match(icon)), keys: (await capability.keys()).length };
+      } finally {
+        await globalThis.caches.delete(capabilityName);
+      }
       const names = await globalThis.caches.keys();
       const urls = [];
       const matches = [];
@@ -27,7 +47,7 @@ globalThis.addEventListener("message", event => {
         for (const request of await cache.keys()) urls.push(request.url);
         matches.push({ name, root: Boolean(await cache.match("/")), icon: Boolean(await cache.match("/phone-icons/icon-192.png")), rootKeys: (await cache.keys("/")).length });
       }
-      event.ports[0].postMessage({ names, urls, matches, writes: cacheWrites });
+      event.ports[0].postMessage({ names, urls, matches, writes: cacheWrites, capability: capabilityResult });
     })().catch(error => event.ports[0].postMessage({ error: String(error) })));
   });`);
 }
@@ -45,10 +65,10 @@ export async function auditPublicCache(page: Page, engine: string, phase: string
     worker.postMessage("__smoke-cache-audit", [channel.port2]);
   })().catch(error => document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify({ error: String(error) })))`);
   await page.locator("html[data-smoke-cache-audit]").waitFor({ state: "attached" });
-  const audit = await page.evaluate<{ urls?: string[]; names?: string[]; matches?: unknown[]; writes?: unknown[]; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
+  const audit = await page.evaluate<{ urls?: string[]; names?: string[]; matches?: unknown[]; writes?: unknown[]; capability?: unknown; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
   await page.evaluate("document.documentElement.removeAttribute('data-smoke-cache-audit')");
   assert(audit.urls, audit.error ?? "The worker cache audit answered.");
-  console.log(`PHONE-INSTALL ${engine}: ${phase} cache ${JSON.stringify({ names: audit.names, entries: audit.urls.length, matches: audit.matches, writes: audit.writes })}`);
+  console.log(`PHONE-INSTALL ${engine}: ${phase} cache ${JSON.stringify({ names: audit.names, entries: audit.urls.length, matches: audit.matches, writes: audit.writes, capability: audit.capability })}`);
   return audit.urls;
 
 }
