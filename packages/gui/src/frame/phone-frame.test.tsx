@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { compile } from "tailwindcss";
 import { chooseHeaderAction, openHeaderMenu } from "../../test/header-actions.js";
 import { renderApp } from "../../test/harness.js";
 
@@ -128,4 +129,25 @@ it("retains drafts and attachments by session when the drawer replaces the same 
   await select("Next task");
   await select("First task");
   expect(screen.queryByRole("button", { name: "Remove draft.png" })).toBeNull();
+});
+
+
+it("gives the narrow desktop grid a flex column parent within the session card", async () => {
+  phoneViewport();
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipt summary" }] }] });
+  app.open("desk");
+  await screen.findByRole("textbox", { name: "Message" });
+  const stylesheet = document.createElement("style");
+  stylesheet.textContent = (await compile("@tailwind utilities;")).build(["flex", "flex-col", "flex-1"]);
+  document.head.append(stylesheet);
+  try {
+    const gridParent = screen.getByRole("main").lastElementChild;
+    expect(gridParent).not.toBeNull();
+    // The grid must participate in its parent's height allocation, not block content sizing.
+    expect(getComputedStyle(gridParent!).display).toBe("flex");
+    expect(getComputedStyle(gridParent!).flexDirection).toBe("column");
+    expect(gridParent?.contains(screen.getByRole("textbox", { name: "Message" }))).toBe(true);
+  } finally {
+    stylesheet.remove();
+  }
 });
