@@ -10,7 +10,8 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+  checkPackagedCredentialRepair: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<void>;
   checkReplacedPackagedCredential: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<"retained" | "unavailable">;
   waitForCredentialHelpersExit: (helpers: number[], running?: (pid: number) => boolean) => Promise<void>;
   quitWithPendingPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
@@ -55,8 +56,15 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
-  const replacedPage = (unavailable: boolean, message = "Stored credentials from the previous build could not be read") => {
-    const dom = new JSDOM(`<section aria-label="Settings"><section aria-label="Notifications"><p>macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them.</p><p>${message}. New credentials use a fresh OS-protected item. Pair again with the environments that were paired.</p><button>Pair again</button></section><section aria-label="Your machines"></section></section>`);
+  const replacedPage = (unavailable: boolean, message = "Stored credentials from the previous build could not be read", repairWorks = true) => {
+    const content = (row: string) => `<section aria-label="Settings"><nav aria-label="Settings rows"><button aria-label="About">About</button></nav><section aria-label="Notifications"><p>macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them.</p><p>${message}. New credentials use a fresh OS-protected item. Pair again with the environments that were paired.</p><button data-repair>Pair again</button></section><section aria-label="${row}"></section></section>`;
+    const dom = new JSDOM(content("Your machines"));
+    dom.window.document.querySelector('[aria-label="About"]')?.addEventListener("click", () => {
+      dom.window.document.body.innerHTML = content("About");
+      dom.window.document.querySelector('[data-repair]')?.addEventListener("click", () => {
+        if (repairWorks) dom.window.document.body.innerHTML = content("Your machines");
+      });
+    });
     const p = page("token-for-tests-kept");
     const window = { desktopShell: {
       secrets: { get: async () => { if (unavailable) throw new Error("Stored credentials from the previous build could not be read. Native access deadline."); return "token-for-tests-kept"; }, access: async () => unavailable ? "denied" : null },
@@ -95,8 +103,21 @@ describe("the packaged macOS update smoke", () => {
     const p = replacedPage(true, "Something went wrong");
     await expect(checkReplacedPackagedCredential(p.evaluate)).rejects.toThrow(/explanation/);
     const actionless = replacedPage(true);
-    actionless.document.querySelector("button")?.remove();
+    actionless.document.querySelector("[data-repair]")?.remove();
     await expect(checkReplacedPackagedCredential(actionless.evaluate)).rejects.toThrow(/repair action/);
+  });
+
+  it("requires the repair action to navigate from another Settings row, rather than accepting an already-open target", async () => {
+    const p = replacedPage(true);
+    await checkPackagedCredentialRepair(p.evaluate);
+    expect(p.document.querySelector('section[aria-label="Your machines"]')).not.toBeNull();
+    vi.useFakeTimers();
+    try {
+      const broken = replacedPage(true, undefined, false);
+      const failed = expect(checkPackagedCredentialRepair(broken.evaluate)).rejects.toThrow(/repair action did not open/);
+      await vi.advanceTimersByTimeAsync(5000);
+      await failed;
+    } finally { vi.useRealTimers(); }
   });
 
   it("rejects arbitrary read errors and missing pending explanations rather than counting them as recovery", async () => {
@@ -453,7 +474,7 @@ assert.deepEqual(phases, ['ready', 'encrypt', 'exit']);
   });
 
   it("fails when the kept credential cannot authorize the update", async () => {
-    await expect(askForPackagedUpdate(page("token-for-tests", 401).evaluate, "0.2.0")).rejects.toThrow(/existing credential must authorize/);
+    await expect(askForPackagedUpdate(page("token-for-tests", 401).evaluate, "0.2.0")).rejects.toThrow(/retained or recovered credential must authorize/);
   });
 
   it("refuses to count a fresh install already at the release version as an upgrade", async () => {

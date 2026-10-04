@@ -189,6 +189,21 @@ export async function checkFreshPackagedCredential(evaluate) {
   assert.equal(result, true, "Fresh storage must be OS-protected and read back correctly");
 }
 
+/** Start elsewhere so a visible but inert repair button cannot pass. */
+export async function checkPackagedCredentialRepair(evaluate) {
+  assert.equal(await evaluate(`(() => {
+    const row = document.querySelector('nav[aria-label="Settings rows"] button[aria-label="About"]');
+    row?.click(); return !!row;
+  })()`, "open About before checking credential repair", 5000), true, "Settings must offer About before checking repair");
+  await until(() => evaluate(`!!document.querySelector('section[aria-label="About"]') && !document.querySelector('section[aria-label="Your machines"]')`, "About readiness before credential repair", 5000), "About must open before the repair action", 5000);
+  assert.equal(await evaluate(`(() => {
+    const buttons = document.querySelectorAll('section[aria-label="Settings"] section[aria-label="Notifications"] button');
+    const button = Array.from(buttons).find(button => button.textContent.trim() === 'Pair again' && !button.disabled);
+    button?.click(); return !!button;
+  })()`, "open credential recovery action", 5000), true, "The credential repair action must be enabled");
+  await until(() => evaluate(`!!document.querySelector('section[aria-label="Your machines"]')`, "credential recovery machines readiness", 5000), "The credential repair action did not open Your machines", 5000);
+}
+
 /** Both replacement outcomes must keep IPC responsive; only a bounded, explained refusal passes. */
 export async function checkReplacedPackagedCredential(evaluate) {
   const started = Date.now();
@@ -207,7 +222,7 @@ export async function checkReplacedPackagedCredential(evaluate) {
         access, settings: !!settings,
         waiting: text.includes('macOS is asking for access to the stored credentials') && text.includes('Answering the macOS prompt keeps them'),
         unavailable: text.includes('Stored credentials from the previous build could not be read') && text.includes('fresh OS-protected item') && text.includes('Pair again with the environments that were paired'),
-        repair: !!visible && Array.from(notices.querySelectorAll('button')).some(button => button.textContent.trim() === 'Pair again') };
+        repair: !!visible && Array.from(notices.querySelectorAll('button')).some(button => button.textContent.trim() === 'Pair again' && !button.disabled) };
     })()`, "window responsiveness and credential recovery explanation", 5000);
     assert.equal(state.settings, true, "Settings must stay responsive during the prior read");
     if (state.settled && state.retained) return "retained";
@@ -218,12 +233,8 @@ export async function checkReplacedPackagedCredential(evaluate) {
         assert.equal(state.access, "denied", "The unavailable prior item must be reported");
         assert.equal(state.unavailable, true, "The unavailable credential explanation must be visible");
         assert.equal(state.repair, true, "The unavailable credential repair action must be visible");
-        assert.equal(await evaluate(`(() => {
-          const buttons = document.querySelectorAll('section[aria-label="Settings"] section[aria-label="Notifications"] button');
-          const button = Array.from(buttons).find(button => button.textContent.trim() === 'Pair again');
-          button?.click(); return !!button;
-        })()`, "open credential recovery action", 5000), true);
-        await until(() => evaluate(`!!document.querySelector('section[aria-label="Your machines"]')`, "credential recovery machines readiness", 5000), "Credential recovery must open Your machines", 5000);
+        await checkPackagedCredentialRepair(evaluate);
+        if (Date.now() >= deadline) throw smokeTimeout("credential recovery exceeded its deadline", "window.__packagedCredentialCheck.settled");
         return "unavailable";
       }
     }
@@ -305,7 +316,7 @@ export async function askForPackagedUpdate(evaluate, version, outcome) {
   })()`, "finish carried update check");
   assert.notEqual(result.fromVersion, version, "This must exercise an upgrade, not a fresh install");
   assert.equal(result.carriedVersion, version);
-  assert.equal(result.status, 200, "The existing credential must authorize the carried update");
+  assert.equal(result.status, 200, "The retained or recovered credential must authorize the carried update");
   assert.equal(result.toVersion, version);
   assert.equal(result.platform, "darwin", "The main process still answers after the Keychain read");
 }

@@ -88,6 +88,19 @@ describe("a notice", () => {
     await waitFor(() => expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull());
   });
 
+  it("still reports unavailable credentials after the waiting explanation was dismissed", async () => {
+    const shell = fakeShell();
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
+    await act(async () => shell.changeSecretAccess("waiting"));
+    await act(async () => app.clock.advance(500));
+    await app.user.click(within(await bannerSaying("Waiting for macOS Keychain access")).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull();
+    await act(async () => shell.changeSecretAccess("denied"));
+    const unavailable = await bannerSaying("Stored credentials from the previous build could not be read");
+    await app.user.click(within(unavailable).getByRole("button", { name: "Pair again" }));
+    expect(await screen.findByRole("heading", { name: "Your machines" })).toBeDefined();
+  });
+
   it("keeps an unavailable paired environment visible and offers its working re-pair action", async () => {
     const app = await twoEnvironments();
     const laptop = app.environment("laptop");
