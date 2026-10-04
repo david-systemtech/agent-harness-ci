@@ -19,6 +19,7 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
       cwd, env: { ...process.env, WEB_SMOKE_BUNDLE: join(out, "web"), WEB_SMOKE_OUTPUT: out }, maxBuffer: 8 * 1024 * 1024,
     });
     execution.child.stdout?.pipe(process.stdout, { end: false });
+    execution.child.stderr?.pipe(process.stderr, { end: false });
     const result = await execution;
     expect(result.stdout).toContain("WEB-SMOKE PASS chromium");
     expect(result.stdout).toContain("WEB-SMOKE PASS webkit");

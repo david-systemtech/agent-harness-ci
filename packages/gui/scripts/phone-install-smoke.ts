@@ -8,6 +8,14 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   // Playwright's waitForFunction evaluates its predicate inside the page; WebKit enforces the served CSP there.
   await page.evaluate(`(() => {
     const workers = navigator.serviceWorker;
+    document.documentElement.setAttribute("data-smoke-worker-registration", "pending");
+    void workers.getRegistration().then(registration => {
+      document.documentElement.setAttribute("data-smoke-worker-registration", JSON.stringify({
+        active: registration?.active?.state,
+        installing: registration?.installing?.state,
+        waiting: registration?.waiting?.state,
+      }));
+    }, error => document.documentElement.setAttribute("data-smoke-worker-registration", String(error)));
     const controlled = () => {
       if (!workers.controller) return;
       document.documentElement.setAttribute("data-smoke-worker-controlled", "");
@@ -19,11 +27,12 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   try {
     await page.locator("html[data-smoke-worker-controlled]").waitFor({ state: "attached" });
   } catch (error) {
-    // Retry only to expose the registration error; the original readiness failure still fails the test.
-    const reason = await page.evaluate("navigator.serviceWorker.register('/service-worker.js', { type: 'module', scope: '/', updateViaCache: 'none' }).then(registration => ({ active: registration.active?.state, installing: registration.installing?.state, waiting: registration.waiting?.state }), error => ({ error: String(error) }))");
+    const reason = await page.evaluate("({ registration: document.documentElement.getAttribute('data-smoke-worker-registration'), controlled: Boolean(navigator.serviceWorker.controller) })");
+    console.error(`PHONE-INSTALL ${engine}: public worker readiness failed: ${JSON.stringify(reason)}`);
     throw new Error(`${engine} public worker did not activate: ${JSON.stringify(reason)}`, { cause: error });
   }
   await page.evaluate("document.documentElement.removeAttribute('data-smoke-worker-controlled')");
+  await page.evaluate("document.documentElement.removeAttribute('data-smoke-worker-registration')");
   console.log(`PHONE-INSTALL ${engine}: public worker controls the client`);
   const textbox = page.getByRole("textbox", { name: "Message", exact: true });
   await textbox.fill("Draft retained across a client update.");
