@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,13 +10,14 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop } = await import(script) as {
+const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   openPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   stampPriorPackagedServer: (server: string, version: string) => void;
   copyPackagedDesktop: (source: string, destination: string) => void;
+  prepareCredentialFixture: (app: string) => void;
 };
 
 /** The smoke's CDP boundary evaluates in a page exposing the preload's shell; no Electron or service manager runs. */
@@ -39,6 +40,70 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it.each([false, true])("finishes loading before ready, then seeds the credential with failure=%s", (failEncryption) => {
+    const work = mkdtempSync(join(tmpdir(), "credential-fixture-"));
+    try {
+      const app = join(work, "app");
+      prepareCredentialFixture(app);
+      const electron = join(app, "node_modules", "electron");
+      mkdirSync(electron, { recursive: true });
+      writeFileSync(join(electron, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }));
+      // Electron 44 imports its ESM entry before appCodeLoaded permits ready. No native Electron runs.
+      writeFileSync(join(electron, "index.js"), `
+import { Buffer } from 'node:buffer';
+export let ready;
+export let name;
+export let userData;
+export let exitCode;
+export const phases = [];
+const readiness = new Promise(resolve => { ready = () => { phases.push('ready'); resolve(); }; });
+export const app = {
+  setName: value => { name = value; },
+  setPath: (key, value) => { if (key !== 'userData') throw new Error('Unexpected path'); userData = value; },
+  whenReady: () => readiness,
+  exit: code => { exitCode = code; phases.push('exit'); },
+};
+export const safeStorage = { encryptString: value => {
+  if (phases[0] !== 'ready') throw new Error('Encryption before ready');
+  phases.push('encrypt');
+  if (process.env.FAIL_ENCRYPTION === 'true') throw new Error('Encryption unavailable');
+  return Buffer.from('v10' + value);
+} };
+`);
+      const secret = join(work, "credential.secret");
+      const seed = join(work, "seed.json");
+      writeFileSync(seed, JSON.stringify({ token: "credential-for-tests", file: secret }));
+      const boot = join(app, "boot.mjs");
+      writeFileSync(boot, `
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { app, ready, name, userData, exitCode, phases } from 'electron';
+await import('./main.js');
+assert.equal(name, 'agent-harness');
+assert.equal(userData, process.env.DESKTOP_FIXTURE);
+assert.equal(exitCode, undefined);
+assert.equal(existsSync(process.env.SECRET_FIXTURE), false);
+assert.deepEqual(phases, []);
+ready();
+await Promise.resolve();
+assert.equal(exitCode, process.env.FAIL_ENCRYPTION === 'true' ? 1 : 0);
+assert.deepEqual(phases, ['ready', 'encrypt', 'exit']);
+`);
+      const result = spawnSync(process.execPath, [boot], { env: { ...process.env,
+        CREDENTIAL_FIXTURE: seed, DESKTOP_FIXTURE: join(work, "desktop"), SECRET_FIXTURE: secret,
+        FAIL_ENCRYPTION: String(failEncryption),
+      }, encoding: "utf8", timeout: 10_000 });
+      // A cyclic entry/ready await exits with Node's unsettled-top-level-await status, never a short clock race.
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(existsSync(secret)).toBe(!failEncryption);
+      if (!failEncryption) {
+        expect(readFileSync(secret).toString()).toBe("v10credential-for-tests");
+        expect(statSync(secret).mode & 0o777).toBe(0o600);
+      }
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
   it("preserves framework links and executable permissions in a self-contained app copy", () => {
     const work = mkdtempSync(join(tmpdir(), "packaged-app-links-"));
     try {
