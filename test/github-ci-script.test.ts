@@ -1105,9 +1105,31 @@ it.each(["manifest", "pixels", "phone-image"])("rejects an invalid shard %s befo
   const g = await storedGallery();
   const phone = mode === "phone-image";
   await g.capture(255, 1, phone ? ["phone-overlay-workspace-phone-390.dark"] : ["window-empty.dark"], phone ? { width: 1400, height: 900 } : undefined);
-  const archive = await shardArchive(g, phone ? "phone-001" : "desktop-001", 0, mode === "manifest" ? 2 : 1, mode !== "pixels");
+  const archive = await shardArchive(g, phone ? "phone-001" : "desktop-001", 0, mode === "manifest" ? 0 : 1, mode !== "pixels");
   const result = await relay(g.f, { ...g.env, FAKE_GALLERY_ZIP: archive, FAKE_GALLERY_ARTIFACTS: JSON.stringify([{ id:99, name:phone ? "window-gallery-phone-001" : "window-gallery-desktop-001", size_in_bytes:100, expired:false }]) });
   expect(result.code).toBe(1);
   expect(result.stderr).toContain(mode === "manifest" ? "invalid gallery shard manifest" : mode === "pixels" ? "shard pixel gate must remain blocking" : "unexpected phone gallery dimensions");
   expect(g.comments).toHaveLength(0);
+});
+
+
+it.each(["desktop-001", "phone-001"])("publishes surviving %s evidence with its planned position and blocks older-report acceptance", async id => {
+  const g = await storedGallery();
+  await g.capture(255);
+  expect((await relay(g.f, g.env)).code).toBe(0);
+  expect(g.comments).toHaveLength(1);
+  const name = id === "desktop-001" ? "window-empty.dark" : "phone-overlay-workspace-phone-390.dark";
+  const index = id === "desktop-001" ? 0 : 1;
+  await g.capture(0, 1, [name]);
+  const archive = await shardArchive(g, id, index, 2);
+  const result = await relay(g.f, { ...g.env, FAKE_API_CONCLUSION: "failure", FAKE_GALLERY_ZIP: archive,
+    FAKE_GALLERY_ARTIFACTS: JSON.stringify([{ id: 99, name: `window-gallery-${id}`, size_in_bytes: 100, expired: false }]),
+  });
+  expect(result.code).toBe(1);
+  expect(g.comments).toHaveLength(2);
+  const manifest = JSON.parse(/<!-- window-gallery (.*) -->/.exec(g.comments[1]!.body)![1]!) as { shard: { id: string; index: number; count: number }; captures: { name: string }[] };
+  expect(manifest.shard).toMatchObject({ id, index, count: 2 });
+  expect(manifest.captures.map(c => c.name)).toEqual([`${name}.png`]);
+  await expect(run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...process.env, ...g.env } })).rejects.toMatchObject({ stderr: expect.stringContaining("Incomplete or duplicate gallery shard set") });
+  expect(existsSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toBe(false);
 });

@@ -196,7 +196,6 @@ for a in sorted(items,key=lambda a:a["name"]): print(int(a["id"]),a["name"])')
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
     shard_count=$(printf '%s\n' "$artifacts" | wc -l)
-    shard_index=0
     while read -r artifact artifact_name; do
     gh_api --fail -L --max-filesize 67108864 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
     gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
@@ -211,7 +210,7 @@ PYFORMAT
       [ "$artifact_name" = window-gallery ] || { echo "::error::shard report missing"; exit 1; }
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
-      python3 - "$gl/gallery.zip" "$sha" "$artifact_name" "$shard_index" "$shard_count" "run-$run_id-$run_attempt" <<'PYGALLERY'
+      python3 - "$gl/gallery.zip" "$sha" "$artifact_name" "$shard_count" "run-$run_id-$run_attempt" <<'PYGALLERY'
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
@@ -243,7 +242,9 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     report = json.loads(z.read('report.json'))
     shard = report.get('shard')
     if sys.argv[3] != 'window-gallery':
-        if not isinstance(shard, dict) or shard != {'id': sys.argv[3].removeprefix('window-gallery-'), 'index': int(sys.argv[4]), 'count': int(sys.argv[5])}: sys.exit('invalid gallery shard manifest')
+        # Missing uploads do not renumber survivors or shrink the planned set.
+        if not isinstance(shard, dict) or set(shard) != {'id', 'index', 'count'} or shard.get('id') != sys.argv[3].removeprefix('window-gallery-'): sys.exit('invalid gallery shard manifest')
+        if type(shard.get('index')) is not int or type(shard.get('count')) is not int or not 0 <= shard['index'] < shard['count'] <= 100 or shard['count'] < int(sys.argv[4]): sys.exit('invalid gallery shard manifest')
         if report.get('pixelBlocking') is not True: sys.exit('shard pixel gate must remain blocking')
     elif shard is not None: sys.exit('unexpected gallery shard manifest')
     images = {n: z.read(n) for n in names if n.endswith('.png')}
@@ -313,7 +314,7 @@ try:
                 if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
         captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
     manifest = {'head': head, 'version': version, 'captures': captures}
-    if shard is not None: manifest['shard'] = {**shard, 'group': sys.argv[6]}
+    if shard is not None: manifest['shard'] = {**shard, 'group': sys.argv[5]}
     body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
     stage = 'final report'
     request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
@@ -330,7 +331,6 @@ PYGALLERY
       python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
         echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."
     fi
-    shard_index=$((shard_index + 1))
     done <<< "$artifacts"
   fi
 fi
