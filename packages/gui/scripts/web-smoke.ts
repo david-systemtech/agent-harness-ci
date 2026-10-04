@@ -42,10 +42,11 @@ await new Promise<void>(resolve => secure.listen(0, "127.0.0.1", resolve));
 const origin = `https://localhost:${(secure.address() as AddressInfo).port}`;
 let releaseStream: (() => void) | undefined;
 const adapter = fakeAdapter({ script: async function* ({ input, context }) {
+  const itemId = randomUUID();
   const reply = `Streaming the hosted reply: ${input.prompt.at(-1)?.text ?? ""}`;
-  yield { type: "assistant.delta", payload: { itemId: "stream", fragments: [{ kind: "text", text: `${reply} ` }] } };
+  yield { type: "assistant.delta", payload: { itemId, fragments: [{ kind: "text", text: `${reply} ` }] } };
   await new Promise<void>(resolve => { releaseStream = resolve; });
-  yield say(reply, "stream");
+  yield say(reply, itemId);
   const decision = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "permission", detail: { toolName: "Bash", toolCallId: "web-smoke-tool", input: { command: "printf smoke" }, summary: "Run the scripted smoke command" } });
   yield say(`Permission ${decision.decision}.`); yield end();
 } });
@@ -105,10 +106,13 @@ try {
       assert.equal(await page.evaluate(`(async () => { const request = indexedDB.open('agent-harness-secrets'); const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); const read = db.transaction('secrets').objectStore('secrets').get(${JSON.stringify(environment.env.id)}); return await new Promise(resolve => { read.onsuccess = () => resolve(read.result === undefined); }); })()`), true, "Revocation erases the credential.");
       const own = pairingPreset("own-client");
       const ownCode = await environment.createPairing({ scopes: own.scopes, ceiling: own.ceiling });
-      const ownPage = await context.newPage();
+      // An independent browser storage context proves this separately minted grant.
+      const ownContext = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+      const ownPage = await ownContext.newPage();
       await ownPage.goto(ownCode.link);
       await ownPage.locator("[data-web-grant]").filter({ hasText: "Ceiling: bypassPermissions" }).waitFor();
       assert((await ownPage.locator("[data-web-grant]").innerText()).includes("terminal, admin"), "My own client keeps its full grant.");
+      await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
       await denied.addInitScript("Object.defineProperty(window, 'indexedDB', { get() { throw new DOMException('Denied', 'SecurityError'); } });");
       const visit = await denied.newPage();

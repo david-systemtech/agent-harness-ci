@@ -28,11 +28,19 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   await user.selectOptions(screen.getByRole("combobox", { name: "Sessions" }), `${env.environmentId}/${env.sessionId()}`);
   await screen.findByRole("textbox", { name: "Message" });
   expect(location.hash).toContain(`/session/${env.environmentId}/${env.sessionId()}`);
-  await act(async () => {
+  const runId = await act(async () => {
     const { runId } = env.startRun(env.sessionId(), "Check the receipts");
     env.emit(env.sessionId(), "assistant.delta", { runId, itemId: "reply", fragments: [{ kind: "text", text: "The receipt totals agree. " }] });
+    return runId;
   });
   await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The receipt totals agree. "));
+  await act(async () => {
+    env.emit(env.sessionId(), "assistant.text", { runId, itemId: "reply", text: "The receipt totals agree.", aborted: false });
+    env.endRun(env.sessionId(), runId);
+    const next = env.startRun(env.sessionId(), "Check the next receipt");
+    env.emit(env.sessionId(), "assistant.delta", { runId: next.runId, itemId: "next-reply", fragments: [{ kind: "text", text: "The next receipt agrees. " }] });
+  });
+  await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The next receipt agrees. "));
   await waitFor(() => expect(platform.shell).toBeUndefined());
   history.replaceState(null, "", "/");
 });
