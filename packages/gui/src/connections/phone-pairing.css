@@ -9,4 +9,7 @@
   [data-phone-pairing] { overflow-wrap: anywhere; }
   [data-phone-pairing] input { min-height: 44px; font-size: 16px; }
   [data-phone-pairing] button { min-height: 44px; min-width: 44px; }
+  [data-pairing-scopes] label { min-width: 0; max-width: 100%; }
+  /* Phone checkboxes already have a 44px target; their desktop hit slop must fit it. */
+  [data-pairing-scopes] [role="checkbox"]::after { inset: 0; }
 }

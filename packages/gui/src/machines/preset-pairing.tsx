@@ -44,11 +44,11 @@ export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentVi
         ...(!writable ? { disabledReason: "Read-only on this environment." } : dim !== null ? { disabledReason: dim } : offer.scopes.some(scope => !allowedScope(scope)) ? { disabledReason: "This preset exceeds this client’s scopes. Choose Custom within the granted scopes." } : {}),
       }))} onValueChange={(value) => choose(value as PairingPresetId)} />
       {preset.chooses === "scopes-and-ceiling" && (
-        <div role="group" aria-label="Scopes" className="flex flex-wrap gap-3">
+        <div role="group" aria-label="Scopes" data-pairing-scopes className="flex flex-wrap gap-3">
           {SCOPES.map((scope) => (
             <label key={scope} className="flex items-center gap-1.5 font-mono text-2xs text-ink">
               <Checkbox aria-label={scope} title={`${scope} (Space)`} checked={ticked.includes(scope)} disabled={!writable || !allowedScope(scope)} onCheckedChange={(on) => setTicked(scope, on === true)} />
-              {scope}{!allowedScope(scope) && <span className="text-ink-faint"> (not granted to this client)</span>}
+              <span className="shrink-0">{scope}</span>{!allowedScope(scope) && <span className="min-w-0 text-ink-faint"> (not granted to this client)</span>}
             </label>
           ))}
         </div>
