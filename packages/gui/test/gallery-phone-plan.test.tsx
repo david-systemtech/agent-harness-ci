@@ -22,9 +22,12 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
 
 it("reserves capacity for the existing 354 desktop captures and the bounded phone subset", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
-  expect(plan.budget.desktop).toBeGreaterThanOrEqual(354);
-  expect(plan.budget.phone).toBeGreaterThanOrEqual(24);
-  expect(plan.budget.total).toBeLessThanOrEqual(400);
+  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 400, remaining: 0 });
+  expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
+    "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
+    "phone-gallery-continue-phone-390-text-20.light", "phone-gallery-continue-phone-390-text-20.dark",
+    "phone-gallery-continue-phone-390-keyboard.light", "phone-gallery-continue-phone-390-keyboard.dark",
+  ]);
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(plan.budget.total);
 });
 

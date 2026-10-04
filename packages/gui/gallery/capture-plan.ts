@@ -40,7 +40,8 @@ export function capturePlan(scenes: readonly string[]) {
     })),
   );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
-    PHONE_PROFILES.flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
+    // Continue uses the same full-width footer at both widths; keep its 390, text and keyboard cases.
+    PHONE_PROFILES.filter(profile => scene !== "phone-gallery-continue" || profile.suffix !== "phone-360").flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
       scene, ladder, viewport, textSize, platform: "web", name: `${scene}-${suffix}.${ladder}`,
     }))),
   );

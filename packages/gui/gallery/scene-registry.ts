@@ -10,6 +10,8 @@ export interface SceneGeometry {
   readonly selector: string;
   /** Apply this measurement only at the named capture viewport width. */
   readonly viewport?: number;
+  /** Ignore controls that have no rendered box or are hidden by visibility. */
+  readonly renderedOnly?: boolean;
   /** Require the whole element inside this scrollport and the capture viewport. */
   readonly visibleWithin?: string;
   /** Require wrapping content to fit its own box, not only the enclosing control. */

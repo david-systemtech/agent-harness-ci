@@ -37,7 +37,10 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
   container.dataset["galleryGeometry"] = JSON.stringify(geometry);
   const Ready = () => {
     useEffect(() => {
-      if (Component !== undefined) paintLadder(document.documentElement, derive(DEFAULT_THEME)[ladder], ladder);
+      if (Component !== undefined) {
+        paintLadder(document.documentElement, derive(DEFAULT_THEME)[ladder], ladder);
+        if (web) document.documentElement.style.setProperty("--font-scale", String(world.presentation.values.read().textSize / 14));
+      }
       const stopActivation = definition.activate?.();
       let stopped = false;
       let waitingForFonts = false;

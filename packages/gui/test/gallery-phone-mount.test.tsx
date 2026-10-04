@@ -42,3 +42,15 @@ it("rejects a phone scene with implicit desktop capabilities and a mismatched ca
   expect(() => discoverScenes({ "phone-implicit.tsx": { platform: "web", arrange: () => {}, script: { environments: [] } } })).toThrow("must use arrangeWeb");
   await expect(mountGallery(document.createElement("div"), "window-empty", "dark", undefined, { platform: "web" })).rejects.toThrow("platform mismatch");
 });
+
+
+it.each(["phone-attention-failure", "phone-attention-keyboard", "phone-attention-pending"])("integrates %s with the browser runtime and capture text size", async name => {
+  const registry = discoverScenes(import.meta.glob<SceneModule>("../gallery/scenes/phone-attention-*.tsx", { eager: true }));
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, name, "dark", registry, { platform: "web", textSize: 20 });
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  expect(gallery.world.shell).toBeUndefined();
+  expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(String(20 / 14));
+  expect(screen.getByRole("heading", { name: "Attention" })).toBeDefined();
+});

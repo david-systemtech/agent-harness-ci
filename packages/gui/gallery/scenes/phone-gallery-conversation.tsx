@@ -11,7 +11,7 @@ export const arrangeWeb: SceneModule["arrangeWeb"] = world => {
 };
 export const readySelector = '[aria-label="Message"]';
 export const geometry = [
-  { selector: '[data-web-client] :is(button, input, select, textarea)', minimumWidth: 44, minimumHeight: 44 },
+  { selector: '[data-web-client] :is(button, input, select, textarea)', renderedOnly: true, minimumWidth: 44, minimumHeight: 44 },
   { selector: '[aria-label="Send"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: "[data-web-client]" },
   { selector: '[aria-label="Message"]', visibleWithin: "[data-web-client]" },
 ];

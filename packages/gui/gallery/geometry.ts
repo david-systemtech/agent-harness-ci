@@ -5,7 +5,8 @@ export function measureSceneGeometry(): string[] {
   const checks: readonly SceneGeometry[] = JSON.parse(document.getElementById("root")?.dataset["galleryGeometry"] ?? "[]");
   return checks.flatMap((check) => {
     if (check.viewport !== undefined && check.viewport !== window.innerWidth) return [];
-    const elements = Array.from(document.querySelectorAll(check.selector));
+    const elements = Array.from(document.querySelectorAll(check.selector)).filter(element =>
+      check.renderedOnly !== true || (element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden"));
     if (elements.length === 0) return [`${check.selector}: no matching elements`];
     return elements.flatMap((element, index) => {
       const rect = element.getBoundingClientRect();

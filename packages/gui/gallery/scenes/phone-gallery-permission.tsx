@@ -20,6 +20,6 @@ export const activate = () => {
   return () => observer.disconnect();
 };
 export const geometry = [
-  { selector: '[data-web-client] :is(button, input, select, textarea)', minimumWidth: 44, minimumHeight: 44 },
+  { selector: '[data-web-client] :is(button, input, select, textarea)', renderedOnly: true, minimumWidth: 44, minimumHeight: 44 },
   { selector: '[aria-label="Allow once"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: "[data-web-client]" },
 ];
