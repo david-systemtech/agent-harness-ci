@@ -23,8 +23,20 @@ assert(output && bundle, "The hosted workflow must supply its build and output d
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(output, "key.pem"), "-out", join(output, "cert.pem"), "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost"], { stdio: "ignore" });
 let upstream: Address | undefined = undefined;
 const publicRequests: { path: string; mode: string | undefined; status?: number; finished: boolean }[] = [];
+const cacheAuditWorker = `self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
+self.addEventListener("message", event => event.waitUntil((async () => {
+  const urls = [];
+  for (const name of await caches.keys()) {
+    const cache = await caches.open(name);
+    for (const request of await cache.keys()) urls.push(request.url);
+  }
+  event.ports[0].postMessage({ urls });
+})().catch(error => event.ports[0].postMessage({ error: String(error) }))));`;
 const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: readFileSync(join(output, "cert.pem")) }, (incoming, response) => {
   if (!upstream) { response.writeHead(503).end(); return; }
+  if (incoming.url === "/__smoke-cache-audit.js") {
+    response.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" }).end(cacheAuditWorker); return;
+  }
   const path = incoming.url ?? "";
   const publicRequest: (typeof publicRequests)[number] | undefined = /^\/(?:assets\/[a-zA-Z0-9_.-]+|phone-icons\/[a-zA-Z0-9_.-]+|manifest\.webmanifest)?$/.test(path)
     ? { path, mode: incoming.headers["sec-fetch-mode"]?.toString(), finished: false } : undefined;
@@ -70,7 +82,6 @@ try {
     const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
     const context = await engine.launchPersistentContext(join(output, `profile-${name}`), {
       viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true,
-      ...(name === "webkit" && process.platform === "linux" ? { headless: false } : {}),
       ...(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {}),
     });
     const browser = context.browser(); assert(browser, "The persistent client profile belongs to the hosted browser.");

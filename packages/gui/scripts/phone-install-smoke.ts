@@ -61,14 +61,33 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
     await fetch("/api/not-a-route", { headers: { Authorization: "token-for-tests" } });
     await fetch("/pair?code=code-for-tests");
   })()`);
-  const cacheUrls = await page.evaluate<string[]>(`(async () => {
-    const urls = [];
-    for (const name of await caches.keys()) {
-      const cache = await caches.open(name);
-      for (const request of await cache.keys()) urls.push(request.url);
-    }
-    return urls;
-  })()`);
+  // Audit from the worker's storage realm without changing or writing the production cache.
+  await page.evaluate(`void (async () => {
+    const registration = await navigator.serviceWorker.register("/__smoke-cache-audit.js", { scope: "/__smoke-cache-audit/" });
+    const worker = registration.installing ?? registration.waiting ?? registration.active;
+    if (!worker) throw new Error("No cache audit worker.");
+    if (worker.state !== "activated") await new Promise((resolve, reject) => {
+      const changed = () => {
+        if (worker.state === "activated" || worker.state === "redundant") {
+          worker.removeEventListener("statechange", changed);
+          if (worker.state === "activated") resolve(); else reject(new Error("Cache audit worker failed."));
+        }
+      };
+      worker.addEventListener("statechange", changed);
+      changed();
+    });
+    const channel = new MessageChannel();
+    channel.port1.onmessage = event => {
+      document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify(event.data));
+      channel.port1.close();
+    };
+    worker.postMessage("audit", [channel.port2]);
+  })().catch(error => document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify({ error: String(error) })))`);
+  await page.locator("html[data-smoke-cache-audit]").waitFor({ state: "attached" });
+  const audit = await page.evaluate<{ urls?: string[]; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
+  await page.evaluate("document.documentElement.removeAttribute('data-smoke-cache-audit')");
+  assert(audit.urls, audit.error ?? "The worker cache audit answered.");
+  const cacheUrls = audit.urls;
   assert(cacheUrls.length > 0, "The production worker cached public assets.");
   assert(cacheUrls.every(value => {
     const url = new URL(value);
