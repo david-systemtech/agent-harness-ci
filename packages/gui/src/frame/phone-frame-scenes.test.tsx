@@ -1,6 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
+import { geometry as drawerGeometry } from "../../gallery/scenes/phone-frame-drawer.js";
+import { measureSceneGeometry } from "../../gallery/geometry.js";
 import { mountGallery } from "../../gallery/mount.js";
 import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.js";
 
@@ -36,4 +38,37 @@ it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through th
     act(() => screen.getByRole("button", { name: "Show sessions" }).click());
     expect(await screen.findByRole("dialog", { name: "Sessions" })).toBeDefined();
   }
+});
+
+// jsdom supplies the page; the browser measurement boundary supplies the rendered rectangle.
+it.each([{ viewport: 390, drawerWidth: 360 }, { viewport: 360, drawerWidth: 344 }])("checks the rendered drawer width at $viewport pixels without requiring CSS max-width", ({ viewport, drawerWidth }) => {
+  const root = document.createElement("div"); root.id = "root";
+  const checks = typeof drawerGeometry === "function" ? drawerGeometry({ width: viewport, height: 844 }) : drawerGeometry;
+  root.dataset["galleryGeometry"] = JSON.stringify(checks.filter(check => check.selector === ".phone-frame-drawer"));
+  const drawer = document.createElement("div"); drawer.className = "phone-frame-drawer";
+  drawer.style.paddingTop = "20px"; drawer.style.paddingLeft = "8px";
+  root.append(drawer); document.body.append(root);
+  let width = drawerWidth;
+  vi.spyOn(drawer, "getBoundingClientRect").mockImplementation(() => new DOMRect(0, 0, width, 844));
+  expect(measureSceneGeometry()).toEqual([]);
+  width = 375;
+  expect(measureSceneGeometry()).toHaveLength(1);
+});
+
+
+it("rejects clipped drawer row details at the capture measurement boundary", () => {
+  const root = document.createElement("div"); root.id = "root";
+  const checks = typeof drawerGeometry === "function" ? drawerGeometry({ width: 390, height: 844 }) : drawerGeometry;
+  root.dataset["galleryGeometry"] = JSON.stringify(checks.filter(check => check.selector.includes("data-sidebar-details")));
+  const drawer = document.createElement("div"); drawer.className = "phone-frame-drawer";
+  const details = document.createElement("span"); details.dataset["sidebarDetails"] = "";
+  drawer.append(details); root.append(drawer); document.body.append(root);
+  let height = 4;
+  Object.defineProperties(details, {
+    clientWidth: { value: 200 }, scrollWidth: { value: 200 },
+    clientHeight: { get: () => height }, scrollHeight: { value: 18 },
+  });
+  expect(measureSceneGeometry()).toEqual([expect.stringContaining("content overflows its bounds")]);
+  height = 18;
+  expect(measureSceneGeometry()).toEqual([]);
 });

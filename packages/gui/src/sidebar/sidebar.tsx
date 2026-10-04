@@ -110,7 +110,7 @@ const Headings = () => {
       <ScheduledStrip />
       <div className="flex shrink-0 items-center gap-1 px-1.5 pt-2 pb-1.5">
         {(phone.narrow || list.rows.length > 8 || searchShown || filter !== "") && (
-          <div className="relative min-w-0 flex-1">
+          <div className="phone-frame-filter relative min-w-0 flex-1">
             <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-3 text-ink-faint" />
             <Input ref={field} type="search" aria-label="Filter the sessions" title="Filter the sessions" placeholder="Filter" className="h-6 pl-[26px] text-xs" value={filter} onChange={(event) => setFilter(event.target.value)} />
           </div>

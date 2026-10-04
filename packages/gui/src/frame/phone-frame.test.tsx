@@ -19,7 +19,7 @@ it("opens a session drawer, traps focus and restores it after Escape or selectin
   await app.user.click(trigger);
   const drawer = screen.getByRole("dialog", { name: "Sessions" });
   expect(within(drawer).getByRole("searchbox", { name: "Filter the sessions" })).toBeDefined();
-  expect(drawer.contains(document.activeElement)).toBe(true);
+  expect(document.activeElement).toBe(drawer);
   const buttons = within(drawer).getAllByRole("button");
   buttons.at(-1)?.focus();
   await app.user.tab();

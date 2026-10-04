@@ -12,7 +12,13 @@
 .phone-frame-drawer [data-sidebar-caption],
 .phone-frame-drawer h2 { height: auto; min-height: 44px; }
 .phone-frame-drawer input { min-height: 44px; font-size: max(16px, 1rem); }
-.phone-frame-drawer [data-sidebar-row] { min-width: 0; }
+/* Rows grow with text size so secondary details retain their line box. */
+.phone-frame-drawer [data-sidebar-item] { height: auto; min-height: 54px; }
+.phone-frame-drawer [data-sidebar-row] { height: auto; min-width: 0; }
+.phone-frame-drawer [data-sidebar-row] > span:first-child { line-height: 1.5; }
+.phone-frame-drawer [data-sidebar-details] { flex-shrink: 0; }
+.phone-frame-drawer .phone-frame-filter > svg { top: 50%; transform: translateY(-50%); }
+.phone-frame-drawer .phone-frame-filter input { padding-left: calc(1.25rem + 12px); }
 .phone-frame-menu { max-width: calc(100vw - 16px); }
 .phone-frame-menu :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) {
   min-height: 44px; overflow-wrap: anywhere; white-space: normal;

@@ -64,7 +64,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
   const dragging = useDragRow(row);
   const target = useDropTarget(drop);
   return (
-    <li {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", narrow && "flex min-w-0 items-center", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
+    <li data-sidebar-item {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", narrow && "flex min-w-0 items-center", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
       {editing ? (
         <RenameField
           label={`Rename ${quoted(summary.title)}`}
@@ -100,7 +100,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
                   <span data-sidebar-title className="min-w-0 flex-1 truncate">{summary.title}</span>
                   <span className="ml-auto shrink-0 pl-1 font-mono text-2xs text-ink-faint">{age}</span>
                 </span>
-                <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden font-mono text-2xs text-ink-faint">
+                <span data-sidebar-details className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden font-mono text-2xs text-ink-faint">
                   {"branch" in summary.workspace && <span className="flex min-w-0 items-center gap-1"><GitBranch aria-hidden="true" className="size-2.5 shrink-0" /><span className="truncate">{summary.workspace.branch}</span></span>}
                   <EnvironmentGlyph view={environment} label={name} />
                   {account !== undefined && <span className="flex min-w-0 items-center gap-1"><span aria-hidden="true" className={classes("size-2 shrink-0 rounded-[3px]", accountSwatch(account.id))} /><span className="max-w-[176px] truncate">{account.label}</span></span>}
