@@ -59,8 +59,16 @@ export async function phonePushSmoke({ context, page, environment, token, sessio
   })()`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Attention settings", exact: true }).click();
+  console.log("[DEBUG-1553-push]", await page.evaluate(`JSON.stringify({
+    secure: isSecureContext, worker: "serviceWorker" in navigator,
+    push: "PushManager" in window, notifications: "Notification" in window,
+    permission: "Notification" in window ? Notification.permission : "unsupported",
+    ios: /iPhone|iPad|iPod/.test(navigator.userAgent),
+    standalone: matchMedia("(display-mode: standalone)").matches,
+    attention: document.querySelector("[data-attention-settings]")?.textContent,
+  })`));
   await page.getByRole("button", { name: "Enable push", exact: true }).click();
-  await page.getByText("Push enabled for this client.", { exact: true }).waitFor();
+  await expect(page.getByRole("region", { name: "Web Push" })).toContainText("Push enabled for this client.", { timeout: 60_000 });
   await page.getByRole("button", { name: "Close attention settings", exact: true }).click();
   const worker = context.serviceWorkers().find(item => new URL(item.url()).pathname === "/service-worker.js");
   assert(worker, "The real bundled service worker is running.");
@@ -86,19 +94,36 @@ export async function phonePushSmoke({ context, page, environment, token, sessio
   assert.deepEqual(payload, { message: "A session needs you", url: `${origin}/#/session/${encodeURIComponent(environment.env.id)}/${encodeURIComponent(sessionId)}` });
   await cdp.send("ServiceWorker.deliverPushMessage", { origin, registrationId: registrationId!, data: JSON.stringify(payload) });
   await expect.poll(() => worker.evaluate<string[]>("registration.getNotifications().then(items => items.map(item => item.title))"), { timeout: 60_000 }).toContain("A session needs you");
-  // DevTools supplies the user gesture a notification tap supplies on a handset.
-  const browserCdp = await context.browser()!.newBrowserCDPSession();
-  const targetsInfo = await browserCdp.send("Target.getTargets");
-  const workerTarget = targetsInfo.targetInfos.find((item: { type: string; url: string }) => item.type === "service_worker" && item.url === worker.url());
-  assert(workerTarget);
-  const attached = await browserCdp.send("Target.attachToTarget", { targetId: workerTarget.targetId, flatten: false });
-  const opened = context.waitForEvent("page", { timeout: 60_000 });
-  await browserCdp.send("Target.sendMessageToTarget", { sessionId: attached.sessionId, message: JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { userGesture: true, expression: "void registration.getNotifications().then(items => self.dispatchEvent(new NotificationEvent('notificationclick', { notification: items[0] })))" } }) });
-  const returned = await opened;
+  // Headless Chromium cannot dispatch an OS tap: script-created ExtendableEvents
+  // have no lifetime observer/window-interaction token. Double that OS boundary,
+  // while dispatching the actual notification to the production worker handler.
+  const clicked = await worker.evaluate<string>(`(async () => {
+    const notifications = await registration.getNotifications();
+    const notification = notifications.find(item => item.data?.url === ${JSON.stringify(payload.url)});
+    if (!notification) throw new Error("Notification unavailable.");
+    let opened;
+    const pending = [];
+    Object.defineProperty(clients, "openWindow", { configurable: true, value: async url => {
+      if (opened) throw new Error("The tap opened more than one window.");
+      opened = url;
+      return null;
+    } });
+    try {
+      const event = new NotificationEvent("notificationclick", { notification });
+      Object.defineProperty(event, "waitUntil", { value: promise => pending.push(promise) });
+      self.dispatchEvent(event);
+      await Promise.all(pending);
+      if (!opened) throw new Error("The notification did not request a window.");
+      return opened;
+    } finally { delete clients.openWindow; }
+  })()`);
+  assert.equal(clicked, payload.url);
+  const returned = await context.newPage();
+  await returned.goto(clicked);
   await expect(returned).toHaveURL(payload.url);
   await returned.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
-  await returned.close(); await observer.close(); await wire.close(); await browserCdp.detach();
+  await returned.close(); await observer.close(); await wire.close();
   const replacement = await context.newPage();
-  console.log("PHONE-PUSH PASS chromium: encrypted HTTPS gateway, closed page, real worker notification and same-origin click return");
+  console.log("PHONE-PUSH PASS chromium: encrypted HTTPS gateway, closed page, real worker notification, OS-tap boundary double and same-origin click return");
   return replacement;
 }

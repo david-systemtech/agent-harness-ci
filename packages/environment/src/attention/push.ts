@@ -7,6 +7,8 @@ import type { Vault } from "../serve/vault.js";
 import type { Clock } from "../serve/clock.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { WebAttentionContext } from "../web/attention.js";
+import { readSessionState } from "../sessions/session-reads.js";
+import { sessionNotFound } from "../sessions/decider.js";
 import { readDenylist } from "../permissions/denylist-store.js";
 import { attentionStore, attentionStream } from "./store.js";
 import type { AttentionTransport } from "./targets.js";
@@ -81,15 +83,20 @@ export const createPushTransport = async ({ vault, clock, subject, post: deliver
 };
 /** Startup discovers this transport leaf; dispatch/store remain the shared owner's modules. */
 export const createAttentionTransport = async (context: WebAttentionContext, network: { readonly post?: PushPost } = {}): Promise<PushTransport & { readonly handlers: MethodHandlers }> => {
+  const requireSession = (sessionId: string) => {
+    const session = readSessionState({ all: (sql, ...params) => context.log.read(sql, ...params) }, sessionId);
+    if (!session || session.deleted) throw new ContractError(sessionNotFound(sessionId));
+  };
   const origin = context.webOrigin();
   if (!origin) {
     const unavailable = () => { throw new ContractError({ code: "not_found", data: {}, message: "Web Push needs a canonical HTTPS origin configured by an environment admin." }); };
-    return { publicKey: "", validate: () => "Configure a canonical HTTPS origin before enabling Web Push.", send: async () => ({ status: "retry" }), handlers: { "attention.push.key": unavailable, "attention.push.test": unavailable } };
+    return { publicKey: "", validate: () => "Configure a canonical HTTPS origin before enabling Web Push.", send: async () => ({ status: "retry" }), handlers: { "attention.push.key": unavailable, "attention.push.test": ({ sessionId }) => { requireSession(sessionId); return unavailable(); } } };
   }
   const transport = await createPushTransport({ vault: context.vault, clock: context.clock, subject: origin, ...network, allowed: endpoint => !readDenylist({ all: (sql, ...params) => context.log.read(sql, ...params) }).hosts.some(entry => entry.enabled && hostPatternMatches(entry.pattern, new URL(endpoint).hostname)) });
   const handlers: MethodHandlers = {
     "attention.push.key": () => ({ publicKey: transport.publicKey }),
     "attention.push.test": async ({ id, sessionId }, command) => {
+      requireSession(sessionId);
       const stored = attentionStore(context.log).targets().find(row => row.target.id === id && row.owner === command.clientSession.id);
       if (!stored || stored.target.transport !== "push" || !stored.target.enabled) throw new ContractError({ code: "forbidden", data: {}, message: "Enable your own push registration first." });
       const result = await transport.send({ id: "push-test", target: stored.target, signal: new AbortController().signal, payload: { message: "A session needs you", url: `${origin}/#/session/${encodeURIComponent(context.environmentId)}/${encodeURIComponent(sessionId)}` } });
