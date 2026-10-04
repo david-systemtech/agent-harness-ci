@@ -1299,3 +1299,30 @@ it("the hosted report guard admits both shards and rejects overflow or an adviso
   writeFileSync(join(images, "report.json"), JSON.stringify({ ...report, pixelBlocking: false }));
   await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Every capture remains gated") });
 });
+
+it.each([
+  { format: "legacy", suffix: "png" }, { format: "legacy", suffix: "baseline.png" }, { format: "legacy", suffix: "difference.png" },
+  { format: "sharded", suffix: "png" }, { format: "sharded", suffix: "baseline.png" }, { format: "sharded", suffix: "difference.png" },
+])("rejects unreported $suffix entries in a $format report before publication", async ({ format, suffix }) => {
+  const g = await storedGallery();
+  await g.capture(255);
+  await run("python3", ["-c", `import json,sys,zipfile
+path=sys.argv[1]; form=sys.argv[2]; suffix=sys.argv[3]
+with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
+report=json.loads(entries['report.json'])
+if form=='sharded':
+    report['pixelBlocking']=True
+    report['shards']=[{'name':'desktop','scenes':report.pop('scenes')},{'name':'phone','scenes':[]}]
+entries['report.json']=json.dumps(report).encode()
+image=entries['window-empty.dark.png']
+for index in range(400): entries[f'unlisted-{index}.dark.{suffix}']=image
+with zipfile.ZipFile(path,'w') as z:
+    for name,data in entries.items(): z.writestr(name,data)
+`, g.env.FAKE_GALLERY_ZIP, format, suffix]);
+  const result = await relay(g.f, g.env);
+  expect(result.code).not.toBe(0);
+  expect(result.stderr).toContain("unreported gallery image");
+  expect(g.comments).toEqual([]);
+  expect(g.attachments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+});

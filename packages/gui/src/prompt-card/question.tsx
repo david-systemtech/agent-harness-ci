@@ -65,7 +65,7 @@ export const QuestionForm = ({ prompt, picks, setPicks }: QuestionFormProps) => 
               const control = `${id}-${at}-${place}`;
               const Icon = question.multiSelect ? (options.includes(place) ? Check : Square) : options.includes(place) ? CircleDot : Circle;
               return (
-                <div key={place} className={classes("flex items-start gap-2 rounded-md px-2 py-1.5", options.includes(place) && "bg-wash")}>
+                <div data-question-option key={place} className={classes("flex items-start gap-2 rounded-md px-2 py-1.5", options.includes(place) && "bg-wash")}>
                   <span className="relative mt-0.5 size-4 shrink-0">
                     <PromptTooltip content={`${option.label} · ${question.multiSelect ? "Space" : "Arrow keys or Space"}`}>
                     <input
