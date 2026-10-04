@@ -17,6 +17,9 @@ export function measureSceneGeometry(): string[] {
         visibility.push(`${check.selector}[${index}]: content overflows its bounds`);
       }
       if (check.visibleWithin !== undefined) {
+        if (style.visibility === "hidden" || style.visibility === "collapse") {
+          visibility.push(`${check.selector}[${index}]: hidden inside ${check.visibleWithin}`);
+        }
         const pane = element.closest(check.visibleWithin);
         const bounds = pane?.getBoundingClientRect();
         const tolerance = check.tolerance ?? 0.5;

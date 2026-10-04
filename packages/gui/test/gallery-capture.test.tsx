@@ -167,3 +167,17 @@ it("measures rendered touch targets while excluding hidden controls and hidden a
   button.remove();
   expect(measureSceneGeometry()).toEqual(["button: no matching elements"]);
 });
+
+
+it.each(["Send", "Allow once", "Continue"])("rejects a hidden %s action even when its bounds fit the viewport", action => {
+  const root = document.createElement("div"); root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "button", minimumWidth: 44, minimumHeight: 44, visibleWithin: "section" }]);
+  root.innerHTML = `<section><button style="visibility:hidden">${action}</button></section>`;
+  document.body.append(root);
+  vi.spyOn(root.querySelector("section")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 480));
+  const button = root.querySelector("button")!;
+  vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 44, 44));
+  expect(measureSceneGeometry()).toEqual(["button[0]: hidden inside section"]);
+  button.style.visibility = "visible";
+  expect(measureSceneGeometry()).toEqual([]);
+});

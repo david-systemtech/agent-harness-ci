@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { captureName, compareCapture, geometryFailures } from "../gallery/compare.js";
-import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
+import { captureCases, capturePlan, sceneFiles } from "../gallery/capture-plan.js";
 
 const require = createRequire(new URL("../package.json", import.meta.url));
 const core = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
@@ -63,18 +63,16 @@ it("allows at most 0.05 percent different pixels and rejects missing baselines a
   expect(compareCapture(image(), image(101, 100)).pixelFailed).toBe(true);
 });
 
-it("has a baseline for every required desktop scene, ladder and viewport", async () => {
+it("has a baseline for every scheduled desktop and phone capture", async () => {
   const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
-  for (const { scene, ladder } of captureCases(scenes)) {
-    for (const [width, height] of [[1400, 900], [1024, 768]] as const) {
-      const name = captureName(scene, width, ladder);
-      const baseline = readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url));
-      expect(baseline.subarray(0, 8).toString("hex"), name).toBe("89504e470d0a1a0a");
-      expect(baseline.subarray(12, 16).toString("ascii"), name).toBe("IHDR");
-      expect([baseline.readUInt32BE(16), baseline.readUInt32BE(20)], name).toEqual([width, height]);
-    }
+  for (const { name, viewport: { width, height } } of capturePlan(scenes).captures) {
+    const baseline = readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url));
+    expect(baseline.subarray(0, 8).toString("hex"), name).toBe("89504e470d0a1a0a");
+    expect(baseline.subarray(12, 16).toString("ascii"), name).toBe("IHDR");
+    expect([baseline.readUInt32BE(16), baseline.readUInt32BE(20)], name).toEqual([width, height]);
   }
 });
+
 
 it("has inspected baselines at both widths for every scheduled 20px window ladder", () => {
   const cases = captureCases(["window-scale-20"]);
