@@ -20,6 +20,7 @@ export const arrangeWeb: SceneModule["arrangeWeb"] = world => {
   env.startRun(env.sessionId(1), "Wait for permission on the next receipt");
   env.openPrompt(env.sessionId(1), { promptId: "receipt-permission", kind: "permission", summary: "Check the next receipt", toolName: "Bash", input: { command: "printf receipts" } });
   env.emit(sessionId, "assistant.text", { runId, itemId: "reply", text: "The receipts agree with the **summary**.\n\n- Read each amount\n- Compare the total\n- Keep the existing rounding rule", aborted: false });
+  env.endRun(sessionId, runId);
 };
 
 /** Nonzero inset fixtures exercise the same CSS variables that default to the OS safe areas. */
@@ -36,6 +37,5 @@ export const safeAreas = (drawer = false) => () => {
 
 export const headerGeometry = [
   { selector: '[data-window-header] button', minimumWidth: 44, minimumHeight: 44, visibleWithin: '[data-web-client]' },
-
   { selector: '[data-web-client]', paddingTop: 20, paddingLeft: 8 },
 ];

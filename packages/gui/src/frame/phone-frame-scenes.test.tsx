@@ -28,6 +28,7 @@ it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through th
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
     await waitFor(() => expect(window.location.hash).toContain(gallery.world.world.environment("desk").sessionId(1)));
   } else {
+    expect(screen.getByRole("button", { name: "Send" })).toBeDefined();
     expect(screen.getAllByRole("region", { name: "Session pane" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "More" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Settings" })).toBeDefined();
