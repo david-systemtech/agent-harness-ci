@@ -5,14 +5,25 @@ import type { Page, BrowserContext } from "playwright";
 /** Hosted real-client seam: no test server or browser is started by this leaf. */
 export async function phoneInstallSmoke(page: Page, context: BrowserContext, bundle: string, engine: string): Promise<void> {
   console.log(`PHONE-INSTALL ${engine}: waiting for the public worker`);
+  // Playwright's waitForFunction evaluates its predicate inside the page; WebKit enforces the served CSP there.
+  await page.evaluate(`(() => {
+    const workers = navigator.serviceWorker;
+    const controlled = () => {
+      if (!workers.controller) return;
+      document.documentElement.setAttribute("data-smoke-worker-controlled", "");
+      workers.removeEventListener("controllerchange", controlled);
+    };
+    workers.addEventListener("controllerchange", controlled);
+    controlled();
+  })()`);
   try {
-    await page.waitForFunction("navigator.serviceWorker.getRegistration().then(registration => registration?.active?.state === 'activated')");
+    await page.locator("html[data-smoke-worker-controlled]").waitFor({ state: "attached" });
   } catch (error) {
     // Retry only to expose the registration error; the original readiness failure still fails the test.
     const reason = await page.evaluate("navigator.serviceWorker.register('/service-worker.js', { type: 'module', scope: '/', updateViaCache: 'none' }).then(registration => ({ active: registration.active?.state, installing: registration.installing?.state, waiting: registration.waiting?.state }), error => ({ error: String(error) }))");
     throw new Error(`${engine} public worker did not activate: ${JSON.stringify(reason)}`, { cause: error });
   }
-  await page.waitForFunction("navigator.serviceWorker.controller !== null");
+  await page.evaluate("document.documentElement.removeAttribute('data-smoke-worker-controlled')");
   console.log(`PHONE-INSTALL ${engine}: public worker controls the client`);
   const textbox = page.getByRole("textbox", { name: "Message", exact: true });
   await textbox.fill("Draft retained across a client update.");
