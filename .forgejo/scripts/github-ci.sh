@@ -206,8 +206,10 @@ PYFORMAT
       # A workflow rollout can finish an earlier capture-only artifact.
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
-      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
+      python3 - "$gl/gallery.zip" "$sha" "$(dirname "${BASH_SOURCE[0]}")/../../scripts" <<'PYGALLERY'
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
+sys.path.insert(0, sys.argv[3])
+from gallery_allocation import LIMITS, MAX_PNGS, report_scenes
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
@@ -229,13 +231,13 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
-    max_scenes = 400
-    max_pngs = max_scenes * 3
+    max_pngs = MAX_PNGS
     if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
     names = [f.filename for f in entries]
     if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     report = json.loads(z.read('report.json'))
+    # Earlier single reports retain their PNG and row bounds.
+    if 'shards' not in report and (len(entries) > 1202 or sum(n.endswith('.png') for n in names) > 1200): sys.exit('gallery payload is too large')
     images = {n: z.read(n) for n in names if n.endswith('.png')}
     for name, data in images.items():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
@@ -243,8 +245,9 @@ with zipfile.ZipFile(sys.argv[1]) as z:
             phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
             profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
             if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
-    scenes = report['scenes']
-    if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
+    try: scenes = report_scenes(report)
+    except ValueError as error: sys.exit(str(error))
+    if 'shards' in report and report.get('pixelBlocking') is not True: sys.exit('Every capture remains gated')
     seen = set()
     for scene in scenes:
         name = scene['name']
@@ -274,6 +277,8 @@ try:
         body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
     geometry_failed = any(s['geometryFailures'] for s in scenes)
     pixel_failed = any(s['pixelFailed'] for s in scenes)
+    if 'shards' in report:
+        body += '\nReport shards: ' + ', '.join(f"{s['name']} {len(s['scenes'])}/{LIMITS[s['name']]}" for s in report['shards']) + '.\n'
     body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
     matched = sum(s['status'] == 'unchanged' for s in scenes)
     body += f'\n{matched} scene{"" if matched == 1 else "s"} matched.\n'

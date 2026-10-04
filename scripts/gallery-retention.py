@@ -9,6 +9,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from gallery_allocation import captures_fit_allocation, LIMITS
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
@@ -80,9 +82,11 @@ def main():
             if not re.fullmatch(r'[A-Za-z0-9_-]+', head) or (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')):
                 continue
             captures = manifest.get('captures')
-            if not isinstance(captures, list) or not captures or len(captures) > 400:
+            if not isinstance(captures, list) or not captures or len(captures) > sum(LIMITS.values()):
                 continue
             if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in captures):
+                continue
+            if not captures_fit_allocation([item['name'] for item in captures]):
                 continue
             valid = True
             for capture in captures:

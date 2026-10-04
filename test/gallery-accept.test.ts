@@ -40,7 +40,7 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
       const captureName = phone?.name ?? "window-empty.dark.png";
       const captures = [{ name: captureName, url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${captureName}`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
       for (let index = 1; index < captureCount; index++) {
-        const name = `window-scene-${index}.dark.png`;
+        const name = mode === "phone-overflow" ? `phone-scene-${index}-phone-390.dark.png` : `window-scene-${index}.dark.png`;
         captures.push({ ...captures[0]!, name, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}` });
       }
       if (mode === "scoped") captures.push({ name: "settings-browser.light.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/settings-browser.light.png`, sha256: createHash("sha256").update(png).digest("hex") });
@@ -158,7 +158,7 @@ it("accepts a valid capture larger than 4 MiB within the gallery report budget",
 });
 
 
-it("accepts all 400 captures allowed by a reviewed gallery report", async () => {
+it("accepts all 400 desktop captures allowed by a reviewed gallery report", async () => {
   const f = await fixture("versioned", 400);
   await run("bash", [script, "42"], { env: f.env });
   expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(400);
@@ -177,7 +177,7 @@ it("accepts captures above the old 24 MiB total within the 48 MiB report budget"
 });
 
 
-it("refuses more than 400 captures before downloading or writing baselines", async () => {
+it("refuses more than 400 desktop captures before downloading or writing baselines", async () => {
   const f = await fixture("versioned", 401);
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("No gallery captures on the current PR head") });
   expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
@@ -260,5 +260,13 @@ it.each([
 ] as const)("rejects %s with incorrect dimensions before writing baselines", async (name, width, height) => {
   const f = await fixture("versioned", 1, { name, width, height });
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Unexpected phone gallery dimensions") });
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+
+it("refuses phone shard exhaustion without spending unused desktop slots", async () => {
+  const f = await fixture("phone-overflow", 401, { name: "phone-frame-drawer-phone-390.dark.png", width: 390, height: 844 });
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("No gallery captures on the current PR head") });
+  expect(f.requests.some(url => url.startsWith("/api/packages/"))).toBe(false);
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });
