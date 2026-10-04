@@ -22,8 +22,10 @@ const bundle = process.env["WEB_SMOKE_BUNDLE"];
 assert(output && bundle, "The hosted workflow must supply its build and output directories.");
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(output, "key.pem"), "-out", join(output, "cert.pem"), "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost"], { stdio: "ignore" });
 let upstream: Address | undefined = undefined;
+let originAvailable = true;
 const publicRequests: { path: string; mode: string | undefined; status?: number; finished: boolean }[] = [];
 const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: readFileSync(join(output, "cert.pem")) }, (incoming, response) => {
+  if (!originAvailable) { response.destroy(); return; }
   if (!upstream) { response.writeHead(503).end(); return; }
   const path = incoming.url ?? "";
   const publicRequest: (typeof publicRequests)[number] | undefined = /^\/(?:assets\/[a-zA-Z0-9_.-]+|phone-icons\/[a-zA-Z0-9_.-]+|manifest\.webmanifest)?$/.test(path)
@@ -39,7 +41,7 @@ const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: 
   forwarded.on("error", () => response.destroy()); incoming.pipe(forwarded);
 });
 secure.on("upgrade", (incoming, socket, head) => {
-  if (!upstream) { socket.destroy(); return; }
+  if (!originAvailable || !upstream) { socket.destroy(); return; }
   const target = connect(upstream.port, upstream.host, () => {
     const headers = Object.entries(incoming.headers).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`).join("\r\n");
     target.write(`${incoming.method ?? "GET"} ${incoming.url ?? "/ws"} HTTP/1.1\r\n${headers}\r\n\r\n`);
@@ -110,7 +112,7 @@ try {
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
-      try { await phoneInstallSmoke(page, context, bundle, name); }
+      try { await phoneInstallSmoke(page, bundle, name, available => { originAvailable = available; }); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
       const credential = credentials[0]; assert(credential, "The browser completed pairing.");
       const wire = await environment.client({ token: credential.token, clientKind: "web" });

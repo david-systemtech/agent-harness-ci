@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import type { Page, BrowserContext } from "playwright";
+import type { Page } from "playwright";
 import { expect } from "playwright/test";
 
 export async function auditPublicCache(page: Page, engine: string, phase: string): Promise<string[]> {
@@ -55,7 +55,7 @@ export async function waitForPublicWorker(page: Page, engine: string): Promise<v
 }
 
 /** Hosted real-client seam: no test server or browser is started by this leaf. */
-export async function phoneInstallSmoke(page: Page, context: BrowserContext, bundle: string, engine: string): Promise<void> {
+export async function phoneInstallSmoke(page: Page, bundle: string, engine: string, setOriginAvailable: (available: boolean) => void): Promise<void> {
   await waitForPublicWorker(page, engine);
   await auditPublicCache(page, engine, "before update");
   const textbox = page.getByRole("textbox", { name: "Message", exact: true });
@@ -90,12 +90,14 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   const manifest = await page.evaluate<{ id: string; start_url: string; scope: string; display: string }>("fetch('/manifest.webmanifest').then(response => response.json())");
   assert.deepEqual([manifest.id, manifest.start_url, manifest.scope, manifest.display], ["/", "/", "/", "standalone"]);
   console.log(`PHONE-INSTALL ${engine}: reloading offline`);
-  await context.setOffline(true);
-  await page.reload();
+  // A transport failure lets the real worker handle navigation in both browser engines.
+  setOriginAvailable(false);
+  const offline = await page.reload();
+  assert(offline?.fromServiceWorker(), "The public worker serves navigation while the origin is unavailable.");
   await page.getByRole("heading", { name: "Offline — cached client" }).waitFor();
   assert.equal(await page.getByRole("button", { name: /^Send/ }).count(), 0, "The offline shell cannot start a run.");
   console.log(`PHONE-INSTALL ${engine}: stale shell reached; reconnecting`);
-  await context.setOffline(false);
+  setOriginAvailable(true);
   await page.reload();
   await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
   await textbox.waitFor();
