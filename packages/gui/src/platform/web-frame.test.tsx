@@ -6,6 +6,7 @@ import { scriptedWorld } from "@agent-harness/client-runtime/testing/scripted-en
 import { IDBFactory } from "fake-indexeddb";
 import { expect, it, onTestFinished } from "vitest";
 import { App } from "../app.js";
+import { WebViewport } from "./web-frame.js";
 import { openPresentation } from "../presentation.js";
 import { browserPlatform } from "./browser-platform.js";
 
@@ -52,4 +53,26 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
 
 
   history.replaceState(null, "", "/");
+});
+
+it("bounds browser surfaces when only the visual viewport shrinks for the keyboard", () => {
+  const previous = Object.getOwnPropertyDescriptor(window, "visualViewport");
+  const inner = Object.getOwnPropertyDescriptor(window, "innerHeight");
+  const viewport = Object.assign(new EventTarget(), { height: 844 });
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
+  onTestFinished(() => {
+    if (previous) Object.defineProperty(window, "visualViewport", previous);
+    else delete (window as { visualViewport?: unknown }).visualViewport;
+    if (inner) Object.defineProperty(window, "innerHeight", inner);
+  });
+  const app = render(<WebViewport><p>Terminal slot</p></WebViewport>);
+  const frame = app.container.firstElementChild as HTMLElement;
+  expect(getComputedStyle(frame).height).toBe("844px");
+  act(() => { viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  expect(window.innerHeight).toBe(844);
+  expect(getComputedStyle(frame).height).toBe("480px");
+  act(() => { viewport.height = 844; viewport.dispatchEvent(new Event("resize")); });
+  expect(getComputedStyle(frame).height).toBe("844px");
+  expect(app.container.firstElementChild).toBe(frame);
 });

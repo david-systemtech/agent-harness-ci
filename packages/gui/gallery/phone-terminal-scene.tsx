@@ -1,6 +1,7 @@
 import { useObservable, useRuntime } from "../src/window-context.js";
 import { TerminalPane } from "../src/terminal/terminal-pane.js";
 import { TerminalPanesProvider } from "../src/terminal/terminal-panes.js";
+import { WebViewport } from "../src/platform/web-frame.js";
 
 /** The terminal leaf in the phone sheet on the browser runtime; no desktop shell. */
 export const PhoneTerminalScene = () => {
@@ -9,7 +10,7 @@ export const PhoneTerminalScene = () => {
   const sessions = useObservable(runtime.projections.sessionList);
   const environment = environments[0];
   const session = sessions.rows[0];
-  return <main data-web-client className="flex h-dvh min-w-0 flex-col overflow-hidden bg-abyss text-ink">
+  return <WebViewport>
     <h1 className="shrink-0 px-4 py-3 text-base font-semibold">Environment terminal</h1>
     <p className="shrink-0 px-4 pb-3 text-sm text-ink-muted">Hide the sheet to leave this terminal running.</p>
     <aside aria-label="Terminal sheet" className="ml-auto flex min-h-0 w-[min(480px,85%)] flex-1 flex-col rounded-l-lg border border-hairline bg-panel">
@@ -18,7 +19,7 @@ export const PhoneTerminalScene = () => {
         <TerminalPane environmentId={environment.environmentId} sessionId={session.summary.id} onScreen />
       </section></TerminalPanesProvider>}
     </aside>
-  </main>;
+  </WebViewport>;
 };
 
 export const phoneTerminalGeometry = [

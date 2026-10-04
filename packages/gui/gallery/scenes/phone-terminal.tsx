@@ -10,8 +10,28 @@ export const readySelector = '[data-terminal-selection-action]';
 /** Capture touch selection using the same controls a phone exposes. */
 export const activate = () => {
   let selected = false;
+  let keyboardChecked = window.innerHeight > 480;
+  let keyboardChanged = false;
+  let initialRows = 0;
   const observer = new MutationObserver(() => {
     if (selected || !document.querySelector(".xterm-fg-2")) return;
+    if (!keyboardChecked) {
+      const rows = document.querySelector(".xterm-rows")?.children.length ?? 0;
+      const frame = document.querySelector<HTMLElement>("[data-web-client]");
+      if (!frame || rows === 0) return;
+      if (!keyboardChanged) {
+        initialRows = rows;
+        // Keep innerHeight unchanged: only the keyboard's visual viewport shrinks.
+        Object.defineProperty(window.visualViewport, "height", { configurable: true, value: 360 });
+        keyboardChanged = true;
+        window.visualViewport!.dispatchEvent(new Event("resize"));
+        return;
+      }
+      // The actual FitAddon and browser layout must reduce the terminal's rows.
+      if (Math.abs(frame.getBoundingClientRect().height - 360) > 0.5 || rows >= initialRows) return;
+      keyboardChecked = true;
+      frame.dataset["terminalKeyboardFit"] = `${initialRows} → ${rows}`;
+    }
     const select = [...document.querySelectorAll("button")].find(button => button.textContent === "Select");
     const overlay = document.querySelector<HTMLElement>('[aria-label="Select terminal text"]');
     if (!overlay) { if (select?.getAttribute("aria-pressed") === "false") select.click(); return; }

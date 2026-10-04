@@ -188,6 +188,14 @@ const KEPT_ASKED_AGAIN_MS = 60_000;
 const FONT_FAMILY = '"JetBrains Mono Variable", ui-monospace, monospace';
 const fontSize = () => 12 * (Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--font-scale")) || 1);
 
+/** xterm's Ctrl mappings, including keys present on phone numeric keyboards. */
+const controlData = (key: string): string => {
+  if (key === " ") return "\x00";
+  if (key === "8" || key === "?") return "\x7f";
+  if (/^[3-7]$/.test(key)) return String.fromCharCode(key.charCodeAt(0) - 24);
+  return /^[a-z@[\]\\^_]$/i.test(key) ? String.fromCharCode(key.toUpperCase().charCodeAt(0) & 31) : key;
+};
+
 export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal => {
   const { runtime, environmentId, source, host, nameOf } = options;
   const term = new Terminal({ theme: options.theme, allowTransparency: true, scrollback: 10000, fontFamily: FONT_FAMILY, fontSize: fontSize(), lineHeight: 1.3 });
@@ -517,7 +525,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     if (d.command !== null) return;
     if (control && !startupAnswer) {
       setControl(false);
-      if (data.length === 1) data = data === "?" ? "\x7f" : /^[a-z@[\]\\^_]$/i.test(data) ? String.fromCharCode(data.toUpperCase().charCodeAt(0) & 31) : data;
+      if (data.length === 1) data = controlData(data);
     }
     d.outgoing += data;
     frameFor(d);
@@ -525,6 +533,35 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   stops.push(() => keys.dispose());
   const selection = term.onSelectionChange(() => options.selectionChanged?.(term.getSelection()));
   stops.push(() => selection.dispose());
+  // xterm's virtual viewport handles wheels, but has no swipe scroller.
+  // Keep fractional rows across moves; multi-touch belongs to browser zoom.
+  let touchY: number | null = null;
+  const touchStart = (event: TouchEvent) => {
+    touchY = onScreen && event.touches.length === 1 ? event.touches[0]!.clientY : null;
+  };
+  const touchMove = (event: TouchEvent) => {
+    if (!onScreen || event.touches.length !== 1) return void (touchY = null);
+    if (touchY === null) return;
+    const height = host.querySelector(".xterm-screen")?.getBoundingClientRect().height ?? 0;
+    if (height <= 0) return;
+    event.preventDefault();
+    const rowHeight = height / term.rows;
+    const lines = Math.trunc((touchY - event.touches[0]!.clientY) / rowHeight);
+    if (lines === 0) return;
+    touchY -= lines * rowHeight;
+    term.scrollLines(lines);
+  };
+  const touchEnd = () => { touchY = null; };
+  host.addEventListener("touchstart", touchStart, { passive: true });
+  host.addEventListener("touchmove", touchMove, { passive: false });
+  host.addEventListener("touchend", touchEnd);
+  host.addEventListener("touchcancel", touchEnd);
+  stops.push(() => {
+    host.removeEventListener("touchstart", touchStart);
+    host.removeEventListener("touchmove", touchMove);
+    host.removeEventListener("touchend", touchEnd);
+    host.removeEventListener("touchcancel", touchEnd);
+  });
   const observer = new ResizeObserver(() => fitNow());
   observer.observe(host);
   stops.push(() => observer.disconnect());
