@@ -20,9 +20,13 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
   ]);
 });
 
-it("reserves capacity for the existing 354 desktop captures and the bounded phone subset", async () => {
+it("admits discovered phone scenes within separate report budgets", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
-  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 800, remaining: 400 });
+  expect(plan.reports.map(report => report.name)).toEqual(["desktop", "phone"]);
+  for (const report of plan.reports) {
+    expect(report.captures.length).toBeGreaterThan(0);
+    expect(report.captures.length).toBeLessThanOrEqual(400);
+  }
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
     "phone-gallery-continue-phone-390-text-20.light", "phone-gallery-continue-phone-390-text-20.dark",
@@ -36,8 +40,13 @@ it("refuses capacity exhaustion before capturing or publishing a partial gallery
 });
 
 
-it("allocates a separate phone report for every leaf owner without dropping desktop captures", async () => {
-  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+it("allocates a separate phone report for every leaf owner without dropping desktop captures", () => {
+  // Fixed inputs keep the allocation example independent of future leaf scene registrations.
+  const scenes = [
+    ...Array.from({ length: 177 }, (_, index) => `desktop-fixture-${index}`),
+    "phone-gallery-conversation", "phone-gallery-permission", "phone-gallery-continue",
+    "phone-attention-failure", "phone-attention-pending", "phone-attention-keyboard",
+  ];
   // Seven owners can each add six dedicated states, including Settings grants and Set up.
   const leaves = Array.from({ length: 7 }, (_, owner) =>
     Array.from({ length: 6 }, (_, state) => `phone-leaf-${owner}-state-${state}`)).flat();

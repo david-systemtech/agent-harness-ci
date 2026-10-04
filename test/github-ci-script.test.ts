@@ -960,7 +960,7 @@ it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure
 
 it("publishes and accepts the desktop and new phone leaf captures together through bounded report manifests", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan([...(await sceneFiles("./packages/gui/gallery/scenes")), "phone-settings-constrained", "phone-settings-full", "phone-settings-setup"]).captures));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan([...(await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")), "phone-gallery-conversation", "phone-gallery-permission", "phone-gallery-continue", "phone-attention-failure", "phone-attention-pending", "phone-attention-keyboard", "phone-leaf-constrained", "phone-leaf-full", "phone-leaf-setup"]).captures));'], { cwd: root });
   const cases = JSON.parse(plan.stdout) as { name: string; viewport: { width: number; height: number } }[];
   const names = cases.map(({ name }) => name);
   expect(names.length).toBeGreaterThan(400);
