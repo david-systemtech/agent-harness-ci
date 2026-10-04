@@ -61,6 +61,7 @@ export const phoneSettingsScene = (kind: "constrained" | "full" | "setup"): Scen
       { selector: "[data-phone-setup]", width, height },
       { selector: '[aria-label="Step navigation"] button', minimumHeight: 44, minimumWidth: 44, visibleWithin: "[data-phone-setup]" },
       { selector: "[data-phone-setup] footer button", minimumHeight: 44, minimumWidth: 44, visibleWithin: "[data-phone-setup]" },
+      { selector: '[data-phone-setup] label:has(input[type="checkbox"])', minimumHeight: 44 },
     ] : [
       { selector: "[data-settings-dialog]", width, height, visibleWithin: "body" },
       { selector: "[data-settings-dialog] button", renderedOnly: true, minimumHeight: 44, minimumWidth: 44 },

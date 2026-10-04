@@ -35,7 +35,7 @@
   [data-phone-setup] footer > div { flex: 1; justify-content: flex-end; }
   [data-phone-setup] footer p { width: 100%; order: -1; }
   [data-phone-setup] footer button { white-space: normal; height: auto; }
-  [data-settings-dialog] label:has(input[type="radio"]), [data-phone-setup] label:has(input[type="radio"]) { min-height: 44px; }
+  [data-settings-dialog] label:has(input:is([type="radio"], [type="checkbox"])), [data-phone-setup] label:has(input:is([type="radio"], [type="checkbox"])) { min-height: 44px; }
   [data-settings-dialog] [role="switch"], [data-phone-setup] [role="switch"] { border-block-width: 13px; background-clip: padding-box; }
   [data-settings-pane] .grid-cols-2, [data-settings-pane] .grid-cols-3 { grid-template-columns: minmax(0, 1fr); }
   [data-setup-summary] li { flex-wrap: wrap; }
