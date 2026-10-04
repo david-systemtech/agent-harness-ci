@@ -13,7 +13,7 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
 import { Welcome } from "../session/empty-state.js";
 import { COLUMN_WIDTHS } from "../transcript/transcript.js";
 import { CHIPS } from "./chips.js";
-import { useSurfaces } from "./surfaces.js";
+import { useSurfaces, type NewSessionMessage } from "./surfaces.js";
 import { refusalLine, signInLine } from "./words.js";
 
 /** What the surface says when no environment can start a session now. */
@@ -42,19 +42,28 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   const [readingWidth] = usePresentation("readingWidth");
   const grid = usePaneGrid();
   const openInPane = useOpenInPane();
-  const { typed, focusAsked, askFocus } = useSurfaces();
+  const { messages, focusAsked, askFocus } = useSurfaces();
   const { id, focus, chips } = surface;
-  const view = useObservable(useMemo(() => runtime.projections.newSession({ focus, chips }), [runtime, focus, chips]));
-  const [text, setText] = useState(() => typed.get(id) ?? "");
+  const [message] = useState<NewSessionMessage>(() => {
+    const held = messages.get(id) ?? { text: "", attachments: [], environmentId: null };
+    messages.set(id, held);
+    return held;
+  });
+  const [text, setText] = useState(message.text);
   const [line, say] = useState<string | undefined>(undefined);
   const [starting, setStarting] = useState(false);
-  const [creationAccepted, setCreationAccepted] = useState(false);
+  const [acceptedEnvironmentId, setAcceptedEnvironmentId] = useState(message.environmentId);
+  const creationAccepted = acceptedEnvironmentId !== null;
+  const view = useObservable(useMemo(() => runtime.projections.newSession({
+    focus, chips: acceptedEnvironmentId === null ? chips : { ...chips, environmentId: acceptedEnvironmentId },
+  }), [runtime, focus, chips, acceptedEnvironmentId]));
+  const destination = acceptedEnvironmentId ?? view.environment.value;
   const field = useRef<HTMLTextAreaElement>(null);
   const caret = useRef<number | null>(null);
-  const environment = view.environment.options.find((option) => option.environment.environmentId === view.environment.value)?.environment;
+  const environment = view.environment.options.find((option) => option.environment.environmentId === destination)?.environment;
   const accountLine = signInLine(view.account, environment === undefined ? "the chosen environment" : nameOf(environment));
   const missingAccount = accountLine !== undefined;
-  const unavailable = view.environment.options.find((option) => option.environment.environmentId === view.environment.value)?.unusable;
+  const unavailable = view.environment.options.find((option) => option.environment.environmentId === destination)?.unusable;
   const notReady = unavailable ?? (environment === undefined ? NONE_USABLE : accountLine ?? (view.workspace.value === null ? "Choose a workspace first." : undefined));
   const sendOffer: Offer = notReady === undefined && !starting ? { status: "present" } : { status: "absent", message: starting ? "The session is starting." : notReady ?? NONE_USABLE };
 
@@ -91,8 +100,8 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
 
   const put = (next: string) => {
     setText(next);
-    typed.set(id, next);
-    if (creationAccepted && view.environment.value !== null) runtime.drafts.set(view.environment.value, id, next);
+    message.text = next;
+    if (message.environmentId !== null) runtime.drafts.set(message.environmentId, id, next);
   };
   const providers = useObservable(useMemo(() => runtime.requests.cached(view.environment.value ?? "", "providers.list", {}), [runtime, view.environment.value]));
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(view.environment.value ?? ""), [runtime, view.environment.value]));
@@ -102,6 +111,12 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     say,
     insert: added => put(text + added),
   });
+  const retainedAttachments = useRef(attachments);
+  useLayoutEffect(() => {
+    const held = retainedAttachments.current;
+    held.set(message.attachments);
+    return () => { message.attachments = held.current(); };
+  }, [message]);
   const choose = (chosen: NewSessionChips) => grid.chooseChips(id, (held) => {
     const next = { ...held, ...chosen };
     if (chosen.environmentId !== undefined || chosen.account !== undefined) delete next.browser;
@@ -109,13 +124,13 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   });
 
   const start = async () => {
-    const message = text.trim();
-    const environmentId = view.environment.value;
+    const outgoingText = text.trim();
+    const environmentId = message.environmentId ?? view.environment.value;
     const workspace = view.workspace.value;
-    if (message.length === 0 || sendOffer.status === "absent") return;
+    if (outgoingText.length === 0 || sendOffer.status === "absent") return;
     if (environmentId === null || workspace === null) return say(NONE_USABLE);
     const environment = view.environment.options.find((option) => option.environment.environmentId === environmentId)?.environment;
-    const input = { text: message, attachments: attachments.current() };
+    const input = { text: outgoingText, attachments: attachments.current() };
     const account = view.account.value;
     const model = view.model.value;
     setStarting(true);
@@ -133,11 +148,12 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
         const where = environment === undefined ? "the environment" : nameOf(environment);
         return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
       }
-      setCreationAccepted(true);
+      message.environmentId = environmentId;
+      setAcceptedEnvironmentId(environmentId);
     }
     const sent = await sendMessage(runtime, environmentId, id, input, false);
     if (!sent.ok) {
-      runtime.drafts.set(environmentId, id, message);
+      runtime.drafts.set(environmentId, id, outgoingText);
       setStarting(false);
       // Keep this editor and its selected files; retry uses the session already created.
       return say(sent.line);
@@ -192,7 +208,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
                 <IconButton label="Attach files" onClick={attachments.choose}><Paperclip aria-hidden="true" /></IconButton>
                 <AttachmentPicker attachments={attachments} />
                 <span className="ml-auto hidden text-2xs text-ink-faint @[640px]:block">{sendKey ?? "Unbound"} send / {newlineKey ?? "Unbound"} newline</span>
-                <IconButton label={starting ? "Starting…" : "Send"} {...(sendKey === undefined ? {} : { keys: sendKey })} {...(notReady === undefined ? {} : { disabledReason: notReady })} variant="default" disabled={starting || text.trim().length === 0} className="ml-auto" onClick={() => void start()}>
+                <IconButton label={starting ? "Starting…" : "Send"} {...(sendKey === undefined ? {} : { keys: sendKey })} {...(notReady === undefined ? {} : { disabledReason: notReady })} variant="default" disabled={starting || notReady !== undefined || text.trim().length === 0} className="ml-auto" onClick={() => void start()}>
                   {starting ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <SendHorizontal aria-hidden="true" />}
                 </IconButton>
               </div>

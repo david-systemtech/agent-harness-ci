@@ -2,19 +2,20 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { userEvent } from "@testing-library/user-event";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
-import { scriptedWorld, type ScriptedReceipt } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { scriptedWorld, type ScriptedReceipt, type Script } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { IDBFactory } from "fake-indexeddb";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { App } from "../app.js";
 import { browserPlatform } from "../platform/browser-platform.js";
 import { openPresentation } from "../presentation.js";
 
-const open = async (receipts: Record<string, ScriptedReceipt> = {}) => {
+const open = async (receipts: Record<string, ScriptedReceipt> = {}, secondEnvironment = false) => {
   const original = window.matchMedia;
   const media = vi.spyOn(window, "matchMedia").mockImplementation(query => Object.assign(original(query), { matches: query === "(width < 640px)" }));
   onTestFinished(() => media.mockRestore());
   const clock = manualClock();
-  const world = scriptedWorld(clock, { environments: [{ name: "desk", reach: "unpaired", receipts, scopes: ["read", "sessions:write", "runs:drive"], accounts: [{ id: "account-1", label: "Work", identity: { provider: "claude", email: "dev@work.test", organisation: null } }], models: [{ accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] }], sessions: [{ title: "Notes", workspace: { kind: "directory", path: "/work/notes" } }] }] });
+  const desk: Script["environments"][number] = { name: "desk", reach: "unpaired", receipts, scopes: ["read", "sessions:write", "runs:drive"], accounts: [{ id: "account-1", label: "Work", identity: { provider: "claude", email: "dev@work.test", organisation: null } }], models: [{ accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] }], sessions: [{ title: "Notes", workspace: { kind: "directory", path: "/work/notes" } }] };
+  const world = scriptedWorld(clock, { environments: [desk, ...(secondEnvironment ? [{ ...desk, name: "backup", receipts: {} }] : [])] });
   const view = Object.assign(Object.create(window) as Window & typeof globalThis, { indexedDB: new IDBFactory() });
   const platform = { ...browserPlatform(view, "0.0.0"), clock, fetch: world.fetch, webSocket: world.webSocket };
   const runtime = createRuntime(platform);
@@ -29,7 +30,7 @@ const open = async (receipts: Record<string, ScriptedReceipt> = {}) => {
   await user.click(screen.getByRole("button", { name: "New session" }));
   const surface = await screen.findByRole("region", { name: "New session" });
   const box = within(surface).getByRole("textbox", { name: "Message" });
-  return { user, env, surface, box, platform };
+  return { user, env, surface, box, platform, runtime, world };
 };
 
 it("attaches phone file contents to the first message and keeps the draft after picker cancellation", async () => {
@@ -91,4 +92,56 @@ it("keeps the selected phone files after a refused first send and retries on the
   expect(messages[1]).toEqual(expect.objectContaining({ sessionId: messages[0]?.sessionId, text: messages[0]?.text, attachments: messages[0]?.attachments }));
   expect(messages[1]).toEqual(expect.objectContaining({ text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "New session" })).toBeNull());
+});
+
+
+it("keeps a refused first message's files and accepted session through the pairing view", async () => {
+  const receipts: Record<string, ScriptedReceipt> = { "runs.start": { rejected: "unavailable", message: "Try again." } };
+  const { user, env, surface, box } = await open(receipts);
+  await user.type(box, "Read this note");
+  await user.upload(screen.getByLabelText("Files to attach"), new File([new Uint8Array([137, 80, 78, 71])], "note.png", { type: "image/png" }));
+  await within(surface).findByRole("list", { name: "Attachments" });
+  await user.click(within(surface).getByRole("button", { name: "Send" }));
+  await within(surface).findByText("Not sent: Try again.");
+  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  expect(screen.queryByRole("region", { name: "New session" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  const restored = await screen.findByRole("region", { name: "New session" });
+  expect(within(restored).getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Read this note");
+  expect(within(restored).getByRole("list", { name: "Attachments" }).textContent).toContain("note.png");
+  receipts["runs.start"] = "accepted";
+  await user.click(within(restored).getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "New session" })).toBeNull());
+  expect(env.requests("sessions.create")).toHaveLength(1);
+  expect(env.requests("runs.start").map(r => r.params)).toEqual([
+    expect.objectContaining({ text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }),
+    expect.objectContaining({ text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }),
+  ]);
+});
+
+
+it("keeps a refused first message on its accepted environment when the default changes", async () => {
+  const receipts: Record<string, ScriptedReceipt> = { "runs.start": { rejected: "unavailable", message: "Try again." } };
+  const { user, env, surface, box, runtime, world } = await open(receipts, true);
+  await user.type(box, "Read this note");
+  await user.click(within(surface).getByRole("button", { name: "Send" }));
+  await within(surface).findByText("Not sent: Try again.");
+  const acceptedId = env.requests("runs.start")[0]?.params.sessionId;
+  const backup = world.environment("backup");
+  await runtime.connections.add({ link: backup.wire.link });
+  await runtime.connections.setEnabled(env.environmentId, false);
+  await waitFor(() => expect(runtime.projections.newSession({ focus: { kind: "none" } }).read().environment.value).toBe(backup.environmentId));
+  await user.type(box, " revised");
+  runtime.drafts.flush();
+  expect(within(surface).getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+  expect(backup.requests("sessions.setDraft")).toHaveLength(0);
+  await runtime.connections.setEnabled(env.environmentId, true);
+  receipts["runs.start"] = "accepted";
+  await user.click(within(surface).getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "New session" })).toBeNull());
+  expect(backup.requests("runs.start")).toHaveLength(0);
+  expect(backup.requests("sessions.create")).toHaveLength(0);
+  expect(env.requests("sessions.create")).toHaveLength(0);
+  expect(env.requests("runs.start")[0]?.params.sessionId).toBe(acceptedId);
+  expect(env.requests("runs.start")[0]?.params.text).toBe("Read this note revised");
 });
