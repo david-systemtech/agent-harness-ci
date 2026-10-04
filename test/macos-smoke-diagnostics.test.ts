@@ -1,7 +1,9 @@
 import { join } from "node:path";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import process from "node:process";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 interface Peer {
@@ -19,7 +21,10 @@ const { createCdpEvaluator } = await import(script) as {
 };
 interface DiagnosticCall { command: string; args: string[] }
 const diagnostics = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-smoke-diagnostics.mjs")).href;
-const { collectMacosSmokeDiagnostics, finishSmoke, redactDiagnostic } = await import(diagnostics) as {
+const { collectMacosSmokeDiagnostics, executeDiagnostic, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } = await import(diagnostics) as {
+  executeDiagnostic: (command: string, args: string[], options?: { timeout: number }) => Promise<{ stdout: string; stderr: string }>;
+  persistDesktopLog: (directory: string, privateDirectory: string, secrets: string[]) => void;
+  persistSmokeFailure: (directory: string, error: Error, secrets: string[]) => void;
   redactDiagnostic: (text: string, secrets?: string[]) => string;
   finishSmoke: (original: Error | undefined, cleanup: (() => Promise<void>)[], report: (error: Error) => void) => Promise<void>;
   collectMacosSmokeDiagnostics: (input: {
@@ -30,6 +35,65 @@ const { collectMacosSmokeDiagnostics, finishSmoke, redactDiagnostic } = await im
 afterEach(() => { vi.useRealTimers(); });
 
 describe("packaged macOS timeout evidence", () => {
+  it("persists cleanup-only failures and desktop output before deleting private captures", async () => {
+    const work = mkdtempSync(join(tmpdir(), "macos-cleanup-evidence-"));
+    const directory = join(work, "upload");
+    const privateDirectory = join(work, "private");
+    const secrets = ["token-for-tests-kept"];
+    mkdirSync(privateDirectory);
+    writeFileSync(join(privateDirectory, "desktop.log"), "desktop output token-for-tests-kept");
+    try {
+      await expect(finishSmoke(undefined, [
+        async () => { throw new Error("service uninstall failed token-for-tests-kept"); },
+        async () => { rmSync(privateDirectory, { recursive: true }); },
+      ], error => {
+        persistSmokeFailure(directory, error, secrets);
+        persistDesktopLog(directory, privateDirectory, secrets);
+      })).rejects.toThrow("cleanup failed");
+      expect(readFileSync(join(directory, "failure.txt"), "utf8")).toContain("service uninstall failed <REDACTED>");
+      expect(readFileSync(join(directory, "desktop.log"), "utf8")).toBe("desktop output <REDACTED>");
+      expect(existsSync(privateDirectory)).toBe(false);
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
+  it("persists the original error when CLI setup fails before smoke collection starts", () => {
+    const work = mkdtempSync(join(tmpdir(), "macos-early-failure-"));
+    const directory = join(work, "upload");
+    try {
+      // No app argument: argument validation fails before any native macOS command can run.
+      expect(() => execFileSync(process.execPath, [fileURLToPath(script)], {
+        cwd: work, env: { ...process.env, SMOKE_DIAGNOSTICS: directory }, stdio: "pipe",
+      })).toThrow();
+      expect(readFileSync(join(directory, "failure.txt"), "utf8")).toContain("Received undefined");
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
+  it("forces a diagnostic tool to finish even when it ignores SIGTERM", async () => {
+    const work = mkdtempSync(join(tmpdir(), "macos-stubborn-diagnostic-"));
+    const pidFile = join(work, "ready.pid");
+    let settled = false;
+    const result = executeDiagnostic(process.execPath, ["-e", `
+      process.on('SIGTERM', () => {});
+      require('node:fs').writeFileSync(process.argv[1], String(process.pid));
+      setInterval(() => {}, 1000);
+    `, pidFile], { timeout: 1000 }).then(
+      value => { settled = true; return value; },
+      (error: unknown) => { settled = true; return error; },
+    );
+    let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    try {
+      const deadline = new Promise(resolve => { timer = globalThis.setTimeout(() => resolve("still pending"), 2200); });
+      const outcome = await Promise.race([result, deadline]);
+      expect(existsSync(pidFile), "the real child installed its signal handler").toBe(true);
+      expect(outcome).toMatchObject({ killed: true, signal: "SIGKILL" });
+    } finally {
+      globalThis.clearTimeout(timer);
+      if (!settled && existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+      await result;
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
   it("names a native evaluation exception without exposing its credential", async () => {
     const peer: Peer = { close: () => {}, send: (message) => {
       const request: { id: number } = JSON.parse(message);

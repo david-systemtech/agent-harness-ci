@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,8 +14,8 @@ export function redactDiagnostic(text, secrets = []) {
   return clean;
 }
 
-const executeDiagnostic = (command, args) => new Promise((resolve, reject) => {
-  execFile(command, args, { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+export const executeDiagnostic = (command, args, { timeout = 20_000 } = {}) => new Promise((resolve, reject) => {
+  execFile(command, args, { timeout, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
     if (error) reject(error);
     else resolve({ stdout, stderr });
   });
@@ -25,6 +25,12 @@ const executeDiagnostic = (command, args) => new Promise((resolve, reject) => {
 export function persistDesktopLog(directory, privateDirectory, secrets) {
   const path = join(privateDirectory, "desktop.log");
   if (existsSync(path)) writeFileSync(join(directory, "desktop.log"), redactDiagnostic(readFileSync(path, "utf8"), secrets), { mode: 0o600 });
+}
+
+/** Records failures even when setup or cleanup did not create a timeout artifact. */
+export function persistSmokeFailure(directory, error, secrets) {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  appendFileSync(join(directory, "failure.txt"), redactDiagnostic(error.stack ?? String(error), secrets) + "\n", { mode: 0o600 });
 }
 
 /** Collects bounded native evidence before the failed desktop is stopped. */
@@ -65,9 +71,12 @@ export async function collectMacosSmokeDiagnostics({ directory, privateDirectory
 export async function finishSmoke(original, cleanup, report) {
   const failures = [];
   for (const operation of cleanup) {
-    try { await operation(); } catch (error) { failures.push(error); }
+    try { await operation(); } catch (error) {
+      failures.push(error);
+      // Persist evidence while private captures still exist, before later cleanup removes them.
+      try { await report(error); } catch (reportError) { failures.push(reportError); }
+    }
   }
-  for (const failure of failures) report(failure);
   if (original) throw original;
   if (failures.length) throw new AggregateError(failures, "Packaged smoke cleanup failed");
 }

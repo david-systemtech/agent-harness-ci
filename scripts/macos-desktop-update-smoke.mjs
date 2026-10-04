@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
-import { collectMacosSmokeDiagnostics, finishSmoke, persistDesktopLog, redactDiagnostic } from "./macos-smoke-diagnostics.mjs";
+import { collectMacosSmokeDiagnostics, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } from "./macos-smoke-diagnostics.mjs";
 
 const { fetch, AbortSignal, WebSocket } = globalThis;
 
@@ -240,15 +240,15 @@ async function configureIdle(origin, credential, protocolVersion) {
   } finally { globalThis.clearTimeout(timeout); socket.close(); }
 }
 
-async function runSmoke(source, version) {
+async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
   assert.equal(process.platform, "darwin");
   const data = join(homedir(), "Library", "Application Support", "agent-harness");
   assert.equal(existsSync(data), false, "The hosted smoke user must have no existing environment data");
   const work = mkdtempSync(join(tmpdir(), "macos-desktop-update-"));
   const installed = join(work, "agent-harness.app");
   const keychain = join(work, "smoke.keychain-db");
-  const originalKeychain = execFileSync("security", ["default-keychain", "-d", "user"], { encoding: "utf8" }).trim().replace(/^"|"$/g, "");
-  const originalSearchList = [...execFileSync("security", ["list-keychains", "-d", "user"], { encoding: "utf8" }).matchAll(/"([^"\n]+)"/g)].map((match) => match[1]);
+  let originalKeychain;
+  let originalSearchList;
   let desktop;
   let cdp;
   let fixtureCli;
@@ -256,8 +256,6 @@ async function runSmoke(source, version) {
   let evidence;
   const privateDiagnostics = join(work, "diagnostics-private");
   mkdirSync(privateDiagnostics, { mode: 0o700 });
-  const diagnostics = resolve(process.env.SMOKE_DIAGNOSTICS ?? "macos-update-diagnostics");
-  const secretsToRedact = ["password-for-tests"];
   const capture = (error) => evidence ??= collectMacosSmokeDiagnostics({
     directory: diagnostics, privateDirectory: privateDiagnostics, pid: desktop?.pid ?? error.pid,
     error, secrets: secretsToRedact,
@@ -277,6 +275,8 @@ async function runSmoke(source, version) {
     await until(() => desktop.exitCode !== null || desktop.signalCode !== null, "The packaged desktop did not respond to SIGTERM", 10_000);
   };
   try {
+    originalKeychain = execute("security", ["default-keychain", "-d", "user"], { encoding: "utf8" }).trim().replace(/^"|"$/g, "");
+    originalSearchList = [...execute("security", ["list-keychains", "-d", "user"], { encoding: "utf8" }).matchAll(/"([^"\n]+)"/g)].map((match) => match[1]);
     copyPackagedDesktop(source, installed);
     const resources = join(installed, "Contents", "Resources");
     // A prior-install fixture of the release's server code, stamped lower, tests the real launcher handover.
@@ -354,8 +354,8 @@ async function runSmoke(source, version) {
   } catch (error) {
     failure = error;
     logFailure("Packaged replacement failed before cleanup:", error);
-    mkdirSync(diagnostics, { recursive: true, mode: 0o700 });
-    writeFileSync(join(diagnostics, "failure.txt"), redactDiagnostic(error.stack ?? String(error), secretsToRedact), { mode: 0o600 });
+    try { persistSmokeFailure(diagnostics, error, secretsToRedact); }
+    catch (recordError) { logFailure("Failure persistence failed:", recordError); }
     if (error.smokeTimeout) {
       try { await capture(error); } catch (collectionError) { logFailure("Timeout evidence collection failed:", collectionError); }
     }
@@ -369,20 +369,28 @@ async function runSmoke(source, version) {
       },
       async () => { if (existsSync(diagnostics)) persistDesktopLog(diagnostics, privateDiagnostics, secretsToRedact); },
       async () => { if (fixtureCli) execute(fixtureCli[0], [fixtureCli[1], "service", "uninstall"]); },
-      async () => { execute("security", ["default-keychain", "-d", "user", "-s", originalKeychain]); },
-      async () => { execute("security", ["list-keychains", "-d", "user", "-s", ...originalSearchList]); },
+      async () => { if (originalKeychain !== undefined) execute("security", ["default-keychain", "-d", "user", "-s", originalKeychain]); },
+      async () => { if (originalSearchList !== undefined) execute("security", ["list-keychains", "-d", "user", "-s", ...originalSearchList]); },
       async () => { if (existsSync(keychain)) execute("security", ["delete-keychain", keychain]); },
       async () => { rmSync(data, { recursive: true, force: true }); },
       async () => { rmSync(work, { recursive: true, force: true }); },
-    ], error => logFailure("Packaged replacement cleanup failed:", error));
+    ], error => {
+      logFailure("Packaged replacement cleanup failed:", error);
+      persistSmokeFailure(diagnostics, error, secretsToRedact);
+      persistDesktopLog(diagnostics, privateDiagnostics, secretsToRedact);
+    });
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  try { await runSmoke(resolve(process.argv[2]), process.env.VERSION); }
-  catch {
-    // The redacted original was already logged; do not dump child-process output or credential fields.
-    console.error("Packaged replacement failed; see the macOS smoke diagnostic artifact.");
+  const diagnostics = resolve(process.env.SMOKE_DIAGNOSTICS ?? "macos-update-diagnostics");
+  const secretsToRedact = ["password-for-tests"];
+  try { await runSmoke(resolve(process.argv[2]), process.env.VERSION, { diagnostics, secretsToRedact }); }
+  catch (error) {
+    try { persistSmokeFailure(diagnostics, error, secretsToRedact); }
+    catch (recordError) { console.error("Failure persistence failed:", redactDiagnostic(recordError.stack ?? String(recordError), secretsToRedact)); }
+    // Log only the sanitized stack, never the child-process object with output or environment fields.
+    console.error("Packaged replacement failed:", redactDiagnostic(error.stack ?? String(error), secretsToRedact));
     process.exitCode = 1;
   }
 }
