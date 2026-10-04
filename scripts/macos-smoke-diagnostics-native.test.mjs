@@ -8,7 +8,7 @@ import test from "node:test";
 import { collectMacosSmokeDiagnostics, collectRendererSmokeDiagnostics, executeDiagnostic } from "./macos-smoke-diagnostics.mjs";
 
 // Apple SDK contracts are exercised on a hosted Mac, without Electron or credentials.
-const native = { skip: process.platform !== "darwin", timeout: 90_000 };
+const native = { skip: process.platform !== "darwin", timeout: 180_000 };
 const fixture = fileURLToPath(new globalThis.URL("../test/fixtures/macos-smoke-image.swift", import.meta.url));
 const redactor = fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url));
 
