@@ -1,6 +1,6 @@
 /* Settings owns its phone geometry, including content reached through registered rows. */
 @media (max-width: 639px) {
-  body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] :is(button, input:not([type="radio"]):not([type="checkbox"]), select) { min-height: 44px; }
+  body:has([data-settings-dialog], [data-phone-setup]) :is([role="dialog"], [role="menu"]) :is(button, input:not([type="radio"]):not([type="checkbox"]), select, [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]) { min-height: 44px; }
   body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] :is(input, textarea, select) { font-size: max(16px, 1rem); }
   body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] button { min-width: 44px; height: auto; white-space: normal; }
   [data-settings-dialog] {

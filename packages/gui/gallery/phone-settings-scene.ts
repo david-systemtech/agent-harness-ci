@@ -3,12 +3,12 @@ import type { EnvironmentHandle } from "@agent-harness/client-runtime/testing/sc
 import type { CarryOverInventory } from "@agent-harness/contracts";
 
 /** Real browser Settings and checklist, driven by taps over scripted provider state. */
-export const phoneSettingsScene = (kind: "constrained" | "full" | "setup"): SceneModule => {
+export const phoneSettingsScene = (kind: "constrained" | "full" | "setup" | "picker"): SceneModule => {
   let environment: EnvironmentHandle;
   return {
     platform: "web",
     script: { environments: [{ name: "desk", reach: "paired", ...(kind === "constrained" && { scopes: ["read", "sessions:write", "runs:drive"] }), hello: { ceiling: kind === "constrained" ? "acceptEdits" : "bypassPermissions" }, accounts: [{ label: "Project account with a long descriptive label", status: { state: "expired", checkedAt: null, detail: null } }] }] },
-    presentation: { settingsRow: "accounts.accounts" },
+    presentation: { settingsRow: kind === "picker" ? "accounts.default-model" : "accounts.accounts" },
     arrangeWeb: world => {
       environment = world.environment("desk");
       if (kind === "setup") environment.wire.answer("carryOver.inventory", params => {
@@ -34,6 +34,16 @@ export const phoneSettingsScene = (kind: "constrained" | "full" | "setup"): Scen
           return;
         }
         if (kind === "constrained") return;
+        if (kind === "picker") {
+          if (!actionOpened) {
+            const trigger = document.querySelector<HTMLButtonElement>('[data-default-choice="Default account"]');
+            if (!trigger || trigger.disabled) return;
+            actionOpened = true;
+            trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "touch" }));
+          }
+          if (document.querySelector('[aria-label="New-session defaults"] [role="menuitem"]')) observer.disconnect();
+          return;
+        }
         if (!actionOpened) {
           const action = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-settings-pane] button")).find(button => kind === "full" ? button.textContent === "Sign in again" : button.textContent === "Open the Carry over step in Set up");
           if (!action || action.disabled) return;
@@ -56,7 +66,7 @@ export const phoneSettingsScene = (kind: "constrained" | "full" | "setup"): Scen
       advance();
       return () => observer.disconnect();
     },
-    readySelector: kind === "constrained" ? "[data-phone-grant-guidance]" : kind === "full" ? "[data-phone-sign-in-ready]" : '[data-phone-setup] [data-count-grid][aria-label="Sessions"]',
+    readySelector: kind === "picker" ? '[aria-label="New-session defaults"] [role="menuitem"]' : kind === "constrained" ? "[data-phone-grant-guidance]" : kind === "full" ? "[data-phone-sign-in-ready]" : '[data-phone-setup] [data-count-grid][aria-label="Sessions"]',
     geometry: ({ width, height }) => kind === "setup" ? [
       { selector: "[data-phone-setup]", width, height },
       { selector: '[aria-label="Step navigation"] button', minimumHeight: 44, minimumWidth: 44, visibleWithin: "[data-phone-setup]" },
@@ -65,6 +75,7 @@ export const phoneSettingsScene = (kind: "constrained" | "full" | "setup"): Scen
     ] : [
       { selector: "[data-settings-dialog]", width, height, visibleWithin: "body" },
       { selector: "[data-settings-dialog] button", renderedOnly: true, minimumHeight: 44, minimumWidth: 44 },
+      ...(kind === "picker" ? [{ selector: '[aria-label="New-session defaults"] [role="menuitem"]', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, visibleWithin: '[aria-label="New-session defaults"]' }] : []),
       ...(kind === "full" ? [{ selector: "[data-account-sign-in] input", minimumHeight: 44, visibleWithin: "[data-settings-scroll]" }, { selector: '[data-account-sign-in] form[aria-label="Send the code"] button[type="submit"]', minimumHeight: 44, visibleWithin: "[data-settings-scroll]" }, { selector: "[data-account-sign-in] a", minimumHeight: 44 }] : []),
     ],
   };

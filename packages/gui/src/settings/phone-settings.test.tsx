@@ -115,3 +115,21 @@ it("resumes provider status when returning to a tab without restarting the flow"
   expect(app.environment.requests("accounts.add")).toHaveLength(1);
   expect(app.environment.requests("accounts.signin.start")).toHaveLength(0);
 });
+
+
+it.each(["settings", "setup"])("opens portaled default choices in phone %s", async surface => {
+  const app = await opened();
+  if (surface === "settings") {
+    await app.user.click(screen.getByRole("button", { name: "Settings rows" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Settings rows" })).getByRole("button", { name: "Default account and model" }));
+  } else {
+    await app.user.click(screen.getByRole("button", { name: "Open the Carry over step in Set up" }));
+    await app.user.click(await screen.findByRole("button", { name: "Set up steps" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Set up steps" })).getByRole("button", { name: "Account" }));
+  }
+  await app.user.click(await screen.findByRole("button", { name: /^Default account:/ }));
+  const picker = await screen.findByRole("dialog", { name: "New-session defaults" });
+  const rows = within(picker).getAllByRole("menuitem");
+  expect(rows.length).toBeGreaterThan(0);
+  expect(picker.closest("[data-settings-dialog], [data-phone-setup]")).toBeNull();
+});
