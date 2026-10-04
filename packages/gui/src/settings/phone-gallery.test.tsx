@@ -15,5 +15,9 @@ it.each(["constrained", "full", "setup"] as const)("phone Settings %s scene moun
   expect(gallery.world.shell).toBeUndefined();
   if (kind === "constrained") expect(screen.getByText(/Pair again using a Custom code with admin/)).toBeDefined();
   if (kind === "full") expect(screen.getByRole("link", { name: "Open the sign-in page" })).toBeDefined();
-  if (kind === "setup") expect(screen.getByRole("heading", { name: "Carry over", level: 2 })).toBeDefined();
+  if (kind === "setup") {
+    expect(screen.getByRole("heading", { name: "Carry over", level: 2 })).toBeDefined();
+    expect(await screen.findByText("New sessions")).toBeDefined();
+    expect(screen.queryByText(/The inventory could not be read/)).toBeNull();
+  }
 });
