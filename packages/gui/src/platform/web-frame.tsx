@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Settings, Plus, Link } from "lucide-react";
 import { BrowserPanesProvider } from "../browser/browser-panes.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
@@ -18,6 +18,20 @@ import type { BrowserPlatform } from "./browser-platform.js";
 import { WebRegisteredSurfaces } from "./web-registrations.js";
 
 export interface WebFrameProps { readonly platform: BrowserPlatform; readonly route: BrowserRoute }
+
+/** Shared browser bounds: a keyboard can shrink this without resizing the layout viewport. */
+export const WebViewport = ({ children }: { readonly children: ReactNode }) => {
+  const [height, setHeight] = useState<number>();
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const resize = () => setHeight(viewport.height);
+    resize();
+    viewport.addEventListener("resize", resize);
+    return () => viewport.removeEventListener("resize", resize);
+  }, []);
+  return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink" style={{ maxHeight: height }}>{children}</div>;
+};
 /** The first browser slice uses the same session components and environment-owned work. */
 export const WebFrame = (props: WebFrameProps) => (
   <BrowserPanesProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><PaneLines>
@@ -68,7 +82,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     history.replaceState(null, "", sessionLink(session));
   };
   const content = { focused: true, marked: false, close: undefined };
-  return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">
+  return <WebViewport>
     <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
       <label className="sr-only" htmlFor="web-session">Sessions</label>
       <select id="web-session" aria-label="Sessions" className="min-w-0 flex-1 rounded-md border border-hairline bg-panel px-2 text-ink" value={pane.session ? `${pane.session.environmentId}/${pane.session.sessionId}` : ""} onChange={event => open(event.target.value)}>
@@ -91,5 +105,5 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     </main>}
     {settings.shown && <SettingsView />}
     <WebRegisteredSurfaces />
-  </div>;
+  </WebViewport>;
 };
