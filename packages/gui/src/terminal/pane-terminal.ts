@@ -105,6 +105,9 @@ export interface PaneTerminalOptions {
   readonly nameOf: () => string;
   /** The pane's view changed. */
   readonly changed: (view: PaneView) => void;
+  /** The phone's one-shot Ctrl modifier changed. */
+  readonly controlChanged?: (active: boolean) => void;
+  readonly selectionChanged?: (text: string) => void;
 }
 
 export interface PaneTerminal {
@@ -115,6 +118,10 @@ export interface PaneTerminal {
   theme(theme: ITheme): void;
   /** Whether the pane is on screen: shown, in a column not hidden. It fits, and takes the keys it was asked to, only then. */
   onScreen(onScreen: boolean): void;
+  /** Touch keyboard controls, sent through the same write queue as typed keys. */
+  control(key: "ctrl" | "escape" | "tab"): void;
+  /** Select visible cells between two touch positions, in viewport pixels. */
+  selectTouch(from: { readonly x: number; readonly y: number }, to: { readonly x: number; readonly y: number }): void;
   /** The pane goes (hidden for good, another session, the window closing); the terminal it shows runs on. */
   dispose(): void;
 }
@@ -181,6 +188,14 @@ const KEPT_ASKED_AGAIN_MS = 60_000;
 const FONT_FAMILY = '"JetBrains Mono Variable", ui-monospace, monospace';
 const fontSize = () => 12 * (Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--font-scale")) || 1);
 
+/** xterm's Ctrl mappings, including keys present on phone numeric keyboards. */
+const controlData = (key: string): string => {
+  if (key === " ") return "\x00";
+  if (key === "8" || key === "?") return "\x7f";
+  if (/^[3-7]$/.test(key)) return String.fromCharCode(key.charCodeAt(0) - 24);
+  return /^[a-z@[\]\\^_]$/i.test(key) ? String.fromCharCode(key.toUpperCase().charCodeAt(0) & 31) : key;
+};
+
 export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal => {
   const { runtime, environmentId, source, host, nameOf } = options;
   const term = new Terminal({ theme: options.theme, allowTransparency: true, scrollback: 10000, fontFamily: FONT_FAMILY, fontSize: fontSize(), lineHeight: 1.3 });
@@ -201,6 +216,11 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   };
   let wantsKeys = false;
   let disposed = false;
+  let control = false;
+  const setControl = (active: boolean) => {
+    control = active;
+    options.controlChanged?.(active);
+  };
   /** Output is taken into xterm.js one chunk at a time, so what it answers while it parses is known to be to that chunk. */
   let feeding: Promise<void> = Promise.resolve();
   /** Whether what xterm.js sends now may go to the terminal: not while it parses output replayed rather than heard live. */
@@ -366,6 +386,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
 
   /** A new terminal for the pane in place of the one drawn, its terminal not yet known. */
   const begin = (command: string | null): Drawn => {
+    setControl(false);
     if (drawn !== null) letGo(drawn);
     const d: Drawn = {
       answers: terminalAnswers(),
@@ -496,19 +517,61 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const keys = term.onData((data) => {
     const d = drawn;
     // What xterm.js answers while it parses replayed output, or while the pane does not have the keys, is not sent.
-    if (d === null || !sendsAnswers || (!startupAnswer && !host.contains(document.activeElement))) return;
+    if (d === null || d.gone || !sendsAnswers || (!startupAnswer && !host.contains(document.activeElement))) return;
     // A key in a `!` command's pane once it has ended takes the pane back to the shell.
     if (d.command !== null && d.ended !== null) return void shell();
     // With no terminal to take them (it ended, or none can be opened now), keys are dropped, never held for a later one.
     if (d.ended !== null || d.refused) return;
     if (d.command !== null) return;
+    if (control && !startupAnswer) {
+      setControl(false);
+      if (data.length === 1) data = controlData(data);
+    }
     d.outgoing += data;
     frameFor(d);
   });
   stops.push(() => keys.dispose());
+  const selection = term.onSelectionChange(() => options.selectionChanged?.(term.getSelection()));
+  stops.push(() => selection.dispose());
+  // xterm's virtual viewport handles wheels, but has no swipe scroller.
+  // Keep fractional rows across moves; multi-touch belongs to browser zoom.
+  let touchY: number | null = null;
+  const touchStart = (event: TouchEvent) => {
+    touchY = onScreen && event.touches.length === 1 ? event.touches[0]!.clientY : null;
+  };
+  const touchMove = (event: TouchEvent) => {
+    if (!onScreen || event.touches.length !== 1) return void (touchY = null);
+    if (touchY === null) return;
+    const height = host.querySelector(".xterm-screen")?.getBoundingClientRect().height ?? 0;
+    if (height <= 0) return;
+    event.preventDefault();
+    const rowHeight = height / term.rows;
+    const lines = Math.trunc((touchY - event.touches[0]!.clientY) / rowHeight);
+    if (lines === 0) return;
+    touchY -= lines * rowHeight;
+    term.scrollLines(lines);
+  };
+  const touchEnd = () => { touchY = null; };
+  host.addEventListener("touchstart", touchStart, { passive: true });
+  host.addEventListener("touchmove", touchMove, { passive: false });
+  host.addEventListener("touchend", touchEnd);
+  host.addEventListener("touchcancel", touchEnd);
+  stops.push(() => {
+    host.removeEventListener("touchstart", touchStart);
+    host.removeEventListener("touchmove", touchMove);
+    host.removeEventListener("touchend", touchEnd);
+    host.removeEventListener("touchcancel", touchEnd);
+  });
   const observer = new ResizeObserver(() => fitNow());
   observer.observe(host);
   stops.push(() => observer.disconnect());
+  const viewport = window.visualViewport;
+  viewport?.addEventListener("resize", fitNow);
+  window.addEventListener("resize", fitNow);
+  stops.push(() => {
+    viewport?.removeEventListener("resize", fitNow);
+    window.removeEventListener("resize", fitNow);
+  });
   const rootSize = new MutationObserver(fitNow);
   rootSize.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
   stops.push(() => rootSize.disconnect());
@@ -553,10 +616,31 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     },
     onScreen(next) {
       onScreen = next;
-      if (!next) return;
+      if (!next) return setControl(false);
       openOnScreen();
       fitNow();
       if (wantsKeys) takeKeys();
+    },
+    control(key) {
+      if (disposed || !onScreen || drawn === null || drawn.gone || drawn.ended !== null || drawn.refused || drawn.command !== null) return;
+      takeKeys();
+      if (key === "ctrl") return setControl(!control);
+      setControl(false);
+      drawn.outgoing += key === "escape" ? "\x1b" : "\t";
+      frameFor(drawn);
+    },
+    selectTouch(from, to) {
+      if (disposed || !onScreen || !opened) return;
+      const rect = host.querySelector(".xterm-screen")?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const cell = (point: { readonly x: number; readonly y: number }) => {
+        const column = Math.max(0, Math.min(term.cols - 1, Math.floor((point.x - rect.left) * term.cols / rect.width)));
+        const row = Math.max(0, Math.min(term.rows - 1, Math.floor((point.y - rect.top) * term.rows / rect.height)));
+        return (term.buffer.active.viewportY + row) * term.cols + column;
+      };
+      const start = Math.min(cell(from), cell(to));
+      const end = Math.max(cell(from), cell(to));
+      term.select(start % term.cols, Math.floor(start / term.cols), end - start + 1);
     },
     dispose() {
       if (disposed) return;

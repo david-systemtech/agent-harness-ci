@@ -88,3 +88,27 @@ it("rejects a conversation pane extending below the body after notices occupy sp
   height = 524;
   expect(measureSceneGeometry()).toEqual([]);
 });
+
+
+it("keeps the browser phone frame bounded when the visual viewport shrinks", async () => {
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+  const viewport = Object.assign(new EventTarget(), { height: 480 });
+  vi.stubGlobal("visualViewport", viewport);
+  try {
+    const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+    const registry = discoverScenes(import.meta.glob<SceneModule>("../../gallery/scenes/phone-frame-*.tsx", { eager: true }));
+    const gallery = await mountGallery(root, "phone-frame-conversation", "light", registry, { platform: "web" });
+    close = gallery.close;
+    expect(await gallery.ready).toBe(true);
+    const frame = root.querySelector<HTMLElement>("[data-web-client]")!;
+    expect(frame.hasAttribute("data-phone-frame")).toBe(true);
+    expect(frame.style.maxHeight).toBe("480px");
+    act(() => { viewport.height = 320; viewport.dispatchEvent(new Event("resize")); });
+    expect(frame.style.maxHeight).toBe("320px");
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
+    expect(frame.hasAttribute("data-phone-frame")).toBe(true);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

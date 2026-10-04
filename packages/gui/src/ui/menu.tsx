@@ -3,8 +3,8 @@ import { Check, ChevronRight, Circle } from "lucide-react";
 import type { ComponentProps } from "react";
 import { classes } from "./classes.js";
 
-export const MENU_SURFACE = "z-50 overflow-y-auto rounded-lg bg-float p-1 text-sm text-ink ring-1 ring-ink/10 shadow-md shadow-scrim/10 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 duration-100 motion-reduce:animate-none";
-export const MENU_ROW = "relative flex cursor-default select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-none data-[highlighted]:bg-wash-strong data-[highlighted]:text-ink data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0";
+export const MENU_SURFACE = "phone-overlay-surface z-50 overflow-y-auto rounded-lg bg-float p-1 text-sm text-ink ring-1 ring-ink/10 shadow-md shadow-scrim/10 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 duration-100 motion-reduce:animate-none";
+export const MENU_ROW = "phone-menu-row relative flex cursor-default select-none items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-none data-[highlighted]:bg-wash-strong data-[highlighted]:text-ink data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0";
 export const MENU_DANGER = "text-signal data-[highlighted]:bg-signal/10 data-[highlighted]:text-signal dark:data-[highlighted]:bg-signal/20";
 
 /** A dropdown of store-free items; Radix owns focus, dismissal and disabled selection. */
