@@ -11,6 +11,8 @@ import { PhoneFrameProvider, SessionDrawer, usePhoneFrame } from "../frame/phone
 import { useKeyAction } from "../keys/key-dispatch.js";
 import { NewSessionSurfaces } from "../new-session/surfaces.js";
 import { PaneLines } from "../session/pane-line.js";
+import { ChecklistView } from "../setup/checklist-view.js";
+import { useChecklist } from "../setup/checklist-window.js";
 import { SettingsView } from "../settings/settings-view.js";
 import { useSettings } from "../settings/settings-window.js";
 import { WindowNotices } from "../notices/window-notices.js";
@@ -53,6 +55,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   const pane = focusedPane(layout);
   const grid = usePaneGrid();
   const settings = useSettings();
+  const checklist = useChecklist();
   const [line, setLine] = useState<string>();
   const [pairing, setPairing] = useState(false);
   const [handedLink, setHandedLink] = useState<string>();
@@ -87,6 +90,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     history.replaceState(null, "", sessionLink(session));
   };
   useEffect(() => { if (pane.session) history.replaceState(null, "", sessionLink(pane.session)); }, [pane.session]);
+  if (checklist.shown) return <ChecklistView />;
   return <WebViewport narrow={phone.narrow}>
     {phone.narrow ? <Header onPair={() => setPairing(value => !value)} /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
       <label className="sr-only" htmlFor="web-session">Sessions</label>

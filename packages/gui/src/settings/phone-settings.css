@@ -1,0 +1,48 @@
+/* Settings owns its phone geometry, including content reached through registered rows. */
+@media (max-width: 639px) {
+  body:has([data-settings-dialog], [data-phone-setup]) :is([role="dialog"], [role="menu"]) :is(button, input:not([type="radio"]):not([type="checkbox"]), select, [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]) { min-height: 44px; }
+  body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] :is(input, textarea, select) { font-size: max(16px, 1rem); }
+  body:has([data-settings-dialog], [data-phone-setup]) [role="dialog"] button { min-width: 44px; height: auto; white-space: normal; }
+  [data-settings-dialog] {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    transform: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  [data-settings-body] { flex-direction: column; }
+  .phone-navigation-trigger { align-self: flex-start; margin: 8px 12px; }
+  [data-settings-pane] { min-width: 0; padding: 16px 12px; }
+  [data-settings-pane] :is(p, h2, h3, label, dd) { overflow-wrap: anywhere; }
+  [data-settings-dialog] :is(button, select, input:not([type="radio"]):not([type="checkbox"])), [data-phone-navigation] :is(button, input), [data-phone-setup] :is(button, input:not([type="radio"]):not([type="checkbox"]), select) { min-height: 44px; }
+  [data-settings-dialog] button, [data-phone-navigation] button, [data-phone-setup] button { min-width: 44px; }
+  [data-settings-dialog] :is(input, select, textarea), [data-phone-navigation] input, [data-phone-setup] :is(input, select, textarea) { font-size: max(16px, 1rem); }
+  [data-settings-dialog] button { white-space: normal; height: auto; }
+  [data-phone-navigation] { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  [data-phone-navigation] nav { width: 100%; min-height: 0; flex: 1; border-right: 0; }
+  [data-phone-navigation] nav > div:first-child { height: auto; min-height: 44px; }
+  [data-phone-navigation] nav span { text-overflow: clip; white-space: normal; }
+  [data-phone-navigation] input { width: 100%; }
+  [data-phone-setup] { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  [data-phone-setup] > header { height: auto; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  [data-phone-setup] > header > span { min-width: 0; flex: 1; }
+  [data-phone-setup] [data-setup-scroll] { padding: 16px 12px; overflow-wrap: anywhere; }
+  [data-phone-setup] [data-setup-scroll] :is(pre, table) { max-width: 100%; overflow-x: auto; }
+  [data-phone-setup] footer { gap: 8px; padding: 10px 12px; }
+  [data-phone-setup] footer > div { flex: 1; justify-content: flex-end; }
+  [data-phone-setup] footer p { width: 100%; order: -1; }
+  [data-phone-setup] footer button { white-space: normal; height: auto; }
+  [data-settings-dialog] label:has(input:is([type="radio"], [type="checkbox"])), [data-phone-setup] label:has(input:is([type="radio"], [type="checkbox"])) { min-height: 44px; }
+  [data-settings-dialog] [role="switch"], [data-phone-setup] [role="switch"] { border-block-width: 13px; background-clip: padding-box; }
+  [data-settings-pane] .grid-cols-2, [data-settings-pane] .grid-cols-3 { grid-template-columns: minmax(0, 1fr); }
+  [data-setup-summary] li { flex-wrap: wrap; }
+  [data-setup-summary] li > span:last-child { width: 100%; padding-left: 34px; white-space: normal; }
+  [data-account-card] > header { flex-wrap: wrap; }
+  [data-account-card] h3 > span:last-child { white-space: normal; }
+  [data-settings-pane] form > label { min-width: 0; max-width: 100%; }
+  [data-account-sign-in] { min-width: 0; overflow-wrap: anywhere; }
+  [data-account-sign-in] a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--beam-text); text-decoration: underline; }
+}
