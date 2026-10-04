@@ -184,29 +184,33 @@ echo "GitHub run finished: $conclusion"
 # Failed comparisons still publish the captures, baseline and difference for review.
 if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == failure ]]; then
   reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
-  artifact=$(printf '%s' "$reply" | python3 -c '
+  artifacts=$(printf '%s' "$reply" | python3 -c '
 import json,sys
-items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
+items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"] in ("window-gallery", "window-gallery-desktop") and not a.get("expired")]
 if not items: sys.exit(0)
-if len(items)!=1 or items[0]["size_in_bytes"]>64*1024*1024: sys.exit("oversized or duplicate gallery artifact")
-print(int(items[0]["id"]))')
-  if [ -z "$artifact" ]; then
+names=[a["name"] for a in items]
+if len(set(names))!=len(names) or any(a["size_in_bytes"]>64*1024*1024 for a in items): sys.exit("oversized or duplicate gallery artifact")
+if set(names) not in ({"window-gallery"}, {"window-gallery-desktop", "window-gallery"}): sys.exit("incomplete gallery shard set")
+for a in sorted(items,key=lambda a:a["name"]!="window-gallery-desktop"): print(int(a["id"]), "legacy" if len(items)==1 else "desktop" if a["name"]=="window-gallery-desktop" else "phone")')
+  if [ -z "$artifacts" ]; then
     echo "No gallery artifact was uploaded; reading the failed job logs."
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
-    gh_api --fail -L --max-filesize 67108864 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
-    gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
+    while read -r artifact shard; do
+      gh_api --fail -L --max-filesize 67108864 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
+      gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
 import pathlib,sys,zipfile
 archive=pathlib.Path(sys.argv[1])
 if archive.stat().st_size > 64*1024*1024: sys.exit('gallery zip is too large')
 with zipfile.ZipFile(archive) as z: print('report' if 'report.json' in z.namelist() else 'captures')
 PYFORMAT
-    )
-    if [ "$gallery_format" = captures ]; then
-      # A workflow rollout can finish an earlier capture-only artifact.
-      bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
-    else
-      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
+      )
+      if [ "$gallery_format" = captures ]; then
+        [ "$shard" = legacy ] || { echo "::error::sharded gallery needs a comparison report"; exit 1; }
+        # A workflow rollout can finish an earlier capture-only artifact.
+        bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
+      else
+        GALLERY_BATCH="$run_id" python3 - "$gl/gallery.zip" "$sha" "$shard" <<'PYGALLERY'
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
@@ -229,13 +233,18 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
+    # Each publication shard has 400 captures and three-PNG triplets.
     max_scenes = 400
     max_pngs = max_scenes * 3
     if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
     names = [f.filename for f in entries]
     if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     report = json.loads(z.read('report.json'))
+    shard = report.get('shard')
+    expected_shard = sys.argv[3]
+    if expected_shard != 'legacy':
+        if shard != {'name': expected_shard, 'all': ['desktop', 'phone']} or report.get('pixelBlocking') is not True: sys.exit('invalid gallery shard report')
+    elif shard is not None: sys.exit('unexpected gallery shard report')
     images = {n: z.read(n) for n in names if n.endswith('.png')}
     for name, data in images.items():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
@@ -250,6 +259,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
         name = scene['name']
         if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)', name) or name in seen: sys.exit('invalid gallery scene name')
         seen.add(name)
+        if expected_shard != 'legacy' and name.startswith('phone-') != (expected_shard == 'phone'): sys.exit('wrong capture in gallery shard')
         required = [name + '.png']
         if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
         if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
@@ -301,6 +311,9 @@ try:
                 if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
         captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
     manifest = {'head': head, 'version': version, 'captures': captures}
+    if shard is not None:
+        manifest['shard'] = {**shard, 'batch': os.environ['GALLERY_BATCH']}
+        body += f"\nPublication shard: {shard['name']}; accept only with the complete desktop/phone batch.\n"
     body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
     stage = 'final report'
     request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
@@ -313,10 +326,11 @@ except Exception as error:
     sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
 print(f'Gallery posted on pull request {pr}')
 PYGALLERY
-      # Cleanup failure must not invalidate a completed, downloadable report.
-      python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
-        echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."
-    fi
+        # Cleanup failure must not invalidate a completed, downloadable report.
+        python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
+          echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."
+      fi
+    done <<< "$artifacts"
   fi
 fi
 [ "$conclusion" != success ] || exit 0

@@ -49,3 +49,26 @@ it("shows unavailable driver reasons and deliberate re-pair guidance on a read-o
   expect(dialog.getByText(/A phone cannot host the desktop Chrome extension or a local relay environment/)).toBeDefined();
   expect(env.requests("sessions.setBrowser")).toHaveLength(0);
 });
+
+
+it("preserves a saved unavailable dock selection until the person explicitly chooses Default", async () => {
+  const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", sessions: [{ title: "Receipts" }] }] }, {});
+  const env = world.world.environment("desk");
+  const app = render(<App runtime={world.runtime} presentation={world.presentation} clock={world.clock} version={world.version} macOS={false} web={{ platform: world.platform, route: { session: { environmentId: env.environmentId, sessionId: env.sessionId() } } }} />);
+  onTestFinished(async () => { app.unmount(); await world.runtime.close(); await world.presentation.close(); });
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Environment browser" }));
+  env.emit(env.sessionId(), "session.browser.set", { browser: { kind: "dock" }, chosenBy: "person" }, { fields: { browser: { kind: "dock" } } });
+  const dialog = within(screen.getByRole("dialog", { name: "Environment browser" }));
+  const picker = dialog.getByRole("combobox", { name: "Browser for the next run" });
+  await waitFor(() => expect(within(picker).getByRole("option", { name: "Browser dock (unavailable)", selected: true }).hasAttribute("disabled")).toBe(true));
+  expect(dialog.getByText(/Choose Default or an available environment browser/)).toBeDefined();
+  expect(env.requests("sessions.setBrowser")).toHaveLength(0);
+  env.wire.answer("sessions.setBrowser", () => {
+    env.emit(env.sessionId(), "session.browser.set", { browser: null, chosenBy: "person" }, { fields: { browser: null } });
+    return { result: { receipt: { status: "accepted", sequence: 2, changed: true }, result: {} } };
+  });
+  await user.selectOptions(picker, "0");
+  await waitFor(() => expect(env.requests("sessions.setBrowser").at(-1)?.params).toMatchObject({ sessionId: env.sessionId(), browser: null }));
+  await waitFor(() => expect(within(picker).getByRole("option", { name: "Default", selected: true })).toBeDefined());
+});

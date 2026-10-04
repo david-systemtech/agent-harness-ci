@@ -10,7 +10,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import { join } from "node:path";
@@ -107,8 +107,14 @@ if stage == 'dispatch':
     pathlib.Path(os.environ['FAKE_API_STATE'] + '-title').write_text(
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
+elif stage == 'artifacts' and os.environ.get('FAKE_SHARD_ZIPS'):
+    out.write_text(json.dumps({'artifacts':[{'id':99+i,'name':'window-gallery' if name=='phone' else 'window-gallery-'+name,'size_in_bytes':100,'expired':False} for i,name in enumerate(json.loads(os.environ['FAKE_SHARD_ZIPS']))]}))
 elif stage == 'artifacts':
     out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
+elif stage == 'archive' and os.environ.get('FAKE_SHARD_ZIPS'):
+    import shutil
+    paths=list(json.loads(os.environ['FAKE_SHARD_ZIPS']).values())
+    shutil.copyfile(paths[int(url.split('/artifacts/')[1].split('/')[0])-99], out)
 elif stage == 'archive':
     if os.environ.get('FAKE_GALLERY_ZIP'):
         import shutil
@@ -804,7 +810,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, attachments, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }) => {
+    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }, shard?: string) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
@@ -822,7 +828,7 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
         else: data=narrow if '-narrow.' in name else png
         z.writestr(name+'.png',data)
     z.writestr('geometry.json','{}')
-    z.writestr('report.json',json.dumps({'pixelBlocking':False,'captureBudget':{'desktop':sum(not n.startswith('phone-') for n in names),'phone':sum(n.startswith('phone-') for n in names),'total':len(names),'limit':400,'remaining':400-len(names)},'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names), JSON.stringify(viewport ?? null)]);
+    z.writestr('report.json',json.dumps({'pixelBlocking':bool(sys.argv[5]),**({'shard':{'name':sys.argv[5],'all':['desktop','phone']}} if sys.argv[5] else {}),'captureBudget':{'desktop':sum(not n.startswith('phone-') for n in names),'phone':sum(n.startswith('phone-') for n in names),'total':len(names),'limit':400,'remaining':400-len(names)},'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names), JSON.stringify(viewport ?? null), shard ?? ""]);
       return readFileSync(`${zip}.png`);
     },
   };
@@ -1036,4 +1042,22 @@ it("refuses to publish a phone capture whose dimensions disagree with its profil
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("unexpected phone gallery dimensions");
   expect(g.comments).toHaveLength(0);
+});
+
+
+it("publishes bounded desktop and phone shards from one run and accepts their complete batch", async () => {
+  const g = await storedGallery();
+  const desktop = join(g.f.checkout, "desktop.zip"), phone = join(g.f.checkout, "phone.zip");
+  await g.capture(230, 400, undefined, undefined, "desktop");
+  copyFileSync(g.env.FAKE_GALLERY_ZIP, desktop);
+  await g.capture(230, 1, ["phone-browser-phone-390.dark"], undefined, "phone");
+  copyFileSync(g.env.FAKE_GALLERY_ZIP, phone);
+  const result = await relay(g.f, { ...g.env, FAKE_SHARD_ZIPS: JSON.stringify({ desktop, phone }) });
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(2);
+  const manifests = g.comments.map(comment => JSON.parse(/<!-- window-gallery (.*?) -->/.exec(comment.body)![1]!) as { shard: { name: string; batch: string }; captures: unknown[] });
+  expect(manifests.map(manifest => [manifest.shard.name, manifest.captures.length])).toEqual([["desktop", 400], ["phone", 1]]);
+  expect(manifests[0]!.shard.batch).toBe(manifests[1]!.shard.batch);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  expect(readdirSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toHaveLength(401);
 });

@@ -55,6 +55,15 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
         const bogus = { head: "test-head", version: "test-head-999", captures: [{ ...captures[0], api_url: `${base}/api/packages/example/generic/window-gallery/test-head-999/window-empty.dark.png` }] };
         comments.push({ id: mode === "spoofed" ? 999 : 1000, user: { id: mode === "spoofed" ? 7 : -2 }, body: '<!-- window-gallery ' + JSON.stringify(bogus) + ' -->' });
       }
+      if (["incomplete-shards", "mixed-shards", "duplicate-shards"].includes(mode)) {
+        const batch = { all: ["desktop", "phone"], batch: "17", name: "desktop" };
+        const first = { head: "test-head", version: "test-head-123", captures: captures.map(capture => ({ ...capture, api_url: capture.api_url.replace('/test-head/', '/test-head-123/') })), shard: batch };
+        comments.splice(0, comments.length, { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify(first) + ' -->' });
+        if (mode !== "incomplete-shards") {
+          const second = { ...first, version: "test-head-124", shard: { ...batch, name: mode === "duplicate-shards" ? "desktop" : "phone", batch: mode === "mixed-shards" ? "18" : "17" } };
+          comments.push({ id: 124, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify(second) + ' -->' });
+        }
+      }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
     else response.end(mode === "corrupt" ? Buffer.from("not an image") : image);
@@ -260,5 +269,13 @@ it.each([
 ] as const)("rejects %s with incorrect dimensions before writing baselines", async (name, width, height) => {
   const f = await fixture("versioned", 1, { name, width, height });
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Unexpected phone gallery dimensions") });
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+
+it.each(["incomplete-shards", "mixed-shards", "duplicate-shards"])("refuses %s before downloading or writing any baseline", async (mode) => {
+  const f = await fixture(mode);
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Incomplete gallery shard batch") });
+  expect(f.requests.some(url => url.startsWith("/api/packages/"))).toBe(false);
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });

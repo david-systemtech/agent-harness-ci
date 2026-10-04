@@ -12,6 +12,14 @@ export const WebBrowserPane = ({ environmentId, sessionId }: { readonly environm
   const runtime = useRuntime();
   const browsers = useObservable(useMemo(() => runtime.projections.browsers(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const session = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
+  // A saved desktop dock is omitted by the web projection; retain it visibly until explicitly reset.
+  const rows = session.summary?.browser?.kind === "dock" && !browsers.rows.some(row => row.selected)
+    ? [...browsers.rows, {
+      value: { kind: "dock" as const }, label: "Browser dock (unavailable)", selected: true,
+      note: "This session still selects the desktop browser dock.",
+      unavailable: { reason: "not-drivable" as const, message: "The browser dock requires a desktop client. Choose Default or an available environment browser for the next run." },
+    }]
+    : browsers.rows;
   const environments = useObservable(runtime.projections.environments);
   const environment = environments.find(view => view.environmentId === environmentId);
   const offer = runtime.capability(environmentId, "sessions.setBrowser");
@@ -20,7 +28,7 @@ export const WebBrowserPane = ({ environmentId, sessionId }: { readonly environm
   const [address, setAddress] = useState("");
   const [pageError, setPageError] = useState<string>();
   const choose = async (index: number) => {
-    const row = browsers.rows[index];
+    const row = rows[index];
     if (!row || row.unavailable || busy || offer.status === "absent") return;
     setBusy(true);
     try {
@@ -45,15 +53,15 @@ export const WebBrowserPane = ({ environmentId, sessionId }: { readonly environm
     </form>
     <div className="flex min-w-0 flex-col gap-2">
       <label className="font-medium" htmlFor={`driver-${sessionId}`}>Browser for the next run</label>
-      <select id={`driver-${sessionId}`} aria-label="Browser for the next run" className="h-11 min-w-0 w-full rounded-lg border border-hairline bg-panel px-2 text-[max(16px,1em)] text-ink" disabled={busy || offer.status === "absent"} value={Math.max(0, browsers.rows.findIndex(row => row.selected))} onChange={event => { void choose(Number(event.target.value)); }}>
-        {browsers.rows.map((row, index) => <option key={JSON.stringify(row.value)} value={index} disabled={row.unavailable !== null}>{row.label}</option>)}
+      <select id={`driver-${sessionId}`} aria-label="Browser for the next run" className="h-11 min-w-0 w-full rounded-lg border border-hairline bg-panel px-2 text-[max(16px,1em)] text-ink" disabled={busy || offer.status === "absent"} value={Math.max(0, rows.findIndex(row => row.selected))} onChange={event => { void choose(Number(event.target.value)); }}>
+        {rows.map((row, index) => <option key={JSON.stringify(row.value)} value={index} disabled={row.unavailable !== null}>{row.label}</option>)}
       </select>
       {offer.status === "absent" && <p role="status">{offer.message} Re-pair deliberately with a sessions:write grant to change the browser.</p>}
       {environment?.phase !== "ready" && <p role="status">Cached browser status. Reconnect to the environment before requesting automation.</p>}
       {resolution && <p role="status">{run.state === "running" ? "This run" : "Last run"}: {resolution.message} Changing the browser applies to the next run.</p>}
       {line && <p role="status">{line}</p>}
       <ul aria-label="Environment browser availability" className="flex flex-col gap-3">
-        {browsers.rows.map(row => <li key={JSON.stringify(row.value)} className="rounded-lg border border-hairline bg-panel p-3">
+        {rows.map(row => <li key={JSON.stringify(row.value)} className="rounded-lg border border-hairline bg-panel p-3">
           <h3 className="font-medium">{row.label}{row.selected ? " · Selected" : ""}</h3>
           <p className="text-ink-muted">{row.note}</p>
           {row.unavailable && <p className="text-ink-muted">{row.unavailable.message}{row.value?.kind === "headless" ? " Ask an environment administrator to configure and allow its headless browser in Settings → Browser." : ""}</p>}

@@ -40,14 +40,19 @@ export function capturePlan(scenes: readonly string[]) {
     })),
   );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
-    // Generic gallery fixtures retain their canonical phone captures; surface owners exercise all profiles.
-    PHONE_PROFILES.filter(profile => !scene.startsWith("phone-gallery-") || profile.suffix === "phone-390").flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
+    // Continue retains its existing 390, text and keyboard cases.
+    PHONE_PROFILES.filter(profile => scene !== "phone-gallery-continue" || profile.suffix !== "phone-360").flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
       scene, ladder, viewport, textSize, platform: "web", name: `${scene}-${suffix}.${ladder}`,
     }))),
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit: 400, remaining: 400 - captures.length };
-  if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > ${budget.limit}. Shard publication and acceptance together before adding scenes.`);
-  return { captures, budget };
+  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length };
+  const shards = (["desktop", "phone"] as const).map(name => {
+    const captures = name === "desktop" ? desktop : phone;
+    const budget = { desktop: name === "desktop" ? captures.length : 0, phone: name === "phone" ? captures.length : 0, total: captures.length, limit: 400, remaining: 400 - captures.length };
+    if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded in ${name}: ${budget.total} > ${budget.limit}.`);
+    return { name, captures, budget };
+  });
+  return { captures, budget, shards };
 }

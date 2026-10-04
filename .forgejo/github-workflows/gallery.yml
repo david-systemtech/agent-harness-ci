@@ -11,6 +11,12 @@ permissions:
   contents: write
 jobs:
   gallery:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [desktop, phone]
+    env:
+      GALLERY_SHARD: ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -46,13 +52,14 @@ jobs:
         # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
         run: pnpm --filter @agent-harness/gui capture-gallery
-      - name: Check the shared desktop and phone report budget
+      - name: Check this shard's report budget
         run: |
           python3 - <<'PY'
           import json
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
           assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
+          assert report['shard']['name'] == __import__('os').environ['GALLERY_SHARD'], 'Wrong shard'
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
           PY
       - name: Optimise the PNGs losslessly
@@ -64,7 +71,8 @@ jobs:
           test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 1200
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: window-gallery
+          # Keep phone captures visible through the trusted publisher during rollout.
+          name: ${{ matrix.shard == 'phone' && 'window-gallery' || 'window-gallery-desktop' }}
           path: |
             packages/gui/gallery-images/*.png
             packages/gui/gallery-images/*.json
