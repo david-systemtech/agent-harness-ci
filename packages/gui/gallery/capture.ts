@@ -3,12 +3,12 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
-import { observePreviewRequests, verifyPhonePreviewIsolation } from "./phone-preview-isolation.js";
 import { capturePlan, sceneFiles } from "./capture-plan.js";
 import { measureSceneGeometry } from "./geometry.js";
 import { waitForFloatingLayout } from "./floating-layout.js";
 import { compareCapture, geometryFailures, galleryFailed } from "./compare.js";
 import type { Measurement } from "./compare.js";
+import { observePreviewRequests, verifyPhonePreviewIsolation } from "./phone-preview-isolation.js";
 
 // This executable starts a server and Chromium. Its only execution site is a hosted CI runner.
 if (process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"] !== "github-hosted") {
