@@ -79,7 +79,7 @@ try {
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await page.getByRole("button", { name: "Show sessions", exact: true }).click();
-      await page.getByRole("dialog", { name: "Sessions", exact: true }).getByRole("button", { name: `Hosted phone conversation (${name})`, exact: false }).click();
+      await page.getByRole("dialog", { name: "Sessions", exact: true }).locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).waitFor({ state: "hidden" });
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
