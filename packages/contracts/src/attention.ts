@@ -13,7 +13,7 @@ export const AttentionTargetInput = z.strictObject({
   transport: z.enum(["webhook", "push"]).meta({ description: "Closed-client delivery transport: signed webhook or Web Push." }),
   enabled: z.boolean(),
   completion: z.boolean(),
-  configuration: z.record(z.string().max(100), z.string().max(4096)).refine(value => Object.keys(value).length <= 16, "At most sixteen configuration fields."),
+  configuration: z.record(z.string().max(100), z.string().max(4096)).refine(value => Object.keys(value).length <= 16, "At most sixteen configuration fields.").meta({ maxProperties: 16 }),
 });
 export type AttentionTargetInput = z.infer<typeof AttentionTargetInput>;
 

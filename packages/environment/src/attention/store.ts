@@ -6,7 +6,7 @@ export const attentionStream = { kind: "settings", id: "attention" } as const;
 export const ATTENTION_GRACE_MS = 6000;
 /** A prompt without a TTL still cannot leave a lock-screen delivery pending forever. */
 export const ATTENTION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-export interface StoredTarget { readonly target: AttentionTargetInput; readonly owner: string | null }
+export interface StoredTarget { readonly target: AttentionTargetInput; readonly owner: string | null; readonly version: string }
 export interface PendingDelivery {
   readonly id: string;
   readonly targetId: string;
@@ -18,7 +18,7 @@ export interface PendingDelivery {
   readonly attempts: number;
   readonly state: "pending" | "sent" | "cancelled" | "failed";
 }
-interface TargetRow { id: string; owner: string | null; target: string }
+interface TargetRow { id: string; owner: string | null; target: string; version: string }
 interface DeliveryRow { id: string; target_id: string; session_id: string; event_id: string; prompt_id: string | null; expires_at: number; next_at: number; attempts: number; state: PendingDelivery["state"] }
 interface Ask { event_id: string; session_id: string; prompt_id: string | null; opened_at: number; expires_at: number }
 
@@ -32,7 +32,7 @@ const enqueue = (db: ProjectionDb, ask: Ask, targetId: string): void => {
 export const attentionProjector: Projector = {
   name: "attention",
   tables: {
-    attention_targets: "CREATE TABLE attention_targets (id TEXT PRIMARY KEY, owner TEXT, target TEXT NOT NULL) STRICT",
+    attention_targets: "CREATE TABLE attention_targets (id TEXT PRIMARY KEY, owner TEXT, target TEXT NOT NULL, version TEXT NOT NULL) STRICT",
     attention_asks: `CREATE TABLE attention_asks (event_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, prompt_id TEXT NOT NULL, opened_at INTEGER NOT NULL, expires_at INTEGER NOT NULL) STRICT`,
     attention_deliveries: `CREATE TABLE attention_deliveries (id TEXT PRIMARY KEY, target_id TEXT NOT NULL, session_id TEXT NOT NULL, event_id TEXT NOT NULL,
       prompt_id TEXT, expires_at INTEGER NOT NULL, next_at INTEGER NOT NULL, attempts INTEGER NOT NULL, state TEXT NOT NULL) STRICT;
@@ -71,10 +71,11 @@ export const attentionProjector: Projector = {
     } else if (event.streamKind === attentionStream.kind && event.streamId === attentionStream.id) {
       if (event.type === "attention.target.set") {
         const target = AttentionTargetInput.parse(p["target"]);
-        db.run("INSERT INTO attention_targets VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET target = excluded.target", target.id, p["owner"] as string | null, JSON.stringify(target));
+        db.run("INSERT INTO attention_targets VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET target = excluded.target, version = excluded.version", target.id, p["owner"] as string | null, JSON.stringify(target), event.eventId);
         db.run("DELETE FROM attention_failures WHERE target_id = ?", target.id);
         if (!target.enabled) db.run("UPDATE attention_deliveries SET state = 'cancelled' WHERE target_id = ? AND state = 'pending'", target.id);
         else for (const ask of db.all<Ask>("SELECT * FROM attention_asks")) enqueue(db, ask, target.id);
+        if (!target.completion) db.run("UPDATE attention_deliveries SET state = 'cancelled' WHERE target_id = ? AND prompt_id IS NULL AND state = 'pending'", target.id);
       } else if (event.type === "attention.target.removed") {
         db.run("DELETE FROM attention_targets WHERE id = ?", String(p["id"]));
         db.run("DELETE FROM attention_failures WHERE target_id = ?", String(p["id"]));
@@ -95,7 +96,7 @@ export interface AttentionStore {
   status(available: (transport: AttentionTargetInput["transport"]) => boolean): readonly (AttentionTargetStatus & { readonly owner: string | null })[];
 }
 export const attentionStore = (log: EventLog): AttentionStore => {
-  const targets = (): StoredTarget[] => log.read<TargetRow>("SELECT * FROM attention_targets ORDER BY id").map(row => ({ target: AttentionTargetInput.parse(JSON.parse(row.target)), owner: row.owner }));
+  const targets = (): StoredTarget[] => log.read<TargetRow>("SELECT * FROM attention_targets ORDER BY id").map(row => ({ target: AttentionTargetInput.parse(JSON.parse(row.target)), owner: row.owner, version: row.version }));
   const deliveries = (state?: PendingDelivery["state"]): PendingDelivery[] => log.read<DeliveryRow>(`SELECT * FROM attention_deliveries ${state ? "WHERE state = ?" : ""} ORDER BY next_at, id`, ...(state ? [state] : [])).map(row => ({
     id: row.id, targetId: row.target_id, sessionId: row.session_id, eventId: row.event_id, promptId: row.prompt_id, expiresAt: row.expires_at, nextAt: row.next_at, attempts: row.attempts, state: row.state,
   }));

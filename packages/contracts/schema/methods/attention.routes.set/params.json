@@ -40,7 +40,8 @@
           "additionalProperties": {
             "type": "string",
             "maxLength": 4096
-          }
+          },
+          "maxProperties": 16
         }
       },
       "required": [

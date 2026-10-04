@@ -10,6 +10,11 @@ import type { AttentionTransport } from "./targets.js";
 const { tempDir, onCleanup } = useCleanups();
 const parked = { kind: "session", id: "session-1" } as const;
 const target = { id: "target-1", transport: "push", enabled: true, completion: false, configuration: { endpoint: "opaque-test-endpoint" } } as const;
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+};
 
 it("enqueues once, keeps the ID across restart, and sends only generic text after six seconds", async () => {
   const clock = manualClock();
@@ -112,6 +117,42 @@ it("keeps routine completions opt-in and suppresses silent outcomes", async () =
   expect(sent).toEqual(["opted-in"]);
 });
 
+it.each(["queued", "in-flight"])("withdraws completion delivery consent while %s, keeping parked asks eligible", async stage => {
+  const clock = manualClock();
+  const log = openEventLog({ path: ":memory:", clock: clock.now });
+  const started = deferred<AbortSignal>();
+  const response = deferred<{ status: "sent" }>();
+  const sent: string[] = [];
+  const dispatcher = createAttentionDispatcher({ log, clock, environmentId: "env-1", webOrigin: () => "https://example.test", transports: {
+    push: { validate: () => undefined, send: async d => {
+      sent.push(d.id);
+      if (sent.length === 1 && stage === "in-flight") { started.resolve(d.signal); return response.promise; }
+      return { status: "sent" };
+    } },
+  } });
+  onCleanup(() => { response.resolve({ status: "sent" }); dispatcher.close(); log.close(); });
+  const set = (completion: boolean) => log.append(attentionStream, [{ type: "attention.target.set", payload: { target: { ...target, completion }, owner: null } }], { actor: "system:attention" });
+  set(true);
+  log.append({ kind: "routine", id: "routine-1" }, [
+    { type: "routine.firing-started", payload: { firingId: "done", sessionId: "session-1" } },
+    { type: "routine.firing-ended", payload: { firingId: "done", outcome: "succeeded" } },
+  ], { actor: "system:routines" });
+  if (stage === "in-flight") { clock.advance(6000); await started.promise; }
+  set(false);
+  if (stage === "in-flight") {
+    expect((await started.promise).aborted).toBe(true);
+    response.resolve({ status: "sent" });
+  }
+  clock.advance(6000);
+  await dispatcher.flush();
+  expect(dispatcher.store.deliveries()[0]?.state).toBe("cancelled");
+  expect(sent).toHaveLength(stage === "queued" ? 0 : 1);
+  log.append(parked, [{ type: "prompt.opened", payload: { promptId: "still-waiting", ttlExpiresAt: null } }], { actor: "system:permissions" });
+  clock.advance(6000);
+  await dispatcher.flush();
+  expect(dispatcher.store.deliveries().find(d => d.promptId === "still-waiting")?.state).toBe("sent");
+});
+
 it("does not begin sending an ask answered between timer admission and transport execution", async () => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", clock: clock.now });
@@ -126,6 +167,40 @@ it("does not begin sending an ask answered between timer admission and transport
   log.append(parked, [{ type: "prompt.answered", payload: { promptId: "race" } }], { actor: "system:permissions" });
   await dispatcher.flush();
   expect(sent).toEqual([]);
+});
+
+it.each(["sent", "retry", "retire"] as const)("ignores an old registration's %s response after endpoint replacement", async status => {
+  const clock = manualClock();
+  const log = openEventLog({ path: ":memory:", clock: clock.now });
+  const started = deferred<AbortSignal>();
+  const response = deferred<{ status: typeof status }>();
+  const endpoints: string[] = [];
+  const ids: string[] = [];
+  const dispatcher = createAttentionDispatcher({ log, clock, environmentId: "env-1", webOrigin: () => "https://example.test", transports: {
+    push: { validate: () => undefined, send: async d => {
+      endpoints.push(d.target.configuration["endpoint"]!); ids.push(d.id);
+      if (endpoints.length === 1) { started.resolve(d.signal); return response.promise; }
+      return { status: "sent" };
+    } },
+  } });
+  onCleanup(() => { response.resolve({ status }); dispatcher.close(); log.close(); });
+  log.append(attentionStream, [{ type: "attention.target.set", payload: { target, owner: null } }], { actor: "system:attention" });
+  log.append(parked, [{ type: "prompt.opened", payload: { promptId: "replacement", ttlExpiresAt: null } }], { actor: "system:permissions" });
+  clock.advance(6000);
+  const finishing = dispatcher.flush();
+  const signal = await started.promise;
+  log.append(attentionStream, [{ type: "attention.target.set", payload: { target: { ...target, configuration: { endpoint: "replacement-test-endpoint" } }, owner: null } }], { actor: "system:attention" });
+  const aborted = signal.aborted;
+  response.resolve({ status });
+  await finishing;
+  expect(aborted).toBe(true);
+  expect(dispatcher.store.targets()[0]?.target.configuration).toEqual({ endpoint: "replacement-test-endpoint" });
+  expect(dispatcher.store.deliveries()[0]).toMatchObject({ state: "pending", attempts: 0 });
+  expect(dispatcher.store.status(() => true)[0]?.failure).toBeNull();
+  await dispatcher.flush();
+  expect(endpoints).toEqual(["opaque-test-endpoint", "replacement-test-endpoint"]);
+  expect(ids[1]).toBe(ids[0]);
+  expect(dispatcher.store.deliveries()[0]).toMatchObject({ state: "sent", attempts: 1 });
 });
 
 it("retries a failure after restart with the same ID and cancels an offline answer", async () => {
