@@ -637,7 +637,7 @@ if sys.argv[2]=='zip':
     });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(message);
-    expect(methods).toEqual(kind === "zip" ? [] : ["GET"]);
+    expect(methods).toEqual(kind === "zip" || kind === "expanded" ? [] : ["GET"]);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
 
@@ -866,7 +866,7 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
 it.each([
   ["scenes", "invalid gallery scene list"],
   ["pngs", "gallery payload is too large"],
-  ["entries", "gallery payload is too large"],
+  ["entries", "unexpected gallery entry"],
   ["expanded", "gallery payload is too large"],
   ["zip", "gallery zip is too large"],
   ["duplicate-scene", "invalid gallery scene name"],
@@ -1036,4 +1036,20 @@ it("refuses to publish a phone capture whose dimensions disagree with its profil
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("unexpected phone gallery dimensions");
   expect(g.comments).toHaveLength(0);
+});
+
+it("publishes and accepts bounded gallery shards without dropping desktop or phone captures", async () => {
+  const g = await storedGallery();
+  await g.capture(255);
+  await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1], 'a') as z:
+    data=z.read('window-empty.dark.png')
+    z.writestr('shard-1/window-extra.dark.png',data)
+    z.writestr('shard-1/geometry.json','{}')
+    z.writestr('shard-1/report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':'window-extra.dark','status':'new','pixelFailed':True,'geometryFailures':[]}]}))`, g.env.FAKE_GALLERY_ZIP]);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(2);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
+  expect(readdirSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toEqual(["window-empty.dark.png", "window-extra.dark.png"]);
 });

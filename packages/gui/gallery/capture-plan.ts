@@ -33,7 +33,7 @@ export interface CaptureCase {
 }
 
 /** Phone owners opt in with phone-* scene files; existing desktop names and ladders stay intact. */
-export function capturePlan(scenes: readonly string[]) {
+function allCaptures(scenes: readonly string[]): readonly CaptureCase[] {
   const desktop: CaptureCase[] = ([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
     captureCases(scenes).map(({ scene, ladder }) => ({
       scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
@@ -47,7 +47,21 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit: 400, remaining: 400 - captures.length };
+  return captures;
+}
+
+function boundedPlan(captures: readonly CaptureCase[]) {
+  const desktop = captures.filter(capture => capture.platform === "desktop").length;
+  const phone = captures.length - desktop;
+  const budget = { desktop, phone, total: captures.length, limit: 400, remaining: 400 - captures.length };
   if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > ${budget.limit}. Shard publication and acceptance together before adding scenes.`);
   return { captures, budget };
 }
+
+/** Every report retains the publisher and acceptance limits; no existing capture is dropped. */
+export function captureShards(scenes: readonly string[]) {
+  const captures = allCaptures(scenes);
+  if (captures.length > 800) throw new Error("Gallery capture budget exceeded: at most two bounded reports are supported.");
+  return Array.from({ length: Math.ceil(captures.length / 400) }, (_, index) => boundedPlan(captures.slice(index * 400, (index + 1) * 400)));
+}
+export function capturePlan(scenes: readonly string[]) { return boundedPlan(allCaptures(scenes)); }

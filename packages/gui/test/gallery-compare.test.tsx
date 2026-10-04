@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { captureName, compareCapture, geometryFailures } from "../gallery/compare.js";
-import { captureCases, capturePlan, sceneFiles } from "../gallery/capture-plan.js";
+import { captureCases, captureShards, sceneFiles } from "../gallery/capture-plan.js";
 
 const require = createRequire(new URL("../package.json", import.meta.url));
 const core = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
@@ -65,7 +65,7 @@ it("allows at most 0.05 percent different pixels and rejects missing baselines a
 
 it("has a baseline for every scheduled desktop and phone capture", async () => {
   const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
-  for (const { name, viewport: { width, height } } of capturePlan(scenes).captures) {
+  for (const { name, viewport: { width, height } } of captureShards(scenes).flatMap(shard => shard.captures)) {
     const baseline = readFileSync(new URL(`../gallery/baselines/${name}.png`, import.meta.url));
     expect(baseline.subarray(0, 8).toString("hex"), name).toBe("89504e470d0a1a0a");
     expect(baseline.subarray(12, 16).toString("ascii"), name).toBe("IHDR");

@@ -206,7 +206,28 @@ PYFORMAT
       # A workflow rollout can finish an earlier capture-only artifact.
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
-      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
+      mkdir -p "$gl/gallery-shards"
+      python3 - "$gl/gallery.zip" "$gl/gallery-shards" <<'PYSHARDS'
+import pathlib, re, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as source:
+    entries = source.infolist()
+    if len(entries) > 2404 or sum(entry.file_size for entry in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
+    groups = {}
+    for entry in entries:
+        if entry.is_dir(): continue
+        match = re.fullmatch(r'(?:(shard-1)/)?([a-z0-9-]+[.](?:dark|light)(?:[.](?:baseline|difference))?[.]png|report[.]json|geometry[.]json)', entry.filename)
+        if match is None: sys.exit('unexpected gallery entry')
+        group, name = match.groups()
+        group = group or 'shard-0'
+        if name in groups.setdefault(group, {}): sys.exit('duplicate gallery entry')
+        groups[group][name] = entry
+    for group, files in groups.items():
+        if 'report.json' not in files or len(files) > 1202: sys.exit('incomplete or oversized gallery shard')
+        with zipfile.ZipFile(pathlib.Path(sys.argv[2]) / (group + '.zip'), 'w') as target:
+            for name, entry in files.items(): target.writestr(name, source.read(entry))
+PYSHARDS
+      for gallery_archive in "$gl/gallery-shards/"*.zip; do
+      python3 - "$gallery_archive" "$sha" <<'PYGALLERY'
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
@@ -313,6 +334,7 @@ except Exception as error:
     sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
 print(f'Gallery posted on pull request {pr}')
 PYGALLERY
+      done
       # Cleanup failure must not invalidate a completed, downloadable report.
       python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
         echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."

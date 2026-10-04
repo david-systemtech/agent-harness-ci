@@ -37,7 +37,7 @@ if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=T
 # Forgejo returns the entire per-issue comment thread; page and limit are ignored.
 comments = json.loads(get(f'{api}/issues/{number}/comments'))
 if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
-manifest = None
+manifests = {}
 for comment in comments:
     # Only the reserved Forgejo Actions identity can supply relay reports.
     author = comment.get('user')
@@ -52,18 +52,21 @@ for comment in comments:
         files = candidate.get('captures')
         if not isinstance(files, list) or not files or len(files) > 400: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
-        manifest = candidate
-if manifest is None: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
-version = manifest.get('version', head)
-if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
-    sys.exit('Invalid gallery capture version.')
-files = manifest.get('captures', [])
-if not files or len(files) > 400: sys.exit('Invalid gallery capture list.')
-names = [item['name'] for item in files]
-if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
-if selected - set(names): sys.exit('A requested capture is absent from the current report.')
+        key = tuple(item["name"] for item in files)
+        manifests.pop(key, None)
+        manifests[key] = candidate
+if not manifests: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
+# Newest bytes win for overlapping names; independent bounded reports remain reviewable together.
+files_by_name = {}
+for manifest in manifests.values():
+    version = manifest.get('version', head)
+    files = manifest['captures']
+    names = [item['name'] for item in files]
+    if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
+    for item in files: files_by_name[item['name']] = (item, version)
+if selected - set(files_by_name): sys.exit('A requested capture is absent from the current report.')
 accepted = {}; total = 0
-for item in files:
+for item, version in files_by_name.values():
     name, url = item['name'], item['api_url']
     parsed = urllib.parse.urlsplit(url)
     if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) or name in accepted:

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { capturePlan, sceneFiles } from "../gallery/capture-plan.js";
+import { capturePlan, captureShards, sceneFiles } from "../gallery/capture-plan.js";
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
@@ -21,8 +21,11 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
 });
 
 it("reserves capacity for the existing 354 desktop captures and the bounded phone subset", async () => {
-  const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
-  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 400, remaining: 0 });
+  const shards = captureShards(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
+  expect(shards.map(shard => shard.budget.total)).toEqual([400, 24]);
+  const plan = shards[0]!;
+  expect(shards.every(shard => shard.budget.total <= 400)).toBe(true);
+  expect(shards.flatMap(shard => shard.captures).filter(capture => capture.scene.startsWith("phone-install-")).length).toBe(24);
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
     "phone-gallery-continue-phone-390-text-20.light", "phone-gallery-continue-phone-390-text-20.dark",
