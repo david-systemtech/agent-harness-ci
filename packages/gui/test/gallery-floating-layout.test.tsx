@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { SelectMenu, SelectMenuContent, SelectMenuItem, SelectMenuTrigger, SelectMenuValue } from "../src/ui/select-menu.js";
+import { Tooltip } from "../src/ui/tooltip.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { waitForFloatingLayout } from "../gallery/floating-layout.js";
 
 const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
 afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
   if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
@@ -41,36 +46,40 @@ it("keeps capture pending while a floating control changes placement after font 
   await captureReady;
 });
 
-it("refreshes a stationary tooltip against the completed focused-control layout before capture", async () => {
-  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: Promise.resolve() } });
-  const frames: FrameRequestCallback[] = [];
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
-  const close = document.createElement("button");
-  close.textContent = "Close";
-  document.body.append(close);
-  close.focus();
-  const popup = document.createElement("div");
-  popup.dataset["radixPopperContentWrapper"] = "";
-  document.body.append(popup);
-  // The reference finishes moving without resizing the popup itself. A stable
-  // popup rectangle alone cannot tell whether its placement is still stale.
-  close.getBoundingClientRect = () => new DOMRect(677, 443, 75, 32);
-  let position = new DOMRect(661, 405, 105, 31);
-  popup.getBoundingClientRect = () => position;
-  const update = () => { position = new DOMRect(662, 406, 105, 31); };
-  window.addEventListener("resize", update);
-  try {
-    const ready = waitForFloatingLayout();
-    let captured = false;
-    void ready.then(() => { captured = true; });
-    await Promise.resolve();
-    for (let frame = 0; frame < 16 && !captured; frame++) {
-      frames.shift()?.(0);
-      await Promise.resolve();
+it("refreshes the real focused Close tooltip after its control moves without resizing", async () => {
+  let x = 676, y = 442;
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this.dataset["probeClose"] !== undefined) return new DOMRect(x, y, 75, 32);
+    if (this.dataset["radixPopperContentWrapper"] !== undefined) {
+      const values = this.style.transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+      return new DOMRect(Number(values?.[1] ?? 0), Number(values?.[2] ?? 0), 105, 31);
     }
-    await ready;
-    expect(popup.getBoundingClientRect().toJSON()).toMatchObject({ x: 662, y: 406 });
-  } finally {
-    window.removeEventListener("resize", update);
-  }
+    return original.call(this);
+  });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return this.dataset["probeClose"] !== undefined ? 75 : this.dataset["radixPopperContentWrapper"] !== undefined ? 105 : 1400; });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.dataset["probeClose"] !== undefined ? 32 : this.dataset["radixPopperContentWrapper"] !== undefined ? 31 : 900; });
+  vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1400);
+  vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(900);
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: Promise.resolve() } });
+  render(<div role="dialog" style={{ overflow: "auto" }}><Tooltip open content="Close · Escape"><button data-probe-close>Close</button></Tooltip></div>);
+  const popup = await waitFor(() => {
+    const element = document.querySelector<HTMLElement>("[data-radix-popper-content-wrapper]");
+    expect(element).not.toBeNull();
+    expect(element!.style.transform).toBe("translate(661px, 405px)");
+    return element!;
+  });
+  act(() => { screen.getByRole("button", { name: "Close" }).focus(); });
+  await act(async () => { await waitForFloatingLayout(); });
+  x = 677; y = 443;
+  await act(async () => { await waitForFloatingLayout(); });
+  expect(popup.style.transform).toBe("translate(662px, 406px)");
+});
+
+it("keeps open choices visible while waiting for capture placement", async () => {
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: Promise.resolve() } });
+  render(<SelectMenu defaultOpen defaultValue="one"><SelectMenuTrigger aria-label="Choice"><SelectMenuValue /></SelectMenuTrigger><SelectMenuContent><SelectMenuItem value="one">One</SelectMenuItem></SelectMenuContent></SelectMenu>);
+  expect(await screen.findByRole("listbox")).toBeTruthy();
+  await act(async () => { await waitForFloatingLayout(); });
+  expect(screen.getByRole("listbox")).toBeTruthy();
 });

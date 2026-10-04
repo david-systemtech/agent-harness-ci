@@ -16,12 +16,10 @@ export async function waitForFloatingLayout(): Promise<void> {
       // Floating UI's optimized observer may still hold a placement from before
       // an asynchronous dialog row moved its focused control. Ask it to place
       // against the completed layout, then wait for that update to settle too.
-      console.log("floating-before-refresh", current);
-      window.dispatchEvent(new Event("resize"));
+      document.activeElement?.closest('[role="dialog"]')?.dispatchEvent(new Event("resize"));
       refreshed = true;
       stableFrames = 0;
       previous = undefined;
     }
   }
-  console.log("floating-after-refresh", previous);
 }
