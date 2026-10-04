@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { captureName } from "./compare.js";
 import { sceneName } from "./scene-registry.js";
+
+const limits = JSON.parse(readFileSync(new URL("../../../scripts/gallery-allocation.json", import.meta.url), "utf8")) as { desktop: number; phone: number };
 
 /** Read filenames only: component modules are renderer code, never Node capture dependencies. */
 export async function sceneFiles(directory: string): Promise<readonly string[]> {
@@ -52,7 +55,11 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit: 400, remaining: 400 - captures.length };
-  if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > ${budget.limit}. Shard publication and acceptance together before adding scenes.`);
-  return { captures, budget };
+  const shards = [{ name: "desktop", captures: desktop, limit: limits.desktop }, { name: "phone", captures: phone, limit: limits.phone }] as const;
+  for (const shard of shards) {
+    if (shard.captures.length > shard.limit) throw new Error(`Gallery capture budget exceeded: ${shard.name} shard has ${shard.captures.length}/${shard.limit} captures.`);
+  }
+  const limit = limits.desktop + limits.phone;
+  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit, remaining: limit - captures.length };
+  return { captures, shards, budget };
 }
