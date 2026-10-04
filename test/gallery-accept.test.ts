@@ -36,22 +36,18 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
     response.setHeader("content-type", "application/json");
     if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ head: { sha: "test-head", ref: "build/42-gallery" } }));
     else if (request.url?.includes("/comments")) {
-      const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large", "total-large", "response-large", "sharded", "sharded-excess", "sharded-corrupt"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
+      const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large", "total-large", "response-large"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
       const captureName = phone?.name ?? "window-empty.dark.png";
       const captures = [{ name: captureName, url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${captureName}`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
       for (let index = 1; index < captureCount; index++) {
-        const name = `window-scene-${index}.dark.png`;
+        const name = mode === "phone-overflow" ? `phone-scene-${index}-phone-390.dark.png` : `window-scene-${index}.dark.png`;
         captures.push({ ...captures[0]!, name, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}` });
       }
       if (mode === "scoped") captures.push({ name: "settings-browser.light.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/settings-browser.light.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "unsafe") captures.push({ name: "../escape.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/test-head/escape.dark.png`, sha256: createHash("sha256").update(png).digest("hex") });
       if (mode === "duplicate") captures.push(captures[0]!);
       if (mode === "foreign") captures[0]!.api_url = "https://elsewhere.example.invalid/api/packages/example/generic/window-gallery/test-head/window-empty.dark.png";
-      const reports = [
-        { name: "desktop", captures },
-        { name: "phone", captures: [{ ...captures[0]!, name: "phone-leaf-phone-390.dark.png", sha256: createHash("sha256").update(PNG.sync.write({ width: 390, height: 844, data: Buffer.alloc(390 * 844 * 4, 255) })).digest("hex"), api_url: `${base}/api/packages/example/generic/window-gallery/${version}/phone-leaf-phone-390.dark.png` }] },
-      ];
-      const manifest = { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), ...(mode.startsWith("sharded") ? { reports } : { captures }) }) + ' -->' };
+      const manifest = { id: 123, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: mode === "stale" ? "old-head" : "test-head", ...(version !== "test-head" ? { version } : {}), captures }) + ' -->' };
       if (mode === "marker") manifest.body = '<!-- window-gallery {"head":"test-head","captures":[]} -->\n' + manifest.body;
       const invalid = mode === "invalid-json" ? "{broken" : mode === "non-object" ? "[]" : mode === "invalid-shape" ? '{"head":"test-head","captures":null}' : undefined;
       const comments = invalid === undefined ? [manifest] : [{ id: 121, user: { id: -2 }, body: `<!-- window-gallery ${invalid} -->` }, manifest, { id: 125, user: { id: -2 }, body: `<!-- window-gallery ${invalid} -->` }];
@@ -61,7 +57,7 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
       }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
-    else response.end(mode === "corrupt" ? Buffer.from("not an image") : request.url?.includes("phone-leaf") ? mode === "sharded-corrupt" ? Buffer.from("invalid phone bytes") : PNG.sync.write({ width: 390, height: 844, data: Buffer.alloc(390 * 844 * 4, 255) }) : image);
+    else response.end(mode === "corrupt" ? Buffer.from("not an image") : image);
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   cleanups.push(() => new Promise<void>((done) => server.close(() => done())));
@@ -162,7 +158,7 @@ it("accepts a valid capture larger than 4 MiB within the gallery report budget",
 });
 
 
-it("accepts all 400 captures allowed by a reviewed gallery report", async () => {
+it("accepts all 400 desktop captures allowed by a reviewed gallery report", async () => {
   const f = await fixture("versioned", 400);
   await run("bash", [script, "42"], { env: f.env });
   expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(400);
@@ -181,7 +177,7 @@ it("accepts captures above the old 24 MiB total within the 48 MiB report budget"
 });
 
 
-it("refuses more than 400 captures before downloading or writing baselines", async () => {
+it("refuses more than 400 desktop captures before downloading or writing baselines", async () => {
   const f = await fixture("versioned", 401);
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("No gallery captures on the current PR head") });
   expect(f.requests.some((url) => url.startsWith("/api/packages/"))).toBe(false);
@@ -268,23 +264,9 @@ it.each([
 });
 
 
-it("accepts desktop and phone reports atomically above the single-report count bound", async () => {
-  const f = await fixture("sharded", 400);
-  await run("bash", [script, "42"], { env: f.env });
-  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(401);
-  const phone = readFileSync(join(f.folder, "packages/gui/gallery/baselines/phone-leaf-phone-390.dark.png"));
-  expect([phone.readUInt32BE(16), phone.readUInt32BE(20)]).toEqual([390, 844]);
-});
-
-it("refuses an oversized shard before accepting either report", async () => {
-  const f = await fixture("sharded-excess", 401);
-  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toThrow();
+it("refuses phone shard exhaustion without spending unused desktop slots", async () => {
+  const f = await fixture("phone-overflow", 401, { name: "phone-frame-drawer-phone-390.dark.png", width: 390, height: 844 });
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("No gallery captures on the current PR head") });
   expect(f.requests.some(url => url.startsWith("/api/packages/"))).toBe(false);
-});
-
-
-it("writes no desktop baseline when validation of the phone report fails", async () => {
-  const f = await fixture("sharded-corrupt", 2);
-  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toThrow();
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });

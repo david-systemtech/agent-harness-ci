@@ -446,29 +446,29 @@ status`, from a release's shim, says `Installed: no`, or the user is new).
 1. **The Keychain prompt.** The first token kept may ask to let the app use
    "agent-harness Safe Storage" in the login keychain: record whether it
    asked, and that allowing it keeps later launches quiet.
-2. **Replace an app with existing credentials (#1480, #1565).** Keep a 0.1.0
-   install's environment data, accounts, paired connections and encrypted
-   files in place. Quit it, verify the new ZIP's SHA-256 and replace the app
-   in Applications with 0.1.1 or the release under test. Open Settings and
-   install the bundled environment from Your machines. Verify the environment
-   reaches the carried version, with the same identity and accounts, and
-   paired environments reconnect without pairing again. If macOS asks for
-   Keychain access, the window explains why in a notice, still opens Settings
-   and responds to Quit. Record the OS prompt as observed, without assuming
-   its wording. Cancel it or leave it unanswered: calls settle within 30 seconds, the
-   window stays usable and the encrypted files remain. The notice opens Your
-   machines; choose Try again and allow access on the subsequent attempt.
-   Verify reconnect, fresh OS-protected pairing and upgrade complete. Quit
-   while access is pending and verify the desktop and its credential helper exit.
-   The release's macOS smoke job separately replaces a differently signed
-   fixture app, reads an existing synchronous-format credential and completes
-   a real launcher upgrade from a lower-stamped server. Its test Keychain
-   authorizes only the prior signature. It locks the hosted test Keychain,
-   verifies Your machines and main-process responsiveness, quits with access
-   pending, then checks bounded refusal after relaunch. It unlocks the test
-   Keychain and clicks the OS approval control to exercise retained-credential
-   upgrade and fresh OS-protected storage/readback. It does not prove 0.1.0
-   data migrations. Run native checks on hosted runners, never a person's Mac.
+2. **Replace an app with existing credentials (#1480, #1565, #1572).** Keep
+   environment data, accounts, paired connections and encrypted files in place.
+   Quit, verify the new ZIP's SHA-256 and replace the app in Applications.
+   With stable signing or OS approval, verify retained credentials reconnect.
+   With an unsigned identity change, refusal or an unanswered prompt settles
+   within 30 seconds: the window stays usable, the ciphertext remains, and the
+   notice says the previous build's stored credentials could not be read and
+   offers Pair again for paired environments. While waiting, the notice says
+   macOS is asking for access and answering its prompt keeps the credentials.
+   Both notices stay visible in Settings. Verify fresh OS-protected pairing
+   and readback, re-pairing the affected environments, and a ready local
+   environment through its local grant. Verify the carried upgrade preserves
+   environment identity and accounts. Quit during pending access and verify
+   the desktop and its credential helper exit.
+   The hosted release smoke replaces a differently signed fixture app,
+   exercises pending-read shutdown with a locked test Keychain, then unlocks
+   before a normal read and accepts retained access or explained bounded
+   recovery. Both branches require fresh OS-protected storage/readback and a
+   real launcher upgrade from a lower-stamped server to local readiness. It
+   never pre-authorises the replacement or clicks an OS approval control.
+   It does not prove earlier-release data migrations. Run native checks on
+   hosted runners, never a person's Mac. Signing/notarisation is tracked in
+   #1571 and must make the hosted retained-read branch pass.
 3. **Translocation.** Unzip the download in Downloads and open the app from
    there without moving it (Gatekeeper runs it translocated, from a read-only
    path). Run step 1: the install reads the bundle and copies the version

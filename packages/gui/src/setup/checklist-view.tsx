@@ -1,3 +1,4 @@
+import { CredentialNoticeHost } from "../notices/credential-notice.js";
 import { STEP_HINTS } from "@agent-harness/contracts";
 import { ListChecks, X } from "lucide-react";
 import { useId, useState } from "react";
@@ -41,6 +42,7 @@ export const ChecklistView = () => {
           <Button aria-label="Close Set up" className="ml-auto" onClick={close}><X aria-hidden="true" />Close</Button>
         </Tooltip>
       </header>
+      <CredentialNoticeHost />
       {view !== undefined && picked !== undefined && <ReachLine view={view} environment={picked} />}
       <Tooltip content="Show or hide steps · Tab, Enter">
         <Button aria-expanded={railOpen} aria-controls={railId} onClick={() => setRailOpen(!railOpen)} className="m-2 self-start md:hidden"><ListChecks aria-hidden="true" />Steps</Button>

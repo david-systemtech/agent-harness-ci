@@ -46,30 +46,35 @@ jobs:
         # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
         run: pnpm --filter @agent-harness/gui capture-gallery
-      - name: Check the desktop and phone report budgets
+      - name: Check the desktop and phone report shards
         run: |
           python3 - <<'PY'
-          import json, sys
+          import json, pathlib, sys
+          sys.path.insert(0, "scripts")
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
-          if 'reports' in report:
-              sys.path.insert(0, "scripts")
-              from gallery_reports import report_groups
-              report_groups(report, 'scenes')
+          if pathlib.Path('scripts/gallery_allocation.py').is_file() and pathlib.Path('scripts/gallery-allocation.json').is_file():
+              from gallery_allocation import report_scenes
+              scenes = report_scenes(report)
           else:
-              # PR heads from before this rollout have no shared report helper.
-              assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
+              # Earlier dispatched heads have one bounded report and no allocation files.
+              scenes = report.get('scenes')
+              assert 'shards' not in report and isinstance(scenes, list) and 0 < len(scenes) <= 400, 'Capture budget exceeded'
+          assert len({s['name'] for s in scenes}) == len(scenes), 'Duplicate gallery capture name'
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
           PY
       - name: Optimise the PNGs losslessly
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
           optipng -o2 packages/gui/gallery-images/*.png
-          # Leave room for ZIP headers: 64 MiB per report, at most two reports.
-          shards=$(python3 -c 'import json; print(len(json.load(open("packages/gui/gallery-images/report.json")).get("reports", [None])))')
-          test "$shards" -ge 1 && test "$shards" -le 2
-          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le "$((50331648 * shards))"
-          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le "$((1200 * shards))"
+          # Leave room for ZIP headers under the relay's 64 MiB transport cap.
+          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 50331648
+          if [ -f scripts/gallery_allocation.py ] && [ -f scripts/gallery-allocation.json ]; then
+            MAX_GALLERY_PNGS=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); from gallery_allocation import MAX_PNGS; print(MAX_PNGS)')
+          else
+            MAX_GALLERY_PNGS=1200
+          fi
+          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le "$MAX_GALLERY_PNGS"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: window-gallery

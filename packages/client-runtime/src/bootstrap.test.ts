@@ -5,10 +5,31 @@ import { TOP_CEILING } from "../../environment/src/auth/client-sessions.js";
 import { grantReader, notJsonAt, originOf, until, useHarness } from "../test/harness.js";
 import { LOCAL_PLACEHOLDER_ID, PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { StoredCredentialUnavailableError } from "./credential-unavailable.js";
 
 const harness = useHarness();
 
 describe("the bootstrap grant", () => {
+  it("keeps the local environment ready when its earlier paired credential cannot be read", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const platform = inMemoryPlatform({ kind: "desktop" });
+    const paired = harness.runtime(platform);
+    await paired.start();
+    await paired.connections.add({ link: (await t.createPairing()).link });
+    const previous = paired.connections.list.read()[0]?.clientSessionId;
+    await paired.close();
+    const local = harness.runtime(inMemoryPlatform({
+      kind: "desktop", documents: platform.documents, grant: grantReader(t),
+      secrets: { ...platform.secrets, get: async () => { throw new StoredCredentialUnavailableError("OS approval was unavailable."); } },
+    }));
+    await local.start();
+    expect(local.connections.list.read()).toEqual([expect.objectContaining({ kind: "local", phase: "ready" })]);
+    expect(await platform.secrets.get(t.env.id)).toBeUndefined();
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find(session => session.id === previous)?.revokedAt).toEqual(expect.any(String));
+  });
+
   it("exchanges the grant's secret over loopback for a local client session with every scope and the top ceiling", async () => {
     const t = await harness.environment({ name: "desk" });
     const runtime = harness.runtime(inMemoryPlatform({ kind: "desktop", label: "the desktop", grant: grantReader(t) }));

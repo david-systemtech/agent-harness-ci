@@ -20,12 +20,13 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
   ]);
 });
 
-it("admits discovered phone scenes within separate report budgets", async () => {
+it("keeps the discovered scene registry within each allocated shard", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
-  expect(plan.reports.map(report => report.name)).toEqual(["desktop", "phone"]);
-  for (const report of plan.reports) {
-    expect(report.captures.length).toBeGreaterThan(0);
-    expect(report.captures.length).toBeLessThanOrEqual(400);
+  expect(plan.shards.map(shard => shard.name)).toEqual(["desktop", "phone"]);
+  for (const shard of plan.shards) {
+    expect(shard.captures.length).toBeGreaterThan(0);
+    expect(shard.limit).toBe(400);
+    expect(shard.captures.length).toBeLessThanOrEqual(shard.limit);
   }
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
@@ -40,25 +41,46 @@ it("refuses capacity exhaustion before capturing or publishing a partial gallery
 });
 
 
-it("allocates a separate phone report for every leaf owner without dropping desktop captures", () => {
-  // Fixed inputs keep the allocation example independent of future leaf scene registrations.
-  const scenes = [
-    ...Array.from({ length: 177 }, (_, index) => `desktop-fixture-${index}`),
+function allocationScenes() {
+  return [
+    ...Array.from({ length: 177 }, (_, i) => `desktop-capacity-${i}`),
     "phone-gallery-conversation", "phone-gallery-permission", "phone-gallery-continue",
     "phone-attention-failure", "phone-attention-pending", "phone-attention-keyboard",
   ];
-  // Seven owners can each add six dedicated states, including Settings grants and Set up.
-  const leaves = Array.from({ length: 7 }, (_, owner) =>
-    Array.from({ length: 6 }, (_, state) => `phone-leaf-${owner}-state-${state}`)).flat();
-  const plan = capturePlan([...scenes, ...leaves]);
-  expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(capturePlan(scenes).captures.filter(c => c.platform === "desktop"));
-  expect(plan.reports.map(report => [report.name, report.captures.length, report.budget.remaining])).toEqual([
-    ["desktop", 354, 46], ["phone", 382, 18],
+}
+
+it("allocates the frame conversation and drawer profiles without spending desktop capacity", () => {
+  const scenes = allocationScenes();
+  const existing = capturePlan(scenes);
+  const plan = capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]);
+  expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(existing.captures.filter(c => c.platform === "desktop"));
+  expect(plan.budget).toEqual({ desktop: 354, phone: 62, total: 416, limit: 800, remaining: 384 });
+  for (const scene of ["phone-frame-conversation", "phone-frame-drawer"]) {
+    expect(plan.captures.filter(c => c.scene === scene).map(c => c.name)).toEqual([
+      `${scene}-phone-390.light`, `${scene}-phone-390.dark`,
+      `${scene}-phone-360.light`, `${scene}-phone-360.dark`,
+      `${scene}-phone-390-text-20.light`, `${scene}-phone-390-text-20.dark`,
+      `${scene}-phone-390-keyboard.light`, `${scene}-phone-390-keyboard.dark`,
+    ]);
+  }
+});
+
+it("allocates six states to each of seven phone owners while preserving desktop captures", () => {
+  const scenes = allocationScenes();
+  const existing = capturePlan(scenes);
+  const leafScenes = Array.from({ length: 7 }, (_, owner) =>
+    Array.from({ length: 6 }, (_, state) => `phone-leaf-${owner}-state-${state}`),
+  ).flat();
+  const plan = capturePlan([...scenes, ...leafScenes]);
+  expect(plan.shards[0].captures).toEqual(existing.shards[0].captures);
+  expect(plan.shards.map(shard => [shard.name, shard.captures.length, shard.limit])).toEqual([
+    ["desktop", 354, 400], ["phone", 382, 400],
   ]);
-  expect(plan.reports.flatMap(report => report.captures)).toEqual(plan.captures);
+  expect(plan.shards[1].limit - plan.shards[1].captures.length).toBe(18);
+  expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
 
 
-it("refuses a phone report above 400 captures even when the desktop report has room", () => {
-  expect(() => capturePlan(["window-empty", ...Array.from({ length: 51 }, (_, i) => `phone-leaf-${i}`)])).toThrow("phone has 408 captures > 400");
+it("cannot consume another shard's unused capacity", () => {
+  expect(() => capturePlan(Array.from({ length: 51 }, (_, i) => `phone-sample-${i}`))).toThrow("phone shard has 408/400 captures");
 });

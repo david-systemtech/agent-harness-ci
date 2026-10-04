@@ -31,6 +31,8 @@ export const blockLine = (view: EnvironmentView): string => {
       return `This client's access to ${name} was revoked: ${again}.`;
     case "expired":
       return `This client's access to ${name} expired: ${again}.`;
+    case "credential-unavailable":
+      return `Stored credentials for ${name} could not be read: ${again}.`;
     case "different-environment":
       return `The address kept for ${name} now reaches another environment.`;
     default:
@@ -119,6 +121,6 @@ export type ConnectionRemedy = "start" | "re-pair" | "retry";
 
 export const remedyOf = (view: EnvironmentView): ConnectionRemedy | undefined => {
   if (view.action === "service.start") return "start";
-  if (view.phase !== "blocked" || (view.blocked !== "revoked" && view.blocked !== "expired")) return undefined;
+  if (view.phase !== "blocked" || (view.blocked !== "revoked" && view.blocked !== "expired" && view.blocked !== "credential-unavailable")) return undefined;
   return view.kind === "paired" ? "re-pair" : "retry";
 };
