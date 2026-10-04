@@ -68,9 +68,12 @@ try {
   for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
     publicRequests.length = 0;
     const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
-    const browser = await engine.launch(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {});
+    const context = await engine.launchPersistentContext(join(output, `profile-${name}`), {
+      viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true,
+      ...(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {}),
+    });
+    const browser = context.browser(); assert(browser, "The persistent client profile belongs to the hosted browser.");
     try {
-      const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
       const page = await context.newPage();
       page.setDefaultTimeout(60_000);
       const errors: string[] = [];
