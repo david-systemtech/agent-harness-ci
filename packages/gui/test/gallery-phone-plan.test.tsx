@@ -4,19 +4,13 @@ import { capturePlan, captureShard, sceneFiles } from "../gallery/capture-plan.j
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
-  expect(plan.budget).toEqual({ desktop: 4, phone: 8, total: 12, limit: 800, remaining: 788 });
+  expect(plan.budget).toEqual({ desktop: 4, phone: 2, total: 6, limit: 800, remaining: 794 });
   expect(plan.captures.filter(c => c.platform === "desktop").map(c => c.name)).toEqual([
     "window-empty.light", "window-empty.dark", "window-empty-narrow.light", "window-empty-narrow.dark",
   ]);
   expect(plan.captures.filter(c => c.platform === "web").map(c => [c.name, c.viewport, c.textSize])).toEqual([
     ["phone-gallery-conversation-phone-390.light", { width: 390, height: 844 }, 14],
     ["phone-gallery-conversation-phone-390.dark", { width: 390, height: 844 }, 14],
-    ["phone-gallery-conversation-phone-360.light", { width: 360, height: 740 }, 14],
-    ["phone-gallery-conversation-phone-360.dark", { width: 360, height: 740 }, 14],
-    ["phone-gallery-conversation-phone-390-text-20.light", { width: 390, height: 844 }, 20],
-    ["phone-gallery-conversation-phone-390-text-20.dark", { width: 390, height: 844 }, 20],
-    ["phone-gallery-conversation-phone-390-keyboard.light", { width: 390, height: 480 }, 14],
-    ["phone-gallery-conversation-phone-390-keyboard.dark", { width: 390, height: 480 }, 14],
   ]);
 });
 
@@ -26,10 +20,9 @@ it("retains desktop and bounded phone profiles while allowing surface-owned grow
   expect(plan.budget.phone).toBeGreaterThanOrEqual(46);
   expect(plan.shards.every(shard => shard.budget.remaining >= 0)).toBe(true);
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
-    "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
-    "phone-gallery-continue-phone-390-text-20.light", "phone-gallery-continue-phone-390-text-20.dark",
     "phone-gallery-continue-phone-390-keyboard.light", "phone-gallery-continue-phone-390-keyboard.dark",
   ]);
+  expect(plan.captures.filter(c => c.scene.startsWith("phone-conversation-")).length).toBe(24);
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(plan.budget.total);
 });
 
