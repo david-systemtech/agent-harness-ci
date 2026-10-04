@@ -15,7 +15,7 @@ export const SessionPaneRegion = () => (
     <main className="-m-px flex h-[calc(100%+2px)] min-w-0 flex-col bg-abyss">
       <CredentialNoticeHost />
       <WindowNotices />
-      <div className="min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <PaneGrid />
       </div>
     </main>

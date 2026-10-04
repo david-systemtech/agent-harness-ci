@@ -49,7 +49,7 @@ export const DocumentsPane = ({ environmentId, sessionId, source }: DocumentsPan
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <p className="truncate font-medium text-ink" title={document.path}>{document.path}</p>
               <p className="text-2xs text-ink-muted">{documentFacts(document, now).join(" · ")}</p>
-              <div className="flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <div data-document-actions className="flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <VerbButton
                   does="Shows it in the Preview, read as it is now. (Enter or Space)"
                   availability={previewOffer}

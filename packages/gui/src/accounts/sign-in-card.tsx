@@ -116,10 +116,19 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
 
   // The verification URL opens in the system browser as it arrives, once.
   useEffect(() => {
-    if (url === null || opened.current === url || openExternal.status === "absent") return;
+    if (shell === undefined || url === null || opened.current === url || openExternal.status === "absent") return;
     opened.current = url;
     void shell?.openExternal?.(url);
   }, [url]);
+
+  // A returning tab may have missed notices while suspended. Re-read status without restarting sign-in.
+  useEffect(() => {
+    if (shell !== undefined || accountId === null || completed !== null) return;
+    const resume = () => { if (document.visibilityState === "visible") runtime.requests.refresh(environmentId, "accounts.signin.get", {}); };
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => { window.removeEventListener("focus", resume); document.removeEventListener("visibilitychange", resume); };
+  }, [runtime, environmentId, accountId, completed, shell]);
 
   const add = (event: FormEvent) => {
     event.preventDefault();
@@ -202,14 +211,14 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
               <>
                 <p>Open this page and sign in:</p>
                 <p className="break-all font-mono text-xs text-beam-text">{url}</p>
-                <AccountAction icon={ExternalLink}
+                {shell === undefined ? <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm text-beam-text underline"><ExternalLink aria-hidden="true" className="size-4" />Open the sign-in page</a> : <AccountAction icon={ExternalLink}
                   className="self-start"
                   aria-disabled={openExternal.status === "absent" ? true : undefined}
                   title={openExternal.status === "absent" ? openExternal.message : undefined}
                   onClick={() => (openExternal.status === "absent" ? setError(openExternal.message) : void shell?.openExternal?.(url))}
                 >
                   Open the sign-in page
-                </AccountAction>
+                </AccountAction>}
               </>
             )}
             {sending === "add" && <p className="text-ink-faint">Adding {label}…</p>}
@@ -248,7 +257,7 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
         )}
     </>
   );
-  return inline ? <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
+  return inline ? <section data-account-sign-in aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
     <h3 id={heading} className="flex items-center gap-2 text-sm font-medium"><KeyRound aria-hidden="true" className="size-4" />{title}</h3>
     {content}
   </section> : <Dialog open onOpenChange={(open) => !open && leave()}><DialogContent title={title} className="max-w-lg">{content}</DialogContent></Dialog>;

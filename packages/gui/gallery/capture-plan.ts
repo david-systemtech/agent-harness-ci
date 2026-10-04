@@ -43,8 +43,13 @@ export function capturePlan(scenes: readonly string[]) {
     })),
   );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
-    // Continue uses the same full-width footer at both widths; keep its 390, text and keyboard cases.
-    PHONE_PROFILES.filter(profile => scene !== "phone-gallery-continue" || profile.suffix !== "phone-360").flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
+    // Surface scenes carry the full matrix; scaffold and duplicate keyboard scenes keep one proof.
+    PHONE_PROFILES.filter(profile => {
+      if (scene === "phone-gallery-conversation") return profile.suffix === "phone-390";
+      if (scene === "phone-gallery-permission" || scene === "phone-gallery-continue" || scene === "phone-attention-keyboard") return profile.suffix === "phone-390-keyboard";
+      if (scene === "phone-attention-pending") return profile.suffix !== "phone-390-keyboard";
+      return true;
+    }).flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
       scene, ladder, viewport, textSize, platform: "web", name: `${scene}-${suffix}.${ladder}`,
     }))),
   );
@@ -65,4 +70,11 @@ export function capturePlan(scenes: readonly string[]) {
   const limit = shards.reduce((total, shard) => total + shard.budget.limit, 0);
   const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit, remaining: limit - captures.length };
   return { captures, budget, shards };
+}
+
+/** Explicit selection keeps local capture and hosted jobs on the same bounded report. */
+export function captureShard(plan: ReturnType<typeof capturePlan>, selection: string | undefined) {
+  const selected = plan.shards.find(shard => shard.id === selection);
+  if (selected === undefined) throw new Error("Invalid gallery shard selection.");
+  return { ...selected, shard: { id: selected.id, index: plan.shards.indexOf(selected), count: plan.shards.length } };
 }

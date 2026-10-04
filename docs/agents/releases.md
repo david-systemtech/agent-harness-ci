@@ -65,7 +65,16 @@ Forgejo's own release and registry.
 The hosted macOS replacement smoke names each awaited operation while keeping the
 combined credential/update request's two-minute deadline. On a timeout it samples
 the desktop PID before cleanup and records the window list, desktop stdout/stderr,
-and a screenshot. The `macos-update-diagnostics` failure artifact contains only
+and a screenshot. CDP also records the window's visible text and accessible
+names, each visible machine card's environment id, kind, phase, blocked reason
+and remedy, its notices, and renderer console errors and uncaught exceptions.
+An allowlisted snapshot of the window's environment projection records every
+environment's id, name, kind, phase, blocked reason and action even when the
+machine cards are not mounted. It includes no addresses or credentials.
+It captures the window itself through CDP as a separate screenshot. Text is
+truncated, form values are excluded, and diagnostic calls have separate
+five-second deadlines that never recursively collect another timeout.
+The `macos-update-diagnostics` failure artifact contains only
 sanitized files: known credentials and credential-bearing text are redacted, and
 all recognized screenshot text is masked. Raw logs and screenshots stay in the
 private scratch directory and are removed. Unavailable native tools or screenshot

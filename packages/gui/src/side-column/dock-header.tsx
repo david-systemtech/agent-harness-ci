@@ -76,10 +76,11 @@ export const DockRail = ({ dockId, column, capability, show, close, newTerminal 
 };
 
 /** Every pane has the same fixed-height chrome, including capability explanations. */
-export const DockHeader = ({ pane, hide }: { readonly pane: SidePane; hide(): void }) => {
+export const DockHeader = ({ pane, hide, close }: { readonly pane: SidePane; hide(): void; close?(): void }) => {
   const { label, icon: Icon } = PANES[pane];
   return <div role="group" aria-label={`${label} pane header`} data-dock-header className="flex h-[30px] shrink-0 items-center gap-1.5 border-b border-hairline px-2 text-xs text-ink-muted">
     <Icon aria-hidden="true" className="size-4" /><span className="min-w-0 flex-1 truncate">{label}</span>
+    {close !== undefined && <IconButton label={`Close ${label} pane`} keys="Enter / Space" onClick={close} className="dock-close-pane rounded-md p-0"><X aria-hidden="true" /></IconButton>}
     <IconButton label="Hide the side column" keys="Enter / Space" onClick={hide} className="size-[24px] rounded-md p-0"><ChevronRight aria-hidden="true" /></IconButton>
   </div>;
 };

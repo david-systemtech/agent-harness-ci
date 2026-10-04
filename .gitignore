@@ -7,3 +7,4 @@ coverage/
 .image-sdk-cache/
 gallery-dist/
 gallery-images/
+__pycache__/

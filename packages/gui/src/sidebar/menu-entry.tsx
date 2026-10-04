@@ -1,3 +1,4 @@
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { useRef, type ReactNode, type KeyboardEvent } from "react";
 import { Folder, type LucideIcon } from "lucide-react";
 import type { Offer } from "../keys/key-dispatch.js";
@@ -26,15 +27,17 @@ export const Entry = ({ offer, detail, icon: Icon = Folder, letter, onSelect, ch
 };
 
 /** A submenu retains the same unavailable reason as its ordinary command. */
-export const SubEntry = ({ offer, name, icon: Icon = Folder, children }: { readonly offer: Offer; readonly name: string; readonly icon?: LucideIcon; readonly children: ReactNode }) =>
-  offer.status === "absent" ? (
+export const SubEntry = ({ offer, name, icon: Icon = Folder, children }: { readonly offer: Offer; readonly name: string; readonly icon?: LucideIcon; readonly children: ReactNode }) => {
+  const { narrow } = usePhoneFrame();
+  return offer.status === "absent" ? (
     <Entry offer={offer} icon={Icon} onSelect={() => undefined}>{name}</Entry>
   ) : (
     <ContextMenuSub>
       <Tooltip content={`${name} · Right arrow`}><ContextMenuSubTrigger><Icon aria-hidden="true" /><span data-menu-label>{name}</span></ContextMenuSubTrigger></Tooltip>
-      <ContextMenuSubContent className="w-[176px]">{children}</ContextMenuSubContent>
+      <ContextMenuSubContent className={narrow ? "phone-frame-menu w-72" : "w-[176px]"}>{children}</ContextMenuSubContent>
     </ContextMenuSub>
   );
+};
 
 /** The renderer's context trigger supports pointer gestures; supply the standard keyboard gesture too. */
 export const contextMenuKeys = (event: KeyboardEvent<HTMLElement>) => {
@@ -79,4 +82,11 @@ export const useHandOn = () => {
       then();
     },
   };
+};
+
+/** A tap action opens the same context menu as the standard keyboard gesture. */
+export const openContextActions = (target: HTMLElement | null) => {
+  if (target === null) return;
+  const rect = target.getBoundingClientRect();
+  target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 8, clientY: rect.top + 8 }));
 };

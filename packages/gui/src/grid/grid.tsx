@@ -1,5 +1,6 @@
 import { uuidv4, type NewSessionChips } from "@agent-harness/client-runtime";
 import { createContext, use, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { toast } from "../ui/toaster.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import type { GridPane, PaneLayout, PaneSession } from "../presentation.js";
@@ -31,6 +32,8 @@ import {
  */
 
 const DragContext = createContext<readonly [string | null, (id: string | null) => void] | null>(null);
+
+const PHONE_SPLIT_REASON = "Split needs a window at least 640px wide.";
 
 const PRESENT: Offer = { status: "present" };
 
@@ -123,12 +126,14 @@ export interface PaneGrid {
 
 /** The grid as presentation holds it, and its gestures. */
 export const usePaneGrid = (): PaneGrid => {
+  const { narrow } = usePhoneFrame();
   const [layout, setLayout] = usePresentation("paneLayout");
   const say = useRefusal();
   const [dragged, drag] = use(DragContext) ?? [null, () => {}];
   return useMemo<PaneGrid>(() => {
     /** Makes the change, saying the grid is full when it cannot be made; answers whether it was made. */
     const add = (change: (held: PaneLayout) => PaneLayout | undefined): boolean => {
+      if (narrow) { say(PHONE_SPLIT_REASON); return false; }
       let refused = false;
       setLayout((held) => {
         const next = change(held);
@@ -147,6 +152,7 @@ export const usePaneGrid = (): PaneGrid => {
       dragged, drag,
       move: (paneId, zone) => {
         drag(null);
+        if (narrow) { say(PHONE_SPLIT_REASON); return; }
         change((held) => {
           const from = held.rows.flatMap((row) => row.panes).find((pane) => pane.id === dragged);
           const to = held.rows.flatMap((row) => row.panes).find((pane) => pane.id === paneId);
@@ -161,10 +167,10 @@ export const usePaneGrid = (): PaneGrid => {
         });
       },
       focused: focusedPane(layout),
-      adding: isFull(layout) ? full : PRESENT,
+      adding: narrow ? { status: "absent", message: PHONE_SPLIT_REASON } : isFull(layout) ? full : PRESENT,
       split: (direction) => add((held) => addPane(held, held.focused, direction)),
       openBeside: (paneId, direction, session) => add((held) => openBeside(held, paneId, direction, session)),
-      openingBeside: (session) => (isFull(layout) && paneShowing(layout, session) === undefined ? full : PRESENT),
+      openingBeside: (session) => narrow ? { status: "absent", message: PHONE_SPLIT_REASON } : (isFull(layout) && paneShowing(layout, session) === undefined ? full : PRESENT),
       show: (paneId, session) => change((held) => showSession(held, paneId, session)),
       close: (paneId) => change((held) => removePane(held, paneId)),
       focus: (paneId) => setLayout((held) => focusPane(held, paneId)),
@@ -185,5 +191,5 @@ export const usePaneGrid = (): PaneGrid => {
       chooseChips: (id, choose) => setLayout((held) => chooseChips(held, id, choose)),
       refuse: (line = GRID_FULL) => say(line),
     };
-  }, [layout, setLayout, say, dragged, drag]);
+  }, [layout, setLayout, say, dragged, drag, narrow]);
 };

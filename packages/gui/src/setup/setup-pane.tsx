@@ -55,7 +55,7 @@ export const SetupPane = () => {
         <Button onClick={() => openRow("environments.machines", undefined, "add-a-machine")}>Set up another machine</Button>
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
-      <ol aria-label="Steps" className="flex flex-col gap-1">
+      <ol data-setup-summary aria-label="Steps" className="flex flex-col gap-1">
         {view.steps.map((step, index) => (
           <li key={step.id} className="flex min-w-0 items-center gap-2">
             <span aria-hidden="true" className="w-[18px] shrink-0 text-right font-mono text-xs text-ink-faint">{index + 1}</span>

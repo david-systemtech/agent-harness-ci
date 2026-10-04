@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createRuntime } from "@agent-harness/client-runtime";
+import { createRuntime, StoredCredentialUnavailableError } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock } from "@agent-harness/client-runtime/testing";
 import { fakeWire, flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { keychainSecrets } from "./secrets.js";
@@ -68,6 +68,40 @@ describe("secrets", () => {
     expect(await secrets.access()).toBeNull();
     electron.app.quit();
     await electron.app.quitted;
+  });
+
+  it("keeps a lone malformed envelope repairable across fresh writes and relaunch without prior recovery metadata", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const dir = join(platformOn("darwin").paths.data, "secrets");
+    mkdirSync(dir);
+    const file = join(dir, `${DESK}.secret`);
+    const damaged = Buffer.from("ah-mac-credential-v1\nagent-harness credentials truncated");
+    writeFileSync(file, damaged);
+    const open = (): MacCredentials => ({
+      available: async () => true,
+      encrypt: (value) => electron.safeStorage.encryptStringAsync(value),
+      decrypt: async (value) => (await electron.safeStorage.decryptStringAsync(value)).result,
+      close: () => {},
+    });
+    const makeSecrets = () => keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir,
+      macCredentials: macCredentialStore({ dir, open }), report: () => {} });
+    const secrets = makeSecrets();
+    expect(await secrets.access()).toBe("denied");
+    await expect(secrets.get(DESK)).rejects.toBeInstanceOf(StoredCredentialUnavailableError);
+    await expect(secrets.get(DESK)).rejects.toThrow(/Invalid macOS credential envelope/);
+    expect(readFileSync(file)).toEqual(damaged);
+    await secrets.set(LAPTOP, "token-for-tests-fresh");
+    expect(await secrets.get(LAPTOP)).toBe("token-for-tests-fresh");
+    expect(await secrets.protection()).toBe("os");
+    await secrets.delete(LAPTOP);
+    expect(await secrets.access()).toBe("denied");
+    secrets.close();
+    const relaunched = makeSecrets();
+    expect(await relaunched.access()).toBe("denied");
+    await relaunched.set(DESK, "token-for-tests-paired-again");
+    expect(await relaunched.get(DESK)).toBe("token-for-tests-paired-again");
+    expect(await relaunched.access()).toBeNull();
+    relaunched.close();
   });
 
   it("isolates a damaged envelope while other credentials can be repaired, written and deleted", async () => {
