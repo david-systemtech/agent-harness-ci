@@ -37,3 +37,27 @@ it("retains the application key after restart", async () => {
   const restarted = await again.client();
   expect(await restarted.request("attention.push.key", {})).toEqual(key);
 });
+
+it("a stale test retirement preserves the subscription replaced while the gateway was responding", async () => {
+  const { registerAttentionTransport } = await import("../web/attention.js");
+  const { createAttentionTransport } = await import("./push.js");
+  let started!: () => void;
+  const issued = new Promise<void>(resolve => { started = resolve; });
+  let finish!: (status: number) => void;
+  const response = new Promise<number>(resolve => { finish = resolve; });
+  onCleanup(registerAttentionTransport("push", context => createAttentionTransport(context, { post: async () => { started(); return response; } })));
+  const environment = await startTestEnvironment({ webOrigin: "https://example.test" });
+  onCleanup(() => environment.close());
+  const phone = await environment.pair({ kind: "web", scopes: ["read"] });
+  const client = await environment.client({ token: phone.token });
+  const secondTab = await environment.client({ token: phone.token });
+  const browser = createECDH("prime256v1"); browser.generateKeys();
+  const target = { id: `push-${phone.clientSessionId}`, transport: "push", enabled: true, completion: false, configuration: { endpoint: "https://fcm.googleapis.com/fcm/send/old-for-tests", p256dh: browser.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } } as const;
+  await client.apply("attention.targets.set", { commandId: randomUUID(), target });
+  const pending = client.request("attention.push.test", { id: target.id, sessionId: "session-1" });
+  await issued;
+  await secondTab.apply("attention.targets.set", { commandId: randomUUID(), target: { ...target, configuration: { ...target.configuration, endpoint: "https://fcm.googleapis.com/fcm/send/replacement-for-tests" } } });
+  finish(410);
+  expect(await pending).toEqual({ status: "retire" });
+  expect((await client.request("attention.targets.list", {})).targets).toEqual([expect.objectContaining({ id: target.id, state: "ready" })]);
+});

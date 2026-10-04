@@ -13,7 +13,7 @@ const target = { id: "phone", transport: "push", enabled: true, completion: fals
 const payload = { message: "A session needs you", url: "https://example.test/#/session/env-1/session-1" } as const;
 const vault = { get: async () => undefined, set: async () => undefined, delete: async () => undefined, keys: async () => [] };
 
-it.each(["127.0.0.1", "10.0.0.1", "169.254.169.254", "100.64.0.1", "::1", "fd00::1", "::ffff:127.0.0.1"])("refuses a supported vendor name resolving to %s before opening a socket", async address => {
+it.each(["127.0.0.1", "10.0.0.1", "169.254.169.254", "100.64.0.1", "::1", "fd12::1", "::ffff:127.0.0.1"])("refuses a supported vendor name resolving to %s before opening a socket", async address => {
   network.request.mockClear();
   network.resolve.mockResolvedValue([{ address, family: address.includes(":") ? 6 : 4 }]);
   const transport = await createPushTransport({ vault, clock: manualClock(), subject: "https://example.test" });

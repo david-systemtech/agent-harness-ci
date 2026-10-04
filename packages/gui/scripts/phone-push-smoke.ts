@@ -57,10 +57,11 @@ export async function phonePushSmoke({ context, page, environment, token, sessio
     PushManager.prototype.getSubscription = async () => active ? value : null;
     PushManager.prototype.subscribe = async () => { active = true; return value; };
   })()`);
-  await page.getByText("Phone notifications", { exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Attention settings", exact: true }).click();
   await page.getByRole("button", { name: "Enable push", exact: true }).click();
   await page.getByText("Push enabled for this client.", { exact: true }).waitFor();
-  await page.getByText("Phone notifications", { exact: true }).click();
+  await page.getByRole("button", { name: "Close attention settings", exact: true }).click();
   const worker = context.serviceWorkers().find(item => new URL(item.url()).pathname === "/service-worker.js");
   assert(worker, "The real bundled service worker is running.");
   const observer = await context.newPage();

@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { usePickedEnvironment, useSettings } from "../settings/settings-window.js";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { writable } from "@agent-harness/client-runtime";
 import type { AttentionTargetInput, AttentionTargetStatus } from "@agent-harness/contracts";
@@ -113,7 +115,7 @@ const browserPush = (): PushBrowser => {
     unsubscribe: async () => { const value = await (await registration()).pushManager.getSubscription(); if (value && !await value.unsubscribe()) throw new Error("Subscription unavailable."); },
   };
 };
-const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string }) => {
+const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string | undefined }) => {
   const runtime = useRuntime();
   const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "attention.targets.list", {}), [runtime, environmentId]));
   const clientId = useObservable(runtime.connections.list).find(record => record.environmentId === environmentId)?.clientSessionId;
@@ -130,7 +132,7 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
       key: async () => { const result = await runtime.requests.call(environmentId, "attention.push.key", {}); if (!result.ok) throw new Error("Key unavailable."); return result.result.publicKey; },
       set: subscription => accepted({ id, transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
       remove: () => accepted(),
-      test: async () => { const result = await runtime.requests.call(environmentId, "attention.push.test", { id, sessionId }); if (!result.ok) throw new Error("Test failed."); return result.result.status; },
+      test: async () => { if (!sessionId) throw new Error("Open a session first."); const result = await runtime.requests.call(environmentId, "attention.push.test", { id, sessionId }); if (!result.ok) throw new Error("Test failed."); return result.result.status; },
     });
   }, [runtime, environmentId, sessionId, id]);
   useEffect(() => { void controller.restore(answer.result?.targets.some(target => target.id === id && target.enabled) ?? false).catch(() => undefined); }, [controller, answer.result, id]);
@@ -144,14 +146,24 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
   }} />;
 };
 const PushSurface = () => {
-  const [open, setOpen] = useState(false);
+  const settings = useSettings();
+  const picked = usePickedEnvironment();
+  const [anchor, setAnchor] = useState<Element | null>(null);
   const [layout] = usePresentation("paneLayout");
   const session = layout.rows.flatMap(row => row.panes).find(pane => pane.id === layout.focused)?.session;
   const records = useObservable(useRuntime().connections.list);
   const home = records.find(record => { try { return new URL(record.address).origin === window.location.origin; } catch { return false; } });
-  return <details className="max-h-[45dvh] shrink-0 overflow-y-auto border-t border-hairline px-3 pb-[env(safe-area-inset-bottom)]" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary className="flex min-h-11 cursor-pointer items-center text-sm">Phone notifications</summary>
-    {open && (session && home && session.environmentId === home.environmentId ? <ConnectedPush environmentId={session.environmentId} sessionId={session.sessionId} /> : <p className="pb-3 text-base">Open a session on this client's web origin environment to manage push. Notifications open sessions on this web origin.</p>)}
-  </details>;
+  useEffect(() => {
+    if (!settings.shown) { setAnchor(null); return; }
+    const find = () => setAnchor(document.querySelector("[data-attention-settings]"));
+    const observer = new MutationObserver(find);
+    observer.observe(document.body, { childList: true, subtree: true });
+    find();
+    return () => observer.disconnect();
+  }, [settings.shown]);
+  if (!settings.shown || !anchor) return null;
+  return createPortal(home && picked?.environmentId === home.environmentId
+    ? <ConnectedPush environmentId={home.environmentId} sessionId={session?.environmentId === home.environmentId ? session.sessionId : undefined} />
+    : <p>Manage push from this web origin's environment in Attention settings. Notification links stay on this origin.</p>, anchor);
 };
 export const webModule: WebModule = { slot: "push", registration: { Surface: PushSurface } };
