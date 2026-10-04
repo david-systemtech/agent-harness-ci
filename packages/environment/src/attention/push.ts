@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import type { LookupAddress } from "node:dns";
 import { request } from "node:https";
 import { createECDH } from "node:crypto";
 import webpush from "web-push";
@@ -27,7 +28,17 @@ export const pushEndpointAllowed = (endpoint: string): boolean => {
 type PushPost = (url: string, body: Buffer, headers: Record<string, string>, signal: AbortSignal) => Promise<number>;
 /** Pin a vetted public DNS result for this request, so a second resolution cannot reach a private host. */
 const post: PushPost = async (endpoint, body, headers, signal) => {
-  const addresses = await lookup(new URL(endpoint).hostname, { all: true });
+  signal.throwIfAborted();
+  const addresses = await new Promise<LookupAddress[]>((resolve, reject) => {
+    const abort = () => reject(new Error("Push gateway unavailable."));
+    signal.addEventListener("abort", abort, { once: true });
+    void lookup(new URL(endpoint).hostname, { all: true }).then(addresses => {
+      signal.removeEventListener("abort", abort); resolve(addresses);
+    }, error => {
+      signal.removeEventListener("abort", abort); reject(error);
+    });
+  });
+  signal.throwIfAborted();
   if (!addresses.length || addresses.some(({ address }) => addressClassOf(address) !== "public")) throw new Error("Push gateway unavailable.");
   const address = addresses[0]!;
   return new Promise<number>((resolve, reject) => {

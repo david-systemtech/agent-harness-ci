@@ -13,13 +13,14 @@ export interface PushBrowser {
   requestPermission(): Promise<NotificationPermission>;
   subscription(): Promise<PushSubscriptionData | null>;
   subscribe(key: string): Promise<PushSubscriptionData>;
-  unsubscribe(): Promise<void>;
+  unsubscribe(expected?: PushSubscriptionData): Promise<void>;
 }
 export interface PushFeatures { readonly secure: boolean; readonly supported: boolean; readonly ios: boolean; readonly standalone: boolean }
 interface PushActions { key(): Promise<string>; set(subscription: PushSubscriptionData): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
 export type PushState = "disabled" | "ready" | "denied" | "unavailable" | "install";
 /** Browser permission and subscription are browser-owned; registration status remains environment-owned. */
 export class PushController {
+  private retired: PushSubscriptionData | undefined;
   private readonly state;
   readonly read;
   readonly subscribe;
@@ -39,6 +40,7 @@ export class PushController {
     try {
       // Invoke permission synchronously in the click's user gesture, before waiting for a worker/key.
       if (await this.browser.requestPermission() !== "granted") { this.state.set({ status: "denied", busy: false }); return; }
+      if (this.retired) { await this.browser.unsubscribe(this.retired); this.retired = undefined; }
       const existing = await this.browser.subscription();
       const subscription = existing ?? await this.browser.subscribe(await this.actions.key());
       created = existing === null;
@@ -69,9 +71,15 @@ export class PushController {
     if (this.read().busy || this.read().status !== "ready") return;
     this.state.update(state => ({ ...state, busy: true, line: undefined }));
     try {
+      const subscription = await this.browser.subscription();
       const status = await this.actions.test();
+      if (status === "retire") {
+        this.retired = subscription ?? undefined;
+        this.state.update(state => ({ ...state, status: "disabled" }));
+        if (this.retired) { await this.browser.unsubscribe(this.retired); this.retired = undefined; }
+      }
       this.state.update(state => ({ ...state, status: status === "retire" ? "disabled" : state.status, line: status === "sent" ? "Test notification sent. Check your notifications." : "Test delivery failed. Enable push again or use the fallback below." }));
-    } catch { this.state.update(state => ({ ...state, line: "Open a session and connect before testing push." })); }
+    } catch { this.state.update(state => ({ ...state, line: this.retired ? "Could not clear the expired subscription. Enable push to retry or use the fallback below." : "Open a session and connect before testing push." })); }
     finally { this.state.update(state => ({ ...state, busy: false })); }
   }
 }
@@ -112,7 +120,15 @@ const browserPush = (): PushBrowser => {
     requestPermission: () => Notification.requestPermission(),
     subscription: async () => { const value = await (await registration()).pushManager.getSubscription(); return value ? data(value) : null; },
     subscribe: async key => data(await (await registration()).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })),
-    unsubscribe: async () => { const value = await (await registration()).pushManager.getSubscription(); if (value && !await value.unsubscribe()) throw new Error("Subscription unavailable."); },
+    unsubscribe: async expected => {
+      const value = await (await registration()).pushManager.getSubscription();
+      if (!value) return;
+      if (expected) {
+        const current = data(value);
+        if (current.endpoint !== expected.endpoint || current.keys.auth !== expected.keys.auth || current.keys.p256dh !== expected.keys.p256dh) return;
+      }
+      if (!await value.unsubscribe()) throw new Error("Subscription unavailable.");
+    },
   };
 };
 const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string | undefined }) => {

@@ -24,6 +24,40 @@ it("permission is requested only on Enable, then Test and Disable explicitly man
   await user.click(screen.getByRole("button", { name: "Disable push" }));
   expect(actions).toEqual(["permission", "subscribe", "register", "test", "remove", "unsubscribe"]);
 });
+it.each([false, true])("replaces a retired browser subscription before enabling push again (cleanup initially fails: %s)", async cleanupFails => {
+  let current: typeof subscription | null = subscription;
+  const replacement = { ...subscription, endpoint: "https://fcm.googleapis.com/fcm/send/replacement" };
+  const registered: string[] = [];
+  let attempts = 0;
+  const browser: PushBrowser = { permission: () => "granted", requestPermission: async () => "granted", subscription: async () => current, subscribe: async () => { current = replacement; return current; }, unsubscribe: async () => { if (++attempts === 1 && cleanupFails) throw new Error("Browser temporarily unavailable"); current = null; } };
+  const controller = new PushController({ secure: true, supported: true, ios: false, standalone: false }, browser, { key: async () => "key", set: async value => { registered.push(value.endpoint); }, remove: async () => undefined, test: async () => "retire" });
+  await controller.enable();
+  await controller.test();
+  expect(controller.read().status).toBe("disabled");
+  await controller.enable();
+  expect(registered).toEqual([subscription.endpoint, replacement.endpoint]);
+});
+it("preserves a browser subscription replaced while Test is pending", async () => {
+  let current: typeof subscription | null = subscription;
+  const replacement = { ...subscription, endpoint: "https://fcm.googleapis.com/fcm/send/replacement" };
+  let finish!: (status: "retire") => void;
+  let start!: () => void;
+  const started = new Promise<void>(resolve => { start = resolve; });
+  const pending = new Promise<"retire">(resolve => { finish = resolve; });
+  const registered: string[] = [];
+  const subscribe = vi.fn(async () => subscription);
+  const browser: PushBrowser = { permission: () => "granted", requestPermission: async () => "granted", subscription: async () => current, subscribe, unsubscribe: async (expected?: typeof subscription) => { if (!expected || current?.endpoint === expected.endpoint) current = null; } };
+  const controller = new PushController({ secure: true, supported: true, ios: false, standalone: false }, browser, { key: async () => "key", set: async value => { registered.push(value.endpoint); }, remove: async () => undefined, test: () => { start(); return pending; } });
+  await controller.enable();
+  const testing = controller.test();
+  await started;
+  current = replacement;
+  finish("retire");
+  await testing;
+  await controller.enable();
+  expect(registered).toEqual([subscription.endpoint, replacement.endpoint]);
+  expect(subscribe).not.toHaveBeenCalled();
+});
 it("denial explains browser settings, Home Screen installation and configured fallback status", async () => {
   const { controller, actions } = setup("denied");
   render(<PushControls controller={controller} fallback={[{ id: "fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "ready", failure: null }]} />);
