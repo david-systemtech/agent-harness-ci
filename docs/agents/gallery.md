@@ -2,7 +2,7 @@
 
 Use this recipe when a deliberate GUI change produces reviewed pixel differences in a pull request.
 
-1. Work in the pull request's worktree with its current head checked out. Wait for the hosted gallery comment for that head. Review every baseline/capture/difference triplet and any new scene image; confirm the captures show the intended change.
+1. Work in the pull request's worktree with its current head checked out. Wait for every hosted gallery shard comment for that head. Review every baseline/capture/difference triplet and any new scene image; confirm the captures show the intended change.
 2. Resolve every geometry failure in the layout or measurement expectations. Baseline acceptance changes pixel comparisons; geometry checks continue to block immediately.
 3. Run `bash scripts/gallery-accept.sh <pr-number>`. It downloads the current head's captures into `packages/gui/gallery/baselines/`, validates the downloads before writing, and refuses a different working-tree head. It prints each accepted filename and the exact staging, commit and branch push commands.
    To accept a reviewed subset, append exact capture filenames, for example `bash scripts/gallery-accept.sh <pr-number> settings-browser.light.png settings-browser-narrow.light.png`. Only those images are downloaded, written and included in the printed staging command; unrelated baselines remain untouched. Name each reviewed ladder and viewport explicitly. A missing filename refuses the whole acceptance.
@@ -11,15 +11,11 @@ Use this recipe when a deliberate GUI change produces reviewed pixel differences
 
 Captures run on hosted CI. Local acceptance downloads existing captures and launches no browser. If the script reports no captures for the current head, wait for its gallery run and comment before retrying.
 
-The shell wave has landed: missing baselines, pixel differences beyond the 0.05% budget (pixelmatch threshold 0.1), and geometry failures block. Every discovered scene has dark captures at 1400 × 900 and 1024 × 768; the light subset follows `look.md §16`. Scene names reserve the generated `-narrow` suffix.
+The shell wave has landed: missing baselines, pixel differences beyond the 0.05% budget (pixelmatch threshold 0.1), and geometry failures block. Every discovered desktop scene has dark captures at 1400 × 900 and 1024 × 768; the light subset follows `look.md §16`. Scene names reserve the generated `-narrow` suffix.
 
 A scene may export a fixed geometry array or a function receiving `{ width, height }` from the capture viewport. The mount resolves that function before marking the scene ready. Keep control dimensions fixed and compute available column widths from the frame contract. A `minimumHeight` check is available for content that grows beyond its viewport floor; exact `height` checks still apply where the scene fixes its height.
 
-The capture report has two bounded shards: desktop and phone, each allowing up to 400 capture rows. The shared allocation is `scripts/gallery-allocation.json`; the capture plan, hosted report guard, trusted publisher, baseline acceptance and retention all use it. All discovered desktop captures remain scheduled with their existing names and ladders. Phone owners may add `phone-*` scene modules without spending desktop capacity; each normally gets eight captures across both widths, light/dark, enlarged text and keyboard height. The current 354 desktop and 46 phone captures leave 354 phone slots, including the 16 required by the frame conversation/drawer scenes.
-
-The report retains flat rows for a trusted publisher from before sharding while the tree still fits 400 captures; larger reports need the sharded publisher on trusted main. The two report shards travel in one `window-gallery` artifact and publish as one immutable report manifest. Every shard is checked before publication; missing triplets, duplicate names, wrong-shard captures and invalid phone dimensions refuse the complete report. Every included capture retains the pixel and geometry gates. Acceptance validates the same per-shard allocation before downloading and checks the selected bytes, origin, hash and dimensions before writing any baseline. Retention protects both shards together, including reviewed reports from earlier heads of an open PR.
-
-The sharded report allows at most 2400 PNGs (800 capture/baseline/difference triplets), 2402 archive entries including `report.json` and `geometry.json`, 48 MiB of expanded payload and a 64 MiB ZIP. These byte limits still apply to the combined artifact. Earlier single-report artifacts retain their 400-row, 1200-PNG and 1202-entry bounds. The capture-only recovery publisher retains its 1200-PNG limit. Capture filenames remain flat scene names ending in `.light.png` or `.dark.png`; reports may also contain their baseline and difference PNGs.
+The hosted workflow and both relay publishers allow at most 1200 PNGs, 48 MiB of expanded payload (including report JSON), and a 64 MiB ZIP. The report publisher allows up to 400 capture rows: the required dark/light ladder cases at two widths, each with a capture/baseline/difference triplet. Its entry bound is 1202: the PNG bound plus `report.json` and `geometry.json`. Capture filenames must be flat scene names ending in `.light.png` or `.dark.png`; reports may additionally contain their baseline and difference PNGs. Duplicate names, unexpected entries and invalid PNG signatures are refused before a comment is created. Baseline acceptance allows the same 400 captures and 48 MiB per report; retention protects valid manifests with up to 400 captures, including reviewed versions from earlier heads of an open PR.
 
 A capture-only artifact from an earlier hosted run can be recovered without rebuilding its commit. Download that run's `window-gallery` ZIP, then use the trusted checkout's `bash .forgejo/scripts/gallery-comment.sh <archive.zip> <full-head-sha>` with `FORGEJO_URL`, `FORGEJO_REPOSITORY`, `FORGEJO_PR` and `FORGEJO_TOKEN` set. It validates the complete archive before uploading, and posts only while the destination PR is open and still has that head. Inspect an old artifact locally when the PR's head has moved.
 
@@ -30,7 +26,7 @@ The #1537 hosted probe (run 37178192474, PR #1538) repeated restore captures eig
 
 ## Retries, failures and retention
 
-Each completed report stores immutable capture bytes in the `window-gallery` generic package under version `<head>-<comment-id>`. Repeating a hosted run on the same head creates another report version, so a retry cannot replace bytes in an earlier review. The comment manifest records the version, exact package download URL and SHA-256 of each capture. Acceptance selects the latest completed manifest for the current head and verifies its hashes before writing any baseline. Existing head-only manifests remain downloadable for compatibility.
+Each completed report stores immutable capture bytes in the `window-gallery` generic package under version `<head>-<comment-id>`. Repeating a hosted run on the same head creates another report version, so a retry cannot replace bytes in an earlier review. The comment manifest records the version, exact package download URL and SHA-256 of each capture. Acceptance selects the latest reported shard group (or legacy single report) for the current head and verifies its hashes before writing any baseline. Existing head-only manifests remain downloadable for compatibility.
 
 Attachment or package upload failures finalize the comment with the failed stage, HTTP status when available, and instructions to rerun the gallery job or check write permissions. A failed report carries no acceptance manifest. If tracker connectivity also prevents finalizing the comment, the relay log explicitly reports that failure.
 
@@ -61,3 +57,30 @@ The first gallery event based on main containing #1483 was PR #1465's run 6830 (
 - Geometry passed; pixel differences were advisory. Neither prevented publication. Inline attachment requests from this lane returned HTTP 401 behind web authentication; the authenticated package URLs used for acceptance were usable.
 
 No publication failure was found, so no additional publisher or baseline change was needed. These checks downloaded published bytes without launching a local browser or accepting baselines.
+
+## Report shards
+
+Filename discovery creates desktop and phone shards with at most 400 captures each.
+The hosted workflow discovers the matrix from `gallery/shards.ts`, captures each
+shard with `GALLERY_SHARD`, and uploads `window-gallery-<shard-id>`. Every shard
+keeps the 1,200 PNG, 48 MiB expanded payload and 64 MiB transport limits, geometry
+checks and blocking pixel comparison. Add a uniquely named `phone-*.tsx` scene
+with web platform mode and its own geometry; no shared registry or workflow edit
+is needed. Capture names and baseline paths stay unchanged.
+
+The relay publishes one immutable version per shard comment. Each manifest names
+its shard, position, total shard count and hosted run/attempt group. Acceptance
+requires every shard of the newest reported group, rejects duplicate captures
+across shards, and validates each report's downloads before writing any baseline.
+A partial newer run cannot borrow shards from an older run. Exact filename
+selection works across the complete set, with the same image, hash and origin
+checks. Older single-report manifests remain supported.
+
+Deploy the hosted gallery workflow and trusted relay together when this change
+lands. The relay uses the trusted base checkout; a PR cannot replace its publisher.
+
+Earlier heads from the allocation rollout still publish one artifact containing
+two bounded family reports. The hosted matrix uses a legacy entry for heads
+without `gallery/shards.ts`; their existing allocation, transport and image
+validation remain enforced. The relay and acceptance retain that report format
+while every new matrix artifact remains bounded to 400 captures and 1,200 PNGs.
