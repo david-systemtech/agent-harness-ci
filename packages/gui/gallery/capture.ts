@@ -44,7 +44,19 @@ try {
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}`);
       await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
+      if (scene === "dialog-restore") {
+        console.log("restore-before", name, await page.evaluate(() => {
+          const elements = [document.activeElement, ...document.querySelectorAll("[data-radix-popper-content-wrapper]")];
+          return elements.map((element) => ({ text: element?.textContent, rect: element?.getBoundingClientRect().toJSON() }));
+        }));
+      }
       await page.evaluate(waitForFloatingLayout);
+      if (scene === "dialog-restore") {
+        console.log("restore-completed", name, await page.evaluate(() => {
+          const elements = [document.activeElement, ...document.querySelectorAll("[data-radix-popper-content-wrapper]")];
+          return elements.map((element) => ({ text: element?.textContent, rect: element?.getBoundingClientRect().toJSON() }));
+        }));
+      }
       if (errors.length > 0) throw new Error(errors.join("\n"));
       const capturePath = resolve(output, `${name}.png`);
       await page.screenshot({ path: capturePath, animations: "disabled", caret: "hide", scale: "css" });
