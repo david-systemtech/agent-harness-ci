@@ -17,10 +17,17 @@ export function redactDiagnostic(text, secrets = []) {
 
 export const executeDiagnostic = (command, args, { timeout = 20_000 } = {}) => new Promise((resolve, reject) => {
   execFile(command, args, { timeout, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-    if (error) reject(error);
+    if (error) reject(Object.assign(error, { stderr }));
     else resolve({ stdout, stderr });
   });
 });
+
+// Sanitize before truncation, so a credential crossing the size limit cannot leak.
+function commandFailure(error, secrets) {
+  const bounded = value => redactDiagnostic(value ?? "", secrets).slice(0, 32_000);
+  return { error: bounded(error.message), code: error.code ?? null,
+    signal: error.signal ?? null, killed: error.killed ?? false, stderr: bounded(error.stderr) };
+}
 
 /** Saves only sanitized output; the raw desktop log stays in the smoke's private scratch directory. */
 export function persistDesktopLog(directory, privateDirectory, secrets) {
@@ -96,7 +103,7 @@ export async function collectRendererSmokeDiagnostics({ directory, privateDirect
         await execute("/usr/bin/swift", [fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url)), rawScreen, screen]);
       } catch (error) {
         rmSync(screen, { force: true });
-        save("renderer-screenshot.png.error.json", { error: error.message });
+        save("renderer-screenshot.png.error.json", commandFailure(error, secrets));
       } finally { rmSync(rawScreen, { force: true }); }
     })(),
   ]);
@@ -130,7 +137,7 @@ export async function collectMacosSmokeDiagnostics({ directory, privateDirectory
         await execute("/usr/bin/swift", [fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url)), rawScreen, screen]);
       } catch (failure) {
         rmSync(screen, { force: true });
-        save("screenshot.png.error.txt", failure.message);
+        save("screenshot.png.error.txt", JSON.stringify(commandFailure(failure, secrets), null, 2));
       } finally { rmSync(rawScreen, { force: true }); }
     })(),
   ]);
