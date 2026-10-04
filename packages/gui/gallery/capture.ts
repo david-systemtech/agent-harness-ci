@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
+import { observePreviewRequests, verifyPhonePreviewIsolation } from "./phone-preview-isolation.js";
 import { capturePlan, sceneFiles } from "./capture-plan.js";
 import { measureSceneGeometry } from "./geometry.js";
 import { waitForFloatingLayout } from "./floating-layout.js";
@@ -41,6 +42,7 @@ try {
   console.log(`Capture budget: ${shard.budget.desktop} desktop + ${shard.budget.phone} phone = ${shard.budget.total}/${shard.budget.limit}; ${shard.budget.remaining} reserved.`);
   for (const { scene, ladder, viewport, name, platform, textSize } of shard.captures) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
+    const previewRequests = scene === "phone-pane-preview" ? await observePreviewRequests(context) : undefined;
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -73,6 +75,10 @@ try {
         return Math.abs(actual - 16 * size / 14) <= 0.5 ? [] : [`html.fontSize: got ${actual}, expected ${16 * size / 14}`];
       }, textSize) : []),
     ];
+    if (previewRequests !== undefined) {
+      try { await verifyPhonePreviewIsolation(page, previewRequests); }
+      catch (error) { failures.push(`Preview isolation: ${error instanceof Error ? error.message : String(error)}`); }
+    }
     const baselinePath = resolve(import.meta.dirname, "baselines", `${name}.png`);
     let baseline: Buffer | undefined;
     try { baseline = await readFile(baselinePath); }

@@ -1,3 +1,4 @@
+import { hostileHtml, hostileSvg } from "./phone-preview-fixtures.js";
 import type { SceneModule } from "./scene-registry.js";
 import { presentation as dockPresentation, script as dockScript } from "./scenes/dock-diff.js";
 import { arrange as documents } from "./scenes/dock-documents.js";
@@ -30,7 +31,8 @@ export const phonePaneScene = (kind: PhonePaneScene): SceneModule => {
       tasks(world);
       const env = world.environment("desk");
       const { runId } = env.startRun(session.sessionId, "Draw a static receipt summary");
-      env.writeFile(session.sessionId, runId, "site/index.html", '<!doctype html><h1>Receipt summary</h1><p>Totals are checked in integer cents.</p><script>parent.document.body.textContent="unsafe";fetch("https://example.test/pixel")</script><img src="https://example.test/pixel"><form action="https://example.test"><input></form>');
+      env.writeFile(session.sessionId, runId, "site/index.html", kind === "preview" ? hostileHtml : '<!doctype html><h1>Receipt summary</h1><p>Totals are checked in integer cents.</p><script>parent.document.body.textContent="unsafe";fetch("https://example.test/pixel")</script><img src="https://example.test/pixel"><form action="https://example.test"><input></form>');
+      if (kind === "preview") env.writeFile(session.sessionId, runId, "chart.svg", hostileSvg);
       env.endRun(session.sessionId, runId);
     },
     activate: () => {

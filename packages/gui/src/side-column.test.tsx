@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -12,6 +12,18 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
  */
 
 const FILES = ["README.md", "package.json", "src/app.tsx", "src/files/browse.ts", "src/files/pages.ts", "test/harness.ts"];
+
+/** Drive the owning pane's real ResizeObserver to a phone width. */
+const narrowSheet = () => {
+  const Original = globalThis.ResizeObserver;
+  vi.stubGlobal("ResizeObserver", class extends Original {
+    constructor(callback: ResizeObserverCallback) {
+      super((entries, observer) => callback(entries.map(entry => entry.target.hasAttribute("data-dock-owner")
+        ? { ...entry, borderBoxSize: [{ inlineSize: 390, blockSize: 844 }] } : entry), observer));
+    }
+  });
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+};
 
 /** The local environment with two sessions, the first opened in the pane. */
 const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
@@ -113,6 +125,45 @@ describe("the side column", () => {
     act(() => resize?.(900));
     expect(column()?.hasAttribute("data-dock-sheet")).toBe(false);
     expect(screen.queryByRole("button", { name: "Close side sheet" })).toBeNull();
+  });
+
+  it("repairs focus after switching from preview to source, closing a pane and closing the final sheet", async () => {
+    narrowSheet();
+    const app = await opened();
+    // Exercise the browser fallback inside the actual retained dock.
+    Object.assign(app.shell, { preview: undefined });
+    const env = app.environment("desk"), session = env.sessionId();
+    const { runId } = env.startRun(session, "Draw a receipt");
+    env.writeFile(session, runId, "site/index.html", "<h1>Receipt</h1>");
+    await openPane(app, "Documents");
+    const opener = within(screen.getByRole("banner")).getByRole("button", { name: "More" });
+    await app.user.click(within(await screen.findByRole("article", { name: "site/index.html" })).getByRole("button", { name: "Preview" }));
+    await app.user.click(await within(screen.getByRole("region", { name: "Preview" })).findByRole("button", { name: "Source" }));
+    expect(document.activeElement?.closest("[hidden]")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close side sheet" }));
+    await app.user.click(screen.getByRole("button", { name: "Close Files pane" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close side sheet" }));
+    await app.user.click(screen.getByRole("button", { name: "Close Documents pane" }));
+    await app.user.click(screen.getByRole("button", { name: "Close Preview pane" }));
+    await waitFor(() => expect(column()).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("keeps window shortcuts behind the modal sheet while retaining dock navigation and Escape", async () => {
+    narrowSheet();
+    const app = await opened();
+    await openPane(app, "Files");
+    const before = app.shown();
+    act(() => screen.getByRole("button", { name: "Close side sheet" }).focus());
+    await app.user.keyboard("{Control>}n{/Control}");
+    expect(app.shown()).toEqual(before);
+    expect(screen.getByRole("dialog", { name: "Side column" })).toBeDefined();
+    await app.user.keyboard("{Control>}k{/Control}");
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+    named("Files").focus();
+    await app.user.keyboard("{Home}{Enter}{Escape}");
+    expect(column()).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Show the side column" }));
   });
 
   it("opens another pane from the dock's own kind menu", async () => {
