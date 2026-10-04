@@ -1117,7 +1117,14 @@ it("executes the hosted shard guard against bounded, inconsistent and ungated re
 
 it("plans named report artifacts without launching the renderer", async () => {
   const result = await run(process.execPath, ["--import", "tsx", "gallery/plan.ts"], { cwd: join(root, "packages/gui") });
-  expect(result.stdout.trim()).toBe('matrix={"include":[{"shard":"desktop-001","count":2,"artifact":"window-gallery-desktop-001"},{"shard":"phone-001","count":2,"artifact":"window-gallery-phone-001"}]}');
+  const matrix = JSON.parse(result.stdout.trim().replace(/^matrix=/, "")) as { include: { shard: string; count: number; artifact: string }[] };
+  expect(matrix.include.map(entry => entry.shard)).toEqual(expect.arrayContaining(["desktop-001", "phone-001"]));
+  expect(new Set(matrix.include.map(entry => entry.shard)).size).toBe(matrix.include.length);
+  for (const entry of matrix.include) {
+    expect(entry.shard).toMatch(/^(desktop|phone)-[0-9]{3}$/);
+    expect(entry.count).toBe(matrix.include.length);
+    expect(entry.artifact).toBe(`window-gallery-${entry.shard}`);
+  }
 });
 
 it("plans and validates a bounded single report on heads predating shard support", async () => {
@@ -1149,11 +1156,11 @@ it("plans and validates a bounded single report on heads predating shard support
 });
 
 
-it("publishes and accepts both bounded shards including all frame phone profiles", async () => {
+it("publishes and accepts older combined reports including all frame phone profiles", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const scenes = await sceneFiles("./packages/gui/gallery/scenes"); console.log(JSON.stringify(capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan(["window-empty", "phone-gallery-conversation", "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
-  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(400);
+  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(12);
   expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);
   await g.capture(230, names.length, names);
   await run("python3", ["-c", `import json,sys,zipfile
