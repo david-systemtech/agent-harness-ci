@@ -70,6 +70,7 @@ try {
     const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
     const context = await engine.launchPersistentContext(join(output, `profile-${name}`), {
       viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true,
+      ...(name === "webkit" && process.platform === "linux" ? { headless: false } : {}),
       ...(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {}),
     });
     const browser = context.browser(); assert(browser, "The persistent client profile belongs to the hosted browser.");
