@@ -9,6 +9,7 @@ import { useOpenInPane } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
 import { Button, IconButton, Input, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { ScheduledStrip } from "../routines/scheduled-strip.js";
 import { SidebarDialogs } from "./dialogs.js";
 import { useDropTarget } from "./drag.js";
@@ -45,6 +46,7 @@ export const Sidebar = () => (
 );
 
 const Headings = () => {
+  const phone = usePhoneFrame();
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
   const list = useObservable(runtime.projections.sessionList);
@@ -87,7 +89,7 @@ const Headings = () => {
         environment={views.get(line.row.environmentId)}
         current={shown?.environmentId === line.row.environmentId && shown.sessionId === line.row.summary.id}
         drop={heading === null ? { kind: "filtered" } : { kind: "row", heading, at: heading.block.rows.findIndex((held) => rowKey(held) === line.key) }}
-        open={() => openInPane(line.row.environmentId, line.row.summary.id)}
+        open={() => { openInPane(line.row.environmentId, line.row.summary.id); if (phone.narrow) phone.showDrawer(false); }}
       />
     ));
 
@@ -95,7 +97,7 @@ const Headings = () => {
     <nav aria-label="Sessions" className="flex h-full min-h-0 flex-col overflow-hidden">
       <div data-sidebar-caption className="chrome-label flex h-8 shrink-0 items-center justify-between px-2 text-ink-muted">
         <span>Sessions</span>
-        <IconButton label="Hide sidebar" {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => setSidebarShown(false)}><PanelLeftClose aria-hidden="true" /></IconButton>
+        <IconButton label={phone.narrow ? "Close sessions" : "Hide sidebar"} {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => phone.narrow ? phone.showDrawer(false) : setSidebarShown(false)}><PanelLeftClose aria-hidden="true" /></IconButton>
       </div>
       <div className="shrink-0 p-2">
         <Tooltip content={["New session", newSessionKeys].filter(Boolean).join(" · ")}>
@@ -107,8 +109,8 @@ const Headings = () => {
       </div>
       <ScheduledStrip />
       <div className="flex shrink-0 items-center gap-1 px-1.5 pt-2 pb-1.5">
-        {(list.rows.length > 8 || searchShown || filter !== "") && (
-          <div className="relative min-w-0 flex-1">
+        {(phone.narrow || list.rows.length > 8 || searchShown || filter !== "") && (
+          <div className="phone-frame-filter relative min-w-0 flex-1">
             <Search aria-hidden="true" className="pointer-events-none absolute top-1.5 left-2 size-3 text-ink-faint" />
             <Input ref={field} type="search" aria-label="Filter the sessions" title="Filter the sessions" placeholder="Filter" className="h-6 pl-[26px] text-xs" value={filter} onChange={(event) => setFilter(event.target.value)} />
           </div>

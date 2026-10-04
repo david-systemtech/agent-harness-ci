@@ -1,15 +1,16 @@
 import { changeHeading, type EnvironmentHeading, type EnvironmentView, type FoldingHeading, type HeadingRow, type SessionHeading } from "@agent-harness/client-runtime";
-import { Archive, Check, ChevronDown, Clock, Folder, Inbox, Layers, Pin, Plus } from "lucide-react";
-import { useId, useState, type ReactNode } from "react";
+import { Archive, Check, Ellipsis, ChevronDown, Clock, Folder, Inbox, Layers, Pin, Plus } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { EnvironmentStatus } from "../connections/environment-status.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import { NewSessionButton } from "../new-session/control.js";
 import { classes } from "../ui/classes.js";
-import { ContextMenu, ContextMenuTrigger, Tooltip } from "../ui/index.js";
+import { ContextMenu, ContextMenuTrigger, IconButton, Tooltip } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { useDropTarget } from "./drag.js";
-import { contextMenuKeys } from "./menu-entry.js";
+import { contextMenuKeys, openContextActions } from "./menu-entry.js";
 import { GroupMenu } from "./heading-menu.js";
 import { useOrganise } from "./organise.js";
 import { RenameField } from "./rename-field.js";
@@ -45,6 +46,8 @@ const HEADING_ICON = { pinned: Pin, group: Layers, repository: Folder, snoozed: 
 const PendingWord = ({ children = "pending" }: { readonly children?: string }) => <span className="font-normal text-amber"> {children}</span>;
 
 export const FoldingSection = ({ heading, fold, rows }: { readonly heading: FoldingHeading; fold(key: string, folded: boolean): void; readonly rows: DrawRows }) => {
+  const { narrow } = usePhoneFrame();
+  const trigger = useRef<HTMLHeadingElement>(null);
   const runtime = useRuntime();
   const organise = useOrganise();
   const name = useId();
@@ -55,7 +58,7 @@ export const FoldingSection = ({ heading, fold, rows }: { readonly heading: Fold
   const Icon = HEADING_ICON[heading.kind];
   const count = heading.block.rows.length;
   const title = (
-    <h2 {...target.handlers} onKeyDown={group === null ? undefined : contextMenuKeys} className={classes("relative flex h-[24px] shrink-0 items-center gap-1 rounded-sm text-ink-muted", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
+    <h2 ref={trigger} {...target.handlers} onKeyDown={group === null ? undefined : contextMenuKeys} className={classes("relative flex h-[24px] shrink-0 items-center gap-1 rounded-sm text-ink-muted", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
       {editing && group !== null ? (
         <RenameField
           label={`Rename the group ${quoted(heading.text)}`}
@@ -82,6 +85,7 @@ export const FoldingSection = ({ heading, fold, rows }: { readonly heading: Fold
       )}
       <span className="ml-auto shrink-0 font-mono text-2xs font-normal tabular-nums text-ink-faint"> {count}</span>
       {heading.pending && <PendingWord />}
+      {narrow && group !== null && !editing && <IconButton label={`Actions for group ${quoted(heading.text)}`} onClick={() => openContextActions(trigger.current)}><Ellipsis aria-hidden="true" /></IconButton>}
     </h2>
   );
   return (

@@ -1,6 +1,7 @@
 import { Pencil, Trash2 } from "lucide-react";
 import type { CapabilityAnswer, MergedGroupHeading } from "@agent-harness/client-runtime";
 import type { CommandMethodName } from "@agent-harness/contracts";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { ContextMenuContent } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { Entry, menuLetter, useHandOn } from "./menu-entry.js";
@@ -27,13 +28,14 @@ export interface GroupMenuProps {
 }
 
 export const GroupMenu = ({ headingKey, name, group, rename }: GroupMenuProps) => {
+  const { narrow } = usePhoneFrame();
   const runtime = useRuntime();
   const organise = useOrganise();
   const { handOn, onCloseAutoFocus } = useHandOn();
   const offer = (method: CommandMethodName) =>
     group.groups.map((member) => runtime.commands.admits(member.environmentId, method)).find((answer) => answer.status === "absent") ?? PRESENT;
   return (
-    <ContextMenuContent className="w-[192px]" onKeyDown={menuLetter} aria-label={`Organise the group ${quoted(name)}`} onCloseAutoFocus={onCloseAutoFocus}>
+    <ContextMenuContent className={narrow ? "phone-frame-menu w-72" : "w-[192px]"} onKeyDown={menuLetter} aria-label={`Organise the group ${quoted(name)}`} onCloseAutoFocus={onCloseAutoFocus}>
       <Entry icon={Pencil} letter="R" offer={offer("groups.rename")} onSelect={handOn(rename)}>
         Rename group
       </Entry>

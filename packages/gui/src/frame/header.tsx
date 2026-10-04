@@ -10,6 +10,7 @@ import { SetupLine } from "../setup/setup-line.js";
 import { Button, IconButton, Tooltip } from "../ui/index.js";
 import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { SessionDrawerTrigger, usePhoneFrame } from "./phone-frame.js";
 import { HeaderMenu } from "./header-menu.js";
 import { useWindowFrame, WindowControls } from "./window-controls.js";
 import { ThemeToggle } from "./theme-toggle.js";
@@ -23,6 +24,8 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
   const summary = list.rows.find((row) => row.environmentId === session.environmentId && row.summary.id === session.sessionId.toLowerCase())?.summary ?? projection.summary;
   const environment = environments.find((view) => view.environmentId === session.environmentId);
   const path = summary?.workspace.path;
+  const { narrow } = usePhoneFrame();
+  if (narrow) return <span data-header-session-title title={summary?.title ?? undefined} className="min-w-0 flex-1 truncate text-sm text-ink">{summary?.title ?? "Session"}</span>;
   const workspace = path?.split(/[/\\]/).filter(Boolean).at(-1) ?? path ?? "No workspace";
   return <>
     {environment !== undefined && <span title={environment.name ?? undefined} className="flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-hairline px-1.5 text-xs text-ink-muted">
@@ -35,7 +38,7 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
 };
 
 /** One 44px line of window context and actions (look §9.1); the title yields space first. */
-export const Header = () => {
+export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
   const [sidebarShown, setSidebarShown] = usePresentation("sidebarShown");
   const [layout] = usePresentation("paneLayout");
   const pane = focusedPane(layout);
@@ -45,6 +48,14 @@ export const Header = () => {
   const actions = useEveryWiredAction();
   const settings = useSettings();
   const frame = useWindowFrame();
+  const { narrow } = usePhoneFrame();
+  if (narrow) return <header data-window-header className="phone-frame-header flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline bg-abyss px-2">
+    <SessionDrawerTrigger asChild><IconButton label="Show sessions" {...(sidebarKeys !== undefined && { keys: sidebarKeys })}><PanelLeft aria-hidden="true" /></IconButton></SessionDrawerTrigger>
+    <div className="flex min-w-0 flex-1">{pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <span className="truncate text-sm text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>}</div>
+    <ParkedAsksButton />
+    <HeaderMenu {...(onPair !== undefined && { onPair })} />
+    <IconButton label="Settings" {...(settingsKeys !== undefined && { keys: settingsKeys })} onClick={() => settings.open()}><Settings aria-hidden="true" /></IconButton>
+  </header>;
   return (
     <header data-window-header data-native-frame={frame?.platform} style={frame?.platform === "darwin" && !frame.fullScreen ? { paddingLeft: 76 } : undefined} className="flex h-[44px] min-w-0 shrink-0 items-center gap-1 whitespace-nowrap border-b border-hairline bg-abyss px-2">
       {!sidebarShown && <IconButton label="Show sidebar" {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => setSidebarShown(true)}><PanelLeft aria-hidden="true" /></IconButton>}
