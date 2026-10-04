@@ -1,0 +1,25 @@
+/* Phone frame surfaces own their geometry; desktop tokens and grid sizes remain unchanged. */
+[data-phone-frame] { height: 100dvh; min-width: 0; overflow: hidden; }
+.phone-frame-header { min-height: 52px; }
+[data-phone-frame] [data-window-body] { gap: 0; padding: 4px; }
+[data-phone-frame] [data-window-header] button,
+.phone-frame-drawer button { min-width: 44px; min-height: 44px; }
+.phone-frame-drawer {
+  width: min(360px, calc(100vw - 16px));
+  height: 100dvh;
+  padding: var(--phone-frame-safe-top, env(safe-area-inset-top)) 0 var(--phone-frame-safe-bottom, env(safe-area-inset-bottom)) var(--phone-frame-safe-left, env(safe-area-inset-left));
+}
+.phone-frame-drawer [data-sidebar-caption],
+.phone-frame-drawer h2 { height: auto; min-height: 44px; }
+.phone-frame-drawer input { min-height: 44px; font-size: max(16px, 1rem); }
+.phone-frame-drawer [data-sidebar-row] { min-width: 0; }
+.phone-frame-menu { max-width: calc(100vw - 16px); }
+.phone-frame-menu :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) {
+  min-height: 44px; overflow-wrap: anywhere; white-space: normal;
+}
+.phone-frame-menu button { min-width: 44px; min-height: 44px; }
+
+[data-web-client][data-phone-frame] {
+  padding: var(--phone-frame-safe-top, env(safe-area-inset-top)) var(--phone-frame-safe-right, env(safe-area-inset-right)) var(--phone-frame-safe-bottom, env(safe-area-inset-bottom)) var(--phone-frame-safe-left, env(safe-area-inset-left));
+}
+.phone-frame-menu [role="radio"] { width: 44px; height: 44px; }

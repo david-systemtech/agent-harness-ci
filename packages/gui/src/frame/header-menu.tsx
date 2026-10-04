@@ -1,3 +1,7 @@
+import { usePhoneFrame } from "./phone-frame.js";
+import { ThemeToggle } from "./theme-toggle.js";
+import { SetupLine } from "../setup/setup-line.js";
+import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { MenuShortcut } from "../ui/menu.js";
 import { useRef, useState } from "react";
 import type { KeyActionId } from "@agent-harness/contracts";
@@ -28,6 +32,7 @@ const ActionItem = ({ id, label, icon: Icon, select }: { readonly id: KeyActionI
 
 /** Bindings live outside the dropdown so keys and palette entries survive its dismissal. */
 export const HeaderMenu = () => {
+  const { narrow } = usePhoneFrame();
   const [open, setOpen] = useState(false);
   const afterClose = useRef<(() => void) | undefined>(undefined);
   const select = (run: () => void) => { afterClose.current = run; };
@@ -35,7 +40,7 @@ export const HeaderMenu = () => {
   <TerminalAction /><BrowserAction /><SplitActions /><HeaderNewSession />
   <Menu modal={false} open={open} onOpenChange={setOpen}>
     <Tooltip content="More"><MenuTrigger asChild><Button aria-label="More" size="icon-sm"><Ellipsis aria-hidden="true" /></Button></MenuTrigger></Tooltip>
-    <MenuContent align="end" className="w-60" onCloseAutoFocus={(event) => {
+    <MenuContent align="end" className={narrow ? "phone-frame-menu w-72" : "w-60"} onCloseAutoFocus={(event) => {
       const run = afterClose.current;
       afterClose.current = undefined;
       if (run === undefined) return;
@@ -52,6 +57,7 @@ export const HeaderMenu = () => {
       <HeaderNewSessionItems select={select} onDragStart={() => select(() => undefined)} onDragEnd={() => setOpen(false)} />
       <MenuSeparator />
       <ParkedAsksButton menu />
+      {narrow && <><MenuSeparator /><div className="flex flex-wrap items-center gap-2 p-1"><SetupLine /><RestartToUpdate /><ThemeToggle /></div></>}
       <GridLine />
     </MenuContent>
   </Menu>

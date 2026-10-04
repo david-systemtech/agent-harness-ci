@@ -1,17 +1,18 @@
 import type { DropTarget, EnvironmentView, HeadingRow, RowActivity } from "@agent-harness/client-runtime";
-import { useMemo, useState } from "react";
-import { GitBranch, LoaderCircle } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { Ellipsis, GitBranch, LoaderCircle } from "lucide-react";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { SessionTooltip, RowTooltip, accountSwatch, sessionAge } from "./session-tooltip.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import { PullRequestMark } from "../session/pull-requests.js";
 import { classes } from "../ui/classes.js";
-import { ContextMenu, ContextMenuTrigger } from "../ui/index.js";
+import { ContextMenu, ContextMenuTrigger, IconButton } from "../ui/index.js";
 import { useDragRow, useDropTarget } from "./drag.js";
 import { useOrganise } from "./organise.js";
 import { RenameField } from "./rename-field.js";
-import { contextMenuKeys } from "./menu-entry.js";
+import { contextMenuKeys, openContextActions } from "./menu-entry.js";
 import { RowMenu } from "./row-menu.js";
 import { activityWords, quoted } from "./words.js";
 
@@ -49,6 +50,8 @@ export interface SessionRowProps {
 export const TITLE_MOST = 200;
 
 export const SessionRowView = ({ line, environment, current, drop, open }: SessionRowProps) => {
+  const { narrow } = usePhoneFrame();
+  const trigger = useRef<HTMLButtonElement>(null);
   const { row } = line;
   const { summary } = row;
   const runtime = useRuntime();
@@ -61,7 +64,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
   const dragging = useDragRow(row);
   const target = useDropTarget(drop);
   return (
-    <li {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
+    <li {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", narrow && "flex min-w-0 items-center", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
       {editing ? (
         <RenameField
           label={`Rename ${quoted(summary.title)}`}
@@ -75,6 +78,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
           <RowTooltip content={<SessionTooltip line={line} environment={name} account={account?.label} />}>
             <ContextMenuTrigger asChild>
               <button
+                ref={trigger}
                 type="button"
                 onClick={open}
                 onKeyDown={contextMenuKeys}
@@ -85,6 +89,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
                 title={line.dim ? `Cached: ${name} is not answering.` : undefined}
                 className={classes(
                   "flex h-full w-full min-w-0 flex-col items-start justify-center gap-0.5 rounded-md px-2 py-1.5 text-left font-normal outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
+                  narrow && "flex-1",
                   line.dim ? "text-ink-faint" : "text-ink",
                   current && "bg-wash-strong",
                   summary.archivedAt !== null && "opacity-60",
@@ -108,6 +113,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
               </button>
             </ContextMenuTrigger>
           </RowTooltip>
+          {narrow && <IconButton label={`Actions for ${quoted(summary.title)}`} onClick={() => openContextActions(trigger.current)}><Ellipsis aria-hidden="true" /></IconButton>}
           <RowMenu line={line} rename={() => setEditing(true)} />
         </ContextMenu>
       )}

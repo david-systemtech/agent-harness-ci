@@ -1,3 +1,4 @@
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import type { SessionRow } from "@agent-harness/client-runtime";
 import { createContext, use, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { usePresentation } from "../window-context.js";
@@ -56,9 +57,10 @@ export const useSidebarFilter = (): readonly [string, (text: string) => void] =>
  */
 export const useSidebarSearch = (): ((text: string) => void) => {
   const { setFilter, setFilterFocus, setSearchShown } = useWindowSidebar();
+  const phone = usePhoneFrame();
   const [, setShown] = usePresentation("sidebarShown");
   return (text) => {
-    setShown(true);
+    if (phone.narrow) phone.showDrawer(true); else setShown(true);
     setSearchShown(true);
     setFilter(text);
     setFilterFocus(true);

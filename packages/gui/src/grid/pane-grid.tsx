@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Group, Panel, Separator, useGroupRef, type Layout, type LayoutChangedMeta } from "react-resizable-panels";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { KeysAnswered } from "../keys/key-dispatch.js";
 import type { GridPane, GridRow } from "../presentation.js";
 import { usePresentation } from "../window-context.js";
@@ -54,6 +55,7 @@ const useShares = (shares: Readonly<Record<string, number>>, keep: (layout: Layo
 };
 
 export const PaneGrid = () => {
+  const { narrow } = usePhoneFrame();
   const [layout, setLayout] = usePresentation("paneLayout");
   const targets = useRef(new Map<string, HTMLDivElement>());
   const heights = useShares(
@@ -63,7 +65,7 @@ export const PaneGrid = () => {
   const several = panesOf(layout).length > 1;
   return (
     <>
-      <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
+      {narrow ? <div className="h-full min-w-0">{panesOf(layout).map(pane => <div key={pane.id} hidden={pane.id !== layout.focused} className="h-full min-w-0" ref={node => { if (node !== null) targets.current.set(pane.id, node); }} />)}</div> : <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
         {layout.rows.map((row, at) => (
           <Fragment key={row.id}>
             {at > 0 && <Separator aria-label="Resize the rows" className={`h-[7px] ${DIVIDER}`} />}
@@ -72,8 +74,8 @@ export const PaneGrid = () => {
             </Panel>
           </Fragment>
         ))}
-      </Group>
-      {panesOf(layout).map((pane) => <MountedPane key={pane.id} pane={pane} focused={pane.id === layout.focused} several={several} targets={targets} />)}
+      </Group>}
+      {panesOf(layout).map((pane) => <MountedPane key={pane.id} pane={pane} focused={pane.id === layout.focused} several={several && !narrow} targets={targets} />)}
     </>
   );
 };

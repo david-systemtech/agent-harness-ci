@@ -4,6 +4,7 @@ import { Archive, Calendar, Check, Clock, FileText, Folder, FolderPlus, GitFork,
 import { useMemo } from "react";
 import { usePaneGrid } from "../grid/grid.js";
 import { useOpenInPane } from "../session/pane-line.js";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { ContextMenuContent, ContextMenuSeparator } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { Entry, SubEntry, menuLetter, useHandOn } from "./menu-entry.js";
@@ -37,6 +38,7 @@ export interface RowMenuProps {
 }
 
 export const RowMenu = ({ line, rename }: RowMenuProps) => {
+  const { narrow } = usePhoneFrame();
   const runtime = useRuntime();
   const organise = useOrganise();
   const openInPane = useOpenInPane();
@@ -75,7 +77,7 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
   const choices = groupChoices(list.groups, row, "");
 
   return (
-    <ContextMenuContent className="w-[192px]" onKeyDown={menuLetter} aria-label={`Organise ${quoted(summary.title)}`} onCloseAutoFocus={onCloseAutoFocus}>
+    <ContextMenuContent className={narrow ? "phone-frame-menu w-72" : "w-[192px]"} onKeyDown={menuLetter} aria-label={`Organise ${quoted(summary.title)}`} onCloseAutoFocus={onCloseAutoFocus}>
       <Entry icon={Pencil} letter="R" offer={admits("sessions.rename")} onSelect={handOn(rename)}>
         Rename
       </Entry>
