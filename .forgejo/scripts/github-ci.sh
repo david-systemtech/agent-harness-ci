@@ -172,11 +172,11 @@ echo "GitHub run: https://github.com/$repo/actions/runs/$run_id"
 while :; do
   if reply=$(gh_get "$api/actions/runs/$run_id"); then transport_failures=0
   else transport_failure "$api/actions/runs/$run_id"; sleep 15; continue; fi
-  read -r status conclusion < <(printf '%s' "$reply" | python3 -c '
+  read -r status conclusion run_attempt < <(printf '%s' "$reply" | python3 -c '
 import json,sys
 try: r=json.load(sys.stdin)
 except ValueError: r={}
-print(r.get("status") or "unknown", r.get("conclusion") or "-")')
+print(r.get("status") or "unknown", r.get("conclusion") or "-", r.get("run_attempt") or 1)')
   [ "$status" = completed ] && break
   sleep 15
 done
@@ -184,16 +184,19 @@ echo "GitHub run finished: $conclusion"
 # Failed comparisons still publish the captures, baseline and difference for review.
 if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == failure ]]; then
   reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
-  artifact=$(printf '%s' "$reply" | python3 -c '
-import json,sys
-items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
+  artifacts=$(printf '%s' "$reply" | python3 -c '
+import json,re,sys
+items=[a for a in json.load(sys.stdin).get("artifacts",[]) if (a["name"]=="window-gallery" or a["name"].startswith("window-gallery-")) and not a.get("expired")]
 if not items: sys.exit(0)
-if len(items)!=1 or items[0]["size_in_bytes"]>64*1024*1024: sys.exit("oversized or duplicate gallery artifact")
-print(int(items[0]["id"]))')
-  if [ -z "$artifact" ]; then
+names=[a["name"] for a in items]
+if len(items)>100 or len(set(names))!=len(items) or ("window-gallery" in names and len(items)!=1) or any(not re.fullmatch(r"window-gallery(?:-(?:desktop|phone)-[0-9]{3})?", a["name"]) or a["size_in_bytes"]>64*1024*1024 for a in items): sys.exit("oversized or duplicate gallery artifact")
+for a in sorted(items,key=lambda a:a["name"]): print(int(a["id"]),a["name"])')
+  if [ -z "$artifacts" ]; then
     echo "No gallery artifact was uploaded; reading the failed job logs."
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
+    shard_count=$(printf '%s\n' "$artifacts" | wc -l)
+    while read -r artifact artifact_name; do
     gh_api --fail -L --max-filesize 67108864 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
     gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
 import pathlib,sys,zipfile
@@ -204,10 +207,13 @@ PYFORMAT
     )
     if [ "$gallery_format" = captures ]; then
       # A workflow rollout can finish an earlier capture-only artifact.
+      [ "$artifact_name" = window-gallery ] || { echo "::error::shard report missing"; exit 1; }
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
-      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
+      python3 - "$gl/gallery.zip" "$sha" "$artifact_name" "$shard_count" "run-$run_id-$run_attempt" "$(dirname "${BASH_SOURCE[0]}")/../../scripts" <<'PYGALLERY'
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
+sys.path.insert(0, sys.argv[6])
+from gallery_allocation import LIMITS, MAX_PNGS, report_scenes
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
@@ -229,22 +235,36 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
+    # Every shard keeps the same 400 captures, triplets and expanded-byte limit.
     max_scenes = 400
-    max_pngs = max_scenes * 3
+    max_pngs = MAX_PNGS
     if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
     names = [f.filename for f in entries]
     if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     report = json.loads(z.read('report.json'))
+    shard = report.get('shard')
+    # Keep the earlier two-family aggregate format readable during hosted rollout.
+    allowed_pngs = MAX_PNGS if sys.argv[3] == 'window-gallery' and 'shards' in report else max_scenes * 3
+    if len(entries) > allowed_pngs + 2 or sum(n.endswith('.png') for n in names) > allowed_pngs: sys.exit('gallery payload is too large')
+    if sys.argv[3] != 'window-gallery':
+        # Missing uploads do not renumber survivors or shrink the planned set.
+        if not isinstance(shard, dict) or set(shard) != {'id', 'index', 'count'} or shard.get('id') != sys.argv[3].removeprefix('window-gallery-'): sys.exit('invalid gallery shard manifest')
+        if type(shard.get('index')) is not int or type(shard.get('count')) is not int or not 0 <= shard['index'] < shard['count'] <= 100 or shard['count'] < int(sys.argv[4]): sys.exit('invalid gallery shard manifest')
+        if 'shards' in report: sys.exit('invalid gallery shard manifest')
+        if report.get('pixelBlocking') is not True: sys.exit('shard pixel gate must remain blocking')
+    elif shard is not None: sys.exit('unexpected gallery shard manifest')
     images = {n: z.read(n) for n in names if n.endswith('.png')}
     for name, data in images.items():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
+        if shard is not None and not name.startswith('phone-'):
+            if len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) not in ((1400, 900), (1024, 768)): sys.exit('unexpected desktop gallery dimensions')
         if name.startswith('phone-'):
             phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
             profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
             if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
-    scenes = report['scenes']
-    if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
+    try: scenes = report_scenes(report)
+    except ValueError as error: sys.exit(str(error))
+    if 'shards' in report and report.get('pixelBlocking') is not True: sys.exit('Every capture remains gated')
     seen = set()
     for scene in scenes:
         name = scene['name']
@@ -268,12 +288,14 @@ try:
         url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
         if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): raise ValueError('invalid asset URL')
         urls[name] = url
-    body = f'Window gallery for `{head}` (desktop 1400 × 900 / 1024 × 768; phone 390 × 844 / 360 × 740; text size 20; keyboard 390 × 480; light and dark).\n'
+    body = (f'Gallery shard {shard["id"]} ({shard["index"] + 1}/{shard["count"]}).\n' if shard is not None else '') + f'Window gallery for `{head}` (desktop 1400 × 900 / 1024 × 768; phone 390 × 844 / 360 × 740; text size 20; keyboard 390 × 480; light and dark).\n'
     budget = report.get('captureBudget')
     if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
         body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
     geometry_failed = any(s['geometryFailures'] for s in scenes)
     pixel_failed = any(s['pixelFailed'] for s in scenes)
+    if 'shards' in report:
+        body += '\nReport shards: ' + ', '.join(f"{s['name']} {len(s['scenes'])}/{LIMITS[s['name']]}" for s in report['shards']) + '.\n'
     body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
     matched = sum(s['status'] == 'unchanged' for s in scenes)
     body += f'\n{matched} scene{"" if matched == 1 else "s"} matched.\n'
@@ -301,6 +323,7 @@ try:
                 if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
         captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
     manifest = {'head': head, 'version': version, 'captures': captures}
+    if shard is not None: manifest['shard'] = {**shard, 'group': sys.argv[5]}
     body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
     stage = 'final report'
     request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
@@ -317,6 +340,7 @@ PYGALLERY
       python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
         echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."
     fi
+    done <<< "$artifacts"
   fi
 fi
 [ "$conclusion" != success ] || exit 0
