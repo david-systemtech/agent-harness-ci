@@ -53,6 +53,8 @@ def read_report(archive):
             required = [name + '.png']
             if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
             if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+        allowed_images = {name + suffix for name in seen for suffix in ('.png', '.baseline.png', '.difference.png')}
+        if set(images) - allowed_images: sys.exit('unreported gallery image')
         if re.search(r'gallery-(?:shard-[1-9][0-9]*|(?:desktop|phone)-[0-9]{3})[.]zip$', archive) and 'shard' not in report: sys.exit('Missing gallery shard metadata')
         if 'shard' in report:
             if 'id' in report['shard']:
