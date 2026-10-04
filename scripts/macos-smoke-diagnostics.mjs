@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { Buffer } from "node:buffer";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,74 @@ export function persistDesktopLog(directory, privateDirectory, secrets) {
 export function persistSmokeFailure(directory, error, secrets) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   appendFileSync(join(directory, "failure.txt"), redactDiagnostic(error.stack ?? String(error), secrets) + "\n", { mode: 0o600 });
+}
+
+/** Reads presentation only: no shell credentials, form values or runtime internals enter CDP evidence. */
+export async function collectRendererSmokeDiagnostics({ directory, privateDirectory, cdp, secrets = [], execute = executeDiagnostic }) {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const save = (name, value) => writeFileSync(join(directory, name), JSON.stringify(value,
+    (_key, entry) => typeof entry === "string" ? redactDiagnostic(entry, secrets).slice(0, 32_000) : entry, 2), { mode: 0o600 });
+  const capture = async (name, operation) => {
+    try { save(name, await operation()); }
+    catch (error) { save(name + ".error.json", { error: error.message }); }
+  };
+  const rawScreen = join(privateDirectory, "renderer-screen.png");
+  const screen = join(directory, "renderer-screenshot.png");
+  await Promise.all([
+    capture("renderer-state.json", async () => {
+      const answer = await cdp.diagnostic("Runtime.evaluate", { returnByValue: true, expression: `(() => {
+        const visible = element => {
+          for (let current = element; current; current = current.parentElement) {
+            const style = getComputedStyle(current);
+            if (current.hidden || style.display === 'none' || style.visibility === 'hidden') return false;
+          }
+          return true;
+        };
+        const text = root => {
+          const walker = document.createTreeWalker(root, 4);
+          const parts = [];
+          while (walker.nextNode()) {
+            const parent = walker.currentNode.parentElement;
+            if (parent && !parent.closest('input,textarea,script,style') && visible(parent)) {
+              const value = walker.currentNode.textContent.trim();
+              if (value) parts.push(value);
+            }
+          }
+          return parts.join(' ');
+        };
+        return {
+          visibleText: text(document.body),
+          windowEnvironments: JSON.parse(document.querySelector('[data-window-environments]')?.dataset.windowEnvironments ?? 'null'),
+          machinesMounted: !!document.querySelector('section[aria-label="Your machines"]'),
+          environments: Array.from(document.querySelectorAll('[data-machine-card]')).filter(visible).slice(0, 100).map(card => ({
+            environmentId: card.dataset.environmentId, kind: card.dataset.machineKind,
+            phase: card.dataset.machinePhase, blocked: card.dataset.machineBlocked ?? null,
+            action: card.dataset.machineAction ?? null,
+            name: card.querySelector('header h3')?.textContent.trim(),
+            badges: Array.from(card.querySelectorAll('header span')).map(span => span.textContent.trim()).filter(Boolean),
+            text: text(card),
+          })),
+          notices: Array.from(document.querySelectorAll('[aria-label^="Notifications"] li,[aria-label="Credential access"] li,[role="alert"]')).filter(visible).slice(0, 100).map(text),
+        };
+      })()` });
+      return answer.result.value;
+    }),
+    capture("renderer-accessibility.json", async () => {
+      const answer = await cdp.diagnostic("Accessibility.getFullAXTree");
+      return answer.nodes.filter(node => !node.ignored).slice(0, 1000).map(node => ({ role: node.role?.value, name: node.name?.value }));
+    }),
+    capture("renderer-console.json", async () => cdp.errors()),
+    (async () => {
+      try {
+        const answer = await cdp.diagnostic("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+        writeFileSync(rawScreen, Buffer.from(answer.data, "base64"), { mode: 0o600 });
+        await execute("/usr/bin/swift", [fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url)), rawScreen, screen]);
+      } catch (error) {
+        rmSync(screen, { force: true });
+        save("renderer-screenshot.png.error.json", { error: error.message });
+      } finally { rmSync(rawScreen, { force: true }); }
+    })(),
+  ]);
 }
 
 /** Collects bounded native evidence before the failed desktop is stopped. */

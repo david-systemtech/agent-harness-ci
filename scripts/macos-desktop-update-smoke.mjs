@@ -11,7 +11,7 @@ import { basename, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
-import { collectMacosSmokeDiagnostics, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } from "./macos-smoke-diagnostics.mjs";
+import { collectMacosSmokeDiagnostics, collectRendererSmokeDiagnostics, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } from "./macos-smoke-diagnostics.mjs";
 
 const { fetch, AbortSignal, WebSocket } = globalThis;
 
@@ -356,29 +356,49 @@ export function smokeTimeout(stage, expression) {
 export function createCdpEvaluator(socket, { onTimeout = async () => {}, redact = (text) => text } = {}) {
   let id = 0;
   const pending = new Map();
+  const errors = [];
+  const record = (type, text) => {
+    errors.push({ type, text: redact(text).slice(0, 4000) });
+    if (errors.length > 200) errors.shift();
+  };
   socket.onmessage = ({ data }) => {
     const frame = JSON.parse(data);
+    if (frame.method === "Runtime.consoleAPICalled" && ["error", "warning"].includes(frame.params.type)) {
+      record(frame.params.type, frame.params.args.map(arg => arg.value === undefined ? arg.description ?? arg.type : JSON.stringify(arg.value)).join(" "));
+    }
+    if (frame.method === "Runtime.exceptionThrown") record("exception", frame.params.exceptionDetails.exception?.description ?? frame.params.exceptionDetails.text);
     const answer = pending.get(frame.id);
     if (!answer) return;
     pending.delete(frame.id);
-    if (frame.error || frame.result.exceptionDetails) {
-      const reason = frame.error?.message ?? frame.result.exceptionDetails?.exception?.description ?? frame.result.exceptionDetails?.text ?? "Packaged page evaluation failed";
+    if (frame.error || frame.result?.exceptionDetails) {
+      const reason = frame.error?.message ?? frame.result?.exceptionDetails?.exception?.description ?? frame.result?.exceptionDetails?.text ?? "Packaged page evaluation failed";
       answer.reject(new Error(redact(`Evaluation failed at ${answer.stage}; expression/check: ${answer.expression}\n${reason}`)));
     }
-    else answer.resolve(frame.result.result.value);
+    else answer.resolve(frame.result);
   };
-  socket.onclose = () => { for (const answer of pending.values()) answer.reject(new Error("The packaged window disconnected")); };
-  return {
-    evaluate: (expression, stage = "packaged page evaluation", milliseconds = 120_000) => new Promise((resolve, reject) => {
+  socket.onclose = () => {
+    for (const answer of pending.values()) answer.reject(new Error("The packaged window disconnected"));
+    pending.clear();
+  };
+  const request = (method, params, stage, expression, milliseconds, collect) => new Promise((resolve, reject) => {
       const next = ++id;
       const timeout = globalThis.setTimeout(() => {
         pending.delete(next);
         const error = smokeTimeout(stage, redact(expression));
-        Promise.resolve().then(() => onTimeout(error)).catch(() => {}).finally(() => reject(error));
+        if (collect) Promise.resolve().then(() => onTimeout(error)).catch(() => {}).finally(() => reject(error));
+        else reject(error);
       }, milliseconds);
       pending.set(next, { stage, expression, resolve: (value) => { globalThis.clearTimeout(timeout); resolve(value); }, reject: (error) => { globalThis.clearTimeout(timeout); reject(error); } });
-      socket.send(JSON.stringify({ id: next, method: "Runtime.evaluate", params: { expression, awaitPromise: true, returnByValue: true } }));
-    }),
+      try { socket.send(JSON.stringify({ id: next, method, params })); }
+      catch (error) { pending.delete(next); globalThis.clearTimeout(timeout); reject(error); }
+    });
+  return {
+    evaluate: (expression, stage = "packaged page evaluation", milliseconds = 120_000) =>
+      request("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, stage, expression, milliseconds, true).then(answer => answer.result.value),
+    // Evidence has its own short deadline and cannot trigger its own collection recursively.
+    diagnostic: (method, params = {}) => request(method, params, "renderer diagnostic " + method, JSON.stringify(params), 5000, false),
+    enableDiagnostics: () => request("Runtime.enable", {}, "enable renderer diagnostics", "Runtime.enable", 5000, false),
+    errors: () => [...errors],
     close: () => socket.close(),
   };
 }
@@ -419,10 +439,13 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
   let evidence;
   const privateDiagnostics = join(work, "diagnostics-private");
   mkdirSync(privateDiagnostics, { mode: 0o700 });
-  const capture = (error) => evidence ??= collectMacosSmokeDiagnostics({
-    directory: diagnostics, privateDirectory: privateDiagnostics, pid: desktop?.pid ?? error.pid,
-    error, secrets: secretsToRedact,
-  });
+  const capture = (error) => evidence ??= Promise.all([
+    collectMacosSmokeDiagnostics({
+      directory: diagnostics, privateDirectory: privateDiagnostics, pid: desktop?.pid ?? error.pid,
+      error, secrets: secretsToRedact,
+    }),
+    cdp ? collectRendererSmokeDiagnostics({ directory: diagnostics, privateDirectory: privateDiagnostics, cdp, secrets: secretsToRedact }) : Promise.resolve(),
+  ]);
   const logFailure = (prefix, error) => console.error(prefix, redactDiagnostic(error.stack ?? String(error), secretsToRedact));
   const execute = (command, args, options = {}) => {
     try { return execFileSync(command, args, { stdio: "pipe", timeout: 120_000, ...options }); }
@@ -500,6 +523,7 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
       // Record a spawn failure so it is surfaced by the bounded page check and still cleans the service.
       desktop.on("error", () => {});
       cdp = await connectCdp(port, { onTimeout: capture, redact: text => redactDiagnostic(text, secretsToRedact) });
+      await cdp.enableDiagnostics();
       await openPackagedSettings(cdp.evaluate);
       await openPackagedMachines(cdp.evaluate);
     };

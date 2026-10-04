@@ -7,6 +7,7 @@ declare module "jsdom" {
         readonly body: { innerHTML: string };
         querySelector(selector: string): { remove(): void; addEventListener(type: string, listener: () => void): void } | null;
       };
+      getComputedStyle(element: unknown): { readonly display: string; readonly visibility: string };
       close(): void;
     };
   }

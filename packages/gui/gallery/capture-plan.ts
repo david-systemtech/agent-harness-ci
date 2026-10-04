@@ -71,3 +71,10 @@ export function capturePlan(scenes: readonly string[]) {
   const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit, remaining: limit - captures.length };
   return { captures, budget, shards };
 }
+
+/** Explicit selection keeps local capture and hosted jobs on the same bounded report. */
+export function captureShard(plan: ReturnType<typeof capturePlan>, selection: string | undefined) {
+  const selected = plan.shards.find(shard => shard.id === selection);
+  if (selected === undefined) throw new Error("Invalid gallery shard selection.");
+  return { ...selected, shard: { id: selected.id, index: plan.shards.indexOf(selected), count: plan.shards.length } };
+}
