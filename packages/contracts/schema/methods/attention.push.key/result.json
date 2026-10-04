@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "attention.push.key result",
+  "type": "object",
+  "properties": {
+    "publicKey": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "publicKey"
+  ]
+}

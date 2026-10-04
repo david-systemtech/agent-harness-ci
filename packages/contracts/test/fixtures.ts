@@ -1,3 +1,4 @@
+import { pushMethodFixtures } from "./push-fixtures.js";
 import { attentionMethodFixtures, attentionSchemaFixtures } from "./attention-fixtures.js";
 import { bankValidatorUpdateMethodFixtures, bankValidatorUpdateSchemaFixtures } from "./bank-validator-update-fixtures.js";
 import { bankMigrationSchemaFixtures, bankMigrationMethodFixtures } from "./bank-migration-fixtures.js";
@@ -420,7 +421,7 @@ const invalidStatuses = [
 
 /** Params and result instances for every registered method. */
 const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
-  ...attentionMethodFixtures,
+  ...attentionMethodFixtures, ...pushMethodFixtures,
   "environment.status": {
     params: { valid: [{}], invalid: [[], "status"] },
     result: { valid: validStatuses, invalid: invalidStatuses },

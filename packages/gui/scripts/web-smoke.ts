@@ -1,3 +1,4 @@
+import { phonePushGateway, phonePushSmoke } from "./phone-push-smoke.js";
 import { auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -63,6 +64,7 @@ const adapter = fakeAdapter({ script: async function* ({ input, context }) {
   const decision = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "permission", detail: { toolName: "Bash", toolCallId: "web-smoke-tool", input: { command: "printf smoke" }, summary: "Run the scripted smoke command" } });
   yield say(`Permission ${decision.decision}.`); yield end();
 } });
+const pushGateway = await phonePushGateway(readFileSync(join(output, "key.pem")), readFileSync(join(output, "cert.pem")));
 const environment = await startTestEnvironment({ adapter, webOrigin: origin, webClientDirectory: bundle });
 upstream = environment.address;
 try {
@@ -73,7 +75,7 @@ try {
     const browser = await engine.launch(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {});
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
     try {
-      const page = await context.newPage();
+      let page = await context.newPage();
       page.setDefaultTimeout(60_000);
       const errors: string[] = [];
       const requests: string[] = [];
@@ -97,6 +99,15 @@ try {
       await page.getByRole("button", { name: "Show sessions", exact: true }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).waitFor({ state: "hidden" });
+      if (name === "chromium") {
+        assert(credentials[0]);
+        page = await phonePushSmoke({ context, page, environment, token: credentials[0].token, sessionId, gateway: pushGateway });
+        page.setDefaultTimeout(60_000);
+        page.on("pageerror", error => errors.push(error.message));
+        page.on("request", req => requests.push(req.url()));
+        await page.goto(`${origin}/#/session/${encodeURIComponent(environment.env.id)}/${encodeURIComponent(sessionId)}`);
+        await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      }
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();
@@ -151,5 +162,6 @@ try {
   }
 } finally {
   await environment.close();
+  await pushGateway.close();
   secure.closeAllConnections(); await new Promise<void>(resolve => secure.close(() => resolve()));
 }

@@ -1,3 +1,4 @@
+import type { Vault } from "../serve/vault.js";
 import { readdir } from "node:fs/promises";
 import type { Clock } from "../serve/clock.js";
 import type { EventLog } from "../event-log/event-log.js";
@@ -10,12 +11,13 @@ import type { AttentionTransport, AttentionTransports } from "../attention/targe
 /** Transport leaves export createAttentionTransport(context); no startup edits are needed. */
 export interface WebAttentionContext {
   readonly log: EventLog;
+  readonly vault: Vault;
   readonly clock: Clock;
   readonly environmentId: string;
   readonly webOrigin: () => string | undefined;
   readonly endpoints: RoutineEndpoints;
 }
-export type AttentionTransportFactory = (context: WebAttentionContext) => AttentionTransport | Promise<AttentionTransport>;
+export type AttentionTransportFactory = (context: WebAttentionContext) => (AttentionTransport & { readonly handlers?: MethodHandlers }) | Promise<AttentionTransport & { readonly handlers?: MethodHandlers }>;
 const registered = new Map<keyof AttentionTransports, AttentionTransportFactory>();
 /** Embedders/tests can supply transports at the network seam; each environment gets a fresh instance. */
 export const registerAttentionTransport = (name: keyof AttentionTransports, factory: AttentionTransportFactory): (() => void) => {
@@ -26,6 +28,7 @@ export const registerAttentionTransport = (name: keyof AttentionTransports, fact
 
 export const webAttention = async (context: WebAttentionContext): Promise<{ readonly handlers: MethodHandlers; readonly close: () => void }> => {
   const transports: Partial<Record<keyof AttentionTransports, AttentionTransport>> = {};
+  const leafHandlers: MethodHandlers = {};
   const extension = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
   const directory = new URL("../attention/", import.meta.url);
   const files = await readdir(directory);
@@ -36,9 +39,9 @@ export const webAttention = async (context: WebAttentionContext): Promise<{ read
         const leaf = await import(new URL(`${name}${extension}`, directory).href) as { readonly createAttentionTransport: AttentionTransportFactory };
         factory = leaf.createAttentionTransport;
       }
-      if (factory) transports[name] = await factory(context);
+      if (factory) { const transport = await factory(context); transports[name] = transport; Object.assign(leafHandlers, transport.handlers); }
     } catch { console.error(`Attention transport ${name} is unavailable.`); }
   }
   const dispatcher = createAttentionDispatcher({ ...context, transports });
-  return { handlers: attentionMethods(dispatcher.store, transports, () => context.webOrigin() !== undefined), close: dispatcher.close };
+  return { handlers: { ...attentionMethods(dispatcher.store, transports, () => context.webOrigin() !== undefined), ...leafHandlers }, close: dispatcher.close };
 };

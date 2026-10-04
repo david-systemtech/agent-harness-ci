@@ -419,6 +419,8 @@ describe("the method registry", () => {
 
   it("types params and results from the table", () => {
     expectTypeOf<MethodName>().toEqualTypeOf<
+      | "attention.push.key"
+      | "attention.push.test"
       | "attention.targets.list"
       | "attention.targets.set"
       | "attention.targets.remove"
