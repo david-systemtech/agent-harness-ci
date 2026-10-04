@@ -172,6 +172,9 @@ export const compileWorkspace = (root: string, quirks: CliQuirks = {}, version =
   for (const asset of ["worker.js", "options.js", "options.html"]) write(join(root, "packages/extension/dist", asset), "fixture extension asset\n");
   write(join(root, "packages", "cli", "dist", "main.js"), fixtureCli(quirks));
   write(join(root, "packages", "environment", "dist", "index.js"), fixtureEnvironment(quirks));
+  write(join(root, "packages/gui/dist/index.html"), '<html><script type="module" src="./assets/app.js"></script></html>');
+  write(join(root, "packages/gui/dist/assets/app.js"), "// fixture web client\n");
+  write(join(root, "packages/gui/dist/version.json"), json({ version }));
   for (const dir of ["contracts", "gui"]) write(join(root, "packages", dir, "dist", "index.js"), `export const name = ${JSON.stringify(dir)};\n`);
 };
 

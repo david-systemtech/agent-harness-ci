@@ -218,6 +218,10 @@ export const stageArtefact = async (request: StageRequest): Promise<void> => {
   mkdirSync(root, { recursive: true });
   await request.installDependencies({ repoRoot, workspace: root, packages, target, runScripts: request.onHost });
   layOutPackages(repoRoot, packages, version, root);
+  const web = join(repoRoot, "packages/gui/dist");
+  const stamp = JSON.parse(readFileSync(join(web, "version.json"), "utf8")) as { version?: string };
+  if (stamp.version !== version) throw new BuildError("The web bundle must match the server release version.");
+  cpSync(web, join(root, "node_modules/@agent-harness/environment/dist/serve/web-client"), { recursive: true });
   keepNodePty(root, target);
   await placeNodeRuntime(request.node.file, request.node.archive, target, root);
   writeCommand(root, target);

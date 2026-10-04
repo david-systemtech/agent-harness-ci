@@ -11,10 +11,10 @@ import { Ceiling, SCOPES, ScopeSet, scopesInWords, type Scope } from "./scopes.j
  * session, a program with its own name.
  */
 
-/** The presets by id: my own client, a program, and custom. */
-export const PAIRING_PRESET_IDS = ["own-client", "program", "custom"] as const;
+/** The presets by id: my own client, a program, Phone and custom. */
+export const PAIRING_PRESET_IDS = ["own-client", "program", "phone", "custom"] as const;
 export const PairingPresetId = z.enum(PAIRING_PRESET_IDS).meta({
-  description: "A pairing preset: own-client (my own client), program (a script or bot driving the wire) or custom.",
+  description: "A pairing preset: own-client (my own client), program (a script or bot driving the wire), phone (a browser with limited authority) or custom.",
 });
 export type PairingPresetId = z.infer<typeof PairingPresetId>;
 
@@ -48,6 +48,7 @@ export type PairingPreset = z.infer<typeof PairingPreset>;
 export const PAIRING_PRESETS: readonly PairingPreset[] = [
   { id: "own-client", name: "My own client", scopes: [...SCOPES], ceiling: "bypassPermissions", chooses: "nothing" },
   { id: "program", name: "A program", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits", chooses: "ceiling" },
+  { id: "phone", name: "Phone", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits", chooses: "nothing" },
   { id: "custom", name: "Custom", scopes: ["read"], ceiling: "plan", chooses: "scopes-and-ceiling" },
 ];
 

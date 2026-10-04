@@ -170,3 +170,6 @@ export * from "./workspaces.js";
 export * from "./write-commands.js";
 
 export * from "./memory-drafts.js";
+
+export * from "./web/origin-policy.js";
+export * from "./web/attention.js";

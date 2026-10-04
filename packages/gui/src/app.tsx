@@ -1,3 +1,4 @@
+import { WebFrame, type WebFrameProps } from "./platform/web-frame.js";
 import type { Clock, Runtime, Shell } from "@agent-harness/client-runtime";
 import { useMemo, type ReactNode } from "react";
 import { WindowAttention } from "./attention/window-attention.js";
@@ -19,6 +20,7 @@ import { WindowProvider, usePresentation } from "./window-context.js";
 
 export interface AppProps {
   /** The window's one client runtime, which every component renders from (ADR 0004). */
+  readonly web?: WebFrameProps | undefined;
   readonly runtime: Runtime;
   /** The window's presentation, opened on the platform's documents. */
   readonly presentation: Presentation;
@@ -60,7 +62,7 @@ const WindowKeys = ({ macOS, children }: { readonly macOS: boolean; readonly chi
  * is held for the life of the window (`RunChoicesProvider`), as is what the
  * sidebar keeps while it is hidden (`WindowSidebarProvider`).
  */
-export const App = ({ runtime, presentation, clock, version, macOS, shell, stepCards = STEP_CARDS }: AppProps) => (
+export const App = ({ runtime, presentation, clock, version, macOS, shell, web, stepCards = STEP_CARDS }: AppProps) => (
   <WindowProvider runtime={runtime} presentation={presentation} clock={clock} version={version} shell={shell}>
     <WindowThemeProvider>
       <TooltipProvider>
@@ -73,7 +75,7 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell, stepC
                     <CommandPalette>
                       <RunChoicesProvider>
                         <WindowSidebarProvider>
-                          <Frame />
+                          {web ? <WebFrame {...web} /> : <Frame />}
                         </WindowSidebarProvider>
                       </RunChoicesProvider>
                     </CommandPalette>

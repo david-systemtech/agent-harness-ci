@@ -68,6 +68,7 @@ const compileWorkspace = async (repoRoot: string, version: string): Promise<void
   await run("pnpm", ["exec", "tsc", "-b", "packages/cli"], { cwd: repoRoot });
   await run("pnpm", ["--filter", "@agent-harness/contracts", "build-validator"], { cwd: repoRoot });
   await run("pnpm", ["--filter", "@agent-harness/extension", "build", "--version", version], { cwd: repoRoot });
+  await run("pnpm", ["--filter", "@agent-harness/gui", "build"], { cwd: repoRoot, env: { ...process.env, HARNESS_VERSION: version } });
 };
 
 /** The artefact `target` packed at `path`, as the manifest lists it. */

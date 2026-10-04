@@ -140,7 +140,7 @@ describe("a pull request's build", () => {
     const f = fixture("refs/pull/12/head");
     const local = `david/agent-harness:${SHA.slice(0, 12)}`;
     expect((await image(f, "build")).code).toBe(0);
-    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker image rm ${local}`]);
+    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker run --rm --entrypoint node ${local} /opt/agent-harness/scripts/image-web-smoke.mjs`, `docker image rm ${local}`]);
     expect(f.outputs()).toBe("");
     expect(f.loginStdin()).toBeNull();
     expect(f.downloadSource()).toBeNull();
@@ -162,7 +162,7 @@ describe("a pull request's build", () => {
     const result = await image(f, "build", { FORGEJO_TOKEN: TOKEN, FAKE_DOWNLOAD_EXIT: "1" });
     expect(result.code).toBe(0);
     expect(result.stderr).toContain("SDK cache preparation failed; using npm");
-    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker image rm ${local}`]);
+    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker run --rm --entrypoint node ${local} /opt/agent-harness/scripts/image-web-smoke.mjs`, `docker image rm ${local}`]);
     expect(result.stdout + result.stderr + f.calls().join("\n")).not.toContain(TOKEN);
   });
 
@@ -178,6 +178,7 @@ describe("a v tag's release image", () => {
       buildOf(released, "0.5.0", "org.opencontainers.image.version=0.5.0"),
       inspectOf(released),
       `docker run --rm ${released} --version`,
+      `docker run --rm --entrypoint node ${released} /opt/agent-harness/scripts/image-web-smoke.mjs`,
       "docker login git.systemtech.dev:5526 -u david --password-stdin",
       `docker push ${released}`,
       "docker logout git.systemtech.dev:5526",
@@ -314,5 +315,29 @@ describe("the workflows that run it", () => {
       for (const line of workflow(name)) expect(line, `${name}: ${line}`).not.toMatch(/\bdocker\b/);
       if (name !== "release.yml") expect(workflow(name).join("\n"), name).not.toContain("image.sh publish");
     }
+  });
+});
+
+
+describe("the image's web smoke", () => {
+  it("checks the production health route and compares its version with the served bundle", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "image-web-check-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    for (const folder of ["scripts", "packages/environment/dist", "packages/contracts/dist"]) mkdirSync(join(dir, folder), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
+    writeFileSync(join(dir, "scripts/image-web-smoke.mjs"), readFileSync(join(root, "scripts/image-web-smoke.mjs")));
+    writeFileSync(join(dir, "packages/contracts/dist/index.js"), 'export const HEALTH_PATH = "/health";');
+    writeFileSync(join(dir, "packages/environment/dist/index.js"), `
+      globalThis.fetch = async url => {
+        const path = new URL(url).pathname;
+        if (path === "/" || path === "/pair") return new Response('<script src="/assets/app.js"></script>', { headers: { "cache-control": "no-store", "content-security-policy": "default-src 'self'" } });
+        if (path === "/assets/app.js") return new Response("app");
+        if (path === "/version.json" || path === "/health") return Response.json({ version: "0.0.0-test" });
+        return Response.json({ error: "not_found" }, { status: 404 });
+      };
+      export const startEnvironment = async () => ({ address: { host: "127.0.0.1", port: 7433 }, close: async () => {} });
+    `);
+    const result = await run(process.execPath, [join(dir, "scripts/image-web-smoke.mjs")]);
+    expect(result.stdout).toContain("Image web routes and version matched.");
   });
 });
