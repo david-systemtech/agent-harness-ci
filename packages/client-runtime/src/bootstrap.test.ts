@@ -12,11 +12,16 @@ const harness = useHarness();
 describe("the bootstrap grant", () => {
   it("bootstraps again through the local grant after unavailable stored credentials and a fresh store", async () => {
     const t = await harness.environment({ name: "desk" });
+    const remote = await harness.environment({ name: "laptop" });
     const shell = fakeShell();
+    shell.answer("localGrant.read", async () => t.grant());
     const documents = inMemoryPlatform().documents;
-    const first = harness.runtime(inMemoryPlatform({ kind: "desktop", documents, secrets: shell.secrets }));
+    const first = harness.runtime(inMemoryPlatform({ kind: "desktop", documents, secrets: shell.secrets, grant: shell.localGrant }));
     await first.start();
-    await first.connections.add({ link: (await t.createPairing()).link });
+    expect(first.local.read()).toEqual({ state: "exchanged", environmentId: t.env.id });
+    const grantsBefore = shell.calls.filter(call => call[0] === "localGrant.read").length;
+    expect(grantsBefore).toBeGreaterThan(0);
+    await first.connections.add({ link: (await remote.createPairing()).link });
     await first.close();
     const fresh = new Map<string, string>();
     shell.answer("secrets.get", async (name) => {
@@ -24,12 +29,14 @@ describe("the bootstrap grant", () => {
       throw new StoredCredentialUnavailableError("OS approval was unavailable.");
     });
     shell.answer("secrets.set", async (name, value) => { fresh.set(name, value); });
-    shell.answer("localGrant.read", async () => t.grant());
     const replaced = harness.runtime(inMemoryPlatform({ kind: "desktop", documents, secrets: shell.secrets, grant: shell.localGrant }));
     await replaced.start();
-    expect(shell.calls.filter(call => call[0] === "localGrant.read")).not.toHaveLength(0);
+    expect(shell.calls.filter(call => call[0] === "localGrant.read").length).toBeGreaterThan(grantsBefore);
     expect(replaced.local.read()).toEqual({ state: "exchanged", environmentId: t.env.id });
-    expect(replaced.connections.list.read()).toEqual([expect.objectContaining({ kind: "local", phase: "ready" })]);
+    expect(replaced.connections.list.read()).toEqual([
+      expect.objectContaining({ environmentId: t.env.id, kind: "local", phase: "ready" }),
+      expect.objectContaining({ environmentId: remote.env.id, kind: "paired", phase: "blocked", blocked: "credential-unavailable" }),
+    ]);
     await shell.secrets.set("fresh-item-for-tests", "token-for-tests-fresh");
     expect(await shell.secrets.get("fresh-item-for-tests")).toBe("token-for-tests-fresh");
     await replaced.connections.retryNow(t.env.id);
