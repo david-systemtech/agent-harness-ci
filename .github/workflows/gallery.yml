@@ -43,18 +43,25 @@ jobs:
       - run: pnpm --filter @agent-harness/gui build-gallery
       - name: Capture and check the gallery
         id: capture
-        # Finish artifact delivery even when geometry or the enabled pixel gate fails.
+        # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
-        env:
-          GALLERY_PIXEL_BLOCKING: ${{ vars.GALLERY_PIXEL_BLOCKING || 'false' }}
         run: pnpm --filter @agent-harness/gui capture-gallery
+      - name: Check the shared desktop and phone report budget
+        run: |
+          python3 - <<'PY'
+          import json
+          with open('packages/gui/gallery-images/report.json') as source:
+              report = json.load(source)
+          assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
+          assert report['pixelBlocking'] is True, 'Every capture remains gated'
+          PY
       - name: Optimise the PNGs losslessly
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
           optipng -o2 packages/gui/gallery-images/*.png
-          # Leave room for ZIP headers under the relay's 32 MiB transport cap.
-          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 25165824
-          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 600
+          # Leave room for ZIP headers under the relay's 64 MiB transport cap.
+          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 50331648
+          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 1200
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: window-gallery
@@ -64,7 +71,7 @@ jobs:
           compression-level: 9
           retention-days: 7
           if-no-files-found: error
-      - name: Enforce geometry and the enabled pixel gate
+      - name: Enforce geometry and the pixel gate
         if: steps.capture.outcome == 'failure'
         run: exit 1
   cleanup:
