@@ -3,11 +3,12 @@
 set -euo pipefail
 [[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr> [reviewed-capture.png ...]' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
-python3 - "$root" "$(dirname "${BASH_SOURCE[0]}")" "$@" <<'PY'
-import hashlib, json, os, pathlib, re, shlex, shutil, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
-sys.path.insert(0, sys.argv[2])
-from gallery_allocation import captures_fit_allocation, LIMITS
-root = pathlib.Path(sys.argv[1]); number = sys.argv[3]
+python3 - "$(dirname "${BASH_SOURCE[0]}")" "$root" "$@" <<'PY'
+import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
+sys.path.insert(0, sys.argv[1])
+from gallery_reports import validate_shard, complete_set, MAX_BYTES, MAX_THREAD_BYTES
+from gallery_allocation import LIMITS, captures_fit_allocation
+root = pathlib.Path(sys.argv[2]); number = sys.argv[3]
 selected = set(sys.argv[4:])
 if any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) for name in selected):
     sys.exit('Expected exact reviewed capture filenames.')
@@ -37,14 +38,26 @@ head = pr['head']['sha']
 if subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip() != head:
     sys.exit('Check out the PR head before accepting its captures.')
 # Forgejo returns the entire per-issue comment thread; page and limit are ignored.
-comments = json.loads(get(f'{api}/issues/{number}/comments'))
+comments = json.loads(get(f'{api}/issues/{number}/comments', limit=MAX_THREAD_BYTES))
 if not isinstance(comments, list): sys.exit('Invalid gallery comment list.')
 manifests = []
+latest_attempt = None
+finalized = set()
 for comment in comments:
     # Only the reserved Forgejo Actions identity can supply relay reports.
     author = comment.get('user')
     if not isinstance(author, dict) or author.get('id') != -2: continue
-    matches = re.findall(r'<!-- window-gallery (.*?) -->', comment.get('body', ''), re.S)
+    body = comment.get('body', '')
+    attempts = re.findall(r'<!-- window-gallery-attempt (.*?) -->', body, re.S)
+    if attempts:
+        try: attempt = json.loads(attempts[-1])
+        except json.JSONDecodeError: attempt = None
+        if isinstance(attempt, dict) and attempt.get('head') == head:
+            latest_attempt = comment.get('id')
+    # Recognize unfinished reports from before structured attempt markers existed.
+    if body.startswith(f'Window gallery for `{head}`.') and ('Uploading captures…' in body or 'Gallery upload failed during ' in body):
+        latest_attempt = comment.get('id')
+    matches = re.findall(r'<!-- window-gallery (.*?) -->', body, re.S)
     if matches:
         try: candidate = json.loads(matches[-1])
         except json.JSONDecodeError: continue
@@ -52,40 +65,29 @@ for comment in comments:
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
-        if not isinstance(files, list) or not files or len(files) > sum(LIMITS.values()): continue
+        limit = 400 if 'shard' in candidate else sum(LIMITS.values())
+        if not isinstance(files, list) or not files or len(files) > limit: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
-        shard = candidate.get('shard')
-        if shard is None and not captures_fit_allocation([item["name"] for item in files]): continue
-        if shard is not None:
-            if len(files) > 400: continue
-            if not isinstance(shard, dict) or not re.fullmatch(r'run-[1-9][0-9]*-[1-9][0-9]*', str(shard.get('group', ''))): continue
-            if not re.fullmatch(r'(desktop|phone)-[0-9]{3}', str(shard.get('id', ''))): continue
-            if type(shard.get('index')) is not int or type(shard.get('count')) is not int or not 0 <= shard['index'] < shard['count'] <= 100: continue
+        if 'shard' in candidate:
+            try: validate_shard(candidate['shard'], len(files), require_group=True)
+            except ValueError as error: sys.exit(str(error))
+        elif not captures_fit_allocation([item['name'] for item in files]): continue
         manifests.append(candidate)
+        finalized.add(comment.get('id'))
+        latest_attempt = comment.get('id')
+if latest_attempt is not None and latest_attempt not in finalized:
+    sys.exit('Latest gallery publication is incomplete. Wait for every report or retry the gallery job.')
 if not manifests: sys.exit('No gallery captures on the current PR head. Wait for the gallery job.')
-latest = manifests[-1]
-shard = latest.get('shard')
-if shard is None:
-    reports = [latest]
-else:
-    reports = [m for m in manifests if isinstance(m.get('shard'), dict) and m['shard'].get('group') == shard['group']]
-    if len(reports) != shard['count'] or any(m['shard']['count'] != shard['count'] for m in reports) or {m['shard']['index'] for m in reports} != set(range(shard['count'])) or len({m['shard']['id'] for m in reports}) != shard['count']:
-        sys.exit('Incomplete or duplicate gallery shard set. Wait for every report from the same run.')
-files = []
-for index, manifest in enumerate(reports):
-    version = manifest.get('version', head)
-    if version != head and not re.fullmatch(re.escape(head) + r'-[1-9][0-9]*', version):
-        sys.exit('Invalid gallery capture version.')
-    files.extend({**item, 'version': version, 'report': index} for item in manifest['captures'])
+try: reports = complete_set(manifests)
+except ValueError as error: sys.exit(str(error))
+files = [dict(item, version=report.get('version', head), report=index) for index, report in enumerate(reports) for item in report['captures']]
 names = [item['name'] for item in files]
 if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
 if selected - set(names): sys.exit('A requested capture is absent from the current report.')
+staging = tempfile.TemporaryDirectory(prefix="gallery-accept-")
 accepted = {}; totals = {}
-# Keep multi-report downloads on disk so memory does not grow with the shard count.
-staging = tempfile.TemporaryDirectory(prefix='gallery-accept-')
 for item in files:
-    name, url = item['name'], item['api_url']
-    version = item['version']
+    name, url, version = item['name'], item['api_url'], item['version']
     parsed = urllib.parse.urlsplit(url)
     if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) or name in accepted:
         sys.exit('Invalid or duplicate gallery filename.')
@@ -104,7 +106,7 @@ for item in files:
         if phone is None or dimensions != profiles[phone[1]]: sys.exit('Unexpected phone gallery dimensions.')
     elif dimensions not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
     totals[item['report']] = totals.get(item['report'], 0) + len(data)
-    if totals[item['report']] > 48*1024*1024: sys.exit('Gallery captures exceed their size limit.')
+    if totals[item['report']] > MAX_BYTES: sys.exit('Gallery captures exceed their size limit.')
     staged = pathlib.Path(staging.name) / name
     staged.write_bytes(data)
     accepted[name] = staged
@@ -119,9 +121,8 @@ for name, staged in accepted.items():
     target = folder / name
     temporary = target.with_suffix('.png.tmp')
     if temporary.is_symlink(): sys.exit('A temporary baseline must not be a symlink.')
-    shutil.copyfile(staged, temporary); temporary.replace(target)
+    temporary.write_bytes(staged.read_bytes()); temporary.replace(target)
     print(f'Accepted {name}')
-staging.cleanup()
 print('Commit and push the reviewed baselines, then wait for green gallery checks:')
 commands = [
     ['git', '-C', str(root), 'add', '--', *[str((folder / name).relative_to(root)) for name in accepted]],
