@@ -1,7 +1,8 @@
 import { Globe, X } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { useMemo, useState } from "react";
-import { focusedPane } from "../grid/layout.js";
+import { focusedPane, panesOf } from "../grid/layout.js";
+import { useGridPaneId } from "../grid/grid.js";
 import { openBrowserPage } from "../platform/web-browser.js";
 import { useSettings } from "../settings/settings-window.js";
 import { Button, Input } from "../ui/index.js";
@@ -76,12 +77,13 @@ export const WebBrowserPane = ({ environmentId, sessionId }: { readonly environm
 /** P01's web slot keeps startup and the native dock untouched. */
 export const WebBrowserSurface = () => {
   const [layout] = usePresentation("paneLayout");
-  const { session } = focusedPane(layout);
+  const paneId = useGridPaneId();
+  const session = (paneId === null ? focusedPane(layout) : panesOf(layout).find(pane => pane.id === paneId))?.session;
   const settings = useSettings();
   const [open, setOpen] = useState(false);
   if (!session || settings.shown) return null;
   return <Dialog.Root open={open} onOpenChange={setOpen}>
-    <Dialog.Trigger asChild><Button title="Environment browser · Enter / Space" className="h-11 shrink-0 self-start px-3"><Globe aria-hidden="true" />Environment browser</Button></Dialog.Trigger>
+    <Dialog.Trigger asChild><Button data-phone-status-toggle title="Environment browser · Enter / Space" className="ml-auto h-11 w-11 shrink-0 px-3 sm:w-auto"><Globe aria-hidden="true" /><span className="sr-only sm:not-sr-only">Environment browser</span></Button></Dialog.Trigger>
     <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-50 bg-scrim/40" />
       <Dialog.Content aria-describedby={undefined} className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] min-w-0 flex-col rounded-t-xl border border-hairline bg-float p-4 text-ink outline-none sm:left-1/2 sm:w-[min(480px,85%)] sm:-translate-x-1/2">

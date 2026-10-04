@@ -21,6 +21,7 @@ import { useHandedOnto, useModelChoice } from "./run-choices.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { UsageMeter } from "./usage-meter.js";
 import { SessionContextMeter } from "./context-meter.js";
+import { WebRegisteredSurfaces } from "../platform/web-registrations.js";
 
 export interface StatusLineProps {
   readonly environmentId: string;
@@ -84,6 +85,7 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
   return (
     <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">
       {web && <Button data-phone-status-toggle className="hidden" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><Settings2 aria-hidden="true" />Run settings<ChevronDown aria-hidden="true" /></Button>}
+      {web && <WebRegisteredSurfaces location="session-status" />}
       <div id={detailsId} className="flex min-w-0 grow basis-[352px] flex-wrap items-center gap-x-2 gap-y-1">
         <span data-status-chip className="inline-flex h-[22px] max-w-[240px] items-center overflow-hidden rounded-md bg-wash px-1.5 [&_svg]:size-3 [&>span]:min-w-0 [&>span>span]:truncate" title={`${environment?.name ?? "This machine"}: ${environment?.phase ?? "connecting"}`}><EnvironmentBadge view={environment} /></span>
         <AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} />

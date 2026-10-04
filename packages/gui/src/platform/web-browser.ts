@@ -11,4 +11,4 @@ export const openBrowserPage = (address: string, view: Pick<Window, "open"> = wi
   view.open(url.href, "_blank", "noopener,noreferrer");
 };
 
-export const webModule: WebModule = { slot: "browser", registration: { Surface: WebBrowserSurface } };
+export const webModule: WebModule = { slot: "browser", registration: { Surface: WebBrowserSurface, surfaceLocation: "session-status" } };

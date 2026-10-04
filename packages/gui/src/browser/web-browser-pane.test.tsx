@@ -16,6 +16,8 @@ it("opens a browser surface without a shell, sets the next run's driver and open
   onTestFinished(async () => { app.unmount(); await world.runtime.close(); await world.presentation.close(); vi.restoreAllMocks(); });
   const user = userEvent.setup();
   const trigger = await screen.findByRole("button", { name: "Environment browser" });
+  // Share the existing control row; another footer clips decisions above the keyboard.
+  expect(within(screen.getByRole("region", { name: "Status line" })).getByRole("button", { name: "Environment browser" })).toBe(trigger);
   await user.click(trigger);
   const dialog = within(screen.getByRole("dialog", { name: "Environment browser" }));
   await user.selectOptions(await dialog.findByRole("combobox", { name: "Browser for the next run" }), "1");

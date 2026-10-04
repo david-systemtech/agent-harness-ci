@@ -24,5 +24,5 @@ export const geometry = [
   { selector: '[aria-label="Stop"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: "[data-web-client]" },
   { selector: '[aria-label="Deny"]', minimumWidth: 44, minimumHeight: 44 },
   { selector: '[aria-label="Transcript"]', minimumHeight: 44, visibleWithin: "[data-web-client]" },
-  { selector: '[aria-label="Allow once"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: "[data-web-client]" },
+  { selector: '[aria-label="Allow once"]', minimumWidth: 44, minimumHeight: 44, visibleWithin: "[data-composer-above]" },
 ];
