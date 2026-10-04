@@ -8,7 +8,7 @@ import {
   type NewSessionView,
 } from "@agent-harness/client-runtime";
 import type { WorkspaceRequest } from "@agent-harness/contracts";
-import { useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
 import { glyphOf } from "../connections/environment-glyphs.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
@@ -20,6 +20,7 @@ import { BrowserChoiceMenu } from "../browser/choice-menu.js";
 import { Check, Cpu, Folder, GitBranch, KeyRound, Server } from "lucide-react";
 import { useSettings } from "../settings/settings-window.js";
 import { checkRequest } from "./check.js";
+import { usePhoneOverlay } from "../ui/phone.js";
 import { requestWords } from "./words.js";
 
 /**
@@ -193,6 +194,8 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
   const runtime = useRuntime();
   const rows = useObservable(runtime.projections.sessionList).rows;
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const phone = usePhoneOverlay();
   const environmentId = view.environment.value;
   const { value, options } = view.workspace;
   const environment = view.environment.options.find((option) => option.environment.environmentId === environmentId)?.environment;
@@ -205,16 +208,16 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover modal={phone} open={open} onOpenChange={setOpen}>
       <Tooltip content={[`Workspace: ${words.label}`, words.path, "Enter to open · Escape to close", environment === undefined ? "Choose an environment first." : undefined].filter(Boolean).join(" · ")}>
         <PopoverTrigger asChild>
-          <Button data-new-session-chip aria-label={`Workspace: ${words.label}`} title={words.path} disabled={environment === undefined} className={classes(CHIP, "font-mono")}>
+          <Button ref={trigger} data-new-session-chip aria-label={`Workspace: ${words.label}`} title={words.path} disabled={environment === undefined} className={classes(CHIP, "font-mono")}>
             <Folder aria-hidden="true" />{value?.kind === "worktree" && <GitBranch aria-hidden="true" />}<span className="truncate">{words.label}</span>
           </Button>
         </PopoverTrigger>
       </Tooltip>
       {environment !== undefined && (
-        <WorkspacePopover align="start" environment={environment} sessionId={sessionId} known={options} take={(request) => take(request, environment)} close={() => setOpen(false)} />
+        <WorkspacePopover onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} align="start" environment={environment} sessionId={sessionId} known={options} take={(request) => take(request, environment)} close={() => setOpen(false)} />
       )}
     </Popover>
   );

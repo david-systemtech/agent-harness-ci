@@ -3,6 +3,7 @@ import { RequestedDirectory, type WorkspaceRequest } from "@agent-harness/contra
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { nameOf } from "../connections/words.js";
 import { Input, PopoverContent } from "../ui/index.js";
+import type { ComponentProps } from "react";
 import { DialogAction as Button } from "../ui/dialog-action.js";
 import { Folder, ArrowLeft, EyeOff, GitBranch, Check } from "lucide-react";
 import { Tooltip } from "../ui/tooltip.js";
@@ -40,8 +41,8 @@ export interface WorkspacePickerProps {
 }
 
 /** The picker as a popover's content, beside what opens it, named for the environment it picks on. */
-export const WorkspacePopover = ({ align, ...picker }: WorkspacePickerProps & { readonly align: "start" | "end" }) => (
-  <PopoverContent align={align} aria-label={`Where it works on ${nameOf(picker.environment)}`} className="flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col gap-4 rounded-xl p-4">
+export const WorkspacePopover = ({ align, onCloseAutoFocus, ...picker }: WorkspacePickerProps & { readonly align: "start" | "end"; readonly onCloseAutoFocus?: ComponentProps<typeof PopoverContent>["onCloseAutoFocus"] }) => (
+  <PopoverContent data-workspace-picker onCloseAutoFocus={onCloseAutoFocus} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); picker.close(); } event.stopPropagation(); }} align={align} aria-label={`Where it works on ${nameOf(picker.environment)}`} className="flex w-[32rem] max-w-[calc(100vw-2rem)] flex-col gap-4 overflow-y-auto rounded-xl p-4">
     <p className="text-sm text-ink-muted">Changing a workspace may need a new session.</p>
     <WorkspacePicker {...picker} />
   </PopoverContent>
