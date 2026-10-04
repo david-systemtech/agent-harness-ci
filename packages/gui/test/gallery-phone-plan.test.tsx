@@ -19,11 +19,34 @@ it("retains desktop and bounded phone profiles while allowing surface-owned grow
   expect(plan.budget.desktop).toBeGreaterThanOrEqual(354);
   expect(plan.budget.phone).toBeGreaterThanOrEqual(46);
   expect(plan.shards.every(shard => shard.budget.remaining >= 0)).toBe(true);
+  for (const shard of plan.shards) {
+    expect(shard.captures.length).toBeGreaterThan(0);
+    expect(shard.budget.limit).toBe(400);
+    expect(shard.captures.length).toBeLessThanOrEqual(shard.budget.limit);
+  }
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390-keyboard.light", "phone-gallery-continue-phone-390-keyboard.dark",
   ]);
   expect(plan.captures.filter(c => c.scene.startsWith("phone-conversation-")).length).toBe(24);
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(plan.budget.total);
+});
+
+it("allocates six states to each of seven phone owners while preserving desktop captures", () => {
+  const scenes = [
+    ...Array.from({ length: 177 }, (_, i) => `desktop-capacity-${i}`),
+    ...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`),
+  ];
+  const existing = capturePlan(scenes);
+  const leafScenes = Array.from({ length: 7 }, (_, owner) =>
+    Array.from({ length: 6 }, (_, state) => `phone-leaf-${owner}-state-${state}`),
+  ).flat();
+  const plan = capturePlan([...scenes, ...leafScenes]);
+  expect(plan.shards[0]!.captures).toEqual(existing.shards[0]!.captures);
+  expect(plan.shards.map(shard => [shard.id, shard.captures.length, shard.budget.limit])).toEqual([
+    ["desktop-001", 354, 400], ["phone-001", 384, 400],
+  ]);
+  expect(plan.shards[1]!.budget.remaining).toBe(16);
+  expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
 
 it("keeps each desktop and phone report within 400 captures as either family grows", () => {

@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import { cn } from "./classes.js";
 import { Tooltip } from "./tooltip.js";
+import "./phone-overlays.css";
 
 export type ButtonVariant = "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
 export type ButtonSize = "default" | "xs" | "sm" | "lg" | "icon" | "icon-xs" | "icon-sm" | "icon-lg";

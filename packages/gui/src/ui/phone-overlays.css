@@ -1,0 +1,57 @@
+/* Component-owned phone rules leave the desktop gallery dimensions intact. */
+@media (width < 640px) {
+  button[data-variant][data-size], .phone-menu-row,
+  [data-workspace-picker] button, [cmdk-item] {
+    min-width: 44px;
+    min-height: 44px;
+    height: auto;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .phone-field, [data-ui-input], [cmdk-input], [data-new-session] textarea {
+    min-height: 44px;
+    font-size: max(16px, 1rem);
+  }
+
+  .phone-overlay-surface {
+    max-width: calc(100vw - 16px);
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+
+  [data-ui-tooltip] {
+    max-width: min(18rem, calc(100vw - 16px), var(--radix-tooltip-content-available-width, 100vw));
+  }
+
+  .phone-dialog-surface {
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    overflow-wrap: anywhere;
+  }
+
+  .phone-dialog-surface > div:first-child { padding-right: 44px; }
+  .phone-dialog-surface > [data-size] { top: 8px; right: 8px; }
+  [data-new-session-chip] { max-width: 100%; padding: 8px; font-size: 1rem; }
+  [data-new-session-list] { max-height: min(240px, 35dvh); }
+  [data-workspace-picker] { gap: 12px; }
+  [data-workspace-picker] form { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  [data-workspace-picker] ul { flex-shrink: 0; max-height: 25dvh; }
+  [data-workspace-picker] [role="switch"] { min-width: 44px; min-height: 44px; }
+  [data-new-session] [data-attachment-chip] { padding-right: 48px; max-width: 100%; }
+  [data-new-session] [data-attachment-chip] button { top: 0; right: 0; }
+  [data-code-copy] { position: static; opacity: 1; }
+
+  [data-palette-overlay] {
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    height: 100dvh;
+  }
+  [data-measure="palette"] { max-height: 100%; }
+  [data-measure="palette"] [cmdk-list] { min-height: 0; flex: 1; max-height: none; }
+  [data-command-input] { height: auto; min-height: 44px; }
+  [data-palette-overlay] [cmdk-item] kbd { display: none; }
+  [data-palette-overlay] [cmdk-item] .truncate { white-space: normal; overflow-wrap: anywhere; }
+}

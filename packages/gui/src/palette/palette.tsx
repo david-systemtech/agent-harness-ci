@@ -1,7 +1,8 @@
 import type { SessionRow } from "@agent-harness/client-runtime";
 import { ACTION_GROUPS, SETTINGS_ROWS, isCommandId, type ActionId, type ListedAction } from "@agent-harness/contracts";
 import { Command } from "cmdk";
-import { ArrowDownToLine, ArrowUpFromLine, BookOpen, CircleStop, Cpu, FileText, Folder, GitBranch, GitFork, History, Info, Keyboard, ListChecks, MessageSquare, PanelLeft, Paperclip, Search, SendHorizontal, Settings2, Shield, SquareSplitHorizontal, SquareSplitVertical, SquareTerminal, Undo2, Globe, type LucideIcon } from "lucide-react";
+import { Dialog as RadixDialog } from "radix-ui";
+import { ArrowDownToLine, ArrowUpFromLine, BookOpen, CircleStop, Cpu, FileText, Folder, GitBranch, GitFork, History, Info, Keyboard, ListChecks, MessageSquare, PanelLeft, Paperclip, Search, SendHorizontal, Settings2, Shield, SquareSplitHorizontal, SquareSplitVertical, SquareTerminal, Undo2, Globe, X, type LucideIcon } from "lucide-react";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { showSession } from "../grid/layout.js";
@@ -13,6 +14,7 @@ import { useSettings } from "../settings/settings-window.js";
 import { environmentColour } from "../theme/paint.js";
 import { CommandInput, CommandList } from "../ui/command.js";
 import { Kbd } from "../ui/kbd.js";
+import { IconButton } from "../ui/button.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /**
@@ -111,7 +113,10 @@ const Palette = ({ listed, close }: PaletteProps) => {
   };
 
   return (
+    <RadixDialog.Root open onOpenChange={open => { if (!open) close(); }}>
+    <RadixDialog.Portal><RadixDialog.Content asChild aria-describedby={undefined} onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>
     <div
+      data-palette-overlay
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
@@ -124,6 +129,7 @@ const Palette = ({ listed, close }: PaletteProps) => {
         if (!closes(event.nativeEvent)) event.stopPropagation();
       }}
     >
+      <RadixDialog.Title className="sr-only">Command palette</RadixDialog.Title>
       <Command
         ref={root}
         label={LABELS[page]}
@@ -135,6 +141,7 @@ const Palette = ({ listed, close }: PaletteProps) => {
       >
         <KeyContext context="picker" conditions={{ "picker.queryEmpty": () => query.length === 0 }}>
           <PickerKeys move={(key) => press(key === 0 ? "ArrowUp" : "ArrowDown")} choose={() => press("Enter")} leave={() => close()} back={back} />
+          <div className="flex items-center justify-end px-1 pt-1 min-[640px]:hidden"><IconButton label="Close command palette" onClick={() => close()}><X aria-hidden="true" /></IconButton></div>
           <CommandInput
             autoFocus
             value={query}
@@ -156,6 +163,7 @@ const Palette = ({ listed, close }: PaletteProps) => {
         </KeyContext>
       </Command>
     </div>
+    </RadixDialog.Content></RadixDialog.Portal></RadixDialog.Root>
   );
 };
 

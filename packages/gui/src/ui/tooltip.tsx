@@ -17,7 +17,7 @@ export const Tooltip = ({ content, children, className, onEscapeKeyDown, ...prop
   const hint = <RadixTooltip.Root {...props}>
     <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
     <RadixTooltip.Portal>
-      <RadixTooltip.Content onEscapeKeyDown={onEscapeKeyDown} sideOffset={6} collisionPadding={8} className={classes("z-50 flex max-w-72 gap-1.5 rounded-md border border-hairline-strong bg-float px-2.5 py-1.5 text-xs leading-snug text-ink [overflow-wrap:anywhere] shadow-lg shadow-scrim/40 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 duration-100 motion-reduce:animate-none", className)}>{content}</RadixTooltip.Content>
+      <RadixTooltip.Content data-ui-tooltip onEscapeKeyDown={onEscapeKeyDown} sideOffset={6} collisionPadding={8} className={classes("z-50 flex max-w-72 gap-1.5 rounded-md border border-hairline-strong bg-float px-2.5 py-1.5 text-xs leading-snug text-ink [overflow-wrap:anywhere] shadow-lg shadow-scrim/40 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[side=left]:slide-in-from-left-1 data-[side=right]:slide-in-from-left-1 duration-100 motion-reduce:animate-none", className)}>{content}</RadixTooltip.Content>
     </RadixTooltip.Portal>
   </RadixTooltip.Root>;
   return shared ? hint : <TooltipProvider>{hint}</TooltipProvider>;

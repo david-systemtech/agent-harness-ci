@@ -11,7 +11,7 @@ export const DialogTrigger = RadixDialog.Trigger;
 export const DialogClose = RadixDialog.Close;
 
 export const DIALOG_SCRIM = "fixed inset-0 z-50 bg-scrim/10 backdrop-blur-[4px] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 duration-100 motion-reduce:animate-none";
-export const DIALOG_SURFACE = "fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-96 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl bg-float p-4 text-ink ring-1 ring-ink/10 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 duration-100 motion-reduce:animate-none";
+export const DIALOG_SURFACE = "phone-dialog-surface fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-96 -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl bg-float p-4 text-ink ring-1 ring-ink/10 outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 duration-100 motion-reduce:animate-none";
 export const DIALOG_FOOTER = "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t border-hairline bg-raised/50 p-4 sm:flex-row sm:justify-end";
 
 export type DialogContentProps = Omit<ComponentProps<typeof RadixDialog.Content>, "title"> & {
