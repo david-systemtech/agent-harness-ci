@@ -62,13 +62,24 @@ export async function packagedSettingsOpen(evaluate) {
   return await evaluate("!!document.querySelector('section[aria-label=Settings]')");
 }
 
-/** Opens Settings through the packaged page's CDP boundary. */
+/** Progresses through first launch and opens Settings through the packaged page's CDP boundary. */
 export async function clickPackagedSettings(evaluate) {
   return await evaluate(`(() => {
     const button = document.querySelector('button[aria-label=Settings]');
-    if (!button) return false;
-    button.click();
-    return true;
+    if (button) {
+      button.click();
+      return true;
+    }
+    const clickNamed = (root, name) => {
+      const action = Array.from(root?.querySelectorAll('button') ?? []).find(candidate => candidate.textContent.trim() === name);
+      action?.click();
+    };
+    // The credential-only prior app has no completed GUI setup. Use the visible first-launch controls.
+    const confirmation = Array.from(document.querySelectorAll('[role=dialog]')).find(dialog =>
+      dialog.textContent.includes('Leave set up without an account?'));
+    if (confirmation) clickNamed(confirmation, 'Leave for now');
+    else clickNamed(document.querySelector('[data-setup-introduction]'), 'I’ll set up later');
+    return false;
   })()`);
 }
 
