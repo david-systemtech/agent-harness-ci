@@ -36,8 +36,10 @@ try {
   const names = await sceneFiles(resolve(import.meta.dirname, "scenes"));
   if (names.length === 0) throw new Error("The gallery has no scenes.");
   const plan = capturePlan(names);
-  console.log(`Capture budget: ${plan.budget.desktop} desktop + ${plan.budget.phone} phone = ${plan.budget.total}/${plan.budget.limit}; ${plan.budget.remaining} reserved.`);
-  for (const { scene, ladder, viewport, name, platform, textSize } of plan.captures) {
+  const shard = plan.shards.find(shard => shard.id === process.env["GALLERY_SHARD"]);
+  if (shard === undefined) throw new Error("Select a discovered gallery shard with GALLERY_SHARD.");
+  console.log(`Capture budget: ${shard.budget.desktop} desktop + ${shard.budget.phone} phone = ${shard.budget.total}/${shard.budget.limit}; ${shard.budget.remaining} reserved.`);
+  for (const { scene, ladder, viewport, name, platform, textSize } of shard.captures) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -83,7 +85,7 @@ try {
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
   const pixelBlocking = true;
-  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: plan.budget, scenes: report }, null, 2));
+  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: shard.budget, shard: { id: shard.id, index: plan.shards.indexOf(shard), count: plan.shards.length }, scenes: report }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);

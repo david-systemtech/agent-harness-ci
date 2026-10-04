@@ -47,7 +47,18 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit: 400, remaining: 400 - captures.length };
-  if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > ${budget.limit}. Shard publication and acceptance together before adding scenes.`);
-  return { captures, budget };
+  const shards = ([{ kind: "desktop", captures: desktop }, { kind: "phone", captures: phone }] as const).flatMap(group => {
+    const result = [];
+    for (let offset = 0; offset < group.captures.length; offset += 400) {
+      const captures = group.captures.slice(offset, offset + 400);
+      result.push({ id: `${group.kind}-${String(offset / 400 + 1).padStart(3, "0")}`, captures,
+        budget: { desktop: group.kind === "desktop" ? captures.length : 0, phone: group.kind === "phone" ? captures.length : 0,
+          total: captures.length, limit: 400, remaining: 400 - captures.length } });
+    }
+    return result;
+  });
+  if (shards.length > 100) throw new Error("Gallery shard count exceeds the hosted artifact listing limit.");
+  const limit = shards.length * 400;
+  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit, remaining: limit - captures.length };
+  return { captures, budget, shards };
 }
