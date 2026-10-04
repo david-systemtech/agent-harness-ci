@@ -91,7 +91,7 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: M
   const admits = (method: MethodName) => runtime.capability(view.environmentId, method).status === "present";
   const lacking = view.phase === "ready" ? lackingLines(runtime, view.environmentId, SENT) : [];
   return (
-    <section data-machine-card aria-labelledby={heading} className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-hairline bg-panel p-3">
+    <section data-machine-card data-environment-id={view.environmentId} data-machine-kind={view.kind} data-machine-phase={view.phase} data-machine-blocked={view.blocked ?? undefined} data-machine-action={view.action ?? undefined} aria-labelledby={heading} className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-hairline bg-panel p-3">
       <header className="flex flex-wrap items-center gap-2 [&>svg]:size-4">
         <EnvironmentMark view={view} />
         <h3 id={heading} className="text-sm font-semibold text-ink">

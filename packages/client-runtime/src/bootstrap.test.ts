@@ -4,12 +4,38 @@ import { describe, expect, it } from "vitest";
 import { TOP_CEILING } from "../../environment/src/auth/client-sessions.js";
 import { grantReader, notJsonAt, originOf, until, useHarness } from "../test/harness.js";
 import { LOCAL_PLACEHOLDER_ID, PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
-import { inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { fakeShell, inMemoryPlatform } from "./testing/in-memory-platform.js";
 import { StoredCredentialUnavailableError } from "./credential-unavailable.js";
 
 const harness = useHarness();
 
 describe("the bootstrap grant", () => {
+  it("bootstraps again through the local grant after unavailable stored credentials and a fresh store", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const shell = fakeShell();
+    const documents = inMemoryPlatform().documents;
+    const first = harness.runtime(inMemoryPlatform({ kind: "desktop", documents, secrets: shell.secrets }));
+    await first.start();
+    await first.connections.add({ link: (await t.createPairing()).link });
+    await first.close();
+    const fresh = new Map<string, string>();
+    shell.answer("secrets.get", async (name) => {
+      if (fresh.has(name)) return fresh.get(name);
+      throw new StoredCredentialUnavailableError("OS approval was unavailable.");
+    });
+    shell.answer("secrets.set", async (name, value) => { fresh.set(name, value); });
+    shell.answer("localGrant.read", async () => t.grant());
+    const replaced = harness.runtime(inMemoryPlatform({ kind: "desktop", documents, secrets: shell.secrets, grant: shell.localGrant }));
+    await replaced.start();
+    expect(shell.calls.filter(call => call[0] === "localGrant.read")).not.toHaveLength(0);
+    expect(replaced.local.read()).toEqual({ state: "exchanged", environmentId: t.env.id });
+    expect(replaced.connections.list.read()).toEqual([expect.objectContaining({ kind: "local", phase: "ready" })]);
+    await shell.secrets.set("fresh-item-for-tests", "token-for-tests-fresh");
+    expect(await shell.secrets.get("fresh-item-for-tests")).toBe("token-for-tests-fresh");
+    await replaced.connections.retryNow(t.env.id);
+    expect(replaced.connections.list.read()[0]?.phase).toBe("ready");
+  });
+
   it("keeps the local environment ready when its earlier paired credential cannot be read", async () => {
     const t = await harness.environment({ name: "desk" });
     const platform = inMemoryPlatform({ kind: "desktop" });
