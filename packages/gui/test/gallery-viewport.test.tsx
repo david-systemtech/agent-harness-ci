@@ -37,6 +37,7 @@ for (const ladder of ["light", "dark"] as const) {
         [capture.scene]: { default: () => null, geometry: scenes[capture.scene]!.geometry! },
       });
       close = gallery.close;
+      expect(await gallery.ready).toBe(true);
       await waitFor(() => expect(container.dataset["galleryReady"]).toBe(capture.scene));
       const checks = (JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as SceneGeometry[])
         .filter((check) => check.selector === capture.selector);

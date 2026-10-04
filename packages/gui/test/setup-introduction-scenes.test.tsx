@@ -9,6 +9,7 @@ it.each(["setup-introduction", "setup-introduction-failed"])("captures %s using 
   const gallery = await mountGallery(container, scene);
   try {
     await screen.findByRole("heading", { name: "Welcome to agent-harness" });
+    expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
     expect(screen.queryByRole("navigation", { name: "Sessions" })).toBeNull();
     expect(screen.getByRole("button", { name: "Waiting for this machine…" }).hasAttribute("disabled")).toBe(true);

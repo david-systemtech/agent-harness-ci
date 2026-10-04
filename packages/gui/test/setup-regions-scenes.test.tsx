@@ -16,6 +16,7 @@ it.each(["light", "dark"] as const)("shows four bounded setup regions in %s", as
     document.body.append(container);
     const gallery = await mountGallery(container, name, ladder);
     close = gallery.close;
+    expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe(name));
     const footer = screen.getByRole("navigation", { name: "Step navigation" });
     expect(container.querySelector("[data-setup-scroll]")?.contains(footer)).toBe(false);

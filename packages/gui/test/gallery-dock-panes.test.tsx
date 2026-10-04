@@ -15,6 +15,7 @@ it.each(["dock-documents", "dock-tasks", "dock-diff"] as const)("draws %s throug
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   const name = { "dock-documents": "Documents", "dock-tasks": "Tasks", "dock-diff": "Diff" }[scene]!;
   const pane = within(await screen.findByRole("region", { name }));

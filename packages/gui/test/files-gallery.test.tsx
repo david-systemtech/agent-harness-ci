@@ -16,6 +16,7 @@ it("renders the file-view scene with source text, four numbered lines and the me
   expect(files.getByRole("code").textContent).toContain("values.reduce");
   expect(files.getByLabelText("Line numbers").textContent).toBe("1234");
   expect(files.getByRole("button", { name: "Pin file" })).toBeDefined();
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("dock-file-view"));
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: "[data-file-gutter]", width: 40 });
 });
@@ -26,6 +27,7 @@ it.each(["dock-diff", "dock-documents", "dock-tasks", "dock-browser", "dock-prev
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   await screen.findByRole("complementary", { name: "Side column" });
   const geometry: readonly SceneGeometry[] = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");

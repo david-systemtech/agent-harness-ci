@@ -7,6 +7,7 @@ it("keeps the reported four-step attention header covered at both acceptance wid
   document.body.append(container);
   const gallery = await mountGallery(container, "header");
   try {
+    expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe("header"));
     expect(screen.getAllByRole("button", { name: "Settings" })).toHaveLength(2);
     expect(await screen.findAllByRole("button", { name: "Parked asks, 1 waiting" })).toHaveLength(2);
