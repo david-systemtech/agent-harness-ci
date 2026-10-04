@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
+import { geometry as conversationGeometry } from "../../gallery/scenes/phone-frame-conversation.js";
 import { geometry as drawerGeometry } from "../../gallery/scenes/phone-frame-drawer.js";
 import { measureSceneGeometry } from "../../gallery/geometry.js";
 import { mountGallery } from "../../gallery/mount.js";
@@ -70,5 +71,20 @@ it("rejects clipped drawer row details at the capture measurement boundary", () 
   });
   expect(measureSceneGeometry()).toEqual([expect.stringContaining("content overflows its bounds")]);
   height = 18;
+  expect(measureSceneGeometry()).toEqual([]);
+});
+
+
+it("rejects a conversation pane extending below the body after notices occupy space", () => {
+  const root = document.createElement("div"); root.id = "root"; root.dataset["webClient"] = "";
+  root.dataset["galleryGeometry"] = JSON.stringify(conversationGeometry.filter(check => check.selector === "[data-grid-card]"));
+  const body = document.createElement("main");
+  const pane = document.createElement("div"); pane.dataset["gridCard"] = "pane";
+  body.append(pane); root.append(body); document.body.append(root);
+  vi.spyOn(body, "getBoundingClientRect").mockReturnValue(new DOMRect(8, 150, 344, 574));
+  let height = 600;
+  vi.spyOn(pane, "getBoundingClientRect").mockImplementation(() => new DOMRect(8, 200, 344, height));
+  expect(measureSceneGeometry()).toEqual([expect.stringContaining("clipped outside")]);
+  height = 524;
   expect(measureSceneGeometry()).toEqual([]);
 });

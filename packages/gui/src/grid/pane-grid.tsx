@@ -73,7 +73,7 @@ export const PaneGrid = () => {
   const several = panesOf(layout).length > 1;
   return (
     <>
-      {narrow ? <div className="h-full min-w-0">{panesOf(layout).map(pane => <div key={pane.id} hidden={pane.id !== layout.focused} className="h-full min-w-0" ref={node => { if (node !== null) targets.current.set(pane.id, node); }} />)}</div> : <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
+      {narrow ? <div className="min-h-0 min-w-0 flex-1">{panesOf(layout).map(pane => <div key={pane.id} hidden={pane.id !== layout.focused} className="h-full min-w-0" ref={node => { if (node !== null) targets.current.set(pane.id, node); }} />)}</div> : <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
         {layout.rows.map((row, at) => (
           <Fragment key={row.id}>
             {at > 0 && <Separator aria-label="Resize the rows" className={`h-[7px] ${DIVIDER}`} />}
