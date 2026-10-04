@@ -25,6 +25,8 @@ const execute = async (exitCode: number) => {
   mkdirSync(join(scratch, "scripts"));
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-extension.mjs"),
     join(scratch, "scripts/check-packaged-extension.mjs"));
+  copyFileSync(join(import.meta.dirname, "../scripts/stop-windows-process-tree.ps1"),
+    join(scratch, "scripts/stop-windows-process-tree.ps1"));
   writeFileSync(join(scratch, "scripts/install.ps1"), "fixture installer");
   const harness = join(scratch, "harness.ps1");
   writeFileSync(harness, `
@@ -80,6 +82,8 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("the Windows smoke's user token"
     expect(child).toContain("foreach ($attempt in 1, 2)");
     expect(child).toContain("$stagingLimitSeconds = 90");
     expect(child).toContain("launcher-entry.cmd");
+    expect(child).toContain("Stop-OwnedProcessTree -Root $process");
+    expect(readFileSync(join(scratch, "scripts/stop-windows-process-tree.ps1"), "utf8")).toContain("$handle.WaitForExit($remaining)");
   });
 
   it("propagates a failed smoke and removes its temporary account", async () => {
