@@ -28,9 +28,9 @@ const NONE_USABLE = "No environment can start a session now: the environment chi
  * leaves nothing behind. The first send runs `commands.startSession` under
  * the id the surface was minted with, then, once the create is accepted,
  * sends the text as the session's first message, and the pane shows the new
- * session; a first message the environment refuses comes back as the new
- * session's draft, its pane saying why. A refused start is one line on the
- * surface, which keeps its text.
+ * session. A refused first message keeps this editor's text and files for
+ * retry on the created session, with its choices locked. A refused start is
+ * one line on the surface, which keeps its text.
  */
 export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSession }) => {
   const runtime = useRuntime();
@@ -48,6 +48,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   const [text, setText] = useState(() => typed.get(id) ?? "");
   const [line, say] = useState<string | undefined>(undefined);
   const [starting, setStarting] = useState(false);
+  const [creationAccepted, setCreationAccepted] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
   const caret = useRef<number | null>(null);
   const environment = view.environment.options.find((option) => option.environment.environmentId === view.environment.value)?.environment;
@@ -91,6 +92,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   const put = (next: string) => {
     setText(next);
     typed.set(id, next);
+    if (creationAccepted && view.environment.value !== null) runtime.drafts.set(view.environment.value, id, next);
   };
   const providers = useObservable(useMemo(() => runtime.requests.cached(view.environment.value ?? "", "providers.list", {}), [runtime, view.environment.value]));
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(view.environment.value ?? ""), [runtime, view.environment.value]));
@@ -118,21 +120,30 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     const model = view.model.value;
     setStarting(true);
     say(undefined);
-    const { answer } = await runtime.commands.startSession(environmentId, {
-      id,
-      workspace,
-      browser: view.browser,
-      ...(account !== null && { account: account.id }),
-      ...(model !== null && { model: model.id }),
-    });
-    if (!answer.ok) {
-      setStarting(false);
-      const where = environment === undefined ? "the environment" : nameOf(environment);
-      return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
+    if (!creationAccepted) {
+      const { answer } = await runtime.commands.startSession(environmentId, {
+        id,
+        workspace,
+        browser: view.browser,
+        ...(account !== null && { account: account.id }),
+        ...(model !== null && { model: model.id }),
+      });
+      if (!answer.ok) {
+        setStarting(false);
+        const where = environment === undefined ? "the environment" : nameOf(environment);
+        return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
+      }
+      setCreationAccepted(true);
     }
     const sent = await sendMessage(runtime, environmentId, id, input, false);
-    if (!sent.ok) runtime.drafts.set(environmentId, id, message);
-    openInPane(environmentId, id, sent.ok ? undefined : sent.line);
+    if (!sent.ok) {
+      runtime.drafts.set(environmentId, id, message);
+      setStarting(false);
+      // Keep this editor and its selected files; retry uses the session already created.
+      return say(sent.line);
+    }
+    runtime.drafts.set(environmentId, id, null);
+    openInPane(environmentId, id);
   };
 
   const newline = () => {
@@ -190,7 +201,10 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
           </div>
         </KeyContext>
         <div role="group" aria-label="Where it starts" className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1">
-          {CHIPS.map((Chip, at) => <Chip key={at} view={view} sessionId={id} choose={choose} say={say} />)}
+          <fieldset disabled={starting || creationAccepted} className="contents">
+            {CHIPS.map((Chip, at) => <Chip key={at} view={view} sessionId={id} choose={choose} say={say} />)}
+          </fieldset>
+          {creationAccepted && !starting && <p className="w-full text-xs text-ink-muted">The session was created with these choices. Send again to retry its first message.</p>}
         </div>
       </div>
     </section>
