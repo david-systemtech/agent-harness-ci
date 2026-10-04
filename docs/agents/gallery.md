@@ -61,7 +61,7 @@ No publication failure was found, so no additional publisher or baseline change 
 ## Report shards
 
 Filename discovery creates desktop and phone shards with at most 400 captures each.
-The hosted workflow discovers the matrix from `gallery/shards.ts`, captures each
+The hosted workflow discovers the matrix from `gallery/plan.ts`, with `gallery/shards.ts` as a fallback for earlier heads, captures each
 shard with `GALLERY_SHARD`, and uploads `window-gallery-<shard-id>`. Every shard
 keeps the 1,200 PNG, 48 MiB expanded payload and 64 MiB transport limits, geometry
 checks and blocking pixel comparison. Add a uniquely named `phone-*.tsx` scene
@@ -84,3 +84,12 @@ two bounded family reports. The hosted matrix uses a legacy entry for heads
 without `gallery/shards.ts`; their existing allocation, transport and image
 validation remain enforced. The relay and acceptance retain that report format
 while every new matrix artifact remains bounded to 400 captures and 1,200 PNGs.
+
+Numbered reports from the earlier shard rollout remain readable. Their run, index,
+count and total metadata still enforces complete sets of up to sixteen 400-row
+reports. Named reports use the hosted run/attempt group and retain the 100-shard
+artifact listing bound. Both formats reject duplicate indices and filenames,
+unfinished retries and mixed runs before writing baselines. Acceptance stages
+capture bytes on disk and validates each report's 48 MiB bound. Acceptance and
+retention read complete comment threads with a 64 MiB bound; individual capture
+and report limits remain unchanged.
