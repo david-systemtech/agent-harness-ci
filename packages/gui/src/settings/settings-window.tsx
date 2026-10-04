@@ -34,6 +34,10 @@ export interface SettingsWindow {
 export type SettingsPart = "add-a-machine" | "managed-tools";
 
 const SettingsContext = createContext<SettingsWindow | null>(null);
+const NoticeHostContext = createContext<{ host: HTMLDivElement | null; setHost: (host: HTMLDivElement | null) => void } | null>(null);
+
+/** One mounted notice list moves into Settings while its modal covers the session window. */
+export const useSettingsNoticeHost = () => use(NoticeHostContext);
 
 /** Settings as the window holds it, anywhere in the window. */
 export const useSettings = (): SettingsWindow => {
@@ -53,6 +57,8 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
   const shell = useShell();
   const [stored, keepRow] = usePresentation("settingsRow");
   const [shown, setShown] = useState(false);
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const noticeHost = useMemo(() => ({ host, setHost }), [host]);
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const [part, setPart] = useState<SettingsPart | undefined>(undefined);
 
@@ -78,7 +84,7 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
   }, [runtime, shell, open]);
 
   const settings = useMemo<SettingsWindow>(() => ({ shown, row: readStoredRow(stored), picked, part, open, close, pick: setPicked }), [shown, stored, picked, part, open, close]);
-  return <SettingsContext value={settings}>{children}</SettingsContext>;
+  return <SettingsContext value={settings}><NoticeHostContext value={noticeHost}>{children}</NoticeHostContext></SettingsContext>;
 };
 
 /**

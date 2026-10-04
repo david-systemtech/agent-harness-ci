@@ -14,10 +14,11 @@ it("finds added scene files without loading renderer code and plans both ladders
   try {
     await writeFile(join(directory, "window-empty.tsx"), "export const script = {};");
     await writeFile(join(directory, "primitives.tsx"), "throw new Error('Renderer modules must stay in the browser');");
+    await writeFile(join(directory, "phone-overlay-workspace.tsx"), "throw new Error('Renderer modules must stay in the browser');");
     await writeFile(join(directory, "notes.md"), "Scene notes");
     await mkdir(join(directory, "ignored.tsx"));
     const names = await sceneFiles(directory);
-    expect(names).toEqual(["primitives", "window-empty"]);
+    expect(names).toEqual(["phone-overlay-workspace", "primitives", "window-empty"]);
     expect(captureCases(names)).toEqual([
       { scene: "primitives", ladder: "light", name: "primitives.light" },
       { scene: "primitives", ladder: "dark", name: "primitives.dark" },
