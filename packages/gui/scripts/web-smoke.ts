@@ -1,4 +1,4 @@
-import { addCacheAudit, auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
+import { auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -21,7 +21,6 @@ const output = process.env["WEB_SMOKE_OUTPUT"];
 const bundle = process.env["WEB_SMOKE_BUNDLE"];
 assert(output && bundle, "The hosted workflow must supply its build and output directories.");
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(output, "key.pem"), "-out", join(output, "cert.pem"), "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost"], { stdio: "ignore" });
-addCacheAudit(bundle);
 let upstream: Address | undefined = undefined;
 const publicRequests: { path: string; mode: string | undefined; status?: number; finished: boolean }[] = [];
 const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: readFileSync(join(output, "cert.pem")) }, (incoming, response) => {
@@ -69,11 +68,8 @@ try {
   for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
     publicRequests.length = 0;
     const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
-    const context = await engine.launchPersistentContext(join(output, `profile-${name}`), {
-      viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true,
-      ...(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {}),
-    });
-    const browser = context.browser(); assert(browser, "The persistent client profile belongs to the hosted browser.");
+    const browser = await engine.launch(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {});
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
     try {
       const page = await context.newPage();
       page.setDefaultTimeout(60_000);

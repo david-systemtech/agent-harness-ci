@@ -1,85 +1,24 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Page, BrowserContext } from "playwright";
 import { expect } from "playwright/test";
 
-export function addCacheAudit(bundle: string): void {
-  appendFileSync(join(bundle, "service-worker.js"), `
-;const cacheWrites = [];
-const putPublicBytes = Cache.prototype.put;
-Cache.prototype.put = async function(request, response) {
-  await putPublicBytes.call(this, request, response);
-  const path = new URL(typeof request === "string" ? request : request.url).pathname;
-  if (path === "/" || path === "/phone-icons/icon-192.png") {
-    cacheWrites.push({ path, matched: Boolean(await this.match(request)), keys: (await this.keys()).length });
-  }
-};
-globalThis.addEventListener("message", event => {
-    if (event.data !== "__smoke-cache-audit") return;
-    event.waitUntil((async () => {
-      const capabilityName = "__smoke-cache-capability";
-      const capability = await globalThis.caches.open(capabilityName);
-      let capabilityResult;
-      try {
-        const root = new Request(new URL("/", globalThis.location.origin), { credentials: "omit", cache: "no-store" });
-        await putPublicBytes.call(capability, root, new Response("fixture cache capability"));
-        const synthetic = Boolean(await capability.match(root));
-        const manifest = new Request(new URL("/manifest.webmanifest", globalThis.location.origin), { credentials: "omit", cache: "no-store" });
-        const fetchedResponse = await fetch(manifest);
-        const buffered = new Response(await fetchedResponse.clone().arrayBuffer(), { headers: fetchedResponse.headers, status: fetchedResponse.status });
-        await putPublicBytes.call(capability, manifest, fetchedResponse);
-        const fetched = Boolean(await capability.match(manifest));
-        await putPublicBytes.call(capability, manifest, buffered);
-        const bufferedMatch = Boolean(await capability.match(manifest));
-        const icon = new URL("/phone-icons/icon-192.png", globalThis.location.origin).href;
-        await putPublicBytes.call(capability, icon, new Response("fixture string-key capability"));
-        capabilityResult = { synthetic, fetched, buffered: bufferedMatch, stringKey: Boolean(await capability.match(icon)), keys: (await capability.keys()).length };
-      } finally {
-        await globalThis.caches.delete(capabilityName);
-      }
-      const names = await globalThis.caches.keys();
-      const urls = [];
-      const matches = [];
-      for (const name of names) {
-        const cache = await globalThis.caches.open(name);
-        for (const request of await cache.keys()) urls.push(request.url);
-        matches.push({ name, root: Boolean(await cache.match("/")), icon: Boolean(await cache.match("/phone-icons/icon-192.png")), rootKeys: (await cache.keys("/")).length });
-      }
-      event.ports[0].postMessage({ names, urls, matches, writes: cacheWrites, capability: capabilityResult });
-    })().catch(error => event.ports[0].postMessage({ error: String(error) })));
-  });`);
-}
-
 export async function auditPublicCache(page: Page, engine: string, phase: string): Promise<string[]> {
-  const windowCapability = await page.evaluate<{ matched: boolean; keys: number }>(`(async () => {
-    const name = "__smoke-window-cache-capability";
-    const cache = await caches.open(name);
-    try {
-      await cache.put("/", new Response("fixture window cache capability"));
-      return { matched: Boolean(await cache.match("/")), keys: (await cache.keys()).length };
-    } finally { await caches.delete(name); }
-  })()`);
-  console.log(`PHONE-INSTALL ${engine}: ${phase} window capability ${JSON.stringify(windowCapability)}`);
-  // Audit from the worker's storage realm without changing the production cache.
   await page.evaluate(`void (async () => {
-    const worker = navigator.serviceWorker.controller;
-    if (!worker) throw new Error("No public worker for the audit.");
-    const channel = new MessageChannel();
-    channel.port1.onmessage = event => {
-      document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify(event.data));
-      channel.port1.close();
-    };
-    worker.postMessage("__smoke-cache-audit", [channel.port2]);
+    const names = await caches.keys();
+    const urls = [];
+    for (const name of names) {
+      const cache = await caches.open(name);
+      for (const request of await cache.keys()) urls.push(request.url);
+    }
+    document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify({ names, urls }));
   })().catch(error => document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify({ error: String(error) })))`);
   await page.locator("html[data-smoke-cache-audit]").waitFor({ state: "attached" });
-  const audit = await page.evaluate<{ urls?: string[]; names?: string[]; matches?: unknown[]; writes?: unknown[]; capability?: unknown; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
+  const audit = await page.evaluate<{ urls?: string[]; names?: string[]; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
   await page.evaluate("document.documentElement.removeAttribute('data-smoke-cache-audit')");
-  assert(audit.urls, audit.error ?? "The worker cache audit answered.");
-  console.log(`PHONE-INSTALL ${engine}: ${phase} cache ${JSON.stringify({ names: audit.names, entries: audit.urls.length, matches: audit.matches, writes: audit.writes, capability: audit.capability })}`);
+  assert(audit.urls, audit.error ?? "The public cache audit answered.");
+  console.log(`PHONE-INSTALL ${engine}: ${phase} cache ${JSON.stringify({ names: audit.names, entries: audit.urls.length })}`);
   return audit.urls;
-
 }
 
 export async function waitForPublicWorker(page: Page, engine: string): Promise<void> {
@@ -124,7 +63,6 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   await textbox.dispatchEvent("compositionstart");
   // The actual serving directory changes underneath the current, still-usable client.
   execFileSync("pnpm", ["exec", "vite", "build", "--outDir", bundle], { env: { ...process.env, HARNESS_VERSION: `0.0.0-phone-update-${engine}` }, stdio: "pipe" });
-  addCacheAudit(bundle);
   await page.evaluate("navigator.serviceWorker.getRegistration().then(registration => { if (!registration) throw new Error('No public worker registration.'); void registration.update(); })");
   console.log(`PHONE-INSTALL ${engine}: waiting for the updated bundle`);
   const reload = page.getByRole("button", { name: "Reload client", exact: true });
