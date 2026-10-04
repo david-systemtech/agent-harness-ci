@@ -5,7 +5,8 @@ import { expect, it } from "vitest";
 import { renderApp } from "./harness.js";
 
 const script = new URL("../../../scripts/macos-desktop-update-smoke.mjs", import.meta.url).href;
-const { clickPackagedSettings, packagedSettingsOpen } = await import(script) as {
+const { clickPackagedSettings, packagedSettingsOpen, openPackagedMachines } = await import(script) as {
+  openPackagedMachines: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
 };
@@ -31,4 +32,6 @@ it.each([true, false])("the packaged smoke opens real Settings with first launch
   expect(await clickPackagedSettings(evaluate)).toBe(true);
   expect(await packagedSettingsOpen(evaluate)).toBe(true);
   expect(screen.getByRole("region", { name: "Settings" })).toBeDefined();
+  await openPackagedMachines(evaluate);
+  expect(screen.getByRole("region", { name: "Your machines" })).toBeDefined();
 });

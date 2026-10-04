@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { SecretAccess, ShellPlatform, ShellSecrets } from "@agent-harness/client-runtime";
+import type { Clock, SecretAccess, ShellPlatform, ShellSecrets } from "@agent-harness/client-runtime";
+import type { MacCredentials } from "./mac-credentials.js";
 import type { ElectronSafeStorage } from "./electron.js";
 
 /**
@@ -11,8 +12,9 @@ import type { ElectronSafeStorage } from "./electron.js";
  * `safeStorage` under the key the OS keeps for the app: the macOS Keychain,
  * Windows' DPAPI, a Linux secret service. Each file is written whole and
  * renamed into place, readable by its owner alone. On macOS all availability,
- * encryption and decryption use the async provider: Keychain approval waits
- * on a worker thread, including reading ciphertext kept by synchronous storage.
+ * encryption and decryption use the async provider in a disposable helper app:
+ * a pending OS request never owns the window's process, including when reading
+ * ciphertext kept by synchronous storage. Calls expire after 30 seconds.
  *
  * On Linux with no secret service answering, Chromium chooses its
  * `basic_text` store and `safeStorage` refuses to encrypt unless asked to use
@@ -29,11 +31,35 @@ export interface KeychainParts {
   readonly dir: string;
   /** Hears the fall back to the fixed key, and a token that could not be read. */
   readonly report: (error: unknown) => void;
+  readonly clock?: Clock;
+  /** Production macOS access runs in a cancellable helper, outside this process. */
+  readonly macCredentials?: MacCredentials;
 }
 
 const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts): Required<ShellSecrets> => {
+export const KEYCHAIN_TIMEOUT_MS = 30_000;
+const SYSTEM_CLOCK: Clock = {
+  now: () => new Date(),
+  setTimeout(callback, ms) {
+    const timer = setTimeout(callback, ms);
+    return { cancel: () => clearTimeout(timer) };
+  },
+};
+
+export interface KeychainSecrets extends Required<ShellSecrets> {
+  close(): void;
+}
+
+export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_CLOCK, macCredentials }: KeychainParts): KeychainSecrets => {
+  const mac = macCredentials ?? {
+    available: () => safeStorage.isAsyncEncryptionAvailable(),
+    encrypt: (secret: string) => safeStorage.encryptStringAsync(secret),
+    decrypt: async (kept: Buffer) => (await safeStorage.decryptStringAsync(kept)).result,
+    close: () => {},
+  };
+  let closed = false;
+  const requests = new Set<AbortController>();
   let unprotected = false;
   let state: SecretAccess = null;
   let pending = 0;
@@ -45,18 +71,28 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
     state = next;
     for (const listener of [...listeners]) listener(state);
   };
-  const macKeychain = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const macKeychain = async <T>(operation: (signal: AbortSignal) => Promise<T>, presents = true): Promise<T> => {
+    if (closed) throw new Error("Desktop credential access was cancelled at shutdown.");
+    const request = new AbortController();
+    requests.add(request);
     pending++;
-    denied = false;
+    if (presents) denied = false;
     publish();
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true });
+    });
+    const timer = clock.setTimeout(() => request.abort(new Error("Keychain access did not complete within 30 seconds. The saved credential is kept.")), KEYCHAIN_TIMEOUT_MS);
     try {
-      const answer = await operation();
-      denied = false;
+      // Race only observes the result. A late native answer cannot publish or write a token.
+      const answer = await Promise.race([operation(request.signal), cancelled]);
+      if (presents) denied = false;
       return answer;
     } catch (error) {
       denied = true;
       throw error;
     } finally {
+      timer.cancel();
+      requests.delete(request);
       pending--;
       publish();
     }
@@ -87,12 +123,12 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
       // An absent file is no token. Refused macOS access rejects so the runtime retries without revoking or deleting it.
       try {
         const kept = await readFile(file);
-        if (os === "darwin") return await macKeychain(async () => (await safeStorage.decryptStringAsync(kept)).result);
+        if (os === "darwin") return await macKeychain((signal) => mac.decrypt(kept, signal));
         if (!encrypts()) throw new Error("the OS keeps no key for this app now");
         return safeStorage.decryptString(kept);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-        const retry = os === "darwin" ? "The saved token is kept; allow Keychain access and retry. If access stays unavailable, restart this desktop. If the saved token still cannot be read, pair that environment again." : "Pair that environment again.";
+        const retry = os === "darwin" ? "The saved token is kept. In Your machines, choose Try again and allow macOS Keychain access when prompted." : "Pair that environment again.";
         const unreadable = new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}). ${retry}`);
         report(unreadable);
         if (os === "darwin") throw unreadable;
@@ -104,20 +140,27 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
       if (os !== "darwin" && !encrypts()) {
         throw new Error("This desktop cannot keep a client session token: the OS keeps no key for it (safeStorage cannot encrypt). Unlock or set up the system keychain, then pair again.");
       }
-      const encrypted = os === "darwin" ? await macKeychain(async () => {
-        if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("This desktop cannot keep a client session token: unlock or set up the system keychain, then pair again.");
-        return safeStorage.encryptStringAsync(secret);
+      const encrypted = os === "darwin" ? await macKeychain(async (signal) => {
+        if (!(await mac.available(signal))) throw new Error("This desktop cannot keep a client session token: unlock or set up the system keychain, then pair again.");
+        return mac.encrypt(secret, signal);
       }) : safeStorage.encryptString(secret);
+      if (closed) throw new Error("Desktop credential access was cancelled at shutdown.");
       await mkdir(dir, { recursive: true, mode: 0o700 });
       if (os !== "win32") await chmod(dir, 0o700);
       const next = `${file}.${randomUUID()}.next`;
       try {
         await writeFile(next, encrypted, { mode: 0o600 });
+        if (closed) throw new Error("Desktop credential access was cancelled at shutdown.");
         await rename(next, file);
       } catch (error) {
         await rm(next, { force: true });
         throw error;
       }
+    },
+    close() {
+      closed = true;
+      for (const request of requests) request.abort(new Error("Desktop credential access was cancelled at shutdown."));
+      mac.close();
     },
     async delete(name) {
       await rm(fileOf(name), { force: true });
@@ -129,7 +172,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
       return () => void listeners.delete(listener);
     },
     async protection() {
-      if (os === "darwin") return await safeStorage.isAsyncEncryptionAvailable() ? "os" : "none";
+      if (os === "darwin") return await macKeychain((signal) => mac.available(signal), false) ? "os" : "none";
       if (!encrypts()) return "none";
       return unprotected ? "unprotected" : "os";
     },

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock } from "@agent-harness/client-runtime/testing";
 import { fakeWire, flush } from "@agent-harness/client-runtime/testing/fake-wire";
+import { keychainSecrets } from "./secrets.js";
 import { fakeElectron } from "../test/fake-electron.js";
 import { cleanUp, platformOn, start } from "../test/harness.js";
 
@@ -20,6 +21,88 @@ const DESK = "0199aa00-0000-7000-8000-00000000d35c";
 const LAPTOP = "0199aa00-0000-7000-8000-0000000019a7";
 
 describe("secrets", () => {
+  it("bounds an unanswered macOS read, preserves its ciphertext, and ignores late approval before retry", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const dir = join(platform.paths.data, "secrets");
+    mkdirSync(dir);
+    const file = join(dir, `${DESK}.secret`);
+    const kept = electron.safeStorage.encryptString("token-for-tests-desk");
+    writeFileSync(file, kept);
+    const decrypt = electron.safeStorage.decryptStringAsync;
+    let approve!: (answer: { result: string; shouldReEncrypt: boolean }) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    electron.safeStorage.decryptStringAsync = () => new Promise((resolve) => { approve = resolve; entered(); });
+    const clock = manualClock();
+    const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, clock });
+    let outcome = "pending";
+    const reading = secrets.get(DESK).then(() => { outcome = "read"; }, () => { outcome = "unavailable"; });
+    await started;
+    clock.advance(30_000);
+    await flush();
+    expect(outcome).toBe("unavailable");
+    await reading;
+    expect(await secrets.access()).toBe("denied");
+    approve({ result: "token-for-tests-desk", shouldReEncrypt: false });
+    await flush();
+    expect(await secrets.access()).toBe("denied");
+    expect(readFileSync(file)).toEqual(kept);
+    electron.safeStorage.decryptStringAsync = decrypt;
+    expect(await secrets.get(DESK)).toBe("token-for-tests-desk");
+    expect(await secrets.access()).toBeNull();
+  });
+
+  it.each(["availability", "encryption"])("bounds pending %s during pairing without overwriting the prior credential", async (stage) => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const dir = join(platform.paths.data, "secrets");
+    const clock = manualClock();
+    const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, clock });
+    await secrets.set(DESK, "token-for-tests-desk");
+    const file = join(dir, `${DESK}.secret`);
+    const kept = readFileSync(file);
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    let approve!: () => void;
+    if (stage === "availability") electron.safeStorage.isAsyncEncryptionAvailable = () => new Promise((resolve) => { approve = () => resolve(true); entered(); });
+    else electron.safeStorage.encryptStringAsync = () => new Promise((resolve) => { approve = () => resolve(Buffer.from("late-ciphertext-for-tests")); entered(); });
+    let outcome = "pending";
+    const pairing = secrets.set(DESK, "token-for-tests-replacement").then(() => { outcome = "stored"; }, () => { outcome = "unavailable"; });
+    await started;
+    clock.advance(30_000);
+    await flush();
+    expect(outcome).toBe("unavailable");
+    await pairing;
+    approve();
+    await flush();
+    expect(readFileSync(file)).toEqual(kept);
+    expect(readdirSync(dir)).toEqual([`${DESK}.secret`]);
+    secrets.close();
+  });
+
+  it("bounds protection queries during provider initialization and cancels pending calls at desktop shutdown", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const clock = manualClock();
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    electron.safeStorage.isAsyncEncryptionAvailable = () => { entered(); return new Promise(() => {}); };
+    const { shell } = await start({ electron, platform: platformOn("darwin"), credentialClock: clock, reportError: () => {} });
+    const secrets = shell().secrets;
+    let outcome = "pending";
+    const protecting = secrets.protection().then(() => { outcome = "protected"; }, () => { outcome = "unavailable"; });
+    await started;
+    clock.advance(30_000);
+    await flush();
+    expect(outcome).toBe("unavailable");
+    await protecting;
+    const storing = expect(secrets.set(DESK, "token-for-tests")).rejects.toThrow(/shutdown/);
+    electron.app.quit();
+    await electron.app.quitted;
+    await storing;
+    await expect(secrets.set(DESK, "token-for-tests")).rejects.toThrow(/shutdown/);
+  });
+
   it("reads a prior macOS install's credential without accessing Keychain on the main thread", async () => {
     const platform = platformOn("darwin");
     const electron = fakeElectron({ os: "darwin" });
@@ -103,12 +186,13 @@ describe("secrets", () => {
     expect(await secrets.access()).toBeNull();
   });
 
-  it("preserves a paired credential when Keychain approval is cancelled during reconnection", async () => {
+  it("preserves a paired credential and recovers after never-settling Keychain access during reconnection", async () => {
     const electron = fakeElectron({ os: "darwin" });
     const platform = platformOn("darwin");
-    const { shell } = await start({ electron, platform, reportError: () => {} });
-    const secrets = shell().secrets;
     const clock = manualClock();
+    const credentialClock = manualClock();
+    const { shell } = await start({ electron, platform, credentialClock, reportError: () => {} });
+    const secrets = shell().secrets;
     const wire = fakeWire({ clock });
     const runtime = createRuntime(inMemoryPlatform({ clock, fetch: wire.fetch, webSocket: wire.webSocket, secrets }));
     try {
@@ -126,8 +210,10 @@ describe("secrets", () => {
       await flush();
       const reconnecting = runtime.connections.retryNow(wire.environmentId);
       await waiting;
-      cancel(new Error("OS approval cancelled"));
+      credentialClock.advance(30_000);
       await reconnecting;
+      cancel(new Error("late OS refusal"));
+      await flush();
       expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "backoff", blocked: null })]);
       expect(await secrets.access()).toBe("denied");
       expect(readFileSync(file)).toEqual(kept);

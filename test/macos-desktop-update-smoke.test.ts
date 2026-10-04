@@ -10,7 +10,9 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+  checkUnavailablePackagedCredential: (evaluate: (expression: string) => Promise<unknown>, observe?: () => Promise<void>) => Promise<void>;
+  checkFreshPackagedCredential: (evaluate: (expression: string) => Promise<unknown>) => Promise<void>;
   askForPackagedUpdate: (evaluate: (expression: string) => Promise<unknown>, version: string) => Promise<void>;
   packagedSettingsOpen: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
   clickPackagedSettings: (evaluate: (expression: string) => Promise<unknown>) => Promise<boolean>;
@@ -48,6 +50,51 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("proves main and Settings responsiveness before an unavailable prior read settles, then requires its rejection", async () => {
+    let refuse!: () => void;
+    const events: string[] = [];
+    const window = { desktopShell: {
+      secrets: { get: () => new Promise((_resolve, reject) => { events.push("read"); refuse = () => reject(new Error("Keychain unavailable")); }) },
+      system: async () => { events.push("system"); return { platform: "darwin" }; },
+    } };
+    const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
+    const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
+    await checkUnavailablePackagedCredential(evaluate, async () => {
+      expect(events).toEqual(["read", "system"]);
+      refuse();
+    });
+    expect(JSON.stringify(window)).not.toContain("__packagedCredentialCheck");
+  });
+
+  it("does not pass the unavailable-access check when a locked prior item unexpectedly reads successfully", async () => {
+    const window = { desktopShell: { secrets: { get: async () => "token-for-tests" }, system: async () => ({ platform: "darwin" }) } };
+    const document = new JSDOM('<section aria-label="Settings"></section>').window.document;
+    const evaluate = async (expression: string) => await runInNewContext(expression, { window, document }) as unknown;
+    await expect(checkUnavailablePackagedCredential(evaluate)).rejects.toThrow(/unavailable/);
+  });
+
+  it("requires fresh OS protection and readback, without returning the value through CDP", async () => {
+    const tokens = new Map<string, string>();
+    let protection = "os";
+    const window = { desktopShell: { secrets: {
+      protection: async () => protection,
+      set: async (name: string, value: string) => { tokens.set(name, value); },
+      get: async (name: string) => tokens.get(name),
+      delete: async (name: string) => { tokens.delete(name); },
+    } } };
+    const results: unknown[] = [];
+    const evaluate = async (expression: string) => {
+      const result = await runInNewContext(expression, { window }) as unknown;
+      results.push(result);
+      return result;
+    };
+    await checkFreshPackagedCredential(evaluate);
+    expect(JSON.stringify(results)).not.toContain("credential-for-tests");
+    expect(tokens.size).toBe(0);
+    protection = "none";
+    await expect(checkFreshPackagedCredential(evaluate)).rejects.toThrow(/OS-protected/);
+  });
+
   it("keeps the combined update request within its existing two-minute deadline", async () => {
     vi.useFakeTimers();
     try {

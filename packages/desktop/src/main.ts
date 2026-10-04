@@ -8,6 +8,7 @@ import type { ElectronWebView } from "./electron.js";
 import { desktopDataDirectory, environmentDataDirectory } from "./data-directory.js";
 import { startDesktop } from "./desktop.js";
 import { desktopLog } from "./log.js";
+import { CREDENTIAL_HELPER_ARGUMENT, launchMacCredentials, serveMacCredentials } from "./mac-credentials.js";
 import { PACKAGED_RENDERER, PACKAGED_SERVER } from "./packaged.js";
 
 /**
@@ -23,73 +24,86 @@ const os = ((): ShellPlatform => {
   throw new Error(`The desktop is built for macOS, Linux and Windows, not ${platform}.`);
 })();
 
-const here = dirname(fileURLToPath(import.meta.url));
-/**
- * The `gui` build this desktop carries: packaged, in the app's folder (#423);
- * run from a checkout, the package's `dist`, beside its manifest.
- */
-const renderer = app.isPackaged
-  ? join(app.getAppPath(), PACKAGED_RENDERER)
-  : join(dirname(createRequire(import.meta.url).resolve("@agent-harness/gui/package.json")), "dist");
-
 const machine = { os, env: process.env, homedir: homedir() };
 const data = desktopDataDirectory(machine);
-const log = desktopLog(data);
 
-const nativeViews = new WeakMap<ElectronWebView, WebContentsView>();
+if (os === "darwin" && process.argv.includes(CREDENTIAL_HELPER_ARGUMENT) && process.send) {
+  // A separate Chromium profile avoids sharing locks with the window. The app name and signing
+  // identity stay the same, so safeStorage uses the existing OS key, including prior v10 ciphertext.
+  app.setPath("userData", join(data, "credential-provider"));
+  void app.whenReady().then(() => app.dock?.hide());
+  process.on("disconnect", () => process.kill(process.pid, "SIGKILL"));
+  serveMacCredentials(safeStorage, app.whenReady(), (receive) => process.on("message", receive), (reply) => process.send?.(reply));
+} else {
+  const here = dirname(fileURLToPath(import.meta.url));
+  /**
+   * The `gui` build this desktop carries: packaged, in the app's folder (#423);
+   * run from a checkout, the package's `dist`, beside its manifest.
+   */
+  const renderer = app.isPackaged
+    ? join(app.getAppPath(), PACKAGED_RENDERER)
+    : join(dirname(createRequire(import.meta.url).resolve("@agent-harness/gui/package.json")), "dist");
 
-startDesktop(
-  {
-    app,
-    protocol,
-    ipcMain,
-    dialog,
-    clipboard,
-    shell,
-    nativeTheme,
-    safeStorage,
-    notification: { isSupported: () => Notification.isSupported(), create: (options) => new Notification(options) },
-    openWindow: (options) => {
-      const window = new BrowserWindow(options);
-      return Object.assign(window, {
-        addWebView: (view: ElectronWebView) => {
-          const native = nativeViews.get(view);
-          if (native) window.contentView.addChildView(native);
-        },
-        removeWebView: (view: ElectronWebView) => {
-          const native = nativeViews.get(view);
-          if (native) window.contentView.removeChildView(native);
-        },
-      });
+  const log = desktopLog(data);
+
+  const macCredentials = os === "darwin" ? launchMacCredentials(process.execPath, process.defaultApp ? [resolve(process.argv[1] ?? ".")] : []) : undefined;
+  process.on("exit", () => macCredentials?.close());
+  const nativeViews = new WeakMap<ElectronWebView, WebContentsView>();
+
+  startDesktop(
+    {
+      app,
+      protocol,
+      ipcMain,
+      dialog,
+      clipboard,
+      shell,
+      nativeTheme,
+      safeStorage,
+      notification: { isSupported: () => Notification.isSupported(), create: (options) => new Notification(options) },
+      openWindow: (options) => {
+        const window = new BrowserWindow(options);
+        return Object.assign(window, {
+          addWebView: (view: ElectronWebView) => {
+            const native = nativeViews.get(view);
+            if (native) window.contentView.addChildView(native);
+          },
+          removeWebView: (view: ElectronWebView) => {
+            const native = nativeViews.get(view);
+            if (native) window.contentView.removeChildView(native);
+          },
+        });
+      },
+      openWebView: (options) => {
+        const view = new WebContentsView(options);
+        nativeViews.set(view, view);
+        return view;
+      },
     },
-    openWebView: (options) => {
-      const view = new WebContentsView(options);
-      nativeViews.set(view, view);
-      return view;
+    {
+      os,
+      architecture: arch(),
+      hostname: hostname(),
+      user: userInfo().username,
+      argv: process.argv,
+      executable: process.execPath,
+      paths: {
+        data,
+        environment: environmentDataDirectory(machine),
+        renderer,
+        preload: join(here, "preload.cjs"),
+        // A packaged desktop carries the server artefact in its resources (#423 puts it there); one run from a checkout carries none.
+        ...(app.isPackaged && { server: join(process.resourcesPath, PACKAGED_SERVER) }),
+      },
+      // Unpackaged (`electron .`), the OS starts the app again as Electron's executable and the app's folder.
+      ...(process.defaultApp && { relaunch: { executable: process.execPath, args: [resolve(process.argv[1] ?? ".")] } }),
     },
-  },
-  {
-    os,
-    architecture: arch(),
-    hostname: hostname(),
-    user: userInfo().username,
-    argv: process.argv,
-    executable: process.execPath,
-    paths: {
-      data,
-      environment: environmentDataDirectory(machine),
-      renderer,
-      preload: join(here, "preload.cjs"),
-      // A packaged desktop carries the server artefact in its resources (#423 puts it there); one run from a checkout carries none.
-      ...(app.isPackaged && { server: join(process.resourcesPath, PACKAGED_SERVER) }),
-    },
-    // Unpackaged (`electron .`), the OS starts the app again as Electron's executable and the app's folder.
-    ...(process.defaultApp && { relaunch: { executable: process.execPath, args: [resolve(process.argv[1] ?? ".")] } }),
-  },
-  { reportError: log.report },
-).catch(async (error: unknown) => {
-  console.error(error);
-  log.report(error);
-  await log.flushed();
-  app.exit(1);
-});
+    { reportError: log.report, ...(macCredentials && { macCredentials }) },
+  ).catch(async (error: unknown) => {
+    console.error(error);
+    log.report(error);
+    await log.flushed();
+    app.exit(1);
+  });
+
+}

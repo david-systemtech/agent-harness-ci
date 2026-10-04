@@ -137,6 +137,7 @@ const KEYCHAIN_NOTICE_DELAY_MS = 500;
 /** Environment notices and this window's OS credential access, as dismissible banners. */
 export const WindowNotices = () => {
   const secrets = useShell()?.secrets;
+  const { leave } = useChecklist();
   const clock = useClock();
   const [access, setAccess] = useState<SecretAccess>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -161,8 +162,9 @@ export const WindowNotices = () => {
             <p>{access === "waiting" ? "Waiting for macOS Keychain access" : "Keychain access did not complete"}</p>
             <p className="mt-1 text-ink-muted">{access === "waiting"
               ? "macOS may ask for approval after replacing this app. Allow access to reconnect and update this machine's environment, or cancel the OS prompt. You can keep using this window."
-              : "Your accounts and saved connections are kept. Allow Keychain access when prompted. If access stays unavailable, restart this desktop. If a saved credential still cannot be read, pair that environment again in Settings."}</p>
+              : "Your accounts and saved connections are kept. Open Your machines, choose Try again for the saved connection and allow macOS Keychain access when prompted. You can also pair that environment again."}</p>
           </div>
+          {access === "denied" && <Button variant="outline" size="xs" onClick={() => leave("environments.machines")}><ArrowRight aria-hidden="true" />Open Your machines</Button>}
           <IconButton label="Dismiss" keys="Enter / Space" size="icon-xs" className="absolute top-1 right-1" onClick={() => setDismissed(true)}><X aria-hidden="true" /></IconButton>
         </li>}
         {notices.map((notice) => <NoticeBanner key={notice.id} notice={notice} />)}

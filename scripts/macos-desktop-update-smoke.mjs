@@ -96,6 +96,79 @@ export async function openPackagedSettings(evaluate) {
   await ready(() => packagedSettingsOpen(evaluate), "Settings did not open after replacement");
 }
 
+/** Your machines must mount during native access, rather than only the Settings frame. */
+export async function openPackagedMachines(evaluate) {
+  assert.equal(await evaluate(`(() => {
+    const row = document.querySelector('nav[aria-label="Settings rows"] button[aria-label="Your machines"]');
+    row?.click();
+    return !!row;
+  })()`, "open Your machines during credential access"), true);
+  await until(() => evaluate(`!!document.querySelector('section[aria-label="Your machines"]')`, "Your machines readiness"), "Your machines did not mount during credential access");
+}
+
+/** Starts a real prior read without awaiting it, so responsiveness is checked while access is pending/refused. */
+export async function startUnavailablePackagedCredential(evaluate) {
+  await evaluate(`(() => {
+    window.__packagedCredentialCheck = { result: window.desktopShell.secrets.get(${JSON.stringify(credentialName)})
+      .then(() => 'read', () => 'unavailable') };
+    return true;
+  })()`, "begin locked prior credential");
+  assert.equal(await evaluate("window.desktopShell.system().then(s => s.platform)", "main responsiveness during locked credential access"), "darwin");
+  assert.equal(await packagedSettingsOpen(evaluate), true, "Settings must remain open during locked credential access");
+}
+
+/** Requires bounded settlement, rather than treating a harness timeout as a successful refusal. */
+export async function checkUnavailablePackagedCredential(evaluate, observe = async () => {}) {
+  await startUnavailablePackagedCredential(evaluate);
+  await observe();
+  const result = await evaluate(`(async () => {
+    const result = await window.__packagedCredentialCheck.result;
+    delete window.__packagedCredentialCheck;
+    return result;
+  })()`, "settle unavailable prior credential", 45_000);
+  assert.equal(result, "unavailable", "The locked prior credential must be unavailable");
+}
+
+/** Exercises fresh storage after repair through the real packaged shell, without returning secrets. */
+export async function checkFreshPackagedCredential(evaluate) {
+  const result = await evaluate(`(async () => {
+    const secrets = window.desktopShell.secrets;
+    if (await secrets.protection() !== 'os') return false;
+    const name = 'packaged-fresh-check';
+    const value = 'credential-for-tests-fresh';
+    await secrets.set(name, value);
+    try { return await secrets.get(name) === value; }
+    finally { await secrets.delete(name); }
+  })()`, "fresh OS-protected credential storage and readback");
+  assert.equal(result, true, "Fresh storage must be OS-protected and read back correctly");
+}
+
+/** Clicks the OS's own approval control, as a user would, only on the hosted smoke account. */
+async function approveHostedKeychain(desktop, completed) {
+  const deadline = Date.now() + 120_000;
+  while (!completed() && desktop.exitCode === null && Date.now() < deadline) {
+    const prompt = spawn("osascript", ["-e", `tell application "System Events"
+      if exists process "SecurityAgent" then
+        tell process "SecurityAgent"
+          repeat with panel in windows
+            if exists button "Always Allow" of panel then
+              click button "Always Allow" of panel
+            else if exists button "Allow" of panel then
+              click button "Allow" of panel
+            end if
+          end repeat
+        end tell
+      end if
+    end tell`], { stdio: "ignore" });
+    await new Promise(resolve => {
+      const timeout = globalThis.setTimeout(() => { prompt.kill("SIGKILL"); resolve(); }, 2000);
+      prompt.on("error", () => { globalThis.clearTimeout(timeout); resolve(); });
+      prompt.on("exit", () => { globalThis.clearTimeout(timeout); resolve(); });
+    });
+    await delay(250);
+  }
+}
+
 /** Runs on hosted macOS only. The credential stays inside the page; no token is returned or logged. */
 export async function askForPackagedUpdate(evaluate, version) {
   const deadline = Date.now() + 120_000;
@@ -315,8 +388,8 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
     execute("security", ["default-keychain", "-d", "user", "-s", keychain]);
     execute("security", ["list-keychains", "-d", "user", "-s", keychain, ...originalSearchList]);
-    // Both signatures are authorized for unattended CI; a real approval/cancel is checked manually.
-    execute("security", ["add-generic-password", "-a", "agent-harness", "-s", "agent-harness Safe Storage", "-w", "password-for-tests", "-T", executable(installed), "-T", executable(source), keychain]);
+    // Only the prior app is authorized. Replacement access follows a real OS request and repair.
+    execute("security", ["add-generic-password", "-a", "agent-harness", "-s", "agent-harness Safe Storage", "-w", "password-for-tests", "-T", executable(installed), keychain]);
     const seedLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
     try { execute(executable(installed), [], { env: { ...process.env, CREDENTIAL_FIXTURE: seed, DESKTOP_FIXTURE: join(data, "desktop") }, stdio: ["ignore", seedLog, seedLog] }); }
     finally { closeSync(seedLog); }
@@ -330,14 +403,36 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     rmSync(installed, { recursive: true });
     copyPackagedDesktop(source, installed);
     const port = 19280;
-    const desktopLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
-    try { desktop = spawn(executable(installed), [`--remote-debugging-port=${port}`], { stdio: ["ignore", desktopLog, desktopLog] }); }
-    finally { closeSync(desktopLog); }
-    // Record a spawn failure so it is surfaced by the bounded page check and still cleans the service.
-    desktop.on("error", () => {});
-    cdp = await connectCdp(port, { onTimeout: capture, redact: text => redactDiagnostic(text, secretsToRedact) });
-    await openPackagedSettings(cdp.evaluate);
-    await askForPackagedUpdate(cdp.evaluate, version);
+    const launchDesktop = async () => {
+      const desktopLog = openSync(join(privateDiagnostics, "desktop.log"), "a", 0o600);
+      try { desktop = spawn(executable(installed), [`--remote-debugging-port=${port}`], { stdio: ["ignore", desktopLog, desktopLog] }); }
+      finally { closeSync(desktopLog); }
+      // Record a spawn failure so it is surfaced by the bounded page check and still cleans the service.
+      desktop.on("error", () => {});
+      cdp = await connectCdp(port, { onTimeout: capture, redact: text => redactDiagnostic(text, secretsToRedact) });
+      await openPackagedSettings(cdp.evaluate);
+      await openPackagedMachines(cdp.evaluate);
+    };
+    // A locked test Keychain creates actual native pending/refused access, with no provider stub.
+    execute("security", ["lock-keychain", keychain]);
+    await launchDesktop();
+    await startUnavailablePackagedCredential(cdp.evaluate);
+    await until(async () => (await cdp.evaluate("window.desktopShell.secrets.access()", "native access started")) !== null, "Native credential access did not start");
+    await cdp.evaluate("window.desktopShell.window.close()", "quit with native credential access pending");
+    await until(() => desktop.exitCode !== null, "The replacement did not quit during pending Keychain access", 10_000);
+    cdp.close();
+    assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
+    await launchDesktop();
+    await checkUnavailablePackagedCredential(cdp.evaluate);
+    assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
+    // Unlock is the user's repair action. Approval is through the native prompt; no ACL or partition-list rewrite.
+    execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
+    let completed = false;
+    const approval = approveHostedKeychain(desktop, () => completed);
+    try {
+      await askForPackagedUpdate(cdp.evaluate, version);
+      await checkFreshPackagedCredential(cdp.evaluate);
+    } finally { completed = true; await approval; }
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Reading the existing credential must preserve it");
     const after = await until(async () => {
       try {
