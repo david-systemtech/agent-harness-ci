@@ -72,7 +72,7 @@ try {
   for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
     publicRequests.length = 0;
     const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
-    const browser = await engine.launch(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {});
+    const browser = await engine.launch(name === "chromium" ? { channel: "chromium", args: ["--ignore-certificate-errors"] } : {});
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
     try {
       let page = await context.newPage();

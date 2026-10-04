@@ -50,6 +50,7 @@ export async function phonePushSmoke({ context, page, environment, token, sessio
   readonly token: string; readonly sessionId: string; readonly gateway: Awaited<ReturnType<typeof phonePushGateway>>;
 }) {
   await context.grantPermissions(["notifications"], { origin: new URL(page.url()).origin });
+  assert.equal(await page.evaluate("Notification.permission"), "granted", "Hosted Chromium must provide its native notification service.");
   await page.evaluate(`(() => {
     const subscription = ${JSON.stringify(gateway.subscription)};
     let active = false;
@@ -59,19 +60,7 @@ export async function phonePushSmoke({ context, page, environment, token, sessio
   })()`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Attention settings", exact: true }).click();
-  try { await page.getByRole("button", { name: "Enable push", exact: true }).click(); }
-  catch (error) {
-    console.error("[DEBUG-1553-push]", await page.evaluate(`JSON.stringify({
-      secure: isSecureContext, worker: "serviceWorker" in navigator,
-      push: "PushManager" in window, notifications: "Notification" in window,
-      permission: "Notification" in window ? Notification.permission : "unsupported",
-      ios: /iPhone|iPad|iPod/.test(navigator.userAgent),
-      standalone: matchMedia("(display-mode: standalone)").matches,
-      attention: document.querySelector("[data-attention-settings]")?.textContent,
-      hidden: document.querySelector("[data-phone-push]")?.closest("[aria-hidden=true]")?.outerHTML.slice(0, 180),
-    })`));
-    throw error;
-  }
+  await page.getByRole("button", { name: "Enable push", exact: true }).click();
   await expect(page.getByRole("region", { name: "Web Push" })).toContainText("Push enabled for this client.", { timeout: 60_000 });
   await page.getByRole("button", { name: "Close attention settings", exact: true }).click();
   const worker = context.serviceWorkers().find(item => new URL(item.url()).pathname === "/service-worker.js");
