@@ -6,6 +6,7 @@ import { startTestEnvironment } from "../../environment/test/helper.js";
 import { notJsonAt, originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
 import { pairingDeepLink, parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { StoredCredentialUnavailableError } from "./credential-unavailable.js";
 
 const harness = useHarness();
 
@@ -152,6 +153,35 @@ describe("pairing with an environment", () => {
     const { sessions } = await admin.apply("access.sessions.list", {});
     expect(sessions.find((s) => s.id === before)?.revokedAt).toEqual(expect.any(String));
     expect(sessions.find((s) => s.id === after?.clientSessionId)?.revokedAt).toBeNull();
+  });
+
+  it("re-pairs an unreadable earlier credential with a read-only code, without pretending to revoke the older session", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    let unavailable = false;
+    const secrets = {
+      ...platform.secrets,
+      get: async (id: string) => {
+        if (unavailable) throw new Error(`Error invoking remote method 'shell:secrets.get': ${new StoredCredentialUnavailableError("OS approval was unavailable.").message}`);
+        return platform.secrets.get(id);
+      },
+      set: async (id: string, token: string) => { await platform.secrets.set(id, token); unavailable = false; },
+    };
+    const runtime = harness.runtime(inMemoryPlatform({ secrets }));
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const previous = runtime.connections.list.read()[0]?.clientSessionId;
+    unavailable = true;
+    await runtime.connections.retryNow(t.env.id);
+    expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "blocked", blocked: "credential-unavailable" })]);
+    expect(runtime.projections.notices.read()).toContainEqual(expect.objectContaining({ kind: "credential-unavailable", action: "re-pair" }));
+    expect(await runtime.connections.add({ link: (await t.createPairing({ scopes: ["read"] })).link }, { rePair: t.env.id })).toMatchObject({
+      status: "paired", replaced: { revoked: false, message: expect.stringContaining("stored credentials") },
+    });
+    expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "ready", scopes: ["read"] })]);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", { live: true });
+    expect(sessions.map(session => session.id)).toContain(previous);
   });
 
   it("re-pairs when neither client session holds admin: the replaced one is still live, and says so", async () => {

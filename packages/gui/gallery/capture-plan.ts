@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { captureName } from "./compare.js";
 import { sceneName } from "./scene-registry.js";
+
+const limits = JSON.parse(readFileSync(new URL("../../../scripts/gallery-allocation.json", import.meta.url), "utf8")) as { desktop: number; phone: number };
 
 /** Read filenames only: component modules are renderer code, never Node capture dependencies. */
 export async function sceneFiles(directory: string): Promise<readonly string[]> {
@@ -47,20 +50,26 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  const count = Math.ceil(captures.length / 400);
-  const limit = count * 400;
+  const shards = ([{ kind: "desktop", captures: desktop, limit: limits.desktop }, { kind: "phone", captures: phone, limit: limits.phone }] as const).flatMap(group => {
+    if (!Number.isInteger(group.limit) || group.limit < 1 || group.limit > 400) throw new Error("Invalid gallery report limit.");
+    const result = [];
+    for (let offset = 0; offset < group.captures.length; offset += group.limit) {
+      const captures = group.captures.slice(offset, offset + group.limit);
+      result.push({ id: `${group.kind}-${String(offset / group.limit + 1).padStart(3, "0")}`, captures,
+        budget: { desktop: group.kind === "desktop" ? captures.length : 0, phone: group.kind === "phone" ? captures.length : 0,
+          total: captures.length, limit: group.limit, remaining: group.limit - captures.length } });
+    }
+    return result;
+  });
+  if (shards.length > 100) throw new Error("Gallery shard count exceeds the hosted artifact listing limit.");
+  const limit = shards.reduce((total, shard) => total + shard.budget.limit, 0);
   const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit, remaining: limit - captures.length };
-  if (count > 16) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > 6400 (sixteen reports).`);
-  const shards = Array.from({ length: count }, (_, index) => ({
-    index: index + 1, count, total: captures.length, captures: captures.slice(index * 400, (index + 1) * 400),
-  }));
   return { captures, budget, shards };
 }
 
-/** Single-report jobs remain valid while the hosted workflow rolls out shard selection. */
-export function captureShard(plan: ReturnType<typeof capturePlan>, selection: string | undefined, run: string | undefined) {
-  const index = selection === undefined && plan.shards.length === 1 ? 1 : Number(selection);
-  const selected = plan.shards.find(shard => shard.index === index);
-  if (selected === undefined || run === undefined || !/^[A-Za-z0-9._-]{1,128}$/.test(run)) throw new Error("Invalid gallery shard selection.");
-  return { ...selected, shard: { run, index: selected.index, count: selected.count, total: selected.total } };
+/** Explicit selection keeps local capture and hosted jobs on the same bounded report. */
+export function captureShard(plan: ReturnType<typeof capturePlan>, selection: string | undefined) {
+  const selected = plan.shards.find(shard => shard.id === selection);
+  if (selected === undefined) throw new Error("Invalid gallery shard selection.");
+  return { ...selected, shard: { id: selected.id, index: plan.shards.indexOf(selected), count: plan.shards.length } };
 }

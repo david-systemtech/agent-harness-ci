@@ -180,28 +180,29 @@ print(r.get("status") or "unknown", r.get("conclusion") or "-")')
   [ "$status" = completed ] && break
   sleep 15
 done
+reply_run=$reply
 echo "GitHub run finished: $conclusion"
 # Failed comparisons still publish the captures, baseline and difference for review.
 if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == failure ]]; then
   reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
   artifacts=$(printf '%s' "$reply" | python3 -c '
 import json,re,sys
-items=[a for a in json.load(sys.stdin).get("artifacts",[]) if (a["name"]=="window-gallery" or a["name"].startswith("window-gallery-shard-")) and not a.get("expired")]
+items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"].startswith("window-gallery") and not a.get("expired")]
 if not items: sys.exit(0)
-if len(items)>16 or len({a["name"] for a in items})!=len(items) or any(a["size_in_bytes"]>64*1024*1024 for a in items): sys.exit("oversized or duplicate gallery artifact")
+names=[a["name"] for a in items]
+if len(items)>100 or len(set(names))!=len(items) or ("window-gallery" in names and len(items)!=1) or any(a["size_in_bytes"]>64*1024*1024 for a in items): sys.exit("oversized or duplicate gallery artifact")
 for a in items:
     match=re.fullmatch(r"window-gallery-shard-([1-9][0-9]*)",a["name"])
-    index=int(match[1]) if match else 0
-    if a["name"]!="window-gallery" and (match is None or index>16): sys.exit("invalid gallery artifact name")
-    print(int(a["id"]),index)')
+    named=re.fullmatch(r"window-gallery-(desktop|phone)-[0-9]{3}",a["name"])
+    if a["name"]!="window-gallery" and not named and (match is None or int(match[1])>16): sys.exit("invalid gallery artifact name")
+    print(int(a["id"]),a["name"].removeprefix("window-"))')
   if [ -z "$artifacts" ]; then
     echo "No gallery artifact was uploaded; reading the failed job logs."
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
     archives=()
-    while read -r artifact index; do
-      archive="$gl/gallery-shard-$index.zip"
-      [ "$index" != 0 ] || archive="$gl/gallery.zip"
+    while read -r artifact name; do
+      archive="$gl/$name.zip"
       gh_api --fail -L --max-filesize 67108864 -o "$archive" "$api/actions/artifacts/$artifact/zip"
       archives+=("$archive")
     done <<< "$artifacts"
@@ -220,7 +221,8 @@ PYFORMAT
       # A workflow rollout can finish an earlier capture-only artifact.
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
-      python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-publish.py" "$sha" "${archives[@]}"
+      run_attempt=$(printf '%s' "$reply_run" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("run_attempt",1))')
+      GALLERY_PUBLICATION_RUN="run-$run_id-$run_attempt" python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-publish.py" "$sha" "${archives[@]}"
       # Cleanup failure must not invalidate a completed, downloadable report.
       python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
         echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."

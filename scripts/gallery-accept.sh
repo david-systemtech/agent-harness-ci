@@ -4,7 +4,7 @@ set -euo pipefail
 [[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr> [reviewed-capture.png ...]' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
 python3 - "$(dirname "${BASH_SOURCE[0]}")" "$root" "$@" <<'PY'
-import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, urllib.parse, urllib.request
+import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
 sys.path.insert(0, sys.argv[1])
 from gallery_reports import validate_shard, complete_set, MAX_BYTES, MAX_THREAD_BYTES
 from gallery_allocation import LIMITS, captures_fit_allocation
@@ -69,7 +69,7 @@ for comment in comments:
         if not isinstance(files, list) or not files or len(files) > limit: continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         if 'shard' in candidate:
-            try: validate_shard(candidate['shard'], len(files))
+            try: validate_shard(candidate['shard'], len(files), require_group=True)
             except ValueError as error: sys.exit(str(error))
         elif not captures_fit_allocation([item['name'] for item in files]): continue
         manifests.append(candidate)
@@ -84,6 +84,7 @@ files = [dict(item, version=report.get('version', head), report=index) for index
 names = [item['name'] for item in files]
 if len(set(names)) != len(names): sys.exit('Invalid or duplicate gallery filename.')
 if selected - set(names): sys.exit('A requested capture is absent from the current report.')
+staging = tempfile.TemporaryDirectory(prefix="gallery-accept-")
 accepted = {}; totals = {}
 for item in files:
     name, url, version = item['name'], item['api_url'], item['version']
@@ -106,19 +107,21 @@ for item in files:
     elif dimensions not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
     totals[item['report']] = totals.get(item['report'], 0) + len(data)
     if totals[item['report']] > MAX_BYTES: sys.exit('Gallery captures exceed their size limit.')
-    accepted[name] = data
+    staged = pathlib.Path(staging.name) / name
+    staged.write_bytes(data)
+    accepted[name] = staged
 # Validate and download every selected capture before writing any baseline.
 folder = root / 'packages/gui/gallery/baselines'
 folder.mkdir(parents=True, exist_ok=True)
 if folder.is_symlink(): sys.exit('The baseline directory must not be a symlink.')
-for name, data in accepted.items():
+for name, staged in accepted.items():
     target = folder / name
     if target.is_symlink(): sys.exit('A baseline must not be a symlink.')
-for name, data in accepted.items():
+for name, staged in accepted.items():
     target = folder / name
     temporary = target.with_suffix('.png.tmp')
     if temporary.is_symlink(): sys.exit('A temporary baseline must not be a symlink.')
-    temporary.write_bytes(data); temporary.replace(target)
+    temporary.write_bytes(staged.read_bytes()); temporary.replace(target)
     print(f'Accepted {name}')
 print('Commit and push the reviewed baselines, then wait for green gallery checks:')
 commands = [

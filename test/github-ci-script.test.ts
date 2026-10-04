@@ -1101,7 +1101,7 @@ it("executes the hosted shard guard against bounded, inconsistent and ungated re
   // Run the hosted executable guard, with only its shared validation module supplied.
   mkdirSync(join(f.checkout, "scripts"));
   writeFileSync(join(f.checkout, "scripts/gallery_reports.py"), readFileSync(join(root, "scripts/gallery_reports.py")));
-  const report = { pixelBlocking: true, scenes: Array.from({ length: 72 }, () => ({})), shard: { run: "hosted-run", index: 2, count: 2, total: 472 } };
+  const report = { pixelBlocking: true, scenes: Array.from({ length: 72 }, (_, index) => ({ name: `scene-${index}.dark` })), shard: { run: "hosted-run", index: 2, count: 2, total: 472 } };
   const check = () => run("python3", ["-c", code], { cwd: f.checkout, env: { ...process.env, GALLERY_SHARD: "2", GALLERY_RUN: "hosted-run" } });
   const write = () => writeFileSync(join(images, "report.json"), JSON.stringify(report));
   write(); await expect(check()).resolves.toBeDefined();
@@ -1115,9 +1115,9 @@ it("executes the hosted shard guard against bounded, inconsistent and ungated re
   expect(hosted).toContain("name: ${{ matrix.artifact }}");
 });
 
-it("plans the one-report artifact name without launching the renderer", async () => {
+it("plans named report artifacts without launching the renderer", async () => {
   const result = await run(process.execPath, ["--import", "tsx", "gallery/plan.ts"], { cwd: join(root, "packages/gui") });
-  expect(result.stdout.trim()).toBe('matrix={"include":[{"shard":1,"artifact":"window-gallery"}]}');
+  expect(result.stdout.trim()).toBe('matrix={"include":[{"shard":"desktop-001","count":2,"artifact":"window-gallery-desktop-001"},{"shard":"phone-001","count":2,"artifact":"window-gallery-phone-001"}]}');
 });
 
 it("plans and validates a bounded single report on heads predating shard support", async () => {
@@ -1286,4 +1286,58 @@ it("the hosted report guard admits both shards and rejects overflow or an adviso
   desktop.pop();
   writeFileSync(join(images, "report.json"), JSON.stringify({ ...report, pixelBlocking: false }));
   await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Every capture remains gated") });
+});
+
+it.each(["complete", "missing", "duplicate", "mixed-group", "missing-metadata", "wrong-family", "wrong-artifact", "advisory"])("publishes main's named reports and requires their complete run before acceptance (%s)", async mode => {
+  const g = await shardedGallery();
+  for (const [index, archive] of [g.first, g.second].entries()) await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: files={n:z.read(n) for n in z.namelist()}
+r=json.loads(files['report.json']); r['shard']={'id':f'desktop-{int(sys.argv[2])+1:03d}','index':int(sys.argv[2]),'count':2}; files['report.json']=json.dumps(r).encode()
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+ for n,data in files.items(): z.writestr(n,data)`, archive, String(index)]);
+  g.shardEnv.FAKE_ARTIFACTS = JSON.stringify([{ id: 99, name: "window-gallery-desktop-001", size_in_bytes: statSync(g.first).size }, { id: 100, name: "window-gallery-desktop-002", size_in_bytes: statSync(g.second).size }]);
+  if (["missing-metadata", "wrong-family", "advisory"].includes(mode)) await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: files={n:z.read(n) for n in z.namelist()}
+r=json.loads(files['report.json'])
+if sys.argv[2]=='missing-metadata': del r['shard']
+if sys.argv[2]=='wrong-family': r['shard']['id']='phone-001'
+if sys.argv[2]=='advisory': r['pixelBlocking']=False
+files['report.json']=json.dumps(r).encode()
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+ for n,data in files.items(): z.writestr(n,data)`, g.first, mode]);
+  if (mode === "wrong-artifact" || mode === "wrong-family") g.shardEnv.FAKE_ARTIFACTS = g.shardEnv.FAKE_ARTIFACTS.replace("window-gallery-desktop-001", mode === "wrong-family" ? "window-gallery-phone-001" : "window-gallery-desktop-003");
+  const result = await relay(g.f, g.shardEnv);
+  if (["missing-metadata", "wrong-family", "wrong-artifact", "advisory"].includes(mode)) {
+    expect(result.code).toBe(1); expect(g.comments).toHaveLength(0); return;
+  }
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(2);
+  if (mode === "missing") g.comments.splice(0, 1);
+  if (mode === "duplicate") g.comments.push({ ...g.comments[0]!, id: 3, body: g.comments[0]!.body.replaceAll(`${g.sha}-1`, `${g.sha}-3`) });
+  if (mode === "mixed-group") g.comments[0]!.body = g.comments[0]!.body.replaceAll("run-42-1", "run-43-1");
+  const acceptance = run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...process.env, ...g.env } });
+  if (mode === "complete") {
+    await acceptance;
+    expect(readdirSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toHaveLength(472);
+  } else {
+    await expect(acceptance).rejects.toThrow();
+    expect(existsSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toBe(false);
+  }
+});
+
+
+it("binds main's named hosted reports to the planned shard count and family", async () => {
+  const f = await fixture();
+  const images = join(f.checkout, "packages/gui/gallery-images"); mkdirSync(images, { recursive: true });
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1];
+  if (guard === undefined) throw new Error("no hosted report guard");
+  const code = guard.split("\n").map(line => line.slice(10)).join("\n");
+  const report = { pixelBlocking: true, scenes: [{ name: "phone-sample-phone-390.dark" }], shard: { id: "phone-001", index: 1, count: 2 } };
+  const check = () => run("python3", ["-c", code], { cwd: f.checkout, env: { ...process.env, GALLERY_SHARD: "phone-001", GALLERY_SHARD_COUNT: "2" } });
+  const write = () => writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  write(); await expect(check()).resolves.toBeDefined();
+  report.shard.count = 3; write(); await expect(check()).rejects.toThrow();
+  report.shard.count = 2; report.scenes[0]!.name = "window-empty.dark";
+  write(); await expect(check()).rejects.toThrow();
 });

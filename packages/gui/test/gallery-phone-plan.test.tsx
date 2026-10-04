@@ -4,7 +4,7 @@ import { capturePlan, captureShard, sceneFiles } from "../gallery/capture-plan.j
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
-  expect(plan.budget).toEqual({ desktop: 4, phone: 8, total: 12, limit: 400, remaining: 388 });
+  expect(plan.budget).toEqual({ desktop: 4, phone: 8, total: 12, limit: 800, remaining: 788 });
   expect(plan.captures.filter(c => c.platform === "desktop").map(c => c.name)).toEqual([
     "window-empty.light", "window-empty.dark", "window-empty-narrow.light", "window-empty-narrow.dark",
   ]);
@@ -20,9 +20,11 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
   ]);
 });
 
-it("reserves capacity for the existing 354 desktop captures and the bounded phone subset", async () => {
+it("retains desktop and bounded phone profiles while allowing surface-owned growth", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
-  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 400, remaining: 0 });
+  expect(plan.budget.desktop).toBeGreaterThanOrEqual(354);
+  expect(plan.budget.phone).toBeGreaterThanOrEqual(46);
+  expect(plan.shards.every(shard => shard.budget.remaining >= 0)).toBe(true);
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
     "phone-gallery-continue-phone-390-text-20.light", "phone-gallery-continue-phone-390-text-20.dark",
@@ -31,40 +33,34 @@ it("reserves capacity for the existing 354 desktop captures and the bounded phon
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(plan.budget.total);
 });
 
-it("adds nine phone pane scenes in bounded shards without dropping desktop or phone captures", async () => {
-  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
-  const plan = capturePlan([...scenes, ...["phone-pane-agent", "phone-pane-diff", "phone-pane-documents", "phone-pane-file", "phone-pane-files", "phone-pane-markdown", "phone-pane-preview", "phone-pane-scope", "phone-pane-tasks"]]);
-  expect(plan.budget).toEqual({ desktop: 354, phone: 118, total: 472, limit: 800, remaining: 328 });
-  expect(plan.shards.map(shard => [shard.index, shard.count, shard.total, shard.captures.length])).toEqual([
-    [1, 2, 472, 400], [2, 2, 472, 72],
+it("keeps each desktop and phone report within 400 captures as either family grows", () => {
+  const plan = capturePlan(Array.from({ length: 250 }, (_, i) => `settings-sample-${i}`).concat(Array.from({ length: 51 }, (_, i) => `phone-sample-${i}`)));
+  expect(plan.shards.map(shard => [shard.id, shard.captures.length])).toEqual([
+    ["desktop-001", 400], ["desktop-002", 100], ["phone-001", 400], ["phone-002", 8],
   ]);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
-  expect(new Set(plan.captures.map(c => c.name)).size).toBe(472);
+  expect(new Set(plan.captures.map(c => c.name)).size).toBe(908);
 });
 
-it("refuses growth beyond sixteen bounded reports before capturing a partial gallery", () => {
-  expect(() => capturePlan(Array.from({ length: 801 }, (_, i) => `phone-sample-${i}`))).toThrow("Gallery capture budget exceeded");
-});
 
-it("supports an existing one-report hosted job while requiring explicit multi-report selection", () => {
-  const single = capturePlan(["window-empty"]);
-  expect(captureShard(single, undefined, "hosted-run").index).toBe(1);
-  const multiple = capturePlan(Array.from({ length: 51 }, (_, i) => `phone-pane-${i}`));
-  expect(() => captureShard(multiple, undefined, "hosted-run")).toThrow("Invalid gallery shard selection");
-  const selected = captureShard(multiple, "2", "hosted-run");
-  expect(selected.captures).toHaveLength(8);
-  expect(selected.shard).toEqual({ run: "hosted-run", index: 2, count: 2, total: 408 });
-  expect(() => captureShard(multiple, "3", "hosted-run")).toThrow("Invalid gallery shard selection");
-  expect(() => captureShard(multiple, "1", "bad/run")).toThrow("Invalid gallery shard selection");
+it("discovers an added phone overlay beyond the full report and shards every capture without loss", async () => {
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => scene !== "phone-overlay-workspace");
+  const existing = capturePlan(scenes);
+  const plan = capturePlan([...scenes, "phone-overlay-workspace"]);
+  expect(plan.captures).toHaveLength(existing.captures.length + 8);
+  expect(plan.captures.filter(c => c.scene !== "phone-overlay-workspace")).toEqual(existing.captures);
+  expect(plan.shards.every(shard => shard.captures.length <= 400)).toBe(true);
+  expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
-
 
 it("allocates the frame conversation and drawer profiles without spending desktop capacity", async () => {
-  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => !["phone-frame-conversation", "phone-frame-drawer"].includes(scene));
   const existing = capturePlan(scenes);
   const plan = capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]);
   expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(existing.captures.filter(c => c.platform === "desktop"));
-  expect(plan.budget).toEqual({ desktop: 354, phone: 62, total: 416, limit: 800, remaining: 384 });
+  expect(plan.budget.desktop).toBe(existing.budget.desktop);
+  expect(plan.budget.phone).toBe(existing.budget.phone + 16);
+  expect(plan.budget.total).toBe(existing.budget.total + 16);
   for (const scene of ["phone-frame-conversation", "phone-frame-drawer"]) {
     expect(plan.captures.filter(c => c.scene === scene).map(c => c.name)).toEqual([
       `${scene}-phone-390.light`, `${scene}-phone-390.dark`,
@@ -73,4 +69,22 @@ it("allocates the frame conversation and drawer profiles without spending deskto
       `${scene}-phone-390-keyboard.light`, `${scene}-phone-390-keyboard.dark`,
     ]);
   }
+});
+
+
+it("adds all nine pane scenes in independently bounded reports", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const plan = capturePlan([...scenes, ...["phone-pane-agent", "phone-pane-diff", "phone-pane-documents", "phone-pane-file", "phone-pane-files", "phone-pane-markdown", "phone-pane-preview", "phone-pane-scope", "phone-pane-tasks"]]);
+  expect(plan.budget).toEqual({ desktop: 354, phone: 118, total: 472, limit: 800, remaining: 328 });
+  expect(plan.shards.map(shard => [shard.id, shard.captures.length])).toEqual([["desktop-001", 354], ["phone-001", 118]]);
+  expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
+});
+
+it("requires a discovered shard before capture", () => {
+  const plan = capturePlan(Array.from({ length: 51 }, (_, i) => `phone-pane-${i}`));
+  expect(() => captureShard(plan, undefined)).toThrow("Invalid gallery shard selection");
+  const selected = captureShard(plan, "phone-002");
+  expect(selected.captures).toHaveLength(8);
+  expect(selected.shard).toEqual({ id: "phone-002", index: 1, count: 2 });
+  expect(() => captureShard(plan, "phone-003")).toThrow("Invalid gallery shard selection");
 });

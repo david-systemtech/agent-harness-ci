@@ -1,3 +1,4 @@
+import { CredentialNoticeHost } from "../notices/credential-notice.js";
 import { LOCAL_PLACEHOLDER_ID, type EnvironmentView } from "@agent-harness/client-runtime";
 import { ArrowRight, Check, CircleAlert, KeyRound, Link, LoaderCircle, LogOut, Monitor, RotateCw, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useId, useState } from "react";
@@ -36,6 +37,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
     <header data-setup-frame className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline bg-panel px-4">
       <Sparkles aria-hidden="true" className="size-4 text-beam-text" /><span className="text-sm font-semibold">agent-harness</span>
     </header>
+    <CredentialNoticeHost />
     <div className="flex min-h-0 flex-1 overflow-y-auto p-[7px]">
       <div data-setup-introduction className="m-auto flex w-[720px] max-w-full flex-col gap-6 rounded-lg border border-hairline bg-panel p-7">
         <div className="flex flex-col gap-3">

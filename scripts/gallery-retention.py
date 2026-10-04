@@ -89,7 +89,7 @@ def main():
                 continue
             if 'shard' in manifest:
                 try:
-                    validate_shard(manifest['shard'], len(captures))
+                    validate_shard(manifest['shard'], len(captures), require_group=True)
                 except ValueError:
                     continue
             elif not captures_fit_allocation([item['name'] for item in captures]):

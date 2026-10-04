@@ -9,6 +9,7 @@ import { desktopDataDirectory, environmentDataDirectory } from "./data-directory
 import { startDesktop } from "./desktop.js";
 import { desktopLog } from "./log.js";
 import { CREDENTIAL_HELPER_ARGUMENT, launchMacCredentials, serveMacCredentials } from "./mac-credentials.js";
+import { credentialHelperName, macCredentialStore } from "./mac-credential-store.js";
 import { PACKAGED_RENDERER, PACKAGED_SERVER } from "./packaged.js";
 
 /**
@@ -28,9 +29,11 @@ const machine = { os, env: process.env, homedir: homedir() };
 const data = desktopDataDirectory(machine);
 
 if (os === "darwin" && process.argv.includes(CREDENTIAL_HELPER_ARGUMENT) && process.send) {
-  // A separate Chromium profile avoids sharing locks with the window. The app name and signing
-  // identity stay the same, so safeStorage uses the existing OS key, including prior v10 ciphertext.
-  app.setPath("userData", join(data, "credential-provider"));
+  // Electron derives the Keychain service from this name before ready. A recovered
+  // item has a new name; the default still reads earlier synchronous v10 ciphertext.
+  const name = credentialHelperName(process.argv);
+  app.setName(name);
+  app.setPath("userData", join(data, "credential-provider", encodeURIComponent(name)));
   void app.whenReady().then(() => app.dock?.hide());
   process.on("disconnect", () => process.kill(process.pid, "SIGKILL"));
   serveMacCredentials(safeStorage, app.whenReady(), (receive) => process.on("message", receive), (reply) => process.send?.(reply));
@@ -46,7 +49,10 @@ if (os === "darwin" && process.argv.includes(CREDENTIAL_HELPER_ARGUMENT) && proc
 
   const log = desktopLog(data);
 
-  const macCredentials = os === "darwin" ? launchMacCredentials(process.execPath, process.defaultApp ? [resolve(process.argv[1] ?? ".")] : []) : undefined;
+  const macCredentials = os === "darwin" ? macCredentialStore({
+    dir: join(data, "secrets"),
+    open: (name) => launchMacCredentials(process.execPath, process.defaultApp ? [resolve(process.argv[1] ?? ".")] : [], name),
+  }) : undefined;
   process.on("exit", () => macCredentials?.close());
   const nativeViews = new WeakMap<ElectronWebView, WebContentsView>();
 

@@ -33,6 +33,9 @@ jobs:
         run: |
           if [ -f packages/gui/gallery/plan.ts ]; then
             pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/plan.ts >> "$GITHUB_OUTPUT"
+          elif [ -f packages/gui/gallery/shards.ts ]; then
+            shards=$(pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/shards.ts)
+            python3 -c 'import json,sys; ids=json.loads(sys.argv[1]); print("matrix="+json.dumps({"include":[{"shard":s,"count":len(ids),"artifact":"window-gallery-"+s} for s in ids]}))' "$shards" >> "$GITHUB_OUTPUT"
           else
             echo 'matrix={"include":[{"shard":1,"artifact":"window-gallery","legacy":true}]}' >> "$GITHUB_OUTPUT"
           fi
@@ -44,6 +47,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       GALLERY_SHARD: ${{ matrix.shard }}
+      GALLERY_SHARD_COUNT: ${{ matrix.count || 1 }}
       GALLERY_RUN: ${{ github.event.client_payload.id }}-${{ github.run_attempt }}
       GALLERY_LEGACY: ${{ matrix.legacy || false }}
     runs-on: ubuntu-24.04
@@ -84,17 +88,27 @@ jobs:
       - name: Check each bounded desktop and phone report shard
         run: |
           python3 - <<'PY'
-          import json, os, pathlib, sys
+          import json, os, pathlib, re, sys
           sys.path.insert(0, "scripts")
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
           if 'shard' in report:
               assert 'shards' not in report and isinstance(report.get('scenes'), list) and 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
-              from gallery_reports import validate_shard
-              shard = validate_shard(report['shard'], len(report['scenes']))
-              assert shard['index'] == int(os.environ['GALLERY_SHARD'])
-              assert shard['run'] == os.environ['GALLERY_RUN']
+              assert len({scene['name'] for scene in report['scenes']}) == len(report['scenes']), 'Duplicate gallery capture name'
+              shard = report['shard']
+              if 'id' in shard:
+                  assert set(shard) == {'id', 'index', 'count'}
+                  assert re.fullmatch(r'(desktop|phone)-[0-9]{3}', str(shard['id']))
+                  assert shard['id'] == os.environ['GALLERY_SHARD']
+                  assert type(shard['index']) is int and type(shard['count']) is int and 0 <= shard['index'] < shard['count'] <= 100
+                  assert shard['count'] == int(os.environ['GALLERY_SHARD_COUNT'])
+                  assert all(scene['name'].startswith('phone-') == shard['id'].startswith('phone-') for scene in report['scenes']), 'Wrong gallery shard family'
+              else:
+                  from gallery_reports import validate_shard
+                  shard = validate_shard(shard, len(report['scenes']))
+                  assert shard['index'] == int(os.environ['GALLERY_SHARD'])
+                  assert shard['run'] == os.environ['GALLERY_RUN']
           else:
               assert os.environ.get('GALLERY_LEGACY') == 'true', 'Missing gallery shard metadata'
               assert os.environ['GALLERY_SHARD'] == '1', 'Legacy reports must be unsharded'

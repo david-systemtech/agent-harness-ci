@@ -37,8 +37,7 @@ try {
   if (names.length === 0) throw new Error("The gallery has no scenes.");
   const plan = capturePlan(names);
   console.log(`Capture budget: ${plan.budget.desktop} desktop + ${plan.budget.phone} phone = ${plan.budget.total}/${plan.budget.limit}; ${plan.budget.remaining} reserved.`);
-  const run = process.env["GALLERY_RUN"] ?? (process.env["GITHUB_RUN_ID"] === undefined ? undefined : `${process.env["GITHUB_RUN_ID"]}-${process.env["GITHUB_RUN_ATTEMPT"] ?? "1"}`);
-  const selected = captureShard(plan, process.env["GALLERY_SHARD"], run);
+  const selected = captureShard(plan, process.env["GALLERY_SHARD"]);
   const { shard } = selected;
   for (const { scene, ladder, viewport, name, platform, textSize } of selected.captures) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
@@ -86,7 +85,7 @@ try {
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
   const pixelBlocking = true;
-  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: plan.budget, shard, scenes: report }, null, 2));
+  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: selected.budget, shard, scenes: report }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);

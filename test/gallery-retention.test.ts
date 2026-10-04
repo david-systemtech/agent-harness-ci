@@ -31,7 +31,7 @@ async function fixture(failure = "", captureCount = 1, phoneCount = 0) {
       response.end(JSON.stringify(page === "1" ? [{ number: 42, head: { sha: "active-head" } }] : []));
     } else if (url.pathname.includes("/comments")) {
       if (failure === "comments") { response.writeHead(503).end(); return; }
-      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), ...(failure.startsWith('sharded') ? { shard: { run: 'sharded-run', index: failure === 'sharded-invalid' ? 3 : 2, count: 2, total: 472 } } : {}), captures: Array.from({ length: captureCount }, (_, index) => {
+      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), ...(failure.startsWith("named") ? { shard: { id: "desktop-001", group: failure === "named-invalid" ? "wrong-group" : "run-42-1", index: 0, count: 2 } } : {}), ...(failure.startsWith('sharded') ? { shard: { run: 'sharded-run', index: failure === 'sharded-invalid' ? 3 : 2, count: 2, total: 472 } } : {}), captures: Array.from({ length: captureCount }, (_, index) => {
         const name = index < captureCount - phoneCount ? `window-scene-${index}.dark.png` : `phone-scene-${index}-phone-390.dark.png`;
         return { name, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}` };
       }) }) + ' -->' });
@@ -159,4 +159,17 @@ it("does not protect a phone shard beyond its allocation", async () => {
   const f = await fixture("", 401, 401);
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "earlier-head-2", "legacy-head", "expired-second-page"]);
+});
+
+
+it("preserves named shard manifests from current main and earlier heads", async () => {
+  const f = await fixture("named", 72);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
+});
+
+it("does not protect a named shard with an invalid hosted run group", async () => {
+  const f = await fixture("named-invalid", 72);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toContain("earlier-head-2");
 });

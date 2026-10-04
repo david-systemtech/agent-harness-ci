@@ -39,6 +39,8 @@ def read_report(archive):
         images = {n: z.read(n) for n in names if n.endswith('.png')}
         for name, data in images.items():
             if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
+            if 'shard' in report and not name.startswith('phone-'):
+                if len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) not in ((1400, 900), (1024, 768)): sys.exit('unexpected desktop gallery dimensions')
             if name.startswith('phone-'):
                 phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
                 profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
@@ -51,13 +53,20 @@ def read_report(archive):
             required = [name + '.png']
             if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
             if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
-        if re.search(r'gallery-shard-[1-9][0-9]*[.]zip$', archive) and 'shard' not in report: sys.exit('Missing gallery shard metadata')
+        if re.search(r'gallery-(?:shard-[1-9][0-9]*|(?:desktop|phone)-[0-9]{3})[.]zip$', archive) and 'shard' not in report: sys.exit('Missing gallery shard metadata')
         if 'shard' in report:
+            if 'id' in report['shard']:
+                report['shard']['group'] = os.environ.get('GALLERY_PUBLICATION_RUN', '')
             validate_shard(report['shard'], len(scenes))
             if report.get('pixelBlocking') is not True: sys.exit('Every shard capture remains gated')
-            match = re.search(r'gallery-shard-([1-9][0-9]*)[.]zip$', archive)
-            single = archive.endswith('/gallery.zip') and report['shard']['index'] == report['shard']['count'] == 1
-            if not single and (match is None or int(match[1]) != report['shard']['index']): sys.exit('Gallery artifact and shard index differ')
+            if 'id' in report['shard']:
+                match = re.search(r'gallery-((?:desktop|phone)-[0-9]{3})[.]zip$', archive)
+                if match is None or match[1] != report['shard']['id']: sys.exit('Gallery artifact and shard id differ')
+                if any(scene['name'].startswith('phone-') != report['shard']['id'].startswith('phone-') for scene in scenes): sys.exit('Gallery capture and shard family differ')
+            else:
+                match = re.search(r'gallery-shard-([1-9][0-9]*)[.]zip$', archive)
+            single = 'id' not in report['shard'] and archive.endswith('/gallery.zip') and report['shard']['index'] == report['shard']['count'] == 1
+            if 'id' not in report['shard'] and not single and (match is None or int(match[1]) != report['shard']['index']): sys.exit('Gallery artifact and shard index differ')
         expected = {scene['name'] + suffix for scene in scenes for suffix in (('.png', '.baseline.png', '.difference.png') if scene['status'] == 'changed' else ('.png',))}
         if ('shard' in report or combined) and set(images) != expected: sys.exit('Unexpected gallery shard images')
     return report, images, scenes
@@ -67,7 +76,7 @@ shards = [report.get('shard') for report, _, _ in reports]
 if any(shard is not None for shard in shards):
     if any(shard is None for shard in shards): sys.exit('Mixed gallery report formats')
     manifests = [dict(report, captures=[{'name': scene['name']} for scene in scenes]) for report, _, scenes in reports]
-    if len({shard['run'] for shard in shards}) != 1: sys.exit('Inconsistent gallery shard runs')
+    if len({('named', shard['group']) if 'id' in shard else ('numbered', shard['run']) for shard in shards}) != 1: sys.exit('Inconsistent gallery shard runs')
     if len({shard['index'] for shard in shards}) != len(shards): sys.exit('Duplicate gallery shard index')
     ordered = complete_set(manifests)
     if len(ordered) != len(reports): sys.exit('Incomplete gallery shard set')
@@ -127,7 +136,10 @@ for report, images, scenes in reports:
         manifest = {'head': head, 'version': version, 'captures': captures}
         if 'shard' in report:
             manifest['shard'] = report['shard']
-            body += f"\nReport shard {report['shard']['index']}/{report['shard']['count']}; {len(scenes)} of {report['shard']['total']} captures.\n"
+            if 'id' in report['shard']:
+                body += f"\nReport shard {report['shard']['id']} ({report['shard']['index'] + 1}/{report['shard']['count']}); {len(scenes)} captures.\n"
+            else:
+                body += f"\nReport shard {report['shard']['index']}/{report['shard']['count']}; {len(scenes)} of {report['shard']['total']} captures.\n"
         body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
         body += attempt
         stage = 'final report'

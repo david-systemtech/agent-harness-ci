@@ -7,6 +7,10 @@ export interface MacCredentials {
   available(signal: AbortSignal): Promise<boolean>;
   encrypt(secret: string, signal: AbortSignal): Promise<Buffer>;
   decrypt(kept: Buffer, signal: AbortSignal): Promise<string>;
+  /** Rotates new writes away from an unavailable earlier OS item. */
+  recover?(kept: Buffer): Promise<void>;
+  /** Whether an earlier unavailable item's ciphertext still needs re-pairing. */
+  recovery?(): Promise<boolean>;
   close(): void;
 }
 
@@ -73,11 +77,11 @@ export const macCredentialProcess = (launch: () => CredentialChild): MacCredenti
   };
 };
 
-export const launchMacCredentials = (executable: string, appArgs: readonly string[]): MacCredentials => macCredentialProcess(() => {
+export const launchMacCredentials = (executable: string, appArgs: readonly string[], name = "agent-harness"): MacCredentials => macCredentialProcess(() => {
   // No credentials in arguments, environment, stdout or stderr. Node's private IPC pipe carries them.
   const environment = { ...process.env };
   delete environment["ELECTRON_RUN_AS_NODE"];
-  return spawn(executable, [...appArgs, CREDENTIAL_HELPER_ARGUMENT], {
+  return spawn(executable, [...appArgs, CREDENTIAL_HELPER_ARGUMENT, `--credential-store=${name}`], {
     stdio: ["ignore", "ignore", "ignore", "ipc"], serialization: "json", env: environment,
   });
 });

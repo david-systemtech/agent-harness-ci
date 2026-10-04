@@ -7,12 +7,13 @@ import { Button } from "../ui/index.js";
 import { DIALOG_SCRIM } from "../ui/dialog.js";
 import { SettingsRail } from "./rail.js";
 import { RowPane } from "./row-pane.js";
-import { useSettings } from "./settings-window.js";
+import { useSettings, useSettingsNoticeHost } from "./settings-window.js";
 
 /** Settings overlays the mounted session window, bounded by look.md §12.1. */
 export const SettingsView = () => {
   const [query, setQuery] = useState("");
   const { row, close } = useSettings();
+  const noticeHost = useSettingsNoticeHost();
   const isToggle = useIsKeyOf("app.settings.toggle");
   const toggleKey = useFirstKey("app.settings.toggle");
   return (
@@ -44,6 +45,7 @@ export const SettingsView = () => {
               </div>
               <Button title={`Close Settings · Escape${toggleKey === undefined ? "" : ` · ${toggleKey}`}`} aria-label="Close Settings" size="icon-xs" onClick={close}><X aria-hidden="true" /></Button>
             </header>
+            <div ref={noticeHost?.setHost} className="max-h-[40%] shrink-0 overflow-y-auto px-4" />
             <div className="flex min-h-0 flex-1">
               <SettingsRail current={row} query={query} setQuery={setQuery} />
               <RowPane key={row} row={row} filtered={!matchSettingsRows(query).includes(row)} clearSearch={() => setQuery("")} />
