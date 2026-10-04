@@ -1,0 +1,14 @@
+/* Desktop dock geometry stays measured independently of the browser's touch controls. */
+.dock-close-pane { display: none; }
+[data-web-client] .dock-close-pane { display: inline-flex; }
+[data-web-client] [data-dock-rail] { width: 52px; }
+[data-web-client] [data-dock-rail] [role="tablist"] > div { width: 44px; height: 44px; }
+[data-web-client] [data-dock-rail] [role="tablist"] [aria-label^="Close "] { display: none; }
+[data-web-client] [data-dock-rail] [role="tab"],
+[data-web-client] [data-dock-rail] > button,
+[data-web-client] [data-dock-header] { min-height: 44px; }
+[data-web-client] [data-dock-reopen] { width: 44px; height: 44px; top: 6px; bottom: auto; }
+[data-web-client] [data-dock-sheet] { min-width: 0; }
+[data-web-client] [data-document-actions] { opacity: 1; }
+[data-web-client] [aria-label="The agent's transcript"] { overflow-wrap: anywhere; }
+[data-web-client] [data-dock-sheet] :is(article, p) { overflow-wrap: anywhere; }

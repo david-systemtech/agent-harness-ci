@@ -231,26 +231,23 @@ describe("the Preview pane", () => {
     expect(grants(app.shell)).toEqual([]);
   });
 
-  it("is absent without the shell's preview, with no-shell's line in More, and the Documents pane's Preview and the tile are dim with it", async () => {
+  it("previews browser pages as static snapshots with source and download actions", async () => {
     const shell = Object.assign(fakeShell(), { preview: undefined });
     const { app, env, session, runId } = await opened({}, shell);
     env.writeFile(session, runId, "site/index.html", PAGE);
-    const line = "This client cannot show a preview: its shell has no shell.preview.";
-
-    await openPane(app, "Preview");
-    const unavailable = screen.getByRole("menuitem", { name: "Preview" });
-    expect(unavailable.textContent).toContain(line);
-    expect(unavailable.getAttribute("aria-disabled")).toBe("true");
-    await app.user.keyboard("{Escape}");
-
     await openPane(app, "Documents");
-    const preview = within(await waitFor(() => row("site/index.html"))).getByRole("button", { name: "Preview" });
-    expect(preview.getAttribute("aria-disabled")).toBe("true");
-    await app.user.click(preview);
-    expect(await screen.findByText(`Not previewed: ${line}`)).toBeDefined();
-
-    const tile = within(screen.getByRole("region", { name: "Transcript" })).getByRole("button", { name: "Preview site/index.html" });
-    expect(tile.getAttribute("aria-disabled")).toBe("true");
-    expect(frame("site/index.html")).toBeNull();
+    await app.user.click(within(await waitFor(() => row("site/index.html"))).getByRole("button", { name: "Preview" }));
+    const framed = await screen.findByTitle("Preview of site/index.html");
+    expect(framed.getAttribute("sandbox")).toBe("");
+    expect(framed.getAttribute("src")).toBeNull();
+    expect(framed.getAttribute("srcdoc")).toContain("Receipts");
+    expect(framed.getAttribute("srcdoc")).toContain("default-src 'none'");
+    expect(within(pane("Preview")).getByText(/Preview scripts require the desktop client/)).toBeDefined();
+    const download = within(pane("Preview")).getByRole("link", { name: "Download" });
+    expect(download.getAttribute("download")).toBe("index.html");
+    expect(decodeURIComponent(download.getAttribute("href") ?? "")).toContain(PAGE);
+    await app.user.click(within(pane("Preview")).getByRole("button", { name: "Source" }));
+    expect(await within(pane("Files")).findByRole("code")).toHaveProperty("textContent", PAGE);
+    expect(grants(app.shell)).toEqual([]);
   });
 });

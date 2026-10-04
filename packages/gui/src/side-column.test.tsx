@@ -37,7 +37,7 @@ const openPane = async (app: RenderedApp, name: string) => {
 };
 
 /** The side column; null while none is drawn. */
-const column = () => screen.queryByRole("complementary", { name: "Side column" });
+const column = () => screen.queryByRole("complementary", { name: "Side column" }) ?? screen.queryByRole("dialog", { name: "Side column" });
 
 /** The strip's names, each as it reads, and the one it shows. */
 const strip = () => {
@@ -97,8 +97,17 @@ describe("the side column", () => {
     await app.user.click(within(screen.getByRole("region", { name: "Files" })).getByRole("button", { name: /^src\// }));
     act(() => resize?.(899));
     expect(column()?.hasAttribute("data-dock-sheet")).toBe(true);
-    await app.user.click(screen.getByRole("button", { name: "Close side sheet" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close side sheet" }));
+    const first = named("Files");
+    const last = within(screen.getByRole("region", { name: "Files" })).getAllByRole("button").at(-1)!;
+    last.focus();
+    await app.user.tab();
+    expect(document.activeElement).toBe(first);
+    await app.user.tab({ shift: true });
+    expect(document.activeElement).toBe(last);
+    await app.user.keyboard("{Escape}");
     expect(column()).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Show the side column" }));
     await app.user.click(screen.getByRole("button", { name: "Show the side column" }));
     expect(within(screen.getByRole("region", { name: "Files" })).getByRole("heading", { name: "src/" })).toBeDefined();
     act(() => resize?.(900));
