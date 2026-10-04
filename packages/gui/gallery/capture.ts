@@ -44,19 +44,7 @@ try {
       page.on("pageerror", (error) => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}`);
       await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
-      if (scene === "dialog-restore") {
-        console.log("restore-before", name, await page.evaluate(() => {
-          const elements = [document.activeElement, ...document.querySelectorAll("[data-radix-popper-content-wrapper]")];
-          return elements.map((element) => ({ text: element?.textContent, rect: element?.getBoundingClientRect().toJSON() }));
-        }));
-      }
       await page.evaluate(waitForFloatingLayout);
-      if (scene === "dialog-restore") {
-        console.log("restore-completed", name, await page.evaluate(() => {
-          const elements = [document.activeElement, ...document.querySelectorAll("[data-radix-popper-content-wrapper]")];
-          return elements.map((element) => ({ text: element?.textContent, rect: element?.getBoundingClientRect().toJSON() }));
-        }));
-      }
       if (errors.length > 0) throw new Error(errors.join("\n"));
       const capturePath = resolve(output, `${name}.png`);
       await page.screenshot({ path: capturePath, animations: "disabled", caret: "hide", scale: "css" });
@@ -87,32 +75,6 @@ try {
       if (baseline !== undefined && compared.status === "changed") await copyFile(baselinePath, resolve(output, `${name}.baseline.png`));
       if (compared.difference !== undefined) await writeFile(resolve(output, `${name}.difference.png`), compared.difference);
       report.push({ name, status: compared.status, differentPixels: compared.differentPixels, pixelFailed: compared.pixelFailed, geometryFailures: failures });
-      if (scene === "dialog-restore") {
-        for (let attempt = 0; attempt < 8; attempt++) {
-          await page.reload();
-          await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
-          await page.evaluate(async () => {
-            await document.fonts.ready;
-            let previous: string | undefined;
-            let stable = 0;
-            while (stable < 3) {
-              await new Promise<void>((done) => requestAnimationFrame(() => done()));
-              const current = JSON.stringify(Array.from(document.querySelectorAll("[data-radix-popper-content-wrapper]"), (element) => element.getBoundingClientRect().toJSON()));
-              stable = current === previous ? stable + 1 : 0;
-              previous = current;
-            }
-          });
-          const before = await page.evaluate(restoreCaptureState);
-          const old = compareCapture(baseline, await page.screenshot({ animations: "disabled", caret: "hide", scale: "css" }));
-          const after = await page.evaluate(restoreCaptureState);
-          const allowed = compareCapture(baseline, await page.screenshot({ animations: "allow", caret: "hide", scale: "css" }));
-          await page.evaluate(waitForFloatingLayout);
-          const freshState = await page.evaluate(restoreCaptureState);
-          const fresh = compareCapture(baseline, await page.screenshot({ animations: "disabled", caret: "hide", scale: "css" }));
-          console.log("restore-probe", JSON.stringify({ name, attempt, old: old.differentPixels, allowed: allowed.differentPixels, fresh: fresh.differentPixels, before, after, freshState }));
-        }
-      }
-
       await context.close();
     }
   }
@@ -128,12 +90,4 @@ try {
 } finally {
   await browser?.close();
   await new Promise<void>((done, reject) => server.close((error) => error ? reject(error) : done()));
-}
-
-function restoreCaptureState() {
-  return [document.activeElement, ...document.querySelectorAll<HTMLElement>("[data-radix-popper-content-wrapper]")].map((element) => {
-    if (element === null) return null;
-    const style = getComputedStyle(element);
-    return { text: element.textContent, rect: element.getBoundingClientRect().toJSON(), transform: style.transform, translate: style.translate, width: style.width, height: style.height, font: style.font, animation: style.animation, content: element.firstElementChild?.getBoundingClientRect().toJSON() };
-  });
 }

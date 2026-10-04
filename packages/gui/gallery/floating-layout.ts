@@ -13,9 +13,9 @@ export async function waitForFloatingLayout(): Promise<void> {
     stableFrames = current === previous ? stableFrames + 1 : 0;
     previous = current;
     if (stableFrames === 3 && !refreshed) {
-      // Floating UI's optimized observer may still hold a placement from before
-      // an asynchronous dialog row moved its focused control. Ask it to place
-      // against the completed layout, then wait for that update to settle too.
+      // A stationary popper can still retain its initial placement. Refresh
+      // through the focused dialog's overflow-ancestor listener, then wait for
+      // that update. A window resize would also dismiss open choices.
       document.activeElement?.closest('[role="dialog"]')?.dispatchEvent(new Event("resize"));
       refreshed = true;
       stableFrames = 0;

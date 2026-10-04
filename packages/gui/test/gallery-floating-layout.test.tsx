@@ -46,19 +46,27 @@ it("keeps capture pending while a floating control changes placement after font 
   await captureReady;
 });
 
-it("refreshes the real focused Close tooltip after its control moves without resizing", async () => {
-  let x = 676, y = 442;
+it("refreshes a cached Close tooltip placement after its dimensions finish changing", async () => {
+  let popupWidth = 106, popupHeight = 31;
   const original = HTMLElement.prototype.getBoundingClientRect;
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    if (this.dataset["probeClose"] !== undefined) return new DOMRect(x, y, 75, 32);
+    if (this.dataset["probeClose"] !== undefined) return new DOMRect(676, 442, 76, 32);
     if (this.dataset["radixPopperContentWrapper"] !== undefined) {
       const values = this.style.transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
-      return new DOMRect(Number(values?.[1] ?? 0), Number(values?.[2] ?? 0), 105, 31);
+      return new DOMRect(Number(values?.[1] ?? 0), Number(values?.[2] ?? 0), popupWidth, popupHeight);
     }
     return original.call(this);
   });
-  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return this.dataset["probeClose"] !== undefined ? 75 : this.dataset["radixPopperContentWrapper"] !== undefined ? 105 : 1400; });
-  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.dataset["probeClose"] !== undefined ? 32 : this.dataset["radixPopperContentWrapper"] !== undefined ? 31 : 900; });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return this.dataset["probeClose"] !== undefined ? 76 : this.dataset["radixPopperContentWrapper"] !== undefined ? Math.round(popupWidth) : 1400; });
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) { return this.dataset["probeClose"] !== undefined ? 32 : this.dataset["radixPopperContentWrapper"] !== undefined ? Math.round(popupHeight) : 900; });
+  const computedStyle = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+    const style = computedStyle(element, pseudo);
+    if (element.hasAttribute("data-radix-popper-content-wrapper")) {
+      Object.defineProperties(style, { width: { value: `${popupWidth}px` }, height: { value: `${popupHeight}px` } });
+    }
+    return style;
+  });
   vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1400);
   vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(900);
   Object.defineProperty(document, "fonts", { configurable: true, value: { ready: Promise.resolve() } });
@@ -71,7 +79,9 @@ it("refreshes the real focused Close tooltip after its control moves without res
   });
   act(() => { screen.getByRole("button", { name: "Close" }).focus(); });
   await act(async () => { await waitForFloatingLayout(); });
-  x = 677; y = 443;
+  // Complete the browser layout while the optimized observer's next size
+  // notification is still pending; focus and the reference rectangle stay put.
+  popupWidth = 105; popupHeight = 30.5;
   await act(async () => { await waitForFloatingLayout(); });
   expect(popup.style.transform).toBe("translate(662px, 406px)");
 });
