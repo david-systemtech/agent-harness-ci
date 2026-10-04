@@ -1158,9 +1158,9 @@ it("plans and validates a bounded single report on heads predating shard support
 
 it("publishes and accepts older combined reports including all frame phone profiles", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan(["window-empty", "phone-surface-sample", "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = [...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`), "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).captures.map(c => c.name)));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
-  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(12);
+  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(402);
   expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);
   await g.capture(230, names.length, names);
   await run("python3", ["-c", `import json,sys,zipfile
@@ -1210,6 +1210,41 @@ with zipfile.ZipFile(path,'w') as z:
   const result = await relay(g.f, g.env);
   expect(result.code).not.toBe(0);
   expect(g.comments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+});
+
+it.each([
+  ["single", ".png"], ["single", ".baseline.png"], ["single", ".difference.png"],
+  ["sharded", ".png"], ["sharded", ".baseline.png"], ["sharded", ".difference.png"],
+  ["matrix", ".png"], ["matrix", ".baseline.png"], ["matrix", ".difference.png"],
+])("refuses an unreported %s report image ending in %s before any publication", async (format, suffix) => {
+  const g = await storedGallery();
+  await g.capture(230);
+  await run("python3", ["-c", `import json,sys,zipfile
+path,format,suffix=sys.argv[1:]
+with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
+report=json.loads(entries['report.json'])
+scenes=report['scenes']
+if format=='sharded':
+    report['pixelBlocking']=True
+    report['shards']=[{'name':'desktop','scenes':scenes},{'name':'phone','scenes':[]}]
+if format=='matrix':
+    report['pixelBlocking']=True
+    report['shard']={'id':'desktop-001','index':0,'count':1}
+entries['unreported.dark'+suffix]=entries[scenes[0]['name']+'.png']
+entries['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(path,'w') as z:
+    for name,data in entries.items(): z.writestr(name,data)
+`, g.env.FAKE_GALLERY_ZIP, format, suffix]);
+  const env = format === "matrix" ? { ...g.env,
+    FAKE_ARTIFACTS: JSON.stringify([{ id: 100, name: "window-gallery-desktop-001", size_in_bytes: 100, expired: false }]),
+  } : g.env;
+  const result = await relay(g.f, env);
+  if (format === "matrix") expect(readFileSync(g.f.log, "utf8")).toContain("/actions/artifacts/100/zip");
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("unreported gallery image");
+  expect(g.comments).toEqual([]);
+  expect(g.attachments).toEqual([]);
   expect(g.captures.size).toBe(0);
 });
 
