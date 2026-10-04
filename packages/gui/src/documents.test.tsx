@@ -12,7 +12,8 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
  * call that made it; the Preview framing a page or an SVG read through
  * `files.read` at the URL the shell answers, sandboxed with scripts and
  * without same-origin, drawing markdown in the window, reading the file
- * again each time it is opened, and absent without the shell's `preview`.
+ * again each time it is opened, with a static browser fallback without the
+ * shell's `preview`.
  */
 
 const PAGE = "<!doctype html><h1>Receipts</h1>";
