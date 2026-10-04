@@ -78,7 +78,9 @@ try {
       assert.equal(new URL(page.url()).hash, "", "Pairing credentials leave the address bar.");
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
-      await page.getByRole("combobox", { name: "Sessions", exact: true }).selectOption(`${environment.env.id}/${sessionId}`);
+      await page.getByRole("button", { name: "Show sessions", exact: true }).click();
+      await page.getByRole("dialog", { name: "Sessions", exact: true }).locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
+      await page.getByRole("dialog", { name: "Sessions", exact: true }).waitFor({ state: "hidden" });
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();

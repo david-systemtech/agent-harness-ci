@@ -1,6 +1,7 @@
-import { Fragment, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { Activity, Fragment, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Group, Panel, Separator, useGroupRef, type Layout, type LayoutChangedMeta } from "react-resizable-panels";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { KeysAnswered } from "../keys/key-dispatch.js";
 import type { GridPane, GridRow } from "../presentation.js";
 import { usePresentation } from "../window-context.js";
@@ -54,8 +55,17 @@ const useShares = (shares: Readonly<Record<string, number>>, keep: (layout: Layo
 };
 
 export const PaneGrid = () => {
+  const { narrow } = usePhoneFrame();
   const [layout, setLayout] = usePresentation("paneLayout");
   const targets = useRef(new Map<string, HTMLDivElement>());
+  const parking = useRef<HTMLDivElement>(null);
+  const panes = panesOf(layout);
+  const [visited, setVisited] = useState<readonly GridPane[]>([]);
+  const unseen = panes.filter(pane => pane.session !== null && !visited.some(held => paneKey(held) === paneKey(pane)));
+  useLayoutEffect(() => {
+    if (unseen.length > 0) setVisited(held => [...held, ...unseen]);
+  });
+  const parked = visited.filter(held => !panes.some(pane => paneKey(pane) === paneKey(held)));
   const heights = useShares(
     sharesOf(layout.rows, (row) => row.height),
     (shares) => setLayout((held) => resizeRows(held, shares)),
@@ -63,7 +73,7 @@ export const PaneGrid = () => {
   const several = panesOf(layout).length > 1;
   return (
     <>
-      <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
+      {narrow ? <div className="min-h-0 min-w-0 flex-1">{panesOf(layout).map(pane => <div key={pane.id} hidden={pane.id !== layout.focused} className="h-full min-w-0" ref={node => { if (node !== null) targets.current.set(pane.id, node); }} />)}</div> : <Group key={layout.rows.map((row) => row.id).join(" ")} orientation="vertical" {...heights} className="h-full">
         {layout.rows.map((row, at) => (
           <Fragment key={row.id}>
             {at > 0 && <Separator aria-label="Resize the rows" className={`h-[7px] ${DIVIDER}`} />}
@@ -72,11 +82,14 @@ export const PaneGrid = () => {
             </Panel>
           </Fragment>
         ))}
-      </Group>
-      {panesOf(layout).map((pane) => <MountedPane key={pane.id} pane={pane} focused={pane.id === layout.focused} several={several} targets={targets} />)}
+      </Group>}
+      <div hidden ref={parking} />
+      {[...panes, ...parked].map(pane => <MountedPane key={paneKey(pane)} pane={pane} parked={parked.includes(pane)} parking={parking} focused={!parked.includes(pane) && pane.id === layout.focused} several={several && !narrow} targets={targets} />)}
     </>
   );
 };
+
+const paneKey = (pane: GridPane) => pane.session === null ? pane.id : `${pane.session.environmentId} ${pane.session.sessionId}`;
 
 type PaneTargets = RefObject<Map<string, HTMLDivElement>>;
 
@@ -102,23 +115,25 @@ const PaneRow = ({ row, place, targets }: { readonly row: GridRow; readonly plac
 };
 
 /**
- * Keep pane contents in one keyed list, independent of rows and resizer groups.
+ * Keep session contents in one keyed list, independent of panes, rows and resizer groups.
  * A group rebuilds its constraints when its panel order changes; only its empty
  * targets remount. Moving the same portal host preserves unsent attachments,
  * file selections and every other local pane state, including across rows.
+ * Visited sessions stay in a hidden Activity when replaced in a pane, retaining
+ * unsent attachments while releasing their effects and subscriptions.
  */
-const MountedPane = ({ pane, targets, ...contents }: { readonly pane: GridPane; readonly targets: PaneTargets; readonly focused: boolean; readonly several: boolean }) => {
+const MountedPane = ({ pane, targets, parked, parking, ...contents }: { readonly pane: GridPane; readonly targets: PaneTargets; readonly parked: boolean; readonly parking: RefObject<HTMLDivElement | null>; readonly focused: boolean; readonly several: boolean }) => {
   const [host] = useState(() => {
     const element = document.createElement("div");
     element.className = "h-full";
     return element;
   });
   useLayoutEffect(() => {
-    const target = targets.current.get(pane.id);
-    if (target !== undefined && host.parentNode !== target) target.appendChild(host);
+    const target = parked ? parking.current : targets.current.get(pane.id);
+    if (target != null && host.parentNode !== target) target.appendChild(host);
   });
-  useLayoutEffect(() => () => { targets.current.delete(pane.id); }, [pane.id, targets]);
-  return createPortal(<GridPaneView pane={pane} {...contents} />, host);
+  useLayoutEffect(() => () => { host.remove(); }, [host]);
+  return createPortal(<Activity mode={parked ? "hidden" : "visible"}><GridPaneView pane={pane} {...contents} /></Activity>, host);
 };
 
 /** One pane of the grid: focused by a press or the focus inside it, answering the window's keys while it is. */
