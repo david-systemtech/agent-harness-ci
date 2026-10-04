@@ -101,7 +101,7 @@ it("gives every discovered scene a valid, distinct capture name at both viewport
     ([1400, 1024] as const).map((width) => captureName(scene, width, ladder)),
   );
   expect(new Set(names).size).toBe(names.length);
-  expect(names.length).toBeLessThanOrEqual(400);
+  expect(capturePlan(scenes).shards.every(shard => shard.captures.length <= 400)).toBe(true);
   for (const scene of scenes.filter(scene => !scene.startsWith("phone-"))) {
     expect(names).toContain(captureName(scene, 1400));
     expect(names).toContain(captureName(scene, 1024));
