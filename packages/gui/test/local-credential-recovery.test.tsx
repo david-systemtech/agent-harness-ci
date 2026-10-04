@@ -1,12 +1,15 @@
+import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { act, screen, within } from "@testing-library/react";
 import { StoredCredentialUnavailableError } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
+import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { expect, it } from "vitest";
 import { renderApp } from "./harness.js";
 
-it("shows the local environment ready after replacement bootstraps again with unavailable paired credentials", async () => {
+it("keeps the local window ready through credential recovery and the bundled server restart", async () => {
   const shell = fakeShell();
-  const first = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired" }] }, { shell, macOS: true });
+  shell.answer("installer.bundledServer", async () => ({ version: "0.6.0", path: "/opt/agent-harness/resources/server.tar.gz" }));
+  const first = await renderApp({ environments: [{ name: "desk", reach: "local", settings: { "updates.autoUpdate": false } }, { name: "laptop", reach: "paired" }] }, { shell, macOS: true, version: "0.6.0" });
   const grantsBefore = shell.calls.filter(call => call[0] === "localGrant.read").length;
   const fresh = new Map<string, string>();
   shell.answer("secrets.get", async (name) => {
@@ -42,4 +45,39 @@ it("shows the local environment ready after replacement bootstraps again with un
   expect(paired.dataset.machineBlocked).toBe("credential-unavailable");
   expect(paired.dataset.machineAction).toBe("re-pair");
   expect(screen.getByText(/Stored credentials from the previous build could not be read/)).toBeDefined();
+
+  const desk = replaced.environment("desk");
+  const firstSession = replaced.runtime.connections.list.read().find(view => view.kind === "local")?.clientSessionId;
+  const firstToken = desk.wire.credential()?.token;
+  const openedBefore = desk.wire.opened();
+  await replaced.user.click(within(local).getByRole("button", { name: "Install the bundled 0.6.0" }));
+  expect(replaced.runtime.desktopUpdate.view.read().bundledServer).toMatchObject({ state: "handed-over", version: "0.6.0" });
+  await act(async () => {
+    desk.notice("environment.draining", { drainingSince: replaced.clock.now().toISOString() });
+    desk.autoAccept(false);
+    desk.bye("updating");
+    await flush();
+    desk.discovery({ harnessVersion: "0.6.0" });
+    desk.setUpdates({ status: { version: "0.6.0" } });
+    replaced.clock.advance(10_000);
+    for (let turn = 0; turn < 100 && desk.wire.opened() === openedBefore; turn++) await flush();
+    expect(desk.wire.opened()).toBeGreaterThan(openedBefore);
+    const auth = await desk.server.expect("auth");
+    desk.autoAccept(true);
+    if (auth.token === firstToken) desk.bye("revoked");
+    else desk.server.hello({ harnessVersion: "0.6.0" });
+    for (let turn = 0; turn < 100 && replaced.runtime.connections.list.read().find(view => view.kind === "local")?.phase !== "ready"; turn++) await flush();
+    if (replaced.runtime.connections.list.read().find(view => view.kind === "local")?.phase === "ready") {
+      desk.notice("environment.started", { harnessVersion: "0.6.0", protocolVersion: PROTOCOL_VERSION });
+      desk.notice("environment.updated", { fromVersion: "0.0.0-fake", toVersion: "0.6.0" });
+      await flush();
+    }
+  });
+
+  expect(replaced.runtime.connections.list.read().find(view => view.kind === "local")).toMatchObject({ phase: "ready", blocked: null });
+  expect(replaced.runtime.connections.list.read().find(view => view.kind === "local")?.clientSessionId).not.toBe(firstSession);
+  expect(within(screen.getByRole("region", { name: "desk" })).getByText("Ready")).toBeDefined();
+  expect(replaced.runtime.connections.list.read().find(view => view.kind === "paired")).toMatchObject({ phase: "blocked", blocked: "credential-unavailable", action: "re-pair" });
+  expect(screen.getByText(/Stored credentials from the previous build could not be read/)).toBeDefined();
+  expect(within(screen.getByRole("region", { name: "Credential access" })).getByRole("button", { name: "Pair again" })).toBeDefined();
 });

@@ -446,6 +446,12 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     switch (frame.reason) {
       case "revoked":
       case "unauthorized":
+        if (s.kind === "local" && s.step === "dialing" && (s.bye === "updating" || s.bye === "draining")) {
+          // A restarted service may reject the previous process's local session. Exchange its grant once;
+          // clearing the remembered restart means a rejection of that fresh session is still a terminal block.
+          out.push({ type: "clear-token" });
+          return begin({ ...halt(s), phase: s.bye === "updating" ? "updating" : "connecting", bye: null });
+        }
         return block(said, "revoked");
       case "expired":
         return block(said, "expired");
