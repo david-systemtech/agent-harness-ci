@@ -24,7 +24,9 @@ Decided 2026-09-23 on the map ticket "Decision: routines as first-class and the 
 ## Amendment: phone web client in milestone 1 (2026-10-04)
 
 Milestone 1 adds durable parked-ask attention independently of Routine firing,
-with opt-in Web Push and the existing signed-webhook infrastructure as fallback.
+with opt-in Web Push and the existing outbound signed-webhook delivery
+infrastructure as fallback (the milestone-1 delivery targets above). Inbound
+webhook triggers remain milestone 2.
 Default payloads are generic session-needs-you text and HTTPS links, with no
 prompt/transcript/secrets; routine completion delivery stays opt-in and quiet.
 The environment owns dispatch/retry/cancellation, not a client socket or worker.

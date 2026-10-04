@@ -19,16 +19,22 @@ buildable milestone” (issue 34). Milestone 1 remains one milestone,
 
 Done retains daily sessions/routines/program integration across the owner's
 inventory, TUI use, completed import, stopped source services, the ADR 0003/0004/
-0016 contract tests and working milestone-1 health checks. One implementation-ready
-specification per ADR area records its step before build; phase D follows the
-other areas.
+0016 contract tests and working milestone-1 health checks. There is one
+implementation-ready specification per ADR area, originally sixteen plus the
+switch-over, each a task ticket on the map. Phase A is unblocked; phases B and
+C are behind the environment-service and client-runtime specifications; phase
+D is behind every other area. Each specification is behind its feature's
+wizard-step tickets, so it is written knowing its step. The web-client
+specification joins that set under the dated amendment below.
 
 Later placements remain: milestone 2, “Every provider, every client”, opens with
-other adapters (ADR 0015), then Bots/roster, Routine webhook/API triggers and
+the OpenAI-compatible adapter and Codex rewrite (ADR 0015), then Bots/roster, Routine webhook/API triggers and
 fallback environments (ADR 0008), Hand-off (ADR 0005), forge device flow/review
 panes (ADR 0012) and async questions (ADR 0006); milestone 3, “Bots without
 Hermes”, owns native inbound chat and integration retirement; milestone 4,
-“Models on environments”, owns model download/device placement. The web client
+“Models on environments”, owns model download/device placement. A milestone is
+named by its number and theme; work still in the fog is placed when it graduates.
+The web client
 is moved to milestone 1 by the dated amendment below.
 
 ## Considered options
