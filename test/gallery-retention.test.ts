@@ -9,7 +9,7 @@ const script = join(import.meta.dirname, "../scripts/gallery-retention.py");
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
-async function fixture(failure = "", captureCount = 1) {
+async function fixture(failure = "", captureCount = 1, phoneCount = 0) {
   const deleted: string[] = [];
   const requests: string[] = [];
   let base = "";
@@ -19,7 +19,6 @@ async function fixture(failure = "", captureCount = 1) {
     packageVersion("legacy-head"), packageVersion("active-head-3"), packageVersion("new-run", "2099-01-01T00:00:00Z"),
     packageVersion("unrelated", undefined, "server-release"), packageVersion("expired-second-page"),
   ];
-  if (failure === "shards") packages.push(packageVersion("earlier-head-3"));
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "", base);
     const expected = failure === "package-auth" && url.pathname.startsWith("/api/v1/packages/") ? "package-token-for-tests" : "token-for-tests";
@@ -32,19 +31,14 @@ async function fixture(failure = "", captureCount = 1) {
       response.end(JSON.stringify(page === "1" ? [{ number: 42, head: { sha: "active-head" } }] : []));
     } else if (url.pathname.includes("/comments")) {
       if (failure === "comments") { response.writeHead(503).end(); return; }
-      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: Array.from({ length: captureCount }, (_, index) => ({ name: `window-scene-${index}.dark.png`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-scene-${index}.dark.png` })) }) + ' -->' });
+      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: Array.from({ length: captureCount }, (_, index) => {
+        const name = index < captureCount - phoneCount ? `window-scene-${index}.dark.png` : `phone-scene-${index}-phone-390.dark.png`;
+        return { name, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}` };
+      }) }) + ' -->' });
       const comments = [...Array.from({ length: 50 }, (_, index) => ({ id: 1000 + index, user: { id: 7 }, body: "Discussion" })),
         manifest("active-head", "active-head-1"), manifest("earlier-head", "earlier-head-2"), manifest("legacy-head", "legacy-head", false),
         ...(failure === "malformed" ? [{ id: 1500, user: { id: -2 }, body: '<!-- window-gallery {broken -->' }, { id: 1501, user: { id: -2 }, body: '<!-- window-gallery [] -->' }] : []),
       ];
-      if (failure === "shards") {
-        const second = manifest("earlier-head", "earlier-head-3");
-        const data = JSON.parse(/<!-- window-gallery (.*?) -->/.exec(second.body)![1]!) as { captures: { name: string; api_url: string }[]; shard?: unknown };
-        data.shard = { batch: "earlier-head-2", index: 1, count: 2 };
-        data.captures = data.captures.map((c, i) => ({ name: `window-more-${i}.dark.png`, api_url: c.api_url.replace(c.name, `window-more-${i}.dark.png`) }));
-        second.body = '<!-- window-gallery ' + JSON.stringify(data) + ' -->';
-        comments.push(second);
-      }
       if (failure === "spoofed") {
         comments.push({ ...manifest("expired-orphan", "expired-orphan", false), user: { id: 7 } });
         comments.push({ id: 456, user: { id: 7 }, body: '<!-- window-gallery ' + JSON.stringify({ head: "active-head", version: "active-head-456", captures: [{ name: "window-empty.dark.png", api_url: "https://elsewhere.example.invalid/capture.png" }] }) + ' -->' });
@@ -116,17 +110,22 @@ it.each([204, 400])("preserves a %i-capture reviewed manifest after the open PR 
 });
 
 
-it("does not protect an earlier-head manifest beyond the 400-capture bound", async () => {
+it("does not protect an earlier-head manifest beyond the 400-desktop-capture bound", async () => {
   const f = await fixture("", 401);
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "earlier-head-2", "legacy-head", "expired-second-page"]);
 });
 
 
-it("preserves every bounded report from an earlier reviewed head of an open PR", async () => {
-  const f = await fixture("shards", 400);
+it("protects both reviewed shards when the open PR moves to another head", async () => {
+  const f = await fixture("", 416, 62);
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
-  expect(f.deleted).not.toContain("earlier-head-2");
-  expect(f.deleted).not.toContain("earlier-head-3");
+});
+
+
+it("does not protect a phone shard beyond its allocation", async () => {
+  const f = await fixture("", 401, 401);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "earlier-head-2", "legacy-head", "expired-second-page"]);
 });

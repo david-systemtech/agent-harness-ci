@@ -83,14 +83,12 @@ try {
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
   const pixelBlocking = true;
-  for (const [index, shard] of plan.reports.entries()) {
-    const names = new Set(shard.captures.map(c => c.name));
-    await writeFile(resolve(output, shard.name), JSON.stringify({
-      pixelBlocking, captureBudget: shard.budget,
-      ...(plan.reports.length > 1 ? { shard: { index, count: plan.reports.length } } : {}),
-      scenes: report.filter(row => names.has(row.name)),
-    }, null, 2));
-  }
+  const shards = plan.shards.map(shard => {
+    const names = new Set(shard.captures.map(capture => capture.name));
+    return { name: shard.name, scenes: report.filter(row => names.has(row.name)) };
+  });
+  // Flat rows support a trusted publisher from before sharding while the tree still fits 400 captures.
+  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: plan.budget, scenes: report, shards }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);

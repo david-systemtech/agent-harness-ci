@@ -4,7 +4,7 @@ import { capturePlan, sceneFiles } from "../gallery/capture-plan.js";
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
-  expect(plan.budget).toEqual({ desktop: 4, phone: 8, total: 12, limit: 400, remaining: 388 });
+  expect(plan.budget).toEqual({ desktop: 4, phone: 8, total: 12, limit: 800, remaining: 788 });
   expect(plan.captures.filter(c => c.platform === "desktop").map(c => c.name)).toEqual([
     "window-empty.light", "window-empty.dark", "window-empty-narrow.light", "window-empty-narrow.dark",
   ]);
@@ -22,7 +22,7 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
 
 it("reserves capacity for the existing 354 desktop captures and the bounded phone subset", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
-  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 400, remaining: 0 });
+  expect(plan.budget).toEqual({ desktop: 354, phone: 46, total: 400, limit: 800, remaining: 400 });
   expect(plan.captures.filter(c => c.scene === "phone-gallery-continue").map(c => c.name)).toEqual([
     "phone-gallery-continue-phone-390.light", "phone-gallery-continue-phone-390.dark",
     "phone-gallery-continue-phone-390-text-20.light", "phone-gallery-continue-phone-390-text-20.dark",
@@ -31,18 +31,43 @@ it("reserves capacity for the existing 354 desktop captures and the bounded phon
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(plan.budget.total);
 });
 
-it("keeps all existing captures when two phone terminal leaves exceed one report", async () => {
-  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
-  const original = capturePlan(scenes);
-  const expanded = capturePlan([...scenes, "phone-terminal", "phone-terminal-disconnected"]);
-  expect(expanded.captures).toHaveLength(416);
-  expect(expanded.reports.map(report => report.captures.length)).toEqual([400, 16]);
-  expect(expanded.reports.flatMap(report => report.captures)).toEqual(expanded.captures);
-  expect(expanded.captures.slice(0, 400)).toEqual(original.captures);
+it("refuses capacity exhaustion before capturing or publishing a partial gallery", () => {
+  expect(() => capturePlan(Array.from({ length: 201 }, (_, i) => `window-empty-${i}`).concat(Array.from({ length: 26 }, (_, i) => `phone-sample-${i}`)))).toThrow("Gallery capture budget exceeded");
 });
 
-it("bounds every report as more phone leaves are registered", () => {
-  const plan = capturePlan(Array.from({ length: 101 }, (_, i) => `phone-sample-${i}`));
-  expect(plan.reports.map(report => report.captures.length)).toEqual([400, 400, 8]);
-  expect(new Set(plan.reports.flatMap(report => report.captures.map(c => c.name))).size).toBe(808);
+
+it("allocates the frame conversation and drawer profiles without spending desktop capacity", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const existing = capturePlan(scenes);
+  const plan = capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]);
+  expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(existing.captures.filter(c => c.platform === "desktop"));
+  expect(plan.budget).toEqual({ desktop: 354, phone: 62, total: 416, limit: 800, remaining: 384 });
+  for (const scene of ["phone-frame-conversation", "phone-frame-drawer"]) {
+    expect(plan.captures.filter(c => c.scene === scene).map(c => c.name)).toEqual([
+      `${scene}-phone-390.light`, `${scene}-phone-390.dark`,
+      `${scene}-phone-360.light`, `${scene}-phone-360.dark`,
+      `${scene}-phone-390-text-20.light`, `${scene}-phone-390-text-20.dark`,
+      `${scene}-phone-390-keyboard.light`, `${scene}-phone-390-keyboard.dark`,
+    ]);
+  }
+});
+
+
+it("cannot consume another shard's unused capacity", () => {
+  expect(() => capturePlan(Array.from({ length: 51 }, (_, i) => `phone-sample-${i}`))).toThrow("phone shard has 408/400 captures");
+});
+
+
+it("keeps every existing capture when both phone terminal leaves are registered", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const existing = capturePlan(scenes);
+  const expanded = capturePlan([...scenes, "phone-terminal", "phone-terminal-disconnected"]);
+  expect(expanded.captures).toHaveLength(416);
+  expect(expanded.shards.map(shard => [shard.name, shard.captures.length, shard.limit])).toEqual([
+    ["desktop", 354, 400], ["phone", 62, 400],
+  ]);
+  expect(expanded.captures.filter(c => c.platform === "desktop")).toEqual(existing.captures.filter(c => c.platform === "desktop"));
+  const names = new Set(expanded.captures.map(c => c.name));
+  for (const capture of existing.captures) expect(names.has(capture.name)).toBe(true);
+  expect(names.size).toBe(416);
 });
