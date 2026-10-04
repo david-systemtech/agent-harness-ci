@@ -68,11 +68,30 @@ it("bounds browser surfaces when only the visual viewport shrinks for the keyboa
   });
   const app = render(<WebViewport><p>Terminal slot</p></WebViewport>);
   const frame = app.container.firstElementChild as HTMLElement;
-  expect(getComputedStyle(frame).height).toBe("844px");
+  expect(getComputedStyle(frame).maxHeight).toBe("844px");
   act(() => { viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
   expect(window.innerHeight).toBe(844);
-  expect(getComputedStyle(frame).height).toBe("480px");
+  expect(getComputedStyle(frame).maxHeight).toBe("480px");
   act(() => { viewport.height = 844; viewport.dispatchEvent(new Event("resize")); });
-  expect(getComputedStyle(frame).height).toBe("844px");
+  expect(getComputedStyle(frame).maxHeight).toBe("844px");
   expect(app.container.firstElementChild).toBe(frame);
+});
+
+
+it("preserves an embedded browser frame's height rule while bounding the visual viewport", () => {
+  const previous = Object.getOwnPropertyDescriptor(window, "visualViewport");
+  const viewport = Object.assign(new EventTarget(), { height: 900 });
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+  const style = document.createElement("style");
+  style.textContent = "[data-web-gallery] [data-web-client] { height: 100%; }";
+  document.head.append(style);
+  onTestFinished(() => {
+    style.remove();
+    if (previous) Object.defineProperty(window, "visualViewport", previous);
+    else delete (window as { visualViewport?: unknown }).visualViewport;
+  });
+  const app = render(<div data-web-gallery style={{ height: 844 }}><WebViewport><p>Conversation slot</p></WebViewport></div>);
+  const frame = app.container.querySelector<HTMLElement>("[data-web-client]")!;
+  expect(getComputedStyle(frame).height).toBe("100%");
+  expect(getComputedStyle(frame).maxHeight).toBe("900px");
 });

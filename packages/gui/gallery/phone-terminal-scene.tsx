@@ -13,7 +13,7 @@ export const PhoneTerminalScene = () => {
   return <WebViewport>
     <h1 className="shrink-0 px-4 py-3 text-base font-semibold">Environment terminal</h1>
     <p className="shrink-0 px-4 pb-3 text-sm text-ink-muted">Hide the sheet to leave this terminal running.</p>
-    <aside aria-label="Terminal sheet" className="ml-auto flex min-h-0 w-[min(480px,85%)] flex-1 flex-col rounded-l-lg border border-hairline bg-panel">
+    <aside aria-label="Terminal sheet" style={{ maxWidth: 480 }} className="ml-auto flex min-h-0 w-[min(480px,85%)] flex-1 flex-col rounded-l-lg border border-hairline bg-panel">
       <h2 className="shrink-0 border-b border-hairline px-3 py-2 text-sm font-semibold">Terminal · desk</h2>
       {environment && session && <TerminalPanesProvider><section aria-label="Terminal" className="flex min-h-0 flex-1 flex-col">
         <TerminalPane environmentId={environment.environmentId} sessionId={session.summary.id} onScreen />

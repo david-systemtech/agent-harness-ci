@@ -15,6 +15,7 @@ it.each(["phone-terminal", "phone-terminal-no-authority"])("draws %s on the brow
   const gallery = await mountGallery(root, name, "dark", harnessRegistry, { platform: "web", textSize: 20 });
   onTestFinished(async () => { await gallery.close(); root.remove(); vi.restoreAllMocks(); });
   expect(await gallery.ready).toBe(true);
+  expect(getComputedStyle(screen.getByLabelText("Terminal sheet")).maxWidth).toBe("480px");
   expect(gallery.world.shell).toBeUndefined();
   expect(gallery.world.platform.client.kind).toBe("web");
   await waitFor(() => expect(screen.getByRole("button", { name: "Close terminal" })).toBeDefined());

@@ -149,9 +149,9 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
       {phone && authority.status === "absent" && authority.reason === "scope" && <p className="shrink-0 px-3 py-2 text-sm text-ink-muted">
         To use this environment terminal, make a Custom pairing code with terminal scope on a trusted client, then deliberately pair again. The Phone preset does not grant terminal access.
       </p>}
-      {selection.length > 0 && <div className="shrink-0 border-t border-hairline bg-panel p-2">
+      {(phone || selection.length > 0) && <div className="shrink-0 border-t border-hairline bg-panel p-2">
         <Tooltip content="Add selected output to the session draft · Enter / Space">
-          <Button data-terminal-selection-action className="min-h-11 whitespace-normal" disabled={draftAuthority.status === "absent"} title={draftAuthority.status === "absent" ? draftAuthority.message : undefined} onPointerDown={event => event.preventDefault()} onClick={() => {
+          <Button data-terminal-selection-action className="min-h-11 whitespace-normal" disabled={selection.length === 0 || draftAuthority.status === "absent"} title={draftAuthority.status === "absent" ? draftAuthority.message : undefined} onPointerDown={event => event.preventDefault()} onClick={() => {
             const held = runtime.projections.session(environmentId, sessionId).read().draft ?? "";
             runtime.drafts.set(environmentId, sessionId, `${held}${held.length > 0 ? "\n\n" : ""}${selection}`);
           }}>Add to session</Button>

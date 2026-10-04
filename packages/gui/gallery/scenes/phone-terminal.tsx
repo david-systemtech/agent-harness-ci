@@ -1,11 +1,13 @@
 import type { SceneModule } from "../scene-registry.js";
-export { PhoneTerminalScene as default, phoneTerminalGeometry as geometry } from "../phone-terminal-scene.js";
+import { phoneTerminalGeometry } from "../phone-terminal-scene.js";
+export { PhoneTerminalScene as default } from "../phone-terminal-scene.js";
+export const geometry = [...phoneTerminalGeometry, { selector: '[data-terminal-selection-action]:not(:disabled)', minimumHeight: 44, visibleWithin: '[aria-label="Terminal sheet"]' }];
 export const platform = "web";
 export const script: SceneModule["script"] = { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive", "terminal"], hello: { ceiling: "acceptEdits" }, sessions: [{}], terminals: [{
   id: "7e000000-0000-4000-8000-000000000001", session: 0,
   output: "$ check receipts\r\n" + Array.from({ length: 40 }, (_, i) => `Receipt ${i + 1}: total agrees\r\n`).join("") + "\x1b[32m40 checks passed\x1b[0m\r\n$ ",
 }] }] };
-export const readySelector = '[data-terminal-selection-action]';
+export const readySelector = '[data-terminal-selection-action]:not(:disabled)';
 
 /** Capture touch selection using the same controls a phone exposes. */
 export const activate = () => {

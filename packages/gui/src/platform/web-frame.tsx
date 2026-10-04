@@ -30,7 +30,7 @@ export const WebViewport = ({ children }: { readonly children: ReactNode }) => {
     viewport.addEventListener("resize", resize);
     return () => viewport.removeEventListener("resize", resize);
   }, []);
-  return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink" style={{ height }}>{children}</div>;
+  return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink" style={{ maxHeight: height }}>{children}</div>;
 };
 /** The first browser slice uses the same session components and environment-owned work. */
 export const WebFrame = (props: WebFrameProps) => (

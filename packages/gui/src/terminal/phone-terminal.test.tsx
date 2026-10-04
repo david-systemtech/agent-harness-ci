@@ -40,6 +40,8 @@ it("sends phone Ctrl, Escape and Tab to the environment terminal and restores in
 
 it("selects terminal output by touch and adds it to the session without losing its draft or selection", async () => {
   const { app, pane, env } = await phone();
+  const action = pane.getByRole("button", { name: "Add to session" }) as HTMLButtonElement;
+  expect(action.disabled).toBe(true);
   const message = screen.getByRole("textbox", { name: "Message" });
   await app.user.type(message, "Explain this:");
   const terminalScreen = pane.getByLabelText("Terminal screen").querySelector(".xterm-screen") as HTMLElement;
@@ -54,7 +56,9 @@ it("selects terminal output by touch and adds it to the session without losing i
   touch("pointerdown", 0);
   touch("pointermove", 65);
   touch("pointerup", 65);
-  await app.user.click(pane.getByRole("button", { name: "Add to session" }));
+  expect(pane.getByRole("button", { name: "Add to session" })).toBe(action);
+  expect(action.disabled).toBe(false);
+  await app.user.click(action);
   await waitFor(() => expect((message as HTMLTextAreaElement).value).toBe("Explain this:\n\nreceipt"));
   expect(pane.getByRole("button", { name: "Add to session" })).toBeDefined();
   expect(env.requests("runs.start")).toEqual([]);
