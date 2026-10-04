@@ -41,6 +41,13 @@ describe("the public GitHub release workflow", () => {
     expect(upload).not.toContain("continue-on-error");
   });
 
+  it("checks the actual native screenshot collectors before the packaged macOS smoke", () => {
+    const native = step("smoke-macos", "Verify native screenshot diagnostics");
+    expect(native).toContain('"$server/node/bin/node" --test scripts/macos-smoke-diagnostics-native.test.mjs');
+    const steps = job("smoke-macos").join("\n");
+    expect(steps.indexOf(native)).toBeLessThan(steps.indexOf("Replace the packaged desktop with an existing client credential"));
+  });
+
   it("runs only for public v tags or manual dry runs", () => {
     expect(lines.slice(lines.indexOf("on:") + 1, lines.indexOf("permissions:"))).toEqual([
       "  push:", '    tags: ["v*"]', "  workflow_dispatch:", "",

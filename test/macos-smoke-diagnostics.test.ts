@@ -156,6 +156,54 @@ describe("packaged macOS timeout evidence", () => {
     } finally { rmSync(work, { recursive: true, force: true }); }
   });
 
+  it("retains a failed command's exit status and captured stderr", async () => {
+    await expect(executeDiagnostic(process.execPath, ["-e", "process.stderr.write('compiler detail'); process.exit(17)"]))
+      .rejects.toMatchObject({ code: 17, stderr: "compiler detail", signal: null, killed: false });
+  });
+
+  it.each(["compiler", "OCR"])("bounds and redacts %s failure details from both screenshot collectors while retaining the smoke error", async stage => {
+    const work = mkdtempSync(join(tmpdir(), "macos-redaction-failure-"));
+    const directory = join(work, "upload");
+    const privateDirectory = join(work, "private");
+    mkdirSync(privateDirectory);
+    const original = new Error("original readiness timeout");
+    const execute = async (command: string, args: string[]) => {
+      if (command.endsWith("screencapture")) writeFileSync(args.at(-1) ?? "", "private screenshot");
+      if (command.endsWith("swift")) {
+        writeFileSync(args.at(-1) ?? "", "partially masked screenshot");
+        throw Object.assign(new Error(`${stage} failed token-for-tests-kept`), {
+          code: 17, signal: null, killed: false,
+          stderr: `${stage}: token-for-tests-kept Authorization: Bearer token-for-tests-unlisted\n` + "x".repeat(100_000),
+        });
+      }
+      return { stdout: "[]", stderr: "" };
+    };
+    try {
+      await Promise.all([
+        collectMacosSmokeDiagnostics({ directory, privateDirectory, pid: 123, error: original, secrets: ["token-for-tests-kept"], execute }),
+        collectRendererSmokeDiagnostics({ directory, privateDirectory, secrets: ["token-for-tests-kept"], execute,
+          cdp: { errors: () => [], diagnostic: async method => {
+            if (method === "Page.captureScreenshot") return { data: Buffer.from("private screenshot").toString("base64") };
+            if (method === "Runtime.evaluate") return { result: { value: {} } };
+            return { nodes: [] };
+          } },
+        }),
+      ]);
+      const renderer = JSON.parse(readFileSync(join(directory, "renderer-screenshot.png.error.json"), "utf8")) as { code: number; stderr: string };
+      expect(renderer).toMatchObject({ code: 17, signal: null, killed: false, stderr: expect.stringContaining(`${stage}: <REDACTED>`) });
+      expect(renderer.stderr.length).toBeLessThanOrEqual(32_000);
+      const runner = readFileSync(join(directory, "screenshot.png.error.txt"), "utf8");
+      expect(runner).toContain('"code": 17');
+      expect(runner).toContain(`${stage}: <REDACTED>`);
+      expect(runner.length).toBeLessThan(34_000);
+      expect(readdirSync(directory).filter(name => name.endsWith(".png"))).toEqual([]);
+      expect(readdirSync(privateDirectory)).toEqual([]);
+      for (const name of readdirSync(directory)) expect(readFileSync(join(directory, name), "utf8"))
+        .not.toMatch(/token-for-tests-kept|token-for-tests-unlisted|private screenshot|partially masked/);
+      await expect(finishSmoke(original, [], () => {})).rejects.toBe(original);
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
   it("forces a diagnostic tool to finish even when it ignores SIGTERM", async () => {
     const work = mkdtempSync(join(tmpdir(), "macos-stubborn-diagnostic-"));
     const pidFile = join(work, "ready.pid");
