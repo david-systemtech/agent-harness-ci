@@ -305,7 +305,7 @@
 
 /* The first web slice has one conversation. Surface owners extend these hooks. */
 [data-web-client] {
-  height: 100dvh;
+  height: var(--phone-viewport-height, 100dvh);
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 [data-web-client] :is(button, select, input) { min-height: 44px; }

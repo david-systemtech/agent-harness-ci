@@ -273,6 +273,8 @@ with zipfile.ZipFile(sys.argv[1]) as z:
         required = [name + '.png']
         if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
         if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
+    allowed_images = {name + suffix for name in seen for suffix in ('.png', '.baseline.png', '.difference.png')}
+    if set(images) - allowed_images: sys.exit('unreported gallery image')
 package_token = os.environ.get('PACKAGES_TOKEN')
 if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
 comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']

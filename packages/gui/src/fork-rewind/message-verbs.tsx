@@ -36,7 +36,7 @@ export const MessageVerbs = ({ entry, children }: { readonly entry: UserMessageE
   return (
     <div className="flex flex-col items-end gap-0.5" onPointerEnter={() => setPointer(true)} onPointerLeave={() => setPointer(false)} onFocus={() => setFocused(true)} onBlur={left}>
       {children}
-      <div role="group" aria-label={`Fork or rewind: ${messageWords(entry.text)}`} className="flex max-w-full flex-wrap justify-end gap-1" style={{ visibility: shown ? "visible" : "hidden" }}>
+      <div data-message-verbs role="group" aria-label={`Fork or rewind: ${messageWords(entry.text)}`} className="flex max-w-full flex-wrap justify-end gap-1" style={{ visibility: shown ? "visible" : "hidden" }}>
         <VerbButton does={`${FORK_DOES} (Enter or Space)`} availability={forkRewind.fork} run={() => forkRewind.forkAt(anchor)}>
           <GitFork aria-hidden="true" className="size-3" />Fork
         </VerbButton>
