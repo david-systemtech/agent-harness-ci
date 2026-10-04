@@ -36,7 +36,7 @@ export const QueuedRow = ({ message }: { readonly message: QueuedMessage }) => {
       <p className="whitespace-pre-wrap break-words">
         <Marked text={message.text} />
       </p>
-      <div className="flex items-center justify-end gap-1 text-xs">
+      <div data-queued-actions className="flex items-center justify-end gap-1 text-xs">
         <span className={steering ? "mr-auto text-cyan" : "mr-auto text-amber"}>{steering ? "Steering" : "Queued"}</span>
         <VerbButton does={`${READ_NOW_DOES} (Enter or Space)`} availability={queue.runs.verbs.readNow} run={queue.readNow}>
           <CircleStop aria-hidden="true" className="size-3" />Read now
