@@ -10,7 +10,42 @@ concurrency:
 permissions:
   contents: write
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check the payload
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+        run: '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: corepack enable && corepack prepare --activate
+      - run: pnpm install --frozen-lockfile
+      - id: plan
+        run: |
+          if [ -f packages/gui/gallery/plan.ts ]; then
+            pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/plan.ts >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"include":[{"shard":1,"artifact":"window-gallery","legacy":true}]}' >> "$GITHUB_OUTPUT"
+          fi
   gallery:
+    needs: [plan]
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      GALLERY_SHARD: ${{ matrix.shard }}
+      GALLERY_RUN: ${{ github.event.client_payload.id }}-${{ github.run_attempt }}
+      GALLERY_LEGACY: ${{ matrix.legacy || false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -46,36 +81,38 @@ jobs:
         # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
         run: pnpm --filter @agent-harness/gui capture-gallery
-      - name: Check the desktop and phone report budgets
+      - name: Check each bounded desktop and phone report shard
         run: |
           python3 - <<'PY'
-          import json, sys
+          import json, os, sys
+          sys.path.insert(0, "scripts")
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
-          if 'reports' in report:
-              sys.path.insert(0, "scripts")
-              from gallery_reports import report_groups
-              report_groups(report, 'scenes')
-          else:
-              # PR heads from before this rollout have no shared report helper.
-              assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
+          assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
+          if 'shard' in report:
+              from gallery_reports import validate_shard
+              shard = validate_shard(report['shard'], len(report['scenes']))
+              assert shard['index'] == int(os.environ['GALLERY_SHARD'])
+              assert shard['run'] == os.environ['GALLERY_RUN']
+          else:
+              assert os.environ.get('GALLERY_LEGACY') == 'true', 'Missing gallery shard metadata'
+              assert os.environ['GALLERY_SHARD'] == '1', 'Legacy reports must be unsharded'
           PY
       - name: Optimise the PNGs losslessly
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
           optipng -o2 packages/gui/gallery-images/*.png
-          # Leave room for ZIP headers: 64 MiB per report, at most two reports.
-          shards=$(python3 -c 'import json; print(len(json.load(open("packages/gui/gallery-images/report.json")).get("reports", [None])))')
-          test "$shards" -ge 1 && test "$shards" -le 2
-          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le "$((50331648 * shards))"
-          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le "$((1200 * shards))"
+          # Leave room for ZIP headers under the relay's 64 MiB transport cap.
+          test "$(du -cb packages/gui/gallery-images/* | tail -1 | cut -f1)" -le 50331648
+          test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 1200
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: window-gallery
+          name: ${{ matrix.artifact }}
           path: |
             packages/gui/gallery-images/*.png
             packages/gui/gallery-images/*.json
+          overwrite: true
           compression-level: 9
           retention-days: 7
           if-no-files-found: error
@@ -83,7 +120,7 @@ jobs:
         if: steps.capture.outcome == 'failure'
         run: exit 1
   cleanup:
-    needs: [gallery]
+    needs: [plan, gallery]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
