@@ -92,6 +92,7 @@ export const browserPlatform = (view: Window & typeof globalThis, version: strin
     fetch: (url, request) => view.fetch(url, request),
     clock: systemClock(), network: browserNetwork(view),
     client: { kind: "web", label: "Browser tab", version },
+    // Raw errors can contain pairing URLs or connection credentials; keep them out of the console.
     reportError: () => view.console.error("The browser client could not complete an operation."),
   };
 };

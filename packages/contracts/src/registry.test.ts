@@ -40,8 +40,9 @@ describe("the method registry", () => {
     vi.doMock("./web/attention.js", () => ({ webAttentionMethods: [attention] }));
     try {
       const populated = await import("./registry.js");
+      const registered: readonly { readonly name: string }[] = populated.methods;
       for (const method of [origin, attention]) {
-        expect(populated.methods.filter(candidate => candidate.name === method.name)).toEqual([method]);
+        expect(registered.filter(candidate => candidate.name === method.name)).toEqual([method]);
       }
     } finally {
       vi.doUnmock("./web/origin-policy.js");
