@@ -108,11 +108,12 @@ if stage == 'dispatch':
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
 elif stage == 'artifacts':
-    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
+    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else json.loads(os.environ['FAKE_GALLERY_ARTIFACTS']) if os.environ.get('FAKE_GALLERY_ARTIFACTS') else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
 elif stage == 'archive':
     if os.environ.get('FAKE_GALLERY_ZIP'):
         import shutil
-        shutil.copyfile(os.environ['FAKE_GALLERY_ZIP'], out)
+        archives=json.loads(os.environ.get('FAKE_GALLERY_ARCHIVES','{}'))
+        shutil.copyfile(archives.get(url.split('/')[-2],os.environ['FAKE_GALLERY_ZIP']), out)
         sys.exit(0)
     import zipfile
     with zipfile.ZipFile(out,'w') as z:
@@ -637,7 +638,7 @@ if sys.argv[2]=='zip':
     });
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(message);
-    expect(methods).toEqual(kind === "zip" || kind === "expanded" ? [] : ["GET"]);
+    expect(methods).toEqual(kind === "zip" ? [] : ["GET"]);
   } finally { await new Promise<void>((done) => server.close(() => done())); }
 });
 
@@ -645,6 +646,8 @@ it("the hosted gallery admits growth within the relay limits and rejects excess 
   const f = await fixture();
   const images = join(f.checkout, "packages/gui/gallery-images");
   mkdirSync(images, { recursive: true });
+  mkdirSync(join(f.checkout, "scripts"));
+  for (const name of ["gallery_allocation.py", "gallery-allocation.json"]) writeFileSync(join(f.checkout, "scripts", name), readFileSync(join(root, "scripts", name)));
   const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
   const guards = /# Leave room for ZIP headers[^\n]*\n([\s\S]*?)\n {6}- uses:/.exec(hosted)?.[1];
   if (!guards) throw new Error("no hosted gallery limits");
@@ -655,11 +658,11 @@ sizes=[pathlib.Path(p).stat().st_size for p in sys.argv[1:] if not p.startswith(
 print(str(sum(sizes))+'\\ttotal')
 `, { mode: 0o755 });
   const check = () => run("bash", ["-e", "-c", guards], { cwd: f.checkout, env: { ...process.env, ...f.env } });
-  for (let i = 0; i < 1200; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  for (let i = 0; i < 2400; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
   writeFileSync(join(images, "report.json"), "{}");
   writeFileSync(join(images, "geometry.json"), "{}");
   await expect(check()).resolves.toBeDefined();
-  const extra = join(images, "scene-1200.dark.png");
+  const extra = join(images, "scene-2400.dark.png");
   writeFileSync(extra, "image");
   await expect(check()).rejects.toMatchObject({ code: 1 });
   rmSync(extra);
@@ -1038,18 +1041,261 @@ it("refuses to publish a phone capture whose dimensions disagree with its profil
   expect(g.comments).toHaveLength(0);
 });
 
-it("publishes and accepts bounded gallery shards without dropping desktop or phone captures", async () => {
+
+it("publishes and accepts a complete hosted desktop and phone shard set above 400 captures", async () => {
   const g = await storedGallery();
-  await g.capture(255);
-  await run("python3", ["-c", `import json,sys,zipfile
-with zipfile.ZipFile(sys.argv[1], 'a') as z:
-    data=z.read('window-empty.dark.png')
-    z.writestr('shard-1/window-extra.dark.png',data)
-    z.writestr('shard-1/geometry.json','{}')
-    z.writestr('shard-1/report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':'window-extra.dark','status':'new','pixelFailed':True,'geometryFailures':[]}]}))`, g.env.FAKE_GALLERY_ZIP]);
-  const result = await relay(g.f, g.env);
+  const archives: Record<string, string> = {};
+  for (const [index, id] of ["desktop-001", "phone-001"].entries()) {
+    await g.capture(255, index === 0 ? 400 : 1, index === 0 ? Array.from({ length: 400 }, (_, n) => `scene-${n}.dark`) : ["phone-overlay-workspace-phone-390.dark"]);
+    const archive = await shardArchive(g, id, index, 2);
+    archives[String(99 + index)] = archive;
+  }
+  const result = await relay(g.f, { ...g.env,
+    FAKE_GALLERY_ARTIFACTS: JSON.stringify(["desktop-001", "phone-001"].map((id, index) => ({ id: 99 + index, name: `window-gallery-${id}`, size_in_bytes: 100, expired: false }))),
+    FAKE_GALLERY_ARCHIVES: JSON.stringify(archives),
+  });
   expect(result.code, result.stderr).toBe(0);
   expect(g.comments).toHaveLength(2);
+  const manifests = g.comments.map(comment => JSON.parse(/<!-- window-gallery (.*) -->/.exec(comment.body)![1]!) as { shard: { group: string; id: string; index: number; count: number }; captures: unknown[] });
+  expect(manifests.map(m => [m.shard.id, m.shard.index, m.shard.count, m.captures.length])).toEqual([["desktop-001", 0, 2, 400], ["phone-001", 1, 2, 1]]);
+  expect(manifests[0]!.shard.group).toBe(manifests[1]!.shard.group);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...process.env, ...g.env } });
+  expect(existsSync(join(g.f.checkout, "packages/gui/gallery/baselines/scene-399.dark.png"))).toBe(true);
+  expect(existsSync(join(g.f.checkout, "packages/gui/gallery/baselines/phone-overlay-workspace-phone-390.dark.png"))).toBe(true);
+});
+
+
+it("the hosted workflow emits a usable shard matrix from scene discovery", async () => {
+  const f = await fixture();
+  const output = join(f.checkout, "github-output");
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const command = /- name: Discover bounded capture shards\n\s+id: plan\n\s+run: (.*)/.exec(hosted)?.[1];
+  if (command === undefined) throw new Error("Missing hosted shard discovery step.");
+  await run("bash", ["-e", "-c", command], { cwd: root, env: { ...process.env, GITHUB_OUTPUT: output } });
+  const matrix = JSON.parse(readFileSync(output, "utf8").trim().replace(/^shards=/, "")) as string[];
+  expect(matrix).toContain("desktop-001");
+  expect(matrix).toContain("phone-001");
+  expect(new Set(matrix).size).toBe(matrix.length);
+  rmSync(output);
+  await run("bash", ["-e", "-c", command], { cwd: f.checkout, env: { ...process.env, GITHUB_OUTPUT: output } });
+  expect(JSON.parse(readFileSync(output, "utf8").trim().replace(/^shards=/, ""))).toEqual(["legacy"]);
+});
+
+
+async function shardArchive(g: Awaited<ReturnType<typeof storedGallery>>, id: string, index: number, count: number, pixelBlocking = true) {
+  const archive = `${g.env.FAKE_GALLERY_ZIP}-${index}`;
+  await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as source, zipfile.ZipFile(sys.argv[2], 'w') as target:
+    for name in source.namelist():
+        data = source.read(name)
+        if name == 'report.json':
+            report = json.loads(data); report['shard'] = {'id':sys.argv[3], 'index':int(sys.argv[4]), 'count':int(sys.argv[5])}; report['pixelBlocking'] = sys.argv[6] == 'true'
+            data = json.dumps(report)
+        target.writestr(name, data)`, g.env.FAKE_GALLERY_ZIP, archive, id, String(index), String(count), String(pixelBlocking)]);
+  return archive;
+}
+
+it("rejects desktop shard PNGs with phone dimensions before publication", async () => {
+  const g = await storedGallery();
+  await g.capture(255, 1, ["window-empty.dark"], { width: 390, height: 844 });
+  const archive = await shardArchive(g, "desktop-001", 0, 1);
+  const result = await relay(g.f, { ...g.env, FAKE_GALLERY_ZIP: archive, FAKE_GALLERY_ARTIFACTS: JSON.stringify([{ id:99, name:"window-gallery-desktop-001", size_in_bytes:100, expired:false }]) });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("unexpected desktop gallery dimensions");
+  expect(g.comments).toHaveLength(0);
+});
+
+
+it.each(["manifest", "pixels", "phone-image"])("rejects an invalid shard %s before creating a comment", async mode => {
+  const g = await storedGallery();
+  const phone = mode === "phone-image";
+  await g.capture(255, 1, phone ? ["phone-overlay-workspace-phone-390.dark"] : ["window-empty.dark"], phone ? { width: 1400, height: 900 } : undefined);
+  const archive = await shardArchive(g, phone ? "phone-001" : "desktop-001", 0, mode === "manifest" ? 0 : 1, mode !== "pixels");
+  const result = await relay(g.f, { ...g.env, FAKE_GALLERY_ZIP: archive, FAKE_GALLERY_ARTIFACTS: JSON.stringify([{ id:99, name:phone ? "window-gallery-phone-001" : "window-gallery-desktop-001", size_in_bytes:100, expired:false }]) });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(mode === "manifest" ? "invalid gallery shard manifest" : mode === "pixels" ? "shard pixel gate must remain blocking" : "unexpected phone gallery dimensions");
+  expect(g.comments).toHaveLength(0);
+});
+
+
+it.each(["desktop-001", "phone-001"])("publishes surviving %s evidence with its planned position and blocks older-report acceptance", async id => {
+  const g = await storedGallery();
+  await g.capture(255);
+  expect((await relay(g.f, g.env)).code).toBe(0);
+  expect(g.comments).toHaveLength(1);
+  const name = id === "desktop-001" ? "window-empty.dark" : "phone-overlay-workspace-phone-390.dark";
+  const index = id === "desktop-001" ? 0 : 1;
+  await g.capture(0, 1, [name]);
+  const archive = await shardArchive(g, id, index, 2);
+  const result = await relay(g.f, { ...g.env, FAKE_API_CONCLUSION: "failure", FAKE_GALLERY_ZIP: archive,
+    FAKE_GALLERY_ARTIFACTS: JSON.stringify([{ id: 99, name: `window-gallery-${id}`, size_in_bytes: 100, expired: false }]),
+  });
+  expect(result.code).toBe(1);
+  expect(g.comments).toHaveLength(2);
+  const manifest = JSON.parse(/<!-- window-gallery (.*) -->/.exec(g.comments[1]!.body)![1]!) as { shard: { id: string; index: number; count: number }; captures: { name: string }[] };
+  expect(manifest.shard).toMatchObject({ id, index, count: 2 });
+  expect(manifest.captures.map(c => c.name)).toEqual([`${name}.png`]);
+  await expect(run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...process.env, ...g.env } })).rejects.toMatchObject({ stderr: expect.stringContaining("Incomplete or duplicate gallery shard set") });
+  expect(existsSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+it("publishes and accepts both bounded shards including all frame phone profiles", async () => {
+  const g = await storedGallery();
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan(["window-empty", "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
+  const names = JSON.parse(plan.stdout) as string[];
+  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(4);
+  expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);
+  await g.capture(230, names.length, names);
+  await run("python3", ["-c", `import json,sys,zipfile
+path=sys.argv[1]
+with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
+report=json.loads(entries['report.json'])
+scenes=report.pop('scenes')
+report['pixelBlocking']=True
+report['captureBudget']['limit']=800
+report['captureBudget']['remaining']=800-len(scenes)
+report['shards']=[{'name':shard,'scenes':[s for s in scenes if s['name'].startswith('phone-') == (shard=='phone')]} for shard in ('desktop','phone')]
+entries['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(path,'w') as z:
+    for name,data in entries.items(): z.writestr(name,data)
+`, g.env.FAKE_GALLERY_ZIP]);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  const manifest = JSON.parse(/<!-- window-gallery (.*?) -->/.exec(g.comments[0]!.body)![1]!) as { captures: { name: string }[] };
+  expect(manifest.captures.map(c => c.name)).toEqual(names.map(name => `${name}.png`));
   await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
-  expect(readdirSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toEqual(["window-empty.dark.png", "window-extra.dark.png"]);
+  const baselines = join(g.f.checkout, "packages/gui/gallery/baselines");
+  expect(readdirSync(baselines).sort()).toEqual(names.map(name => `${name}.png`).sort());
+  for (const name of names) expect(readFileSync(join(baselines, `${name}.png`))).toEqual(g.captures.get(`/api/packages/example/generic/window-gallery/${g.sha}-1/${name}.png`));
+});
+
+
+it.each(["overflow", "wrong-shard", "missing-shard", "duplicate-shard", "duplicate-capture", "missing-triplet", "advisory"])("refuses a sharded %s report before any publication", async (kind) => {
+  const g = await storedGallery();
+  await g.capture(230);
+  await run("python3", ["-c", `import json,sys,zipfile
+path,kind=sys.argv[1:]
+with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
+report=json.loads(entries['report.json'])
+scenes=report.pop('scenes')
+report['pixelBlocking']=kind!='advisory'
+report['shards']=[{'name':'desktop','scenes':scenes},{'name':'phone','scenes':[]}]
+if kind=='overflow': report['shards'][0]['scenes']=scenes*401
+if kind=='wrong-shard': report['shards'][0]['name']='phone'; report['shards'][1]['name']='desktop'
+if kind=='missing-shard': report['shards'].pop()
+if kind=='duplicate-shard': report['shards'][1]['name']='desktop'
+if kind=='duplicate-capture': report['shards'][0]['scenes']+=scenes
+if kind=='missing-triplet': scenes[0]['status']='changed'
+entries['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(path,'w') as z:
+    for name,data in entries.items(): z.writestr(name,data)
+`, g.env.FAKE_GALLERY_ZIP, kind]);
+  const result = await relay(g.f, g.env);
+  expect(result.code).not.toBe(0);
+  expect(g.comments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+});
+
+it("publishes complete changed triplets at both shard limits", async () => {
+  const g = await storedGallery();
+  const names = [...Array.from({ length: 400 }, (_, i) => `scene-${i}.dark`), ...Array.from({ length: 400 }, (_, i) => `phone-scene-${i}-phone-390.dark`)];
+  await g.capture(230, names.length, names);
+  await run("python3", ["-c", `import json,sys,zipfile
+path=sys.argv[1]
+with zipfile.ZipFile(path) as z: entries={n:z.read(n) for n in z.namelist()}
+report=json.loads(entries['report.json'])
+scenes=report.pop('scenes')
+for scene in scenes:
+    scene['status']='changed'
+    for suffix in ('baseline','difference'): entries[scene['name']+'.'+suffix+'.png']=entries[scene['name']+'.png']
+report['pixelBlocking']=True
+report['captureBudget']['limit']=800
+report['captureBudget']['remaining']=800-len(scenes)
+report['shards']=[{'name':shard,'scenes':[s for s in scenes if s['name'].startswith('phone-') == (shard=='phone')]} for shard in ('desktop','phone')]
+entries['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(path,'w') as z:
+    for name,data in entries.items(): z.writestr(name,data)
+`, g.env.FAKE_GALLERY_ZIP]);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.captures.size).toBe(800);
+  expect(g.attachments).toHaveLength(2400);
+  expect(g.comments[0]!.body).toContain("Report shards: desktop 400/400, phone 400/400.");
+});
+
+
+it.each(["desktop-001", "phone-001", "legacy"])("the hosted optimizer enforces the relay PNG limit for matrix shard %s", async (shard) => {
+  const f = await apiFixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  mkdirSync(join(f.checkout, "scripts"));
+  for (const name of ["gallery_allocation.py", "gallery-allocation.json"]) writeFileSync(join(f.checkout, "scripts", name), readFileSync(join(root, "scripts", name)));
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const step = /- name: Optimise the PNGs losslessly\n([\s\S]*?)\n {6}- uses:/.exec(hosted)?.[1];
+  const guard = /if \[ -f scripts\/gallery_allocation.py[\s\S]*?test "\$\(find packages\/gui\/gallery-images[^\n]+/.exec(step ?? "")?.[0];
+  if (!step || !guard) throw new Error("no hosted optimizer guard");
+  const binding = /GALLERY_SHARD: (.+)/.exec(step)?.[1];
+  const env = { ...process.env };
+  delete env.GALLERY_SHARD;
+  if (binding) env.GALLERY_SHARD = binding.replace("${{ matrix.shard }}", shard);
+  const check = () => run("bash", ["-e", "-c", guard], { cwd: f.checkout, env });
+  const limit = shard === "legacy" ? 2400 : 1200;
+  for (let i = 0; i < limit; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  await expect(check()).resolves.toBeDefined();
+  writeFileSync(join(images, `scene-${limit}.dark.png`), "image");
+  await expect(check()).rejects.toMatchObject({ code: 1 });
+});
+
+it("the hosted gallery supports earlier checkouts without the allocation files and keeps their bounds", async () => {
+  const f = await apiFixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1]?.replace(/^ {10}/gm, "");
+  const pngGuard = /if \[ -f scripts\/gallery_allocation.py[\s\S]*?test "\$\(find packages\/gui\/gallery-images[^\n]+/.exec(hosted)?.[0];
+  if (!guard || !pngGuard) throw new Error("no hosted gallery guards");
+  const scenes = Array.from({ length: 400 }, (_, i) => ({ name: `scene-${i}.dark` }));
+  const report = { pixelBlocking: true, scenes };
+  const check = () => run("python3", ["-c", guard], { cwd: f.checkout });
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).resolves.toBeDefined();
+  scenes.push({ name: "scene-overflow.dark" });
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Capture budget exceeded") });
+  scenes.pop();
+  writeFileSync(join(images, "report.json"), JSON.stringify({ ...report, pixelBlocking: false }));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Every capture remains gated") });
+  writeFileSync(join(images, "report.json"), JSON.stringify({ ...report, shards: [] }));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Capture budget exceeded") });
+  scenes[1] = scenes[0]!;
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Duplicate gallery capture name") });
+  for (let i = 0; i < 1200; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  const checkPngs = () => run("bash", ["-e", "-c", pngGuard], { cwd: f.checkout });
+  await expect(checkPngs()).resolves.toBeDefined();
+  writeFileSync(join(images, "scene-1200.dark.png"), "image");
+  await expect(checkPngs()).rejects.toMatchObject({ code: 1 });
+});
+
+it("the hosted report guard admits both shards and rejects overflow or an advisory gate", async () => {
+  const f = await apiFixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  mkdirSync(join(f.checkout, "scripts"));
+  for (const name of ["gallery_allocation.py", "gallery-allocation.json"]) writeFileSync(join(f.checkout, "scripts", name), readFileSync(join(root, "scripts", name)));
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1]?.replace(/^ {10}/gm, "");
+  expect(guard).toBeDefined();
+  const desktop = Array.from({ length: 400 }, (_, i) => ({ name: `scene-${i}.dark` }));
+  const phone = Array.from({ length: 400 }, (_, i) => ({ name: `phone-scene-${i}-phone-390.dark` }));
+  const report = { pixelBlocking: true, shards: [{ name: "desktop", scenes: desktop }, { name: "phone", scenes: phone }] };
+  const check = () => run("python3", ["-c", guard!], { cwd: f.checkout });
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).resolves.toBeDefined();
+  desktop.push({ name: "scene-overflow.dark" });
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("invalid gallery shards") });
+  desktop.pop();
+  writeFileSync(join(images, "report.json"), JSON.stringify({ ...report, pixelBlocking: false }));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Every capture remains gated") });
 });

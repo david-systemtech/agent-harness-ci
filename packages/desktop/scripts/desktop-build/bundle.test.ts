@@ -29,7 +29,7 @@ const specifiers = (code: string): string[] => [
 ];
 
 describe("the packaged main process", () => {
-  it("runs the packaged credential entry over private process IPC without starting the desktop", async () => {
+  it.each(["agent-harness", "agent-harness credentials 00000000-0000-4000-8000-000000000001"])("runs the packaged credential entry for %s over private IPC without starting the desktop", async (name) => {
     const helperDir = scratch();
     writeFileSync(join(helperDir, "main.js"), readFileSync(join(outDir, "main.js")));
     const electron = join(helperDir, "node_modules", "electron");
@@ -37,9 +37,14 @@ describe("the packaged main process", () => {
     writeFileSync(join(helperDir, "package.json"), JSON.stringify({ type: "module" }));
     writeFileSync(join(electron, "package.json"), JSON.stringify({ type: "module", exports: "./index.js" }));
     writeFileSync(join(electron, "index.js"), `
+let identity, profile;
 export const app = {
-  setPath: (name, path) => { if (name !== 'userData' || !path.endsWith('credential-provider')) throw new Error('Wrong helper profile'); },
-  whenReady: async () => {}, dock: { hide: () => {} },
+  setName: value => { if (value !== ${JSON.stringify(name)}) throw new Error('Wrong OS item identity'); identity = value; },
+  setPath: (key, path) => {
+    if (key !== 'userData' || !path.endsWith('credential-provider/' + encodeURIComponent(${JSON.stringify(name)}))) throw new Error('Wrong helper profile');
+    profile = path;
+  },
+  whenReady: async () => { if (!identity || !profile) throw new Error('OS identity must be set before ready'); }, dock: { hide: () => {} },
   requestSingleInstanceLock: () => { throw new Error('Helper must not claim the desktop lock'); },
 };
 export const safeStorage = {
@@ -53,7 +58,7 @@ export const clipboard = {}, dialog = {}, ipcMain = {}, nativeTheme = {}, Notifi
 `);
     const boot = join(helperDir, "helper-test.mjs");
     writeFileSync(boot, "Object.defineProperty(process, 'platform', { value: 'darwin' });\nawait import('./main.js');\n");
-    const provider = macCredentialProcess(() => spawn(process.execPath, [boot, CREDENTIAL_HELPER_ARGUMENT], { stdio: ["ignore", "ignore", "pipe", "ipc"] }));
+    const provider = macCredentialProcess(() => spawn(process.execPath, [boot, CREDENTIAL_HELPER_ARGUMENT, `--credential-store=${name}`], { stdio: ["ignore", "ignore", "pipe", "ipc"] }));
     try {
       const signal = new AbortController().signal;
       expect(await provider.available(signal)).toBe(true);

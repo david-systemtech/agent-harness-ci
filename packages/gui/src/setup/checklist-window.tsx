@@ -1,3 +1,4 @@
+import { CredentialNoticeProvider } from "../notices/credential-notice.js";
 import { homeEnvironment, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/contracts";
 import { ArrowLeft, LogOut } from "lucide-react";
@@ -104,6 +105,7 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
 
   const checklist = useMemo<Checklist>(() => ({ shown, step, part, open, choose, close, leaveForMain, leave }), [shown, step, part, open, choose, close, leaveForMain, leave]);
   return <ChecklistContext value={checklist}>
+    <CredentialNoticeProvider>
     <ChecklistAuthoringProvider runId={authoringRunId}>
       {shown && introduction ? <Introduction home={home} onBegin={() => { if (home?.phase === "ready") open("account"); }} onLater={close} /> : children}
       <Dialog open={confirmClose} onOpenChange={setConfirmClose}>
@@ -115,5 +117,6 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
         </DialogContent>
       </Dialog>
     </ChecklistAuthoringProvider>
+    </CredentialNoticeProvider>
   </ChecklistContext>;
 };

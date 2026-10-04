@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { captureName } from "./compare.js";
 import { sceneName } from "./scene-registry.js";
+
+const limits = JSON.parse(readFileSync(new URL("../../../scripts/gallery-allocation.json", import.meta.url), "utf8")) as { desktop: number; phone: number };
 
 /** Read filenames only: component modules are renderer code, never Node capture dependencies. */
 export async function sceneFiles(directory: string): Promise<readonly string[]> {
@@ -33,7 +36,7 @@ export interface CaptureCase {
 }
 
 /** Phone owners opt in with phone-* scene files; existing desktop names and ladders stay intact. */
-function allCaptures(scenes: readonly string[]): readonly CaptureCase[] {
+export function capturePlan(scenes: readonly string[]) {
   const desktop: CaptureCase[] = ([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
     captureCases(scenes).map(({ scene, ladder }) => ({
       scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
@@ -47,21 +50,19 @@ function allCaptures(scenes: readonly string[]): readonly CaptureCase[] {
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  return captures;
+  const shards = ([{ kind: "desktop", captures: desktop, limit: limits.desktop }, { kind: "phone", captures: phone, limit: limits.phone }] as const).flatMap(group => {
+    if (!Number.isInteger(group.limit) || group.limit < 1 || group.limit > 400) throw new Error("Invalid gallery report limit.");
+    const result = [];
+    for (let offset = 0; offset < group.captures.length; offset += group.limit) {
+      const captures = group.captures.slice(offset, offset + group.limit);
+      result.push({ id: `${group.kind}-${String(offset / group.limit + 1).padStart(3, "0")}`, captures,
+        budget: { desktop: group.kind === "desktop" ? captures.length : 0, phone: group.kind === "phone" ? captures.length : 0,
+          total: captures.length, limit: group.limit, remaining: group.limit - captures.length } });
+    }
+    return result;
+  });
+  if (shards.length > 100) throw new Error("Gallery shard count exceeds the hosted artifact listing limit.");
+  const limit = shards.reduce((total, shard) => total + shard.budget.limit, 0);
+  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit, remaining: limit - captures.length };
+  return { captures, budget, shards };
 }
-
-function boundedPlan(captures: readonly CaptureCase[]) {
-  const desktop = captures.filter(capture => capture.platform === "desktop").length;
-  const phone = captures.length - desktop;
-  const budget = { desktop, phone, total: captures.length, limit: 400, remaining: 400 - captures.length };
-  if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > ${budget.limit}. Shard publication and acceptance together before adding scenes.`);
-  return { captures, budget };
-}
-
-/** Every report retains the publisher and acceptance limits; no existing capture is dropped. */
-export function captureShards(scenes: readonly string[]) {
-  const captures = allCaptures(scenes);
-  if (captures.length > 800) throw new Error("Gallery capture budget exceeded: at most two bounded reports are supported.");
-  return Array.from({ length: Math.ceil(captures.length / 400) }, (_, index) => boundedPlan(captures.slice(index * 400, (index + 1) * 400)));
-}
-export function capturePlan(scenes: readonly string[]) { return boundedPlan(allCaptures(scenes)); }

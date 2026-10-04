@@ -55,7 +55,7 @@ export type Step = "idle" | "discovery" | "dialing" | "open";
 export type ConnectionAction = "re-pair" | "update-client" | "update-environment" | "service.start";
 
 /** What the connection has to say to David: blocked, or its token refresh failing. */
-export type ConnectionNoticeKind = "revoked" | "expired" | "unsupported-client" | "protocol-mismatch" | "refresh-failed";
+export type ConnectionNoticeKind = "revoked" | "expired" | "credential-unavailable" | "unsupported-client" | "protocol-mismatch" | "refresh-failed";
 
 export interface NoticeDraft {
   readonly kind: ConnectionNoticeKind;
@@ -161,6 +161,8 @@ export type MachineInput =
   | { readonly type: "discovery-result"; readonly attempt: number; readonly answer: DiscoveryAnswer }
   /** The connection has no token to send. */
   | { readonly type: "no-token"; readonly attempt: number }
+  /** A kept token cannot be read; keep it and offer re-pairing without retrying the OS prompt. */
+  | { readonly type: "credential-unavailable"; readonly attempt: number }
   /** The socket said `hello`; `expiresAt` is its token's expiry as the runner knows it. */
   | { readonly type: "hello"; readonly attempt: number; readonly hello: HelloFrame; readonly expiresAt: number | null }
   /** A socket opened elsewhere (pairing) said `hello` and is the connection's now. */
@@ -221,6 +223,7 @@ export const actionOf = (state: MachineState): ConnectionAction | null => {
   if (state.phase === "service-down" && state.kind === "local") return "service.start";
   if (state.phase !== "blocked") return null;
   switch (state.blocked) {
+    case "credential-unavailable":
     case "expired":
       return state.kind === "paired" ? "re-pair" : null;
     case "unsupported-client":
@@ -300,6 +303,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     // The local environment is never paired: a retry exchanges its grant for a new client session.
     const way = s.kind === "local" ? "retry to exchange the local grant again" : "pair again to reconnect";
     switch (reason) {
+      case "credential-unavailable":
+        return { kind: "credential-unavailable", message: `Stored credentials for ${s.name} from the previous build could not be read; pair that environment again.`, action: "re-pair" };
       case "revoked":
         return { kind: "revoked", message: `This client's session on ${s.name} was revoked; ${way}.`, action: null };
       case "expired":
@@ -509,6 +514,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         return live(input.attempt, "discovery") ? discovered(state, input.answer) : state;
       case "no-token":
         return live(input.attempt, "dialing") ? block(state, "revoked") : state;
+      case "credential-unavailable":
+        return live(input.attempt, "dialing") ? block(state, "credential-unavailable") : state;
       case "hello":
         return live(input.attempt, "dialing") ? greet(state, input.hello, input.expiresAt) : state;
       case "adopt":
