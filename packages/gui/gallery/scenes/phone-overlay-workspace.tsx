@@ -22,6 +22,7 @@ export const activate = () => {
 export const readySelector = "[data-workspace-picker]";
 export const geometry = [
   { selector: "[data-workspace-picker]", visibleWithin: "[data-workspace-picker]" },
+  { selector: "[data-ui-tooltip]", visibleWithin: "[data-ui-tooltip]" },
   { selector: "[data-workspace-picker] button", minimumWidth: 44, minimumHeight: 44 },
   { selector: '[data-workspace-picker] input', minimumHeight: 44 },
   { selector: '[data-workspace-picker] button[type="submit"]', visibleWithin: "[data-workspace-picker]" },

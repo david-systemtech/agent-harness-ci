@@ -21,6 +21,10 @@
     overscroll-behavior: contain;
   }
 
+  [data-ui-tooltip] {
+    max-width: min(18rem, calc(100vw - 16px), var(--radix-tooltip-content-available-width, 100vw));
+  }
+
   .phone-dialog-surface {
     max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     overflow-y: auto;
