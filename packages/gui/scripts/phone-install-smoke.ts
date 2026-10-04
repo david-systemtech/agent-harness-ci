@@ -3,8 +3,7 @@ import { execFileSync } from "node:child_process";
 import type { Page, BrowserContext } from "playwright";
 import { expect } from "playwright/test";
 
-/** Hosted real-client seam: no test server or browser is started by this leaf. */
-export async function phoneInstallSmoke(page: Page, context: BrowserContext, bundle: string, engine: string): Promise<void> {
+export async function waitForPublicWorker(page: Page, engine: string): Promise<void> {
   console.log(`PHONE-INSTALL ${engine}: waiting for the public worker`);
   // Playwright's waitForFunction evaluates its predicate inside the page; WebKit enforces the served CSP there.
   await page.evaluate(`(() => {
@@ -35,6 +34,11 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   await page.evaluate("document.documentElement.removeAttribute('data-smoke-worker-controlled')");
   await page.evaluate("document.documentElement.removeAttribute('data-smoke-worker-registration')");
   console.log(`PHONE-INSTALL ${engine}: public worker controls the client`);
+}
+
+/** Hosted real-client seam: no test server or browser is started by this leaf. */
+export async function phoneInstallSmoke(page: Page, context: BrowserContext, bundle: string, engine: string): Promise<void> {
+  await waitForPublicWorker(page, engine);
   const textbox = page.getByRole("textbox", { name: "Message", exact: true });
   await textbox.fill("Draft retained across a client update.");
   await textbox.dispatchEvent("compositionstart");

@@ -1,4 +1,4 @@
-import { phoneInstallSmoke } from "./phone-install-smoke.js";
+import { phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -90,6 +90,8 @@ try {
       await page.goto(code.link);
       await page.locator("[data-web-grant]").filter({ hasText: "Ceiling: acceptEdits" }).waitFor();
       assert.equal(new URL(page.url()).hash, "", "Pairing credentials leave the address bar.");
+      try { await waitForPublicWorker(page, name); }
+      catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await page.getByRole("combobox", { name: "Sessions", exact: true }).selectOption(`${environment.env.id}/${sessionId}`);
