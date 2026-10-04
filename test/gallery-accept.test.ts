@@ -55,8 +55,21 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
         const bogus = { head: "test-head", version: "test-head-999", captures: [{ ...captures[0], api_url: `${base}/api/packages/example/generic/window-gallery/test-head-999/window-empty.dark.png` }] };
         comments.push({ id: mode === "spoofed" ? 999 : 1000, user: { id: mode === "spoofed" ? 7 : -2 }, body: '<!-- window-gallery ' + JSON.stringify(bogus) + ' -->' });
       }
+      if (mode.startsWith("sharded")) {
+        const shard = { group: "run-42-1", id: "desktop-001", index: 0, count: 2 };
+        manifest.body = '<!-- window-gallery ' + JSON.stringify({ head: "test-head", version: "test-head-123", shard, captures: captures.map(c => ({ ...c, api_url: c.api_url.replace("/test-head/", "/test-head-123/") })) }) + ' -->';
+        const name = "phone-overlay-workspace-phone-390.dark.png";
+        const phoneImage = PNG.sync.write({ width: 390, height: 844, data: Buffer.alloc(390 * 844 * 4, 255) });
+        const second = { id: 124, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: "test-head", version: "test-head-124", shard: { ...shard, id: "phone-001", index: 1 }, captures: [{ name, api_url: `${base}/api/packages/example/generic/window-gallery/test-head-124/${name}`, sha256: createHash("sha256").update(phoneImage).digest("hex") }] }) + ' -->' };
+        if (mode === "sharded-duplicate") second.body = second.body.replaceAll("phone-overlay-workspace-phone-390.dark.png", "window-empty.dark.png");
+        if (mode === "sharded-count") second.body = second.body.replace('"count":2', '"count":3');
+        if (mode !== "sharded-missing") comments.push(second);
+        if (mode === "sharded-rerun") comments.push({ ...second, id: 125, body: second.body.replaceAll("test-head-124", "test-head-125").replace("run-42-1", "run-43-1") });
+        if (mode === "sharded-corrupt") image = Buffer.from("not an image");
+      }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
+    else if (mode.startsWith("sharded") && request.url?.includes("phone-overlay")) response.end(PNG.sync.write({ width: 390, height: 844, data: Buffer.alloc(390 * 844 * 4, 255) }));
     else response.end(mode === "corrupt" ? Buffer.from("not an image") : image);
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -263,6 +276,30 @@ it.each([
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });
 
+
+it("accepts a complete hosted shard set above 400 captures including a surface-owned phone overlay", async () => {
+  const f = await fixture("sharded", 400);
+  await run("bash", [script, "42"], { env: f.env });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(401);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-399.dark.png"))).toEqual(png);
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines/phone-overlay-workspace-phone-390.dark.png"))).toBe(true);
+});
+
+it.each(["sharded-missing", "sharded-rerun", "sharded-corrupt", "sharded-duplicate", "sharded-count"])("refuses %s without accepting a partial set of baselines", async mode => {
+  const f = await fixture(mode, 2);
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toThrow();
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+
+it("accepts an explicitly reviewed phone overlay across a complete shard set", async () => {
+  const f = await fixture("sharded", 400);
+  const name = "phone-overlay-workspace-phone-390.dark.png";
+  await run("bash", [script, "42", name], { env: f.env });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(1);
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines", name))).toBe(true);
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toBe(false);
+});
 
 it("refuses phone shard exhaustion without spending unused desktop slots", async () => {
   const f = await fixture("phone-overflow", 401, { name: "phone-frame-drawer-phone-390.dark.png", width: 390, height: 844 });
