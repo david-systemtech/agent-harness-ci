@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import type { Page, BrowserContext } from "playwright";
+import { expect } from "playwright/test";
 
 /** Hosted real-client seam: no test server or browser is started by this leaf. */
 export async function phoneInstallSmoke(page: Page, context: BrowserContext, bundle: string, engine: string): Promise<void> {
@@ -49,7 +50,7 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), reload.click()]);
   await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
   await textbox.waitFor();
-  assert.equal(await textbox.inputValue(), "Draft retained across a client update.", "The runtime persists the draft before activating the waiting bundle.");
+  await expect(textbox, "The runtime persists the draft before activating the waiting bundle.").toHaveValue("Draft retained across a client update.", { timeout: 60_000 });
   console.log(`PHONE-INSTALL ${engine}: draft survived the explicit update`);
   // Authenticated requests and pairing paths must bypass the public worker entirely.
   await page.evaluate(`(async () => {
@@ -81,6 +82,6 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   await page.reload();
   await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
   await textbox.waitFor();
-  assert.equal(await textbox.inputValue(), "Draft retained across a client update.");
+  await expect(textbox).toHaveValue("Draft retained across a client update.", { timeout: 60_000 });
   console.log(`PHONE-INSTALL PASS ${engine}: public-only cache, waiting update, IME guard, durable draft, stale offline shell`);
 }
