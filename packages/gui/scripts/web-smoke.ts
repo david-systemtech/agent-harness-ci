@@ -1,3 +1,4 @@
+import { phoneInstallSmoke } from "./phone-install-smoke.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -57,7 +58,7 @@ try {
   const admin = await environment.client();
   for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
     const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
-    const browser = await engine.launch();
+    const browser = await engine.launch(name === "chromium" ? { args: ["--ignore-certificate-errors"] } : {});
     try {
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
       const page = await context.newPage();
@@ -96,6 +97,7 @@ try {
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      await phoneInstallSmoke(page, context, bundle, name);
       const credential = credentials[0]; assert(credential, "The browser completed pairing.");
       const wire = await environment.client({ token: credential.token, clientKind: "web" });
       await assert.rejects(() => wire.request("access.sessions.list", {}), "Phone has no admin scope.");

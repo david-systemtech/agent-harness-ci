@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import tailwindcss from "@tailwindcss/vite";
@@ -29,7 +30,15 @@ const stampWebVersion = (): Plugin => {
   return {
     name: "agent-harness:web-version",
     configResolved(config) { const defined = config.define?.["__HARNESS_VERSION__"]; if (defined !== undefined) stampedVersion = JSON.parse(String(defined)) as string; },
-    generateBundle() { this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version: stampedVersion }) }); },
+    generateBundle(_options, bundle) {
+      this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ version: stampedVersion }) });
+      const workerChunk = bundle["service-worker.js"];
+      if (workerChunk?.type === "chunk") {
+        const paths = ["/", "/manifest.webmanifest", "/phone-icons/icon-192.png", "/phone-icons/icon-512.png", ...Object.keys(bundle).filter(path => path.startsWith("assets/")).map(path => `/${path}`)];
+        const fingerprint = createHash("sha256").update(Object.values(bundle).map(part => part.type === "chunk" ? part.code : String(part.source)).join("\n")).digest("hex").slice(0, 16);
+        workerChunk.code = workerChunk.code.replace(/(["'`])__PUBLIC_ASSET_PATHS__\1/, JSON.stringify(paths)).replace("__PUBLIC_CACHE_VERSION__", fingerprint);
+      }
+    },
   };
 };
 
