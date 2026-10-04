@@ -1,6 +1,7 @@
 """Publish validated hosted reports from the trusted checkout only."""
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
 from gallery_reports import validate_shard, complete_set, MAX_ROWS, MAX_BYTES
+from gallery_allocation import LIMITS, MAX_PNGS, report_scenes
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[1]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
@@ -23,13 +24,18 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
 def read_report(archive):
     with zipfile.ZipFile(archive) as z:
         entries = z.infolist()
-        # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
-        max_scenes = MAX_ROWS
-        max_pngs = max_scenes * 3
-        if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > MAX_BYTES: sys.exit('gallery payload is too large')
+        # Bound bytes before reading entries; older named shards share one archive.
+        if len(entries) > MAX_PNGS + 2 or sum(f.file_size for f in entries) > MAX_BYTES: sys.exit('gallery payload is too large')
         names = [f.filename for f in entries]
-        if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
+        if len(set(names)) != len(names): sys.exit('unexpected gallery entry')
         report = json.loads(z.read('report.json'))
+        combined = 'shards' in report
+        if combined and 'shard' in report: sys.exit('Mixed gallery report formats')
+        max_pngs = MAX_PNGS if combined else MAX_ROWS * 3
+        if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs: sys.exit('gallery payload is too large')
+        if any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
+        scenes = report_scenes(report)
+        if combined and report.get('pixelBlocking') is not True: sys.exit('Every shard capture remains gated')
         images = {n: z.read(n) for n in names if n.endswith('.png')}
         for name, data in images.items():
             if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
@@ -37,8 +43,6 @@ def read_report(archive):
                 phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
                 profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
                 if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
-        scenes = report['scenes']
-        if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
         seen = set()
         for scene in scenes:
             name = scene['name']
@@ -55,7 +59,7 @@ def read_report(archive):
             single = archive.endswith('/gallery.zip') and report['shard']['index'] == report['shard']['count'] == 1
             if not single and (match is None or int(match[1]) != report['shard']['index']): sys.exit('Gallery artifact and shard index differ')
         expected = {scene['name'] + suffix for scene in scenes for suffix in (('.png', '.baseline.png', '.difference.png') if scene['status'] == 'changed' else ('.png',))}
-        if 'shard' in report and set(images) != expected: sys.exit('Unexpected gallery shard images')
+        if ('shard' in report or combined) and set(images) != expected: sys.exit('Unexpected gallery shard images')
     return report, images, scenes
 
 reports = [read_report(archive) for archive in sys.argv[2:]]
@@ -90,6 +94,8 @@ for report, images, scenes in reports:
         budget = report.get('captureBudget')
         if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
             body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
+        if 'shards' in report:
+            body += '\nReport shards: ' + ', '.join(f"{shard['name']} {len(shard['scenes'])}/{LIMITS[shard['name']]}" for shard in report['shards']) + '.\n'
         geometry_failed = any(s['geometryFailures'] for s in scenes)
         pixel_failed = any(s['pixelFailed'] for s in scenes)
         body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"

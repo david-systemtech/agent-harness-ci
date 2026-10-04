@@ -57,3 +57,20 @@ it("supports an existing one-report hosted job while requiring explicit multi-re
   expect(() => captureShard(multiple, "3", "hosted-run")).toThrow("Invalid gallery shard selection");
   expect(() => captureShard(multiple, "1", "bad/run")).toThrow("Invalid gallery shard selection");
 });
+
+
+it("allocates the frame conversation and drawer profiles without spending desktop capacity", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const existing = capturePlan(scenes);
+  const plan = capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]);
+  expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(existing.captures.filter(c => c.platform === "desktop"));
+  expect(plan.budget).toEqual({ desktop: 354, phone: 62, total: 416, limit: 800, remaining: 384 });
+  for (const scene of ["phone-frame-conversation", "phone-frame-drawer"]) {
+    expect(plan.captures.filter(c => c.scene === scene).map(c => c.name)).toEqual([
+      `${scene}-phone-390.light`, `${scene}-phone-390.dark`,
+      `${scene}-phone-360.light`, `${scene}-phone-360.dark`,
+      `${scene}-phone-390-text-20.light`, `${scene}-phone-390-text-20.dark`,
+      `${scene}-phone-390-keyboard.light`, `${scene}-phone-390-keyboard.dark`,
+    ]);
+  }
+});
