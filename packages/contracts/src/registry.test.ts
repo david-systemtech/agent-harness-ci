@@ -230,6 +230,12 @@ describe("the method registry", () => {
       expect(method.params.shape, method.name).toHaveProperty("commandId", CommandId);
     }
     expect(methods.filter((m) => m.kind === "command").map((m) => m.name)).toEqual([
+      "attention.targets.set",
+      "attention.targets.remove",
+      "attention.routes.set",
+      "attention.routes.remove",
+      "attention.targets.configure",
+      "attention.routes.configure",
       "environment.drain",
       "environment.rebuildProjections",
       "environment.rename",
@@ -413,6 +419,13 @@ describe("the method registry", () => {
 
   it("types params and results from the table", () => {
     expectTypeOf<MethodName>().toEqualTypeOf<
+      | "attention.targets.list"
+      | "attention.targets.set"
+      | "attention.targets.remove"
+      | "attention.routes.set"
+      | "attention.routes.remove"
+      | "attention.targets.configure"
+      | "attention.routes.configure"
       | "environment.status"
       | "environment.subscribe"
       | "environment.drain"

@@ -173,3 +173,6 @@ export * from "./memory-drafts.js";
 
 export * from "./web/origin-policy.js";
 export * from "./web/attention.js";
+
+export * from "./attention.js";
+export * from "./methods/attention.js";
