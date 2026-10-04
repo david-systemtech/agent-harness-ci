@@ -3,8 +3,8 @@ import { WebBrowserPane } from "../../src/browser/web-browser-pane.js";
 import type { SceneModule } from "../scene-registry.js";
 
 export const platform = "web";
-export const script: SceneModule["script"] = { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{}] }] };
-export const arrangeWeb: SceneModule["arrangeWeb"] = world => {
+export const script: NonNullable<SceneModule["script"]> = { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{}] }] };
+export const arrangeWeb: NonNullable<SceneModule["arrangeWeb"]> = world => {
   const env = world.environment("desk");
   env.wire.answer("browser.status", () => ({ result: {
     listener: { state: "listening", port: 47615 }, folder: { path: "/test/extension", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false,

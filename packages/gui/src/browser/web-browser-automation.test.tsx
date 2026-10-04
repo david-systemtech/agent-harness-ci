@@ -31,7 +31,7 @@ it("a Phone grant chooses headless and sends a provider's browser verb to the en
   const runtime = createRuntime(platform);
   onCleanup(() => runtime.close());
   await runtime.start();
-  const pairing = await server.createPairing({ kind: "web", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
+  const pairing = await server.createPairing({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
   expect(await runtime.connections.add({ link: pairing.link })).toMatchObject({ status: "paired" });
   const sessionId = randomUUID();
   expect(await runtime.commands.dispatch(server.env.id, "sessions.create", { id: sessionId, workspace })).toMatchObject({ ok: true });
