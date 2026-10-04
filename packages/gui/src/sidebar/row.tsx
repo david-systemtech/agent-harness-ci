@@ -1,17 +1,18 @@
 import type { DropTarget, EnvironmentView, HeadingRow, RowActivity } from "@agent-harness/client-runtime";
-import { useMemo, useState } from "react";
-import { GitBranch, LoaderCircle } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { Ellipsis, GitBranch, LoaderCircle } from "lucide-react";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { SessionTooltip, RowTooltip, accountSwatch, sessionAge } from "./session-tooltip.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import { PullRequestMark } from "../session/pull-requests.js";
 import { classes } from "../ui/classes.js";
-import { ContextMenu, ContextMenuTrigger } from "../ui/index.js";
+import { ContextMenu, ContextMenuTrigger, IconButton } from "../ui/index.js";
 import { useDragRow, useDropTarget } from "./drag.js";
 import { useOrganise } from "./organise.js";
 import { RenameField } from "./rename-field.js";
-import { contextMenuKeys } from "./menu-entry.js";
+import { contextMenuKeys, openContextActions } from "./menu-entry.js";
 import { RowMenu } from "./row-menu.js";
 import { activityWords, quoted } from "./words.js";
 
@@ -49,6 +50,8 @@ export interface SessionRowProps {
 export const TITLE_MOST = 200;
 
 export const SessionRowView = ({ line, environment, current, drop, open }: SessionRowProps) => {
+  const { narrow } = usePhoneFrame();
+  const trigger = useRef<HTMLButtonElement>(null);
   const { row } = line;
   const { summary } = row;
   const runtime = useRuntime();
@@ -61,7 +64,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
   const dragging = useDragRow(row);
   const target = useDropTarget(drop);
   return (
-    <li {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
+    <li data-sidebar-item {...target.handlers} className={classes("relative h-[54px] shrink-0 px-2 py-0.5", narrow && "flex min-w-0 items-center", target.over && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-beam")}>
       {editing ? (
         <RenameField
           label={`Rename ${quoted(summary.title)}`}
@@ -75,6 +78,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
           <RowTooltip content={<SessionTooltip line={line} environment={name} account={account?.label} />}>
             <ContextMenuTrigger asChild>
               <button
+                ref={trigger}
                 type="button"
                 onClick={open}
                 onKeyDown={contextMenuKeys}
@@ -85,6 +89,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
                 title={line.dim ? `Cached: ${name} is not answering.` : undefined}
                 className={classes(
                   "flex h-full w-full min-w-0 flex-col items-start justify-center gap-0.5 rounded-md px-2 py-1.5 text-left font-normal outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
+                  narrow && "flex-1",
                   line.dim ? "text-ink-faint" : "text-ink",
                   current && "bg-wash-strong",
                   summary.archivedAt !== null && "opacity-60",
@@ -95,7 +100,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
                   <span data-sidebar-title className="min-w-0 flex-1 truncate">{summary.title}</span>
                   <span className="ml-auto shrink-0 pl-1 font-mono text-2xs text-ink-faint">{age}</span>
                 </span>
-                <span className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden font-mono text-2xs text-ink-faint">
+                <span data-sidebar-details className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden font-mono text-2xs text-ink-faint">
                   {"branch" in summary.workspace && <span className="flex min-w-0 items-center gap-1"><GitBranch aria-hidden="true" className="size-2.5 shrink-0" /><span className="truncate">{summary.workspace.branch}</span></span>}
                   <EnvironmentGlyph view={environment} label={name} />
                   {account !== undefined && <span className="flex min-w-0 items-center gap-1"><span aria-hidden="true" className={classes("size-2 shrink-0 rounded-[3px]", accountSwatch(account.id))} /><span className="max-w-[176px] truncate">{account.label}</span></span>}
@@ -108,6 +113,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
               </button>
             </ContextMenuTrigger>
           </RowTooltip>
+          {narrow && <IconButton label={`Actions for ${quoted(summary.title)}`} onClick={() => openContextActions(trigger.current)}><Ellipsis aria-hidden="true" /></IconButton>}
           <RowMenu line={line} rename={() => setEditing(true)} />
         </ContextMenu>
       )}

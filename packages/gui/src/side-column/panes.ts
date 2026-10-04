@@ -8,8 +8,8 @@ import type { SidePane } from "../presentation.js";
  * says whether it can draw. The terminal opens one over the environment's
  * `terminal`-scoped methods, and Files and Diff list over them; Documents
  * and Tasks list the session's own projections, which need none, and their
- * actions each say for themselves; the Preview needs the shell's `preview`
- * (a browser tab has none: `no-shell`) and reads through `files.read`.
+ * actions each say for themselves; the Preview reads through `files.read` and uses a static snapshot when
+ * no desktop preview grant exists.
  */
 
 interface PaneKind {
@@ -32,7 +32,7 @@ export const PANES: Readonly<Record<SidePane, PaneKind>> = {
   documents: { icon: NotebookText, label: "Documents", needs: [], drawnWhileAbsent: false },
   tasks: { icon: ListTodo, label: "Tasks", needs: [], drawnWhileAbsent: false },
   browser: { icon: Globe, label: "Browser", needs: ["shell.webView"], drawnWhileAbsent: false },
-  preview: { icon: PanelsTopLeft, label: "Preview", needs: ["shell.preview", "files.read"], drawnWhileAbsent: false },
+  preview: { icon: PanelsTopLeft, label: "Preview", needs: ["files.read"], drawnWhileAbsent: false },
 };
 
 const PRESENT: CapabilityAnswer = { status: "present" };

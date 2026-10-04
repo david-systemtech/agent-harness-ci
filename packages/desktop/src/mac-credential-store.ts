@@ -83,7 +83,13 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
     },
     async recover(kept) {
       await ready();
-      const { name } = unpack(kept);
+      let name: string;
+      try { name = unpack(kept).name; }
+      catch {
+        // The damaged file needs repair, but identifies no OS item to retire.
+        // recovery() keeps the warning until that file is replaced or removed.
+        return;
+      }
       if (unavailable.has(name)) { await saved; return; }
       unavailable.add(name);
       providers.get(name)?.close();
@@ -104,8 +110,11 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
     },
     async recovery() {
       await ready();
-      if (unavailable.size === 0) return false;
-      for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const entries = await readdir(dir, { withFileTypes: true }).catch(error => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw error;
+      });
+      for (const entry of entries) {
         if (!entry.isFile() || !entry.name.endsWith(".secret")) continue;
         let kept: Buffer;
         try { kept = await readFile(join(dir, entry.name)); }

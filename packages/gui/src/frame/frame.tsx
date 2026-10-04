@@ -8,6 +8,7 @@ import { useChecklist } from "../setup/checklist-window.js";
 import { BrowserPanesProvider } from "../browser/browser-panes.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
 import { usePresentation } from "../window-context.js";
+import { PhoneFrameProvider, SessionDrawer, usePhoneFrame } from "./phone-frame.js";
 import { Header } from "./header.js";
 import { SessionPaneRegion } from "./session-pane-region.js";
 import { SidebarRegion } from "./sidebar-region.js";
@@ -28,9 +29,10 @@ import { SidebarRegion } from "./sidebar-region.js";
  * while the full checklist is open (Set up on first launch) it takes the
  * whole window.
  */
-export const Frame = () => {
+const FrameContents = () => {
+  const phone = usePhoneFrame();
   const [sidebarShown, setSidebarShown] = usePresentation("sidebarShown");
-  useKeyAction("app.sidebar.toggle", () => setSidebarShown((shown) => !shown));
+  useKeyAction("app.sidebar.toggle", () => phone.narrow ? phone.showDrawer(!phone.drawerShown) : setSidebarShown((shown) => !shown));
   const { shown } = useSettings();
   const checklist = useChecklist();
   return (
@@ -41,14 +43,15 @@ export const Frame = () => {
             {checklist.shown ? (
               <ChecklistView />
             ) : (
-              <div className="flex h-dvh flex-col bg-abyss text-ink">
+              <div data-phone-frame={phone.narrow ? "" : undefined} className="flex h-dvh flex-col bg-abyss text-ink">
                 <Header />
                 <div data-window-body className="flex min-h-0 min-w-0 flex-1 gap-[7px] p-[7px]">
-                  {sidebarShown && <SidebarRegion />}
+                  {!phone.narrow && sidebarShown && <SidebarRegion />}
                   <div data-session-card className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border border-hairline bg-panel">
                     <SessionPaneRegion />
                   </div>
                 </div>
+                <SessionDrawer />
                 {shown && <SettingsView />}
               </div>
             )}
@@ -58,3 +61,5 @@ export const Frame = () => {
     </BrowserPanesProvider>
   );
 };
+
+export const Frame = () => <PhoneFrameProvider><FrameContents /></PhoneFrameProvider>;

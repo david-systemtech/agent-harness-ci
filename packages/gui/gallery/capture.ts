@@ -8,6 +8,7 @@ import { measureSceneGeometry } from "./geometry.js";
 import { waitForFloatingLayout } from "./floating-layout.js";
 import { compareCapture, geometryFailures, galleryFailed } from "./compare.js";
 import type { Measurement } from "./compare.js";
+import { observePreviewRequests, verifyPhonePreviewIsolation } from "./phone-preview-isolation.js";
 
 // This executable starts a server and Chromium. Its only execution site is a hosted CI runner.
 if (process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"] !== "github-hosted") {
@@ -41,6 +42,7 @@ try {
   const { shard } = selected;
   for (const { scene, ladder, viewport, name, platform, textSize } of selected.captures) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
+    const previewRequests = scene === "phone-pane-preview" ? await observePreviewRequests(context) : undefined;
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -73,6 +75,10 @@ try {
         return Math.abs(actual - 16 * size / 14) <= 0.5 ? [] : [`html.fontSize: got ${actual}, expected ${16 * size / 14}`];
       }, textSize) : []),
     ];
+    if (previewRequests !== undefined) {
+      try { await verifyPhonePreviewIsolation(page, previewRequests); }
+      catch (error) { failures.push(`Preview isolation: ${error instanceof Error ? error.message : String(error)}`); }
+    }
     const baselinePath = resolve(import.meta.dirname, "baselines", `${name}.png`);
     let baseline: Buffer | undefined;
     try { baseline = await readFile(baselinePath); }
