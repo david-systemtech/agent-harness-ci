@@ -30,7 +30,13 @@ it("waits for the terminal font before mounting its output", async () => {
   const previous = Object.getOwnPropertyDescriptor(document, "fonts");
   let loaded!: () => void;
   const mono = new Promise<FontFace[]>((resolve) => { loaded = () => resolve([]); });
-  const load = vi.fn((font: string) => font.includes("JetBrains") ? mono : Promise.resolve([]));
+  let fontRequested!: () => void;
+  const requested = new Promise<void>((resolve) => { fontRequested = resolve; });
+  const load = vi.fn((font: string) => {
+    if (!font.includes("JetBrains")) return Promise.resolve([]);
+    fontRequested();
+    return mono;
+  });
   Object.defineProperty(document, "fonts", { configurable: true, value: { load, ready: Promise.resolve() } });
   const registry = discoverScenes(import.meta.glob<SceneModule>("../../gallery/scenes/phone-terminal*.tsx", { eager: true }));
   const scene = registry["phone-terminal"]!;
@@ -41,7 +47,8 @@ it("waits for the terminal font before mounting its output", async () => {
     if (previous) Object.defineProperty(document, "fonts", previous);
     else delete (document as { fonts?: unknown }).fonts;
   });
-  await waitFor(() => expect(screen.getByRole("heading", { name: "Environment terminal" })).toBeDefined());
+  await requested;
+  expect(screen.getByRole("heading", { name: "Environment terminal" })).toBeDefined();
   expect(screen.queryByLabelText("Terminal screen")).toBeNull();
   expect(load).toHaveBeenCalledWith('12px "JetBrains Mono Variable"');
   loaded();
