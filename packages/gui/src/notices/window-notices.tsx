@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { useSettingsNoticeHost } from "../settings/settings-window.js";
 import { useEffect, useState } from "react";
 import { stepHome, type Notice, type SecretAccess } from "@agent-harness/client-runtime";
 import { STEP_ORDER, settingsRow, type StepId } from "@agent-harness/contracts";
@@ -79,6 +81,7 @@ const toneOf = (notice: Notice): "info" | "warning" | "error" => {
     case "revoked":
     case "expired":
     case "refresh-failed":
+    case "credential-unavailable":
     case "update-failed":
     case "routine-delivery-failed":
     case "command-rejected":
@@ -136,6 +139,7 @@ const KEYCHAIN_NOTICE_DELAY_MS = 500;
 
 /** Environment notices and this window's OS credential access, as dismissible banners. */
 export const WindowNotices = () => {
+  const noticeHost = useSettingsNoticeHost();
   const secrets = useShell()?.secrets;
   const { leave } = useChecklist();
   const clock = useClock();
@@ -153,7 +157,7 @@ export const WindowNotices = () => {
   }, [clock, secrets]);
   const notices = useObservable(useRuntime().projections.notices);
   if (notices.length === 0 && (access === null || dismissed)) return null;
-  return (
+  const content = (
     <section aria-label="Notifications" className="mb-[7px] max-h-[40%] min-h-0 shrink-0 overflow-y-auto">
       <ul className="flex min-w-0 flex-col gap-1.5">
         {access !== null && !dismissed && <li className={`relative flex min-w-0 items-start gap-2 rounded-[8px] border px-3 py-2 pr-9 text-ink ${TINTS.warning}`}>
@@ -161,14 +165,15 @@ export const WindowNotices = () => {
           <div role="status" className="min-w-0 flex-1 font-mono text-2xs [overflow-wrap:anywhere]">
             <p>{access === "waiting" ? "Waiting for macOS Keychain access" : "Keychain access did not complete"}</p>
             <p className="mt-1 text-ink-muted">{access === "waiting"
-              ? "macOS may ask for approval after replacing this app. Allow access to reconnect and update this machine's environment, or cancel the OS prompt. You can keep using this window."
-              : "Your accounts and saved connections are kept. Open Your machines, choose Try again for the saved connection and allow macOS Keychain access when prompted. You can also pair that environment again."}</p>
+              ? "macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them. You can keep using this window while it waits."
+              : "Stored credentials from the previous build could not be read. New credentials use a fresh OS-protected item; this machine's local environment keeps working. Pair again with the environments that were paired."}</p>
           </div>
-          {access === "denied" && <Button variant="outline" size="xs" onClick={() => leave("environments.machines")}><ArrowRight aria-hidden="true" />Open Your machines</Button>}
+          {access === "denied" && <Button variant="outline" size="xs" onClick={() => leave("environments.machines")}><ArrowRight aria-hidden="true" />Pair again</Button>}
           <IconButton label="Dismiss" keys="Enter / Space" size="icon-xs" className="absolute top-1 right-1" onClick={() => setDismissed(true)}><X aria-hidden="true" /></IconButton>
         </li>}
         {notices.map((notice) => <NoticeBanner key={notice.id} notice={notice} />)}
       </ul>
     </section>
   );
+  return noticeHost?.host ? createPortal(content, noticeHost.host) : content;
 };

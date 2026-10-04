@@ -5,6 +5,8 @@ import { createRuntime } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock } from "@agent-harness/client-runtime/testing";
 import { fakeWire, flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { keychainSecrets } from "./secrets.js";
+import { macCredentialStore } from "./mac-credential-store.js";
+import type { MacCredentials } from "./mac-credentials.js";
 import { fakeElectron } from "../test/fake-electron.js";
 import { cleanUp, platformOn, start } from "../test/harness.js";
 
@@ -21,6 +23,53 @@ const DESK = "0199aa00-0000-7000-8000-00000000d35c";
 const LAPTOP = "0199aa00-0000-7000-8000-0000000019a7";
 
 describe("secrets", () => {
+  it("keeps unreadable earlier ciphertext while fresh credentials work and the recovery notice stays visible", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const dir = join(platform.paths.data, "secrets");
+    mkdirSync(dir);
+    const file = join(dir, `${DESK}.secret`);
+    const kept = electron.safeStorage.encryptString("token-for-tests-kept");
+    writeFileSync(file, kept);
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    let approve!: (value: string) => void;
+    const services = new Map<string, ReturnType<typeof fakeElectron>["safeStorage"]>();
+    const open = (name: string): MacCredentials => {
+      const storage = services.get(name) ?? fakeElectron({ os: "darwin" }).safeStorage;
+      services.set(name, storage);
+      return {
+        available: async () => { if (name === "agent-harness") throw new Error("The earlier OS item needs approval"); return true; },
+        encrypt: (value) => storage.encryptStringAsync(value),
+        decrypt: name === "agent-harness" ? () => new Promise((resolve) => { approve = resolve; entered(); }) : async (value) => (await storage.decryptStringAsync(value)).result,
+        close: () => {},
+      };
+    };
+    const clock = manualClock();
+    const macCredentials = macCredentialStore({ dir, open });
+    const { shell } = await start({ electron, platform, credentialClock: clock, macCredentials, reportError: () => {} });
+    const secrets = shell().secrets;
+    const refused = expect(secrets.get(DESK)).rejects.toThrow(/previous build could not be read/);
+    await started;
+    expect(await shell().system()).toMatchObject({ platform: "darwin" });
+    clock.advance(30_000);
+    await refused;
+    expect(readFileSync(file)).toEqual(kept);
+    await secrets.set(LAPTOP, "token-for-tests-fresh");
+    expect(await secrets.get(LAPTOP)).toBe("token-for-tests-fresh");
+    expect(await secrets.protection()).toBe("os");
+    expect(await secrets.access()).toBe("denied");
+    approve("token-for-tests-kept");
+    await flush();
+    expect(await secrets.access()).toBe("denied");
+    expect(readFileSync(file)).toEqual(kept);
+    await secrets.set(DESK, "token-for-tests-paired-again");
+    expect(await secrets.get(DESK)).toBe("token-for-tests-paired-again");
+    expect(await secrets.access()).toBeNull();
+    electron.app.quit();
+    await electron.app.quitted;
+  });
+
   it("bounds an unanswered macOS read, preserves its ciphertext, and ignores late approval before retry", async () => {
     const electron = fakeElectron({ os: "darwin" });
     const platform = platformOn("darwin");
@@ -214,7 +263,8 @@ describe("secrets", () => {
       await reconnecting;
       cancel(new Error("late OS refusal"));
       await flush();
-      expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "backoff", blocked: null })]);
+      expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "blocked", blocked: "credential-unavailable" })]);
+      expect(runtime.projections.notices.read()).toContainEqual(expect.objectContaining({ kind: "credential-unavailable", action: "re-pair" }));
       expect(await secrets.access()).toBe("denied");
       expect(readFileSync(file)).toEqual(kept);
       expect(runtime.projections.notices.read()).not.toContainEqual(expect.objectContaining({ kind: "revoked" }));
@@ -317,7 +367,7 @@ describe("secrets", () => {
     electron.safeStorage.keychain = true;
     electron.safeStorage.changeKey();
     await expect(shell().secrets.get(DESK)).rejects.toThrow();
-    expect(reported.map(String)).toEqual([expect.stringMatching(/cannot read the token kept for 0199aa00/), expect.stringMatching(/cannot read the token kept for 0199aa00/)]);
+    expect(reported.map(String)).toEqual([expect.stringMatching(/previous build could not be read/), expect.stringMatching(/previous build could not be read/)]);
   });
 
   it("answers none for a token file it cannot read at all, saying why", async () => {

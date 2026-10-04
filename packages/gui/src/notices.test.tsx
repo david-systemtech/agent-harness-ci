@@ -1,4 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { StoredCredentialUnavailableError } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
@@ -57,17 +58,20 @@ describe("a notice", () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
     await act(async () => app.clock.advance(500));
     const pending = await bannerSaying("Waiting for macOS Keychain access");
-    expect(pending.textContent).toContain("macOS may ask for approval after replacing this app");
+    expect(pending.textContent).toContain("macOS is asking for access to the stored credentials");
+    expect(pending.textContent).toContain("Answering the macOS prompt keeps them");
     await app.user.click(screen.getByRole("button", { name: "Settings" }));
-    expect(await screen.findByRole("dialog", { name: "Settings" })).toBeDefined();
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    await waitFor(() => expect(within(settings).getByText("Waiting for macOS Keychain access")).toBeDefined());
     await act(async () => shell.changeSecretAccess("denied"));
-    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
     const denied = await bannerSaying("Keychain access did not complete");
-    expect(denied.textContent).toContain("Your accounts and saved connections are kept");
-    await app.user.click(within(denied).getByRole("button", { name: "Open Your machines" }));
+    expect(denied.textContent).toContain("Stored credentials from the previous build could not be read");
+    expect(denied.textContent).toContain("fresh OS-protected item");
+    expect(denied.textContent).toContain("Pair again with the environments that were paired");
+    await app.user.click(within(denied).getByRole("button", { name: "Pair again" }));
     expect(await screen.findByRole("heading", { name: "Your machines" })).toBeDefined();
     await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
-    await app.user.click(within(denied).getByRole("button", { name: "Dismiss" }));
+    await app.user.click(within(await bannerSaying("Keychain access did not complete")).getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(screen.queryByText("Keychain access did not complete")).toBeNull());
     await act(async () => shell.changeSecretAccess("waiting"));
     await act(async () => app.clock.advance(500));
@@ -82,6 +86,17 @@ describe("a notice", () => {
     expect((await bannerSaying("Keychain access did not complete")).textContent).toMatch(/pair.*again/i);
     await act(async () => shell.changeSecretAccess(null));
     await waitFor(() => expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull());
+  });
+
+  it("keeps an unavailable paired environment visible and offers its working re-pair action", async () => {
+    const app = await twoEnvironments();
+    const laptop = app.environment("laptop");
+    app.shell.answer("secrets.get", () => { throw new StoredCredentialUnavailableError("OS approval was unavailable."); });
+    await act(async () => app.runtime.connections.retryNow(laptop.environmentId));
+    const notice = await bannerSaying("Stored credentials for laptop from the previous build could not be read");
+    expect(app.runtime.projections.environments.read().find(view => view.environmentId === laptop.environmentId)).toMatchObject({ phase: "blocked", blocked: "credential-unavailable" });
+    await app.user.click(within(notice).getByRole("button", { name: "Pair again" }));
+    expect(await screen.findByRole("dialog", { name: "Pair laptop again" })).toBeDefined();
   });
 
   it("shows as a banner with its action, and the banners stack in one list, oldest first", async () => {
