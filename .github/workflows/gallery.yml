@@ -109,6 +109,8 @@ jobs:
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
           PY
       - name: Optimise the PNGs losslessly
+        env:
+          GALLERY_SHARD: ${{ matrix.shard }}
         run: |
           sudo apt-get update && sudo apt-get install -y optipng
           optipng -o2 packages/gui/gallery-images/*.png
