@@ -1126,6 +1126,37 @@ with zipfile.ZipFile(path,'w') as z:
 });
 
 
+it("the hosted gallery supports earlier checkouts without the allocation files and keeps their bounds", async () => {
+  const f = await apiFixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1]?.replace(/^ {10}/gm, "");
+  const pngGuard = /if \[ -f scripts\/gallery_allocation.py[\s\S]*?test "\$\(find packages\/gui\/gallery-images[^\n]+/.exec(hosted)?.[0];
+  if (!guard || !pngGuard) throw new Error("no hosted gallery guards");
+  const scenes = Array.from({ length: 400 }, (_, i) => ({ name: `scene-${i}.dark` }));
+  const report = { pixelBlocking: true, scenes };
+  const check = () => run("python3", ["-c", guard], { cwd: f.checkout });
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).resolves.toBeDefined();
+  scenes.push({ name: "scene-overflow.dark" });
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Capture budget exceeded") });
+  scenes.pop();
+  writeFileSync(join(images, "report.json"), JSON.stringify({ ...report, pixelBlocking: false }));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Every capture remains gated") });
+  writeFileSync(join(images, "report.json"), JSON.stringify({ ...report, shards: [] }));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Capture budget exceeded") });
+  scenes[1] = scenes[0]!;
+  writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  await expect(check()).rejects.toMatchObject({ stderr: expect.stringContaining("Duplicate gallery capture name") });
+  for (let i = 0; i < 1200; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  const checkPngs = () => run("bash", ["-e", "-c", pngGuard], { cwd: f.checkout });
+  await expect(checkPngs()).resolves.toBeDefined();
+  writeFileSync(join(images, "scene-1200.dark.png"), "image");
+  await expect(checkPngs()).rejects.toMatchObject({ code: 1 });
+});
+
 it("the hosted report guard admits both shards and rejects overflow or an advisory gate", async () => {
   const f = await apiFixture();
   const images = join(f.checkout, "packages/gui/gallery-images");
