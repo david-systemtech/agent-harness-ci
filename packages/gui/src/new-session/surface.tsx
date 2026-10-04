@@ -1,11 +1,12 @@
-import { sendMessage, type NewSessionChips } from "@agent-harness/client-runtime";
+import { adapterOf, sendMessage, type NewSessionChips } from "@agent-harness/client-runtime";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { usePaneGrid } from "../grid/grid.js";
 import { KeyContext, useFirstKey, useKeyAction, useKeyMap, useMacOS, type Offer } from "../keys/key-dispatch.js";
 import type { PaneNewSession } from "../presentation.js";
 import { useOpenInPane } from "../session/pane-line.js";
-import { KeyRound, LoaderCircle, SendHorizontal, TriangleAlert } from "lucide-react";
+import { KeyRound, LoaderCircle, Paperclip, SendHorizontal, TriangleAlert } from "lucide-react";
+import { AttachmentChips, AttachmentPicker, useAttachments } from "../composer/attachments.js";
 import { useSettings } from "../settings/settings-window.js";
 import { Alert, AlertDescription, AlertTitle, Button, IconButton, Tooltip } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
@@ -91,6 +92,14 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     setText(next);
     typed.set(id, next);
   };
+  const providers = useObservable(useMemo(() => runtime.requests.cached(view.environment.value ?? "", "providers.list", {}), [runtime, view.environment.value]));
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(view.environment.value ?? ""), [runtime, view.environment.value]));
+  const attachments = useAttachments({
+    environmentId: view.environment.value ?? "",
+    provider: adapterOf(view.account.value?.id ?? null, accounts.value, providers.result?.providers ?? null) ?? undefined,
+    say,
+    insert: added => put(text + added),
+  });
   const choose = (chosen: NewSessionChips) => grid.chooseChips(id, (held) => {
     const next = { ...held, ...chosen };
     if (chosen.environmentId !== undefined || chosen.account !== undefined) delete next.browser;
@@ -104,6 +113,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     if (message.length === 0 || sendOffer.status === "absent") return;
     if (environmentId === null || workspace === null) return say(NONE_USABLE);
     const environment = view.environment.options.find((option) => option.environment.environmentId === environmentId)?.environment;
+    const input = { text: message, attachments: attachments.current() };
     const account = view.account.value;
     const model = view.model.value;
     setStarting(true);
@@ -120,7 +130,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
       const where = environment === undefined ? "the environment" : nameOf(environment);
       return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
     }
-    const sent = await sendMessage(runtime, environmentId, id, { text: message, attachments: [] }, false);
+    const sent = await sendMessage(runtime, environmentId, id, input, false);
     if (!sent.ok) runtime.drafts.set(environmentId, id, message);
     openInPane(environmentId, id, sent.ok ? undefined : sent.line);
   };
@@ -134,7 +144,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   };
 
   return (
-    <section aria-label="New session" className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <section data-new-session aria-label="New session" className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Welcome keyMap={keyMap} macOS={macOS} sentence={environment === undefined ? "Choose an environment for your first message." : view.account.value === null ? `Start a session on ${nameOf(environment)}.` : `Start a session on ${nameOf(environment)} with ${view.account.value.label}.`}>
           {notReady !== undefined && <Alert className="w-full bg-wash text-left">
@@ -154,6 +164,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
           <SendKey send={() => void start()} newline={newline} offer={sendOffer} />
           <div className="px-3 pt-1.5 pb-1">
             <div data-composer-card className="rounded-[10px] border border-hairline-strong bg-wash focus-within:ring-3 focus-within:ring-beam/50">
+              <AttachmentChips attachments={attachments} />
               <textarea
                 ref={field}
                 aria-label="Message"
@@ -161,11 +172,14 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
                 spellCheck={false}
                 value={text}
                 onChange={(event) => put(event.target.value)}
+                onPaste={attachments.pasted}
                 onKeyDown={(event) => { if (event.nativeEvent.isComposing) event.stopPropagation(); }}
                 rows={1}
                 className="block max-h-[35vh] min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm leading-relaxed text-ink outline-none"
               />
               <div className="flex items-center gap-2 px-2 pb-2">
+                <IconButton label="Attach files" onClick={attachments.choose}><Paperclip aria-hidden="true" /></IconButton>
+                <AttachmentPicker attachments={attachments} />
                 <span className="ml-auto hidden text-2xs text-ink-faint @[640px]:block">{sendKey ?? "Unbound"} send / {newlineKey ?? "Unbound"} newline</span>
                 <IconButton label={starting ? "Starting…" : "Send"} {...(sendKey === undefined ? {} : { keys: sendKey })} {...(notReady === undefined ? {} : { disabledReason: notReady })} variant="default" disabled={starting || text.trim().length === 0} className="ml-auto" onClick={() => void start()}>
                   {starting ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <SendHorizontal aria-hidden="true" />}
