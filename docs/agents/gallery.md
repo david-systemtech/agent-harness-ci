@@ -38,9 +38,11 @@ The workflows use the repository job token for PRs and comments and the existing
 
 ## Verifying hosted publication
 
+When the hosted workflow changes, install `.forgejo/github-workflows/gallery.yml` as `.github/workflows/gallery.yml` on the relay repository’s `workflows` default branch; repository dispatch uses that installed copy.
+
 When publication limits change, verify a gallery triggered on an open PR after the change reaches trusted main. The `pull_request_target` workflow checks out the event's base SHA; the PR head supplies the captures, not the publisher. A run started before the main merge does not prove the new publisher, even if it finishes afterward. Reuse an existing qualifying run rather than replaying a merged PR, which the publisher refuses.
 
-Check the event's base SHA and the relay checkout log, then confirm the completed report is authored by the reserved Actions identity (user ID `-2`). Its immutable version must be `<head>-<comment-id>`. Count the manifest captures, download every capture through its authenticated `api_url`, and verify each SHA-256, PNG signature and viewport dimensions. Check capture totals against 400 rows and 48 MiB, and the hosted artifact's ZIP size against 64 MiB. A successful trusted publisher also proves its complete archive passed the 1200-PNG, 1202-entry and 48-MiB expanded-payload guards. Report publication separately from geometry and pixel results.
+Check the event's base SHA and the relay checkout log, then confirm the completed report is authored by the reserved Actions identity (user ID `-2`). Its immutable version must be `<head>-<comment-id>`. Count the manifest captures, download every capture through its authenticated `api_url`, and verify each SHA-256, PNG signature and viewport dimensions. Check capture totals against 400 rows per shard and 48 MiB combined, and the hosted artifact's ZIP size against 64 MiB. A successful trusted publisher also proves its complete archive passed the sharded 2400-PNG, 2402-entry and 48-MiB expanded-payload guards. Report publication separately from geometry and pixel results.
 
 ### Hosted verification, 2026-10-03 (#1496)
 
@@ -76,3 +78,9 @@ checks. Older single-report manifests remain supported.
 
 Deploy the hosted gallery workflow and trusted relay together when this change
 lands. The relay uses the trusted base checkout; a PR cannot replace its publisher.
+
+Earlier heads from the allocation rollout still publish one artifact containing
+two bounded family reports. The hosted matrix uses a legacy entry for heads
+without `gallery/shards.ts`; their existing allocation, transport and image
+validation remain enforced. The relay and acceptance retain that report format
+while every new matrix artifact remains bounded to 400 captures and 1,200 PNGs.

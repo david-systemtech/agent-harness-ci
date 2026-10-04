@@ -44,11 +44,29 @@ it("keeps each desktop and phone report within 400 captures as either family gro
 
 
 it("discovers an added phone overlay beyond the full report and shards every capture without loss", async () => {
-  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => scene !== "phone-overlay-workspace");
   const existing = capturePlan(scenes);
   const plan = capturePlan([...scenes, "phone-overlay-workspace"]);
   expect(plan.captures).toHaveLength(existing.captures.length + 8);
   expect(plan.captures.filter(c => c.scene !== "phone-overlay-workspace")).toEqual(existing.captures);
   expect(plan.shards.every(shard => shard.captures.length <= 400)).toBe(true);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
+});
+
+it("allocates the frame conversation and drawer profiles without spending desktop capacity", async () => {
+  const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter(scene => !["phone-frame-conversation", "phone-frame-drawer"].includes(scene));
+  const existing = capturePlan(scenes);
+  const plan = capturePlan([...scenes, "phone-frame-conversation", "phone-frame-drawer"]);
+  expect(plan.captures.filter(c => c.platform === "desktop")).toEqual(existing.captures.filter(c => c.platform === "desktop"));
+  expect(plan.budget.desktop).toBe(existing.budget.desktop);
+  expect(plan.budget.phone).toBe(existing.budget.phone + 16);
+  expect(plan.budget.total).toBe(existing.budget.total + 16);
+  for (const scene of ["phone-frame-conversation", "phone-frame-drawer"]) {
+    expect(plan.captures.filter(c => c.scene === scene).map(c => c.name)).toEqual([
+      `${scene}-phone-390.light`, `${scene}-phone-390.dark`,
+      `${scene}-phone-360.light`, `${scene}-phone-360.dark`,
+      `${scene}-phone-390-text-20.light`, `${scene}-phone-390-text-20.dark`,
+      `${scene}-phone-390-keyboard.light`, `${scene}-phone-390-keyboard.dark`,
+    ]);
+  }
 });

@@ -3,10 +3,12 @@
 set -euo pipefail
 [[ "${1:-}" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: scripts/gallery-accept.sh <pr> [reviewed-capture.png ...]' >&2; exit 1; }
 root=$(git rev-parse --show-toplevel)
-python3 - "$root" "$@" <<'PY'
+python3 - "$root" "$(dirname "${BASH_SOURCE[0]}")" "$@" <<'PY'
 import hashlib, json, os, pathlib, re, shlex, shutil, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
-root = pathlib.Path(sys.argv[1]); number = sys.argv[2]
-selected = set(sys.argv[3:])
+sys.path.insert(0, sys.argv[2])
+from gallery_allocation import captures_fit_allocation, LIMITS
+root = pathlib.Path(sys.argv[1]); number = sys.argv[3]
+selected = set(sys.argv[4:])
 if any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)[.]png', name) for name in selected):
     sys.exit('Expected exact reviewed capture filenames.')
 remote = urllib.parse.urlsplit(subprocess.check_output(['git', '-C', str(root), 'remote', 'get-url', 'origin'], text=True).strip())
@@ -50,10 +52,12 @@ for comment in comments:
         version = candidate.get('version', head)
         if (version != head and (not isinstance(comment.get("id"), int) or comment["id"] < 1 or version != f'{head}-{comment["id"]}')): continue
         files = candidate.get('captures')
-        if not isinstance(files, list) or not files or len(files) > 400: continue
+        if not isinstance(files, list) or not files or len(files) > sum(LIMITS.values()): continue
         if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in files): continue
         shard = candidate.get('shard')
+        if shard is None and not captures_fit_allocation([item["name"] for item in files]): continue
         if shard is not None:
+            if len(files) > 400: continue
             if not isinstance(shard, dict) or not re.fullmatch(r'run-[1-9][0-9]*-[1-9][0-9]*', str(shard.get('group', ''))): continue
             if not re.fullmatch(r'(desktop|phone)-[0-9]{3}', str(shard.get('id', ''))): continue
             if type(shard.get('index')) is not int or type(shard.get('count')) is not int or not 0 <= shard['index'] < shard['count'] <= 100: continue
