@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { assertPreviewIsolation } from "../gallery/phone-preview-isolation.js";
+import { assertPreviewIsolation, previewNetworkRequests } from "../gallery/phone-preview-isolation.js";
 
 const isolated = { scriptRan: false, parentReadable: false, parentMutated: false, requests: [] };
 
@@ -14,4 +14,17 @@ it.each([
   { requests: ["https://example.test/preview-isolation-html-network"] },
 ])("fails a hosted isolation violation: %j", reading => {
   expect(() => assertPreviewIsolation("site/index.html", { ...isolated, ...reading })).toThrow(/site\/index.html/);
+});
+
+it("accepts only Chromium's CSP denial, keeping aborted, failed and pending HTTP attempts as violations", () => {
+  const observed = (errorText: string | null) => ({
+    url: () => "https://example.test/preview-isolation-html-style",
+    failure: () => errorText === null ? null : { errorText },
+  });
+  expect(previewNetworkRequests([observed("net::ERR_BLOCKED_BY_CSP")])).toEqual([]);
+  for (const reason of [null, "net::ERR_FAILED", "net::ERR_ABORTED", "net::ERR_NAME_NOT_RESOLVED"]) {
+    expect(() => assertPreviewIsolation("site/index.html", {
+      ...isolated, requests: previewNetworkRequests([observed(reason)]),
+    })).toThrow("network request");
+  }
 });
