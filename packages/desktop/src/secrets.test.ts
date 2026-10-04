@@ -70,6 +70,45 @@ describe("secrets", () => {
     await electron.app.quitted;
   });
 
+  it("isolates a damaged envelope while other credentials can be repaired, written and deleted", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const dir = join(platformOn("darwin").paths.data, "secrets");
+    mkdirSync(dir);
+    const original = electron.safeStorage.encryptString("token-for-tests-kept");
+    writeFileSync(join(dir, `${DESK}.secret`), original);
+    const damagedId = "0199aa00-0000-7000-8000-000000000bad";
+    const damaged = Buffer.from("ah-mac-credential-v1\nagent-harness credentials truncated");
+    const damagedFile = join(dir, `${damagedId}.secret`);
+    writeFileSync(damagedFile, damaged);
+    const items = new Map<string, ReturnType<typeof fakeElectron>["safeStorage"]>();
+    const macCredentials = macCredentialStore({ dir, open: (name) => {
+      const storage = items.get(name) ?? fakeElectron({ os: "darwin" }).safeStorage;
+      items.set(name, storage);
+      return {
+        available: async () => true,
+        encrypt: (value) => storage.encryptStringAsync(value),
+        decrypt: async (value) => {
+          if (name === "agent-harness") throw new Error("The earlier OS item needs approval");
+          return (await storage.decryptStringAsync(value)).result;
+        },
+        close: () => {},
+      };
+    } });
+    const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, macCredentials, report: () => {} });
+    await expect(secrets.get(DESK)).rejects.toThrow(/previous build could not be read/);
+    // Local adoption deletes its former token before using an administrative grant.
+    await secrets.delete(DESK);
+    await secrets.set(LAPTOP, "token-for-tests-fresh");
+    expect(await secrets.get(LAPTOP)).toBe("token-for-tests-fresh");
+    expect(await secrets.protection()).toBe("os");
+    await secrets.delete(LAPTOP);
+    expect(await secrets.get(LAPTOP)).toBeUndefined();
+    expect(await secrets.access()).toBe("denied");
+    await expect(secrets.get(damagedId)).rejects.toThrow(/Invalid macOS credential envelope/);
+    expect(readFileSync(damagedFile)).toEqual(damaged);
+    macCredentials.close();
+  });
+
   it("bounds an unanswered macOS read, preserves its ciphertext, and ignores late approval before retry", async () => {
     const electron = fakeElectron({ os: "darwin" });
     const platform = platformOn("darwin");

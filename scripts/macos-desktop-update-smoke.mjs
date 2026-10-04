@@ -197,7 +197,7 @@ export async function checkPackagedCredentialRepair(evaluate) {
   })()`, "open About before checking credential repair", 5000), true, "Settings must offer About before checking repair");
   await until(() => evaluate(`!!document.querySelector('section[aria-label="About"]') && !document.querySelector('section[aria-label="Your machines"]')`, "About readiness before credential repair", 5000), "About must open before the repair action", 5000);
   assert.equal(await evaluate(`(() => {
-    const buttons = document.querySelectorAll('section[aria-label="Settings"] section[aria-label="Notifications"] button');
+    const buttons = document.querySelectorAll('section[aria-label="Settings"] section[aria-label="Credential access"] button');
     const button = Array.from(buttons).find(button => button.textContent.trim() === 'Pair again' && !button.disabled);
     button?.click(); return !!button;
   })()`, "open credential recovery action", 5000), true, "The credential repair action must be enabled");
@@ -215,7 +215,7 @@ export async function checkReplacedPackagedCredential(evaluate) {
       const access = await window.desktopShell.secrets.access();
       const check = window.__packagedCredentialCheck;
       const settings = document.querySelector('section[aria-label="Settings"]');
-      const notices = settings?.querySelector('section[aria-label="Notifications"]');
+      const notices = settings?.querySelector('section[aria-label="Credential access"]');
       const visible = notices && !notices.closest('[aria-hidden="true"], [hidden]');
       const text = visible ? notices.textContent : '';
       return { settled: check.settled, retained: !!check.token, expectedRefusal: check.expectedRefusal === true,

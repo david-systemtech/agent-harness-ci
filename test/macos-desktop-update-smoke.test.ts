@@ -57,7 +57,7 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
 
 describe("the packaged macOS update smoke", () => {
   const replacedPage = (unavailable: boolean, message = "Stored credentials from the previous build could not be read", repairWorks = true) => {
-    const content = (row: string) => `<section aria-label="Settings"><nav aria-label="Settings rows"><button aria-label="About">About</button></nav><section aria-label="Notifications"><p>macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them.</p><p>${message}. New credentials use a fresh OS-protected item. Pair again with the environments that were paired.</p><button data-repair>Pair again</button></section><section aria-label="${row}"></section></section>`;
+    const content = (row: string) => `<section aria-label="Settings"><nav aria-label="Settings rows"><button aria-label="About">About</button></nav><section aria-label="Credential access"><p>macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them.</p><p>${message}. New credentials use a fresh OS-protected item. Pair again with the environments that were paired.</p><button data-repair>Pair again</button></section><section aria-label="${row}"></section></section>`;
     const dom = new JSDOM(content("Your machines"));
     dom.window.document.querySelector('[aria-label="About"]')?.addEventListener("click", () => {
       dom.window.document.body.innerHTML = content("About");
@@ -125,7 +125,7 @@ describe("the packaged macOS update smoke", () => {
     try {
       for (const pending of [false, true]) {
         const p = replacedPage(false, "Something went wrong");
-        p.document.querySelector('[aria-label="Notifications"]')?.remove();
+        p.document.querySelector('[aria-label="Credential access"]')?.remove();
         const window = { desktopShell: {
           secrets: { get: () => pending ? new Promise(() => {}) : Promise.reject(new Error("Unexpected renderer error")), access: async () => pending ? "waiting" : "denied" },
           system: async () => ({ platform: "darwin" }),

@@ -110,7 +110,14 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
         let kept: Buffer;
         try { kept = await readFile(join(dir, entry.name)); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
-        if (unavailable.has(unpack(kept).name)) return true;
+        let name: string;
+        try { name = unpack(kept).name; }
+        catch {
+          // A damaged saved credential still needs repair, but must not break
+          // fresh writes or deletion of another environment's former token.
+          return true;
+        }
+        if (unavailable.has(name)) return true;
       }
       return false;
     },

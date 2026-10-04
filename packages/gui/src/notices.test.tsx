@@ -27,7 +27,7 @@ const twoEnvironments = () =>
 const bannerList = () => screen.getByRole("region", { name: /^Notifications/ });
 
 /** The banners, as each reads, oldest first. */
-const banners = () => within(bannerList()).getAllByRole("listitem");
+const banners = () => screen.getAllByRole("region", { name: /^(Notifications|Credential access)$/ }).flatMap(region => within(region).getAllByRole("listitem"));
 
 /** The banner whose line holds `text`. */
 const bannerSaying = async (text: string) => {
@@ -99,6 +99,51 @@ describe("a notice", () => {
     const unavailable = await bannerSaying("Stored credentials from the previous build could not be read");
     await app.user.click(within(unavailable).getByRole("button", { name: "Pair again" }));
     expect(await screen.findByRole("heading", { name: "Your machines" })).toBeDefined();
+  });
+
+  it("keeps credential access visible through full Set up and its repair returns to Your machines", async () => {
+    const shell = fakeShell();
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
+    await act(async () => shell.changeSecretAccess("waiting"));
+    await act(async () => app.clock.advance(500));
+    await bannerSaying("Waiting for macOS Keychain access");
+    await app.user.click(screen.getByRole("button", { name: "Settings" }));
+    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    const setup = await screen.findByRole("region", { name: "Set up" });
+    // No new access event or clock advance: changing views must keep the pending explanation.
+    expect(within(setup).getByText("Waiting for macOS Keychain access")).toBeDefined();
+    await act(async () => shell.changeSecretAccess("denied"));
+    expect(within(setup).getByText(/Stored credentials from the previous build could not be read/)).toBeDefined();
+    await app.user.click(within(setup).getByRole("button", { name: "Pair again" }));
+    expect(await screen.findByRole("heading", { name: "Your machines" })).toBeDefined();
+    expect(screen.queryByRole("navigation", { name: "Set up steps" })).toBeNull();
+  });
+
+  it("explains credential access on first launch and preserves dismissal while moving into Set up", async () => {
+    const shell = fakeShell();
+    shell.changeSecretAccess("waiting");
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true, firstLaunch: true });
+    await act(async () => app.clock.advance(500));
+    const intro = screen.getByRole("region", { name: "Welcome to agent-harness" });
+    const pending = within(intro).getByRole("region", { name: "Credential access" });
+    expect(pending.textContent).toContain("Answering the macOS prompt keeps them");
+    await app.user.click(within(pending).getByRole("button", { name: "Dismiss" }));
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const setup = await screen.findByRole("region", { name: "Set up" });
+    await act(async () => app.clock.advance(500));
+    expect(screen.queryByText("Waiting for macOS Keychain access")).toBeNull();
+    await act(async () => shell.changeSecretAccess("denied"));
+    expect(within(setup).getByText(/Stored credentials from the previous build could not be read/)).toBeDefined();
+    await app.user.click(within(setup).getByRole("button", { name: "Pair again" }));
+    expect(await screen.findByRole("heading", { name: "Your machines" })).toBeDefined();
+    const denied = await bannerSaying("Keychain access did not complete");
+    await app.user.click(within(denied).getByRole("button", { name: "Dismiss" }));
+    await app.user.click(screen.getByRole("button", { name: "Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    await act(async () => shell.changeSecretAccess("waiting"));
+    await act(async () => app.clock.advance(500));
+    await act(async () => shell.changeSecretAccess("denied"));
+    expect(screen.queryByText("Keychain access did not complete")).toBeNull();
   });
 
   it("keeps an unavailable paired environment visible and offers its working re-pair action", async () => {

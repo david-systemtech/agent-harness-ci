@@ -1,7 +1,6 @@
 import { createPortal } from "react-dom";
 import { useSettingsNoticeHost } from "../settings/settings-window.js";
-import { useEffect, useState } from "react";
-import { stepHome, type Notice, type SecretAccess } from "@agent-harness/client-runtime";
+import { stepHome, type Notice } from "@agent-harness/client-runtime";
 import { STEP_ORDER, settingsRow, type StepId } from "@agent-harness/contracts";
 import { nameOf } from "../connections/words.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -10,7 +9,7 @@ import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { ArrowRight, Info, TriangleAlert, X } from "lucide-react";
 import { Button, IconButton, Tooltip } from "../ui/index.js";
-import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
+import { useObservable, useRuntime } from "../window-context.js";
 
 /**
  * The window's notices (docs/specs/gui.md, "Parked asks, attention and
@@ -135,43 +134,14 @@ const NoticeBanner = ({ notice }: { readonly notice: Notice }) => {
   );
 };
 
-const KEYCHAIN_NOTICE_DELAY_MS = 500;
-
-/** Environment notices and this window's OS credential access, as dismissible banners. */
+/** Environment notices, moved into Settings while its modal covers the session window. */
 export const WindowNotices = () => {
   const noticeHost = useSettingsNoticeHost();
-  const secrets = useShell()?.secrets;
-  const { leave } = useChecklist();
-  const clock = useClock();
-  const [access, setAccess] = useState<SecretAccess>(null);
-  const [dismissed, setDismissed] = useState<SecretAccess>(null);
-  useEffect(() => {
-    let timer: ReturnType<typeof clock.setTimeout> | undefined;
-    const stop = secrets?.onAccess?.((state) => {
-      timer?.cancel();
-      setAccess(state === "waiting" ? null : state);
-      if (state === "waiting") timer = clock.setTimeout(() => setAccess("waiting"), KEYCHAIN_NOTICE_DELAY_MS);
-      else if (state === null) setDismissed(null);
-    });
-    return () => { timer?.cancel(); stop?.(); };
-  }, [clock, secrets]);
   const notices = useObservable(useRuntime().projections.notices);
-  const hidden = access === null || dismissed === "denied" || dismissed === access;
-  if (notices.length === 0 && hidden) return null;
+  if (notices.length === 0) return null;
   const content = (
     <section aria-label="Notifications" className="mb-[7px] max-h-[40%] min-h-0 shrink-0 overflow-y-auto">
       <ul className="flex min-w-0 flex-col gap-1.5">
-        {!hidden && <li className={`relative flex min-w-0 items-start gap-2 rounded-[8px] border px-3 py-2 pr-9 text-ink ${TINTS.warning}`}>
-          <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-amber" />
-          <div role="status" className="min-w-0 flex-1 font-mono text-2xs [overflow-wrap:anywhere]">
-            <p>{access === "waiting" ? "Waiting for macOS Keychain access" : "Keychain access did not complete"}</p>
-            <p className="mt-1 text-ink-muted">{access === "waiting"
-              ? "macOS is asking for access to the stored credentials. Answering the macOS prompt keeps them. You can keep using this window while it waits."
-              : "Stored credentials from the previous build could not be read. New credentials use a fresh OS-protected item; this machine's local environment keeps working. Pair again with the environments that were paired."}</p>
-          </div>
-          {access === "denied" && <Button variant="outline" size="xs" onClick={() => leave("environments.machines")}><ArrowRight aria-hidden="true" />Pair again</Button>}
-          <IconButton label="Dismiss" keys="Enter / Space" size="icon-xs" className="absolute top-1 right-1" onClick={() => setDismissed(access)}><X aria-hidden="true" /></IconButton>
-        </li>}
         {notices.map((notice) => <NoticeBanner key={notice.id} notice={notice} />)}
       </ul>
     </section>
