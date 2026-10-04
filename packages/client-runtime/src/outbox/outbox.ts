@@ -310,6 +310,8 @@ export interface OutboxHost {
 }
 
 export interface Outbox extends Commands {
+  /** Waits for loading and every queued durable write without stopping dispatch. */
+  checkpoint(): Promise<void>;
   readonly view: Observable<OutboxView>;
   /** Reads the outboxes of these environments: before their connections start. */
   load(environmentIds: readonly string[]): Promise<void>;
@@ -1012,6 +1014,10 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       const commandId = event.commandId?.toLowerCase();
       if (commandId === undefined || !outboxOf(environmentId).overlays.some((o) => o.commandId === commandId)) return;
       change(environmentId, (current) => ({ ...current, overlays: current.overlays.filter((o) => o.commandId !== commandId) }));
+    },
+    async checkpoint() {
+      await Promise.all([...senders.values()].map(sender => sender.loaded));
+      await Promise.all([...senders.values()].map(sender => sender.writes));
     },
     async close() {
       // A command kept after a read still under way is kept before the close: its read's continuation runs first.
