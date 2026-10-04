@@ -34,8 +34,7 @@ it("retains desktop and bounded phone profiles while allowing surface-owned grow
 it("allocates six states to each of seven phone owners while preserving desktop captures", () => {
   const scenes = [
     ...Array.from({ length: 177 }, (_, i) => `desktop-capacity-${i}`),
-    "phone-gallery-conversation", "phone-gallery-permission", "phone-gallery-continue",
-    "phone-attention-failure", "phone-attention-pending", "phone-attention-keyboard",
+    ...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`),
   ];
   const existing = capturePlan(scenes);
   const leafScenes = Array.from({ length: 7 }, (_, owner) =>
@@ -44,9 +43,9 @@ it("allocates six states to each of seven phone owners while preserving desktop 
   const plan = capturePlan([...scenes, ...leafScenes]);
   expect(plan.shards[0]!.captures).toEqual(existing.shards[0]!.captures);
   expect(plan.shards.map(shard => [shard.id, shard.captures.length, shard.budget.limit])).toEqual([
-    ["desktop-001", 354, 400], ["phone-001", 382, 400],
+    ["desktop-001", 354, 400], ["phone-001", 384, 400],
   ]);
-  expect(plan.shards[1]!.budget.remaining).toBe(18);
+  expect(plan.shards[1]!.budget.remaining).toBe(16);
   expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
 });
 

@@ -1141,9 +1141,9 @@ it.each(["desktop-001", "phone-001"])("publishes surviving %s evidence with its 
 
 it("publishes and accepts both bounded shards including all frame phone profiles", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = ["phone-gallery-conversation", "phone-gallery-permission", "phone-gallery-continue", "phone-attention-failure", "phone-attention-pending", "phone-attention-keyboard", "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).captures.map(c => c.name)));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = [...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`), "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).captures.map(c => c.name)));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
-  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(400);
+  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(402);
   expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);
   await g.capture(230, names.length, names);
   await run("python3", ["-c", `import json,sys,zipfile
