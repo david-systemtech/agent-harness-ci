@@ -105,13 +105,15 @@ it("closes by the drawer close control, an outside tap and selecting the current
   expect(document.activeElement).toBe(trigger);
 });
 
-it("retains a draft when the drawer opens another session in the same pane", async () => {
+it("retains drafts and attachments by session when the drawer replaces the same pane", async () => {
   phoneViewport();
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "First task" }, { title: "Next task" }] }] });
   app.open("desk");
   const env = app.environment("desk");
   await waitFor(() => expect(app.runtime.projections.session(env.environmentId, env.sessionId()).read().summary?.title).toBe("First task"));
   await app.user.type(await screen.findByRole("textbox", { name: "Message" }), "Keep an unsent draft");
+  fireEvent.drop(screen.getByRole("textbox", { name: "Message" }), { dataTransfer: { types: ["Files"], files: [new File([Uint8Array.of(0x89, 0x50, 0x4e, 0x47)], "draft.png", { type: "image/png" })] } });
+  await screen.findByRole("button", { name: "Remove draft.png" });
   const select = async (title: string) => {
     await app.user.click(screen.getByRole("button", { name: "Show sessions" }));
     await app.user.click(await within(screen.getByRole("dialog", { name: "Sessions" })).findByRole("button", { name: new RegExp(`desk ${title}`) }));
@@ -119,6 +121,11 @@ it("retains a draft when the drawer opens another session in the same pane", asy
   };
   await select("Next task");
   await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveProperty("value", ""));
+  expect(screen.queryByRole("button", { name: "Remove draft.png" })).toBeNull();
   await select("First task");
   await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Keep an unsent draft"));
+  await app.user.click(await screen.findByRole("button", { name: "Remove draft.png" }));
+  await select("Next task");
+  await select("First task");
+  expect(screen.queryByRole("button", { name: "Remove draft.png" })).toBeNull();
 });
