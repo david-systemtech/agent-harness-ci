@@ -145,3 +145,30 @@ it("keeps a refused first message on its accepted environment when the default c
   expect(env.requests("runs.start")[0]?.params.sessionId).toBe(acceptedId);
   expect(env.requests("runs.start")[0]?.params.text).toBe("Read this note revised");
 });
+
+
+it("observes pending creation and its refusal after pairing remounts the editor", async () => {
+  const receipts: Record<string, ScriptedReceipt> = { "runs.start": { rejected: "unavailable", message: "Try again." } };
+  const { user, env, surface, box } = await open(receipts);
+  const release = env.list.hold("sessions.create");
+  await user.type(box, "Read this note");
+  await user.upload(screen.getByLabelText("Files to attach"), new File([new Uint8Array([137, 80, 78, 71])], "note.png", { type: "image/png" }));
+  await within(surface).findByRole("list", { name: "Attachments" });
+  await user.click(within(surface).getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(env.requests("sessions.create")).toHaveLength(1));
+  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  expect(screen.queryByRole("region", { name: "New session" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Pair with an environment" }));
+  const restored = await screen.findByRole("region", { name: "New session" });
+  expect(within(restored).getByRole("button", { name: "Starting…" })).toHaveProperty("disabled", true);
+  release();
+  await within(restored).findByText("Not sent: Try again.");
+  receipts["runs.start"] = "accepted";
+  await user.click(within(restored).getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "New session" })).toBeNull());
+  expect(env.requests("sessions.create")).toHaveLength(1);
+  expect(env.requests("runs.start").map(r => r.params)).toEqual([
+    expect.objectContaining({ text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }),
+    expect.objectContaining({ text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }),
+  ]);
+});

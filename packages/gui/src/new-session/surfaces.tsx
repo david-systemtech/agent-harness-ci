@@ -1,3 +1,4 @@
+import type { Writable } from "@agent-harness/client-runtime";
 import type { AttachmentInput } from "@agent-harness/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { panesOf } from "../grid/layout.js";
@@ -20,14 +21,16 @@ export interface NewSessionControl {
 
 /** A pending first message stays with its pane through temporary view changes. */
 export interface NewSessionMessage {
-  text: string;
-  attachments: readonly AttachmentInput[];
+  readonly text: string;
+  readonly attachments: readonly AttachmentInput[];
   /** Once creation is accepted, retries must use this environment. */
-  environmentId: string | null;
+  readonly environmentId: string | null;
+  readonly starting: boolean;
+  readonly line: string | undefined;
 }
 
 interface Surfaces {
-  readonly messages: Map<string, NewSessionMessage>;
+  readonly messages: Map<string, Writable<NewSessionMessage>>;
   /** The surface whose message box takes the focus next, by its id; null while none is to. */
   readonly focusAsked: { readonly id: string } | null;
   askFocus(id: string | null): void;
@@ -42,7 +45,7 @@ const SurfacesContext = createContext<Surfaces | null>(null);
 
 export const NewSessionSurfaces = ({ children }: { readonly children: ReactNode }) => {
   const [layout] = usePresentation("paneLayout");
-  const [messages] = useState(() => new Map<string, NewSessionMessage>());
+  const [messages] = useState(() => new Map<string, Writable<NewSessionMessage>>());
   const [focusAsked, setFocusAsked] = useState<{ readonly id: string } | null>(null);
   const [dragged, setDraggedState] = useState<NewSessionControl | null>(null);
   const draggedRef = useRef<NewSessionControl | null>(null);

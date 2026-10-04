@@ -1,4 +1,4 @@
-import { adapterOf, sendMessage, type NewSessionChips } from "@agent-harness/client-runtime";
+import { adapterOf, sendMessage, writable, type Writable, type NewSessionChips } from "@agent-harness/client-runtime";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { usePaneGrid } from "../grid/grid.js";
@@ -44,15 +44,14 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   const openInPane = useOpenInPane();
   const { messages, focusAsked, askFocus } = useSurfaces();
   const { id, focus, chips } = surface;
-  const [message] = useState<NewSessionMessage>(() => {
-    const held = messages.get(id) ?? { text: "", attachments: [], environmentId: null };
+  const [pending] = useState<Writable<NewSessionMessage>>(() => {
+    const held = messages.get(id) ?? writable<NewSessionMessage>({ text: "", attachments: [], environmentId: null, starting: false, line: undefined });
     messages.set(id, held);
     return held;
   });
-  const [text, setText] = useState(message.text);
-  const [line, say] = useState<string | undefined>(undefined);
-  const [starting, setStarting] = useState(false);
-  const [acceptedEnvironmentId, setAcceptedEnvironmentId] = useState(message.environmentId);
+  const { text, line, starting, environmentId: acceptedEnvironmentId } = useObservable(pending);
+  const say = (line: string | undefined) => pending.update(held => ({ ...held, line }));
+  const setStarting = (starting: boolean) => pending.update(held => ({ ...held, starting }));
   const creationAccepted = acceptedEnvironmentId !== null;
   const view = useObservable(useMemo(() => runtime.projections.newSession({
     focus, chips: acceptedEnvironmentId === null ? chips : { ...chips, environmentId: acceptedEnvironmentId },
@@ -99,9 +98,9 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   }, [focusAsked, id, askFocus]);
 
   const put = (next: string) => {
-    setText(next);
-    message.text = next;
-    if (message.environmentId !== null) runtime.drafts.set(message.environmentId, id, next);
+    pending.update(held => ({ ...held, text: next }));
+    const environmentId = pending.read().environmentId;
+    if (environmentId !== null) runtime.drafts.set(environmentId, id, next);
   };
   const providers = useObservable(useMemo(() => runtime.requests.cached(view.environment.value ?? "", "providers.list", {}), [runtime, view.environment.value]));
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(view.environment.value ?? ""), [runtime, view.environment.value]));
@@ -114,9 +113,9 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   const retainedAttachments = useRef(attachments);
   useLayoutEffect(() => {
     const held = retainedAttachments.current;
-    held.set(message.attachments);
-    return () => { message.attachments = held.current(); };
-  }, [message]);
+    held.set(pending.read().attachments);
+    return () => { pending.update(message => ({ ...message, attachments: held.current() })); };
+  }, [pending]);
   const choose = (chosen: NewSessionChips) => grid.chooseChips(id, (held) => {
     const next = { ...held, ...chosen };
     if (chosen.environmentId !== undefined || chosen.account !== undefined) delete next.browser;
@@ -124,8 +123,9 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
   });
 
   const start = async () => {
+    if (pending.read().starting) return;
     const outgoingText = text.trim();
-    const environmentId = message.environmentId ?? view.environment.value;
+    const environmentId = pending.read().environmentId ?? view.environment.value;
     const workspace = view.workspace.value;
     if (outgoingText.length === 0 || sendOffer.status === "absent") return;
     if (environmentId === null || workspace === null) return say(NONE_USABLE);
@@ -135,7 +135,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     const model = view.model.value;
     setStarting(true);
     say(undefined);
-    if (!creationAccepted) {
+    if (pending.read().environmentId === null) {
       const { answer } = await runtime.commands.startSession(environmentId, {
         id,
         workspace,
@@ -148,12 +148,11 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
         const where = environment === undefined ? "the environment" : nameOf(environment);
         return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
       }
-      message.environmentId = environmentId;
-      setAcceptedEnvironmentId(environmentId);
+      pending.update(held => ({ ...held, environmentId }));
     }
     const sent = await sendMessage(runtime, environmentId, id, input, false);
     if (!sent.ok) {
-      runtime.drafts.set(environmentId, id, outgoingText);
+      runtime.drafts.set(environmentId, id, pending.read().text);
       setStarting(false);
       // Keep this editor and its selected files; retry uses the session already created.
       return say(sent.line);
