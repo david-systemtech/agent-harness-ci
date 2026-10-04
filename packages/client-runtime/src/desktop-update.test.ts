@@ -274,7 +274,34 @@ describe("the server artefact the desktop carries", () => {
     expect(desk.wire.credential()?.token).not.toBe(firstToken);
   });
 
-  it("stops if the restarted service rejects the fresh local session too", async () => {
+  it.each(["updating", "draining"] as const)("regains the local grant after a transport failure during the bundled server's %s restart", async reason => {
+    const { clock, desk, runtime, until, bundled } = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.autoUpdate": false }, shell: carrying("0.6.0") });
+    await until(() => bundled().state === "offered", "offered the bundled server");
+    const firstSession = runtime.connections.list.read()[0]?.clientSessionId;
+    const firstToken = desk.wire.credential()?.token;
+    await runtime.desktopUpdate.applyBundledServer();
+    desk.autoAccept(false);
+    desk.bye(reason);
+    await until(() => runtime.connections.list.read()[0]?.phase === reason, "heard the owned environment restarting");
+    clock.advance(10_000);
+    await until(() => desk.wire.opened() === 2, "opened the restart's first handshake");
+    await desk.server.expect("auth");
+    desk.server.drop();
+    await flush();
+    clock.advance(10_000);
+    await until(() => desk.wire.opened() === 3, "retried after the transient transport failure");
+    const auth = await desk.server.expect("auth");
+    desk.autoAccept(true);
+    if (auth.token === firstToken) desk.bye("revoked");
+    else desk.server.hello();
+    await until(() => runtime.connections.list.read()[0]?.phase === "ready", "regained the local environment after the transient transport failure and old session rejection");
+
+    expect(runtime.connections.list.read()[0]).toMatchObject({ kind: "local", phase: "ready", blocked: null });
+    expect(runtime.connections.list.read()[0]?.clientSessionId).not.toBe(firstSession);
+    expect(desk.wire.credential()?.token).not.toBe(firstToken);
+  });
+
+  it.each([false, true])("stops if the restarted service rejects the fresh local session too (transport failure before rejection: %s)", async transportFailure => {
     const { clock, desk, runtime, until, bundled } = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.autoUpdate": false }, shell: carrying("0.6.0") });
     await until(() => bundled().state === "offered", "offered the bundled server");
     const firstToken = desk.wire.credential()?.token;
@@ -291,6 +318,16 @@ describe("the server artefact the desktop carries", () => {
       auth = await desk.server.expect("auth");
     }
     expect(auth.token).not.toBe(firstToken);
+    if (transportFailure) {
+      const freshToken = auth.token;
+      const openedBefore = desk.wire.opened();
+      desk.server.drop();
+      await flush();
+      clock.advance(10_000);
+      await until(() => desk.wire.opened() === openedBefore + 1, "retried the fresh session after the transport failure");
+      auth = await desk.server.expect("auth");
+      expect(auth.token).toBe(freshToken);
+    }
     desk.bye("revoked");
     await flush();
     const socketsAfterRejection = desk.wire.opened();

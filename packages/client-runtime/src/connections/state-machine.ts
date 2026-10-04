@@ -533,7 +533,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       case "bye":
         return live(input.attempt, "dialing", "open") ? byeSaid(state, input.bye) : state;
       case "close":
-        return live(input.attempt, "dialing", "open") ? fail({ ...state, bye: null }, "backoff") : state;
+        // A transport failure does not finish the restart: keep its recovery pending until hello or the grant exchange.
+        return live(input.attempt, "dialing", "open") ? fail(state, "backoff") : state;
       case "timer":
         return fired(state, input.timer);
       case "network": {
