@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
+import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 interface Peer {
@@ -17,12 +18,20 @@ const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-d
 const { createCdpEvaluator } = await import(script) as {
   createCdpEvaluator: (peer: Peer, options?: { onTimeout?: (error: Error) => Promise<void>; redact?: (text: string) => string }) => {
     evaluate: (expression: string, stage: string) => Promise<unknown>;
+    diagnostic: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+    enableDiagnostics: () => Promise<unknown>;
+    errors: () => unknown[];
     close: () => void;
   };
 };
 interface DiagnosticCall { command: string; args: string[] }
 const diagnostics = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-smoke-diagnostics.mjs")).href;
-const { collectMacosSmokeDiagnostics, executeDiagnostic, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } = await import(diagnostics) as {
+const { collectRendererSmokeDiagnostics, collectMacosSmokeDiagnostics, executeDiagnostic, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } = await import(diagnostics) as {
+  collectRendererSmokeDiagnostics: (input: {
+    directory: string; privateDirectory: string; secrets: string[];
+    cdp: { diagnostic: (method: string, params?: Record<string, unknown>) => Promise<unknown>; errors: () => unknown[] };
+    execute: (command: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
+  }) => Promise<void>;
   executeDiagnostic: (command: string, args: string[], options?: { timeout: number }) => Promise<{ stdout: string; stderr: string }>;
   persistDesktopLog: (directory: string, privateDirectory: string, secrets: string[]) => void;
   persistSmokeFailure: (directory: string, error: Error, secrets: string[]) => void;
@@ -36,6 +45,58 @@ const { collectMacosSmokeDiagnostics, executeDiagnostic, finishSmoke, persistDes
 afterEach(() => { vi.useRealTimers(); });
 
 describe("packaged macOS timeout evidence", () => {
+  it("records renderer errors without retaining credentials and bounds diagnostics without recursive timeout collection", async () => {
+    vi.useFakeTimers();
+    const collected: string[] = [];
+    const peer: Peer = { close: () => {}, send: (message) => {
+      const request: { id: number; method: string } = JSON.parse(message);
+      if (request.method === "Runtime.enable") peer.onmessage?.({ data: JSON.stringify({ id: request.id, result: {} }) });
+    } };
+    const cdp = createCdpEvaluator(peer, { onTimeout: async (error) => { collected.push(error.message); }, redact: text => redactDiagnostic(text, ["token-for-tests-kept"]) });
+    await cdp.enableDiagnostics();
+    peer.onmessage?.({ data: JSON.stringify({ method: "Runtime.consoleAPICalled", params: { type: "error", args: [{ value: "connection refused token-for-tests-kept" }] } }) });
+    peer.onmessage?.({ data: JSON.stringify({ method: "Runtime.exceptionThrown", params: { exceptionDetails: { exception: { description: "grant failure token-for-tests-kept" } } } }) });
+    expect(JSON.stringify(cdp.errors())).toContain("connection refused <REDACTED>");
+    expect(JSON.stringify(cdp.errors())).toContain("grant failure <REDACTED>");
+    expect(JSON.stringify(cdp.errors())).not.toContain("token-for-tests-kept");
+    const outcome = cdp.diagnostic("Page.captureScreenshot").catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await outcome).toMatchObject({ smokeTimeout: true });
+    expect(collected).toEqual([]);
+  });
+
+  it("captures window text, names, machine phases, notices, console errors and a sanitized CDP screenshot", async () => {
+    const work = mkdtempSync(join(tmpdir(), "macos-renderer-evidence-"));
+    const directory = join(work, "upload");
+    const privateDirectory = join(work, "private");
+    mkdirSync(privateDirectory);
+    const dom = new JSDOM(`<section aria-label="Your machines"><section data-machine-card data-environment-id="local-for-tests" data-machine-kind="local" data-machine-phase="blocked" data-machine-blocked="revoked" data-machine-action="re-pair" aria-labelledby="local-heading"><header><h3 id="local-heading">desk</h3><span>This machine</span></header><p>Pair again token-for-tests-kept</p></section></section><section aria-label="Credential access"><li>Stored credentials could not be read</li></section><input value="token-for-tests-hidden"><div hidden>token-for-tests-hidden</div>`);
+    dom.window.document.body.innerHTML += `<span hidden data-window-environments='[{"environmentId":"local-for-tests","name":"desk","kind":"local","phase":"blocked","blocked":"revoked","action":"re-pair"}]'></span>`;
+    try {
+      await collectRendererSmokeDiagnostics({ directory, privateDirectory, secrets: ["token-for-tests-kept"],
+        cdp: { errors: () => [{ type: "error", text: "connection refused token-for-tests-kept" }], diagnostic: async (method, params) => {
+          if (method === "Runtime.evaluate") return { result: { value: runInNewContext(String(params?.["expression"]), { document: dom.window.document, getComputedStyle: dom.window.getComputedStyle.bind(dom.window) }) as unknown } };
+          if (method === "Accessibility.getFullAXTree") return { nodes: [{ ignored: false, role: { value: "button" }, name: { value: "Pair again token-for-tests-kept" }, value: { value: "never-upload-this-value" } }] };
+          if (method === "Page.captureScreenshot") return { data: Buffer.from("private window image").toString("base64") };
+          throw new Error("unexpected diagnostic");
+        } }, execute: async (_command, args) => {
+          expect(readFileSync(args.at(-2) ?? "", "utf8")).toBe("private window image");
+          writeFileSync(args.at(-1) ?? "", "sanitized window image");
+          return { stdout: "", stderr: "" };
+        } });
+      const state = JSON.parse(readFileSync(join(directory, "renderer-state.json"), "utf8")) as { windowEnvironments: unknown[]; environments: unknown[]; notices: string[]; visibleText: string };
+      expect(state.windowEnvironments).toEqual([expect.objectContaining({ environmentId: "local-for-tests", kind: "local", phase: "blocked", blocked: "revoked", action: "re-pair" })]);
+      expect(state.environments).toEqual([expect.objectContaining({ environmentId: "local-for-tests", kind: "local", phase: "blocked", blocked: "revoked", action: "re-pair", name: "desk", badges: ["This machine"] })]);
+      expect(state.notices).toEqual(["Stored credentials could not be read"]);
+      expect(state.visibleText).toContain("Pair again <REDACTED>");
+      expect(readFileSync(join(directory, "renderer-accessibility.json"), "utf8")).toContain("Pair again <REDACTED>");
+      expect(readFileSync(join(directory, "renderer-console.json"), "utf8")).toContain("connection refused <REDACTED>");
+      expect(readFileSync(join(directory, "renderer-screenshot.png"), "utf8")).toBe("sanitized window image");
+      for (const name of readdirSync(directory)) expect(readFileSync(join(directory, name), "utf8")).not.toMatch(/token-for-tests-kept|token-for-tests-hidden|never-upload-this-value|private window image/);
+      expect(readdirSync(privateDirectory)).toEqual([]);
+    } finally { dom.window.close(); rmSync(work, { recursive: true, force: true }); }
+  });
+
   it("bridges CoreGraphics window arrays before sanitizing the captured window list", async () => {
     const work = mkdtempSync(join(tmpdir(), "macos-window-bridge-"));
     const directory = join(work, "upload");

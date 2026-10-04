@@ -16,7 +16,7 @@ import { RunChoicesProvider } from "./status/run-choices.js";
 import { WindowThemeProvider } from "./theme/window-theme.js";
 import { Toaster } from "./ui/toaster.js";
 import { TooltipProvider } from "./ui/tooltip.js";
-import { WindowProvider, usePresentation } from "./window-context.js";
+import { WindowProvider, useObservable, usePresentation, useRuntime } from "./window-context.js";
 
 export interface AppProps {
   /** The window's one client runtime, which every component renders from (ADR 0004). */
@@ -46,6 +46,13 @@ const WindowKeys = ({ macOS, children }: { readonly macOS: boolean; readonly chi
       {children}
     </KeyDispatch>
   );
+};
+
+/** Safe renderer diagnostics follow the window's projection even when another Settings row or setup is open. */
+const WindowEnvironmentState = () => {
+  const environments = useObservable(useRuntime().projections.environments);
+  const state = environments.map(({ environmentId, name, kind, phase, blocked, action }) => ({ environmentId, name, kind, phase, blocked, action }));
+  return <span hidden data-window-environments={JSON.stringify(state)} />;
 };
 
 /**
@@ -80,6 +87,7 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell, web, 
                       </RunChoicesProvider>
                     </CommandPalette>
                     <WindowAttention />
+                    <WindowEnvironmentState />
                   </ChecklistProvider>
                 </StepCardsContext>
               </SettingsProvider>
