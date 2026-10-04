@@ -81,7 +81,8 @@ export const createAttentionDispatcher = ({ log, clock, environmentId, webOrigin
     }
     const owners = new Set(store.targets().flatMap(t => t.owner === null ? [] : [t.owner]));
     if (owners.size) for (const client of log.clientSessions.all()) if (owners.has(client.id)) next = Math.min(next, Date.parse(client.expiresAt));
-    if (Number.isFinite(next)) timer = clock.setTimeout(tick, Math.max(1, next - now));
+    // Timers preserve their delay across sleep/clock adjustments; recheck wall deadlines while work exists.
+    if (Number.isFinite(next)) timer = clock.setTimeout(tick, Math.max(1, Math.min(next - now, 60_000)));
   };
   const unsubscribe = log.subscribe(event => {
     if (!closed && (event.streamKind === "access" || event.type.startsWith("attention.") || ["prompt.opened", "prompt.answered", "routine.firing-ended", "session.deleted", "session.purged"].includes(event.type))) {

@@ -112,6 +112,49 @@ it("removes targets owned by a revoked or expired client", async () => {
   expect(dispatcher.store.targets()).toEqual([]);
 });
 
+it("cleans up client targets within a minute after wall time jumps past expiry, without a forced tick", () => {
+  const clock = manualClock();
+  const log = openEventLog({ path: ":memory:", clock: clock.now });
+  const day = 24 * 60 * 60 * 1000;
+  log.atomically(tx => log.clientSessions.insert(tx, { id: "client-jump", kind: "web", label: "Phone", scopes: ["read"], ceiling: "acceptEdits", local: false,
+    createdAt: clock.now().toISOString(), lastSeenAt: null, expiresAt: new Date(clock.now().getTime() + 30 * day).toISOString(), revokedAt: null }, []));
+  const dispatcher = createAttentionDispatcher({ log, clock, environmentId: "env-1", webOrigin: () => "https://example.test", transports: {} });
+  onCleanup(() => { dispatcher.close(); log.close(); });
+  log.append(attentionStream, [{ type: "attention.target.set", payload: { target, owner: "client-jump" } }], { actor: "system:attention" });
+  clock.jump(31 * day);
+  clock.advance(60_000);
+  expect(dispatcher.store.targets()).toEqual([]);
+  expect(clock.pending()).toBe(0);
+});
+
+it.each(["retry", "expiry"] as const)("rechecks pending delivery %s after a wall-clock jump without a forced tick", async stage => {
+  const clock = manualClock();
+  const log = openEventLog({ path: ":memory:", clock: clock.now });
+  const sent: string[] = [];
+  const dispatcher = createAttentionDispatcher({ log, clock, environmentId: "env-1", webOrigin: () => "https://example.test", transports: {
+    push: { validate: () => undefined, send: async d => { sent.push(d.id); return { status: "retry" }; } },
+  } });
+  onCleanup(() => { dispatcher.close(); log.close(); });
+  log.append(attentionStream, [{ type: "attention.target.set", payload: { target, owner: null } }], { actor: "system:attention" });
+  log.append(parked, [{ type: "prompt.opened", payload: { promptId: "jump-waiting", ttlExpiresAt: null } }], { actor: "system:permissions" });
+  clock.advance(6000);
+  await dispatcher.flush();
+  clock.advance(60_000);
+  await dispatcher.flush();
+  expect(sent).toHaveLength(2);
+  // The next retry is five minutes away in timer time, but overdue in wall time after the jump.
+  clock.jump(stage === "retry" ? 10 * 60_000 : 2 * 24 * 60 * 60 * 1000);
+  clock.advance(60_000);
+  await Promise.resolve();
+  if (stage === "retry") {
+    expect(sent).toEqual([sent[0], sent[0], sent[0]]);
+  } else {
+    expect(sent).toHaveLength(2);
+    expect(dispatcher.store.deliveries()[0]?.state).toBe("cancelled");
+    expect(clock.pending()).toBe(0);
+  }
+});
+
 it("keeps routine completions opt-in and suppresses silent outcomes", async () => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", clock: clock.now });
