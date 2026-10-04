@@ -207,7 +207,7 @@ PYFORMAT
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
       python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
-import hashlib, html, json, os, re, sys, urllib.error, urllib.parse, urllib.request, zipfile
+import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
 if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
@@ -229,7 +229,7 @@ if current['state'] != 'open' or current.get('merged') or current['head']['sha']
     sys.exit(2)
 with zipfile.ZipFile(sys.argv[1]) as z:
     entries = z.infolist()
-    # 100 source scenes at two widths and two ladders, each with a three-PNG triplet.
+    # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
     max_scenes = 400
     max_pngs = max_scenes * 3
     if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
@@ -237,8 +237,12 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
     report = json.loads(z.read('report.json'))
     images = {n: z.read(n) for n in names if n.endswith('.png')}
-    for data in images.values():
+    for name, data in images.items():
         if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
+        if name.startswith('phone-'):
+            phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
+            profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
+            if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
     scenes = report['scenes']
     if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
     seen = set()
@@ -264,7 +268,10 @@ try:
         url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
         if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): raise ValueError('invalid asset URL')
         urls[name] = url
-    body = f'Window gallery for `{head}` (1400 × 900; narrow 1024 × 768; light and dark).\n'
+    body = f'Window gallery for `{head}` (desktop 1400 × 900 / 1024 × 768; phone 390 × 844 / 360 × 740; text size 20; keyboard 390 × 480; light and dark).\n'
+    budget = report.get('captureBudget')
+    if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
+        body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
     geometry_failed = any(s['geometryFailures'] for s in scenes)
     pixel_failed = any(s['pixelFailed'] for s in scenes)
     body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
