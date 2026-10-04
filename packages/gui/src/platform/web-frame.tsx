@@ -36,15 +36,21 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   const settings = useSettings();
   const [line, setLine] = useState<string>();
   const [pairing, setPairing] = useState(false);
+  const [handedLink, setHandedLink] = useState<string>();
   const paired = environments.filter(env => env.kind === "paired");
   const selected = paired.find(env => env.environmentId === pane.session?.environmentId) ?? paired[0];
   const consumed = useRef(false);
   useEffect(() => {
-    if (consumed.current || route.pairing === undefined) return;
+    const input = route.pairing;
+    if (consumed.current || input === undefined) return;
     consumed.current = true;
     setLine("Pairing…");
-    void runtime.connections.add(route.pairing).then(outcome => {
-      setLine(outcome.status === "failed" ? outcome.failure.message : outcome.status === "re-pair-offered" ? "Already paired. Use Pair to replace this connection deliberately." : undefined);
+    void runtime.connections.add(input).then(outcome => {
+      if (outcome.status === "re-pair-offered") {
+        setHandedLink("link" in input ? input.link : `${input.address}/pair#${input.code}`);
+        setPairing(true);
+      }
+      setLine(outcome.status === "failed" ? outcome.failure.message : outcome.status === "re-pair-offered" ? "Already paired. Confirm this link to replace the connection deliberately." : undefined);
     }, () => setLine("Pairing failed. Make a new code and try again."));
   }, [runtime, route]);
   const openedRoute = useRef(false);
@@ -77,7 +83,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     {selected && <p data-web-grant className="shrink-0 break-words border-b border-hairline px-3 py-2 text-xs text-ink-muted">{selected.name ?? "Environment"} · {selected.phase} · Scopes: {selected.scopes.join(", ")} · Ceiling: {selected.ceiling ?? "connecting"}</p>}
     {selected?.phase === "blocked" && <p role="status" className="px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
     {line && <p role="status" className="px-3 py-2 text-sm">{line}</p>}
-    {(paired.length === 0 || pairing) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm onPaired={() => setPairing(false)} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    {(paired.length === 0 || pairing) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} onPaired={() => { setPairing(false); setHandedLink(undefined); setLine(undefined); }} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <WindowNotices />
       <InGridPane id={pane.id}>
         {pane.session ? <SessionPane session={pane.session} {...content} /> : pane.newSession ? <NewSessionPane surface={pane.newSession} {...content} /> : <EmptyPane {...content} />}

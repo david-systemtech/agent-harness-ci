@@ -42,6 +42,7 @@ await new Promise<void>(resolve => secure.listen(0, "127.0.0.1", resolve));
 const origin = `https://localhost:${(secure.address() as AddressInfo).port}`;
 let releaseStream: (() => void) | undefined;
 const adapter = fakeAdapter({ script: async function* ({ input, context }) {
+  releaseStream = undefined;
   const itemId = randomUUID();
   const reply = `Streaming the hosted reply: ${input.prompt.at(-1)?.text ?? ""}`;
   yield { type: "assistant.delta", payload: { itemId, fragments: [{ kind: "text", text: `${reply} ` }] } };
@@ -54,8 +55,8 @@ const environment = await startTestEnvironment({ adapter, webOrigin: origin, web
 upstream = environment.address;
 try {
   const admin = await environment.client();
-  const { id: sessionId } = await create(admin, { title: "Hosted phone conversation", mode: "acceptEdits" });
   for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
+    const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
     const browser = await engine.launch();
     try {
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
