@@ -7,16 +7,27 @@ import { expect } from "playwright/test";
 
 export function addCacheAudit(bundle: string): void {
   appendFileSync(join(bundle, "service-worker.js"), `
-;globalThis.addEventListener("message", event => {
+;const cacheWrites = [];
+const putPublicBytes = Cache.prototype.put;
+Cache.prototype.put = async function(request, response) {
+  await putPublicBytes.call(this, request, response);
+  const path = new URL(typeof request === "string" ? request : request.url).pathname;
+  if (path === "/" || path === "/phone-icons/icon-192.png") {
+    cacheWrites.push({ path, matched: Boolean(await this.match(request)), keys: (await this.keys()).length });
+  }
+};
+globalThis.addEventListener("message", event => {
     if (event.data !== "__smoke-cache-audit") return;
     event.waitUntil((async () => {
       const names = await globalThis.caches.keys();
       const urls = [];
+      const matches = [];
       for (const name of names) {
         const cache = await globalThis.caches.open(name);
         for (const request of await cache.keys()) urls.push(request.url);
+        matches.push({ name, root: Boolean(await cache.match("/")), icon: Boolean(await cache.match("/phone-icons/icon-192.png")), rootKeys: (await cache.keys("/")).length });
       }
-      event.ports[0].postMessage({ names, urls });
+      event.ports[0].postMessage({ names, urls, matches, writes: cacheWrites });
     })().catch(error => event.ports[0].postMessage({ error: String(error) })));
   });`);
 }
@@ -34,10 +45,10 @@ export async function auditPublicCache(page: Page, engine: string, phase: string
     worker.postMessage("__smoke-cache-audit", [channel.port2]);
   })().catch(error => document.documentElement.setAttribute("data-smoke-cache-audit", JSON.stringify({ error: String(error) })))`);
   await page.locator("html[data-smoke-cache-audit]").waitFor({ state: "attached" });
-  const audit = await page.evaluate<{ urls?: string[]; names?: string[]; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
+  const audit = await page.evaluate<{ urls?: string[]; names?: string[]; matches?: unknown[]; writes?: unknown[]; error?: string }>("JSON.parse(document.documentElement.getAttribute('data-smoke-cache-audit'))");
   await page.evaluate("document.documentElement.removeAttribute('data-smoke-cache-audit')");
   assert(audit.urls, audit.error ?? "The worker cache audit answered.");
-  console.log(`PHONE-INSTALL ${engine}: ${phase} cache ${JSON.stringify({ names: audit.names, entries: audit.urls.length })}`);
+  console.log(`PHONE-INSTALL ${engine}: ${phase} cache ${JSON.stringify({ names: audit.names, entries: audit.urls.length, matches: audit.matches, writes: audit.writes })}`);
   return audit.urls;
 
 }
