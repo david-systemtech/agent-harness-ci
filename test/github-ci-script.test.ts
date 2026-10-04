@@ -1158,7 +1158,7 @@ it("plans and validates a bounded single report on heads predating shard support
 
 it("publishes and accepts older combined reports including all frame phone profiles", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan(["window-empty", "phone-gallery-conversation", "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(capturePlan(["window-empty", "phone-surface-sample", "phone-frame-conversation", "phone-frame-drawer"]).captures.map(c => c.name)));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
   expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(12);
   expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);
