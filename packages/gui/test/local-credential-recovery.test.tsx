@@ -65,7 +65,7 @@ it("keeps the local window ready through credential recovery and the bundled ser
     const auth = await desk.server.expect("auth");
     desk.autoAccept(true);
     if (auth.token === firstToken) desk.bye("revoked");
-    else desk.server.hello({ harnessVersion: "0.6.0" });
+    else desk.server.hello();
     for (let turn = 0; turn < 100 && replaced.runtime.connections.list.read().find(view => view.kind === "local")?.phase !== "ready"; turn++) await flush();
     if (replaced.runtime.connections.list.read().find(view => view.kind === "local")?.phase === "ready") {
       desk.notice("environment.started", { harnessVersion: "0.6.0", protocolVersion: PROTOCOL_VERSION });

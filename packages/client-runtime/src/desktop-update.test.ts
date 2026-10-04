@@ -264,7 +264,7 @@ describe("the server artefact the desktop carries", () => {
     const auth = await desk.server.expect("auth");
     desk.autoAccept(true);
     if (auth.token === firstToken) desk.bye("revoked");
-    else desk.server.hello({ harnessVersion: "0.6.0" });
+    else desk.server.hello();
     await flush();
     clock.advance(10_000);
     await until(() => runtime.connections.list.read()[0]?.phase === "ready", "regained the local environment after the owned update revoked its earlier session");
