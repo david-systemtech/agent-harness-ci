@@ -100,5 +100,6 @@ it.each(["long", "question", "plan"])("mounts the phone-conversation-%s surface 
   }
   const geometry = JSON.parse(root.dataset["galleryGeometry"]!);
   expect(geometry).toContainEqual({ selector: "[data-web-client]", contentFits: true });
+  expect(geometry).toContainEqual({ selector: '[aria-label="Transcript"]', minimumHeight: 44, visibleWithin: "[data-web-client]" });
   expect(geometry).toContainEqual({ selector: '[aria-label="Message"]', minimumHeight: 44, visibleWithin: "[data-web-client]" });
 });

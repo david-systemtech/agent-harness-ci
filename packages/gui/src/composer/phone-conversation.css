@@ -4,6 +4,7 @@
   [data-web-client] [data-dock-owner] [data-composer-column] {
     display: flex;
     flex-direction: column;
+    max-height: calc(100% - 44px);
     overflow: hidden;
   }
   [data-web-client] [data-composer-above] {

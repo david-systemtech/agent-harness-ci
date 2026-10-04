@@ -42,8 +42,8 @@ export function capturePlan(scenes: readonly string[]) {
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
     // Surface scenes carry the full matrix; scaffold and duplicate keyboard scenes keep one proof.
     PHONE_PROFILES.filter(profile => {
-      if (scene === "phone-gallery-conversation" || scene === "phone-gallery-permission") return profile.suffix === "phone-390";
-      if (scene === "phone-gallery-continue" || scene === "phone-attention-keyboard") return profile.suffix === "phone-390-keyboard";
+      if (scene === "phone-gallery-conversation") return profile.suffix === "phone-390";
+      if (scene === "phone-gallery-permission" || scene === "phone-gallery-continue" || scene === "phone-attention-keyboard") return profile.suffix === "phone-390-keyboard";
       if (scene === "phone-attention-pending") return profile.suffix !== "phone-390-keyboard";
       return true;
     }).flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
