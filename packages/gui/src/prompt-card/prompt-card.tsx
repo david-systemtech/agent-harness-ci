@@ -1,3 +1,4 @@
+import { useComposition } from "../composer/composition.js";
 import { choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
 import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { ChevronDown, ChevronUp, ClipboardList, MessageCircleQuestionMark, ShieldAlert, StickyNote } from "lucide-react";
@@ -122,6 +123,7 @@ const ICONS = { permission: ShieldAlert, denylist: ShieldAlert, question: Messag
 
 /** One prompt's card. */
 const ParkedCard = ({ environmentId, parked, place, capability, fields, setFields, line, say, answer }: ParkedCardProps) => {
+  const { onCompositionStart, onCompositionEnd, onKeyDownCapture } = useComposition();
   const { prompt } = parked;
   const self = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -173,6 +175,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
       <CardKeys allow={allow} deny={deny} offer={capability} />
       <section
         ref={self}
+        {...{ onCompositionStart, onCompositionEnd, onKeyDownCapture }}
         aria-label="Parked prompt"
         tabIndex={-1}
         className={classes(
@@ -307,7 +310,7 @@ const RowButton = ({ row, dim, keys, reason, onClick }: { readonly row: ChoiceRo
   const id = useId();
   const described = row.detail.length > 0 ? id : undefined;
   return (
-    <span className="inline-flex items-baseline gap-1.5">
+    <span data-prompt-choice className="inline-flex items-baseline gap-1.5">
       <Answer dim={dim} approves={row.kind !== "deny"} greyed={row.kind === "approve" && row.above} describedBy={described} keys={keys} hint={reason ?? row.detail} onClick={onClick}>
         {row.label}
       </Answer>
