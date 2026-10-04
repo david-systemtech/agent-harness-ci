@@ -32,7 +32,7 @@ export type ConnectionKind = "local" | "paired";
  * mismatch (either side behind), a client session revoked or expired, or an
  * address that reaches another environment.
  */
-export const BLOCKED_REASONS = ["protocol-mismatch", "unsupported-client", "revoked", "expired", "different-environment"] as const;
+export const BLOCKED_REASONS = ["protocol-mismatch", "unsupported-client", "revoked", "expired", "credential-unavailable", "different-environment"] as const;
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
 /**

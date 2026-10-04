@@ -1,5 +1,6 @@
 import type { DiscoveryDocument } from "@agent-harness/contracts";
 import type { Clock, Timer } from "../platform.js";
+import { isStoredCredentialUnavailable } from "../credential-unavailable.js";
 import type { Dialing, LiveSocket, SocketClosed } from "./connection.js";
 import {
   reduce,
@@ -144,8 +145,8 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
     try {
       token = await host.token();
     } catch (error) {
-      // Unavailable storage is retryable; only an absent token means the session is revoked.
-      feed({ type: "close", attempt });
+      // A replaced build's unavailable kept item needs re-pairing. Other storage faults remain retryable.
+      feed({ type: isStoredCredentialUnavailable(error) ? "credential-unavailable" : "close", attempt });
       host.report(error);
       return;
     }

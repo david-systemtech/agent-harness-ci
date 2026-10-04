@@ -1,6 +1,7 @@
 import { STEP_HINTS } from "@agent-harness/contracts";
 import { ListChecks, X } from "lucide-react";
 import { useId, useState } from "react";
+import { CredentialNoticeHost } from "../notices/credential-notice.js";
 import { EnvironmentPicker } from "../settings/environment-picker.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { PhoneNavigation, usePhoneSettings } from "../settings/phone-navigation.js";
@@ -79,6 +80,7 @@ export const ChecklistView = () => {
           <Button aria-label="Close Set up" className="ml-auto" onClick={close}><X aria-hidden="true" />Close</Button>
         </Tooltip>
       </header>
+      <CredentialNoticeHost />
       {view !== undefined && picked !== undefined && <ReachLine view={view} environment={picked} />}
       <div className="relative flex min-h-0 flex-1 flex-col min-[640px]:flex-row">
         {phone ? <PhoneNavigation title="Set up steps" open={railOpen} onOpenChange={setRailOpen}>{rail}</PhoneNavigation> : rail}
