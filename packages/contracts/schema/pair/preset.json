@@ -11,7 +11,7 @@
         "phone",
         "custom"
       ],
-      "description": "A pairing preset: own-client (my own client), program (a script or bot driving the wire) phone (a browser with limited authority) or custom."
+      "description": "A pairing preset: own-client (my own client), program (a script or bot driving the wire), phone (a browser with limited authority) or custom."
     },
     "name": {
       "type": "string",

@@ -14,7 +14,7 @@ import { Ceiling, SCOPES, ScopeSet, scopesInWords, type Scope } from "./scopes.j
 /** The presets by id: my own client, a program, Phone and custom. */
 export const PAIRING_PRESET_IDS = ["own-client", "program", "phone", "custom"] as const;
 export const PairingPresetId = z.enum(PAIRING_PRESET_IDS).meta({
-  description: "A pairing preset: own-client (my own client), program (a script or bot driving the wire) phone (a browser with limited authority) or custom.",
+  description: "A pairing preset: own-client (my own client), program (a script or bot driving the wire), phone (a browser with limited authority) or custom.",
 });
 export type PairingPresetId = z.infer<typeof PairingPresetId>;
 

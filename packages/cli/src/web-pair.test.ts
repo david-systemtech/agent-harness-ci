@@ -22,3 +22,8 @@ it("accepts an explicit canonical HTTPS origin and refuses paths, credentials an
   expect(parseWebOrigin(undefined)).toBeUndefined();
   for (const value of ["http://web.example", "https://web.example/", "https://web.example?x=1", "https://user:password@web.example"]) expect(() => parseWebOrigin(value)).toThrow(UsageError);
 });
+it("explains the canonical spelling required for an HTTPS origin", () => {
+  for (const value of ["https://WEB.example", "https://web.example:443"]) {
+    expect(() => parseWebOrigin(value)).toThrow("canonical HTTPS origin");
+  }
+});

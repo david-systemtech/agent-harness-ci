@@ -45,5 +45,5 @@ export const parseWebOrigin = (value: string | undefined): string | undefined =>
     const url = new URL(value);
     if (url.protocol === "https:" && url.origin === value && !url.username && !url.password) return url.origin;
   } catch { /* The usage line covers malformed URLs too. */ }
-  throw new UsageError("--web-origin takes an HTTPS origin without a path, query or credentials.");
+  throw new UsageError("--web-origin takes a canonical HTTPS origin: lowercase host, no explicit default port, path, query or credentials.");
 };

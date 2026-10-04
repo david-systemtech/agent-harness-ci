@@ -212,7 +212,6 @@ import {
  */
 export const methods = [
   ...webOriginMethods, ...webAttentionMethods,
-  ...webOriginMethods, ...webAttentionMethods,
   environmentStatus,
   environmentSubscribe,
   environmentDrain,

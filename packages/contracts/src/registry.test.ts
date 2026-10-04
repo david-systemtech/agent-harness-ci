@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import {
   CommandId,
@@ -32,6 +32,24 @@ const unscoped = {
 } as const;
 
 describe("the method registry", () => {
+  it("registers each populated future web slot exactly once", async () => {
+    const origin = defineMethod({ ...unscoped, name: "web.origins.fixture", scope: "read" });
+    const attention = defineMethod({ ...unscoped, name: "web.attention.fixture", scope: "read" });
+    vi.resetModules();
+    vi.doMock("./web/origin-policy.js", () => ({ webOriginMethods: [origin] }));
+    vi.doMock("./web/attention.js", () => ({ webAttentionMethods: [attention] }));
+    try {
+      const populated = await import("./registry.js");
+      for (const method of [origin, attention]) {
+        expect(populated.methods.filter(candidate => candidate.name === method.name)).toEqual([method]);
+      }
+    } finally {
+      vi.doUnmock("./web/origin-policy.js");
+      vi.doUnmock("./web/attention.js");
+      vi.resetModules();
+    }
+  });
+
   // Modelled on T3 Code's RpcAuthorization test: the scope table and the
   // method table are one table, so a method cannot exist without its scope.
   it("declares exactly one scope for every registered method", () => {
