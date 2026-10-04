@@ -29,7 +29,10 @@ const ActionFor = ({ session }: { readonly session: PaneSession }) => {
   const terminals = useTerminalPanes();
   const runtime = useRuntime();
   useObservable(runtime.projections.environments);
-  const capability = column.open.includes("terminal") ? PRESENT : paneCapability(runtime, session.environmentId, "terminal");
+  const answer = column.open.includes("terminal") ? PRESENT : paneCapability(runtime, session.environmentId, "terminal");
+  const capability = answer.status === "absent" && answer.reason === "scope"
+    ? { ...answer, message: `${answer.message} Make a Custom pairing code with terminal scope on a trusted client, then deliberately pair again.` }
+    : answer;
   const onScreen = column.shown === "terminal" && !column.hidden;
   const toggle = () => {
     if (capability.status === "absent") return false;

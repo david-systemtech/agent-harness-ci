@@ -105,6 +105,9 @@ export interface PaneTerminalOptions {
   readonly nameOf: () => string;
   /** The pane's view changed. */
   readonly changed: (view: PaneView) => void;
+  /** The phone's one-shot Ctrl modifier changed. */
+  readonly controlChanged?: (active: boolean) => void;
+  readonly selectionChanged?: (text: string) => void;
 }
 
 export interface PaneTerminal {
@@ -115,6 +118,10 @@ export interface PaneTerminal {
   theme(theme: ITheme): void;
   /** Whether the pane is on screen: shown, in a column not hidden. It fits, and takes the keys it was asked to, only then. */
   onScreen(onScreen: boolean): void;
+  /** Touch keyboard controls, sent through the same write queue as typed keys. */
+  control(key: "ctrl" | "escape" | "tab"): void;
+  /** Select visible cells between two touch positions, in viewport pixels. */
+  selectTouch(from: { readonly x: number; readonly y: number }, to: { readonly x: number; readonly y: number }): void;
   /** The pane goes (hidden for good, another session, the window closing); the terminal it shows runs on. */
   dispose(): void;
 }
@@ -201,6 +208,11 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   };
   let wantsKeys = false;
   let disposed = false;
+  let control = false;
+  const setControl = (active: boolean) => {
+    control = active;
+    options.controlChanged?.(active);
+  };
   /** Output is taken into xterm.js one chunk at a time, so what it answers while it parses is known to be to that chunk. */
   let feeding: Promise<void> = Promise.resolve();
   /** Whether what xterm.js sends now may go to the terminal: not while it parses output replayed rather than heard live. */
@@ -366,6 +378,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
 
   /** A new terminal for the pane in place of the one drawn, its terminal not yet known. */
   const begin = (command: string | null): Drawn => {
+    setControl(false);
     if (drawn !== null) letGo(drawn);
     const d: Drawn = {
       answers: terminalAnswers(),
@@ -496,19 +509,32 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const keys = term.onData((data) => {
     const d = drawn;
     // What xterm.js answers while it parses replayed output, or while the pane does not have the keys, is not sent.
-    if (d === null || !sendsAnswers || (!startupAnswer && !host.contains(document.activeElement))) return;
+    if (d === null || d.gone || !sendsAnswers || (!startupAnswer && !host.contains(document.activeElement))) return;
     // A key in a `!` command's pane once it has ended takes the pane back to the shell.
     if (d.command !== null && d.ended !== null) return void shell();
     // With no terminal to take them (it ended, or none can be opened now), keys are dropped, never held for a later one.
     if (d.ended !== null || d.refused) return;
     if (d.command !== null) return;
+    if (control && !startupAnswer) {
+      setControl(false);
+      if (data.length === 1) data = data === "?" ? "\x7f" : /^[a-z@[\]\\^_]$/i.test(data) ? String.fromCharCode(data.toUpperCase().charCodeAt(0) & 31) : data;
+    }
     d.outgoing += data;
     frameFor(d);
   });
   stops.push(() => keys.dispose());
+  const selection = term.onSelectionChange(() => options.selectionChanged?.(term.getSelection()));
+  stops.push(() => selection.dispose());
   const observer = new ResizeObserver(() => fitNow());
   observer.observe(host);
   stops.push(() => observer.disconnect());
+  const viewport = window.visualViewport;
+  viewport?.addEventListener("resize", fitNow);
+  window.addEventListener("resize", fitNow);
+  stops.push(() => {
+    viewport?.removeEventListener("resize", fitNow);
+    window.removeEventListener("resize", fitNow);
+  });
   const rootSize = new MutationObserver(fitNow);
   rootSize.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
   stops.push(() => rootSize.disconnect());
@@ -553,10 +579,31 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     },
     onScreen(next) {
       onScreen = next;
-      if (!next) return;
+      if (!next) return setControl(false);
       openOnScreen();
       fitNow();
       if (wantsKeys) takeKeys();
+    },
+    control(key) {
+      if (disposed || !onScreen || drawn === null || drawn.gone || drawn.ended !== null || drawn.refused || drawn.command !== null) return;
+      takeKeys();
+      if (key === "ctrl") return setControl(!control);
+      setControl(false);
+      drawn.outgoing += key === "escape" ? "\x1b" : "\t";
+      frameFor(drawn);
+    },
+    selectTouch(from, to) {
+      if (disposed || !onScreen || !opened) return;
+      const rect = host.querySelector(".xterm-screen")?.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      const cell = (point: { readonly x: number; readonly y: number }) => {
+        const column = Math.max(0, Math.min(term.cols - 1, Math.floor((point.x - rect.left) * term.cols / rect.width)));
+        const row = Math.max(0, Math.min(term.rows - 1, Math.floor((point.y - rect.top) * term.rows / rect.height)));
+        return (term.buffer.active.viewportY + row) * term.cols + column;
+      };
+      const start = Math.min(cell(from), cell(to));
+      const end = Math.max(cell(from), cell(to));
+      term.select(start % term.cols, Math.floor(start / term.cols), end - start + 1);
     },
     dispose() {
       if (disposed) return;

@@ -6,6 +6,7 @@ import { useObservable, useRuntime } from "../window-context.js";
 import { createPaneTerminal, type PaneTerminal, type PaneView } from "./pane-terminal.js";
 import { useTerminalPanes } from "./terminal-panes.js";
 import { useTerminalTheme } from "./terminal-theme.js";
+import { closePane, useSideColumn } from "../side-column/column.js";
 
 export interface TerminalPaneProps {
   readonly environmentId: string;
@@ -29,6 +30,7 @@ const NOTHING_YET: PaneView = { command: null, ended: null, line: null };
 export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPaneProps) => {
   const runtime = useRuntime();
   const panes = useTerminalPanes();
+  const [, changeColumn] = useSideColumn({ environmentId, sessionId });
   const theme = useTerminalTheme();
   const environments = useObservable(runtime.projections.environments);
   const name = environments.find((view) => view.environmentId === environmentId)?.name ?? "the environment";
@@ -37,6 +39,18 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<PaneTerminal | null>(null);
   const [view, setView] = useState<PaneView>(NOTHING_YET);
+  const [control, setControl] = useState(false);
+  const [selection, setSelection] = useState("");
+  const [selecting, setSelecting] = useState(false);
+  const touch = useRef<{ readonly id: number; readonly x: number; readonly y: number } | null>(null);
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const update = () => setPhone(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (host.current === null) return;
@@ -49,6 +63,8 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
       onScreen: latest.current.onScreen,
       nameOf: () => latest.current.name,
       changed: setView,
+      controlChanged: setControl,
+      selectionChanged: setSelection,
     });
     terminal.current = made;
     const stopHearing = panes.hear({ environmentId, sessionId }, (ask) => made.ask(ask));
@@ -63,6 +79,9 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
   useEffect(() => terminal.current?.onScreen(onScreen), [onScreen]);
 
   const renew = view.command === null && view.ended !== null;
+  const authority = runtime.capability(environmentId, "terminals.write");
+  const draftAuthority = runtime.capability(environmentId, "sessions.setDraft");
+  const unavailable = authority.status === "absent" || view.ended !== null || view.command !== null;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {view.command !== null && (
@@ -80,14 +99,64 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
           )}
           {renew && (
             <Tooltip content="New terminal · Enter / Space">
-              <Button size="xs" className="ml-auto" onClick={() => terminal.current?.ask({ kind: "shell", focus: true })}>
+              <Button size="xs" className={phone ? "ml-auto min-h-11 min-w-11 whitespace-normal" : "ml-auto"} onClick={() => terminal.current?.ask({ kind: "shell", focus: true })}>
                 <Plus aria-hidden="true" />New terminal
               </Button>
             </Tooltip>
           )}
         </div>
       )}
-      <div ref={host} aria-label="Terminal screen" className="min-h-0 flex-1 overflow-hidden bg-wash px-2 py-1.5" />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div ref={host} aria-label="Terminal screen" className="min-h-0 flex-1 overflow-hidden bg-wash px-2 py-1.5 max-[640px]:[&_textarea]:text-base" />
+        {phone && selecting && <div aria-label="Select terminal text" className="absolute inset-0 touch-none"
+          onPointerDown={event => {
+            event.preventDefault();
+            if (event.isTrusted) event.currentTarget.setPointerCapture(event.pointerId);
+            touch.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+            terminal.current?.selectTouch(touch.current, touch.current);
+          }}
+          onPointerMove={event => {
+            if (touch.current?.id === event.pointerId) terminal.current?.selectTouch(touch.current, { x: event.clientX, y: event.clientY });
+          }}
+          onPointerUp={event => {
+            if (touch.current?.id !== event.pointerId) return;
+            terminal.current?.selectTouch(touch.current, { x: event.clientX, y: event.clientY });
+            touch.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={() => { touch.current = null; }} />}
+      </div>
+      {phone && <div aria-label="Terminal keys" role="group" className="flex shrink-0 flex-wrap gap-1 border-t border-hairline bg-panel p-2">
+        <Tooltip content="Ctrl · then type a key">
+          <Button className="min-h-11 min-w-11" disabled={unavailable} aria-pressed={control} onClick={() => terminal.current?.control("ctrl")}>Ctrl</Button>
+        </Tooltip>
+        <Tooltip content="Escape · Esc">
+          <Button className="min-h-11 min-w-11" disabled={unavailable} onClick={() => terminal.current?.control("escape")}>Esc</Button>
+        </Tooltip>
+        <Tooltip content="Tab · Tab">
+          <Button className="min-h-11 min-w-11" disabled={unavailable} onClick={() => terminal.current?.control("tab")}>Tab</Button>
+        </Tooltip>
+        <Tooltip content="Select output · drag across text; turn off to scroll">
+          <Button className="min-h-11 min-w-11" aria-pressed={selecting} onClick={() => setSelecting(value => !value)}>Select</Button>
+        </Tooltip>
+        <Tooltip content="Close the environment terminal · Enter / Space">
+          <Button className="min-h-11 min-w-11" onClick={() => {
+            terminal.current?.ask({ kind: "close" });
+            changeColumn(held => closePane(held, "terminal"));
+          }}>Close terminal</Button>
+        </Tooltip>
+      </div>}
+      {phone && authority.status === "absent" && authority.reason === "scope" && <p className="shrink-0 px-3 py-2 text-sm text-ink-muted">
+        To use this environment terminal, make a Custom pairing code with terminal scope on a trusted client, then deliberately pair again. The Phone preset does not grant terminal access.
+      </p>}
+      {selection.length > 0 && <div className="shrink-0 border-t border-hairline bg-panel p-2">
+        <Tooltip content="Add selected output to the session draft · Enter / Space">
+          <Button data-terminal-selection-action className="min-h-11 whitespace-normal" disabled={draftAuthority.status === "absent"} title={draftAuthority.status === "absent" ? draftAuthority.message : undefined} onPointerDown={event => event.preventDefault()} onClick={() => {
+            const held = runtime.projections.session(environmentId, sessionId).read().draft ?? "";
+            runtime.drafts.set(environmentId, sessionId, `${held}${held.length > 0 ? "\n\n" : ""}${selection}`);
+          }}>Add to session</Button>
+        </Tooltip>
+      </div>}
     </div>
   );
 };
