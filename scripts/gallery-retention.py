@@ -8,6 +8,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from gallery_reports import validate_shard
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -83,6 +84,13 @@ def main():
             if not isinstance(captures, list) or not captures or len(captures) > 400:
                 continue
             if not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('name', 'api_url')) for item in captures):
+                continue
+            if 'shard' in manifest:
+                try:
+                    validate_shard(manifest['shard'], len(captures))
+                except ValueError:
+                    continue
+            if len({capture['name'] for capture in captures}) != len(captures):
                 continue
             valid = True
             for capture in captures:

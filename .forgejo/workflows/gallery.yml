@@ -9,6 +9,8 @@ on:
     paths:
       - 'packages/gui/**'
       - 'scripts/gallery-accept.sh'
+      - 'scripts/gallery-publish.py'
+      - 'scripts/gallery_reports.py'
       - '.forgejo/workflows/gallery.yml'
       - '.forgejo/github-workflows/gallery.yml'
       - '.forgejo/scripts/gallery-comment.sh'

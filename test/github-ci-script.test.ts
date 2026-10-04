@@ -108,11 +108,12 @@ if stage == 'dispatch':
         payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
     print('204', end='')
 elif stage == 'artifacts':
-    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
+    out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else json.loads(os.environ['FAKE_ARTIFACTS']) if os.environ.get('FAKE_ARTIFACTS') else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
 elif stage == 'archive':
     if os.environ.get('FAKE_GALLERY_ZIP'):
         import shutil
-        shutil.copyfile(os.environ['FAKE_GALLERY_ZIP'], out)
+        archives=json.loads(os.environ.get('FAKE_GALLERY_ZIPS','{}'))
+        shutil.copyfile(archives.get(url.split('/')[-2], os.environ['FAKE_GALLERY_ZIP']), out)
         sys.exit(0)
     import zipfile
     with zipfile.ZipFile(out,'w') as z:
@@ -804,7 +805,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, attachments, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }) => {
+    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }, shard?: { run: string; index: number; count: number; total: number }) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
@@ -822,7 +823,7 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
         else: data=narrow if '-narrow.' in name else png
         z.writestr(name+'.png',data)
     z.writestr('geometry.json','{}')
-    z.writestr('report.json',json.dumps({'pixelBlocking':False,'captureBudget':{'desktop':sum(not n.startswith('phone-') for n in names),'phone':sum(n.startswith('phone-') for n in names),'total':len(names),'limit':400,'remaining':400-len(names)},'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names), JSON.stringify(viewport ?? null)]);
+    z.writestr('report.json',json.dumps({'pixelBlocking':bool(json.loads(sys.argv[5])),**({'shard':json.loads(sys.argv[5])} if json.loads(sys.argv[5]) else {}),'captureBudget':{'desktop':sum(not n.startswith('phone-') for n in names),'phone':sum(n.startswith('phone-') for n in names),'total':len(names),'limit':400,'remaining':400-len(names)},'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names), JSON.stringify(viewport ?? null), JSON.stringify(shard ?? null)]);
       return readFileSync(`${zip}.png`);
     },
   };
@@ -1036,4 +1037,84 @@ it("refuses to publish a phone capture whose dimensions disagree with its profil
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("unexpected phone gallery dimensions");
   expect(g.comments).toHaveLength(0);
+});
+
+async function shardedGallery() {
+  const g = await storedGallery();
+  const first = join(g.f.checkout, "first.zip");
+  const second = join(g.f.checkout, "second.zip");
+  const names = Array.from({ length: 472 }, (_, index) => `scene-${index}.dark`);
+  await g.capture(230, 400, names.slice(0, 400), undefined, { run: "sharded-run", index: 1, count: 2, total: 472 });
+  writeFileSync(first, readFileSync(g.env.FAKE_GALLERY_ZIP));
+  await g.capture(230, 72, names.slice(400), undefined, { run: "sharded-run", index: 2, count: 2, total: 472 });
+  writeFileSync(second, readFileSync(g.env.FAKE_GALLERY_ZIP));
+  const env = { ...g.env,
+    FAKE_ARTIFACTS: JSON.stringify([{ id: 99, name: "window-gallery-shard-1", size_in_bytes: statSync(first).size }, { id: 100, name: "window-gallery-shard-2", size_in_bytes: statSync(second).size }]),
+    FAKE_GALLERY_ZIPS: JSON.stringify({ "99": first, "100": second }),
+  };
+  return { ...g, first, second, shardEnv: env };
+}
+
+it("publishes and accepts 472 captures as two complete independently bounded reports", async () => {
+  const g = await shardedGallery();
+  const result = await relay(g.f, g.shardEnv);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(2);
+  expect(g.captures.size).toBe(472);
+  expect(g.comments[0]!.body).toContain('"index": 1');
+  expect(g.comments[1]!.body).toContain('"index": 2');
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...process.env, ...g.env } });
+  expect(readdirSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toHaveLength(472);
+});
+
+it.each(["missing", "mixed-run", "duplicate-name", "invalid-count", "advisory"])("rejects a %s shard set before creating any report", async (mode) => {
+  const g = await shardedGallery();
+  if (mode === "missing") g.shardEnv.FAKE_ARTIFACTS = JSON.stringify([{ id: 100, name: "window-gallery-shard-2", size_in_bytes: statSync(g.second).size }]);
+  else await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: files={name:z.read(name) for name in z.namelist()}
+report=json.loads(files['report.json'])
+mode=sys.argv[2]
+if mode=='mixed-run': report['shard']['run']='other-run'
+if mode=='invalid-count': report['shard']['count']=3
+if mode=='advisory': report['pixelBlocking']=False
+if mode=='duplicate-name':
+    original=report['scenes'][0]['name']; report['scenes'][0]['name']='scene-0.dark'
+    files['scene-0.dark.png']=files.pop(original+'.png')
+files['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+    for name,data in files.items(): z.writestr(name,data)`, g.second, mode]);
+  const result = await relay(g.f, g.shardEnv);
+  expect(result.code).toBe(1);
+  expect(g.comments).toEqual([]);
+  expect(g.captures.size).toBe(0);
+});
+
+it("executes the hosted shard guard against bounded, inconsistent and ungated reports", async () => {
+  const f = await fixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const guard = /python3 - <<'PY'\n([\s\S]*?)\n {10}PY/.exec(hosted)?.[1];
+  if (guard === undefined) throw new Error("no hosted report guard");
+  const code = guard.split("\n").map(line => line.slice(10)).join("\n");
+  // Run the hosted executable guard, with only its shared validation module supplied.
+  mkdirSync(join(f.checkout, "scripts"));
+  writeFileSync(join(f.checkout, "scripts/gallery_reports.py"), readFileSync(join(root, "scripts/gallery_reports.py")));
+  const report = { pixelBlocking: true, scenes: Array.from({ length: 72 }, () => ({})), shard: { run: "hosted-run", index: 2, count: 2, total: 472 } };
+  const check = () => run("python3", ["-c", code], { cwd: f.checkout, env: { ...process.env, GALLERY_SHARD: "2", GALLERY_RUN: "hosted-run" } });
+  const write = () => writeFileSync(join(images, "report.json"), JSON.stringify(report));
+  write(); await expect(check()).resolves.toBeDefined();
+  report.shard.total = 473;
+  write(); await expect(check()).rejects.toMatchObject({ code: 1 });
+  report.shard.total = 472; report.pixelBlocking = false;
+  write(); await expect(check()).rejects.toMatchObject({ code: 1 });
+  report.pixelBlocking = true; report.shard.run = "other-run";
+  write(); await expect(check()).rejects.toMatchObject({ code: 1 });
+  expect(hosted).toContain("fail-fast: false");
+  expect(hosted).toContain("name: ${{ matrix.artifact }}");
+});
+
+it("plans the one-report artifact name without launching the renderer", async () => {
+  const result = await run(process.execPath, ["--import", "tsx", "gallery/plan.ts"], { cwd: join(root, "packages/gui") });
+  expect(result.stdout.trim()).toBe('matrix={"include":[{"shard":1,"artifact":"window-gallery"}]}');
 });

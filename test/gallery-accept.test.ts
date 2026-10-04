@@ -55,6 +55,19 @@ async function fixture(mode = "current", captureCount = 1, phone?: { name: strin
         const bogus = { head: "test-head", version: "test-head-999", captures: [{ ...captures[0], api_url: `${base}/api/packages/example/generic/window-gallery/test-head-999/window-empty.dark.png` }] };
         comments.push({ id: mode === "spoofed" ? 999 : 1000, user: { id: mode === "spoofed" ? 7 : -2 }, body: '<!-- window-gallery ' + JSON.stringify(bogus) + ' -->' });
       }
+      if (mode.startsWith("sharded")) {
+        comments.splice(0);
+        const count = Math.ceil(captures.length / 400);
+        for (let index = 0; index < count; index++) {
+          const id = 123 + index, shardVersion = `test-head-${id}`;
+          const files = captures.slice(index * 400, (index + 1) * 400).map(item => ({ ...item, api_url: `${base}/api/packages/example/generic/window-gallery/${shardVersion}/${item.name}` }));
+          if (mode === "sharded-missing" && index === 0) continue;
+          const shard = { run: mode === "sharded-mixed-run" && index === 1 ? "another-run" : "capture-run", index: index + 1, count, total: captures.length };
+          if (mode === "sharded-invalid") shard.index = 3;
+          if (mode === "sharded-duplicate" && index === 1) files[0]!.name = captures[0]!.name;
+          comments.push({ id, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head: "test-head", version: shardVersion, shard, captures: files }) + ' -->' });
+        }
+      }
       response.end(JSON.stringify(mode === "unpaginated" ? [...Array.from({ length: 50 }, () => ({ body: "Earlier discussion" })), ...comments] : comments));
     } else if (request.url?.startsWith("/attachments/")) response.writeHead(401).end();
     else response.end(mode === "corrupt" ? Buffer.from("not an image") : image);
@@ -261,4 +274,32 @@ it.each([
   const f = await fixture("versioned", 1, { name, width, height });
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Unexpected phone gallery dimensions") });
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+it("accepts 472 captures across a complete independently bounded report set", async () => {
+  const f = await fixture("sharded", 472);
+  await run("bash", [script, "42"], { env: f.env });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(472);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-471.dark.png"))).toEqual(png);
+});
+
+it.each([
+  ["sharded-missing", "Incomplete gallery shard set"],
+  ["sharded-mixed-run", "Incomplete gallery shard set"],
+  ["sharded-invalid", "Invalid gallery shard counts"],
+  ["sharded-duplicate", "Duplicate gallery filename across shards"],
+])("refuses %s before downloading or writing any baseline", async (mode, message) => {
+  const f = await fixture(mode, 472);
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining(message) });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toEqual([]);
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
+});
+
+it("accepts a reviewed subset from both shards without downloading other captures", async () => {
+  const f = await fixture("sharded", 472);
+  await run("bash", [script, "42", "window-empty.dark.png", "window-scene-471.dark.png"], { env: f.env });
+  expect(f.requests.filter(url => url.startsWith("/api/packages/"))).toHaveLength(2);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-empty.dark.png"))).toEqual(png);
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-471.dark.png"))).toEqual(png);
 });

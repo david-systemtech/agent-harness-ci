@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
-import { capturePlan, sceneFiles } from "./capture-plan.js";
+import { capturePlan, captureShard, sceneFiles } from "./capture-plan.js";
 import { measureSceneGeometry } from "./geometry.js";
 import { waitForFloatingLayout } from "./floating-layout.js";
 import { compareCapture, geometryFailures, galleryFailed } from "./compare.js";
@@ -37,7 +37,10 @@ try {
   if (names.length === 0) throw new Error("The gallery has no scenes.");
   const plan = capturePlan(names);
   console.log(`Capture budget: ${plan.budget.desktop} desktop + ${plan.budget.phone} phone = ${plan.budget.total}/${plan.budget.limit}; ${plan.budget.remaining} reserved.`);
-  for (const { scene, ladder, viewport, name, platform, textSize } of plan.captures) {
+  const run = process.env["GALLERY_RUN"] ?? (process.env["GITHUB_RUN_ID"] === undefined ? undefined : `${process.env["GITHUB_RUN_ID"]}-${process.env["GITHUB_RUN_ATTEMPT"] ?? "1"}`);
+  const selected = captureShard(plan, process.env["GALLERY_SHARD"], run);
+  const { shard } = selected;
+  for (const { scene, ladder, viewport, name, platform, textSize } of selected.captures) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -83,7 +86,7 @@ try {
   }
   await writeFile(resolve(output, "geometry.json"), JSON.stringify(geometry, null, 2));
   const pixelBlocking = true;
-  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: plan.budget, scenes: report }, null, 2));
+  await writeFile(resolve(output, "report.json"), JSON.stringify({ pixelBlocking, captureBudget: plan.budget, shard, scenes: report }, null, 2));
   for (const scene of report) {
     for (const failure of scene.geometryFailures) console.error(`${scene.name}: ${failure}`);
     if (scene.pixelFailed) console.log(`${scene.name}: ${scene.status}, ${scene.differentPixels} pixels (${pixelBlocking ? "blocking" : "advisory"})`);

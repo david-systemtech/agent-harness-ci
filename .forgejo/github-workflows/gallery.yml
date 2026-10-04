@@ -10,7 +10,36 @@ concurrency:
 permissions:
   contents: write
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check the payload
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+        run: '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: corepack enable && corepack prepare --activate
+      - run: pnpm install --frozen-lockfile
+      - id: plan
+        run: pnpm --filter @agent-harness/gui exec tsx --conditions=@agent-harness/source gallery/plan.ts >> "$GITHUB_OUTPUT"
   gallery:
+    needs: [plan]
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      GALLERY_SHARD: ${{ matrix.shard }}
+      GALLERY_RUN: ${{ github.event.client_payload.id }}-${{ github.run_attempt }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -46,14 +75,19 @@ jobs:
         # Finish artifact delivery even when geometry or the pixel gate fails.
         continue-on-error: true
         run: pnpm --filter @agent-harness/gui capture-gallery
-      - name: Check the shared desktop and phone report budget
+      - name: Check each bounded desktop and phone report shard
         run: |
           python3 - <<'PY'
-          import json
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          from gallery_reports import validate_shard
           with open('packages/gui/gallery-images/report.json') as source:
               report = json.load(source)
           assert 0 < len(report['scenes']) <= 400, 'Capture budget exceeded'
           assert report['pixelBlocking'] is True, 'Every capture remains gated'
+          shard = validate_shard(report['shard'], len(report['scenes']))
+          assert shard['index'] == int(os.environ['GALLERY_SHARD'])
+          assert shard['run'] == os.environ['GALLERY_RUN']
           PY
       - name: Optimise the PNGs losslessly
         run: |
@@ -64,10 +98,11 @@ jobs:
           test "$(find packages/gui/gallery-images -name '*.png' | wc -l)" -le 1200
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: window-gallery
+          name: ${{ matrix.artifact }}
           path: |
             packages/gui/gallery-images/*.png
             packages/gui/gallery-images/*.json
+          overwrite: true
           compression-level: 9
           retention-days: 7
           if-no-files-found: error
@@ -75,7 +110,7 @@ jobs:
         if: steps.capture.outcome == 'failure'
         run: exit 1
   cleanup:
-    needs: [gallery]
+    needs: [plan, gallery]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

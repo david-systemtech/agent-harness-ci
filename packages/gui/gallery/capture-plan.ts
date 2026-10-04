@@ -47,7 +47,20 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const captures = [...desktop, ...phone];
   if (new Set(captures.map(c => c.name)).size !== captures.length) throw new Error("Duplicate gallery capture name.");
-  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit: 400, remaining: 400 - captures.length };
-  if (budget.remaining < 0) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > ${budget.limit}. Shard publication and acceptance together before adding scenes.`);
-  return { captures, budget };
+  const count = Math.ceil(captures.length / 400);
+  const limit = count * 400;
+  const budget = { desktop: desktop.length, phone: phone.length, total: captures.length, limit, remaining: limit - captures.length };
+  if (count > 16) throw new Error(`Gallery capture budget exceeded: ${budget.desktop} desktop + ${budget.phone} phone > 6400 (sixteen reports).`);
+  const shards = Array.from({ length: count }, (_, index) => ({
+    index: index + 1, count, total: captures.length, captures: captures.slice(index * 400, (index + 1) * 400),
+  }));
+  return { captures, budget, shards };
+}
+
+/** Single-report jobs remain valid while the hosted workflow rolls out shard selection. */
+export function captureShard(plan: ReturnType<typeof capturePlan>, selection: string | undefined, run: string | undefined) {
+  const index = selection === undefined && plan.shards.length === 1 ? 1 : Number(selection);
+  const selected = plan.shards.find(shard => shard.index === index);
+  if (selected === undefined || run === undefined || !/^[A-Za-z0-9._-]{1,128}$/.test(run)) throw new Error("Invalid gallery shard selection.");
+  return { ...selected, shard: { run, index: selected.index, count: selected.count, total: selected.total } };
 }

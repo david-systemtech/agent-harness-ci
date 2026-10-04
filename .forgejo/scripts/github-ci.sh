@@ -184,135 +184,43 @@ echo "GitHub run finished: $conclusion"
 # Failed comparisons still publish the captures, baseline and difference for review.
 if [ "$event" = gallery ] && [[ "$conclusion" == success || "$conclusion" == failure ]]; then
   reply=$(gh_get "$api/actions/runs/$run_id/artifacts?per_page=100")
-  artifact=$(printf '%s' "$reply" | python3 -c '
-import json,sys
-items=[a for a in json.load(sys.stdin).get("artifacts",[]) if a["name"]=="window-gallery" and not a.get("expired")]
+  artifacts=$(printf '%s' "$reply" | python3 -c '
+import json,re,sys
+items=[a for a in json.load(sys.stdin).get("artifacts",[]) if (a["name"]=="window-gallery" or a["name"].startswith("window-gallery-shard-")) and not a.get("expired")]
 if not items: sys.exit(0)
-if len(items)!=1 or items[0]["size_in_bytes"]>64*1024*1024: sys.exit("oversized or duplicate gallery artifact")
-print(int(items[0]["id"]))')
-  if [ -z "$artifact" ]; then
+if len(items)>16 or len({a["name"] for a in items})!=len(items) or any(a["size_in_bytes"]>64*1024*1024 for a in items): sys.exit("oversized or duplicate gallery artifact")
+for a in items:
+    match=re.fullmatch(r"window-gallery-shard-([1-9][0-9]*)",a["name"])
+    index=int(match[1]) if match else 0
+    if a["name"]!="window-gallery" and (match is None or index>16): sys.exit("invalid gallery artifact name")
+    print(int(a["id"]),index)')
+  if [ -z "$artifacts" ]; then
     echo "No gallery artifact was uploaded; reading the failed job logs."
     [ "$conclusion" != success ] || { echo "::error::successful gallery run has no artifact"; exit 1; }
   else
-    gh_api --fail -L --max-filesize 67108864 -o "$gl/gallery.zip" "$api/actions/artifacts/$artifact/zip"
-    gallery_format=$(python3 - "$gl/gallery.zip" <<'PYFORMAT'
+    archives=()
+    while read -r artifact index; do
+      archive="$gl/gallery-shard-$index.zip"
+      [ "$index" != 0 ] || archive="$gl/gallery.zip"
+      gh_api --fail -L --max-filesize 67108864 -o "$archive" "$api/actions/artifacts/$artifact/zip"
+      archives+=("$archive")
+    done <<< "$artifacts"
+    gallery_format=$(python3 - "${archives[@]}" <<'PYFORMAT'
 import pathlib,sys,zipfile
-archive=pathlib.Path(sys.argv[1])
-if archive.stat().st_size > 64*1024*1024: sys.exit('gallery zip is too large')
-with zipfile.ZipFile(archive) as z: print('report' if 'report.json' in z.namelist() else 'captures')
+formats=[]
+for path in sys.argv[1:]:
+    archive=pathlib.Path(path)
+    if archive.stat().st_size > 64*1024*1024: sys.exit('gallery zip is too large')
+    with zipfile.ZipFile(archive) as z: formats.append('report' if 'report.json' in z.namelist() else 'captures')
+if len(formats)>1 and any(f!='report' for f in formats): sys.exit('mixed gallery report formats')
+print(formats[0])
 PYFORMAT
     )
     if [ "$gallery_format" = captures ]; then
       # A workflow rollout can finish an earlier capture-only artifact.
       bash "$(dirname "${BASH_SOURCE[0]}")/gallery-comment.sh" "$gl/gallery.zip" "$sha"
     else
-      python3 - "$gl/gallery.zip" "$sha" <<'PYGALLERY'
-import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
-base = os.environ['FORGEJO_URL'].rstrip('/')
-repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[2]
-if not re.fullmatch(r'[1-9][0-9]*', pr) or not re.fullmatch(r'[A-Za-z0-9._-]+/[A-Za-z0-9._-]+', repository): sys.exit('Invalid gallery destination')
-api = f'{base}/api/v1/repos/{repository}'
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs): return None
-opener = urllib.request.build_opener(NoRedirect())
-def absolute_request(url, method='GET', data=None, content_type='application/json', token=None):
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        'Authorization': 'token ' + (token or os.environ['FORGEJO_TOKEN']), 'Content-Type': content_type})
-    with opener.open(req, timeout=120) as response:
-        reply = response.read()
-        return json.loads(reply) if reply else None
-def request(path, method='GET', data=None, content_type='application/json'):
-    return absolute_request(api + path, method, data, content_type)
-current = request(f'/pulls/{pr}')
-if current['state'] != 'open' or current.get('merged') or current['head']['sha'] != head:
-    print('Gallery report rejected: the PR is closed, merged, or its head changed.', file=sys.stderr)
-    sys.exit(2)
-with zipfile.ZipFile(sys.argv[1]) as z:
-    entries = z.infolist()
-    # Desktop and bounded phone profiles share 400 captures and three-PNG triplets.
-    max_scenes = 400
-    max_pngs = max_scenes * 3
-    if len(entries) > max_pngs + 2 or sum(f.filename.endswith('.png') for f in entries) > max_pngs or sum(f.file_size for f in entries) > 48*1024*1024: sys.exit('gallery payload is too large')
-    names = [f.filename for f in entries]
-    if len(set(names)) != len(names) or any(not re.fullmatch(r'[a-z0-9-]+[.](dark|light)([.](baseline|difference))?[.]png|report[.]json|geometry[.]json', n) for n in names): sys.exit('unexpected gallery entry')
-    report = json.loads(z.read('report.json'))
-    images = {n: z.read(n) for n in names if n.endswith('.png')}
-    for name, data in images.items():
-        if not data.startswith(b'\x89PNG\r\n\x1a\n'): sys.exit('gallery entry is not a PNG')
-        if name.startswith('phone-'):
-            phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
-            profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
-            if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
-    scenes = report['scenes']
-    if not scenes or len(scenes) > max_scenes: sys.exit('invalid gallery scene list')
-    seen = set()
-    for scene in scenes:
-        name = scene['name']
-        if not re.fullmatch(r'[a-z0-9-]+[.](dark|light)', name) or name in seen: sys.exit('invalid gallery scene name')
-        seen.add(name)
-        required = [name + '.png']
-        if scene['status'] == 'changed': required += [name + '.baseline.png', name + '.difference.png']
-        if scene['status'] not in ('new', 'changed', 'unchanged') or any(n not in images for n in required): sys.exit('incomplete gallery triplet')
-package_token = os.environ.get('PACKAGES_TOKEN')
-if not package_token: sys.exit('PACKAGES_TOKEN is required to publish gallery captures.')
-comment = request(f'/issues/{pr}/comments', 'POST', json.dumps({'body': f'Window gallery for `{head}`. Uploading captures…'}).encode())['id']
-stage = 'uploads'
-try:
-    version = f'{head}-{comment}'
-    urls = {}
-    for name, data in sorted(images.items()):
-        stage = f'attachment {name}'
-        boundary = 'gallery-upload-boundary'
-        body = (f'--{boundary}\r\nContent-Disposition: form-data; name="attachment"; filename="{name}"\r\nContent-Type: image/png\r\n\r\n'.encode() + data + f'\r\n--{boundary}--\r\n'.encode())
-        asset = request(f'/issues/comments/{comment}/assets', 'POST', body, f'multipart/form-data; boundary={boundary}')
-        url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
-        if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): raise ValueError('invalid asset URL')
-        urls[name] = url
-    body = f'Window gallery for `{head}` (desktop 1400 × 900 / 1024 × 768; phone 390 × 844 / 360 × 740; text size 20; keyboard 390 × 480; light and dark).\n'
-    budget = report.get('captureBudget')
-    if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
-        body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"
-    geometry_failed = any(s['geometryFailures'] for s in scenes)
-    pixel_failed = any(s['pixelFailed'] for s in scenes)
-    body += f"\nGeometry: {'failed' if geometry_failed else 'passed'}. Pixels: {'blocking' if report['pixelBlocking'] else 'advisory'}; {'differences' if pixel_failed else 'passed'}.\n"
-    matched = sum(s['status'] == 'unchanged' for s in scenes)
-    body += f'\n{matched} scene{"" if matched == 1 else "s"} matched.\n'
-    for scene in scenes:
-        name = scene['name']
-        if scene['status'] == 'changed':
-            body += f'\n**{name}**\n\n| Baseline | Capture | Difference |\n| --- | --- | --- |\n'
-            body += '| ' + ' | '.join(f'![{kind} {name}]({urls[name+suffix]})' for kind,suffix in [('baseline','.baseline.png'),('capture','.png'),('difference','.difference.png')]) + ' |\n'
-        elif scene['status'] == 'new' or scene['geometryFailures']:
-            body += f'\n**{name}** ({scene["status"]})\n\n![capture {name}]({urls[name+".png"]})\n'
-        for failure in scene['geometryFailures']: body += f'\n- {html.escape(failure)}\n'
-    # The web attachment route can be behind SSO while the tracker API accepts tokens.
-    # Publish capture bytes through the generic package API too, so acceptance needs no browser cookie.
-    captures = []
-    for scene in scenes:
-        name = scene['name'] + '.png'
-        stage = f'capture storage {name}'
-        download = f'{base}/api/packages/{repository.split("/")[0]}/generic/window-gallery/{version}/{name}'
-        try: absolute_request(download, 'PUT', images[name], 'image/png', token=package_token)
-        except urllib.error.HTTPError as error:
-            if error.code != 409: raise
-            # Reusing this report version is safe only when its bytes are identical.
-            req = urllib.request.Request(download, headers={'Authorization': 'token ' + package_token})
-            with opener.open(req, timeout=120) as response:
-                if response.read(len(images[name])+1) != images[name]: raise ValueError('Existing gallery capture has different bytes')
-        captures.append({'name': name, 'url': urls[name], 'api_url': download, 'sha256': hashlib.sha256(images[name]).hexdigest()})
-    manifest = {'head': head, 'version': version, 'captures': captures}
-    body += '\n<!-- window-gallery ' + json.dumps(manifest) + ' -->\n'
-    stage = 'final report'
-    request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': body}).encode())
-except Exception as error:
-    # Never include the API's response, credentials, or untrusted exception text.
-    reason = f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
-    failure = f'Window gallery for `{head}`.\n\nGallery upload failed during {stage} ({reason}). Rerun the gallery job; if it persists, check the relay log and package/attachment write permissions. No captures from this report can be accepted.'
-    try: request(f'/issues/comments/{comment}', 'PATCH', json.dumps({'body': failure}).encode())
-    except Exception: print('::error::Could not finalize the gallery comment; check tracker connectivity and rerun the gallery job.', file=sys.stderr)
-    sys.exit(f'Gallery upload failed during {stage} ({reason}); rerun the gallery job.')
-print(f'Gallery posted on pull request {pr}')
-PYGALLERY
+      python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-publish.py" "$sha" "${archives[@]}"
       # Cleanup failure must not invalidate a completed, downloadable report.
       python3 "$(dirname "${BASH_SOURCE[0]}")/../../scripts/gallery-retention.py" || \
         echo "::warning::Gallery retention failed; rerun the gallery-retention workflow."

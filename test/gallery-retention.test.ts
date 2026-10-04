@@ -31,7 +31,7 @@ async function fixture(failure = "", captureCount = 1) {
       response.end(JSON.stringify(page === "1" ? [{ number: 42, head: { sha: "active-head" } }] : []));
     } else if (url.pathname.includes("/comments")) {
       if (failure === "comments") { response.writeHead(503).end(); return; }
-      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), captures: Array.from({ length: captureCount }, (_, index) => ({ name: `window-scene-${index}.dark.png`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-scene-${index}.dark.png` })) }) + ' -->' });
+      const manifest = (head: string, version: string, modern = true) => ({ id: modern ? Number(version.split("-").at(-1)) : 3, user: { id: -2 }, body: '<!-- window-gallery ' + JSON.stringify({ head, ...(modern ? { version } : {}), ...(failure.startsWith('sharded') ? { shard: { run: 'sharded-run', index: failure === 'sharded-invalid' ? 3 : 2, count: 2, total: 472 } } : {}), captures: Array.from({ length: captureCount }, (_, index) => ({ name: `window-scene-${index}.dark.png`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-scene-${index}.dark.png` })) }) + ' -->' });
       const comments = [...Array.from({ length: 50 }, (_, index) => ({ id: 1000 + index, user: { id: 7 }, body: "Discussion" })),
         manifest("active-head", "active-head-1"), manifest("earlier-head", "earlier-head-2"), manifest("legacy-head", "legacy-head", false),
         ...(failure === "malformed" ? [{ id: 1500, user: { id: -2 }, body: '<!-- window-gallery {broken -->' }, { id: 1501, user: { id: -2 }, body: '<!-- window-gallery [] -->' }] : []),
@@ -109,6 +109,18 @@ it.each([204, 400])("preserves a %i-capture reviewed manifest after the open PR 
 
 it("does not protect an earlier-head manifest beyond the 400-capture bound", async () => {
   const f = await fixture("", 401);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "earlier-head-2", "legacy-head", "expired-second-page"]);
+});
+
+it("protects an earlier head's valid shard independently of the other reports", async () => {
+  const f = await fixture("sharded", 72);
+  await run("python3", [script], { env: f.env });
+  expect(f.deleted).toEqual(["expired-orphan", "expired-second-page"]);
+});
+
+it("does not protect an earlier-head report with invalid shard metadata", async () => {
+  const f = await fixture("sharded-invalid", 72);
   await run("python3", [script], { env: f.env });
   expect(f.deleted).toEqual(["expired-orphan", "earlier-head-2", "legacy-head", "expired-second-page"]);
 });

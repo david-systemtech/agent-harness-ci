@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
-import { capturePlan, sceneFiles } from "../gallery/capture-plan.js";
+import { capturePlan, captureShard, sceneFiles } from "../gallery/capture-plan.js";
 
 it("preserves desktop captures and names the bounded phone profiles distinctly", () => {
   const plan = capturePlan(["window-empty", "phone-gallery-conversation"]);
@@ -31,6 +31,29 @@ it("reserves capacity for the existing 354 desktop captures and the bounded phon
   expect(new Set(plan.captures.map(c => c.name)).size).toBe(plan.budget.total);
 });
 
-it("refuses capacity exhaustion before capturing or publishing a partial gallery", () => {
-  expect(() => capturePlan(Array.from({ length: 101 }, (_, i) => `window-empty-${i}`).concat(Array.from({ length: 26 }, (_, i) => `phone-sample-${i}`)))).toThrow("Gallery capture budget exceeded");
+it("adds nine phone pane scenes in bounded shards without dropping desktop or phone captures", async () => {
+  const scenes = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
+  const plan = capturePlan([...scenes, ...["phone-pane-agent", "phone-pane-diff", "phone-pane-documents", "phone-pane-file", "phone-pane-files", "phone-pane-markdown", "phone-pane-preview", "phone-pane-scope", "phone-pane-tasks"]]);
+  expect(plan.budget).toEqual({ desktop: 354, phone: 118, total: 472, limit: 800, remaining: 328 });
+  expect(plan.shards.map(shard => [shard.index, shard.count, shard.total, shard.captures.length])).toEqual([
+    [1, 2, 472, 400], [2, 2, 472, 72],
+  ]);
+  expect(plan.shards.flatMap(shard => shard.captures)).toEqual(plan.captures);
+  expect(new Set(plan.captures.map(c => c.name)).size).toBe(472);
+});
+
+it("refuses growth beyond sixteen bounded reports before capturing a partial gallery", () => {
+  expect(() => capturePlan(Array.from({ length: 801 }, (_, i) => `phone-sample-${i}`))).toThrow("Gallery capture budget exceeded");
+});
+
+it("supports an existing one-report hosted job while requiring explicit multi-report selection", () => {
+  const single = capturePlan(["window-empty"]);
+  expect(captureShard(single, undefined, "hosted-run").index).toBe(1);
+  const multiple = capturePlan(Array.from({ length: 51 }, (_, i) => `phone-pane-${i}`));
+  expect(() => captureShard(multiple, undefined, "hosted-run")).toThrow("Invalid gallery shard selection");
+  const selected = captureShard(multiple, "2", "hosted-run");
+  expect(selected.captures).toHaveLength(8);
+  expect(selected.shard).toEqual({ run: "hosted-run", index: 2, count: 2, total: 408 });
+  expect(() => captureShard(multiple, "3", "hosted-run")).toThrow("Invalid gallery shard selection");
+  expect(() => captureShard(multiple, "1", "bad/run")).toThrow("Invalid gallery shard selection");
 });
