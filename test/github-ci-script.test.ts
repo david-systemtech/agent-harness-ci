@@ -1224,6 +1224,28 @@ with zipfile.ZipFile(path,'w') as z:
 });
 
 
+it.each(["desktop-001", "phone-001", "legacy"])("the hosted optimizer enforces the relay PNG limit for matrix shard %s", async (shard) => {
+  const f = await apiFixture();
+  const images = join(f.checkout, "packages/gui/gallery-images");
+  mkdirSync(images, { recursive: true });
+  mkdirSync(join(f.checkout, "scripts"));
+  for (const name of ["gallery_allocation.py", "gallery-allocation.json"]) writeFileSync(join(f.checkout, "scripts", name), readFileSync(join(root, "scripts", name)));
+  const hosted = readFileSync(join(root, ".forgejo/github-workflows/gallery.yml"), "utf8");
+  const step = /- name: Optimise the PNGs losslessly\n([\s\S]*?)\n {6}- uses:/.exec(hosted)?.[1];
+  const guard = /if \[ -f scripts\/gallery_allocation.py[\s\S]*?test "\$\(find packages\/gui\/gallery-images[^\n]+/.exec(step ?? "")?.[0];
+  if (!step || !guard) throw new Error("no hosted optimizer guard");
+  const binding = /GALLERY_SHARD: (.+)/.exec(step)?.[1];
+  const env = { ...process.env };
+  delete env.GALLERY_SHARD;
+  if (binding) env.GALLERY_SHARD = binding.replace("${{ matrix.shard }}", shard);
+  const check = () => run("bash", ["-e", "-c", guard], { cwd: f.checkout, env });
+  const limit = shard === "legacy" ? 2400 : 1200;
+  for (let i = 0; i < limit; i++) writeFileSync(join(images, `scene-${i}.dark.png`), "image");
+  await expect(check()).resolves.toBeDefined();
+  writeFileSync(join(images, `scene-${limit}.dark.png`), "image");
+  await expect(check()).rejects.toMatchObject({ code: 1 });
+});
+
 it("the hosted gallery supports earlier checkouts without the allocation files and keeps their bounds", async () => {
   const f = await apiFixture();
   const images = join(f.checkout, "packages/gui/gallery-images");
