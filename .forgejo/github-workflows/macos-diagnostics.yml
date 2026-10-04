@@ -1,0 +1,32 @@
+# Install byte for byte as .github/workflows/macos-diagnostics.yml on the
+# agent-harness-ci default branch (workflows), after review. The ref must
+# already have passed the relay's secret scan before it is pushed there.
+name: macos-diagnostics
+run-name: macos-diagnostics ${{ inputs.sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit SHA already present in the relay repository
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate the commit
+        env:
+          SHA: ${{ inputs.sha }}
+        run: '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - name: Exercise native window bridging and screenshot redaction
+        run: node --test scripts/macos-smoke-diagnostics-native.test.mjs

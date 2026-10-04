@@ -5,7 +5,7 @@ import Vision
 // Raw screenshots stay outside the upload directory. Mask all OCR text; dialog
 // owners/titles are available separately in the credential-redacted window list.
 guard CommandLine.arguments.count == 3,
-      let bitmap = NSBitmapImageRep(contentsOfFile: CommandLine.arguments[1]),
+      let bitmap = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))),
       let image = bitmap.cgImage else {
     throw NSError(domain: "SmokeScreenshot", code: 1)
 }

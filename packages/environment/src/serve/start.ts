@@ -1473,8 +1473,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const origins = webOriginPolicy(log, surface);
   serveWebClient(surface, options.webClientDirectory, [], origins.connectOrigins);
   allowsAdditionalOrigin = origins.allows;
-  const attention = webAttention({ log, clock, environmentId: record.id, webOrigin: () => webOrigin });
-  closers.push(attention.close);
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
     const { name, icon, colour } = look.read();
@@ -1772,6 +1770,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagers,
     scrub,
   });
+  const attention = await webAttention({ log, clock, environmentId: record.id, webOrigin: () => webOrigin, endpoints });
+  closers.push(attention.close);
   if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
