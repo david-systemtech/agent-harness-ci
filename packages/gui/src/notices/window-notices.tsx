@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { stepHome, type Notice, type SecretAccess } from "@agent-harness/client-runtime";
+import { createPortal } from "react-dom";
+import { useSettingsNoticeHost } from "../settings/settings-window.js";
+import { stepHome, type Notice } from "@agent-harness/client-runtime";
 import { STEP_ORDER, settingsRow, type StepId } from "@agent-harness/contracts";
 import { nameOf } from "../connections/words.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -8,7 +9,7 @@ import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { ArrowRight, Info, TriangleAlert, X } from "lucide-react";
 import { Button, IconButton, Tooltip } from "../ui/index.js";
-import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
+import { useObservable, useRuntime } from "../window-context.js";
 
 /**
  * The window's notices (docs/specs/gui.md, "Parked asks, attention and
@@ -79,6 +80,7 @@ const toneOf = (notice: Notice): "info" | "warning" | "error" => {
     case "revoked":
     case "expired":
     case "refresh-failed":
+    case "credential-unavailable":
     case "update-failed":
     case "routine-delivery-failed":
     case "command-rejected":
@@ -132,43 +134,17 @@ const NoticeBanner = ({ notice }: { readonly notice: Notice }) => {
   );
 };
 
-const KEYCHAIN_NOTICE_DELAY_MS = 500;
-
-/** Environment notices and this window's OS credential access, as dismissible banners. */
+/** Environment notices, moved into Settings while its modal covers the session window. */
 export const WindowNotices = () => {
-  const secrets = useShell()?.secrets;
-  const { leave } = useChecklist();
-  const clock = useClock();
-  const [access, setAccess] = useState<SecretAccess>(null);
-  const [dismissed, setDismissed] = useState(false);
-  useEffect(() => {
-    let timer: ReturnType<typeof clock.setTimeout> | undefined;
-    const stop = secrets?.onAccess?.((state) => {
-      timer?.cancel();
-      setAccess(state === "waiting" ? null : state);
-      if (state === "waiting") timer = clock.setTimeout(() => setAccess("waiting"), KEYCHAIN_NOTICE_DELAY_MS);
-      else if (state === null) setDismissed(false);
-    });
-    return () => { timer?.cancel(); stop?.(); };
-  }, [clock, secrets]);
+  const noticeHost = useSettingsNoticeHost();
   const notices = useObservable(useRuntime().projections.notices);
-  if (notices.length === 0 && (access === null || dismissed)) return null;
-  return (
+  if (notices.length === 0) return null;
+  const content = (
     <section aria-label="Notifications" className="mb-[7px] max-h-[40%] min-h-0 shrink-0 overflow-y-auto">
       <ul className="flex min-w-0 flex-col gap-1.5">
-        {access !== null && !dismissed && <li className={`relative flex min-w-0 items-start gap-2 rounded-[8px] border px-3 py-2 pr-9 text-ink ${TINTS.warning}`}>
-          <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-amber" />
-          <div role="status" className="min-w-0 flex-1 font-mono text-2xs [overflow-wrap:anywhere]">
-            <p>{access === "waiting" ? "Waiting for macOS Keychain access" : "Keychain access did not complete"}</p>
-            <p className="mt-1 text-ink-muted">{access === "waiting"
-              ? "macOS may ask for approval after replacing this app. Allow access to reconnect and update this machine's environment, or cancel the OS prompt. You can keep using this window."
-              : "Your accounts and saved connections are kept. Open Your machines, choose Try again for the saved connection and allow macOS Keychain access when prompted. You can also pair that environment again."}</p>
-          </div>
-          {access === "denied" && <Button variant="outline" size="xs" onClick={() => leave("environments.machines")}><ArrowRight aria-hidden="true" />Open Your machines</Button>}
-          <IconButton label="Dismiss" keys="Enter / Space" size="icon-xs" className="absolute top-1 right-1" onClick={() => setDismissed(true)}><X aria-hidden="true" /></IconButton>
-        </li>}
         {notices.map((notice) => <NoticeBanner key={notice.id} notice={notice} />)}
       </ul>
     </section>
   );
+  return noticeHost?.host ? createPortal(content, noticeHost.host) : content;
 };
