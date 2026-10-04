@@ -28,7 +28,7 @@ const offlineShell = (stylesheet: string | undefined) => `<!doctype html><html l
 export function installPublicWorker(scope: PublicWorkerScope, version: string, assets: readonly string[]): void {
   const cacheName = `agent-harness-public-${version}`;
   const origin = scope.location.origin;
-  const request = (path: string) => new Request(new URL(path, origin), { credentials: "omit", cache: "no-store" });
+  const request = (path: string) => new Request(new URL(path, origin), { credentials: "omit", cache: "reload" });
   scope.addEventListener("install", event => event.waitUntil((async () => {
     const cache = await scope.caches.open(cacheName);
     // A partial install never becomes the active version.
