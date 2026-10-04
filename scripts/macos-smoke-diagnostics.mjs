@@ -52,7 +52,7 @@ export async function collectMacosSmokeDiagnostics({ directory, privateDirectory
   const screen = join(directory, "screenshot.png");
   await Promise.all([
     pid ? capture("sample.txt", "/usr/bin/sample", [String(pid), "2", "1"]) : Promise.resolve(save("sample.txt.error.txt", "No desktop PID was available")),
-    capture("windows.json", "/usr/bin/osascript", ["-l", "JavaScript", "-e", `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap($.CGWindowListCopyWindowInfo(0, 0)).map(w => ({ owner: w.kCGWindowOwnerName, title: w.kCGWindowName, pid: w.kCGWindowOwnerPID, bounds: w.kCGWindowBounds })))`], true),
+    capture("windows.json", "/usr/bin/osascript", ["-l", "JavaScript", "-e", `ObjC.import('CoreGraphics'); JSON.stringify(ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(0, 0))).map(w => ({ owner: w.kCGWindowOwnerName, title: w.kCGWindowName, pid: w.kCGWindowOwnerPID, bounds: w.kCGWindowBounds })))`], true),
     (async () => {
       try {
         await execute("/usr/sbin/screencapture", ["-x", rawScreen]);

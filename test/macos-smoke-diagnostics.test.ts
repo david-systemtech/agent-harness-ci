@@ -4,6 +4,7 @@ import process from "node:process";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 interface Peer {
@@ -35,6 +36,32 @@ const { collectMacosSmokeDiagnostics, executeDiagnostic, finishSmoke, persistDes
 afterEach(() => { vi.useRealTimers(); });
 
 describe("packaged macOS timeout evidence", () => {
+  it("bridges CoreGraphics window arrays before sanitizing the captured window list", async () => {
+    const work = mkdtempSync(join(tmpdir(), "macos-window-bridge-"));
+    const directory = join(work, "upload");
+    const privateDirectory = join(work, "private");
+    mkdirSync(privateDirectory);
+    // JXA returns a Core Foundation reference, not an Objective-C collection.
+    const cfArray = { reference: [{ kCGWindowOwnerName: "SecurityAgent", kCGWindowName: "Allow token-for-tests-kept", kCGWindowOwnerPID: 123, kCGWindowBounds: { X: 2, Y: 3, Width: 400, Height: 250 } }] };
+    try {
+      await collectMacosSmokeDiagnostics({ directory, privateDirectory, pid: 12345,
+        error: new Error("read prior credential timed out"), secrets: ["token-for-tests-kept"],
+        execute: async (command, args) => {
+          if (!command.endsWith("osascript")) throw new Error("other capture unavailable");
+          const stdout = runInNewContext(args.at(-1) ?? "", {
+            $: { CGWindowListCopyWindowInfo: () => cfArray },
+            ObjC: { import: () => {}, deepUnwrap: (value: unknown) => value,
+              castRefToObject: (value: typeof cfArray) => value.reference },
+          }) as string;
+          return { stdout, stderr: "" };
+        } });
+      expect(JSON.parse(readFileSync(join(directory, "windows.json"), "utf8"))).toEqual([
+        { owner: "SecurityAgent", title: "Allow <REDACTED>", pid: 123, bounds: { X: 2, Y: 3, Width: 400, Height: 250 } },
+      ]);
+      expect(existsSync(join(directory, "windows.json.error.txt"))).toBe(false);
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
   it("persists cleanup-only failures and desktop output before deleting private captures", async () => {
     const work = mkdtempSync(join(tmpdir(), "macos-cleanup-evidence-"));
     const directory = join(work, "upload");
