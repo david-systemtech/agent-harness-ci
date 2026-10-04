@@ -22,6 +22,7 @@ it.each(["settings-skills", "settings-instructions"])("renders the real %s pane 
     expect(within(editor).getByRole("heading", { name: "Before a change", level: 2 })).toBeDefined();
     expect(within(editor).getByRole("button", { name: "Link" })).toBeDefined();
   }
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   const geometry: unknown = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
   expect(geometry).toEqual(expect.arrayContaining([{ selector: 'nav[aria-label="Settings rows"]', width: 208 }]));

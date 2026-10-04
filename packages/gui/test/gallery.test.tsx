@@ -196,8 +196,8 @@ it("marks a scene ready after an accessible-name attribute changes to the requir
   const action = await screen.findByRole("button", { name: "Pending" });
   expect(container.dataset["galleryReady"]).toBeUndefined();
   act(() => action.setAttribute("aria-label", "Ready"));
-  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("attribute-ready"));
   expect(await gallery.ready).toBe(true);
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("attribute-ready"));
 });
 
 

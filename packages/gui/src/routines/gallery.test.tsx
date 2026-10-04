@@ -16,6 +16,7 @@ it.each(["settings-routines", "sidebar-scheduled"])("draws %s with cached routin
     const strip = await screen.findByRole("region", { name: "Scheduled" });
     expect(within(strip).getByRole("button", { name: "and 2 more…" })).toBeDefined();
   }
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]").length).toBeGreaterThan(0);
 });

@@ -22,6 +22,7 @@ it.each([
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
   close = gallery.close;
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe(scene));
   const settings = await screen.findByRole("dialog", { name: "Settings" });
   const pane = within(settings).getByRole("region", { name });

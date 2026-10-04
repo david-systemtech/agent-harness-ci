@@ -45,6 +45,7 @@ it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s p
       expect(within(card).queryByRole("button", { name: /Allow/ })).toBeNull();
       expect(within(card).getByRole("list", { name: "On the denylist" }).textContent).toContain("private-key");
     }
+    expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe(`prompt-${kind}`));
     const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; height?: number }[];
     expect(geometry).toContainEqual({ selector: '[aria-label="Parked prompt"] button', height: 28 });

@@ -20,6 +20,7 @@ it.each(["light", "dark"] as const)("draws Settings bank records and their measu
   document.body.append(container);
   const gallery = await mountGallery(container, "settings-banks", ladder);
   close = gallery.close;
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("settings-banks"));
   const dialog = await screen.findByRole("dialog", { name: "Settings" });
   const bank = within(dialog).getByRole("region", { name: "project-memory" });
@@ -37,6 +38,7 @@ it.each(["light", "dark"] as const)("draws the setup choices with navigation out
   document.body.append(container);
   const gallery = await mountGallery(container, "setup-memory-bank", ladder);
   close = gallery.close;
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("setup-memory-bank"));
   const card = await screen.findByRole("region", { name: "Memory bank" });
   expect(within(card).getByText("Facts your agents keep")).toBeDefined();
@@ -60,6 +62,7 @@ it("measures the setup field wrappers rather than uncapped inputs", async () => 
   document.body.append(container);
   const gallery = await mountGallery(container, "setup-memory-bank", "dark");
   close = gallery.close;
+  expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("setup-memory-bank"));
   const checks = (JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as SceneGeometry[])
     .filter((check) => check.selector.startsWith("[data-bank-form]") && check.paddingLeft === undefined);
