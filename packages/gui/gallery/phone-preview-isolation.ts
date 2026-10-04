@@ -2,7 +2,11 @@ import type { BrowserContext, Page, Request } from "playwright";
 
 /** Request events include resources Chromium refuses before any HTTP transfer. */
 export function previewNetworkRequests(requests: readonly Pick<Request, "url" | "failure">[]): string[] {
-  return requests.filter(request => request.failure()?.errorText !== "net::ERR_BLOCKED_BY_CSP").map(request => request.url());
+  return requests.filter(request => {
+    // Playwright reports errorText or, when absent, CDP's exact blockedReason.
+    const reason = request.failure()?.errorText;
+    return reason !== "net::ERR_BLOCKED_BY_CSP" && reason !== "csp";
+  }).map(request => request.url());
 }
 
 /** A hosted browser reading, checked separately from pixel comparisons. */
