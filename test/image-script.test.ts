@@ -140,7 +140,7 @@ describe("a pull request's build", () => {
     const f = fixture("refs/pull/12/head");
     const local = `david/agent-harness:${SHA.slice(0, 12)}`;
     expect((await image(f, "build")).code).toBe(0);
-    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker image rm ${local}`]);
+    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker run --rm --entrypoint node ${local} /opt/agent-harness/scripts/image-web-smoke.mjs`, `docker image rm ${local}`]);
     expect(f.outputs()).toBe("");
     expect(f.loginStdin()).toBeNull();
     expect(f.downloadSource()).toBeNull();
@@ -162,7 +162,7 @@ describe("a pull request's build", () => {
     const result = await image(f, "build", { FORGEJO_TOKEN: TOKEN, FAKE_DOWNLOAD_EXIT: "1" });
     expect(result.code).toBe(0);
     expect(result.stderr).toContain("SDK cache preparation failed; using npm");
-    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker image rm ${local}`]);
+    expect(f.calls()).toEqual([buildOf(local, "0.0.0"), inspectOf(local), `docker run --rm ${local} --version`, `docker run --rm --entrypoint node ${local} /opt/agent-harness/scripts/image-web-smoke.mjs`, `docker image rm ${local}`]);
     expect(result.stdout + result.stderr + f.calls().join("\n")).not.toContain(TOKEN);
   });
 
@@ -178,6 +178,7 @@ describe("a v tag's release image", () => {
       buildOf(released, "0.5.0", "org.opencontainers.image.version=0.5.0"),
       inspectOf(released),
       `docker run --rm ${released} --version`,
+      `docker run --rm --entrypoint node ${released} /opt/agent-harness/scripts/image-web-smoke.mjs`,
       "docker login git.systemtech.dev:5526 -u david --password-stdin",
       `docker push ${released}`,
       "docker logout git.systemtech.dev:5526",

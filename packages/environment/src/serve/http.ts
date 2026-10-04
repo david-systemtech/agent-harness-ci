@@ -139,6 +139,10 @@ export interface HttpSurface extends HttpRoutes {
 export interface HttpSurfaceOptions {
   /** The environment's own tailnet name, which the Host check admits while the tailnet is bound; read on every request, since both are found at the bind. */
   readonly tailnetName?: () => string | undefined;
+  /** Explicit public HTTPS origin; forwarded headers never participate. */
+  readonly webOrigin?: string;
+  /** An exact-origin policy supplied by the additional-environment owner. */
+  readonly webOriginAllowed?: (origin: string) => boolean;
 }
 
 /**
@@ -154,12 +158,22 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
   const upgrades = new Map<string, UpgradeHandler>();
   const servers: { readonly server: Server; readonly host: string }[] = [];
 
-  const allowed = (header: string | undefined): boolean =>
-    isAllowedHost(
-      header,
-      options.tailnetName?.(),
-      servers.map((entry) => entry.host),
-    );
+  const allowed = (header: string | undefined): boolean => {
+    const bound = servers.map(entry => entry.host);
+    return isAllowedHost(header, options.tailnetName?.(), bound) ||
+      (options.webOrigin !== undefined && isAllowedHost(header, new URL(options.webOrigin).hostname, bound));
+  };
+
+  const allowedOrigin = (request: IncomingMessage): boolean => {
+    const origin = request.headers.origin;
+    if (origin === undefined || origin === "agent-harness://app") return true;
+    if (origin === options.webOrigin || options.webOriginAllowed?.(origin)) return true;
+    try {
+      const url = new URL(origin);
+      return url.protocol === "http:" && url.origin === origin && url.host === request.headers.host &&
+        Number(url.port || 80) === request.socket.localPort;
+    } catch { return false; }
+  };
 
   /** Runs a route's handler; a throw is a 500 when nothing has been sent yet, else the connection is cut. */
   const run = (handler: RouteHandler, request: IncomingMessage, response: ServerResponse, what: string): void => {
@@ -180,6 +194,10 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
       });
       return;
     }
+    if (request.method === "POST" && request.url?.split("?")[0] === "/api/pair" && !allowedOrigin(request)) {
+      sendJson(response, 403, { error: "origin_refused", message: "This browser Origin is not allowed. Open this environment's HTTPS address." });
+      return;
+    }
     // Node forwards request targets the URL parser refuses (`//`, `http://`); a bad target is a 400, never a crash.
     let path: string;
     try {
@@ -189,7 +207,7 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
       return;
     }
     const byMethod = routes.get(path);
-    const prefixed = byMethod ? undefined : prefixes.find((entry) => path.startsWith(entry.prefix));
+    const prefixed = byMethod || upgrades.has(path) ? undefined : prefixes.find((entry) => path.startsWith(entry.prefix));
     if (prefixed) {
       run(prefixed.handler, request, response, `${request.method ?? ""} ${path}`);
       return;
@@ -222,6 +240,7 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
         message: "The Host header names neither loopback, this environment's tailnet name, nor an address it is bound to.",
       });
     }
+    if (!allowedOrigin(request)) return refuseUpgrade(socket, 403, { error: "origin_refused", message: "This browser Origin is not allowed." });
     let path: string;
     try {
       path = new URL(request.url ?? "/", "http://localhost").pathname;
@@ -242,6 +261,7 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
     prefix(prefix, handler) {
       if (prefixes.some((entry) => entry.prefix === prefix)) throw new Error(`${prefix} is already routed.`);
       prefixes.push({ prefix, handler });
+      prefixes.sort((a, b) => b.prefix.length - a.prefix.length);
     },
     route(method, path, handler) {
       const byMethod = routes.get(path) ?? new Map<string, RouteHandler>();

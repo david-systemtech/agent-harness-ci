@@ -16,6 +16,7 @@ describe("the presets offered", () => {
     expect(offered.presets.map(({ preset, dim }) => [preset.id, dim])).toEqual([
       ["own-client", null],
       ["program", null],
+      ["phone", null],
       ["custom", null],
     ]);
     expect(offered.preset.id).toBe("own-client");
@@ -26,6 +27,7 @@ describe("the presets offered", () => {
     expect(offered.presets.map(({ preset, dim }) => [preset.id, dim])).toEqual([
       ["own-client", LINE],
       ["program", null],
+      ["phone", null],
       ["custom", null],
     ]);
     expect(offered.preset.id).toBe("program");
@@ -33,7 +35,7 @@ describe("the presets offered", () => {
 
   it("dim a program's too where this client holds plan, custom being offered always", () => {
     const offered = offeredPresets("plan", "laptop");
-    expect(offered.presets.filter(({ dim }) => dim !== null).map(({ preset }) => preset.id)).toEqual(["own-client", "program"]);
+    expect(offered.presets.filter(({ dim }) => dim !== null).map(({ preset }) => preset.id)).toEqual(["own-client", "program", "phone"]);
     expect(offered.preset.id).toBe("custom");
   });
 
@@ -41,6 +43,7 @@ describe("the presets offered", () => {
     expect(offeredPresets("bypassPermissions", "laptop").presets.map(({ words }) => words)).toEqual([
       "Grants every scope, up to bypassPermissions.",
       "Grants read, sessions:write and runs:drive, up to the ceiling picked, preset acceptEdits.",
+      "Grants read, sessions:write and runs:drive, up to acceptEdits.",
       "Grants the scopes ticked, up to the ceiling picked.",
     ]);
   });

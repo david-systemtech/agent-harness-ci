@@ -37,3 +37,13 @@ export const parseVerb = <const Options extends ParseArgsOptionsConfig>(args: re
     throw new UsageError(error instanceof Error ? error.message : String(error));
   }
 };
+
+/** Canonical public HTTPS origin, configured explicitly rather than inferred from a proxy. */
+export const parseWebOrigin = (value: string | undefined): string | undefined => {
+  if (value === undefined) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && url.origin === value && !url.username && !url.password) return url.origin;
+  } catch { /* The usage line covers malformed URLs too. */ }
+  throw new UsageError("--web-origin takes an HTTPS origin without a path, query or credentials.");
+};

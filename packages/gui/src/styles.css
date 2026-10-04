@@ -302,3 +302,18 @@
 }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
+
+/* The first web slice has one conversation. Surface owners extend these hooks. */
+[data-web-client] {
+  height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+[data-web-client] :is(button, select, input) { min-height: 44px; }
+[data-web-client] button { min-width: 44px; }
+[data-web-client] :is(input, select, textarea) { font-size: max(16px, 1rem); }
+[data-web-client] [data-dock-owner] { min-width: 0; }
+@media (max-width: 639px) {
+  [data-web-client] [data-composer-column] { max-width: 100%; }
+  [data-web-client] [data-measure="transcript-spine"] { width: 32px; }
+}
+[data-web-gallery] [data-web-client] { height: 100%; }

@@ -1,14 +1,12 @@
-import { standardWebSocketFactory, writable, type Clock, type DocumentStore, type NetworkSignal, type NetworkState, type Platform, type SecretStore } from "@agent-harness/client-runtime";
+import { standardWebSocketFactory, writable, type Clock, type DocumentStore, type NetworkSignal, type NetworkState, type Platform, type SecretStore, type Observable } from "@agent-harness/client-runtime";
 
-/**
- * What the runtime needs from a window, from what every browser has
- * (docs/specs/gui.md, "The desktop platform"): the system clock, the network
- * signal from the online and visibility events, the browser's WebSocket and
- * `fetch`. The desktop platform (`desktop-platform.ts`) is built on the
- * first two. A browser tab's platform is milestone 2's; until then the
- * bundle opened outside the desktop keeps its documents and tokens in
- * memory, so a reload forgets them.
- */
+import { indexedDocuments } from "./indexed-documents.js";
+import { indexedSecrets } from "./indexed-secrets.js";
+
+/** Browser storage has no OS secret protection; credentials stay in a separate origin-local database. */
+export interface BrowserPlatform extends Platform {
+  readonly persistence: Observable<"persistent" | "visit-only">;
+}
 
 /** The system's time and timers. */
 export const systemClock = (): Clock => ({
@@ -55,17 +53,48 @@ const memorySecrets = (): SecretStore => {
   };
 };
 
-/** The bundle's platform in `view`, a browser tab's kind, reporting what the runtime cannot hand back to the console. */
-export const browserPlatform = (view: Window & typeof globalThis, version: string): Platform => ({
-  documents: memoryDocuments(),
-  secrets: memorySecrets(),
-  webSocket: standardWebSocketFactory(view.WebSocket),
-  fetch: (url, request) => view.fetch(url, request),
-  clock: systemClock(),
-  network: browserNetwork(view),
-  client: { kind: "web", label: "Browser tab", version },
-  reportError: (error) => view.console.error(error),
-});
+/** A failed storage operation switches to memory and announces pairing for this visit. */
+export const browserPlatform = (view: Window & typeof globalThis, version: string): BrowserPlatform => {
+  const persistence = writable<"persistent" | "visit-only">("persistent");
+  const documents = memoryDocuments();
+  const secrets = memorySecrets();
+  const fallback = <T>(persistent: () => Promise<T>, memory: () => Promise<T>): Promise<T> => {
+    if (persistence.read() === "visit-only") return memory();
+    return Promise.resolve().then(persistent).catch(() => { persistence.set("visit-only"); return memory(); });
+  };
+  // Access to indexedDB itself may throw in privacy modes; defer it to the guarded operation.
+  let storedDocuments: DocumentStore | undefined;
+  let storedSecrets: SecretStore | undefined;
+  const documentStore = () => storedDocuments ??= indexedDocuments(view.indexedDB);
+  const secretStore = () => storedSecrets ??= indexedSecrets(view.indexedDB);
+  return {
+    persistence,
+    documents: {
+      get: key => fallback(async () => {
+        const value = await documentStore().get(key);
+        if (value !== undefined) await documents.set(key, value);
+        return value;
+      }, () => documents.get(key)),
+      set: async (key, value) => { await documents.set(key, value); await fallback(() => documentStore().set(key, value), async () => undefined); },
+      delete: async key => { await documents.delete(key); await fallback(() => documentStore().delete(key), async () => undefined); },
+    },
+    secrets: {
+      get: key => fallback(async () => {
+        const value = await secretStore().get(key);
+        if (value !== undefined) await secrets.set(key, value);
+        return value;
+      }, () => secrets.get(key)),
+      set: async (key, value) => { await secrets.set(key, value); await fallback(() => secretStore().set(key, value), async () => undefined); },
+      // Always attempt erasure, including after a transient persistence failure.
+      delete: async key => { await secrets.delete(key); try { await secretStore().delete(key); } catch { persistence.set("visit-only"); } },
+    },
+    webSocket: standardWebSocketFactory(view.WebSocket),
+    fetch: (url, request) => view.fetch(url, request),
+    clock: systemClock(), network: browserNetwork(view),
+    client: { kind: "web", label: "Browser tab", version },
+    reportError: () => view.console.error("The browser client could not complete an operation."),
+  };
+};
 
 /** Whether the browser runs on macOS, where the keys' `Mod` is ⌘. */
 export const onMacOS = (navigator: Navigator): boolean => /^Mac/.test(navigator.platform) || /Macintosh/.test(navigator.userAgent);
