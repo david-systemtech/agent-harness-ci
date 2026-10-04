@@ -62,6 +62,16 @@ The Forgejo release workflow is retained for manual recovery only: it has no
 push trigger. Do not dispatch it during a GitHub release, since it publishes to
 Forgejo's own release and registry.
 
+The hosted macOS replacement smoke names each awaited operation while keeping the
+combined credential/update request's two-minute deadline. On a timeout it samples
+the desktop PID before cleanup and records the window list, desktop stdout/stderr,
+and a screenshot. The `macos-update-diagnostics` failure artifact contains only
+sanitized files: known credentials and credential-bearing text are redacted, and
+all recognized screenshot text is masked. Raw logs and screenshots stay in the
+private scratch directory and are removed. Unavailable native tools or screenshot
+redaction produce explicit error files; cleanup retains the original smoke error.
+Use this only on hosted runners, never a person's Mac with unattended OS prompts.
+
 The publisher uses [GitHub's release upload API](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset)
 and [GHCR's workflow token authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 [Hosted runner architectures](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)

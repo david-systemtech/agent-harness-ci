@@ -643,10 +643,21 @@ jobs:
           done
 
       - name: Replace the packaged desktop with an existing client credential
+        env:
+          SMOKE_DIAGNOSTICS: ${{ runner.temp }}/macos-update-diagnostics
         run: |
           set -euo pipefail
           server=unzipped/agent-harness.app/Contents/Resources/server
           "$server/node/bin/node" scripts/macos-desktop-update-smoke.mjs "unzipped/agent-harness.app"
+
+      - name: Keep macOS timeout diagnostics
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: macos-update-diagnostics
+          path: ${{ runner.temp }}/macos-update-diagnostics
+          retention-days: 7
+          if-no-files-found: error
 
   smoke-linux:
     needs: [check, desktop-arch]
