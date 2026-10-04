@@ -19,8 +19,8 @@ const png = PNG.sync.write({ width: 1400, height: 900, data: Buffer.alloc(1400 *
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-async function fixture(mode = "current", captureCount = 1) {
-  let image = png;
+async function fixture(mode = "current", captureCount = 1, phone?: { name: string; width: number; height: number }) {
+  let image = phone === undefined ? png : PNG.sync.write({ width: phone.width, height: phone.height, data: Buffer.alloc(phone.width * phone.height * 4, 255) });
   if (mode === "large") image = PNG.sync.write({ width: 1400, height: 900, data: Buffer.alloc(1400 * 900 * 4, 255) }, { deflateLevel: 0, filterType: 0 });
   else if (mode === "total-large") image = Buffer.concat([png, Buffer.alloc(25 * 1024 * 1024)]);
   else if (mode === "response-large") image = Buffer.concat([png, Buffer.alloc(48 * 1024 * 1024)]);
@@ -37,7 +37,8 @@ async function fixture(mode = "current", captureCount = 1) {
     if (request.url?.includes("/pulls/")) response.end(JSON.stringify({ head: { sha: "test-head", ref: "build/42-gallery" } }));
     else if (request.url?.includes("/comments")) {
       const version = ["versioned", "digest-mismatch", "wrong-version", "spoofed", "unbound", "large", "total-large", "response-large"].includes(mode) ? (mode === "wrong-version" ? "another-head-123" : "test-head-123") : "test-head";
-      const captures = [{ name: "window-empty.dark.png", url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/window-empty.dark.png`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
+      const captureName = phone?.name ?? "window-empty.dark.png";
+      const captures = [{ name: captureName, url: `${base}/attachments/capture`, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${captureName}`, sha256: createHash("sha256").update(mode === "digest-mismatch" ? "different bytes" : image).digest("hex") }];
       for (let index = 1; index < captureCount; index++) {
         const name = `window-scene-${index}.dark.png`;
         captures.push({ ...captures[0]!, name, api_url: `${base}/api/packages/example/generic/window-gallery/${version}/${name}` });
@@ -239,4 +240,25 @@ it("accepts a reviewed pane from a hosted report with more than 200 captures", a
   await run("bash", [script, "42", "settings-browser.light.png"], { env: f.env });
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/settings-browser.light.png"))).toEqual(png);
   expect(f.requests.filter((url) => url.startsWith("/api/packages/"))).toHaveLength(1);
+});
+
+it.each([
+  ["phone-gallery-conversation-phone-390.dark.png", 390, 844],
+  ["phone-gallery-conversation-phone-360.light.png", 360, 740],
+  ["phone-gallery-conversation-phone-390-text-20.dark.png", 390, 844],
+  ["phone-gallery-conversation-phone-390-keyboard.light.png", 390, 480],
+] as const)("accepts a reviewed %s capture through the same authenticated manifest", async (name, width, height) => {
+  const f = await fixture("versioned", 1, { name, width, height });
+  await run("bash", [script, "42"], { env: f.env });
+  expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines", name))).toEqual(f.image);
+});
+
+it.each([
+  ["phone-gallery-conversation-phone-390.dark.png", 360, 740],
+  ["phone-gallery-conversation-phone-390-keyboard.dark.png", 390, 844],
+  ["phone-gallery-conversation-phone-999.dark.png", 1400, 900],
+] as const)("rejects %s with incorrect dimensions before writing baselines", async (name, width, height) => {
+  const f = await fixture("versioned", 1, { name, width, height });
+  await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Unexpected phone gallery dimensions") });
+  expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });

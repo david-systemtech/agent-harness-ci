@@ -5,7 +5,8 @@ export function measureSceneGeometry(): string[] {
   const checks: readonly SceneGeometry[] = JSON.parse(document.getElementById("root")?.dataset["galleryGeometry"] ?? "[]");
   return checks.flatMap((check) => {
     if (check.viewport !== undefined && check.viewport !== window.innerWidth) return [];
-    const elements = Array.from(document.querySelectorAll(check.selector));
+    const elements = Array.from(document.querySelectorAll(check.selector)).filter(element =>
+      check.renderedOnly !== true || (element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden"));
     if (elements.length === 0) return [`${check.selector}: no matching elements`];
     return elements.flatMap((element, index) => {
       const rect = element.getBoundingClientRect();
@@ -16,6 +17,9 @@ export function measureSceneGeometry(): string[] {
         visibility.push(`${check.selector}[${index}]: content overflows its bounds`);
       }
       if (check.visibleWithin !== undefined) {
+        if (style.visibility === "hidden" || style.visibility === "collapse") {
+          visibility.push(`${check.selector}[${index}]: hidden inside ${check.visibleWithin}`);
+        }
         const pane = element.closest(check.visibleWithin);
         const bounds = pane?.getBoundingClientRect();
         const tolerance = check.tolerance ?? 0.5;
@@ -28,7 +32,7 @@ export function measureSceneGeometry(): string[] {
       }
       return [...visibility, ...(["width", "height", "paddingLeft", "paddingTop", "fontSize", "maxWidth", "maxHeight"] as const).flatMap((dimension) => {
         const expected = check[dimension];
-        const minimum = dimension === "height" ? check.minimumHeight : undefined;
+        const minimum = dimension === "height" ? check.minimumHeight : dimension === "width" ? check.minimumWidth : undefined;
         if (expected === undefined && minimum === undefined) return [];
         const actual = dimension === "width" || dimension === "height" ? rect[dimension] : Number.parseFloat(style[dimension]);
         const tolerance = check.tolerance ?? 0.5;

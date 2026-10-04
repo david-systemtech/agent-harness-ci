@@ -804,7 +804,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, attachments, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`)) => {
+    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
@@ -813,9 +813,16 @@ png=image(1400,900); narrow=image(1024,768)
 pathlib.Path(sys.argv[1]+'.png').write_bytes(png)
 with zipfile.ZipFile(sys.argv[1],'w') as z:
     names=json.loads(sys.argv[3])
-    for name in names: z.writestr(name+'.png',narrow if '-narrow.' in name else png)
+    for name in names:
+        override=json.loads(sys.argv[4])
+        if override: data=image(override['width'],override['height'])
+        elif '-phone-360.' in name: data=image(360,740)
+        elif '-phone-390-keyboard.' in name: data=image(390,480)
+        elif '-phone-390' in name: data=image(390,844)
+        else: data=narrow if '-narrow.' in name else png
+        z.writestr(name+'.png',data)
     z.writestr('geometry.json','{}')
-    z.writestr('report.json',json.dumps({'pixelBlocking':False,'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names)]);
+    z.writestr('report.json',json.dumps({'pixelBlocking':False,'captureBudget':{'desktop':sum(not n.startswith('phone-') for n in names),'phone':sum(n.startswith('phone-') for n in names),'total':len(names),'limit':400,'remaining':400-len(names)},'scenes':[{'name':name,'status':'new','pixelFailed':True,'geometryFailures':[]} for name in names]}))`, zip, String(pixel), JSON.stringify(names), JSON.stringify(viewport ?? null)]);
       return readFileSync(`${zip}.png`);
     },
   };
@@ -1008,4 +1015,25 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
   expect(g.comments).toHaveLength(1);
   expect(g.comments[0]!.body).toContain('"name": "scene-51-narrow.dark.png"');
   expect(g.comments[0]!.body).not.toContain("Uploading captures");
+});
+
+it("publishes and accepts every phone profile beside the preserved desktop captures", async () => {
+  const g = await storedGallery();
+  const names = ["window-empty.dark", "window-empty-narrow.light", "phone-gallery-conversation-phone-390.dark", "phone-gallery-conversation-phone-360.light", "phone-gallery-conversation-phone-390-text-20.dark", "phone-gallery-conversation-phone-390-keyboard.light"];
+  await g.capture(230, names.length, names);
+  const result = await relay(g.f, g.env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.captures.size).toBe(6);
+  expect(g.comments[0]!.body).toContain("Capture budget: 2 desktop + 4 phone = 6/400; 394 slots reserved.");
+  const accepted = await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...process.env, ...g.env } });
+  for (const name of names) expect(accepted.stdout).toContain(`Accepted ${name}.png`);
+});
+
+it("refuses to publish a phone capture whose dimensions disagree with its profile name", async () => {
+  const g = await storedGallery();
+  await g.capture(230, 1, ["phone-gallery-conversation-phone-390-keyboard.dark"], { width: 390, height: 844 });
+  const result = await relay(g.f, g.env);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("unexpected phone gallery dimensions");
+  expect(g.comments).toHaveLength(0);
 });

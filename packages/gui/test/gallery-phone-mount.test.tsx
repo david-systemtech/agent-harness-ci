@@ -1,0 +1,56 @@
+import { screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it } from "vitest";
+import { mountGallery } from "../gallery/mount.js";
+import { discoverScenes, type SceneModule } from "../gallery/scene-registry.js";
+
+let close: (() => Promise<void>) | undefined;
+afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); });
+
+it("mounts a scripted phone scene on the browser platform with no desktop grant or shell", async () => {
+  const root = document.createElement("div"); document.body.append(root);
+  const registry = discoverScenes({ "phone-sample.tsx": {
+    platform: "web",
+    script: { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], sessions: [{ title: "Receipts" }] }] },
+    route: world => ({ session: { environmentId: world.environment("desk").environmentId, sessionId: world.environment("desk").sessionId() } }),
+    readySelector: '[aria-label="Message"]',
+  } });
+  const gallery = await mountGallery(root, "phone-sample", "light", registry, { platform: "web", textSize: 20 });
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  expect(gallery.world.platform.client.kind).toBe("web");
+  expect(gallery.world.platform.shell).toBeUndefined();
+  expect(gallery.world.shell).toBeUndefined();
+  expect(gallery.world.world.environment("desk").requests("localGrant.read")).toEqual([]);
+  expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
+  expect(screen.queryByRole("navigation", { name: "Sessions" })).toBeNull();
+  await waitFor(() => expect(gallery.world.presentation.values.read().textSize).toBe(20));
+});
+
+it.each(["phone-gallery-conversation", "phone-gallery-permission", "phone-gallery-continue"])("draws the real %s action before marking the scene ready", async name => {
+  const registry = discoverScenes(import.meta.glob<SceneModule>("../gallery/scenes/phone-gallery-*.tsx", { eager: true }));
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, name, "dark", registry, { platform: "web", textSize: 20 });
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const action = name.endsWith("conversation") ? "Send" : name.endsWith("permission") ? "Allow once" : "Continue";
+  expect(screen.getByRole("button", { name: action })).toBeDefined();
+  expect(gallery.world.runtime.capability(gallery.world.runtime.projections.environments.read()[0]!.environmentId, "shell.openExternal").status).toBe("absent");
+});
+
+it("rejects a phone scene with implicit desktop capabilities and a mismatched capture mode", async () => {
+  expect(() => discoverScenes({ "phone-implicit.tsx": { script: { environments: [] } } })).toThrow("must declare platform: web");
+  expect(() => discoverScenes({ "phone-implicit.tsx": { platform: "web", arrange: () => {}, script: { environments: [] } } })).toThrow("must use arrangeWeb");
+  await expect(mountGallery(document.createElement("div"), "window-empty", "dark", undefined, { platform: "web" })).rejects.toThrow("platform mismatch");
+});
+
+
+it.each(["phone-attention-failure", "phone-attention-keyboard", "phone-attention-pending"])("integrates %s with the browser runtime and capture text size", async name => {
+  const registry = discoverScenes(import.meta.glob<SceneModule>("../gallery/scenes/phone-attention-*.tsx", { eager: true }));
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, name, "dark", registry, { platform: "web", textSize: 20 });
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  expect(gallery.world.shell).toBeUndefined();
+  expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(String(20 / 14));
+  expect(screen.getByRole("heading", { name: "Attention" })).toBeDefined();
+});

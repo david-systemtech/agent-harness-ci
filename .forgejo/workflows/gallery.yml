@@ -8,6 +8,7 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'packages/gui/**'
+      - 'scripts/gallery-accept.sh'
       - '.forgejo/workflows/gallery.yml'
       - '.forgejo/github-workflows/gallery.yml'
       - '.forgejo/scripts/gallery-comment.sh'
