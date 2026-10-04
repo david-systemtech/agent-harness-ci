@@ -15,9 +15,11 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     const cwd = resolve("packages/gui");
     await run("pnpm", ["exec", "playwright", "install", "--with-deps", "chromium", "webkit"], { cwd, maxBuffer: 8 * 1024 * 1024 });
     await run("pnpm", ["exec", "vite", "build", "--outDir", join(out, "web")], { cwd, maxBuffer: 8 * 1024 * 1024 });
-    const result = await run("pnpm", ["exec", "tsx", "--conditions=@agent-harness/source", "scripts/web-smoke.ts"], {
+    const execution = run("pnpm", ["exec", "tsx", "--conditions=@agent-harness/source", "scripts/web-smoke.ts"], {
       cwd, env: { ...process.env, WEB_SMOKE_BUNDLE: join(out, "web"), WEB_SMOKE_OUTPUT: out }, maxBuffer: 8 * 1024 * 1024,
     });
+    execution.child.stdout?.pipe(process.stdout, { end: false });
+    const result = await execution;
     expect(result.stdout).toContain("WEB-SMOKE PASS chromium");
     expect(result.stdout).toContain("WEB-SMOKE PASS webkit");
     expect(result.stdout).toContain("PHONE-INSTALL PASS chromium");

@@ -4,14 +4,23 @@ import type { Page, BrowserContext } from "playwright";
 
 /** Hosted real-client seam: no test server or browser is started by this leaf. */
 export async function phoneInstallSmoke(page: Page, context: BrowserContext, bundle: string, engine: string): Promise<void> {
-  await page.evaluate("navigator.serviceWorker.ready.then(() => undefined)");
+  console.log(`PHONE-INSTALL ${engine}: waiting for the public worker`);
+  try {
+    await page.waitForFunction("navigator.serviceWorker.getRegistration().then(registration => registration?.active?.state === 'activated')");
+  } catch (error) {
+    // Retry only to expose the registration error; the original readiness failure still fails the test.
+    const reason = await page.evaluate("navigator.serviceWorker.register('/service-worker.js', { type: 'module', scope: '/', updateViaCache: 'none' }).then(registration => ({ active: registration.active?.state, installing: registration.installing?.state, waiting: registration.waiting?.state }), error => ({ error: String(error) }))");
+    throw new Error(`${engine} public worker did not activate: ${JSON.stringify(reason)}`, { cause: error });
+  }
   await page.waitForFunction("navigator.serviceWorker.controller !== null");
+  console.log(`PHONE-INSTALL ${engine}: public worker controls the client`);
   const textbox = page.getByRole("textbox", { name: "Message", exact: true });
   await textbox.fill("Draft retained across a client update.");
   await textbox.dispatchEvent("compositionstart");
   // The actual serving directory changes underneath the current, still-usable client.
   execFileSync("pnpm", ["exec", "vite", "build", "--outDir", bundle], { env: { ...process.env, HARNESS_VERSION: `0.0.0-phone-update-${engine}` }, stdio: "pipe" });
-  await page.evaluate("navigator.serviceWorker.ready.then(registration => registration.update())");
+  await page.evaluate("navigator.serviceWorker.getRegistration().then(registration => { if (!registration) throw new Error('No public worker registration.'); void registration.update(); })");
+  console.log(`PHONE-INSTALL ${engine}: waiting for the updated bundle`);
   const reload = page.getByRole("button", { name: "Reload client", exact: true });
   await reload.waitFor();
   assert(await reload.isDisabled(), "An update cannot reload during IME composition.");
@@ -21,6 +30,7 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
   await textbox.waitFor();
   assert.equal(await textbox.inputValue(), "Draft retained across a client update.", "The runtime persists the draft before activating the waiting bundle.");
+  console.log(`PHONE-INSTALL ${engine}: draft survived the explicit update`);
   // Authenticated requests and pairing paths must bypass the public worker entirely.
   await page.evaluate(`(async () => {
     await fetch("/api/not-a-route", { headers: { Authorization: "token-for-tests" } });
@@ -41,10 +51,12 @@ export async function phoneInstallSmoke(page: Page, context: BrowserContext, bun
   }), "Only same-origin public assets reach CacheStorage; no API, pairing URL or credential is cached.");
   const manifest = await page.evaluate<{ id: string; start_url: string; scope: string; display: string }>("fetch('/manifest.webmanifest').then(response => response.json())");
   assert.deepEqual([manifest.id, manifest.start_url, manifest.scope, manifest.display], ["/", "/", "/", "standalone"]);
+  console.log(`PHONE-INSTALL ${engine}: reloading offline`);
   await context.setOffline(true);
   await page.reload();
   await page.getByRole("heading", { name: "Offline — cached client" }).waitFor();
   assert.equal(await page.getByRole("button", { name: /^Send/ }).count(), 0, "The offline shell cannot start a run.");
+  console.log(`PHONE-INSTALL ${engine}: stale shell reached; reconnecting`);
   await context.setOffline(false);
   await page.reload();
   await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
