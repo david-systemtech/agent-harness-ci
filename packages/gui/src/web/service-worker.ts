@@ -3,7 +3,7 @@ import { cssVariables, derive, SHIPPED_THEMES } from "@agent-harness/theme";
 /** The public asset policy is shared with tests; no runtime, documents or secrets enter this worker. */
 export const publicAssetRequest = (request: Request, origin: string, assets: readonly string[]): boolean => {
   const url = new URL(request.url);
-  return request.method === "GET" && url.origin === origin && !url.search && !url.hash
+  return request.method === "GET" && url.origin === origin && !url.search && (!url.hash || request.mode === "navigate")
     && !request.headers.has("authorization") && !request.headers.has("cookie") && assets.includes(url.pathname);
 };
 

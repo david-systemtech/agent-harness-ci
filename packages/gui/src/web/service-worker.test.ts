@@ -8,7 +8,7 @@ it("admits only declared same-origin public GETs without credentials, query stri
   expect(publicAssetRequest(new Request(`${origin}/assets/client.js`), origin, assets)).toBe(true);
   for (const request of [
     new Request(`${origin}/api/sessions`), new Request(`${origin}/pair`), new Request(`${origin}/pair#code-for-tests`),
-    new Request(`${origin}/assets/client.js?token=token-for-tests`), new Request(`${origin}/assets/client.js`, { headers: { Authorization: "token-for-tests" } }),
+    new Request(`${origin}/assets/client.js#code-for-tests`), new Request(`${origin}/assets/client.js?token=token-for-tests`), new Request(`${origin}/assets/client.js`, { headers: { Authorization: "token-for-tests" } }),
     new Request(`${origin}/assets/client.js`, { method: "POST" }), new Request("https://other.example/assets/client.js"),
   ]) expect(publicAssetRequest(request, origin, assets)).toBe(false);
 });
@@ -39,7 +39,7 @@ it("precaches only declared public bytes with omitted credentials and keeps an u
   await work;
   expect(skipWaiting).toHaveBeenCalledOnce();
   fetch.mockRejectedValueOnce(new TypeError("Offline"));
-  const navigation = new Request("https://client.example/");
+  const navigation = new Request("https://client.example/#/session");
   Object.defineProperty(navigation, "mode", { value: "navigate" });
   let response: Promise<Response> | undefined;
   listeners.get("fetch")!({ request: navigation, respondWith: (answer: Promise<Response>) => { response = answer; } });
