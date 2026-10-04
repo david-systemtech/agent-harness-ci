@@ -1,24 +1,13 @@
+import { ChildProcess } from "node:child_process";
 import { expect, it } from "vitest";
 import { fakeElectron } from "../test/fake-electron.js";
-import { macCredentialProcess, serveMacCredentials, type CredentialChild } from "./mac-credentials.js";
-
-const signals = () => {
-  const listeners = new Map<string, ((...args: unknown[]) => void)[]>();
-  return {
-    on(name: string, listener: (...args: never[]) => void) {
-      const kept = listeners.get(name) ?? [];
-      kept.push(listener as (...args: unknown[]) => void);
-      listeners.set(name, kept);
-    },
-    emit(name: string, ...args: unknown[]) { for (const listener of listeners.get(name) ?? []) listener(...args); },
-  };
-};
+import { macCredentialProcess, serveMacCredentials } from "./mac-credentials.js";
 
 /** The OS process/IPC boundary is faked; both sides of the provider protocol run. */
 const providerHarness = () => {
-  const children: { events: ReturnType<typeof signals>; storage: ReturnType<typeof fakeElectron>["safeStorage"]; killed: boolean }[] = [];
+  const children: { events: ChildProcess; storage: ReturnType<typeof fakeElectron>["safeStorage"]; killed: boolean }[] = [];
   const provider = macCredentialProcess(() => {
-    const events = signals();
+    const events = new ChildProcess();
     const storage = fakeElectron({ os: "darwin" }).safeStorage;
     const child = { events, storage, killed: false };
     children.push(child);
@@ -26,7 +15,7 @@ const providerHarness = () => {
     return Object.assign(events, {
       send: (request: unknown) => { events.emit("request", request); return true; },
       kill: () => { child.killed = true; return true; },
-    }) as CredentialChild;
+    });
   });
   return { provider, children };
 };

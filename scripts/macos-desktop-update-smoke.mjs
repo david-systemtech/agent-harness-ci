@@ -7,7 +7,7 @@ import process from "node:process";
 import { spawn, execFileSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
@@ -109,12 +109,58 @@ export async function openPackagedMachines(evaluate) {
 /** Starts a real prior read without awaiting it, so responsiveness is checked while access is pending/refused. */
 export async function startUnavailablePackagedCredential(evaluate) {
   await evaluate(`(() => {
-    window.__packagedCredentialCheck = { result: window.desktopShell.secrets.get(${JSON.stringify(credentialName)})
-      .then(() => 'read', () => 'unavailable') };
+    const check = { settled: false };
+    window.__packagedCredentialCheck = check;
+    check.result = window.desktopShell.secrets.get(${JSON.stringify(credentialName)})
+      .then(() => { check.settled = true; return 'read'; }, () => { check.settled = true; return 'unavailable'; });
     return true;
   })()`, "begin locked prior credential");
   assert.equal(await evaluate("window.desktopShell.system().then(s => s.platform)", "main responsiveness during locked credential access"), "darwin");
   assert.equal(await packagedSettingsOpen(evaluate), true, "Settings must remain open during locked credential access");
+}
+
+/** Checks this read, not a different request that may still be waiting in the shared provider. */
+export async function pendingPackagedCredential(evaluate) {
+  return await evaluate(`(async () => {
+    const access = await window.desktopShell.secrets.access();
+    const check = window.__packagedCredentialCheck;
+    if (!check || check.settled) throw new Error('The prior credential read is no longer pending');
+    return access === 'waiting';
+  })()`, "specific prior credential read pending");
+}
+
+/** Rechecks after the access query, in the same page turn that sends close. */
+export async function quitWithPendingPackagedCredential(evaluate) {
+  assert.equal(await evaluate(`(async () => {
+    const access = await window.desktopShell.secrets.access();
+    const check = window.__packagedCredentialCheck;
+    if (!check || check.settled || access !== 'waiting') throw new Error('The prior credential read is no longer pending');
+    window.desktopShell.window.close();
+    return true;
+  })()`, "quit with native credential access pending"), true);
+}
+
+/** Native hosted observation of this desktop's helpers; comm contains the executable, never its arguments. */
+export function credentialHelperPids(pid, executable, run = (command, args) => execFileSync(command, args, { encoding: 'utf8', timeout: 2000 })) {
+  let children;
+  try { children = run('pgrep', ['-P', String(pid)]).trim().split(/\s+/).map(Number).filter(child => Number.isSafeInteger(child) && child > 0); }
+  catch (error) { if (error.status === 1) return []; throw error; }
+  const suffix = '/Contents/MacOS/' + basename(executable);
+  return children.filter(child => {
+    try { return run('ps', ['-ww', '-p', String(child), '-o', 'comm=']).trim().endsWith(suffix); }
+    catch (error) { if (error.status === 1) return false; throw error; }
+  });
+}
+
+const processRunning = pid => {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { if (error.code === 'ESRCH') return false; throw error; }
+};
+
+/** Keep the captured PIDs after the parent quits, since an orphan is no longer its child. */
+export async function waitForCredentialHelpersExit(helpers, running = processRunning) {
+  assert.notEqual(helpers.length, 0, 'A native credential helper must be observed before pending quit');
+  await until(() => helpers.every(pid => !running(pid)), 'The credential helper did not exit after pending desktop quit', 10_000);
 }
 
 /** Requires bounded settlement, rather than treating a harness timeout as a successful refusal. */
@@ -417,9 +463,12 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     execute("security", ["lock-keychain", keychain]);
     await launchDesktop();
     await startUnavailablePackagedCredential(cdp.evaluate);
-    await until(async () => (await cdp.evaluate("window.desktopShell.secrets.access()", "native access started")) !== null, "Native credential access did not start");
-    await cdp.evaluate("window.desktopShell.window.close()", "quit with native credential access pending");
+    await until(() => pendingPackagedCredential(cdp.evaluate), "Native credential access did not start");
+    const credentialHelpers = credentialHelperPids(desktop.pid, executable(installed));
+    assert.notEqual(credentialHelpers.length, 0, 'The desktop must own a native credential helper during pending access');
+    await quitWithPendingPackagedCredential(cdp.evaluate);
     await until(() => desktop.exitCode !== null, "The replacement did not quit during pending Keychain access", 10_000);
+    await waitForCredentialHelpersExit(credentialHelpers);
     cdp.close();
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept);
     await launchDesktop();
