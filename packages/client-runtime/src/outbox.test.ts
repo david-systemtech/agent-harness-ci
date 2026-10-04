@@ -923,6 +923,28 @@ describe("drafts", () => {
     expect(DRAFT_DEBOUNCE_MS).toBe(1000);
   });
 
+  it("checkpoints a waiting draft without closing the runtime, retaining it for another client start", async () => {
+    const documents = inMemoryDocuments();
+    const first = await paired({ documents, list: true });
+    const sessionId = randomUUID();
+    listed(first.list, 10, [summaryOf(sessionId)]);
+    await flush();
+    await cut(first.wire);
+    first.runtime.drafts.set(first.id, sessionId, "Checkpointed thought");
+    await first.runtime.checkpoint();
+    expect(row(first.runtime, sessionId)?.summary.draft).toBe("Checkpointed thought");
+    first.runtime.drafts.set(first.id, sessionId, "Still composing");
+    expect(row(first.runtime, sessionId)?.summary.draft).toBe("Still composing");
+    const wire = fakeWire({ clock: first.clock, environmentId: first.id, name: "desk" });
+    wire.answer("sessions.setDraft", () => answering(accepted(11)));
+    const platform = inMemoryPlatform({ clock: first.clock, fetch: wire.fetch, webSocket: wire.webSocket, documents, secrets: first.platform.secrets });
+    const { runtime } = createRuntimeWithSeams(platform);
+    onTestFinished(() => runtime.close());
+    void runtime.start();
+    await wire.server.accept();
+    expect((await wire.server.request("sessions.setDraft")).params).toMatchObject({ sessionId, draft: "Checkpointed thought" });
+  });
+
   it("dispatches a draft still waiting out its second when the runtime closes, so the next start sends it", async () => {
     const first = await paired();
     await cut(first.wire);

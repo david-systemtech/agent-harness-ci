@@ -454,6 +454,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     forges: createForges({ clock: platform.clock, shell: platform.shell, capability, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),
     keyManagers: createKeyManagers({ clock: platform.clock, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),
     capability,
+    async checkpoint() {
+      drafts.flush();
+      await outbox.checkpoint();
+      await made.checkpoint();
+    },
     close() {
       closing ??= (async () => {
         routineSettlement.close();

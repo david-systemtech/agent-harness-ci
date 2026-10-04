@@ -24,6 +24,7 @@ import { cachedStream, type StreamState } from "./stream.js";
  */
 
 export interface Streams {
+  checkpoint(): Promise<void>;
   /** What the registry reads before connections start, and asks at their start. */
   readonly caches: RegistryCaches;
   /** Each environment's session list stream, by environment id. */
@@ -359,6 +360,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
     // Held sessions are keyed by the lowercased id `handles.open` holds them under, which also names their streams (`session.<id>`).
     peek: (environmentId, sessionId) => held(environmentId, sessionId.toLowerCase())?.stream.value.read() ?? null,
     now: (environmentId) => skew.now(environmentId),
+    async checkpoint() { await cache.flush(); await cache.idle(); },
     async close() {
       closed = true;
       handles.close();

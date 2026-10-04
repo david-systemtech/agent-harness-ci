@@ -247,6 +247,9 @@ export interface Runtime {
   environmentNow(environmentId: string): Date;
   /** `present`, or `absent` with a reason and one line for people. */
   capability(environmentId: string, name: CapabilityName): CapabilityAnswer;
+  /** Persists waiting drafts, outbox and cached projections without closing the client. */
+  checkpoint(): Promise<void>;
+
   /** Closes every socket, dispatches the drafts still waiting, and writes what the cache and the outbox have pending. Idempotent. */
   close(): Promise<void>;
 }
