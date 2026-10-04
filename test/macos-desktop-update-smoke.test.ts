@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import { JSDOM } from "jsdom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
@@ -36,10 +36,42 @@ const page = (token: string | undefined, status = 200, fromVersion = "0.0.0-0") 
       return { status: 200, json: async () => ({ harnessVersion: fromVersion }) };
     },
   };
-  return { updates, evaluate: async (expression: string): Promise<unknown> => runInNewContext(expression, { window: { desktopShell: shell } }) as Promise<unknown> };
+  const window = { desktopShell: shell };
+  const stages: string[] = [];
+  const results: unknown[] = [];
+  return { updates, stages, results, evaluate: async (expression: string, stage?: string): Promise<unknown> => {
+    if (stage) stages.push(stage);
+    const result = await runInNewContext(expression, { window }) as unknown;
+    results.push(result);
+    return result;
+  } };
 };
 
 describe("the packaged macOS update smoke", () => {
+  it("keeps the combined update request within its existing two-minute deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = page("token-for-tests-kept");
+      const budgets: number[] = [];
+      const evaluate = async (expression: string, stage?: string, milliseconds?: number): Promise<unknown> => {
+        if (milliseconds !== undefined) budgets.push(milliseconds);
+        const value = await p.evaluate(expression, stage);
+        await vi.advanceTimersByTimeAsync(60_000);
+        return value;
+      };
+      await expect(askForPackagedUpdate(evaluate, "0.2.0")).rejects.toThrow("read prior discovery");
+      expect(budgets).toEqual([120_000, 60_000]);
+      expect(p.updates).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("names each awaited update operation without returning the kept credential", async () => {
+    const p = page("token-for-tests-kept");
+    await askForPackagedUpdate(p.evaluate, "0.2.0");
+    expect(p.stages).toEqual(["read prior credential", "read local grant", "read prior discovery", "read carried server", "authorize carried update", "read update response", "main responsiveness after credential access", "finish carried update check"]);
+    expect(JSON.stringify(p.results)).not.toContain("token-for-tests-kept");
+  });
+
   it.each([false, true])("finishes loading before ready, then seeds the credential with failure=%s", (failEncryption) => {
     const work = mkdtempSync(join(tmpdir(), "credential-fixture-"));
     try {
