@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -345,4 +345,70 @@ it.skipIf(!hostedOrdinaryUser)("bounded cleanup reports a privileged survivor an
     if (pid && runningProcess(pid)) execFileSync("sudo", ["-n", "--", "kill", "-KILL", String(pid)]);
     output.destroy();
   }
+});
+
+
+it.skipIf(process.platform !== "linux").each(["stdout", "stderr"] as const)("cancellation settles while %s is held by backpressure", async channel => {
+  const controller = new AbortController();
+  const errors = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let ready!: () => void;
+  let held!: () => void;
+  let release: (() => void) | undefined;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  const backpressured = new Promise<void>(resolve => { held = resolve; });
+  const output = new Writable({ highWaterMark: 1, write(_chunk, _encoding, callback) { release = callback; held(); } });
+  errors.on("data", chunk => {
+    text += String(chunk);
+    const match = /backpressure ready (\d+)/.exec(text);
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  const reason = new Error("Cancelled while the output sink is held.");
+  const execution = smokeProcess(process.execPath, ["-e", `process.on('SIGTERM',()=>{}); console.${channel === "stdout" ? "error" : "log"}('backpressure ready '+process.pid); process.${channel}.write(Buffer.alloc(256*1024, 'x')); setInterval(()=>{},60000);`], {
+    cwd: process.cwd(), signal: controller.signal, stdout: channel === "stdout" ? output : errors, stderr: channel === "stderr" ? output : errors,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  onTestFinished(async () => {
+    vi.useRealTimers(); controller.abort(reason);
+    // Release output only after the assertion or the test watchdog has finished.
+    output.destroy(); release?.();
+    if (pid && runningProcess(pid)) process.kill(pid, "SIGKILL");
+    await stopped;
+    errors.destroy();
+  });
+  await started;
+  await backpressured;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  controller.abort(reason);
+  await vi.advanceTimersByTimeAsync(5_000);
+  await stopped;
+  expect(runningProcess(pid)).toBe(false);
+}, 30_000);
+
+it.skipIf(process.platform !== "linux")("a held output sink queues at most the output budget before cleanup", async () => {
+  const controller = new AbortController();
+  const errors = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let release: (() => void) | undefined;
+  const output = new Writable({ highWaterMark: 1, write(_chunk, _encoding, callback) { release = callback; } });
+  errors.on("data", chunk => {
+    text += String(chunk);
+    const match = /budget ready (\d+)/.exec(text);
+    if (match) pid = Number(match[1]);
+  });
+  const execution = smokeProcess(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); console.error('budget ready '+process.pid); process.stdout.write(Buffer.alloc(9*1024*1024, 'x')); setInterval(()=>{},60000);"], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: errors,
+  });
+  const stopped = expect(execution).rejects.toThrow("Smoke output exceeded 8 MiB.");
+  onTestFinished(async () => {
+    output.destroy(); release?.(); controller.abort(new Error("The budget regression finished."));
+    if (pid && runningProcess(pid)) process.kill(pid, "SIGKILL");
+    await stopped; errors.destroy();
+  });
+  await stopped;
+  expect(output.writableLength).toBeGreaterThan(0);
+  expect(output.writableLength).toBeLessThanOrEqual(8 * 1024 * 1024);
+  expect(runningProcess(pid)).toBe(false);
 });

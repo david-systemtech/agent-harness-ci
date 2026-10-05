@@ -47,12 +47,23 @@ export async function smokeProcess(command: string, args: string[], options: {
         bytes += Buffer.byteLength(chunk);
         if (bytes > 8 * 1024 * 1024 && !failure) { failure = new Error("Smoke output exceeded 8 MiB."); stop(); }
       };
-      output.on("data", (chunk: string) => { count(chunk); if (!failure) stdout += chunk; });
-      errors.on("data", count);
-      output.pipe(options.stdout ?? process.stdout, { end: false });
-      errors.pipe(options.stderr ?? process.stderr, { end: false });
+      let suppressedErrors = "";
+      // Always drain the supervisor's pipes. A destination's false write result
+      // must not pause the supervisor before it can receive cancellation.
+      // The shared output limit bounds what we queue into a stalled destination.
+      output.on("data", (chunk: string) => {
+        count(chunk);
+        if (!failure) { stdout += chunk; (options.stdout ?? process.stdout).write(chunk); }
+      });
+      errors.on("data", (chunk: string) => {
+        count(chunk);
+        if (!failure) (options.stderr ?? process.stderr).write(chunk);
+        else suppressedErrors = (suppressedErrors + chunk).slice(-8 * 1024 * 1024);
+      });
       child.on("error", reject);
       child.on("close", (code, signal) => {
+        // Keep the final survivor report even if command output exhausted its budget.
+        if (code === 125 && suppressedErrors) (options.stderr ?? process.stderr).write(suppressedErrors);
         if (options.signal.aborted) reject(options.signal.reason);
         else if (failure) reject(failure);
         else if (code === 125) reject(new Error("Smoke cleanup left owned descendants; see diagnostics."));
