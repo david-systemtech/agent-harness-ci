@@ -339,3 +339,23 @@ html[data-phone-viewport] [data-web-client] {
   box-sizing: border-box;
   overflow: hidden;
 }
+
+/* Native transcript reading: contain boundary gestures without intercepting touch or selection. */
+[data-web-client] [aria-label="Transcript"] {
+  overscroll-behavior: none;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+/* Uncapped code passes vertical gestures to the transcript while containing horizontal scrolling. */
+[data-web-client] [aria-label="Transcript"] pre {
+  overscroll-behavior: contain auto;
+}
+/* Only capped input/detail wells contain scrolling on both axes. */
+[data-web-client] [aria-label="Transcript"] pre[data-tool-raw],
+[data-web-client] [data-composer-column] {
+  overscroll-behavior: contain;
+}
+
+/* The dark outline variant is translucent; a reading control must cover the text beneath it. */
+[data-web-client] [data-transcript-jump] { background: var(--float); }

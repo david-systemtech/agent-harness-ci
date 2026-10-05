@@ -56,6 +56,13 @@ const useQuietCalls = (projection: SessionProjection): ((toolCallId: string) => 
   return (toolCallId) => quietFor(current, toolCallId, now);
 };
 
+/** Native web transcript selection is reading, even when its handles scroll at the end. */
+const selectedIn = (element: HTMLElement): boolean => {
+  const selection = element.ownerDocument.getSelection();
+  return element.closest("[data-web-client]") !== null && selection !== null && !selection.isCollapsed
+    && element.contains(selection.anchorNode) && element.contains(selection.focusNode);
+};
+
 /**
  * Following the end: the scroll box kept at its end as what it holds grows,
  * until the reader scrolls up (a scroll that moved up, not merely one short of
@@ -99,7 +106,7 @@ const useFollow = () => {
     const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight < AT_END_PX;
     const movedUp = element.scrollTop < lastTop.current;
     lastTop.current = element.scrollTop;
-    if (atEnd) following.current = true;
+    if (atEnd && !selectedIn(element)) following.current = true;
     else if (movedUp) following.current = false;
     setAway(!following.current);
   }, []);
@@ -117,11 +124,22 @@ const useFollow = () => {
     return () => pane.removeEventListener("phone-composer-fit", jump);
   }, [jump]);
 
-  /** Stops following the end, as a scroll up does: David was taken somewhere to read. */
+  /** Stops following the end when the reader is taken somewhere to read. */
   const stop = useCallback(() => {
     following.current = false;
     setAway(true);
   }, []);
+
+  // Native selection is reading too. Keep the OS menu and handles intact; only pause following.
+  useEffect(() => {
+    const element = box.current;
+    if (!element?.closest("[data-web-client]")) return;
+    const selected = () => {
+      if (selectedIn(element)) stop();
+    };
+    element.ownerDocument.addEventListener("selectionchange", selected);
+    return () => element.ownerDocument.removeEventListener("selectionchange", selected);
+  }, [stop]);
 
   return { box, column, away, onScroll, jump, stop };
 };
@@ -211,7 +229,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
           </div>
         </section>
         {follow.away && (
-          <Button size="xs" variant="outline" title="Jump to the latest (Enter or Space)" onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float shadow-lg shadow-scrim/40">
+          <Button data-transcript-jump size="xs" variant="outline" title="Jump to the latest (Enter or Space)" onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float shadow-lg shadow-scrim/40">
             <ArrowDown aria-hidden="true" className="size-3" />Jump to the latest
           </Button>
         )}

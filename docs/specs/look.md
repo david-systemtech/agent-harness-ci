@@ -504,6 +504,14 @@ The By repository switch, environment headings, groups, shelves and restoration
 or pairing footer actions keep the GUI's registry and projection semantics.
 Footer rows use x 10/y 8,2xs/muted, hairline top and hover wash; no bug-report row.
 
+On a phone, the session drawer follows the shared web-frame visible height and
+offset, including a search keyboard. Opening Sessions focuses the drawer rather
+than its input. Tapping Filter keeps results in a bounded inner scroller with
+contained overscroll; Close, New session and footer actions remain visible.
+Search, scrolling and restored focus never jump the document. Selecting a row
+closes the drawer while retaining drafts and live work. Rows may grow at text 20;
+selected, running and waiting states and explicit touch actions stay readable.
+
 Rows use fixed 54px slots, headings 24, overscan 6. Row outer x 8/y 2, button fills
 available slot, md/x 8/y 6/gap 2. First line xs/18, gap 6:6px waiting amber dot
 outranks running cyan pulse, title truncates; trailing mono 2xs/faint relative
@@ -609,6 +617,16 @@ resizing; after deliberate scroll up, streaming preserves the reading position.
 Browser-bar resizes after a focus-preserving keyboard close keep that reading
 position; repin only for focus or a subsequent keyboard opening.
 
+Phone web transcript selection also unpins following; later stream output keeps
+history text/ranges and the reading anchor intact. Jump to latest explicitly
+repins. Native selection/copy menus, long press, links and pinch zoom remain
+usable. Contain transcript/root boundary overscroll without a global touch
+blocker or swipe navigation. Uncapped code wells contain horizontal overscroll
+and pass vertical gestures to the transcript; capped
+input/detail wells are deliberate independently scrolling exceptions, with
+contained overscroll. Tool disclosure preserves per-call folds and cannot pan
+the outer page or dock.
+
 ### 10.2 Transcript recipes
 
 | Kind | Anatomy and states |
@@ -707,6 +725,15 @@ run status. No vertical separators or multiline labels. Account shrinks first;
 mode remains legible. Unavailable stored model/mode amber with reason; absent
 capability is a disabled chip with explanatory tooltip. Live cyan dot; pending
 asks cyan question/amber permission with count; settled state absent.
+
+Below 640px, the Mode chip opens a mode-only bottom sheet bounded by the
+visual viewport, including keyboard height. Each 44px-or-larger row wraps its
+label and description, marks the current selection, and disables modes above
+the connection ceiling with its existing reason. Close stays visible while
+only the choices scroll; focus is trapped and restored. An allowed selection
+sends the existing mode command once and closes only on success. A failure
+stays visible with retry guidance and retains the current value. Dismissal
+keeps the draft, session and conversation scroll; the desktop menu remains.
 
 Rings encode **used** share.24px wrapper,36×36 drawing grid, stroke 4,
 start−90°, number fixed 9px (8px at 100), no percent glyph. Mint below 75%, amber
@@ -1184,6 +1211,16 @@ to wide mode; disable Split with a width reason. The existing below-900px
 pane-width dock rule becomes the side-column sheet, `min(480px, 85%)`. Closing
 or switching hides work without stopping a run, delegated task or terminal.
 Drawers/sheets trap and restore focus and close predictably.
+The session drawer consumes those shared visible bounds with no extra viewport
+observer. Open it onto a non-input focus target; only tapping Filter raises the
+search keyboard. Keep results scrolling internally, with Close, New session and
+footer actions above the keyboard. Restore focus with no document scroll on
+close or result selection. Hosted long-results evidence keeps a tall layout
+while visual height shrinks to 480 and offsetTop becomes 120, including text 20.
+
+The Mode bottom sheet follows §10.5: one labelled choice per row, current
+selection and disabled ceiling reason, a fixed Close header and a scrolling
+choice list. It traps/restores focus without moving the conversation dock.
 
 Keep abyss/panel/float/hairline tokens, rounded human controls and square
 machine output wells, the icon names, focus and contrast. Phone preset text
@@ -1206,6 +1243,14 @@ composer or waiting cards. Send/Stop, Allow/Deny and Continue/Finish remain
 visible at keyboard height, including long cards and IME composition. Settings
 is full-height with registered-row drawer navigation; Set up keeps eleven
 steps and its sticky Back/Continue footer.
+
+Phone web root and transcript use `overscroll-behavior: none` to suppress
+chaining/pull-to-refresh in supporting engines. Use explicit browser reload or
+Reload client and explicit Copy/Jump to latest, preserving the manual copy
+fallback on denial. No simulated haptics or synthetic refresh gesture. Native
+selection handles, OS rubberband and unsuppressed refresh gestures require
+engine-specific dated handset evidence under #1556; CSS alone proves no universal
+OS guarantee. Capped input/detail wells keep their own contained scrolling.
 
 Hosted gallery subsets at 390×844 and 360×740 cover dark/light, text 20,
 keyboard-height viewport, safe areas and long content. #1636 additionally keeps

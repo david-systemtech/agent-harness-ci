@@ -129,12 +129,31 @@ breakpoint, the side column is a sheet sized `min(480px, 85%)`; closing/hiding
 it retains terminal and delegated work. Drawers/sheets trap and restore focus
 and close predictably. Long titles and labels wrap without page overflow.
 
+The session drawer uses the same web-frame visible bounds, including keyboard
+height and visual offset, without another viewport observer. Opening Sessions
+focuses the non-input drawer; tapping Filter opens search. Results alone scroll
+in a bounded inner scroller with contained overscroll; Close, New session and
+footer actions stay reachable above the keyboard. At 390×480 visual bounds with
+offsetTop 120 in a tall layout, search/results and dismissal never scroll the
+document. Dismissal restores focus without a page jump. Selecting a result
+closes the drawer and preserves each session's draft and running work. Selected,
+running and waiting rows and explicit touch actions remain readable at text 20.
+
 Use look.md's abyss ground, panel cards, float overlays, hairline edges,
 rounded human controls and square machine output wells, existing icon names,
 focus and contrast. Phone preset text size is 16 using the existing 11–20
 preference; text inputs are at least 16 CSS px. Hit areas are at least 44px,
 including icon buttons; tap actions replace hover-only controls without
 squeezing labels. Support enlarged text at 20 and ordinary pinch zoom.
+
+Below 640px, the Mode chip opens a mode-only bottom sheet bounded by the
+visual viewport, including keyboard height. Each 44px-or-larger row wraps its
+label and description, marks the current selection, and disables modes above
+the connection ceiling with its existing reason. Close stays visible while
+only the choices scroll; focus is trapped and restored. An allowed selection
+sends the existing mode command once and closes only on success. A failure
+stays visible with retry guidance and retains the current value. Dismissal
+keeps the draft, session and conversation scroll; the desktop menu remains.
 
 Composer and status stay in the bottom flex region above the visible keyboard;
 the transcript owns conversation scrolling. One web-frame owner locks the phone
@@ -158,6 +177,20 @@ reachable at keyboard height. IME composition never sends early. Attachments,
 queue/status, plan/question/permission cards and tool/fork/rewind actions fit
 one column and are usable by touch.
 
+Native reply/code selection and the OS copy menu remain available while reading
+history and receiving later stream output. Selecting transcript text pauses
+following, as scrolling up does; Jump to latest explicitly repins. Tool disclosure
+retains its per-call fold choices and changes only the transcript scroller, never
+the outer page or dock. Keep normal links, long press, pinch zoom and horizontal
+code-well scrolling; no custom swipe navigation, simulated haptics or global touch
+blocker. The locked phone root and transcript use `overscroll-behavior: none`
+to suppress scroll chaining and browser pull-to-refresh where supported. Capped
+input/detail wells remain independently scrollable with contained overscroll.
+Uncapped Markdown code contains horizontal overscroll only; vertical gestures
+continue to the transcript.
+CSS cannot promise suppression of every OS/browser refresh or rubberband gesture:
+record engines that still refresh with dated handset evidence under #1556.
+
 ## Browser replacements and Settings
 
 Browser adapters supply file-content pickers/download, clipboard with a
@@ -166,7 +199,9 @@ input[type=file] or paste. Workspace directories are selected on the environment
 never represented as phone filesystem paths. Native window controls, local
 service/bootstrap, this computer's gh and desktop installer/updater stay absent
 with reasons. Browser bundle updates offer Reload, separately from environment
-Update now.
+Update now. Use the browser’s explicit reload action or the existing Reload client
+update offer instead of a synthetic refresh gesture. Keep explicit Copy controls
+and the selectable-text clipboard-denial fallback.
 
 Files/Diff/Documents/Tasks use existing methods and projections in the sheet.
 Markdown renders normally. HTML/SVG is a static sandboxed srcdoc snapshot with

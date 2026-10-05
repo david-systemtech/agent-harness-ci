@@ -17,7 +17,7 @@ import {
 } from "@agent-harness/client-runtime";
 import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
@@ -30,6 +30,7 @@ import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
+import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 
 /**
@@ -72,6 +73,7 @@ interface PickerButtonProps {
   /** An extra warning appended to the button's tooltip. */
   readonly warning?: string | undefined;
   readonly columns?: boolean;
+  readonly phoneItems?: (close: () => void) => ReactNode;
   /** The slash command that opens it. */
   readonly command: "account" | "model" | "mode" | "containment";
 }
@@ -87,10 +89,16 @@ const containmentLabel = (words: string): string => words.replace(/^[○◐●]\
  * does, the button is dim with the reason in its tooltip and opens nothing:
  * a press says the reason on the pane's line.
  */
-const PickerButton = ({ name, value, offer, children, items, command, warning, columns }: PickerButtonProps) => {
+const PickerButton = ({ name, value, offer, children, items, command, warning, columns, phoneItems }: PickerButtonProps) => {
   const [, say] = usePaneLine();
-  const [open, setOpen] = useState(false);
+  const [opening, setOpening] = useState({ open: false, id: 0 });
+  const { open } = opening;
+  const setOpen = (next: boolean) => setOpening(current => ({ open: next, id: next && !current.open ? current.id + 1 : current.id }));
+  const close = () => setOpening(current => current.id === opening.id ? { ...current, open: false } : current);
   const narrow = useNarrowRunPicker();
+  const phone = useNarrowRunPicker(640);
+  const modeSheet = phone && phoneItems !== undefined;
+  const sheet = !!columns && narrow || modeSheet;
   useSlashCommand(command, () => (offer.status === "absent" ? say(offer.message) : setOpen(true)), offer);
   const label = `${name}: ${value}`;
   const Icon = PICKER_ICONS[command];
@@ -107,14 +115,16 @@ const PickerButton = ({ name, value, offer, children, items, command, warning, c
   return (
     <Menu open={open} onOpenChange={setOpen} modal={!columns || narrow}>
       <Tooltip content={`${label} · /${command} · Enter to open${warning === undefined ? "" : ` · ${warning}`}`}>
-        <RunPickerTrigger sheet={!!columns && narrow} openSheet={() => setOpen(true)}>
+        <RunPickerTrigger sheet={sheet} openSheet={() => setOpen(true)}>
           <Button aria-label={label} className={classes(TRIGGER, name === "Account" ? "shrink" : "shrink-0")}>
             {content}
           </Button>
         </RunPickerTrigger>
       </Tooltip>
-      <RunPickerContent sheet={!!columns && narrow} side="top" align="start" role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} className={columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
-        {items(() => setOpen(false))}
+      <RunPickerContent sheet={sheet}
+        onFocusCapture={modeSheet ? event => { if (event.target === event.currentTarget) focusModeSheet(event.currentTarget); } : undefined}
+        onKeyDownCapture={modeSheet ? trapModeSheetTab : undefined} side="top" align="start" role={sheet ? "dialog" : "menu"} aria-label={modeSheet ? "Mode" : columns ? "Run choices" : undefined} {...(columns || modeSheet ? { "aria-labelledby": undefined } : {})} className={modeSheet ? "phone-mode-sheet rounded-[10px] p-0" : columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
+        {modeSheet ? <Fragment key={opening.id}>{phoneItems(close)}</Fragment> : items(close)}
       </RunPickerContent>
     </Menu>
   );
@@ -338,7 +348,7 @@ export const ModePicker = ({ environmentId, sessionId, value, children }: ModePi
   const setting = useOffer(environmentId, "permissions.mode.set");
   const items = () => <ModeRows environmentId={environmentId} sessionId={sessionId} />;
   return (
-    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items}>
+    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
       {children}
     </PickerButton>
   );

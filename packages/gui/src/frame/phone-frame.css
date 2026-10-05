@@ -9,6 +9,11 @@
   height: 100dvh;
   padding: var(--phone-frame-safe-top, env(safe-area-inset-top)) 0 var(--phone-frame-safe-bottom, env(safe-area-inset-bottom)) var(--phone-frame-safe-left, env(safe-area-inset-left));
 }
+/* The portal shares the web frame's visible bounds, including visual-only keyboard offsets. */
+[data-web-client] .phone-frame-drawer,
+[data-web-client] .phone-frame-scrim { position: absolute; }
+[data-web-client] .phone-frame-drawer { height: 100%; box-sizing: border-box; }
+.phone-frame-drawer [data-sidebar-scroll] { overscroll-behavior: contain; }
 .phone-frame-drawer [data-sidebar-caption],
 .phone-frame-drawer h2 { height: auto; min-height: 44px; }
 .phone-frame-drawer input { min-height: 44px; font-size: max(16px, 1rem); }
