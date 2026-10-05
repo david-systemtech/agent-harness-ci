@@ -376,9 +376,10 @@ it("names the serving forge account's canonical origin for SSH and verified alia
 
 
 it.each([
-  ["git@ssh.skills.test:team/private.git", "Permission denied (publickey)."],
-  ["ssh://git@ssh.skills.test:2222/team/private.git", "Host key verification failed."],
-])("keeps machine SSH repair guidance for an unmanaged source %s", async (url, stderr) => {
+  ["git@ssh.skills.test:team/private.git", "Permission denied (publickey).", "ssh.skills.test"],
+  ["ssh://git@ssh.skills.test:2222/team/private.git", "Host key verification failed.", "ssh.skills.test"],
+  ["ssh://git@ssh.github.com:443/team/private.git", "Host key verification failed.", "ssh.github.com"],
+])("keeps machine SSH repair guidance for an unmanaged source %s", async (url, stderr, host) => {
   const source = tempDir();
   writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [{ url, subdir: "." }], alwaysOn: [] }));
   const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
@@ -390,6 +391,6 @@ it.each([
   const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
   onCleanup(() => logged.mockRestore());
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-  expect(imported.result?.failed).toEqual([{ label: expect.any(String), message: expect.stringMatching(/SSH keys and known-hosts entry for ssh.skills.test/) }]);
+  expect(imported.result?.failed).toEqual([{ label: expect.any(String), message: expect.stringContaining(`SSH keys and known-hosts entry for ${host}, using the source's SSH port`) }]);
   expect(imported.result?.reEnter).toEqual([]);
 });
