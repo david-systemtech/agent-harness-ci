@@ -130,6 +130,8 @@ try {
       });
       await page.getByRole("button", { name: /^Allow once/ }).waitFor();
       await page.setViewportSize({ width: 390, height: 460 });
+      // Waiting cards scroll in the region above the composer at keyboard height.
+      await page.getByRole("button", { name: /^Allow once/ }).scrollIntoViewIfNeeded();
       await reachable(page, page.getByRole("button", { name: /^Allow once/ }));
       await fallback.verify(sessionId, origin, name);
       await page.getByRole("button", { name: /^Allow once/ }).click();

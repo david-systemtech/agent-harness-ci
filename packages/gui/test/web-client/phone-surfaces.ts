@@ -28,11 +28,15 @@ const noOverflow = async (page: Page): Promise<void> => {
 
 export const reachable = async (page: Page, control: Locator): Promise<void> => {
   await expect(control).toBeVisible();
-  const box = await control.boundingBox();
-  const viewport = page.viewportSize();
-  assert(box && viewport);
-  assert(box.width >= 43.5 && box.height >= 43.5, `Touch control is too small: ${JSON.stringify(box)}`);
-  assert(box.x >= -0.5 && box.y >= -0.5 && box.x + box.width <= viewport.width + 0.5 && box.y + box.height <= viewport.height + 0.5, "Touch control stays inside the visible viewport.");
+  await expect(control).toBeInViewport({ ratio: 1 });
+  await expect.poll(async () => {
+    const box = await control.boundingBox();
+    const viewport = page.viewportSize();
+    if (!box || !viewport) return { missing: true };
+    if (box.width < 43.5 || box.height < 43.5) return { tooSmall: box };
+    if (box.x < -0.5 || box.y < -0.5 || box.x + box.width > viewport.width + 0.5 || box.y + box.height > viewport.height + 0.5) return { outside: box, viewport };
+    return true;
+  }, { message: "Touch control is at least 44px and entirely inside the settled viewport." }).toBe(true);
 };
 
 const chooseRow = async (page: Page, label: string): Promise<void> => {
