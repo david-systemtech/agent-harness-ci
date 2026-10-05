@@ -1,24 +1,25 @@
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import type { Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
 
-type ProcessIdentity = { pid: number; parent: number; group: number; session: number; started: string };
+type ProcessIdentity = { pid: number; parent: number; started: string };
 
 function identity(pid: number): ProcessIdentity | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
     if (fields[0] === "Z" || fields[0] === "X") return;
-    return { pid, parent: Number(fields[1]), group: Number(fields[2]), session: Number(fields[3]), started: fields[19]! };
+    return { pid, parent: Number(fields[1]), started: fields[19]! };
   } catch (error) {
     if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
     throw error;
   }
 }
 
-// Capture ancestry before signalling parents: detached browsers are reparented when drivers exit.
+// Orphaned descendants are adopted by the persistent supervisor, including detached browsers.
 // Start times keep a reused PID from becoming a cancellation target during the grace period.
-function descendants(known: Map<number, ProcessIdentity>, root: ProcessIdentity | undefined) {
+function descendants(known: Map<number, ProcessIdentity>) {
   const table = new Map<number, ProcessIdentity>();
   for (const entry of readdirSync("/proc")) {
     if (!/^\d+$/.test(entry)) continue;
@@ -29,16 +30,6 @@ function descendants(known: Map<number, ProcessIdentity>, root: ProcessIdentity 
   for (const process of known.values()) {
     const current = table.get(process.pid);
     if (current?.started === process.started) owned.set(current.pid, current);
-  }
-  // The original group survives command exit. Its held output can keep the phase pending
-  // even when ancestry was lost before cancellation. Never adopt a reused command PID.
-  const command = root ? table.get(root.pid) : undefined;
-  if (root && (!command || command.started === root.started)) {
-    for (const process of table.values()) {
-      if (process.group === root.pid && process.session === root.pid && Number(process.started) >= Number(root.started)) {
-        owned.set(process.pid, process);
-      }
-    }
   }
   let changed = true;
   while (changed) {
@@ -66,14 +57,15 @@ export async function smokeProcess(command: string, args: string[], options: {
   let escalation: Promise<void> | undefined;
   try {
     return await new Promise((resolve, reject) => {
-      const child = spawn(command, args, { cwd: options.cwd, env: options.env, detached: true });
+      const supervisor = fileURLToPath(new URL("./smoke-supervisor.py", import.meta.url));
+      const child = spawn("python3", [supervisor, command, ...args], { cwd: options.cwd, env: options.env, detached: true });
       const root = child.pid === undefined ? undefined : identity(child.pid);
       let owned = new Map(root ? [[root.pid, root]] : []);
       let stdout = "";
       let bytes = 0;
       let failure: Error | undefined;
       const terminate = (signal: NodeJS.Signals) => {
-        owned = descendants(owned, root);
+        owned = descendants(owned);
         let failure: unknown;
         const send = (pid: number) => {
           try { process.kill(pid, signal); }
@@ -83,13 +75,11 @@ export async function smokeProcess(command: string, args: string[], options: {
             if (code !== "ESRCH" && !(code === "EPERM" && signal === "SIGTERM")) failure ??= error;
           }
         };
-        // Retain group signalling as well as detached-descendant tracking, including children
-        // born between the snapshot and the signal. A surviving member anchors that group.
-        if (root && [...owned.values()].some(process => {
-          const current = identity(process.pid);
-          return current?.started === process.started && current.group === root.pid && current.session === root.pid;
-        })) send(-root.pid);
+        if (signal === "SIGTERM" && root && identity(root.pid)?.started === root.started) send(-root.pid);
         for (const processIdentity of [...owned.values()].reverse()) {
+          // Let the supervisor reap every orphan and exit itself. Killing it would lose
+          // ownership of descendants born or reparented during the force-stop sweep.
+          if (signal === "SIGKILL" && processIdentity.pid === root?.pid) continue;
           if (identity(processIdentity.pid)?.started !== processIdentity.started) continue;
           send(processIdentity.pid);
         }
@@ -102,8 +92,8 @@ export async function smokeProcess(command: string, args: string[], options: {
         escalation = new Promise<void>((resolve, reject) => {
           setTimeout(() => {
             void (async () => {
-              terminate("SIGKILL");
               while ([...owned.values()].some(process => identity(process.pid)?.started === process.started)) {
+                terminate("SIGKILL");
                 await new Promise<void>(resolve => setImmediate(resolve));
               }
             })().then(resolve, reject);

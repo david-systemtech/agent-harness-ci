@@ -1,4 +1,4 @@
-import { PassThrough, type Readable } from "node:stream";
+import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +10,7 @@ const runningProcess = (pid: number) => {
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
 };
 
-it.skipIf(process.platform !== "linux")("cancellation stops a held descendant after its command has exited", async () => {
+it.skipIf(process.platform !== "linux").each([false, true])("cancellation stops a held descendant after its command has exited (detached: %s)", async detached => {
   const signal = new AbortController();
   const output = new PassThrough();
   let text = "";
@@ -35,7 +35,7 @@ it.skipIf(process.platform !== "linux")("cancellation stops a held descendant af
     output.destroy();
   });
   const leaf = "process.on('SIGTERM',()=>{}); console.log('descendant ready '+process.pid); process.send('ready'); setInterval(()=>{},60000);";
-  const parent = `const {spawn}=require('node:child_process'); console.log('parent '+process.pid); const child=spawn(process.execPath,['-e',${JSON.stringify(leaf)}],{stdio:['ignore','inherit','inherit','ipc']}); child.once('message',()=>process.exit(0));`;
+  const parent = `const {spawn}=require('node:child_process'); console.log('parent '+process.pid); const child=spawn(process.execPath,['-e',${JSON.stringify(leaf)}],{detached:${detached},stdio:['ignore','inherit','inherit','ipc']}); child.once('message',()=>process.exit(0));`;
   const execution = smokeProcess(process.execPath, ["-e", parent], { cwd: process.cwd(), signal: signal.signal, stdout: output, stderr: output });
   const reason = new Error("The exited command's smoke phase was cancelled.");
   const stopped = expect(execution).rejects.toBe(reason);
@@ -52,10 +52,6 @@ it.skipIf(process.platform !== "linux").each([false, true])("cancellation kills 
   const dir = mkdtempSync(join(tmpdir(), "smoke-descendant-"));
   const signal = new AbortController();
   const output = new PassThrough();
-  let closed = 0;
-  let outputClosed!: () => void;
-  const pipesClosed = new Promise<void>(resolve => { outputClosed = resolve; });
-  output.on("pipe", (source: Readable) => { source.once("close", () => { if (++closed === 2) outputClosed(); }); });
   const pids: number[] = [];
   let ready!: () => void;
   let ignored!: () => void;
@@ -84,9 +80,8 @@ it.skipIf(process.platform !== "linux").each([false, true])("cancellation kills 
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   signal.abort(reason);
   if (!detached) await terminationIgnored;
-  // Observe parent exit before advancing the grace period: its output no longer holds close open.
+  // Observe command exit while its ignoring descendant still belongs to this phase.
   while (runningProcess(pids[0]!)) await new Promise<void>(resolve => setImmediate(resolve));
-  await pipesClosed;
   await vi.advanceTimersByTimeAsync(5_000);
   await stopped;
   expect(runningProcess(pids[1]!)).toBe(false);
@@ -120,7 +115,7 @@ it.skipIf(process.platform !== "linux").each([
     vi.useRealTimers();
     signal.abort();
     if (pid) {
-      try { process.kill(-pid, "SIGKILL"); }
+      try { process.kill(pid, "SIGKILL"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
     }
     if (descendant) {
@@ -149,9 +144,19 @@ it.skipIf(process.platform !== "linux")("captures successful smoke output while 
   let log = "";
   output.on("data", chunk => { log += String(chunk); });
   onTestFinished(() => { output.destroy(); });
-  const result = await smokeProcess(process.execPath, ["-e", "console.log('phase complete');"], {
+  const result = await smokeProcess(process.execPath, ["-e", "console.error('phase diagnostic'); process.stdin.on('end',()=>console.log('phase complete')); process.stdin.resume();"], {
     cwd: process.cwd(), signal: new AbortController().signal, stdout: output, stderr: output,
   });
   expect(result.stdout).toBe("phase complete\n");
-  expect(log).toBe("phase complete\n");
+  expect(log).toContain("phase complete\n");
+  expect(log).toContain("phase diagnostic\n");
+});
+
+it.skipIf(process.platform !== "linux")("preserves the command's failure status after reaping its process tree", async () => {
+  const output = new PassThrough();
+  output.resume();
+  onTestFinished(() => { output.destroy(); });
+  await expect(smokeProcess(process.execPath, ["-e", "process.exit(7);"], {
+    cwd: process.cwd(), signal: new AbortController().signal, stdout: output, stderr: output,
+  })).rejects.toThrow(`${process.execPath} exited with 7.`);
 });
