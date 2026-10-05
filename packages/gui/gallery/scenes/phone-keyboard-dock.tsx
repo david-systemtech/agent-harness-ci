@@ -53,6 +53,9 @@ export const activate = () => {
     const jump = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Jump to the latest"));
     if (!jump) throw new Error("Keyboard proof missing Jump to latest");
     jump.click(); await settle(); verifyKeyboardDock(480, 120);
+    // A settled paragraph exercises the markdown line height as well as the streaming text.
+    env.emit(env.sessionId(), "assistant.text", { runId, itemId: "keyboard-stream", text: "The latest receipt line stays visible. " + "Another line arrives while reading. ".repeat(12), aborted: false });
+    await settle(); verifyKeyboardDock(480, 120);
     env.notice("environment.updated", { fromVersion: "0.5.0", toVersion: "0.5.1" });
     await settle(); verifyKeyboardDock(480, 120);
     document.querySelector<HTMLButtonElement>('[aria-label="Notifications"] [aria-label="Dismiss"]')!.click();

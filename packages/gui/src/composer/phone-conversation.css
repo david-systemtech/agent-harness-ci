@@ -118,6 +118,10 @@
   [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [data-transcript-region] {
     min-height: 3lh;
   }
+  /* Keep the reserved reply line boxes clear of the column's usual bottom padding. */
+  [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [aria-label="Transcript"] > div {
+    padding-bottom: 4px;
+  }
   [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [aria-label="Notifications"] {
     max-height: max(48px, min(12dvh, calc(var(--phone-viewport-height, 100dvh) * 0.1)));
   }
