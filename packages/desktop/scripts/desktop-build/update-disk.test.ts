@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { DATABASE_FILE, LAUNCHER_PROTOCOL } from "@agent-harness/contracts/launcher";
 import { expect, it } from "vitest";
 import { build } from "vite";
+import { releaseWorkflowInput } from "../../../../test/release-workflow-input.js";
 
 const root = join(import.meta.dirname, "../../../..");
 it("runs the disk smoke against built staging and launcher modules, without a service manager", async () => {
@@ -42,7 +43,7 @@ it("runs the disk smoke against built staging and launcher modules, without a se
 }, 180_000);
 
 it("runs the packaged update disk check in all three release smoke jobs", () => {
-  const workflow = readFileSync(join(root, "public/.github-workflows/release.yml"), "utf8");
+  const workflow = releaseWorkflowInput(root).hosted;
   for (const name of ["windows", "macos", "linux"]) {
     const job = workflow.split(`  smoke-${name}:`)[1]!.split(/^ {2}[a-z-]+:/m)[0]!;
     expect(job).toContain("scripts/check-packaged-update-disk.mjs");
