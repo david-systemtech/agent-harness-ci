@@ -17,7 +17,7 @@ it.each(["light", "dark"] as const)("shows the run-picker columns and geometry i
   const menu = await screen.findByRole("menu", { name: "Run choices" });
   for (const name of ["Accounts", "Models", "Effort"]) expect(await within(menu).findByRole("group", { name })).toBeDefined();
   expect(within(menu).getByRole("textbox", { name: "Search models" })).toBeDefined();
-  expect(within(menu).getAllByText("5hr 80%")).toHaveLength(8);
+  expect(within(menu).getAllByText("5-hour 80%")).toHaveLength(8);
   expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("run-picker"));
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; width?: number; height?: number }[];

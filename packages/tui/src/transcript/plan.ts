@@ -1,4 +1,4 @@
-import type { UsageGauge } from "@agent-harness/client-runtime";
+import { windowWords, type UsageGauge } from "@agent-harness/client-runtime";
 
 /**
  * What a turn cost the plan (docs/specs/tui.md, "The transcript": the cost
@@ -30,13 +30,6 @@ export const markOf = (gauge: UsageGauge | undefined): PlanMark => {
   return mark;
 };
 
-/** A window's name as the cost line says it. */
-const windowWords = (window: string): string => {
-  if (window === "five_hour") return "the 5-hour window";
-  if (window === "seven_day") return "the week";
-  return window.replace(/_/g, " ");
-};
-
 /**
  * The windows that moved between `before` and `after`, as words ("1.2% of
  * the 5-hour window"); null while no window has been observed since
@@ -50,7 +43,7 @@ export const planDelta = (before: PlanMark, after: PlanMark): readonly string[] 
     if (now === undefined || Date.parse(now.observedAt) <= Date.parse(then.observedAt)) continue;
     observed = true;
     const moved = now.utilisation - then.utilisation;
-    if (moved >= PLAN_DELTA_FLOOR) words.push(`${(Math.round(moved * 1000) / 10).toFixed(1)}% of ${windowWords(window)}`);
+    if (moved >= PLAN_DELTA_FLOOR) words.push(`${(Math.round(moved * 1000) / 10).toFixed(1)}% of the ${windowWords(window)} window`);
   }
   return observed ? words : null;
 };

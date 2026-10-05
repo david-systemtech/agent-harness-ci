@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AccountUsage, EnvironmentNotice, HandoffRecommendation, eventTypeEntry, registry } from "./index.js";
+import { AccountUsage, EnvironmentNotice, HandoffRecommendation, eventTypeEntry, registry, usageWindowLabel, isKnownUsageWindow } from "./index.js";
 
 /**
  * Plan usage and the hand-off recommendation (#136): the reading a client
@@ -10,6 +10,24 @@ const at = "2026-09-24T01:02:03.456Z";
 const identity = { provider: "claude", email: "david@example.com", organisation: "Acme" };
 
 describe("a plan-usage reading", () => {
+  it.each([
+    ["five_hour", "5-hour"],
+    ["seven_day", "Weekly"],
+    ["seven_day_opus", "Weekly, Opus"],
+    ["seven_day_sonnet", "Weekly, Sonnet"],
+    ["seven_day_oauth_apps", "Weekly, apps"],
+    ["model_scoped:fable", "Weekly, Fable"],
+    ["extra_usage", "Extra usage"],
+  ])("names %s for a person as %s", (window, label) => {
+    expect(usageWindowLabel(window as string)).toBe(label);
+    expect(isKnownUsageWindow(window as string)).toBe(true);
+  });
+
+  it.each(["iguana_necktie", "toString", "model_scoped:"])("never uses the unknown identifier %s as a label", (window) => {
+    expect(usageWindowLabel(window)).toBe("Other limit");
+    expect(isKnownUsageWindow(window)).toBe(false);
+  });
+
   it("carries its account's identity, and each window its own observation time beside the reading's", () => {
     const reading = {
       accountId: "claude-max",

@@ -1,4 +1,4 @@
-import { accountStatusWords, directoryWords, gaugeOf, identityWords, planWords, readingsOf, relabelAccount, uuidv7, type UsageGauge } from "@agent-harness/client-runtime";
+import { accountStatusWords, directoryWords, gaugeOf, identityWords, planWords, meterReadingsOf, relabelAccount, uuidv7, type UsageGauge } from "@agent-harness/client-runtime";
 import { KeyRound, Pencil, Trash2 } from "lucide-react";
 import type { AccountRecord } from "@agent-harness/contracts";
 import { useId, useState, type FormEvent, type ReactNode } from "react";
@@ -47,7 +47,7 @@ export const AccountCard = ({ environmentId, account, gauges, writable, signIn, 
   const heading = useId();
   const relabel = (label: string) => void relabelAccount(runtime, environmentId, account, label, uuidv7(clock.now())).then((relabelled) => say(relabelled.line));
   const gauge = gaugeOf(gauges, environmentId, account.id);
-  const readings = gauge === undefined ? [] : readingsOf(gauge);
+  const readings = gauge === undefined ? [] : meterReadingsOf(gauge);
   return (
     <section aria-labelledby={heading} data-account-card data-default-account={selected || undefined} className={classes("flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3", selected && "bg-wash-strong")}>
       <header className="flex items-center justify-between gap-3">
