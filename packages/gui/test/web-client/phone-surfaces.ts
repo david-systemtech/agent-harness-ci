@@ -60,6 +60,7 @@ const revealMenuRow = async (row: Locator): Promise<void> => {
 const phoneMoreSmoke = async (page: Page): Promise<void> => {
   await page.getByRole("button", { name: "More", exact: true }).click();
   const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
   for (const name of ["Terminal", "Browser", "Split right", "Split down"]) {
     const row = menu.getByRole("menuitem", { name, exact: true });
     await revealMenuRow(row);
@@ -80,7 +81,10 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
       throw error;
     }
   }
-  await page.keyboard.press("Escape");
+  // A focused item can open a tooltip that consumes Escape. Toggle the touch trigger
+  // and verify dismissal before the next viewport opens this menu again.
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await expect(menu).toBeHidden();
 };
 
 /** Uses the production page from P01's HTTPS runner, never a gallery or fake shell. */
