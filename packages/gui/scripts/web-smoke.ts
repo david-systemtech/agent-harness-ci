@@ -95,14 +95,38 @@ try {
     const { id: sessionId } = await create(admin, { workspace: { kind: "directory", path: workspace }, title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
     const browser = await engine.launch(name === "chromium" ? { channel: "chromium", args: ["--ignore-certificate-errors"] } : {});
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+    await context.addInitScript(`(() => {
+      const Native = window.ResizeObserver;
+      const delivered = []; const sources = {}; let next = 0;
+      window.ResizeObserver = class extends Native {
+        constructor(callback) {
+          const id = next++; sources[id] = new Error().stack?.slice(0,800);
+          super((entries, observer) => {
+            delivered.push({ id, at: Math.round(performance.now()), targets: entries.map(entry => ({
+              tag: entry.target.tagName, label: entry.target.getAttribute('aria-label'),
+              attributes: entry.target.getAttributeNames().filter(name => name.startsWith('data-')),
+              width: entry.contentRect.width, height: entry.contentRect.height,
+            })) });
+            if (delivered.length > 40) delivered.shift();
+            callback.call(observer, entries, observer);
+          });
+        }
+      };
+      window.addEventListener('error', event => {
+        if (event.message !== 'ResizeObserver loop completed with undelivered notifications.') return;
+        const ids = [...new Set(delivered.slice(-10).map(item => item.id))];
+        console.error('[DEBUG-phone-resize]', JSON.stringify({ at: Math.round(performance.now()), delivered: delivered.slice(-10), sources: Object.fromEntries(ids.map(id => [id, sources[id]])) }));
+      });
+    })()`);
     try {
       let page = await context.newPage();
       page.setDefaultTimeout(60_000);
       const errors: string[] = [];
       const requests: string[] = [];
       const credentials: ReturnType<typeof ClientSessionCredential.parse>[] = [];
-      page.on("pageerror", error => errors.push(error.message));
+      page.on("pageerror", error => { errors.push(error.message); console.error("PHONE-PAGE-ERROR", name, error.message); });
       page.on("request", req => requests.push(req.url()));
+      page.on("console", message => { if (message.text().startsWith("[DEBUG-phone-resize]")) console.error(message.text()); });
       page.on("response", async res => {
         if (new URL(res.url()).pathname === "/api/pair" && res.status() === 200) credentials.push(ClientSessionCredential.parse(await res.json()));
       });
@@ -124,7 +148,7 @@ try {
         assert(credentials[0]);
         page = await phonePushSmoke({ context, page, environment, token: credentials[0].token, sessionId, gateway: pushGateway });
         page.setDefaultTimeout(60_000);
-        page.on("pageerror", error => errors.push(error.message));
+        page.on("pageerror", error => { errors.push(error.message); console.error("PHONE-PAGE-ERROR", name, error.message); });
         page.on("request", req => requests.push(req.url()));
         await page.goto(`${origin}/#/session/${encodeURIComponent(environment.env.id)}/${encodeURIComponent(sessionId)}`);
         await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
