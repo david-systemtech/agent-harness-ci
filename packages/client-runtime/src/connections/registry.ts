@@ -113,8 +113,8 @@ export interface Connections {
    * rather than download) and then shows `updating` through the
    * environment's restart until `hello` agrees and clears the block; any
    * other sends `updates.apply` on its socket, and follows the
-   * `bye: updating` the restart brings. An
-   * environment that refuses raises the notice `update-refused` naming why.
+   * `bye: updating` the restart brings. A refusal by the environment or the
+   * desktop's bundled-copy disk check raises `update-refused` naming why.
    * Rejects for an unknown environment.
    */
   updateEnvironment(environmentId: string): Promise<UpdateEnvironmentOutcome>;
