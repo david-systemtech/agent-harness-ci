@@ -594,3 +594,24 @@ offering `forge` with `admin`:
    variables (on macOS the app bundle's `Contents/MacOS` executable, not
    `open -a`, whose launch does not pass them on): the token handed over is
    the one `gh` stores, not `GH_TOKEN`'s.
+
+## Memory banks and accounts on another environment (#1627)
+
+1. Pair a server holding a verified forge account with the desktop. On the
+   desktop's local environment, register a bank from that forge without
+   connecting a local forge account. Use a self-hosted forge with a non-default
+   HTTPS port and a repository that refuses anonymous reads.
+2. Open Settings, Memory banks on the local environment. The unreachable bank
+   names the server holding the account and the local environment owning the
+   bank. Any invalid manifest remains a separate reported problem.
+3. Press Connect forge on the local environment. Forges opens on that same
+   environment. Add its account there; no credential is copied from the server.
+   Return to Memory banks and Sync. The bank becomes reachable. An invalid
+   manifest still needs its own repair.
+4. Repeat with an account on a different HTTPS port or an unverified alias:
+   neither is described as the account that covers the bank. A verified alias
+   for the exact origin is recognized.
+
+Run this section on the released Windows desktop with its paired server;
+record bank reachability and any independent manifest failure in the release's
+hands-on evidence.

@@ -4,6 +4,7 @@ import { Brain, GitPullRequest, Power, RefreshCw, Trash2, Upload, X } from "luci
 import { useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
 import { MintedSessionCard } from "../setup/minted-session-card.js";
+import { BankForgeAccess } from "./bank-forge-access.js";
 import { JoinBankForm } from "./join-bank.js";
 import { PersonalBankForm, TeamBankForm } from "./create-bank.js";
 import { BankInvitation } from "./bank-invitation.js";
@@ -153,7 +154,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
             <div><dt>Last sync</dt><dd>{bank.status.lastSync ?? "Never synced"}</dd></div>
           </dl>
         </Fold>
-        <p className="text-2xs text-ink-muted">Manifest: {bank.status.manifest.state}. {bank.status.reachable.state === "unreachable" ? oneLine(bank.status.reachable.reason) : "Reachable."}</p>
+        <BankForgeAccess environmentId={environmentId} bank={bank} accounts={forges.result?.accounts} />
         {bank.status.manifest.state === "invalid" && <p role="alert">{oneLine(bank.status.manifest.message)}</p>}
         {bank.status.orientation.missing.length > 0 && <p className="text-amber">Missing orientation: {bank.status.orientation.missing.join(", ")}</p>}
         {bank.status.owners.unresolved.length > 0 && <p className="text-amber">Unresolved owners: {bank.status.owners.unresolved.join(", ")}</p>}
