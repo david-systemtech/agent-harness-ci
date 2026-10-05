@@ -12,7 +12,8 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * - `environment.updated`: `updated`, "<name> was updated from A to B." (#127);
  * - `environment.update-failed`: `update-failed`, "<name> could not be
  *   updated to B (<stage>: <reason>). It is running A." (#344);
- * - `environment.draining`: `draining`;
+ * - `environment.draining`: one `draining` condition per environment;
+ * - `environment.started`: takes back that environment's obsolete drain, history too;
  * - `account.updated`: `account`, when the environment gives a warning (a
  *   login that reads as another identity, a sign-in refused as a duplicate)
  *   or the account's sign-in status changed; a relabel, an adoption, an
@@ -101,6 +102,8 @@ export interface EnvironmentNotices {
    * raised, since the resolution is not news.
    */
   settled(environmentId: string, sessionId: string, promptId: string): void;
+  /** A start supersedes the preceding drain, even when replayed as history. */
+  restarted(environmentId: string): void;
 }
 
 export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices => {
@@ -119,6 +122,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
   };
 
   return {
+    restarted(environmentId) {
+      notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "draining");
+    },
     heard(environmentId, event, context) {
       const parsed = EnvironmentNotice.safeParse(event);
       // A notice this client does not know (a newer environment's), or one that is not a notice at all (a client-addressed call), raises nothing.
@@ -136,6 +142,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         }
         case "environment.draining":
+          if (notices.list.read().some((notice) => notice.environmentId === environmentId && notice.kind === "draining")) return;
           raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });
           return;
         case "account.updated": {
