@@ -365,7 +365,7 @@ describe("the hand-off offer and picker", () => {
 });
 
 describe("sign-in", () => {
-  it("adds an account on the sign-in card: the URL opened through openExternal, the code sent, the fallback command shown, and its end in one line", async () => {
+  it("lets the local provider browser complete without opening its manual-code URL, with a paste fallback", async () => {
     const { app, env } = await opened();
     await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: "Add an account…" }));
     const card = await screen.findByRole("dialog", { name: "Add an account on desk" });
@@ -376,12 +376,13 @@ describe("sign-in", () => {
 
     env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=abc" });
     await within(signing).findByText("https://claude.ai/oauth/authorize?code=true&state=abc");
-    await waitFor(() => expect(app.shell.calls).toContainEqual(["openExternal", "https://claude.ai/oauth/authorize?code=true&state=abc"]));
+    expect(app.shell.calls.filter(([method]) => method === "openExternal")).toEqual([]);
+    expect(within(signing).getByText(/Finish signing in in the browser on this machine/)).toBeDefined();
     expect(within(signing).getByText("Or run this in a terminal on desk's machine:")).toBeTruthy();
     expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/3' claude auth login")).toBeTruthy();
 
-    await app.user.type(within(signing).getByRole("textbox", { name: "Then paste the code it shows" }), "  abc-123  {Enter}");
-    await waitFor(() => expect(sent(env, "accounts.signin.code")).toEqual([expect.objectContaining({ accountId: "account-3", code: "abc-123" })]));
+    await app.user.type(within(signing).getByRole("textbox", { name: "Then paste the code it shows" }), "  abc-123#abc  {Enter}");
+    await waitFor(() => expect(sent(env, "accounts.signin.code")).toEqual([expect.objectContaining({ accountId: "account-3", code: "abc-123#abc" })]));
     await within(signing).findByText("Checking the code…");
 
     env.signIn("done");
