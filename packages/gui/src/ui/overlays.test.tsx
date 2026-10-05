@@ -6,6 +6,7 @@ import { MenusScene, geometry as menusGeometry } from "../../gallery/scenes/menu
 import { Toaster, toast } from "./toaster.js";
 import { CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList } from "./command.js";
 import { SelectMenu, SelectMenuContent, SelectMenuItem, SelectMenuTrigger, SelectMenuValue } from "./select-menu.js";
+import { Popover, PopoverContent, PopoverTrigger } from "./popover.js";
 import { Tooltip, TooltipProvider } from "./tooltip.js";
 import { describe, expect, it, vi } from "vitest";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogTrigger, Dialog, DialogContent, DialogTrigger } from "./dialog.js";
@@ -74,7 +75,65 @@ describe("window overlays", () => {
       expect(screen.queryByRole("tooltip")).toBeNull();
       act(() => vi.advanceTimersByTime(250));
       expect(screen.getByRole("tooltip").textContent).toBe("First hint");
+    } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
+  it("does not leave a tooltip over the page after touch focus or synthetic hover", () => {
+    vi.useFakeTimers();
+    const original = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(hover: none)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+    try {
+      render(<Tooltip content="Show sessions"><button>Sessions</button></Tooltip>);
+      const trigger = screen.getByRole("button", { name: "Sessions" });
+      const pointer = (type: string, pointerType: string) => {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, "pointerType", { value: pointerType });
+        fireEvent(trigger, event);
+      };
+      pointer("pointerdown", "touch");
+      pointer("pointerup", "touch");
+      act(() => vi.advanceTimersByTime(1));
+      act(() => trigger.focus());
+      pointer("pointermove", "mouse");
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      fireEvent.keyDown(trigger, { key: "Tab" });
+      fireEvent.blur(trigger);
+      fireEvent.focus(trigger);
+      expect(screen.getByRole("tooltip").textContent).toBe("Show sessions");
+    } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
+  it("restores keyboard hints when Tab returns from a different control after touch", () => {
+    vi.useFakeTimers();
+    try {
+      render(<><Tooltip content="Show sessions"><button>Sessions</button></Tooltip><button>Elsewhere</button></>);
+      const trigger = screen.getByRole("button", { name: "Sessions" });
+      const touch = new Event("pointerdown", { bubbles: true });
+      Object.defineProperty(touch, "pointerType", { value: "touch" });
+      fireEvent(trigger, touch);
+      fireEvent.pointerUp(document);
+      act(() => vi.advanceTimersByTime(1));
+      act(() => trigger.focus());
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+      act(() => elsewhere.focus());
+      fireEvent.keyDown(elsewhere, { key: "Tab", shiftKey: true });
+      act(() => trigger.focus());
+      expect(screen.getByRole("tooltip").textContent).toBe("Show sessions");
     } finally { vi.useRealTimers(); }
+  });
+
+  it("keeps touch-driven popover autofocus from opening another control's tooltip", async () => {
+    const user = userEvent.setup();
+    render(<Popover><Tooltip content="Usage details"><PopoverTrigger>Usage details</PopoverTrigger></Tooltip><PopoverContent aria-label="Usage details">
+      <Tooltip content="Refresh usage · Enter to refresh"><button>Refresh usage</button></Tooltip>
+    </PopoverContent></Popover>);
+    const trigger = screen.getByRole("button", { name: "Usage details" });
+    await user.pointer([{ keys: "[TouchA>]", target: trigger }, { keys: "[/TouchA]" }]);
+    const refresh = await screen.findByRole("button", { name: "Refresh usage" });
+    await waitFor(() => expect(document.activeElement).toBe(refresh));
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("keeps background shortcuts from receiving keys typed inside a modal", async () => {

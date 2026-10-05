@@ -1,3 +1,4 @@
+import { phoneFrameSmoke as phoneSafeAreaSmoke } from "./phone-frame-smoke.js";
 import { phoneDocument, phoneFrameSmoke, phonePaneSmoke, phoneReconnectSmoke, reachable } from "../test/web-client/phone-surfaces.js";
 import { phoneFallback } from "../test/web-client/phone-fallback.js";
 import { phoneRefusalSmoke } from "./phone-refusal-smoke.js";
@@ -96,7 +97,7 @@ try {
     const fallback = await phoneFallback(environment);
     const { id: sessionId } = await create(admin, { workspace: { kind: "directory", path: workspace }, title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
     const browser = await engine.launch(name === "chromium" ? { channel: "chromium", args: ["--ignore-certificate-errors"] } : {});
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, ignoreHTTPSErrors: true });
     try {
       let page = await context.newPage();
       page.setDefaultTimeout(60_000);
@@ -120,6 +121,7 @@ try {
       await auditPublicCache(page, name, "initial installation");
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
+      await phoneSafeAreaSmoke(page, name);
       await page.getByRole("button", { name: "Show sessions", exact: true }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).waitFor({ state: "hidden" });
@@ -186,7 +188,7 @@ try {
       const own = pairingPreset("own-client");
       const ownCode = await environment.createPairing({ scopes: own.scopes, ceiling: own.ceiling });
       // An independent browser storage context proves this separately minted grant.
-      const ownContext = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+      const ownContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, ignoreHTTPSErrors: true });
       const ownPage = await ownContext.newPage();
       ownPage.setDefaultTimeout(60_000);
       await ownPage.goto(ownCode.link);
@@ -200,6 +202,7 @@ try {
       await expect(ownPage.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused({ timeout: 60_000 });
       await expect(ownPage.locator("[data-header-session-title]")).toHaveText(`Hosted phone conversation (${name})`, { timeout: 60_000 });
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      await phoneSafeAreaSmoke(ownPage, `${name} full grant`);
       await phonePaneSmoke(ownPage, name, environment, sessionId, () => previewRequests);
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });

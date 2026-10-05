@@ -142,15 +142,22 @@ On the environment machine, run one of these with the packaged CLI or the
 installed `agent-harness` shim, as the environment's OS user:
 
 ```sh
-agent-harness pair --preset phone
-# Or deliberately grant full access to your own phone:
+# Everything for your own devices, a phone included:
 agent-harness pair --preset own-client
+# Or choose restricted access:
+agent-harness pair --preset phone
 ```
 
 | Choice | What the phone receives |
 | --- | --- |
-| **Phone** | `read`, `sessions:write`, `runs:drive`; ceiling `acceptEdits`. Sessions, prompts and permission answers, without terminal or admin authority. |
-| **My own client** (`own-client`) | Every scope and ceiling `bypassPermissions`, including terminal and admin. A valid choice for your own phone when you want full access. |
+| **My own client — everything for my own devices (phone included)** (`own-client`) | Every scope: read and organise sessions, drive runs and answer prompts, use terminals, files and diffs, and administer the environment. Ceiling `bypassPermissions`: run without permission checks; the denylist still applies. |
+| **Phone — restricted** (`phone`) | `read`, `sessions:write`, `runs:drive`: read and organise sessions, drive runs and answer prompts, without terminal or admin authority. Ceiling `acceptEdits`: accept file edits; ask before other actions when the provider supports it. Bypass permissions is unavailable. |
+| **Custom** (`custom`) | Choose scopes and a ceiling to raise or lower access for a single pairing, within the minter's grant. Defaults to `read` (read sessions) and `plan` (plan without making changes). |
+
+In Settings → Your machines → Pair another client, My own client is listed
+first and selected by default when your current client can grant it. Choose
+it for everything on your own phone; Phone is the restricted choice. Custom
+can raise or lower the scopes and ceiling of the new pairing.
 
 Open the printed link or scan its QR with the phone's camera. Codes last ten
 minutes and work once. Check the displayed scopes and ceiling: an existing

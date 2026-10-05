@@ -172,7 +172,7 @@ describe("a pairing code by preset", () => {
 
   it("mints my own client's, preset, with every scope and bypassPermissions explicit, and shows what it grants beside it with its countdown", async () => {
     const { app, part, laptop } = await pairingOn();
-    expect(within(part).getByRole("radio", { name: "My own client" }).getAttribute("aria-checked")).toBe("true");
+    expect(within(part).getByRole("radio", { name: "My own client — everything for my own devices (phone included)" }).getAttribute("aria-checked")).toBe("true");
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
     const code = await minted(part);
     expect(laptop.requests("access.pairings.create").at(-1)?.params).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
@@ -213,7 +213,7 @@ describe("a pairing code by preset", () => {
 
   it("dims my own client, with why, where this client's own ceiling is acceptEdits, presetting a program's, and each ceiling above its own", async () => {
     const { app, part, laptop } = await pairingOn({ hello: { ceiling: "acceptEdits" } });
-    const own = within(part).getByRole("radio", { name: "My own client" }) as HTMLInputElement;
+    const own = within(part).getByRole("radio", { name: "My own client — everything for my own devices (phone included)" }) as HTMLInputElement;
     await waitFor(() => expect(own.disabled).toBe(true));
     expect(within(part).getByText("Above this client's own ceiling on laptop, acceptEdits: a pairing code grants at most its minter's.")).toBeDefined();
     expect(within(part).getByRole("radio", { name: "A program" }).getAttribute("aria-checked")).toBe("true");
