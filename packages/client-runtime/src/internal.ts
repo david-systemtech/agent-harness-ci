@@ -83,6 +83,9 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     seams: registry.seams,
     records: registry.list,
     report,
+    environmentSnapshotted(environmentId, status) {
+      if (status?.readiness === "ready") environmentNotices.ready(environmentId);
+    },
     applied(environmentId, stream, event, news) {
       // Session completion events refresh diffs even during replay, and when another Client performed the undo.
       if (stream.startsWith("session.") && event.type === "files.undo-finished") requestCache.sessionChanged(environmentId, event.streamId, event.type);

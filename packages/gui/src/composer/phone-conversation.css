@@ -5,7 +5,8 @@
     display: flex;
     flex-direction: column;
     max-height: calc(100% - 44px);
-    overflow: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   [data-web-client] [data-composer-above] {
     flex-shrink: 1;

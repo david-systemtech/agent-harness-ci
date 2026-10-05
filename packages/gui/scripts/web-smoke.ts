@@ -1,3 +1,4 @@
+import { phoneRefusalSmoke } from "./phone-refusal-smoke.js";
 import { phonePushGateway, phonePushSmoke } from "./phone-push-smoke.js";
 import { webOriginSmoke } from "./web-origin-smoke.js";
 import { auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
@@ -13,7 +14,7 @@ import { chromium, webkit } from "playwright";
 import { pairingPreset, ClientSessionCredential } from "@agent-harness/contracts";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { create } from "../../environment/test/sessions.js";
-import { fakeAdapter, end, say } from "../../environment/test/fake-adapter.js";
+import { fakeAdapter, end, say, signedInAs } from "../../environment/test/fake-adapter.js";
 import type { Address } from "../../environment/src/serve/http.js";
 
 // No shared-box browser or environment process; this executable belongs to hosted CI alone.
@@ -126,6 +127,10 @@ try {
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      await phoneRefusalSmoke(page, name, output, async signedIn => {
+        adapter.setStatus(account => signedInAs(signedIn ? `${account.id}@example.com` : null));
+        await admin.request("accounts.refresh", { accountId: "claude-max" });
+      });
       try { await phoneInstallSmoke(page, bundle, name, available => { originAvailable = available; }); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
       const credential = credentials[0]; assert(credential, "The browser completed pairing.");

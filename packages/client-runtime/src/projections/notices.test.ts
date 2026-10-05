@@ -128,6 +128,32 @@ describe("the notices from the environment's stream", () => {
     expect(runtime.projections.notices.read().map((notice) => notice.kind)).toEqual(["draining"]);
   });
 
+  it.each([0, 2002])("retires only the recovered environment's drain when a ready snapshot resets its cursor to %s", async (sequence) => {
+    const { runtime, clock, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }, { name: "laptop" }] });
+    const [desk, laptop] = environments as [ScriptedEnvironment, ScriptedEnvironment];
+    const env = desk.wire.environmentId;
+    for (const environment of environments) environment.notices.event(noticeEvent(1, environment.wire.environmentId, "environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" }));
+    desk.notices.event(noticeEvent(2, env, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
+    await flush();
+    desk.wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await desk.wire.server.accept();
+    (await subscription(desk.wire, "sessions.subscribe")).synchronized(1);
+    const resumed = await subscription(desk.wire, "environment.subscribe");
+    resumed.snapshot(sequence, { sequence, status: { readiness: "draining", activity: { state: "idle" }, updatesManagedOutside: false } });
+    await flush();
+    expect(runtime.projections.notices.read()).toHaveLength(3);
+    resumed.snapshot(sequence, { sequence, status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } });
+    resumed.synchronized(sequence);
+    await flush();
+    expect(runtime.projections.environments.read().find((view) => view.environmentId === env)?.phase).toBe("ready");
+    expect(runtime.projections.notices.read().map(({ environmentId, kind }) => ({ environmentId, kind }))).toEqual([
+      { environmentId: laptop.wire.environmentId, kind: "draining" },
+      { environmentId: env, kind: "updated" },
+    ]);
+  });
+
   it("say it is draining, an account's warning and a prompt parked, each once, as news", async () => {
     const { runtime, desk, env } = await oneEnvironment();
     desk.notices.event(noticeEvent(1, env, "environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" }));

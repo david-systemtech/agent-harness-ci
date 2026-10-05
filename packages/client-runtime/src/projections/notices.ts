@@ -104,6 +104,8 @@ export interface EnvironmentNotices {
   settled(environmentId: string, sessionId: string, promptId: string): void;
   /** A start supersedes the preceding drain, even when replayed as history. */
   restarted(environmentId: string, sequence: number): void;
+  /** A ready snapshot supersedes drains even when the log head has been reset. */
+  ready(environmentId: string): void;
 }
 
 export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices => {
@@ -124,6 +126,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
   };
 
   return {
+    ready(environmentId) {
+      notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "draining");
+    },
     restarted(environmentId, sequence) {
       notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "draining" && (drainingSequences.get(notice) ?? Infinity) < sequence);
     },
