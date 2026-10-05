@@ -12,8 +12,7 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-  /* The surrounding region scrolls; a viewport clamp would clip pinned decisions. */
-  [data-web-client] [aria-label="Parked prompt"] { max-height: none; overflow-wrap: anywhere; }
+  [data-web-client] [aria-label="Parked prompt"] { overflow-wrap: anywhere; }
   [data-web-client] [aria-label="Parked prompt"] header { flex-wrap: wrap; }
   [data-web-client] [aria-label="Parked prompt"] button { height: auto; max-width: 100%; flex-wrap: wrap; white-space: normal; }
   [data-web-client] [data-prompt-choice] { max-width: 100%; flex-wrap: wrap; }

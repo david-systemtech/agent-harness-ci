@@ -28,7 +28,11 @@ const noOverflow = async (page: Page): Promise<void> => {
 
 export const reachable = async (page: Page, control: Locator): Promise<void> => {
   await expect(control).toBeVisible();
-  await expect(control).toBeInViewport({ ratio: 1 });
+  try { await expect(control).toBeInViewport({ ratio: 1 }); }
+  catch (error) {
+    console.error(`PHONE-CLIP ${await page.evaluate<string>("JSON.stringify(Array.from(document.querySelectorAll('[data-web-client], [data-composer-column], [data-composer-above], [aria-label=\"Parked prompt\"], [aria-label=\"Allow once\"], [aria-label=\"Permission decision\"]')).map(element => { const style = getComputedStyle(element); return { name: element.getAttribute('aria-label') ?? element.tagName, attributes: Array.from(element.attributes).filter(attribute => attribute.name.startsWith('data-')).map(attribute => attribute.name), box: element.getBoundingClientRect().toJSON(), height: element.clientHeight, scrollHeight: element.scrollHeight, scrollTop: element.scrollTop, overflow: style.overflow, minHeight: style.minHeight, maxHeight: style.maxHeight, flex: style.flex }; }))")}`);
+    throw error;
+  }
   await expect.poll(async () => {
     const box = await control.boundingBox();
     const viewport = page.viewportSize();
