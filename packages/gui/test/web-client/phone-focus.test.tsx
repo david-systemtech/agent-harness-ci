@@ -22,10 +22,13 @@ it("keeps Tab inside the browser session drawer after Settings and More dismiss"
   await user.click(screen.getByRole("button", { name: "Close Settings" }));
   for (let opening = 0; opening < 2; opening++) {
     const trigger = screen.getByRole("button", { name: "More" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
     await user.click(trigger);
     await screen.findByRole("menu");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
     await user.click(trigger);
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   }
   for (let opening = 0; opening < 3; opening++) {
     const trigger = screen.getByRole("button", { name: "Show sessions" });

@@ -67,7 +67,9 @@ const revealMenuRow = async (page: Page, target: string | number): Promise<void>
 
 /** Inspect the real menu after scrolling each action, including disabled grant explanations. */
 const phoneMoreSmoke = async (page: Page): Promise<void> => {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  const trigger = page.getByRole("button", { name: "More", exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible();
   for (const name of ["Terminal", "Browser", "Split right", "Split down"]) {
@@ -111,7 +113,9 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
   for (const name of ["Files", "Diff", "Terminal", "Browser", "Split right", "Split down"]) {
     await expect(page.getByRole("menuitem", { name, exact: true })).toHaveAttribute("aria-disabled", "true");
   }
-  await page.keyboard.press("Escape");
+  // Dismiss the initial grant-check menu too: a tooltip can consume Escape.
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await expect(page.getByRole("menu")).toBeHidden();
   for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }, { width: 390, height: 460 }]) {
     await page.setViewportSize(viewport);
     for (const colorScheme of ["dark", "light"] as const) {

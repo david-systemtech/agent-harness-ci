@@ -81,7 +81,7 @@ const environment = await startTestEnvironment({ adapter, webOrigin: origin, web
 upstream = environment.address;
 try {
   const admin = await environment.client();
-  for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
+  for (const [name, engine] of [["webkit", webkit], ["chromium", chromium]] as const) {
     publicRequests.length = 0;
     const workspace = join(output, `phone-workspace-${name}`); mkdirSync(workspace);
     const fallback = await phoneFallback(environment);
