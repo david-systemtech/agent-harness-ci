@@ -36,6 +36,38 @@ const bannerSaying = async (text: string) => {
 };
 
 describe("a notice", () => {
+  it("uses the Settings host as the only notice scrollport and restores the window scrollport on close", async () => {
+    const shell = fakeShell();
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ label: "Personal" }] }] }, { shell });
+    const desk = app.environment("desk");
+    await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
+    desk.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
+    await bannerSaying("desk is draining");
+    expect(bannerList().classList.contains("overflow-y-auto")).toBe(true);
+    await app.user.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    const notices = within(settings).getByRole("region", { name: "Notifications" });
+    const host = notices.parentElement as HTMLElement;
+    expect(host.classList.contains("overflow-y-auto")).toBe(true);
+    expect(host.classList.contains("max-h-[40%]")).toBe(true);
+    expect(notices.classList.contains("overflow-y-auto")).toBe(false);
+    expect(notices.className).not.toMatch(/max-h-/);
+    // Both notice feeds share the host's budget; the Settings pane keeps its own scrollport.
+    await act(async () => shell.changeSecretAccess("denied"));
+    const credentials = within(settings).getByRole("region", { name: "Credential access" });
+    expect(credentials.parentElement).toBe(host);
+    expect(settings.querySelector("[data-settings-scroll]")?.classList.contains("overflow-y-auto")).toBe(true);
+    await app.user.click(within(notices).getByRole("button", { name: "Dismiss" }));
+    expect(within(settings).queryByRole("region", { name: "Notifications" })).toBeNull();
+    await app.user.click(within(credentials).getByRole("button", { name: "Dismiss" }));
+    expect(host.childElementCount).toBe(0);
+    await app.user.click(within(settings).getByRole("button", { name: "Close Settings" }));
+    desk.notice("environment.updated", { fromVersion: "0.5.0", toVersion: "0.5.1" });
+    await bannerSaying("updated");
+    expect(bannerList().classList.contains("overflow-y-auto")).toBe(true);
+    expect(bannerList().classList.contains("max-h-[40%]")).toBe(true);
+  });
+
   it("waits for sustained credential access, cancelling the banner when a routine read settles", async () => {
     const shell = fakeShell();
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });

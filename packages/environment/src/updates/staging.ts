@@ -1,10 +1,10 @@
-import { removeTreeSync } from "@agent-harness/filesystem";
+import { removeTreeSync, requireCopyRoom } from "@agent-harness/filesystem";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { cp, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { ARTEFACT_CLI_ENTRY, ARTEFACT_CLI_PACKAGE, artefactNode } from "@agent-harness/contracts";
+import { ARTEFACT_CLI_ENTRY, ARTEFACT_CLI_PACKAGE, artefactNode, DATABASE_FILE, INSTALL_RESERVE_BYTES } from "@agent-harness/contracts";
 import { stagingArea } from "../serve/launcher-files.js";
 
 /**
@@ -133,6 +133,13 @@ export const stageArtefact = async (options: {
   if (unusable !== undefined) throw new StagingError("unusable", `${artefact} is not a server artefact of ${version}: ${unusable}.`);
   const area = stagingArea(dataDir);
   mkdirSync(area, { recursive: true, mode: 0o700 });
+  if (shape === "folder") {
+    try {
+      requireCopyRoom(artefact, dataDir, DATABASE_FILE, INSTALL_RESERVE_BYTES);
+    } catch (cause) {
+      throw new StagingError("unusable", cause instanceof Error ? cause.message : String(cause), { cause });
+    }
+  }
   const partial = join(area, `.${version}-${randomUUID()}`);
   mkdirSync(partial, { mode: 0o700 });
   try {

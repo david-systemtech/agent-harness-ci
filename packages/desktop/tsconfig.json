@@ -7,5 +7,5 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "references": [{ "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }]
+  "references": [{ "path": "../contracts" }, { "path": "../filesystem" }, { "path": "../client-runtime" }, { "path": "../theme" }]
 }

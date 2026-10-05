@@ -75,18 +75,20 @@ process.on("message", (raw) => {
       if (behaviour === "crash-after-commit") process.exit(3);
       // Something the launcher does not know goes first: it must pass it over and still answer.
       process.send?.({ type: "no-such-message" });
-      if (switchTo !== undefined) return send({ type: "switch?", id: SWITCH_ID, updateId: switchTo.updateId, version: switchTo.version });
       if (install !== undefined) return send({ type: "install?", id: INSTALL_ID, ...install });
+      if (switchTo !== undefined) return send({ type: "switch?", id: SWITCH_ID, updateId: switchTo.updateId, version: switchTo.version });
       return send({ type: "versions?", id: 1 });
     case "installed":
     case "refused":
     case "switching":
       if (install !== undefined && message.id === INSTALL_ID) {
-        return report("install-answered", {
+        report("install-answered", {
           answer: message,
           complete: existsSync(join(versionDirectory(dataDir, install.version), VERSION_SENTINEL)),
           staged: existsSync(install.staged),
         });
+        if (message.type === "installed" && switchTo !== undefined) return send({ type: "switch?", id: SWITCH_ID, updateId: switchTo.updateId, version: switchTo.version });
+        return;
       }
       if (message.type === "installed" || message.id !== SWITCH_ID) return;
       if (message.type === "switching") report("switching", { pendingUpdate: serviceState()["pendingUpdate"] });

@@ -1,5 +1,6 @@
+import { snapshotNeeds as databaseSnapshotNeeds } from "@agent-harness/filesystem";
 import * as nodeFs from "node:fs";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATABASE_FILE, INSTALL_RESERVE_BYTES, isOutcomeRecord, OUTCOME_RECORD_FILE, RESTORE_MARKER_FILE, UPDATE_ID_PATTERN, type OutcomeRecord } from "@agent-harness/contracts/launcher";
 import { createFileDurably, syncDirectory, syncFile, writeFileDurably, type DurableFs } from "./durable.js";
@@ -74,7 +75,7 @@ export const hasSnapshot = (dataDir: string, updateId: string): boolean => exist
 
 /** The free bytes a snapshot of the database in `dataDir` needs: the size of its files, and the margin. */
 export const snapshotNeeds = (dataDir: string): number =>
-  DATABASE_FILES.reduce((bytes, name) => bytes + (statSync(join(dataDir, name), { throwIfNoEntry: false })?.size ?? 0), SNAPSHOT_MARGIN_BYTES);
+  databaseSnapshotNeeds(dataDir, DATABASE_FILE, SNAPSHOT_MARGIN_BYTES);
 
 /**
  * Snapshots the database in `dataDir` for the update `updateId`, once:

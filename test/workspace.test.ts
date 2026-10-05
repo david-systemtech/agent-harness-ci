@@ -105,6 +105,7 @@ describe("the workspace", () => {
     expect(deps.filter((d) => workspace.has(d)).sort()).toEqual([
       "@agent-harness/client-runtime",
       "@agent-harness/contracts",
+      "@agent-harness/filesystem",
       "@agent-harness/gui",
       "@agent-harness/theme",
     ]);

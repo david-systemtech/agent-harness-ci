@@ -109,7 +109,7 @@ export const bundledServerWords = (bundled: BundledServerView, environment: stri
     case "handed-over":
       return `${environment} took the bundled ${bundled.version}: it updates once it is idle.`;
     case "failed":
-      return bundled.version === null ? bundled.message : `${environment} did not take the bundled ${bundled.version}: ${bundled.message}`;
+      return bundled.version === null ? bundled.message : `Could not install the bundled ${bundled.version} for ${environment}: ${bundled.message}`;
   }
 };
 

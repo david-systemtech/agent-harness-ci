@@ -1,6 +1,6 @@
 import type { PendingUpdate } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { drainableUpdate, offersClientVersion, pendingUpdateWords } from "./words.js";
+import { bundledServerWords, drainableUpdate, offersClientVersion, pendingUpdateWords } from "./words.js";
 
 /**
  * What the update controls say of a pending update, when a client offers
@@ -63,4 +63,9 @@ describe("the update Drain and update now takes", () => {
     expect(drainableUpdate({ state: "switching", ...PENDING, cause: "requested" })).toBeNull();
     expect(drainableUpdate({ state: "blocked", reason: "launcher", toVersion: "0.6.0", message: "It needs a newer launcher." })).toBeNull();
   });
+});
+
+it("describes a bundled install refusal without attributing it to an environment that may never have been asked", () => {
+  expect(bundledServerWords({ state: "failed", version: "0.6.0", reason: "disk", message: "Free space and retry." }, "desk"))
+    .toBe("Could not install the bundled 0.6.0 for desk: Free space and retry.");
 });

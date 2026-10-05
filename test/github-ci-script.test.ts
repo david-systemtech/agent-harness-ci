@@ -1160,7 +1160,8 @@ it("publishes and accepts older combined reports including all frame phone profi
   const g = await storedGallery();
   const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = [...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`), "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).captures.map(c => c.name)));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
-  expect(names.filter(name => !name.startsWith("phone-frame-"))).toHaveLength(402);
+  // This older combined format must keep working beyond one 400-capture report's limit as desktop scenes are added.
+  expect(names.filter(name => !name.startsWith("phone-frame-")).length).toBeGreaterThan(400);
   expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);
   await g.capture(230, names.length, names);
   await run("python3", ["-c", `import json,sys,zipfile

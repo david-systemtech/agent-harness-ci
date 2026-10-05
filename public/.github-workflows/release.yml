@@ -368,6 +368,7 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'desktop/agent-harness-desktop-win32-x64-setup.exe').Path -Destination (Join-Path $work 'desktop')
             New-Item -ItemType Directory -Path (Join-Path $work 'scripts') -Force | Out-Null
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-extension.mjs').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-update-disk.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
             $smoke = @'
@@ -401,6 +402,8 @@ jobs:
           if (!(Test-Path (Join-Path $server "node_modules\@agent-harness\contracts\package.json"))) { throw 'The installed server lacks contracts' }
           $node = Join-Path $server "node\node.exe"
           $cli = Join-Path $server "packages\cli\dist\main.js"
+          & $node scripts/check-packaged-update-disk.mjs $server
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged update disk check failed' }
           $version = & $node $cli --version
           if ($LASTEXITCODE -ne 0 -or $version -ne "agent-harness $env:VERSION") { throw "Unexpected version: $version" }
           $status = (& $node $cli service status 2>&1 | Out-String)
@@ -607,6 +610,7 @@ jobs:
           codesign --verify --deep --strict "unzipped/agent-harness.app"
           server=unzipped/agent-harness.app/Contents/Resources/server
           test -f "$server/node_modules/@agent-harness/contracts/package.json"
+          "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?
@@ -749,6 +753,7 @@ jobs:
           bsdtar -xf desktop/agent-harness-desktop-linux-x64.pacman -C unpacked
           server=unpacked/opt/agent-harness/resources/server
           test -f "$server/node_modules/@agent-harness/contracts/package.json"
+          "$server/node/bin/node" scripts/check-packaged-update-disk.mjs "$server"
           test "$("$server/node/bin/node" "$server/packages/cli/dist/main.js" --version)" = "agent-harness $VERSION"
           code=0
           status=$("$server/node/bin/node" "$server/packages/cli/dist/main.js" service status 2>&1) || code=$?

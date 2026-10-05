@@ -1,13 +1,18 @@
-import { writeFileSync } from "node:fs";
+import { statfsSync, writeFileSync } from "node:fs";
 import { readFile, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
+import { DATABASE_FILE } from "@agent-harness/contracts/launcher";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeArtefact } from "../test/fake-artefact.js";
 import { fakeElectron } from "../test/fake-electron.js";
 import { cleanUp, platformOn, start } from "../test/harness.js";
 
-afterEach(cleanUp);
+vi.mock("node:fs", async (original) => {
+  const fs = await original<{ statfsSync: typeof statfsSync }>();
+  return { ...fs, statfsSync: vi.fn(fs.statfsSync) };
+});
+afterEach(() => { cleanUp(); vi.mocked(statfsSync).mockReset(); });
 
 vi.mock("node:fs/promises", async (original) => {
   const fs = await original<{ readFile: typeof readFile; statfs: typeof statfs }>();
@@ -35,6 +40,32 @@ describe("installer", () => {
       bavail: path === platform.paths.environment ? 48795 : 0, files: 0, ffree: 0,
     }));
     expect(await shell().installer.reserveSpace!()).toEqual({ availableBytes: 199864320, requiredBytes: 268435456 });
+  });
+
+
+  it("refuses handing a bundle to an older installed environment before that environment can consume the snapshot reserve", async () => {
+    const artefact = fakeArtefact("linux");
+    const { shell, platform } = await carrying("linux", artefact.root);
+    writeFileSync(join(platform.paths.environment, "service-state.json"), JSON.stringify({ activeVersion: "0.4.0" }));
+    writeFileSync(join(platform.paths.environment, DATABASE_FILE), "user data");
+    vi.mocked(statfsSync).mockReturnValue({ ...statfsSync(platform.paths.environment), bsize: 4096, bavail: 65536 });
+    expect(await shell().installer.bundledServer()).toEqual({
+      version: "0.5.0", path: artefact.root,
+      refusal: { reason: "disk", message: expect.stringMatching(/disk space.*staging.*snapshot/i) as unknown as string },
+    });
+    vi.mocked(statfsSync).mockReturnValue({ ...statfsSync(platform.paths.environment), bsize: 4096, bavail: 262144 });
+    expect(await shell().installer.bundledServer()).toEqual({ version: "0.5.0", path: artefact.root });
+    vi.mocked(statfsSync).mockReturnValue({ ...statfsSync(platform.paths.environment), bsize: 4096, bavail: 65536 });
+    writeFileSync(join(platform.paths.environment, "service-state.json"), JSON.stringify({ activeVersion: "0.5.0" }));
+    expect(await shell().installer.bundledServer()).toEqual({ version: "0.5.0", path: artefact.root });
+  });
+
+  it("keeps filesystem probe errors as shell failures rather than disk-space refusals", async () => {
+    const artefact = fakeArtefact("linux");
+    const { shell, platform } = await carrying("linux", artefact.root);
+    writeFileSync(join(platform.paths.environment, "service-state.json"), JSON.stringify({ activeVersion: "0.4.0" }));
+    vi.mocked(statfsSync).mockImplementationOnce(() => { throw new Error("EACCES: data volume unavailable"); });
+    await expect(shell().installer.bundledServer()).rejects.toThrow("EACCES: data volume unavailable");
   });
 
   it("answers the version and the path of the server artefact the desktop carries, on every platform", async () => {

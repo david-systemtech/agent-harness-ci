@@ -27,6 +27,8 @@ const execute = async (exitCode: number) => {
     join(scratch, "scripts/check-packaged-extension.mjs"));
   copyFileSync(join(import.meta.dirname, "../scripts/stop-windows-process-tree.ps1"),
     join(scratch, "scripts/stop-windows-process-tree.ps1"));
+  copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-update-disk.mjs"),
+    join(scratch, "scripts/check-packaged-update-disk.mjs"));
   writeFileSync(join(scratch, "scripts/install.ps1"), "fixture installer");
   const harness = join(scratch, "harness.ps1");
   writeFileSync(harness, `
@@ -56,6 +58,7 @@ function Start-Process {
   if ($Credential.UserName -notlike "*\\$script:user") { throw 'Smoke credential does not name the created user' }
   if ($ArgumentList -match [regex]::Escape($Credential.GetNetworkCredential().Password)) { throw 'Password reached process arguments' }
   if ((Get-Content -Raw (Join-Path $WorkingDirectory 'install.ps1')) -ne 'fixture installer') { throw 'The public installer was not staged for the ordinary user' }
+  if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/check-packaged-update-disk.mjs'))) { throw 'The disk smoke was not staged for the ordinary user' }
   $child = Join-Path $WorkingDirectory 'smoke.ps1'
   Copy-Item $child $env:CHILD_COPY
   Set-Content $RedirectStandardOutput 'ordinary-user child output'
