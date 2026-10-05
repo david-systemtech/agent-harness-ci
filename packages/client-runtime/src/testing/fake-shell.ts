@@ -39,6 +39,7 @@ export interface ShellFunctions {
   "dialogs.openFileContents": ShellDialogs["openFileContents"];
   "dialogs.openDirectory": ShellDialogs["openDirectory"];
   "dialogs.save": ShellDialogs["save"];
+  "window.zoom": NonNullable<ShellWindow["zoom"]>;
   "window.minimize": NonNullable<ShellWindow["minimize"]>;
   "window.toggleMaximize": NonNullable<ShellWindow["toggleMaximize"]>;
   "window.close": NonNullable<ShellWindow["close"]>;
@@ -149,6 +150,7 @@ export const fakeShell = (): FakeShell => {
     "dialogs.openFileContents": async () => [],
     "dialogs.openDirectory": async () => undefined,
     "dialogs.save": async () => undefined,
+    "window.zoom": () => undefined,
     "window.minimize": () => undefined,
     "window.toggleMaximize": () => undefined,
     "window.close": () => undefined,
@@ -254,6 +256,7 @@ export const fakeShell = (): FakeShell => {
       save: recorded("dialogs.save"),
     },
     window: {
+      zoom: recorded("window.zoom"),
       minimize: recorded("window.minimize"),
       toggleMaximize: recorded("window.toggleMaximize"),
       close: recorded("window.close"),
