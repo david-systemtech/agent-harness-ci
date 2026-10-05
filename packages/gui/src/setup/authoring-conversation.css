@@ -33,7 +33,7 @@
 /* Keep a readable transcript above even the longest parked question. */
 [data-authoring-frame] div:has(> [aria-label="Transcript"]) { min-height: 44px; }
 
-[data-authoring-frame] [aria-label="Parked prompt"] { max-height: 60dvh; }
+[data-authoring-dialog] [data-authoring-frame] [aria-label="Parked prompt"] { max-height: 60dvh; }
 
 /* The authoring composer keeps its natural size; the prompt body yields the remaining space. */
-[data-authoring-frame] [data-composer-column] { flex-shrink: 0; max-height: none; overflow: visible; }
+[data-authoring-dialog] [data-authoring-frame] [data-dock-owner] [data-composer-column] { flex-shrink: 0; max-height: none; overflow: visible; }
