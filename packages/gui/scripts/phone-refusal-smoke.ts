@@ -4,7 +4,7 @@ import type { Locator, Page } from "playwright";
 import { expect } from "playwright/test";
 
 /** Hosted real-client regression for the keyboard-height refusal in #1325. */
-export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>): Promise<void> {
+export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, storedDraft: () => Promise<string | null>): Promise<void> {
   const original = page.viewportSize();
   const message = "Explain the receipt totals and retain the original rounding rule.\n".repeat(6);
   const field = page.getByRole("textbox", { name: "Message", exact: true });
@@ -54,6 +54,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await page.getByRole("button", { name: /^Send/ }).scrollIntoViewIfNeeded();
       await fits(page.getByRole("button", { name: /^Send/ }));
       await settings.click();
+      // Draft writes debounce; observe the save rather than racing it with navigation.
+      await expect.poll(storedDraft, { timeout: 60_000 }).toBe(message);
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await expect(field).toHaveValue(message);
