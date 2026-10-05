@@ -504,6 +504,14 @@ The By repository switch, environment headings, groups, shelves and restoration
 or pairing footer actions keep the GUI's registry and projection semantics.
 Footer rows use x 10/y 8,2xs/muted, hairline top and hover wash; no bug-report row.
 
+On a phone, the session drawer follows the shared web-frame visible height and
+offset, including a search keyboard. Opening Sessions focuses the drawer rather
+than its input. Tapping Filter keeps results in a bounded inner scroller with
+contained overscroll; Close, New session and footer actions remain visible.
+Search, scrolling and restored focus never jump the document. Selecting a row
+closes the drawer while retaining drafts and live work. Rows may grow at text 20;
+selected, running and waiting states and explicit touch actions stay readable.
+
 Rows use fixed 54px slots, headings 24, overscan 6. Row outer x 8/y 2, button fills
 available slot, md/x 8/y 6/gap 2. First line xs/18, gap 6:6px waiting amber dot
 outranks running cyan pulse, title truncates; trailing mono 2xs/faint relative
@@ -601,7 +609,23 @@ all rows for a streaming delta. Closed fold children are unmounted.
 Opening a session pins to end. Follow content growth while pinned; a user scroll
 up at least 48px away unpins; within 48px re-pins. Unpinned “Jump to latest” is
 centred 12px above bottom,24px outline pill/float/large scrim/40 shadow. Click
-pins directly; no smooth scroll. Search/jump centres row and unpins.
+pins directly; no smooth scroll. Search/jump centres row within its owning
+scroller and unpins; focus uses preventScroll and never pans ancestors.
+On phone composer focus or keyboard opening, explicitly repin the latest line
+after shell resizing. While pinned, observe scrollport as well as content
+resizing; after deliberate scroll up, streaming preserves the reading position.
+Browser-bar resizes after a focus-preserving keyboard close keep that reading
+position; repin only for focus or a subsequent keyboard opening.
+
+Phone web transcript selection also unpins following; later stream output keeps
+history text/ranges and the reading anchor intact. Jump to latest explicitly
+repins. Native selection/copy menus, long press, links and pinch zoom remain
+usable. Contain transcript/root boundary overscroll without a global touch
+blocker or swipe navigation. Uncapped code wells contain horizontal overscroll
+and pass vertical gestures to the transcript; capped
+input/detail wells are deliberate independently scrolling exceptions, with
+contained overscroll. Tool disclosure preserves per-call folds and cannot pan
+the outer page or dock.
 
 ### 10.2 Transcript recipes
 
@@ -702,6 +726,15 @@ mode remains legible. Unavailable stored model/mode amber with reason; absent
 capability is a disabled chip with explanatory tooltip. Live cyan dot; pending
 asks cyan question/amber permission with count; settled state absent.
 
+Below 640px, the Mode chip opens a mode-only bottom sheet bounded by the
+visual viewport, including keyboard height. Each 44px-or-larger row wraps its
+label and description, marks the current selection, and disables modes above
+the connection ceiling with its existing reason. Close stays visible while
+only the choices scroll; focus is trapped and restored. An allowed selection
+sends the existing mode command once and closes only on success. A failure
+stays visible with retry guidance and retains the current value. Dismissal
+keeps the draft, session and conversation scroll; the desktop menu remains.
+
 Rings encode **used** share.24px wrapper,36×36 drawing grid, stroke 4,
 start−90°, number fixed 9px (8px at 100), no percent glyph. Mint below 75%, amber
 at 75%, signal at 90%; tint 12% disc. Unknown reading dash and empty track;
@@ -720,26 +753,28 @@ why. Context row shows tokens/window or unknown scale. Pool plan usage by
 account identity across environments; distinct accounts do not manufacture
 extra capacity. Usage Settings uses the same readings and drawing.
 
-### 10.6 Environment, account and model picker
+### 10.6 Account, model and effort picker
 
 Improve the picker by making its dependencies visible. Use one popup opened
 from either account or model chip, top/start,10px radius/float/ring, padding 0.
 Columns divided by hairline, independent max 320px lists/padding 6. Stage 1 is
-Environment and account 224px; stage 2 Model 256px; stage 3 Effort 256px only when
-supported. Environment headings use 16px badge, name and reachability sentence;
-account rows beneath show 12px KeyRound or 8px swatch, label, identity, provider,
+Account 224px; stage 2 Model 256px; stage 3 Effort 256px only when
+supported. Choose the environment only in its environment chip. This popup
+shows only that environment's accounts, with no environment headings or choices.
+Account rows show 12px KeyRound or 8px swatch, label, identity, provider,
 sign-in state and plan pressure. Label xs/500, note 2xs/muted, x 10/y 8/gap 8.
 Selected wash, keyboard-focused wash-strong/ink with check indicator; disabled
 50% opacity and visible reason. Use stable account/environment identities, not
 list positions. “Add an account” opens inline sign-in for the chosen environment.
 
-Environment change refreshes accounts/models as a single dependency choice;
+Changing the environment chip refreshes accounts/models as a single dependency choice;
 retain explicit selection only where it remains valid. Do not silently pick a
 similarly labelled account on another environment. Keep unavailable saved
 choices visible with reason. An existing session's account is fixed: choosing
 another account offers the runtime's fork action with that consequence named;
 a live run cannot switch its environment/account/model. New-session choices
-remain from its projection. Environment health is an explanation, not repeated
+remain from its projection; an optional effort is sent with the first run only
+when the chosen model supports it. Environment health is an explanation, not repeated
 header warnings. Loading/error/empty for each column uses §14, with Refresh or
 Sign in as appropriate, without clearing a valid earlier selection.
 
@@ -752,8 +787,11 @@ popup open for follow-on selection. Optional footer fast toggle, permission /
 browser submenu, context and plan reading, plus Manage accounts/models link.
 Keyboard arrows/Home/End within lists, Tab between stages, Enter selects,
 Escape closes/returns focus. Below enough width for columns, stack the same
-stages inside a 512px-max bounded dialog, with Back retaining selections; no
-horizontal overflow. The gallery tests both the popup and narrow dialog.
+stages one at a time inside a 512px-max bounded dialog, with Back retaining
+selections. Below 640px it is a bottom sheet: account, then model, then effort
+only where supported. Rows are at least 44px high, labels wrap, and its lists
+scroll within the viewport, including at 360px wide and with the keyboard
+open. The gallery covers the desktop popup and all three phone sections.
 
 ## 11. Overlays
 
@@ -850,9 +888,11 @@ approval must record the adopted values before a surface relies on them.
 
 ### 12.1 Dialog and navigation
 
-Settings overlays the visible session window, width min(1000px,100vw−3rem),
-height min(660px,100dvh−3rem), with fixed 1000px/660px caps, centred, xl/float/ring, padding 0/overflow-hidden.
-At 1400×900 its CSS box is x 200..1200/y 120..780; a ring may paint one pixel
+Settings overlays the visible session window, centred, xl/float/ring, padding
+0/overflow-hidden. Below 1280px window width, keep width min(1000px,100vw−3rem)
+and height min(660px,100dvh−3rem). From 1280px, grow to width
+min(1440px,100vw−3rem) and height min(900px,100dvh−3rem). Phone geometry remains §17.
+At 1400×900 its CSS box is x 24..1376/y 24..876; a ring may paint one pixel
 outside. Header x 16/y 12, sm title,2xs muted explanation,24px Close. Say which
 changes apply to future runs; appearance changes paint immediately. Open focus
 in search. Mod+, Close and the existing Escape order close it; background keys
@@ -886,7 +926,15 @@ Unknown stored/deep-linked row follows registry fallback to Set up.
 
 ### 12.2 Body and building blocks
 
-Selected body scrolls independently; content max 768px, x 24/y 20. Reset body
+Selected body scrolls independently; content fills the available pane, x 24/y 20.
+Single forms and groups retain a 768px maximum reading width, including nested
+non-collection groups in panes that also hold card grids. Card collections
+(machines, banks, accounts, key managers, forges, routines, skill sources and
+members, repository trust records, usage, instructions and client sessions) use a responsive grid, gap 14,
+with as many equal columns as fit a 26rem minimum card width. Below that minimum,
+a card fills the available width; long facts wrap and controls fit their card.
+At the default text size, 1400×900 shows two 541px cards per row, while
+1024×768 keeps one 720px card per row. No pane scrolls horizontally. Reset body
 scroll on row change; preserve explicit setting anchors. Environment-scoped
 panes put the picker with their title; everywhere panes group by named/badged
 environment; client panes have no irrelevant picker. About pins client version
@@ -1128,7 +1176,7 @@ script, geometry expectations and baseline; surface tickets add separate files.
 | composer / status / run-picker | Slash/files, attachments, queue, stopping, unavailable account/model, high usage, narrow stages | Field min 44/max 35vh; send 28; chips 22/max 240; ring 24; independent picker lists max 320; no text overlap |
 | dock-panes | Files/file/Diff/terminal/browser/documents/tasks/agent/preview, empty/loading/error | Rail 40, tabs 28, header 30, min 240; narrow sheet ≤480 and 85% pane; invisible native view behind modal |
 | palette / dialogs / parked-asks / notices | Query/no-match/disabled, confirms and errors, long banners | Palette top third/default 384/max 620/list 352; dialogs 384/512/560; scrim blur 4; banners never cover composer |
-| settings | Each registered pane, scope picker, filtered nav, read-only/unreachable, long forms | Box≤1000×660 and viewport−3rem; nav 208; search 32; body≤768/x 24/y 20; selected row/focus and labels |
+| settings | Each registered pane, scope picker, filtered nav, read-only/unreachable, long forms | Box≤1440×900 at wide windows, ≤1000×660 below 1280px, and viewport−3rem; nav 208; search 32; forms≤768/x 24/y 20; responsive card grid; selected row/focus and labels |
 | first-run | Intro starting/failure/ready, all 11 steps, account gate, close confirmation, long card | Rail 280, number 18, choices≤620; footer visible with Back/Skip/Continue or Finish in both captures |
 | product-surfaces | Pairing, queue/fork/rewind/check, theme, shortcuts, banks/routines | Shared primitive dimensions, state labels and scope/command parity |
 
@@ -1163,6 +1211,16 @@ to wide mode; disable Split with a width reason. The existing below-900px
 pane-width dock rule becomes the side-column sheet, `min(480px, 85%)`. Closing
 or switching hides work without stopping a run, delegated task or terminal.
 Drawers/sheets trap and restore focus and close predictably.
+The session drawer consumes those shared visible bounds with no extra viewport
+observer. Open it onto a non-input focus target; only tapping Filter raises the
+search keyboard. Keep results scrolling internally, with Close, New session and
+footer actions above the keyboard. Restore focus with no document scroll on
+close or result selection. Hosted long-results evidence keeps a tall layout
+while visual height shrinks to 480 and offsetTop becomes 120, including text 20.
+
+The Mode bottom sheet follows §10.5: one labelled choice per row, current
+selection and disabled ceiling reason, a fixed Close header and a scrolling
+choice list. It traps/restores focus without moving the conversation dock.
 
 Keep abyss/panel/float/hairline tokens, rounded human controls and square
 machine output wells, the icon names, focus and contrast. Phone preset text
@@ -1171,17 +1229,37 @@ all tap hit areas at least 44px, including icons. Touch exposes actions that
 otherwise need hover. Long labels wrap without horizontal page overflow;
 keep pinch zoom and enlarged text at 20.
 
-Use `100dvh` and VisualViewport fallback with `viewport-fit=cover` and
+Use one phone web-frame viewport owner for VisualViewport height and offsetTop
+at scale 1, with `100dvh`/window-height fallback, `viewport-fit=cover` and
 `env(safe-area-inset-*)`. Composer/status sit in the bottom flex region above
-the visible keyboard; only transcript scrolls. Keep activity/asks/composer
-order, scroll active input/card into view, and prevent notices from covering
+the visible keyboard. Lock the phone web document/root and bound the shell;
+retain unzoomed bounds during pinch zoom and clean locks/styles/listeners on
+wide mode/unmount. Keep at least three readable transcript lines while composing; retain that
+reservation through button taps so blur cannot move Send. Release it on keyboard
+close even when Message keeps focus; later bar resizes must not restore it. Non-conversation
+controls stay above the conversation dock. Keep activity/asks/composer order,
+bound input/card focus scrolling to its owning scroller, and prevent notices from covering
 composer or waiting cards. Send/Stop, Allow/Deny and Continue/Finish remain
 visible at keyboard height, including long cards and IME composition. Settings
 is full-height with registered-row drawer navigation; Set up keeps eleven
 steps and its sticky Back/Continue footer.
 
+Phone web root and transcript use `overscroll-behavior: none` to suppress
+chaining/pull-to-refresh in supporting engines. Use explicit browser reload or
+Reload client and explicit Copy/Jump to latest, preserving the manual copy
+fallback on denial. No simulated haptics or synthetic refresh gesture. Native
+selection handles, OS rubberband and unsuppressed refresh gestures require
+engine-specific dated handset evidence under #1556; CSS alone proves no universal
+OS guarantee. Capped input/detail wells keep their own contained scrolling.
+
 Hosted gallery subsets at 390×844 and 360×740 cover dark/light, text 20,
-keyboard-height viewport, safe areas and long content. Assert 44px hit areas,
+keyboard-height viewport, safe areas and long content. #1636 additionally keeps
+layout height 844 while visual height is 480 with offsetTop 0/120; focus,
+streaming, scrollport resizing, banner/card insertion and keyboard close must
+keep shell/dock/latest-line visible and document/window scroll stable. Real
+animated keyboard, bars/settings, rotation/insets, focus zoom, selection and
+Home Screen proof is handset-only dated evidence in #1556, never a builder gate.
+Assert 44px hit areas,
 no page overflow, visible Send/Allow/Continue, drawer/sheet focus and no notice
 occlusion. Use web-platform scene mode exposing actual browser capabilities;
 phone scenes do not silently use fake desktop capabilities. #1541 owns

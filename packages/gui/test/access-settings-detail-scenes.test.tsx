@@ -96,7 +96,7 @@ it.each([[1400, 900, "light"], [1400, 900, "dark"], [1024, 768, "light"], [1024,
   expect(screen.getByRole("region", { name: "Browser" }).scrollTop).toBe(780);
   expect(screen.getByRole("textbox", { name: "Pairing code" })).toHaveProperty("value", "ABCD2345");
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; width?: number }[];
-  expect(geometry.find((check) => check.selector === "[data-settings-dialog]")?.width).toBe(width === 1400 ? 1000 : 976);
+  expect(geometry.find((check) => check.selector === "[data-settings-dialog]")?.width).toBe(width === 1400 ? 1352 : 976);
 });
 
 

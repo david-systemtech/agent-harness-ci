@@ -1,4 +1,4 @@
-"""Shared bounded report metadata for hosted capture, publication and acceptance."""
+"""Shared bounded report metadata and capture profiles for publication and acceptance."""
 import math
 import re
 
@@ -8,6 +8,24 @@ MAX_BYTES = 48 * 1024 * 1024
 MAX_ZIP = 64 * 1024 * 1024
 # Full unpaginated threads include sixteen changed reports and earlier attempts.
 MAX_THREAD_BYTES = MAX_SHARDS * 4 * 1024 * 1024
+
+# Exact capture profiles, shared by trusted publication and baseline acceptance.
+PHONE_PROFILES = {
+    '320': (320, 568),
+    '320-short': (320, 320),
+    '360': (360, 740),
+    '360-short': (360, 400),
+    '390': (390, 844),
+    '430': (430, 932),
+    '430-short': (430, 360),
+    '390-text-20': (390, 844),
+    '390-keyboard': (390, 480),
+}
+
+
+def phone_dimensions(name):
+    match = re.search(r'-phone-(' + '|'.join(map(re.escape, PHONE_PROFILES)) + r')[.](dark|light)([.](baseline|difference))?[.]png$', name)
+    return PHONE_PROFILES[match[1]] if match else None
 
 
 def validate_shard(shard, rows, require_group=False):

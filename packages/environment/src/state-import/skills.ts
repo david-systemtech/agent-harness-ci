@@ -1,4 +1,4 @@
-import { registry, repositoryIdentityOf, SKILLS_STREAM_KIND, type StateImportFailure } from "@agent-harness/contracts";
+import { ContractError, matchForgeAccount, normaliseRemote, registry, repositoryIdentityOf, SKILLS_STREAM_KIND, type StateImportFailure, type StateImportReEnter } from "@agent-harness/contracts";
 import { join } from "node:path";
 import { readSkillFolder, sourceRootNaming } from "../skills/reader.js";
 import { readSkillChoices } from "../skills/choices.js";
@@ -23,10 +23,12 @@ export interface PlanSkillsOptions {
 }
 
 /** Tracked sources use the Skills owner's preparation and transaction, paired with the durable import mapping. */
-export const planSkills = async (records: SourceSkills, options: PlanSkillsOptions): Promise<{ items: ImportItem[]; failed: StateImportFailure[] }> => {
+export const planSkills = async (records: SourceSkills, options: PlanSkillsOptions): Promise<{ items: ImportItem[]; failed: StateImportFailure[]; repairs: (preview: boolean) => readonly StateImportReEnter[] }> => {
   const { log, sourceKey, sources } = options;
   const items: ImportItem[] = [];
   const failed: StateImportFailure[] = [...records.failed];
+  const repairs = new Map<string, StateImportReEnter>();
+  const previewRepairs = new Map<string, StateImportReEnter>();
   const seen = new Set<string>();
   const known = new Set(await options.knownSkillNames());
   for (const source of records.sources) {
@@ -63,7 +65,26 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
       prepare: async (context) => {
         if (existing() !== undefined) return reuse;
         const params = { ...parsed.data, follow, commandId: context.commandId };
-        const handler = await sources.add.prepare(params, context);
+        let handler: Awaited<ReturnType<typeof sources.add.prepare>>;
+        try {
+          handler = await sources.add.prepare(params, context);
+        } catch (error) {
+          if (error instanceof ContractError && error.data["problem"] === "authentication") {
+            const remote = normaliseRemote(parsed.data.url);
+            if (remote !== null) {
+              const account = matchForgeAccount(remote, options.forgeAccounts());
+              if (account === null && remote.sshDerived) {
+                const line = error.data["line"];
+                // Forge identity can map SSH hosts; machine authentication uses the original transport.
+                const host = /^ssh:\/\//i.test(parsed.data.url) ? new URL(parsed.data.url).hostname : parsed.data.url.replace(/^(?:[^@/]*@)?(\[[^\]]+\]|[^:]+):.*$/s, "$1");
+                throw new ContractError({ ...error.toWire(), message: `SSH authentication failed. Check this environment machine's SSH keys and known-hosts entry for ${host}, using the source's SSH port, then import again.${typeof line === "string" ? ` ${line}` : ""}` });
+              }
+              const origin = account?.origin ?? remote.origin;
+              repairs.set(origin, { label: `Forge credential for ${origin}, then import again`, step: "forges" });
+            }
+          }
+          throw error;
+        }
         return (command) => {
           // A source added during preparation is reused without resetting its follow choice.
           if (existing() !== undefined) return reuse(command);
@@ -100,6 +121,8 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
         continue;
       }
       let contributed = !readSkillChoices(log).some((held) => held.kind === "always-on" && held.name === choice.name && held.accountId === previewAccountId);
+      const repair: StateImportReEnter = { label: `Restore Skill "${choice.name}", then import again`, step: "skills" };
+      if (!known.has(choice.name)) previewRepairs.set(choice.name, repair);
       const unknown = { label: accountLabel, message: "Its exact name is unknown in the Skills set; restore the Skill and retry." };
       items.push({ ...key, kind: "skill-always-on", label: accountLabel, contributes: () => contributed,
         ...(!known.has(choice.name) && { previewFailure: unknown }),
@@ -111,6 +134,7 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
             if (accountId === undefined) return { aggregate: { kind: SKILLS_STREAM_KIND, id: options.environmentId }, rejected: { code: "conflict", message: "It has no committed mapped Account; retry after repairing adoption." } };
             // A pre-existing Account choice belongs to the harness and is preserved, even when off.
             const held = readSkillChoices(log).some((held) => held.kind === "always-on" && held.name === choice.name && held.accountId === accountId);
+            if (!names.has(choice.name)) repairs.set(choice.name, repair);
             if (!names.has(choice.name)) return { aggregate: { kind: SKILLS_STREAM_KIND, id: options.environmentId }, rejected: { code: "conflict", message: unknown.message } };
             if (held) contributed = false;
             if (held) return { aggregate: { kind: SKILLS_STREAM_KIND, id: options.environmentId }, result: { targetId: accountId } };
@@ -121,5 +145,5 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
       });
     }
   }
-  return { items, failed };
+  return { items, failed, repairs: (preview) => [...(preview ? previewRepairs : repairs).values()] };
 };

@@ -8,11 +8,15 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  [data-web-client][data-phone-composing] [data-composer-column] { max-height: calc(100% - (3lh + 28px)); }
+  [data-web-client][data-phone-composing] [data-transcript-region] { min-height: calc(3lh + 28px); }
   [data-web-client] [data-composer-above] {
     flex-shrink: 1;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  /* Leave room to scroll a whole 44px action despite fractional layout edges. */
+  [data-web-client] [data-composer-above]:has([aria-label="Parked prompt"]) { min-height: 48px; }
   [data-web-client] [aria-label="Parked prompt"] { overflow-wrap: anywhere; }
   [data-web-client] [aria-label="Parked prompt"] header { flex-wrap: wrap; }
   [data-web-client] [aria-label="Parked prompt"] button { height: auto; max-width: 100%; flex-wrap: wrap; white-space: normal; }
@@ -47,4 +51,14 @@
   [data-web-client] [aria-label="Message"] {
     max-height: max(44px, min(35vh, calc(var(--phone-viewport-height, 100dvh) * 0.25)));
   }
+}
+
+/* Keep read-only grant details in their own scrolling line while the keyboard is up. */
+@media (max-width: 639px) and (max-height: 600px) {
+  [data-web-client] [data-web-grant] {
+    white-space: nowrap;
+    overflow-x: auto;
+    padding-block: 4px;
+  }
+  [data-web-client] [aria-label="Message"] { padding-block: 4px; }
 }

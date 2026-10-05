@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { DEFAULT_CHOICE_WORDS, accountChoiceWords, effortChoices, familyChoices, identityWords, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
 import { ArrowLeft, ChevronDown, Cpu, Gauge, KeyRound, RefreshCw, Search } from "lucide-react";
@@ -42,7 +43,7 @@ const DefaultModelOn = ({ view }: { readonly view: EnvironmentView }) => {
     <>
       <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.default-model").hint}</p>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>}
-      {ready && writer.status === "absent" && <p className="text-sm text-amber">Read-only: {writer.message}</p>}
+      {ready && writer.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={writer}><p className="text-sm text-amber">Read-only: {writer.message}</p></AccessUnavailable>}
       {values === null ? (
         ready && <p className="text-sm text-ink-faint">{answer.error === null ? "Reading the settings…" : `The settings could not be read: ${answer.error.message}`}</p>
       ) : (

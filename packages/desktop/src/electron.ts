@@ -108,8 +108,22 @@ export interface MediaPermissionDetails {
   readonly mediaTypes?: readonly string[];
 }
 
+/** A native key press before Chromium or the renderer answers it. */
+export interface ElectronInput {
+  readonly type: string;
+  readonly key: string;
+  readonly code: string;
+  readonly control: boolean;
+  readonly meta: boolean;
+  readonly shift: boolean;
+  readonly alt: boolean;
+}
+
 /** The window's page: `BrowserWindow.webContents`. */
 export interface ElectronContents {
+  getZoomFactor(): number;
+  setZoomFactor(factor: number): void;
+  on(name: "before-input-event", listener: (details: Refusable, input: ElectronInput) => void): unknown;
   /**
    * Electron (25 and later) hands `will-navigate` one details object,
    * `Event<WebContentsWillNavigateEventParams>`: the URL beside
@@ -286,6 +300,16 @@ export interface ElectronNotifications {
   create(options: NotificationOptions): ElectronNotification;
 }
 
+/** The native menu template fields used by the desktop. */
+export interface NativeMenuItem {
+  readonly role?: "appMenu" | "fileMenu" | "editMenu" | "windowMenu" | "reload" | "forceReload" | "toggleDevTools" | "togglefullscreen";
+  readonly label?: string;
+  readonly type?: "separator";
+  readonly accelerator?: string;
+  readonly click?: () => void;
+  readonly submenu?: NativeMenuItem[];
+}
+
 /** Electron's main-process modules, and the window's constructor, as the desktop takes them. */
 export interface DesktopElectron {
   readonly app: ElectronApp;
@@ -299,6 +323,8 @@ export interface DesktopElectron {
   readonly nativeTheme: { readonly shouldUseDarkColors: boolean };
   readonly safeStorage: ElectronSafeStorage;
   readonly notification: ElectronNotifications;
+  /** Builds and installs the native application menu. */
+  readonly menu: { set(template: NativeMenuItem[]): void };
   /** `new BrowserWindow(options)`. */
   openWindow(options: WindowOptions): ElectronBrowserWindow;
   openWebView(options: ViewOptions): ElectronWebView;

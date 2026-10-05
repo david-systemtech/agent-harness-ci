@@ -189,6 +189,8 @@ export interface PresentationValues {
    * for the rest of that launch (`setup/checklist-window.tsx`).
    */
   readonly firstLaunchDone: boolean;
+  /** Dismissed access disclosures, keyed by environment and pairing identity. */
+  readonly dismissedPairingAccess: Readonly<Record<string, string>>;
   /**
    * This client's GUI key remaps (docs/specs/gui.md, "Keyboard: the GUI
    * column and the Keyboard shortcuts pane"; ADR 0022): an action's keys by
@@ -221,6 +223,7 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   cachedTheme: null,
   settingsRow: null,
   firstLaunchDone: false,
+  dismissedPairingAccess: Object.freeze({}),
   keyRemaps: Object.freeze({}),
   escStopsRun: false,
 });
@@ -282,6 +285,7 @@ const readChips = (stored: unknown): NewSessionChips => {
   const held = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
   const environmentId = stringIn(held, "environmentId");
   const model = stringIn(held, "model");
+  const effort = held["effort"] === null ? null : stringIn(held, "effort");
   const account = { environmentId: stringIn(held["account"], "environmentId"), accountId: stringIn(held["account"], "accountId") };
   const workspaceOn = stringIn(held["workspace"], "environmentId");
   const browser = held["browser"] === null ? null : SessionBrowser.safeParse(held["browser"]).data;
@@ -290,6 +294,7 @@ const readChips = (stored: unknown): NewSessionChips => {
     ...(environmentId !== undefined && { environmentId }),
     ...(account.environmentId !== undefined && account.accountId !== undefined && { account: { environmentId: account.environmentId, accountId: account.accountId } }),
     ...(model !== undefined && { model }),
+    ...(effort !== undefined && { effort }),
     ...(browser !== undefined && { browser }),
     ...(workspaceOn !== undefined && request !== undefined && { workspace: { environmentId: workspaceOn, request } }),
   };
@@ -389,6 +394,7 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
   lightOrDark: (stored) => LIGHT_OR_DARK.find((preference) => preference === stored),
   cachedTheme: (stored) => (stored === null ? null : Theme.safeParse(stored).data),
   settingsRow: (stored) => (stored === null || typeof stored === "string" ? stored : undefined),
+  dismissedPairingAccess: (stored) => typeof stored === "object" && stored !== null && !Array.isArray(stored) && Object.values(stored).every(value => typeof value === "string") ? stored as Readonly<Record<string, string>> : undefined,
   firstLaunchDone: (stored) => (typeof stored === "boolean" ? stored : undefined),
   keyRemaps: (stored) => readRemaps(stored),
   escStopsRun: (stored) => (typeof stored === "boolean" ? stored : undefined),

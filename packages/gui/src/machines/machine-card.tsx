@@ -1,3 +1,4 @@
+import { ReadOnlyAccess } from "../connections/limited-access.js";
 import { ConnectionGrant } from "../connections/connection-grant.js";
 import { WebOrigins } from "./web-origins.js";
 import { KeyRound } from "lucide-react";
@@ -121,9 +122,7 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: M
         </p>
       )}
       {lacking.map((line) => (
-        <p key={line} className="text-sm text-amber">
-          Read-only: {line}
-        </p>
+        <ReadOnlyAccess key={line} environmentId={view.environmentId} line={line}><p className="text-sm text-amber">Read-only: {line}</p></ReadOnlyAccess>
       ))}
       <Part title="Identity"><LookEditor view={view} writable={LOOK_COMMANDS.every(admits)} /></Part>
       <Part title="Reachability">

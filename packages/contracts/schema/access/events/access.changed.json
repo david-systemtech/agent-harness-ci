@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccessChangedPayload",
+  "type": "object",
+  "properties": {
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "from": {
+      "type": "object",
+      "properties": {
+        "scopes": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "read",
+              "sessions:write",
+              "runs:drive",
+              "terminal",
+              "admin"
+            ],
+            "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+          },
+          "uniqueItems": true,
+          "description": "The scopes a client session holds, as a non-empty set."
+        },
+        "ceiling": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions."
+        }
+      },
+      "required": [
+        "scopes",
+        "ceiling"
+      ]
+    },
+    "to": {
+      "type": "object",
+      "properties": {
+        "scopes": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "read",
+              "sessions:write",
+              "runs:drive",
+              "terminal",
+              "admin"
+            ],
+            "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+          },
+          "uniqueItems": true,
+          "description": "The scopes a client session holds, as a non-empty set."
+        },
+        "ceiling": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions."
+        }
+      },
+      "required": [
+        "scopes",
+        "ceiling"
+      ]
+    }
+  },
+  "required": [
+    "clientSessionId",
+    "from",
+    "to"
+  ],
+  "description": "access.changed: another admin client replaced this client's scopes and ceiling; existing sockets reconnect with the same token."
+}

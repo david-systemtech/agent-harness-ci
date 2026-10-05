@@ -32,6 +32,41 @@ const answerRun = (app: Awaited<ReturnType<typeof opened>>) => app.environment("
 const section = () => within(screen.getByRole("region", { name: "State import" }));
 
 describe("State import on Carry over", () => {
+  it("explains how to repair a retained state import after provider sign-in, without treating a dry run as a repair", async () => {
+    const reason = "The last state import failed part way: Skill source: The repository needs a credential. Import again to retry what failed.";
+    const app = await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
+      state: "needs-attention", reason, actions: ["import-again"], failing: ["carry-over.last-import"],
+      targets: [{ action: "import-again", kind: "environment", id: "desk", label: "The state import" }],
+    } } });
+    expect(await screen.findByText(/Provider sign-in does not grant access to private skill repositories/)).toBeDefined();
+    expect(section().getByText(/SSH keys and known-hosts entry/)).toBeDefined();
+    expect(section().getByRole("button", { name: "Open Forges" })).toBeDefined();
+    expect(section().getByRole("button", { name: "Open Skills" })).toBeDefined();
+    const preview = report(true);
+    preview.failed = [];
+    preview.reEnter = [];
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Dry run" }));
+    expect(await section().findByText(/A dry run does not test repository access or clear a failed import/)).toBeDefined();
+    expect(screen.getByText(reason)).toBeDefined();
+    await app.user.click(section().getByRole("button", { name: "Open Forges" }));
+    expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Forges" }).getAttribute("aria-current")).toBe("step");
+  });
+
+  it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {
+    const reason = "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.";
+    const app = await opened({ reach: "paired", accounts: [{ label: "Server", directory: { kind: "owned", path: "/data/owned" } }],
+      setup: { "carry-over": { state: "skipped", reason, failing: [], actions: [] } },
+    }, { dataFolder: null, terminalFolder: null });
+    expect(screen.getByText(reason)).toBeDefined();
+    expect(screen.queryByText(/Not carried from your Claude Code directory/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Server" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Import" })).toBeNull();
+    await app.user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Your machines" }).getAttribute("aria-current")).toBe("step");
+    expect(app.environment("desk").requests("stateImport.run")).toHaveLength(0);
+  });
+
   it("keeps existing preferences when a real report omits them", async () => {
     const app = await opened();
     act(() => {

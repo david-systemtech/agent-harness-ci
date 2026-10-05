@@ -1,7 +1,9 @@
+import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Settings, Plus, Link } from "lucide-react";
 import { BrowserPanesProvider } from "../browser/browser-panes.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
+import { LimitedAccess } from "../connections/limited-access.js";
 import { PairingForm } from "../connections/pairing.js";
 import { PaneGridProvider, usePaneGrid } from "../grid/grid.js";
 import { focusedPane, showSession } from "../grid/layout.js";
@@ -20,22 +22,16 @@ import { Button } from "../ui/button.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { sessionLink, type BrowserRoute } from "./browser-boot.js";
 import type { BrowserPlatform } from "./browser-platform.js";
+import { usePhoneViewport } from "../composer/phone-viewport.js";
 import { WebRegisteredSurfaces } from "./web-registrations.js";
 
 export interface WebFrameProps { readonly platform: BrowserPlatform; readonly route: BrowserRoute }
 
 /** Shared browser bounds: a keyboard can shrink this without resizing the layout viewport. */
-export const WebViewport = ({ children, narrow = false }: { readonly children: ReactNode; readonly narrow?: boolean }) => {
-  const [height, setHeight] = useState<number>();
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const resize = () => setHeight(viewport.height);
-    resize();
-    viewport.addEventListener("resize", resize);
-    return () => viewport.removeEventListener("resize", resize);
-  }, []);
-  return <div data-web-client data-phone-frame={narrow ? "" : undefined} className="flex h-dvh min-w-0 flex-col bg-abyss text-ink" style={{ maxHeight: height }}>{children}</div>;
+export const WebViewport = ({ children, narrow = false, connection }: { readonly children: ReactNode; readonly narrow?: boolean; readonly connection?: EnvironmentView | undefined }) => {
+  const frame = useRef<HTMLDivElement>(null);
+  usePhoneViewport(frame);
+  return <div ref={frame} data-web-client data-web-grant={connection ? "" : undefined} data-phase={connection?.phase} data-ceiling={connection?.ceiling ?? undefined} data-scopes={connection?.scopes.join(", ")} data-phone-frame={narrow ? "" : undefined} className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">{children}</div>;
 };
 /** The first browser slice uses the same session components and environment-owned work. */
 export const WebFrame = (props: WebFrameProps) => (
@@ -91,7 +87,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   };
   useEffect(() => { if (pane.session) history.replaceState(null, "", sessionLink(pane.session)); }, [pane.session]);
   if (checklist.shown) return <ChecklistView />;
-  return <WebViewport narrow={phone.narrow}>
+  return <WebViewport narrow={phone.narrow} connection={selected}>
     {phone.narrow ? <Header onPair={() => setPairing(value => !value)} /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
       <label className="sr-only" htmlFor="web-session">Sessions</label>
       <select id="web-session" aria-label="Sessions" className="min-w-0 flex-1 rounded-md border border-hairline bg-panel px-2 text-ink" value={pane.session ? `${pane.session.environmentId}/${pane.session.sessionId}` : ""} onChange={event => open(event.target.value)}>
@@ -103,15 +99,15 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
       <Button title="Settings" aria-label="Settings" onClick={() => settings.open()}><Settings aria-hidden="true" className="size-4" /></Button>
     </header>}
     {persistence === "visit-only" && <p role="status" className="shrink-0 border-b border-hairline bg-panel px-3 py-2 text-sm">Storage is unavailable. Pair for this visit; this connection will be forgotten when you close or reload.</p>}
-    {selected && <p data-web-grant className="shrink-0 break-words border-b border-hairline px-3 py-2 text-xs text-ink-muted">{selected.name ?? "Environment"} · {selected.phase} · Scopes: {selected.scopes.join(", ")} · Ceiling: {selected.ceiling ?? "connecting"}</p>}
-    {selected?.phase === "blocked" && <p role="status" className="px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
-    {line && <p role="status" className="px-3 py-2 text-sm">{line}</p>}
+    {selected && <LimitedAccess view={selected} />}
+    {selected?.phase === "blocked" && <p role="status" className="shrink-0 px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
+    {line && <p role="status" className="shrink-0 px-3 py-2 text-sm">{line}</p>}
+    <WebRegisteredSurfaces />
     {(paired.length === 0 || pairing) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} onPaired={() => { setPairing(false); setHandedLink(undefined); setLine(undefined); }} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <WindowNotices />
       <PaneGrid />
     </main>}
     <SessionDrawer />
     {settings.shown && <SettingsView />}
-    <WebRegisteredSurfaces />
   </WebViewport>;
 };

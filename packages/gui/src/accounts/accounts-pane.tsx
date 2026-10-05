@@ -1,5 +1,7 @@
+import { SettingsCardGrid } from "../settings/part.js";
+import { AccessUnavailable } from "../connections/limited-access.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
-import { settingsRow, type AccountRecord } from "@agent-harness/contracts";
+import { settingsRow, type AccountIdentity, type AccountRecord } from "@agent-harness/contracts";
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
@@ -18,7 +20,7 @@ import { SignInCard } from "./sign-in-card.js";
 const CARRY_OVER = ["carry-over"] as const;
 
 /** The sign-in card the pane has open: on an account, or adding one (`null`). */
-type Signing = { readonly account: Pick<AccountRecord, "id" | "label"> | null };
+type Signing = { readonly account: Pick<AccountRecord, "id" | "label"> | null; readonly suggestion?: { readonly label: string; readonly email: string } };
 
 /**
  * The Accounts row, `accounts.accounts` (docs/specs/gui.md, "Settings";
@@ -70,6 +72,7 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
   const runtime = useRuntime();
   const shell = useShell();
   const { environmentId } = view;
+  const environments = useObservable(runtime.projections.environments);
   const listed = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
   const { values } = useSettingsValues(environmentId);
   const { gauges } = useObservable(runtime.projections.usage);
@@ -93,23 +96,64 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
           {reachWords(runtime, view)}: {accounts === null ? "this window has read none of its accounts." : "its accounts as this window last read them, read-only."}
         </p>
       )}
-      {ready && admin.status === "absent" && <p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">Read-only: {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">Read-only: {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p></AccessUnavailable>}
       {ready && <AdoptOffer environmentId={environmentId} environment={nameOf(view)} writable={writable} say={say} />}
       <div className="flex flex-wrap gap-2">
         <AccountAction icon={Plus} variant="default" disabled={!writable || signing !== undefined} onClick={() => signIn({ account: null })}>
           {add}
         </AccountAction>
       </div>
-      {signing !== undefined && <SignInCard inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => signIn(undefined)} say={say} />}
+      {accounts !== null && environments.filter(source => source.environmentId !== environmentId && source.enabled).map(source => (
+        <AccountsElsewhere key={source.environmentId} source={source} here={accounts} disabled={!writable || signing !== undefined}
+          suggest={(suggestion) => signIn({ account: null, suggestion })} />
+      ))}
+      {signing !== undefined && <SignInCard {...(signing.suggestion === undefined ? {} : { suggestion: signing.suggestion })} inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => signIn(undefined)} say={say} />}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {accounts === null
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the accounts…" : `The accounts could not be read: ${listed.error.message}`}</p>
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No account is held here.</p>
-          : accounts.map((account) => (
+          : <SettingsCardGrid>{accounts.map((account) => (
               <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signing === undefined && signIn({ account })} remove={() => remove(account)} say={say} />
-            ))}
+            ))}</SettingsCardGrid>}
       {removing !== undefined && <ConfirmRemove environmentId={environmentId} environment={nameOf(view)} account={removing} close={() => remove(undefined)} say={say} />}
     </>
   );
+};
+
+
+const sameIdentity = (left: AccountIdentity | null, right: AccountIdentity): boolean => left !== null &&
+  left.provider === right.provider && left.email.toLowerCase() === right.email.toLowerCase() && left.organisation === right.organisation;
+
+/** Account identity is only a hint: adding here asks this environment's provider CLI to sign in afresh. */
+const AccountsElsewhere = ({ source, here, disabled, suggest }: {
+  readonly source: EnvironmentView;
+  readonly here: readonly AccountRecord[];
+  readonly disabled: boolean;
+  readonly suggest: (suggestion: { readonly label: string; readonly email: string }) => void;
+}) => {
+  const runtime = useRuntime();
+  const listed = useObservable(useMemo(() => runtime.projections.accounts(source.environmentId), [runtime, source.environmentId]));
+  if (source.phase !== "ready") return null;
+  const identities = new Set<string>();
+  return <>{listed.value?.filter(account => {
+    const identity = account.identity;
+    if (account.provider !== "claude" || account.status.state !== "signed-in" || identity === null || here.some(held => sameIdentity(held.identity, identity))) return false;
+    const key = JSON.stringify([identity.provider, identity.email.toLowerCase(), identity.organisation]);
+    if (identities.has(key)) return false;
+    identities.add(key);
+    return true;
+  }).map(account => {
+    const identity = account.identity;
+    if (identity === null) return null;
+    let label = account.label;
+    for (let number = 2; here.some(held => held.label.toLowerCase() === label.toLowerCase()); number++) {
+      const suffix = ` (${number})`;
+      label = account.label.slice(0, 200 - suffix.length).trimEnd() + suffix;
+    }
+    return <div key={account.id} role="group" aria-label={`${identity.email} on ${nameOf(source)}`} className="flex flex-wrap items-center gap-2 text-sm">
+      <span>{identity.email} on {nameOf(source)}</span>
+      <AccountAction icon={Plus} disabled={disabled} onClick={() => suggest({ label, email: identity.email })}>Sign in this account here too</AccountAction>
+    </div>;
+  })}</>;
 };

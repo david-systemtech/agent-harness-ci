@@ -28,7 +28,7 @@ it.each(["light", "dark"] as const)("draws Settings bank records and their measu
   expect(within(bank).getByRole("button", { name: "Describe this bank" })).toBeDefined();
   expect(within(dialog).getByRole("button", { name: "Awaiting owner review" })).toBeDefined();
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([
-    { selector: "[data-settings-dialog]", width: 1000, height: 660 },
+    { selector: "[data-settings-dialog]", width: 1352, height: 852 },
     { selector: "[data-bank-card]", paddingLeft: 16, paddingTop: 16 },
   ]));
 });

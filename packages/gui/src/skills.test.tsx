@@ -445,3 +445,20 @@ it("keeps a saved choice visible when its skill disappears from the set", async 
   const missing = await within(pane()).findByRole("region", { name: "Missing skill missing-procedure" });
   expect(missing.textContent).toContain("Saved choices apply when this skill is available again.");
 });
+
+it("places trusted and declined repository cards in the same responsive collection", async () => {
+  await opened((app) => {
+    const record = { keyKind: "identity", decidedAt: "2026-10-02T00:00:00.000Z", clientSessionId: "desk", clientLabel: "Desk window", sessionId: null };
+    app.environment("desk").wire.answer("trust.list", () => ({ result: {
+      trusted: [{ ...record, key: "https://git.example.test/team/procedures", decision: "trusted" }],
+      declined: [{ ...record, key: "https://git.example.test/team/guides", decision: "declined" }],
+    } }));
+  });
+  const trusted = await within(pane()).findByRole("region", { name: "Trusted: https://git.example.test/team/procedures" });
+  const declined = await within(pane()).findByRole("region", { name: "Declined: https://git.example.test/team/guides" });
+  const grid = trusted.parentElement!;
+  expect(grid.hasAttribute("data-settings-card-grid")).toBe(true);
+  expect(declined.parentElement).toBe(grid);
+  expect(within(trusted).getByRole("button", { name: "Revoke trust" })).toBeDefined();
+  expect(within(declined).getByRole("button", { name: "Trust repository" })).toBeDefined();
+});

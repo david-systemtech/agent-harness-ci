@@ -372,6 +372,9 @@ const GUI_KEYS_OF_SHARED: Record<string, { readonly keys: readonly string[]; rea
 
 /** The actions only the GUI answers, with the GUI keys the spec's table gives them. */
 const GUI_ONLY_KEYS: Record<string, { readonly keys: readonly string[]; readonly when?: string }> = {
+  "app.zoom.in": { keys: ["Mod++", "Mod+=", "Mod+Shift+="] },
+  "app.zoom.out": { keys: ["Mod+-"] },
+  "app.zoom.reset": { keys: ["Mod+0"] },
   "app.palette": { keys: ["Mod+K"] },
   "app.find": { keys: ["Mod+F"] },
   "app.session.new": { keys: ["Mod+N"] },
@@ -549,6 +552,10 @@ describe("the GUI's reserved keys (ADR 0022; the GUI spec's binding rules)", () 
  * no key, so no key of it is here.
  */
 const ADDED_GUI_KEYS: Record<string, readonly string[]> = {
+  // Desktop zoom owns these shortcuts on every platform (#1621).
+  "app.zoom.in": ["Mod++", "Mod+=", "Mod+Shift+="],
+  "app.zoom.out": ["Mod+-"],
+  "app.zoom.reset": ["Mod+0"],
   // Story 28, added at David's request on 2026-09-28: a new session never covers one open in the grid.
   "app.session.newInPane": ["Mod+Shift+N"],
   // The GUI spec's composer: `@` lists files, as in the terminal UI (#400).

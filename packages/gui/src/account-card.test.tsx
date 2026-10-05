@@ -97,7 +97,7 @@ describe("the Account card in Set up", () => {
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
     const signing = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
-    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests{Enter}");
+    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
     desk.signIn("done");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(within(step()).getByText("work is signed in on desk.")).toBeDefined();
@@ -159,8 +159,8 @@ describe("the Account card in Set up", () => {
     act(() => app.clock.advance(61_000));
     await waitFor(() => expect(within(signing).getByRole("timer").textContent).toBe("8m 59s left to sign in."));
 
-    await app.user.type(within(signing).getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests{Enter}");
-    await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests" })]));
+    await app.user.type(within(signing).getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
+    await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests#for-tests" })]));
     desk.signIn("done");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(within(step()).getByText("work is signed in on desk.")).toBeDefined();
@@ -231,7 +231,7 @@ describe("the Account card's defaults", () => {
     await app.user.type(within(await screen.findByRole("dialog", { name: "Add an account on desk" })).getByRole("textbox", { name: "Label for the new account" }), "work{Enter}");
     const signing = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
-    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests{Enter}");
+    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
     desk.signIn("done");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(within(step()).getByText("work is signed in on desk.")).toBeDefined();

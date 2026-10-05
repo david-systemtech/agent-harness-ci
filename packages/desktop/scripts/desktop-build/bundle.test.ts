@@ -54,6 +54,10 @@ export const safeStorage = {
 };
 export const BrowserWindow = () => { throw new Error('Helper must not open a window'); };
 export const WebContentsView = BrowserWindow;
+export const Menu = {
+  buildFromTemplate: () => { throw new Error('Helper must not build a menu'); },
+  setApplicationMenu: () => { throw new Error('Helper must not install a menu'); },
+};
 export const clipboard = {}, dialog = {}, ipcMain = {}, nativeTheme = {}, Notification = {}, protocol = {}, shell = {};
 `);
     const boot = join(helperDir, "helper-test.mjs");
