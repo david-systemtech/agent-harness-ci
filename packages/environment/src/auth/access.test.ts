@@ -7,6 +7,7 @@ import {
   EventEnvelope,
   PROTOCOL_VERSION,
   SCOPES,
+  registry,
   type AccessEventType,
   type ClientSessionCredential,
 } from "@agent-harness/contracts";
@@ -553,7 +554,7 @@ describe("grant replacement refusals", () => {
     expect(await client.request("access.sessions.setAccess", params)).toMatchObject({ receipt: { changed: false } });
     expect(await connected.request("environment.status", {})).toBeDefined();
     const change = { ...params, commandId: randomUUID(), ceiling: "acceptEdits" as const };
-    const first = await client.request("access.sessions.setAccess", change);
+    const first = registry["access.sessions.setAccess"].response.parse(await client.request("access.sessions.setAccess", change));
     expect(await client.request("access.sessions.setAccess", change)).toEqual({ receipt: first.receipt });
     expect((await accessLog(client)).filter((event) => event.type === "access.changed")).toHaveLength(1);
   });

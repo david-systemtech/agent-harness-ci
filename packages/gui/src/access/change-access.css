@@ -1,5 +1,5 @@
 @media (width < 640px) {
-  [data-change-access] { overflow-y: hidden; }
+  [data-change-access] { max-width: calc(100vw - 16px); overflow-y: hidden; }
   [data-change-access] > div:first-child, [data-change-access] > div:last-of-type { flex-shrink: 0; }
   [data-change-access] [data-access-form] { overscroll-behavior: contain; }
   [data-change-access] [data-access-form] label:has([role="checkbox"]) { min-height: 44px; }
