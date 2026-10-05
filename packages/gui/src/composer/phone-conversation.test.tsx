@@ -48,7 +48,7 @@ it("fits a missing-workspace conversation before and after its message field ret
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
     ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
-  onTestFinished(() => vi.restoreAllMocks());
+  onTestFinished(() => { vi.restoreAllMocks(); });
   const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1 });
   vi.stubGlobal("visualViewport", viewport);
   onTestFinished(() => { vi.unstubAllGlobals(); });

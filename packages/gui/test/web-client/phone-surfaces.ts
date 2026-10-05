@@ -48,6 +48,29 @@ const chooseRow = async (page: Page, label: string): Promise<void> => {
   await expect(page.getByRole("button", { name: "Settings rows", exact: true })).toBeFocused();
 };
 
+/** Inspect the real menu after scrolling each action, including disabled grant explanations. */
+const phoneMoreSmoke = async (page: Page): Promise<void> => {
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  const menu = page.getByRole("menu");
+  for (const name of ["Terminal", "Browser", "Split right", "Split down"]) {
+    const row = menu.getByRole("menuitem", { name, exact: true });
+    await row.scrollIntoViewIfNeeded();
+    await reachable(page, row);
+    // Phone rows omit desktop shortcuts; a collapsed one-character column must fail.
+    await expect(row.locator("kbd")).toBeHidden();
+    if (await row.locator(":scope > span > span").count()) {
+      const label = await row.locator(":scope > span").boundingBox();
+      assert(label && label.width >= 200, "Menu explanations retain a word-sized column.");
+    }
+  }
+  await expect(menu.getByRole("menuitem", { name: "Browser", exact: true })).not.toContainText("shell.webView");
+  for (const row of await menu.getByRole("menuitem").all()) {
+    await row.scrollIntoViewIfNeeded();
+    await reachable(page, row);
+  }
+  await page.keyboard.press("Escape");
+};
+
 /** Uses the production page from P01's HTTPS runner, never a gallery or fake shell. */
 export async function phoneFrameSmoke(page: Page, engine: string): Promise<void> {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -65,6 +88,7 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
     for (const colorScheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme });
       await noOverflow(page);
+      await phoneMoreSmoke(page);
       for (const name of ["Show sessions", "Settings", "More"]) await reachable(page, page.getByRole("button", { name, exact: true }));
       await reachable(page, page.getByRole("button", { name: /^Send/ }));
       const trigger = page.getByRole("button", { name: "Show sessions", exact: true });
@@ -79,6 +103,21 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
       await expect(drawer).toBeHidden(); await expect(trigger).toBeFocused();
     }
   }
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await chooseRow(page, "Theme");
+  const textSize = page.getByRole("spinbutton", { name: "Text size", exact: true });
+  const originalSize = await textSize.inputValue();
+  await textSize.fill("20"); await textSize.press("Enter");
+  await page.getByRole("button", { name: "Close Settings", exact: true }).click();
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 460 });
+    await phoneMoreSmoke(page);
+    await noOverflow(page);
+  }
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await chooseRow(page, "Theme");
+  await textSize.fill(originalSize); await textSize.press("Enter");
+  await page.getByRole("button", { name: "Close Settings", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   console.log(`PHONE-FRAME PASS ${engine}: 390/360px, keyboard height, both color schemes, touch targets, drawer focus, grant restrictions`);
 }
@@ -103,6 +142,11 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
 
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
   const observer = await environment.client();
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    await phoneMoreSmoke(page);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   // Full grant is minted separately by the runner; this never expands the Phone grant.
   for (const label of ["Files", "Diff", "Documents", "Tasks", "Terminal"]) {
     await page.getByRole("button", { name: "More", exact: true }).click();
@@ -180,6 +224,10 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
   await page.getByRole("button", { name: "Close Settings", exact: true }).click();
   await page.setViewportSize({ width: 360, height: 460 });
   await noOverflow(page); await reachable(page, page.getByRole("button", { name: /^Send/ }));
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 460 });
+    await phoneMoreSmoke(page);
+  }
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await chooseRow(page, "Accounts");
   await expect(page.getByRole("button", { name: "Add an account…", exact: true })).toBeEnabled();

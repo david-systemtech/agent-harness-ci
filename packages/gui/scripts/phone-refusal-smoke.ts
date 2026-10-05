@@ -12,6 +12,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
   const fits = async (control: Locator) => {
+    // Intersection observes clipping by every overflow ancestor, not just the viewport.
+    await expect(control).toBeInViewport({ ratio: 1, timeout: 60_000 });
     const box = await control.boundingBox();
     const region = await column.boundingBox();
     const viewport = page.viewportSize();
