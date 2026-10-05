@@ -61,9 +61,11 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
 });
 
 it("bounds browser surfaces when only the visual viewport shrinks for the keyboard", () => {
+  vi.stubGlobal("innerWidth", 390);
+  onTestFinished(() => { vi.unstubAllGlobals(); });
   const previous = Object.getOwnPropertyDescriptor(window, "visualViewport");
   const inner = Object.getOwnPropertyDescriptor(window, "innerHeight");
-  const viewport = Object.assign(new EventTarget(), { height: 844 });
+  const viewport = Object.assign(new EventTarget(), { height: 844, scale: 1 });
   Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
   Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
   onTestFinished(() => {
@@ -73,12 +75,14 @@ it("bounds browser surfaces when only the visual viewport shrinks for the keyboa
   });
   const app = render(<WebViewport><p>Terminal slot</p></WebViewport>);
   const frame = app.container.firstElementChild as HTMLElement;
-  expect(getComputedStyle(frame).maxHeight).toBe("844px");
+  expect(getComputedStyle(frame).height).toBe("844px");
   act(() => { viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
   expect(window.innerHeight).toBe(844);
-  expect(getComputedStyle(frame).maxHeight).toBe("480px");
+  expect(getComputedStyle(frame).height).toBe("480px");
   act(() => { viewport.height = 844; viewport.dispatchEvent(new Event("resize")); });
-  expect(getComputedStyle(frame).maxHeight).toBe("844px");
+  expect(getComputedStyle(frame).height).toBe("844px");
+  act(() => { viewport.scale = 2; viewport.height = 422; viewport.dispatchEvent(new Event("resize")); });
+  expect(getComputedStyle(frame).height).toBe("844px");
   expect(app.container.firstElementChild).toBe(frame);
 });
 

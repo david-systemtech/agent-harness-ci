@@ -61,6 +61,19 @@ const linkIn = (out: string): string => {
 };
 
 describe("agent-harness pair", () => {
+  it("explains full access for an own phone, restricted Phone, and adjustable Custom in pair help without reaching an environment", async () => {
+    const cli = harness();
+    expect(await runCli(["pair", "--help"], cli.context)).toBe(0);
+    expect(cli.err()).toBe("");
+    expect(cli.urls).toEqual([]);
+    expect(cli.out()).toContain("own-client: My own client — everything for your own devices, a phone included.");
+    expect(cli.out()).toContain("Every scope, including terminal and admin; ceiling bypassPermissions");
+    expect(cli.out()).toContain("phone: Phone — restricted.");
+    expect(cli.out()).toContain("read, sessions:write and runs:drive; ceiling acceptEdits");
+    expect(cli.out()).toContain("Bypass permissions is unavailable; no terminal or admin access.");
+    expect(cli.out()).toContain("custom: Choose --scopes and --ceiling to raise or lower access for a single pairing.");
+  });
+
   it("prints the link, a QR of the link and the short code, minted over the local bootstrap grant", async () => {
     const t = await start();
     const cli = harness();

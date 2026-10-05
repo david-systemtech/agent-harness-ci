@@ -112,3 +112,27 @@ it("keeps the browser phone frame bounded when the visual viewport shrinks", asy
     vi.unstubAllGlobals();
   }
 });
+
+it("rejects a grant overlapping the header or pane and a header inside the notch", () => {
+  const root = document.createElement("div"); root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([
+    { selector: "header", minimumTop: 20 },
+    { selector: "[data-limited-access]", below: "header", contentFits: true },
+    { selector: "main", below: "[data-limited-access]" },
+  ]);
+  const header = document.createElement("header");
+  const grant = document.createElement("p"); grant.dataset["limitedAccess"] = "";
+  const main = document.createElement("main");
+  root.append(header, grant, main); document.body.append(root);
+  let headerTop = 20, grantTop = 60, mainTop = 150;
+  vi.spyOn(header, "getBoundingClientRect").mockImplementation(() => new DOMRect(8, headerTop, 374, 52));
+  vi.spyOn(grant, "getBoundingClientRect").mockImplementation(() => new DOMRect(8, grantTop, 374, 78));
+  vi.spyOn(main, "getBoundingClientRect").mockImplementation(() => new DOMRect(8, mainTop, 374, 300));
+  expect(measureSceneGeometry()).toEqual([expect.stringContaining("overlaps header")]);
+  grantTop = 72;
+  expect(measureSceneGeometry()).toEqual([]);
+  mainTop = 140;
+  expect(measureSceneGeometry()).toEqual([expect.stringContaining("overlaps [data-limited-access]")]);
+  mainTop = 150; headerTop = 0;
+  expect(measureSceneGeometry()).toEqual([expect.stringContaining("top: got 0")]);
+});

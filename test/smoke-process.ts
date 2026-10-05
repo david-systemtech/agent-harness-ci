@@ -1,47 +1,6 @@
 import { spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
 import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
-
-type ProcessIdentity = { pid: number; parent: number; started: string };
-
-function identity(pid: number): ProcessIdentity | undefined {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-    if (fields[0] === "Z" || fields[0] === "X") return;
-    return { pid, parent: Number(fields[1]), started: fields[19]! };
-  } catch (error) {
-    if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
-    throw error;
-  }
-}
-
-// Orphaned descendants are adopted by the persistent supervisor, including detached browsers.
-// Start times keep a reused PID from becoming a cancellation target during the grace period.
-function descendants(known: Map<number, ProcessIdentity>) {
-  const table = new Map<number, ProcessIdentity>();
-  for (const entry of readdirSync("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-    const process = identity(Number(entry));
-    if (process) table.set(process.pid, process);
-  }
-  const owned = new Map<number, ProcessIdentity>();
-  for (const process of known.values()) {
-    const current = table.get(process.pid);
-    if (current?.started === process.started) owned.set(current.pid, current);
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const process of table.values()) {
-      if (!owned.has(process.pid) && owned.has(process.parent)) {
-        owned.set(process.pid, process); changed = true;
-      }
-    }
-  }
-  return owned;
-}
 
 /** Linux hosted smoke phases own their command and descendants, including detached browser groups. */
 export async function smokeProcess(command: string, args: string[], options: {
@@ -50,6 +9,8 @@ export async function smokeProcess(command: string, args: string[], options: {
   readonly signal: AbortSignal;
   readonly stdout?: Writable;
   readonly stderr?: Writable;
+  /** Elevate only the supervisor; the command retains the calling uid and environment. */
+  readonly privilegedCleanup?: boolean;
 }): Promise<{ stdout: string }> {
   options.signal.throwIfAborted();
   if (process.platform !== "linux") throw new Error("Hosted smoke process cleanup requires Linux.");
@@ -58,64 +19,54 @@ export async function smokeProcess(command: string, args: string[], options: {
   try {
     return await new Promise((resolve, reject) => {
       const supervisor = fileURLToPath(new URL("./smoke-supervisor.py", import.meta.url));
-      const child = spawn("python3", [supervisor, command, ...args], { cwd: options.cwd, env: options.env, detached: true });
-      const root = child.pid === undefined ? undefined : identity(child.pid);
-      let owned = new Map(root ? [[root.pid, root]] : []);
+      const elevated = options.privilegedCleanup && process.getuid!() !== 0;
+      const child = spawn(elevated ? "sudo" : "python3", elevated ? ["-n", "--", "python3", supervisor] : [supervisor], {
+        cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "pipe", "pipe"],
+      });
+      const input = child.stdin!;
+      const output = child.stdout!;
+      const errors = child.stderr!;
       let stdout = "";
       let bytes = 0;
       let failure: Error | undefined;
-      const terminate = (signal: NodeJS.Signals) => {
-        owned = descendants(owned);
-        let failure: unknown;
-        const send = (pid: number) => {
-          try { process.kill(pid, signal); }
-          catch (error) {
-            const code = (error as NodeJS.ErrnoException).code;
-            // sudo must relay graceful termination to privileged install children.
-            if (code !== "ESRCH" && !(code === "EPERM" && signal === "SIGTERM")) failure ??= error;
-          }
-        };
-        if (signal === "SIGTERM" && root && identity(root.pid)?.started === root.started) send(-root.pid);
-        for (const processIdentity of [...owned.values()].reverse()) {
-          // Let the supervisor reap every orphan and exit itself. Killing it would lose
-          // ownership of descendants born or reparented during the force-stop sweep.
-          if (signal === "SIGKILL" && processIdentity.pid === root?.pid) continue;
-          if (identity(processIdentity.pid)?.started !== processIdentity.started) continue;
-          send(processIdentity.pid);
-        }
-        if (failure) throw failure;
-      };
+      input.on("error", error => {
+        if ((error as NodeJS.ErrnoException).code !== "EPIPE") reject(error);
+      });
+      input.write(JSON.stringify({ command: [command, ...args], env: options.env ?? process.env,
+        uid: process.getuid!(), gid: process.getgid!(), groups: process.getgroups!() }) + "\n");
       const stop = () => {
-        // Give wrappers such as sudo time to relay termination to their children.
         if (escalation) return;
-        try { terminate("SIGTERM"); } catch (error) { reject(error); }
-        escalation = new Promise<void>((resolve, reject) => {
-          setTimeout(() => {
-            void (async () => {
-              while ([...owned.values()].some(process => identity(process.pid)?.started === process.started)) {
-                terminate("SIGKILL");
-                await new Promise<void>(resolve => setImmediate(resolve));
-              }
-            })().then(resolve, reject);
-          }, 5_000);
+        input.write("SIGTERM\n");
+        escalation = new Promise<void>(resolve => {
+          setTimeout(() => { input.end("SIGKILL\n"); resolve(); }, 5_000);
         });
-        void escalation.catch(reject);
       };
-      child.stdin.end();
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
+      output.setEncoding("utf8");
+      errors.setEncoding("utf8");
       const count = (chunk: string) => {
         bytes += Buffer.byteLength(chunk);
         if (bytes > 8 * 1024 * 1024 && !failure) { failure = new Error("Smoke output exceeded 8 MiB."); stop(); }
       };
-      child.stdout.on("data", (chunk: string) => { count(chunk); if (!failure) stdout += chunk; });
-      child.stderr.on("data", count);
-      child.stdout.pipe(options.stdout ?? process.stdout, { end: false });
-      child.stderr.pipe(options.stderr ?? process.stderr, { end: false });
+      let suppressedErrors = "";
+      // Always drain the supervisor's pipes. A destination's false write result
+      // must not pause the supervisor before it can receive cancellation.
+      // The shared output limit bounds what we queue into a stalled destination.
+      output.on("data", (chunk: string) => {
+        count(chunk);
+        if (!failure) { stdout += chunk; (options.stdout ?? process.stdout).write(chunk); }
+      });
+      errors.on("data", (chunk: string) => {
+        count(chunk);
+        if (!failure) (options.stderr ?? process.stderr).write(chunk);
+        else suppressedErrors = (suppressedErrors + chunk).slice(-8 * 1024 * 1024);
+      });
       child.on("error", reject);
       child.on("close", (code, signal) => {
+        // Keep the final survivor report even if command output exhausted its budget.
+        if (code === 125 && suppressedErrors) (options.stderr ?? process.stderr).write(suppressedErrors);
         if (options.signal.aborted) reject(options.signal.reason);
         else if (failure) reject(failure);
+        else if (code === 125) reject(new Error("Smoke cleanup left owned descendants; see diagnostics."));
         else if (code !== 0) reject(new Error(`${command} exited with ${signal ?? code}.`));
         else resolve({ stdout });
       });
