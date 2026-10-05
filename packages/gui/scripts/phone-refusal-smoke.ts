@@ -49,7 +49,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await fits(page.getByRole("button", { name: /^Send/ }));
       await settings.click();
       await page.reload();
-      await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+      await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await expect(field).toHaveValue(message);
     }
   } finally {

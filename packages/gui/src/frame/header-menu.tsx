@@ -1,3 +1,6 @@
+import { useOpenPairing } from "../connections/pairing.js";
+import { focusedPane } from "../grid/layout.js";
+import { usePresentation, useRuntime, useShell } from "../window-context.js";
 import { usePhoneFrame } from "./phone-frame.js";
 import { ThemeToggle } from "./theme-toggle.js";
 import { SetupLine } from "../setup/setup-line.js";
@@ -22,9 +25,16 @@ const ActionItem = ({ id, label, icon: Icon, select }: { readonly id: KeyActionI
   const actions = useEveryWiredAction();
   const action = actions.find((action) => action.id === id);
   const keys = useFirstKey(id);
-  const reason = action === undefined ? "Open a session first." : action.offer.status === "absent" ? action.offer.message : undefined;
+  const shell = useShell();
+  const openPairing = useOpenPairing();
+  const [layout] = usePresentation("paneLayout");
+  const session = focusedPane(layout).session;
+  const runtime = useRuntime();
+  const authority = session ? runtime.capability(session.environmentId, "terminals.open") : undefined;
+  const limited = shell === undefined && id === "app.terminal.toggle" && action?.offer.status === "absent" && authority?.status === "absent" && authority.reason === "scope";
+  const reason = limited ? "Terminal unavailable · Give this phone full access" : action === undefined ? "Open a session first." : action.offer.status === "absent" ? action.offer.message : undefined;
   return <Tooltip content={[label, keys, reason].filter(Boolean).join(" · ")}>
-    <MenuItem aria-label={label} disabled={reason !== undefined} onSelect={() => { if (action !== undefined) select(() => action.run()); }}>
+    <MenuItem aria-label={label} disabled={reason !== undefined && !limited} onSelect={() => { if (limited && session) select(() => openPairing({ rePair: session.environmentId, fullAccess: true })); else if (action !== undefined) select(() => action.run()); }}>
       <Icon aria-hidden="true" /><span>{label}{reason !== undefined && <span className="block text-xs text-ink-faint">{reason}</span>}</span><MenuShortcut>{keys}</MenuShortcut>
     </MenuItem>
   </Tooltip>;

@@ -1,4 +1,5 @@
 import "@xterm/xterm/css/xterm.css";
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button, Tooltip } from "../ui/index.js";
@@ -93,9 +94,7 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
       {(view.line !== null || renew) && (
         <div className="flex shrink-0 items-center gap-2 px-3 py-1.5">
           {view.line !== null && (
-            <p role="status" className="min-w-0 flex-1 text-xs text-ink-muted">
-              {view.line}
-            </p>
+            <AccessUnavailable environmentId={environmentId} answer={authority}><p role="status" className="min-w-0 flex-1 text-xs text-ink-muted">{view.line}</p></AccessUnavailable>
           )}
           {renew && (
             <Tooltip content="New terminal · Enter / Space">

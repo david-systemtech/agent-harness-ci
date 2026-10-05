@@ -37,7 +37,7 @@ it("opens the registered attention surface from inside the Settings dialog", asy
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link: world.environment("desk").wire.link } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
   const user = userEvent.setup();
-  await screen.findByText(/Scopes: read · Ceiling/);
+  await screen.findByRole("note", { name: "Limited access" });
   await user.click(screen.getByRole("button", { name: "Settings" }));
   const trigger = await screen.findByRole("button", { name: "Attention settings" });
   expect(trigger.closest("[data-settings-dialog]")).not.toBeNull();

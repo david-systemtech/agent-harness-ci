@@ -26,7 +26,7 @@ const open = async (receipts: Record<string, ScriptedReceipt> = {}, secondEnviro
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link: env.wire.link } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); history.replaceState(null, "", "/"); });
   const user = userEvent.setup();
-  await screen.findByText(/Scopes: read, sessions:write, runs:drive/);
+  await screen.findByRole("note", { name: "Limited access" });
   await user.click(screen.getByRole("button", { name: "Show sessions" }));
   await within(screen.getByRole("dialog", { name: "Sessions" })).findByRole("button", { name: /desk Notes/ });
   await user.click(screen.getByRole("button", { name: "Close sessions" }));
