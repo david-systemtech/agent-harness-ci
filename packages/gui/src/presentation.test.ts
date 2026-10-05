@@ -137,7 +137,7 @@ describe("the presentation", () => {
     const surface = {
       id: "surface-1",
       focus: { kind: "session", environmentId: "env-1", sessionId: "session-1" },
-      chips: { environmentId: "env-2", account: { environmentId: "env-2", accountId: "account-1" }, model: "model-1", workspace: { environmentId: "env-2", request: { kind: "scratch" } } },
+      chips: { environmentId: "env-2", account: { environmentId: "env-2", accountId: "account-1" }, model: "model-1", effort: "high", workspace: { environmentId: "env-2", request: { kind: "scratch" } } },
     };
     expect(await read(surface)).toEqual({ id: "pane-1", width: 100, session: null, newSession: surface });
     // A chip it cannot read is left unset; the rest of the surface stands.

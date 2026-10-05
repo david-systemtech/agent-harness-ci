@@ -71,6 +71,7 @@ export const PRESENTATION_KEYS: readonly string[] = [
   "collapsedHeadings",
   "escStopsRun",
   "firstLaunchDone",
+  "dismissedPairingAccess",
   "hiddenDirectories",
   "keyRemaps",
   "lightOrDark",

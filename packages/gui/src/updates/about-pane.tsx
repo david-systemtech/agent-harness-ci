@@ -1,3 +1,4 @@
+import { ReadOnlyAccess } from "../connections/limited-access.js";
 import { bundledClaudeCodeWords, type EnvironmentView } from "@agent-harness/client-runtime";
 import type { MethodName } from "@agent-harness/contracts";
 import { MANAGED_TOOLS_SENT, ManagedTools } from "../managed-tools/managed-tools.js";
@@ -39,9 +40,7 @@ const AboutOn = ({ view }: { readonly view: EnvironmentView }) => {
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, status.result !== null)}</p>}
       {ready &&
         lackingLines(runtime, view.environmentId, sent).map((line) => (
-          <p key={line} className="text-sm text-amber">
-            Read-only: {line}
-          </p>
+          <ReadOnlyAccess key={line} environmentId={view.environmentId} line={line}><p className="text-sm text-amber">Read-only: {line}</p></ReadOnlyAccess>
         ))}
       <Part title="Updates">
         <UpdateControls view={view} />

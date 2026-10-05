@@ -1,0 +1,4 @@
+[data-limited-access] { display: flex; align-items: center; flex-shrink: 0; min-width: 0; padding: 0 8px; border-bottom: 1px solid var(--hairline); white-space: nowrap; font-size: 14px; }
+[data-limited-access] button { min-width: 44px; min-height: 44px; font-size: 14px; }
+[data-limited-access] button:last-child { margin-left: auto; }
+[data-access-sheet] button, [data-access-unavailable] button { min-height: 44px; white-space: normal; max-width: 100%; }
