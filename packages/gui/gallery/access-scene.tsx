@@ -43,7 +43,7 @@ export async function accessScene(row: "access.key-managers" | "access.forges") 
 /** look.md §12.2–12.3 and §4: Settings cap, group inset and compact verbs. */
 export const accessGeometry = (viewport: SceneViewport) => [
   ...settingsGeometry(viewport),
-  { selector: "[data-access-pane]", maxWidth: 768 },
+  { selector: "[data-access-pane]", width: Math.min(viewport.width >= 1280 ? 1440 : 1000, viewport.width - 48) - 256 },
   { selector: "[data-access-card]", paddingLeft: 12, paddingTop: 12 },
   { selector: "[data-access-card] button", height: 28 },
   { selector: "[data-access-card] header > svg", width: 16, height: 16 },

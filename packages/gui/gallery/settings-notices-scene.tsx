@@ -35,7 +35,7 @@ export const readySelector = "[data-settings-notices] [data-notice-tone]";
 
 export const settingsNoticesGeometry = (textSize = 14) => ({ width, height }: SceneViewport): readonly SceneGeometry[] => [
   { selector: "html", fontSize: 16 * textSize / 14 },
-  { selector: "[data-settings-dialog]", width: Math.min(1000, width - 48 * textSize / 14), height: Math.min(660, height - 48 * textSize / 14) },
+  { selector: "[data-settings-dialog]", width: Math.min(width >= 1280 ? 1440 : 1000, width - 48 * textSize / 14), height: Math.min(width >= 1280 ? 900 : 660, height - 48 * textSize / 14) },
   { selector: "[data-settings-notices]", visibleWithin: "[data-settings-dialog]" },
   { selector: '[data-settings-notices] li:first-child', visibleWithin: '[aria-label="Notifications"]', contentFits: true },
   { selector: '[data-settings-notices] li:first-child', visibleWithin: "[data-settings-notices]" },

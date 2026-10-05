@@ -1,6 +1,7 @@
 import { trustOfferEmpty, type TrustRecord } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { useObservable, useRuntime } from "../window-context.js";
+import { SettingsCardGrid } from "../settings/part.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
 
@@ -105,12 +106,14 @@ export const TrustedRepositories = ({ environmentId, say }: { readonly environme
       {read.error !== null && <p className="text-sm text-amber">{read.error.message}</p>}
       {read.result === null && read.error === null && <p className="text-sm text-ink-muted">Reading trust decisions…</p>}
       {read.result?.trusted.length === 0 && <p className="text-sm text-ink-muted">No repository is trusted on this environment.</p>}
-      {read.result?.trusted.map((record) => (
-        <TrustRow key={record.key} environmentId={environmentId} record={record} say={say} />
-      ))}
-      {read.result?.declined.map((record) => (
-        <TrustRow key={record.key} environmentId={environmentId} record={record} say={say} />
-      ))}
+      <SettingsCardGrid>
+        {read.result?.trusted.map((record) => (
+          <TrustRow key={record.key} environmentId={environmentId} record={record} say={say} />
+        ))}
+        {read.result?.declined.map((record) => (
+          <TrustRow key={record.key} environmentId={environmentId} record={record} say={say} />
+        ))}
+      </SettingsCardGrid>
     </section>
   );
 };
