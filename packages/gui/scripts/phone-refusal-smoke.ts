@@ -12,27 +12,39 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
   const fits = async (control: Locator) => {
+    const text = await control.textContent();
+    const label = await control.getAttribute("aria-label");
+    // Icon buttons can share empty text. Identify them by the locator's label;
+    // text is only used for the refusal/remedy status paragraphs.
+    const element = label === null
+      ? `Array.from(document.querySelector('[data-composer-column]').querySelectorAll('p[role="status"]')).find(element => element.textContent === ${JSON.stringify(text)})`
+      : `document.querySelector('[data-composer-column]').querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(label)}]`)})`;
     // Scroll only the touch-scrollable composer, never an overflow-hidden ancestor
     // or the document. Centering also leaves room for fractional edge geometry.
-    await control.evaluate(`element => {
+    await page.evaluate(`(() => {
+      const element = ${element};
+      if (!element) throw new Error('The refusal/control must exist in the composer.');
       const column = element.closest('[data-composer-column]');
       const rect = element.getBoundingClientRect(), bounds = column.getBoundingClientRect();
       column.scrollTop += rect.top - bounds.top - column.clientTop - (column.clientHeight - rect.height) / 2;
-    }`);
+    })()`);
     // Account/status changes can resize the column after intersection is observed.
     // Read both boxes in one frame and wait for the original bounds condition.
-    await expect.poll(() => control.evaluate(`element => {
+    await expect.poll(() => page.evaluate(`(() => {
+      const element = ${element};
+      if (!element) return { missing: true };
       const box = element.getBoundingClientRect();
       const region = element.closest('[data-composer-column]').getBoundingClientRect();
       const inside = box.y >= region.y - 1 && box.bottom <= region.bottom + 1
         && box.y >= 0 && box.bottom <= innerHeight + 1;
       return inside ? true : { control: { y: box.y, height: box.height },
         column: { y: region.y, height: region.height }, viewport: innerHeight };
-    }`), { timeout: 60_000, message: "The whole refusal/control fits the user-scrollable composer and keyboard-height viewport." }).toBe(true);
+    })()`), { timeout: 60_000, message: "The whole refusal/control fits the user-scrollable composer and keyboard-height viewport." }).toBe(true);
     // Intersection observes clipping by every overflow ancestor, not just the viewport.
     try { await expect(control).toBeInViewport({ ratio: 1, timeout: 60_000 }); }
     catch (error) {
-      console.error("PHONE-REFUSAL geometry", await control.evaluate(`element => {
+      console.error("PHONE-REFUSAL geometry", await page.evaluate(`(() => {
+        const element = ${element};
         return JSON.stringify({ viewport: [innerWidth, innerHeight],
           focus: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim().slice(0, 40),
           ancestors: (() => { const result = []; for (let node = element; node; node = node.parentElement) {
@@ -43,7 +55,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
               overflow: getComputedStyle(node).overflowY });
           } return result; })()
         });
-      }`));
+      })()`));
       throw error;
     }
   };
