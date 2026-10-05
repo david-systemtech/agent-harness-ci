@@ -183,7 +183,7 @@ describe("its entries", () => {
     expect(entries()).not.toContainEqual(expect.stringContaining("Open the command palette"));
   });
 
-  it("are the window's own alone while no session is open: Settings, its rows and the sessions", async () => {
+  it("are window controls, zoom, Settings rows and session navigation while no session is open", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>}k{/Control}");
@@ -194,9 +194,12 @@ describe("its entries", () => {
       "Split the focused pane to the rightCtrl+\\",
       "Split the focused pane downwardsCtrl+Shift+\\",
       "Open or close SettingsCtrl+,",
+      expect.stringMatching(/^Zoom inCtrl\+\+/),
+      "Zoom outCtrl+-",
+      "Actual sizeCtrl+0",
     ]));
     expect(entriesUnder("Settings")).toHaveLength(20);
-    expect(entries()).toHaveLength(26);
+    expect(entries()).toHaveLength(29);
     expect(entries().at(-1)).toBe("Sessions on every environment…");
   });
 

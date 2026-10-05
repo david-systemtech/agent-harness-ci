@@ -3,7 +3,7 @@ import { arch, homedir, hostname, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
-import { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, nativeTheme, Notification, protocol, safeStorage, shell } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, protocol, safeStorage, shell } from "electron";
 import type { ElectronWebView } from "./electron.js";
 import { desktopDataDirectory, environmentDataDirectory } from "./data-directory.js";
 import { startDesktop } from "./desktop.js";
@@ -66,6 +66,7 @@ if (os === "darwin" && process.argv.includes(CREDENTIAL_HELPER_ARGUMENT) && proc
       shell,
       nativeTheme,
       safeStorage,
+      menu: { set: (template) => Menu.setApplicationMenu(Menu.buildFromTemplate(template)) },
       notification: { isSupported: () => Notification.isSupported(), create: (options) => new Notification(options) },
       openWindow: (options) => {
         const window = new BrowserWindow(options);

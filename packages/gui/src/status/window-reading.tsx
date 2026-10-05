@@ -1,3 +1,4 @@
+import { isKnownUsageWindow } from "@agent-harness/contracts";
 import type { Reading } from "@agent-harness/client-runtime";
 import { classes } from "../ui/classes.js";
 
@@ -23,7 +24,7 @@ export const WindowReading = ({ reading }: { readonly reading: Reading }) => {
   const width = reading.pressure === "out" ? 100 : Math.max(0, Math.min(100, (reading.utilisation ?? 0) * 100));
   const tone = reading.pressure === "out" || reading.pressure === "high" ? "text-signal" : reading.pressure === "raised" ? "text-amber" : reading.pressure === "low" ? "text-mint" : "text-ink-faint";
   return <>
-    <UsageRing reading={reading} />{" "}
+    {isKnownUsageWindow(reading.window) && <><UsageRing reading={reading} />{" "}</>}
     <span aria-hidden="true" className="h-1 w-10 overflow-hidden rounded-full bg-wash-strong">
       <span className={classes("block h-full bg-current", tone)} style={{ width: `${width}%` }} />
     </span>

@@ -210,7 +210,7 @@ describe("the Memory bank card", () => {
       return accepted({ sessionId: id });
     });
     await app.user.click(within(card).getByRole("button", { name: "Describe this bank" }));
-    expect(await within(card).findByRole("textbox", { name: "Message" })).toBeDefined();
+    expect(await within(await screen.findByRole("dialog", { name: "Authoring conversation" })).findByRole("textbox", { name: "Message" })).toBeDefined();
     expect(desk.requests("setup.mint").at(-1)?.params).toMatchObject({ step: "memory-bank", subject: desk.requests("banks.create").at(-1)?.params["bankId"], variant: "first" });
   });
 });

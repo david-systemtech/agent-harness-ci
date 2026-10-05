@@ -95,6 +95,11 @@ export const ScopeGrantedPayload = z
   })
   .meta({ description: "scope.granted: a client session was given more scopes." });
 
+const AccessGrant = z.object({ scopes: ScopeSet, ceiling: Ceiling });
+export const AccessChangedPayload = z.object({ clientSessionId: ClientSessionId, from: AccessGrant, to: AccessGrant }).meta({
+  description: "access.changed: another admin client replaced this client's scopes and ceiling; existing sockets reconnect with the same token.",
+});
+
 export const CeilingChangedPayload = z
   .object({ clientSessionId: ClientSessionId, from: Ceiling, to: Ceiling })
   .meta({
@@ -118,6 +123,7 @@ export const ACCESS_EVENT_TYPES = [
   "socket.opened",
   "socket.closed",
   "scope.granted",
+  "access.changed",
   "ceiling.changed",
   "bypass.acknowledged",
   "settings.changed",
@@ -140,6 +146,7 @@ export const ACCESS_EVENT_PAYLOADS = {
   "socket.opened": SocketOpenedPayload,
   "socket.closed": SocketClosedPayload,
   "scope.granted": ScopeGrantedPayload,
+  "access.changed": AccessChangedPayload,
   "ceiling.changed": CeilingChangedPayload,
   "bypass.acknowledged": BypassAcknowledgedPayload,
   "settings.changed": SettingsChangedPayload,

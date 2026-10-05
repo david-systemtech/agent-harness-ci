@@ -308,6 +308,17 @@ export const createWire = (options: WireOptions): Wire => {
     if (ready) armAuthTimer(socket);
   };
 
+  const stopAccessChanged = clientSessions.onAccessChanged((id) => {
+    for (const socket of [...open]) {
+      if (socket.clientSession?.id !== id || socket.phase === "closing") continue;
+      socket.phase = "closing";
+      stopTimers(socket);
+      socket.subscriptions.endAll("closed");
+      // A transient close reconnects with the existing token and refreshes capabilities through hello.
+      socket.ws.close(CLOSE.goingAway, "Access changed; reconnect");
+    }
+  });
+
   const stopRevoked = clientSessions.onRevoked((id) => {
     for (const socket of [...open]) {
       if (socket.clientSession?.id === id) {
@@ -320,6 +331,7 @@ export const createWire = (options: WireOptions): Wire => {
   const closeAll = async (bye: GoingAway): Promise<void> => {
     closed = true;
     stopRevoked();
+    stopAccessChanged();
     const closing = [...open].map(
       (socket) =>
         new Promise<void>((resolve) => {

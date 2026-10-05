@@ -1,4 +1,4 @@
-import { ACTION_CONDITIONS, ACTION_GROUPS, isCommandId, isGuiOnly, settingsRow, type ActionCondition, type ListedAction } from "@agent-harness/contracts";
+import { ACTION_CONDITIONS, ACTION_GROUPS, isDesktopZoomAction, isCommandId, isGuiOnly, settingsRow, type ActionCondition, type ListedAction } from "@agent-harness/contracts";
 import { CircleStop, Keyboard, RotateCcw, Search } from "lucide-react";
 import { useId, useState, type KeyboardEvent } from "react";
 import { chordOfEvent, keyLabel } from "../keys/chords.js";
@@ -7,7 +7,7 @@ import { clashOf, defaultGuiKeys, guiKeysOf, isRemappable, isWrittenOff, keyRefu
 import { matchingSkillsActions, SkillsKeyboardHelp } from "../skills/keyboard-help.js";
 import { SettingsGroup } from "../settings/part.js";
 import { Button, Input, Kbd, Switch, Tooltip } from "../ui/index.js";
-import { usePresentation } from "../window-context.js";
+import { usePresentation, useShell } from "../window-context.js";
 import { InstructionControlShortcuts, instructionControlsMatching } from "../instructions/shortcuts.js";
 
 /**
@@ -172,7 +172,8 @@ const TerminalKeys = ({ action }: { readonly action: ListedAction }) => {
 
 /** One action: its description and id, the terminal UI's keys, and the GUI's. */
 const ActionRow = ({ action, keys, line }: { readonly action: ListedAction; readonly keys: RowKeys; readonly line: string | undefined }) => {
-  const absent = action.gui.status === "absent";
+  const shell = useShell();
+  const absent = action.gui.status === "absent" || (isDesktopZoomAction(action.id) && shell?.window?.zoom === undefined);
   return (
     <tr aria-label={action.description} aria-disabled={absent ? true : undefined} className="border-b border-hairline align-top aria-disabled:text-ink-faint">
       <td className="px-3 py-2">
@@ -192,7 +193,12 @@ const ActionRow = ({ action, keys, line }: { readonly action: ListedAction; read
 
 /** The GUI's column: its reason where absent, a slash command as typed, else each key in force to record again, marked when remapped. */
 const GuiKeys = ({ action, keys }: { readonly action: ListedAction; readonly keys: RowKeys }) => {
+  const shell = useShell();
   if (action.gui.status === "absent") return <span>{action.gui.reason}</span>;
+  if (isDesktopZoomAction(action.id)) return <>
+    <Kbd>{defaultGuiKeys(action).map((key) => keyLabel(key, keys.macOS)).join(", ")}</Kbd>
+    <span className="block text-xs text-ink-faint">{shell?.window?.zoom === undefined ? "Use your browser's zoom controls." : `Desktop window: fixed keys${action.id === "app.zoom.in" ? "; includes numeric keypad plus" : ""}.`}</span>
+  </>;
   if (!isRemappable(action)) return <span className="font-mono">{typedName(action)}</span>;
   const held = guiKeysOf(action, keys.remaps);
   const defaults = defaultGuiKeys(action);

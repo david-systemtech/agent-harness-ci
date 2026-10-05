@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import type { SkillReadiness, SkillsView } from "@agent-harness/contracts";
 import { oneLine, type EnvironmentView } from "@agent-harness/client-runtime";
 import { Sparkles, Type, FileText, Layers } from "lucide-react";
@@ -67,9 +68,9 @@ const SkillsOn = ({ view }: { readonly view: EnvironmentView }) => {
           <SessionMembers environmentId={environmentId} sessionId={sessionId} skills={read.result} say={say} />
         ))}
       <AddSource environmentId={environmentId} say={say} />
-      {read.result?.sources.map((source) => (
+      <SettingsCardGrid>{read.result?.sources.map((source) => (
         <SourceCard key={source.id} environmentId={environmentId} source={source} say={say} />
-      ))}
+      ))}</SettingsCardGrid>
       <section aria-label="Own skills" className="flex flex-col gap-3 rounded-lg border border-hairline p-3">
         <h3 className="text-xs font-semibold text-ink">Own skills</h3>
       {read.result !== null && <p className="text-sm text-ink-muted">{read.result.ownDirectory}</p>}
@@ -113,7 +114,7 @@ const Members = ({
   <>
     {skills.members.length === 0 && <div className="flex flex-col items-center gap-2 rounded-lg border border-hairline bg-panel p-6 text-center"><Sparkles aria-hidden="true" className="size-6 text-ink-muted" /><h3 className="text-xs font-medium">No skills are in this set.</h3><p className="max-w-md text-2xs text-ink-muted">Add a repository of procedures, or create a skill in this environment. Each procedure holds a SKILL.md and is available on request.</p></div>}
     <MissingSkillChoices skills={skills} />
-    {skills.members.map((member) => (
+    <SettingsCardGrid>{skills.members.map((member) => (
       <MemberCard
         key={JSON.stringify([member.layer, member.path])}
         environmentId={environmentId}
@@ -122,7 +123,7 @@ const Members = ({
         readiness={readiness.find((ready) => ready.name === member.name)}
         say={say}
       />
-    ))}
+    ))}</SettingsCardGrid>
   </>
 );
 

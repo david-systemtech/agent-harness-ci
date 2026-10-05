@@ -15,22 +15,22 @@ import {
   type ContainmentBadge,
   type RunChoice,
 } from "@agent-harness/client-runtime";
-import { ArrowLeft, ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
+import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
-import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from "../ui/index.js";
+import { Button, Menu, MenuItem, MenuSeparator, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { useHandOffOnto } from "./hand-off.js";
 import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
-import { EnvironmentBadge } from "../connections/environment-badge.js";
-import { RunChoiceRow, RunPickerColumn, moveInColumns, useNarrowRunPicker } from "./run-picker-parts.js";
+import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
+import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 
 /**
@@ -73,6 +73,7 @@ interface PickerButtonProps {
   /** An extra warning appended to the button's tooltip. */
   readonly warning?: string | undefined;
   readonly columns?: boolean;
+  readonly phoneItems?: (close: () => void) => ReactNode;
   /** The slash command that opens it. */
   readonly command: "account" | "model" | "mode" | "containment";
 }
@@ -88,10 +89,16 @@ const containmentLabel = (words: string): string => words.replace(/^[○◐●]\
  * does, the button is dim with the reason in its tooltip and opens nothing:
  * a press says the reason on the pane's line.
  */
-const PickerButton = ({ name, value, offer, children, items, command, warning, columns }: PickerButtonProps) => {
+const PickerButton = ({ name, value, offer, children, items, command, warning, columns, phoneItems }: PickerButtonProps) => {
   const [, say] = usePaneLine();
-  const [open, setOpen] = useState(false);
+  const [opening, setOpening] = useState({ open: false, id: 0 });
+  const { open } = opening;
+  const setOpen = (next: boolean) => setOpening(current => ({ open: next, id: next && !current.open ? current.id + 1 : current.id }));
+  const close = () => setOpening(current => current.id === opening.id ? { ...current, open: false } : current);
   const narrow = useNarrowRunPicker();
+  const phone = useNarrowRunPicker(640);
+  const modeSheet = phone && phoneItems !== undefined;
+  const sheet = !!columns && narrow || modeSheet;
   useSlashCommand(command, () => (offer.status === "absent" ? say(offer.message) : setOpen(true)), offer);
   const label = `${name}: ${value}`;
   const Icon = PICKER_ICONS[command];
@@ -106,17 +113,19 @@ const PickerButton = ({ name, value, offer, children, items, command, warning, c
     );
   }
   return (
-    <Menu open={open} onOpenChange={setOpen} modal={!columns}>
+    <Menu open={open} onOpenChange={setOpen} modal={!columns || narrow}>
       <Tooltip content={`${label} · /${command} · Enter to open${warning === undefined ? "" : ` · ${warning}`}`}>
-        <MenuTrigger asChild>
+        <RunPickerTrigger sheet={sheet} openSheet={() => setOpen(true)}>
           <Button aria-label={label} className={classes(TRIGGER, name === "Account" ? "shrink" : "shrink-0")}>
             {content}
           </Button>
-        </MenuTrigger>
+        </RunPickerTrigger>
       </Tooltip>
-      <MenuContent side="top" align="start" role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} className={columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
-        {items(() => setOpen(false))}
-      </MenuContent>
+      <RunPickerContent sheet={sheet}
+        onFocusCapture={modeSheet ? event => { if (event.target === event.currentTarget) focusModeSheet(event.currentTarget); } : undefined}
+        onKeyDownCapture={modeSheet ? trapModeSheetTab : undefined} side="top" align="start" role={sheet ? "dialog" : "menu"} aria-label={modeSheet ? "Mode" : columns ? "Run choices" : undefined} {...(columns || modeSheet ? { "aria-labelledby": undefined } : {})} className={modeSheet ? "phone-mode-sheet rounded-[10px] p-0" : columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
+        {modeSheet ? <Fragment key={opening.id}>{phoneItems(close)}</Fragment> : items(close)}
+      </RunPickerContent>
     </Menu>
   );
 };
@@ -188,7 +197,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   const session = useSessionName(environmentId, sessionId);
   const windowIsNarrow = useNarrowRunPicker();
   const narrow = compact || windowIsNarrow;
-  const [activeColumn, setActiveColumn] = useState(initialStage);
+  const [activeColumn, setActiveColumn] = useState<RunStage>(initialStage);
   const [query, setQuery] = useState("");
   const [full, setFull] = useState(false);
   const models = catalogues.value === null ? [] : modelsOf(catalogues.value, accountId);
@@ -199,6 +208,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
     if (reason !== undefined) return say(reason);
     if (listingModels.status === "absent") return say(listingModels.message);
     choose({ model: id, effort });
+    if (narrow && models.find((entry) => entry.id === id)?.efforts.length) setActiveColumn("Effort");
     say(`The next run of ${session} goes out on ${id} at ${effort === null ? "its own effort" : `${effort} effort`}.`);
   };
   const pickAccount = (candidate: AccountRecord) => {
@@ -212,19 +222,16 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
     close();
     handOffOnto(candidate);
   };
-  const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <RunPickerColumn name={name} narrow={narrow} activeColumn={activeColumn}>{children}</RunPickerColumn>;
+  const active = activeColumn === "Effort" && (selected?.efforts.length ?? 0) === 0 ? "Models" : activeColumn;
+  const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <RunPickerColumn name={name} narrow={narrow} activeColumn={active} showEffortWithModel={false}>{children}</RunPickerColumn>;
   const visible = models.filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLowerCase().includes(query.toLowerCase()));
   const quick = model?.model === undefined ? models.slice(0, 5) : models.filter((entry, index) => entry.id === model.model || index < 5);
   return <div data-run-picker data-narrow={narrow ? "true" : undefined} className={classes("flex flex-col", narrow && "w-[min(512px,calc(100vw-16px))]")}
     onKeyDownCapture={moveInColumns}>
-    {narrow && <div role="group" aria-label="Steps" data-run-column="Steps" className="flex items-center gap-2 border-b border-hairline p-1.5">
-      <Button title="Back to accounts · Enter" aria-label="Back to accounts" onClick={() => setActiveColumn("Accounts")}><ArrowLeft aria-hidden="true" />Back</Button>
-      <Button title="Choose model and effort · Enter" aria-label="Choose model and effort" onClick={() => setActiveColumn("Models")}><Cpu aria-hidden="true" />Model and effort</Button>
-    </div>}
+    {narrow && <RunPickerSteps stage={active} effort={(selected?.efforts.length ?? 0) > 0} change={setActiveColumn} />}
     {reason !== undefined && <Waiting>{reason}</Waiting>}
     <div className={classes("flex min-w-0 divide-hairline", narrow ? "flex-col divide-y" : "divide-x")}>
       {column("Accounts", <>
-        <div className="px-2.5 py-2 text-xs [&_svg]:size-4"><EnvironmentBadge view={environment} /><p className="mt-1 text-2xs text-ink-muted">{environment?.phase === "ready" ? "Connected. This session stays on this environment." : "Unreachable. Choices are cached."}</p></div>
         {accounts.value === null ? <Waiting>{accounts.error ? `The accounts could not be read: ${accounts.error.message}` : "Reading the accounts…"}</Waiting> : <>
           {accounts.value.length === 0 && <Waiting>No accounts yet. Add an account to sign in.</Waiting>}
           {accounts.value.map((candidate) => <RunChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
@@ -341,7 +348,7 @@ export const ModePicker = ({ environmentId, sessionId, value, children }: ModePi
   const setting = useOffer(environmentId, "permissions.mode.set");
   const items = () => <ModeRows environmentId={environmentId} sessionId={sessionId} />;
   return (
-    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items}>
+    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
       {children}
     </PickerButton>
   );

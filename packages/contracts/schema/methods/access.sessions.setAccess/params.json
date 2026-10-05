@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.sessions.setAccess params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "scopes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "sessions:write",
+          "runs:drive",
+          "terminal",
+          "admin"
+        ],
+        "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+      },
+      "uniqueItems": true,
+      "description": "The scopes a client session holds, as a non-empty set."
+    },
+    "ceiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions."
+    }
+  },
+  "required": [
+    "commandId",
+    "clientSessionId",
+    "scopes",
+    "ceiling"
+  ]
+}

@@ -38,7 +38,7 @@ it("opens every registered row through the phone drawer, closes it on selection,
 
 it("explains deliberate admin re-pairing without sending account mutations on the Phone grant", async () => {
   const app = await opened(["read", "sessions:write", "runs:drive"]);
-  expect(await screen.findByText(/pair again.*admin/i)).toBeDefined();
+  expect(await screen.findByRole("button", { name: "Give this phone full access" })).toBeDefined();
   expect(screen.getByRole("button", { name: "Add an account…" }).hasAttribute("disabled")).toBe(true);
   expect(app.environment.requests("accounts.add")).toHaveLength(0);
 });
@@ -47,7 +47,7 @@ it("explains deliberate admin re-pairing without sending account mutations on th
 it.each(["admin", "own-client"])("completes scripted sign-in and persists a setting with the %s grant", async (grant) => {
   const app = await opened(grant === "admin" ? ["read", "sessions:write", "runs:drive"] : undefined);
   if (grant === "admin") {
-    expect(await screen.findByText(/pair again.*admin/i)).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Give this phone full access" })).toBeDefined();
     app.environment.autoAccept(false);
     const openedSockets = app.environment.wire.opened();
     await act(async () => {
@@ -65,7 +65,14 @@ it.each(["admin", "own-client"])("completes scripted sign-in and persists a sett
   expect(link.getAttribute("href")).toBe("https://provider.example.test/verify");
   expect(link.getAttribute("target")).toBe("_blank");
   expect(link.getAttribute("rel")).toContain("noopener");
-  await app.user.type(screen.getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests{Enter}");
+  if (grant === "own-client") {
+    const readText = vi.fn(async () => " code-for-tests#state-for-tests\n");
+    vi.stubGlobal("navigator", Object.create(navigator, { clipboard: { value: { readText } } }));
+    await app.user.click(screen.getByRole("button", { name: "Paste code from clipboard" }));
+    expect(readText).toHaveBeenCalledOnce();
+  } else {
+    await app.user.type(screen.getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#state-for-tests{Enter}");
+  }
   await waitFor(() => expect(app.environment.requests("accounts.signin.code")).toHaveLength(1));
   act(() => app.environment.signIn("done"));
   expect(await screen.findByText("Test account is signed in on desk.")).toBeDefined();

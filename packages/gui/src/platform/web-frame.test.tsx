@@ -4,7 +4,7 @@ import { createRuntime } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
 import { scriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { IDBFactory } from "fake-indexeddb";
-import { expect, it, onTestFinished } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { App } from "../app.js";
 import { WebViewport } from "./web-frame.js";
 import { openPresentation } from "../presentation.js";
@@ -27,7 +27,7 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   const link = env.wire.link.replace(/^http:/, "https:");
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
-  await screen.findByText(/Scopes: read, sessions:write, runs:drive · Ceiling: acceptEdits/);
+  await screen.findByRole("note", { name: "Limited access" });
   expect(screen.queryByText(/Starting this machine/)).toBeNull();
   const user = userEvent.setup();
   await screen.findByRole("option", { name: "Check the receipts" });
@@ -51,7 +51,7 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   const incoming = new URL(link);
   app.rerender(<App key="new-pairing-visit" runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { address: incoming.origin, code: incoming.hash.slice(1) } } }} />);
   await screen.findByDisplayValue(link);
-  expect(screen.getByText(/Scopes: read, sessions:write, runs:drive · Ceiling: acceptEdits/)).toBeDefined();
+  expect(screen.getByRole("note", { name: "Limited access" })).toBeDefined();
   await user.click(screen.getByRole("button", { name: "Pair" }));
   await user.click(await screen.findByRole("button", { name: "Pair again" }));
   await waitFor(() => expect(screen.queryByRole("heading", { name: "Pair with this environment" })).toBeNull());
@@ -99,4 +99,57 @@ it("preserves an embedded browser frame's height rule while bounding the visual 
   const frame = app.container.querySelector<HTMLElement>("[data-web-client]")!;
   expect(getComputedStyle(frame).height).toBe("100%");
   expect(getComputedStyle(frame).maxHeight).toBe("900px");
+});
+
+
+it.each([[false, 844], [true, 844], [false, 780], [true, 780]] as const)("owns phone bounds, preserves zoom and restores the document with layout resize %s and unoccluded height %s", (resizeLayout, unoccludedHeight) => {
+  const viewport = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, scale: 1 });
+  vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 390);
+  vi.stubGlobal("innerHeight", 844);
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  const app = render(<WebViewport narrow><textarea aria-label="Message" defaultValue="Keep this draft" /><button>Send</button></WebViewport>);
+  const frame = app.container.firstElementChild as HTMLElement;
+  act(() => { window.innerHeight = unoccludedHeight; viewport.height = unoccludedHeight; viewport.dispatchEvent(new Event("resize")); });
+  act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+  act(() => { if (resizeLayout) window.innerHeight = 480; viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  act(() => { viewport.offsetTop = 120; viewport.dispatchEvent(new Event("scroll")); screen.getByRole("textbox", { name: "Message" }).focus(); });
+  expect(frame.style.height).toBe("480px");
+  expect(frame.style.top).toBe("120px");
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  act(() => screen.getByRole("button", { name: "Send" }).focus());
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+  expect(document.documentElement.hasAttribute("data-phone-viewport")).toBe(true);
+  expect(scroll).not.toHaveBeenCalled();
+  viewport.scale = 2; viewport.height = 240;
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(frame.style.height).toBe("480px");
+  viewport.scale = 1; viewport.height = unoccludedHeight; viewport.offsetTop = 0; window.innerHeight = unoccludedHeight;
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(frame.style.height).toBe(`${unoccludedHeight}px`);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(false);
+  expect(frame.style.top).toBe("0px");
+  expect(screen.getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Keep this draft");
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" }));
+  act(() => { window.innerWidth = 1000; window.dispatchEvent(new Event("resize")); });
+  expect(document.documentElement.hasAttribute("data-phone-viewport")).toBe(false);
+  expect(frame.style.top).toBe("");
+  app.unmount();
+  expect(frame.style.height).toBe("");
+});
+
+it("bounds a phone without VisualViewport and removes listeners on unmount", () => {
+  vi.stubGlobal("visualViewport", undefined); vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 740);
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  const app = render(<WebViewport narrow><p>Conversation</p></WebViewport>);
+  const frame = app.container.firstElementChild as HTMLElement;
+  expect(frame.style.height).toBe("740px");
+  act(() => { window.innerHeight = 480; window.dispatchEvent(new Event("resize")); });
+  expect(frame.style.height).toBe("480px");
+  app.unmount();
+  act(() => window.dispatchEvent(new Event("resize")));
+  expect(frame.style.height).toBe("");
+  expect(document.documentElement.hasAttribute("data-phone-viewport")).toBe(false);
 });

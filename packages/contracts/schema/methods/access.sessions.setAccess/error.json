@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.sessions.setAccess error",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unauthorized"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session's token is missing, invalid, foreign or expired."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "forbidden"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "read",
+                "sessions:write",
+                "runs:drive",
+                "terminal",
+                "admin"
+              ],
+              "description": "The scope the method requires; with reason scope, the requested pairing scope the caller does not hold."
+            },
+            "reason": {
+              "description": "Present when the method's scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session), scope (a pairing would grant a scope the caller does not hold, named in data.scope), local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage), program (a program client session may not ask it: the known-environments report, whose text reaches every run) or addressed (only the client session a call is addressed to may answer it: client.answer).",
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "scope",
+                "local",
+                "program",
+                "addressed"
+              ]
+            },
+            "ceiling": {
+              "description": "With reason ceiling: the caller's own ceiling, the highest it may grant.",
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ]
+            }
+          },
+          "required": [
+            "scope"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason scope, a pairing would grant a scope the caller does not hold, named in data.scope; or, with data.reason local, only a local client session may ask it; or, with data.reason program, a program client session may not; or, with data.reason addressed, the call is addressed to another client session."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "readiness": {
+              "type": "string",
+              "enum": [
+                "starting",
+                "draining"
+              ],
+              "description": "Why the environment cannot answer: it is not ready yet, or it is draining."
+            }
+          },
+          "required": [
+            "readiness"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment is starting or draining; data.readiness says which."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "invalid_params"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "path",
+                  "message"
+                ],
+                "additionalProperties": {},
+                "description": "One schema issue: a code, the path to the offending value and a message."
+              }
+            }
+          },
+          "required": [
+            "issues"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The params or the frame did not match the schema; data.issues lists the schema's issues."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "not_found"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The method's target does not exist."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "conflict"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The target's state does not allow the method now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "internal"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment failed; nothing the client sent is at fault."
+    }
+  ]
+}

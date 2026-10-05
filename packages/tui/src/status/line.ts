@@ -1,4 +1,4 @@
-import { MODE_BADGE_WORDS, containmentWords, pressureOf, readingsOf as readingsOfGauge, type Pressure, type UsageGauge } from "@agent-harness/client-runtime";
+import { MODE_BADGE_WORDS, containmentWords, pressureOf, meterReadingsOf as readingsOfGauge, type Pressure, type UsageGauge } from "@agent-harness/client-runtime";
 import type { ContainmentLevel, Mode, UsageWindow } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 

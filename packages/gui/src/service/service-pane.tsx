@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { Server } from "lucide-react";
 import { UPDATES_MANAGED_OUTSIDE, environmentStateWords, rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
@@ -37,7 +38,7 @@ const ServiceOn = ({ view }: { readonly view: EnvironmentView }) => {
     <>
       <p className="text-sm text-ink-muted">{settingsRow("environments.service").hint}</p>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>}
-      {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       <Part title="State">
         <State view={view} />
         <ServiceVerbs view={view} writable={ready && admin.status === "present"} />
