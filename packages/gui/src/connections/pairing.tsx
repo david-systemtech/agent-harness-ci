@@ -56,15 +56,17 @@ export interface PairingFormProps {
   /** A link to pair with as the form opens: the deep link the desktop was handed. */
   readonly link?: string | undefined;
   /** Hears each environment a pairing from the form made or paired again, by its id. */
-  readonly onPaired?: (environmentId: string) => void;
+  readonly onPaired?: ((environmentId: string) => void) | undefined;
   /** Reads a pairing link from a QR code with the camera the platform gives the window, offered as Scan a QR; none where it gives none. */
   readonly scanQr?: (() => Promise<string | undefined>) | undefined;
   /** Whether the link's field takes the focus as the form opens. */
   readonly autoFocus?: boolean;
+  /** Require a verified full grant before accepting this replacement. */
+  readonly fullAccess?: boolean;
 }
 
 /** A pairing link, or an address and code (or a QR scanned, where the window has a camera), and the one line that says how the pairing went. */
-export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus = false }: PairingFormProps) => {
+export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus = false, fullAccess = false }: PairingFormProps) => {
   const runtime = useRuntime();
   const shell = useShell();
   const camera = webCameraFor(runtime);
@@ -87,7 +89,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         return;
       }
       setSaid({ kind: "pairing" });
-      runtime.connections.add(input, options ?? (rePair === undefined ? undefined : { rePair })).then(
+      runtime.connections.add(input, { ...(options ?? (rePair === undefined ? {} : { rePair })), ...(fullAccess && { fullAccess: true }) }).then(
         (outcome) => {
           setSaid(saidOf(outcome, input, runtime.projections.environments.read()));
           if (outcome.status === "paired") onPaired?.(outcome.environmentId);
@@ -95,7 +97,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         (error: unknown) => setSaid({ kind: "line", line: `Not paired: ${messageOf(error)}` }),
       );
     },
-    [runtime, rePair, onPaired, shell],
+    [runtime, rePair, onPaired, shell, fullAccess],
   );
 
   // A deep link pairs as it is opened, as a link pasted and sent would.
@@ -163,10 +165,15 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
   );
 };
 
+
+export const FULL_ACCESS_GUIDANCE = "Make a full-access code on a paired desktop: Settings → Your machines → this environment’s card → My own client. Or run agent-harness pair --preset own-client on the environment’s command line. Paste its link here or scan its QR. This replaces this phone’s pairing when it succeeds.";
+
 /** What opens the pairing dialog: pairing again in place, or a deep link to pair with. */
 export interface PairingRequest {
   readonly rePair?: string;
   readonly link?: string;
+  /** Deliberate replacement with a full-access code minted by a trusted client. */
+  readonly fullAccess?: boolean;
 }
 
 const PairingContext = createContext<((request?: PairingRequest) => void) | null>(null);
@@ -205,11 +212,11 @@ export const PairingProvider = ({ children }: { readonly children: ReactNode }) 
       <Dialog open={request !== undefined} onOpenChange={(opened) => !opened && setRequest(undefined)}>
         {request !== undefined && (
           <DialogContent
-            title={again ? `Pair ${nameOf(again)} again` : "Pair with an environment"}
-            description="Paste the pairing link another client made, or type the environment's address and its code."
+            title={request.fullAccess ? "Give this phone full access" : again ? `Pair ${nameOf(again)} again` : "Pair with an environment"}
+            description={request.fullAccess ? FULL_ACCESS_GUIDANCE : "Paste the pairing link another client made, or type the environment's address and its code."}
             className="max-w-[32rem] max-h-[calc(100dvh-4rem)] overflow-y-auto"
           >
-            <PairingForm key={request.opened} rePair={request.rePair} link={request.link} />
+            <PairingForm key={request.opened} fullAccess={request.fullAccess ?? false} rePair={request.rePair} link={request.link} onPaired={request.fullAccess ? () => setRequest(undefined) : undefined} />
             <DialogFooter><DialogClose asChild><Button icon={X} keys="Enter / Space / Escape">Close</Button></DialogClose></DialogFooter>
           </DialogContent>
         )}

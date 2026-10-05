@@ -32,5 +32,7 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     }
     expect(result.stdout).toContain("PHONE-REFUSAL PASS chromium");
     expect(result.stdout).toContain("PHONE-REFUSAL PASS webkit");
+    expect(result.stdout).toContain("PHONE-RUN-PICKER PASS chromium");
+    expect(result.stdout).toContain("PHONE-RUN-PICKER PASS webkit");
   } finally { await removeTree(out); }
 }, 600_000);

@@ -279,10 +279,26 @@ describe("the chips", () => {
     }
     await openChip(app, surface, "Model");
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getByRole("group", { name: "Environment and account" })).toBeDefined();
+    expect(within(menu).getByRole("group", { name: "Accounts" })).toBeDefined();
     expect(within(menu).getByRole("group", { name: "Models" })).toBeDefined();
+    expect(within(menu).queryByRole("menuitem", { name: /^desk|^laptop|^Work/ })).toBeNull();
     expect(within(menu).getByRole("menuitem", { name: /^Home/ })).toBeDefined();
     expect(within(menu).getByRole("menuitem", { name: /^Sonnet 5/ })).toBeDefined();
+  });
+
+  it("asks for an account when the environment chip moves to an environment with no accounts", async () => {
+    const app = await launch({ desk: { accounts: [], models: [] } });
+    await app.user.click(headingControl("laptop"));
+    const surface = surfaces()[0] as HTMLElement;
+    await openChip(app, surface, "Environment");
+    await app.user.click(await screen.findByRole("menuitem", { name: /^desk/ }));
+    await within(surface).findByRole("button", { name: "Account: none" });
+    await within(surface).findByRole("button", { name: "Model: none" });
+    await openChip(app, surface, "Account");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByText("The environment holds no account yet.")).toBeDefined();
+    expect(within(menu).getByRole("menuitem", { name: "Sign in an account" })).toBeDefined();
+    expect(within(menu).queryByRole("menuitem", { name: /^Home|^Work|^desk|^laptop/ })).toBeNull();
   });
 
   it("are projections.newSession's presets; changing one re-runs the presets after it, and an environment no session can start on is greyed with its reason", async () => {
@@ -307,6 +323,11 @@ describe("the chips", () => {
     await app.user.click(usable);
     // The chips after it follow laptop's presets: its account and model, and the repository in focus there.
     await chipsRead(surface, TRAIN_CHIPS);
+    await openChip(app, surface(), "Account");
+    const accounts = await screen.findByRole("menu");
+    expect(within(accounts).getByRole("menuitem", { name: /^Home/ })).toBeDefined();
+    expect(within(accounts).queryByRole("menuitem", { name: /^Work|^desk|^laptop/ })).toBeNull();
+    await app.user.keyboard("{Escape}");
 
     await openChip(app, surface(), "Workspace");
     await app.user.click(await screen.findByRole("button", { name: "Scratch: a directory of its own" }));

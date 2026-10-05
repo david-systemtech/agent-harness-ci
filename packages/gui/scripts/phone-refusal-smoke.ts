@@ -9,7 +9,7 @@ export const composerControlExpression = (text: string | null, label: string | n
   : `document.querySelector('[data-composer-column]').querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(label)}]`)})`;
 
 /** Hosted real-client regression for the keyboard-height refusal in #1325. */
-export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, waitForDraft: (message: string) => Promise<void>): Promise<void> {
+export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, readDraft: () => Promise<string | null>): Promise<void> {
   const original = page.viewportSize();
   const message = "Explain the receipt totals and retain the original rounding rule.\n".repeat(6);
   const field = page.getByRole("textbox", { name: "Message", exact: true });
@@ -78,17 +78,24 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await account.click();
       const choices = page.getByRole("dialog", { name: "Run choices" });
       await expect(choices).toContainText(/signed out/i);
-      await choices.getByRole("menuitem").filter({ hasText: "claude-max" }).click();
+      const accountSection = choices.getByRole("group", { name: "Accounts", exact: true });
+      await expect(accountSection).toBeVisible();
+      await expect(choices.getByRole("group", { name: "Models", exact: true })).toHaveCount(0);
+      await expect(choices.getByRole("group", { name: "Effort", exact: true })).toHaveCount(0);
+      const accountRow = accountSection.getByRole("menuitem").filter({ hasText: "claude-max" });
+      await expect(accountRow).toBeVisible();
+      await accountRow.click();
       await page.keyboard.press("Escape");
+      await expect(choices).toBeHidden();
+      await expect(account).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await fits(remedy);
       await fits(page.getByRole("button", { name: /^Send/ }));
       await settings.click();
-      // Reload after the debounced draft has reached the real environment.
-      await waitForDraft(message);
+      await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
       await page.reload();
-      await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+      await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await expect(field).toHaveValue(message, { timeout: 60_000 });
     }
   } finally {

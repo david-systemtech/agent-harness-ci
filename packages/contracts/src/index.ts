@@ -165,6 +165,7 @@ export * from "./update-route.js";
 export * from "./update-settings.js";
 export * from "./updates.js";
 export * from "./usage.js";
+export * from "./usage-window-labels.js";
 export * from "./webhook-signature.js";
 export * from "./workspaces.js";
 export * from "./write-commands.js";

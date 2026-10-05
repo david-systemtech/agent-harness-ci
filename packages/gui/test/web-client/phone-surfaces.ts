@@ -173,10 +173,11 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
 }
 
 export async function phoneReconnectSmoke(page: Page, environment: TestEnvironment, sessionId: string, release: () => void, setOriginAvailable: (available: boolean) => void): Promise<void> {
+  await expect(page.locator("[data-web-grant]")).toHaveAttribute("data-phase", "ready");
   await page.context().setOffline(true);
   setOriginAvailable(false);
   try {
-    await expect(page.locator("[data-web-grant]")).not.toContainText("ready");
+    await expect(page.locator("[data-web-grant]")).not.toHaveAttribute("data-phase", "ready");
     const after = environment.env.log.head();
     const prompt = untilEvent(environment, { kind: "session", id: sessionId }, event => event.sequence > after && event.type === "prompt.opened");
     release();
@@ -185,7 +186,7 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
     setOriginAvailable(true);
     await page.context().setOffline(false);
   }
-  await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+  await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
   await expect(page.getByRole("button", { name: /^Allow once/ })).toHaveCount(1);
   await expect(page.getByRole("button", { name: /^Allow once/ })).toBeVisible();
 }

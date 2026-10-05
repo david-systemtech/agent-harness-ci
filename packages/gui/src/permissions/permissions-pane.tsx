@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
 import { GenericEditor, readOnlyLine } from "../settings/generic-editor.js";
@@ -58,7 +59,7 @@ export const PermissionsForm = ({ view, denylist }: { readonly view: Environment
   return (
     <>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>}
-      {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       <Part title="Permission settings">
         <ModeChoices view={view} name="permissions.defaultCeiling" writable={writable} />
         <ModeChoices view={view} name="permissions.unattended.mode" writable={writable} />
