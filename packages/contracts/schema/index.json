@@ -287,6 +287,10 @@
       "title": "ScopeGrantedPayload"
     },
     {
+      "path": "access/events/access.changed.json",
+      "title": "AccessChangedPayload"
+    },
+    {
       "path": "access/events/ceiling.changed.json",
       "title": "CeilingChangedPayload"
     },
@@ -4339,6 +4343,22 @@
       "title": "access.sessions.setCeiling error"
     },
     {
+      "path": "methods/access.sessions.setAccess/params.json",
+      "title": "access.sessions.setAccess params"
+    },
+    {
+      "path": "methods/access.sessions.setAccess/result.json",
+      "title": "access.sessions.setAccess result"
+    },
+    {
+      "path": "methods/access.sessions.setAccess/response.json",
+      "title": "access.sessions.setAccess response"
+    },
+    {
+      "path": "methods/access.sessions.setAccess/error.json",
+      "title": "access.sessions.setAccess error"
+    },
+    {
       "path": "methods/access.log.list/params.json",
       "title": "access.log.list params"
     },
@@ -7741,6 +7761,16 @@
       "result": "methods/access.sessions.setCeiling/result.json",
       "response": "methods/access.sessions.setCeiling/response.json",
       "error": "methods/access.sessions.setCeiling/error.json"
+    },
+    {
+      "name": "access.sessions.setAccess",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/access.sessions.setAccess/params.json",
+      "result": "methods/access.sessions.setAccess/result.json",
+      "response": "methods/access.sessions.setAccess/response.json",
+      "error": "methods/access.sessions.setAccess/error.json"
     },
     {
       "name": "access.log.list",

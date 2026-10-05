@@ -1,7 +1,10 @@
+import { CarryOverInventory } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
+import { startFakeForge } from "../../test/fake-forge.js";
+import { added, TOKEN } from "../../test/forge.js";
 import { snapshotOf } from "../../test/accounts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
@@ -267,4 +270,127 @@ it.each(["sources", "alwaysOn"])("reports malformed %s fields without blocking A
     carried: { accounts: 0, skillSources: 0, alwaysOnSkills: 1 }, failed: [],
   } });
   expect((await client.request("skills.get", {})).choices).toEqual([{ kind: "always-on", name: "check", accountId, on: true }]);
+});
+
+
+it("keeps signed-in accounts and sessions while naming the forge and skill repairs a partial import needs", async () => {
+  const source = tempDir();
+  const directory = tempDir();
+  const workspace = tempDir();
+  const forge = skillRepositories(tempDir);
+  forge.commit("team/private", { "SKILL.md": skill("missing") });
+  let authenticated = false;
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: [{ id: "work", label: "Work", providerId: "claude", configDir: directory }] }));
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1,
+    sources: [{ url: "https://skills.test/team/private", subdir: "." }],
+    alwaysOn: [{ name: "missing", scope: { kind: "all" } }],
+  }));
+  const base = fakeAdapter({ provider: "claude", ambientDirectory: null, sessions: [{
+    providerSessionId: "held-session", customTitle: "Carried session", summary: null, firstPrompt: null,
+    workingDirectory: workspace, tag: null, createdAt: "2026-09-01T00:00:00.000Z", lastModified: "2026-09-01T00:00:00.000Z",
+  }] });
+  const adapter = { ...base, observeIdentity: async () => ({ provider: "claude", email: "work@example.com", organisation: null }) };
+  const t = await startTestEnvironment({ adapter, accounts: [],
+    harnessGitConfig: skillsInsteadOf(forge),
+    skillsGit: async (request, git) => authenticated ? git(request) : { outcome: "ran", git: {
+      ok: false, code: 128, stdout: Buffer.alloc(0), stderr: "fatal: Authentication failed", truncated: false, timedOut: false, missing: false,
+    } },
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const run = (dryRun: boolean) => client.request("stateImport.run", { commandId: randomUUID(), dryRun });
+  const sourceBytes = snapshotOf(source);
+  const first = await run(false);
+  expect(first).toMatchObject({ result: { carried: { accounts: 1 }, reEnter: expect.arrayContaining([
+    { label: expect.stringContaining("https://skills.test"), step: "forges" },
+    { label: expect.stringContaining("missing"), step: "skills" },
+  ]) } });
+  const accounts = (await client.request("accounts.refresh", {})).accounts;
+  expect(accounts).toHaveLength(1);
+  expect(accounts[0]?.status.state).toBe("signed-in");
+  const accountId = accounts[0]!.id;
+  const added = await client.request("accounts.add", { commandId: randomUUID(), provider: "claude", label: "New connection" });
+  const ownedId = added.result!.account.id;
+  expect((await client.request("accounts.refresh", {})).accounts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: ownedId, directory: expect.objectContaining({ kind: "owned" }), status: expect.objectContaining({ state: "signed-in" }) }),
+  ]));
+  const accountIds = [accountId, ownedId].sort();
+  const before = CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId }));
+  expect(before.sessions).toMatchObject({ total: 1, new: 0 });
+  const failedCheck = (await client.request("setup.check", { step: "carry-over" })).results[0];
+  expect(failedCheck).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
+  await run(true);
+  expect((await client.request("setup.check", { step: "carry-over" })).results[0]?.state).toBe("needs-attention");
+  expect(await run(false)).toMatchObject({ result: { carried: { accounts: 0 }, failed: expect.arrayContaining([
+    { label: expect.stringContaining("private"), message: expect.stringContaining("credential") },
+  ]) } });
+  expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
+  expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
+  expect((await client.request("carryOver.run", { commandId: randomUUID(), accountId, dryRun: false, skills: true })).result?.sessions).toMatchObject({ imported: 0, held: 1 });
+  authenticated = true;
+  expect(await run(false)).toMatchObject({ result: { carried: { accounts: 0, skillSources: 1, alwaysOnSkills: 1 }, failed: [], reEnter: [] } });
+  expect((await client.request("setup.check", { step: "carry-over" })).results[0]?.state).toBe("done");
+  expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
+  expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
+  expect(snapshotOf(source)).toEqual(sourceBytes);
+});
+
+
+it("names the serving forge account's canonical origin for SSH and verified alias authentication failures", async () => {
+  const forge = await startFakeForge();
+  const alias = await startFakeForge();
+  onCleanup(() => forge.close());
+  onCleanup(() => alias.close());
+  for (const instance of [forge, alias]) {
+    instance.user(TOKEN, { login: "fixture", id: 42 });
+    instance.repositories(TOKEN, []);
+  }
+  const canonical = "https://forge.skills.test:5526";
+  const verifiedAlias = "https://alias.skills.test";
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [
+    { url: "git@forge.skills.test:team/private.git", subdir: "." },
+    { url: `${verifiedAlias}/team/other`, subdir: "." },
+  ], alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    forgeFetch: (url, init) => fetch(String(url).replace(canonical, forge.origin).replace(verifiedAlias, alias.origin), init),
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr: "fatal: Authentication failed", truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const account = await added(client, { url: canonical, kind: "forgejo", aliases: [verifiedAlias] });
+  expect(account.aliases).toEqual([{ origin: verifiedAlias, verifiedAt: expect.any(String) }]);
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(imported.result?.failed).toEqual([
+    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
+    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
+  ]);
+  expect(imported.result?.reEnter).toEqual([{ label: `Forge credential for ${canonical}, then import again`, step: "forges" }]);
+});
+
+
+it.each([
+  ["git@ssh.skills.test:team/private.git", "Permission denied (publickey).", "ssh.skills.test"],
+  ["ssh://git@ssh.skills.test:2222/team/private.git", "Host key verification failed.", "ssh.skills.test"],
+  ["ssh://git@ssh.github.com:443/team/private.git", "Host key verification failed.", "ssh.github.com"],
+])("keeps machine SSH repair guidance for an unmanaged source %s", async (url, stderr, host) => {
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [{ url, subdir: "." }], alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr, truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(imported.result?.failed).toEqual([{ label: expect.any(String), message: expect.stringContaining(`SSH keys and known-hosts entry for ${host}, using the source's SSH port`) }]);
+  expect(imported.result?.reEnter).toEqual([]);
 });

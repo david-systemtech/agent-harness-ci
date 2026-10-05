@@ -288,3 +288,49 @@ describe("read-only", () => {
     expect(within(await partRead(access, "Program pairings")).getByRole("button", { name: "Make a program's pairing code" }).hasAttribute("disabled")).toBe(true);
   });
 });
+
+
+describe("changing access", () => {
+  it("offers full access, restricted phone and custom grants, applies and undoes a change without pairing again", async () => {
+    const app = await opened();
+    const sessions = part(await openAccess(app), "Client sessions");
+    await labels(sessions, "Client sessions");
+    expect(within(item(sessions, "milo@desk:pts/3")).getByRole("button", { name: "Change access" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(item(sessions, "milo@laptop:pts/1")).getByRole("button", { name: "Change access" }));
+    const dialog = await screen.findByRole("dialog", { name: "Change access for milo@laptop:pts/1" });
+    await app.user.selectOptions(within(dialog).getByRole("combobox", { name: "Access preset" }), "own-client");
+    await app.user.click(within(dialog).getByRole("button", { name: "Save access" }));
+    expect(await within(pane("Access")).findByText(/Changed milo@laptop:pts\/1's access/)).toBeDefined();
+    expect(app.environment("desk").requests("access.sessions.setAccess")[0]?.params).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive", "terminal", "admin"], ceiling: "bypassPermissions" });
+    await app.user.click(within(item(sessions, "milo@laptop:pts/1")).getByRole("button", { name: "Change access" }));
+    await app.user.selectOptions(within(await screen.findByRole("dialog", { name: "Change access for milo@laptop:pts/1" })).getByRole("combobox", { name: "Access preset" }), "phone");
+    await app.user.click(screen.getByRole("button", { name: "Save access" }));
+    await waitFor(() => expect(app.environment("desk").clientSessions().find((s) => s.label === "milo@laptop:pts/1")).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" }));
+    expect(app.environment("desk").requests("access.pairings.create")).toHaveLength(0);
+  });
+});
+
+
+describe("access editor bounds", () => {
+  it("limits custom grants to the editor's authority, cancels without saving and preserves a refused edit", async () => {
+    const app = await opened({ desk: { scopes: ["read", "admin"], hello: { ceiling: "acceptEdits" }, receipts: { "access.sessions.setAccess": { rejected: "conflict", message: "The client has been revoked." } } } });
+    const sessions = part(await openAccess(app), "Client sessions");
+    await labels(sessions, "Client sessions");
+    await app.user.click(within(item(sessions, "milo@laptop:pts/1")).getByRole("button", { name: "Change access" }));
+    const dialog = await screen.findByRole("dialog", { name: "Change access for milo@laptop:pts/1" });
+    expect((within(dialog).getByRole("option", { name: "Full access" }) as HTMLOptionElement).disabled).toBe(true);
+    expect((within(dialog).getByRole("option", { name: "Restricted phone" }) as HTMLOptionElement).disabled).toBe(true);
+    expect(within(dialog).getByRole("checkbox", { name: "terminal" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(app.environment("desk").requests("access.sessions.setAccess")).toHaveLength(0);
+    await app.user.click(within(item(sessions, "milo@laptop:pts/1")).getByRole("button", { name: "Change access" }));
+    const custom = await screen.findByRole("dialog", { name: "Change access for milo@laptop:pts/1" });
+    await app.user.click(within(custom).getByRole("checkbox", { name: "read" }));
+    await app.user.click(within(custom).getByRole("checkbox", { name: "sessions:write" }));
+    await app.user.click(within(custom).getByRole("checkbox", { name: "admin" }));
+    await app.user.selectOptions(within(custom).getByRole("combobox", { name: "Run ceiling" }), "acceptEdits");
+    await app.user.click(within(custom).getByRole("button", { name: "Save access" }));
+    expect((await within(custom).findByRole("alert")).textContent).toBe("Not changed: The client has been revoked.");
+    expect(app.environment("desk").requests("access.sessions.setAccess")[0]?.params).toMatchObject({ scopes: ["admin"], ceiling: "acceptEdits" });
+  });
+});
