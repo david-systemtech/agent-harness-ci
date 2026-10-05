@@ -10,6 +10,9 @@
     overflow-wrap: anywhere;
   }
 
+  /* Menu explanations use the full row on phones; keys remain available on desktop. */
+  .phone-menu-row kbd { display: none; }
+
   .phone-field, [data-ui-input], [cmdk-input], [data-new-session] textarea {
     min-height: 44px;
     font-size: max(16px, 1rem);
