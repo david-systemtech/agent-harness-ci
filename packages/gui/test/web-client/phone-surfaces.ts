@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Locator, Page, Request } from "playwright";
+import type { Locator, Page } from "playwright";
 import { expect as browserExpect } from "playwright/test";
 
 import { fileTool, type ScriptControls } from "../../../environment/test/fake-adapter.js";
@@ -101,7 +101,7 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
   await expect(page.getByRole("button", { name: /^Allow once/ })).toBeVisible();
 }
 
-export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string): Promise<void> {
+export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
   const observer = await environment.client();
   // Full grant is minted separately by the runner; this never expands the Phone grant.
   for (const label of ["Files", "Diff", "Documents", "Tasks", "Terminal"]) {
@@ -113,21 +113,19 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
     await noOverflow(page);
     if (label === "Files") await expect(sheet.getByRole("heading", { name: "The workspace", exact: true })).toBeVisible();
     if (label === "Documents") {
-      const requests: string[] = [];
-      const capture = (request: Request) => { if (request.url().includes("/preview-probe-")) requests.push(request.url()); };
-      page.on("request", capture);
-      try {
-        const document = sheet.getByRole("article", { name: "phone-preview.html", exact: true });
-        await document.getByRole("button", { name: "Preview", exact: true }).click();
-        const frame = page.frameLocator('iframe[title="Preview of phone-preview.html"]');
-        await expect(frame.getByRole("heading", { name: "Hosted static preview" })).toBeVisible();
-        await expect(page.locator('iframe[title="Preview of phone-preview.html"]')).toHaveAttribute("sandbox", "");
-        await frame.getByText("Untrusted link", { exact: true }).click();
-        await expect(frame.getByRole("heading", { name: "Hosted static preview" })).toBeVisible();
-        assert.equal(await frame.locator("script, form, iframe, [onclick], [onerror], [href]").count(), 0);
-        assert.equal(await page.locator("html").getAttribute("data-preview-compromised"), null, "Preview cannot modify its parent.");
-        assert.deepEqual(requests, [], "Untrusted preview cannot contact the network or navigate.");
-      } finally { page.off("request", capture); }
+      const before = [...previewRequests()];
+      const document = sheet.getByRole("article", { name: "phone-preview.html", exact: true });
+      await document.getByRole("button", { name: "Preview", exact: true }).click();
+      const frame = page.frameLocator('iframe[title="Preview of phone-preview.html"]');
+      await expect(frame.getByRole("heading", { name: "Hosted static preview" })).toBeVisible();
+      await expect.poll(() => frame.locator("html").evaluate<string>("document.readyState")).toBe("complete");
+      await expect(page.locator('iframe[title="Preview of phone-preview.html"]')).toHaveAttribute("sandbox", "");
+      await frame.getByText("Untrusted link", { exact: true }).click();
+      await expect(frame.getByRole("heading", { name: "Hosted static preview" })).toBeVisible();
+      assert.equal(await frame.locator("script, form, iframe, [onclick], [onerror], [href]").count(), 0);
+      assert.equal(await page.locator("html").getAttribute("data-preview-compromised"), null, "Preview cannot modify its parent.");
+      // Browsers report request events for CSP-blocked loads; prove contact at the real receiver.
+      assert.deepEqual(previewRequests(), before, "Untrusted preview cannot contact the HTTPS receiver or navigate.");
     }
     let terminalId: string | undefined;
     if (label === "Terminal") {

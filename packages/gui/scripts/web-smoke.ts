@@ -28,11 +28,13 @@ execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyo
 let upstream: Address | undefined = undefined;
 let originAvailable = true;
 const clientSockets = new Set<import("node:stream").Duplex>();
+const previewRequests: string[] = [];
 const publicRequests: { path: string; mode: string | undefined; status?: number; finished: boolean }[] = [];
 const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: readFileSync(join(output, "cert.pem")) }, (incoming, response) => {
+  const path = incoming.url ?? "";
+  if (path.startsWith("/preview-probe-")) previewRequests.push(path);
   if (!originAvailable) { response.destroy(); return; }
   if (!upstream) { response.writeHead(503).end(); return; }
-  const path = incoming.url ?? "";
   const publicRequest: (typeof publicRequests)[number] | undefined = /^\/(?:assets\/[a-zA-Z0-9_.-]+|phone-icons\/[a-zA-Z0-9_.-]+|manifest\.webmanifest)?$/.test(path)
     ? { path, mode: incoming.headers["sec-fetch-mode"]?.toString(), finished: false } : undefined;
   if (publicRequest) {
@@ -173,7 +175,7 @@ try {
       await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await ownDrawer.waitFor({ state: "hidden" });
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
-      await phonePaneSmoke(ownPage, name, environment, sessionId);
+      await phonePaneSmoke(ownPage, name, environment, sessionId, () => previewRequests);
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
       await denied.addInitScript("Object.defineProperty(window, 'indexedDB', { get() { throw new DOMException('Denied', 'SecurityError'); } });");
