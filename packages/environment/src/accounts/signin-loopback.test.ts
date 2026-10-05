@@ -81,7 +81,7 @@ it("keeps the first native callback through the provider exchange and ignores re
   void first.catch(() => undefined);
   await eventually(() => s.exchanges.length).toBe(1);
   expect(createHash("sha256").update(s.exchanges[0]?.code_verifier ?? "").digest("base64url")).toBe(s.url.searchParams.get("code_challenge"));
-  const replay = await fetch(callbackUrl(s.callback), { signal: AbortSignal.timeout(2000) });
+  const replay = await fetch(callbackUrl(s.callback));
   expect(replay.status).toBe(200);
   expect(await replay.text()).toMatch(/already finishing/);
   expect(s.exchanges).toHaveLength(1);
@@ -122,5 +122,14 @@ it("runs the release smoke check against the installed native listener", async (
   const binary = bundledExecutable();
   expect(binary).not.toBeNull();
   const result = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../../../../scripts/check-packaged-provider-sign-in.mjs", import.meta.url)), "--binary", binary ?? "missing-native-client"]);
+  expect(result.stdout).toMatch(/first response retained, replay ignored, wrong state refused, listener closed/);
+});
+
+it("keeps valid replay handling when callback dispatch is delayed on a held clock", async () => {
+  const binary = bundledExecutable();
+  expect(binary).not.toBeNull();
+  const preload = new URL("../../test/held-callback-clock.mjs", import.meta.url).href;
+  const check = fileURLToPath(new URL("../../../../scripts/check-packaged-provider-sign-in.mjs", import.meta.url));
+  const result = await promisify(execFile)(process.execPath, ["--import", preload, check, "--binary", binary ?? "missing-native-client"]);
   expect(result.stdout).toMatch(/first response retained, replay ignored, wrong state refused, listener closed/);
 });

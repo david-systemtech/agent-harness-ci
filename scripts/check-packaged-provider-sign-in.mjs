@@ -44,10 +44,10 @@ export async function checkProviderSignIn(binary) {
     const port = await listener.start();
     const callback = `http://127.0.0.1:${port}/callback`;
     const code = listener.waitForAuthorization(state, () => undefined);
-    first = globalThis.fetch(`${callback}?code=first-code&state=${state}`, { redirect: "manual", signal: globalThis.AbortSignal.timeout(5000) });
+    first = globalThis.fetch(`${callback}?code=first-code&state=${state}`, { redirect: "manual" });
     void first.catch(() => undefined);
     assert.equal(await Promise.race([code, first.then(() => { throw new Error("The browser response ended before its code was resolved"); })]), "first-code");
-    const replay = await globalThis.fetch(`${callback}?code=second-code&state=${state}`, { redirect: "manual", signal: globalThis.AbortSignal.timeout(2000) });
+    const replay = await globalThis.fetch(`${callback}?code=second-code&state=${state}`, { redirect: "manual" });
     assert.equal(replay.status, 200);
     assert.match(await replay.text(), /already finishing/);
     listener.handleSuccessRedirect([], response => { response.writeHead(302, { Location: "https://provider.example.test/complete" }); response.end(); });
@@ -57,7 +57,7 @@ export async function checkProviderSignIn(binary) {
     assert.equal(listener.hasPendingResponse(), false);
     listener.close();
     assert.equal(listener.localServer.listening, false);
-    await assert.rejects(globalThis.fetch(`${callback}?code=third-code&state=${state}`, { signal: globalThis.AbortSignal.timeout(2000) }), { name: "TypeError" });
+    await assert.rejects(globalThis.fetch(`${callback}?code=third-code&state=${state}`), { name: "TypeError" });
   } finally {
     listener.close();
     listener.localServer.closeAllConnections();
@@ -68,7 +68,7 @@ export async function checkProviderSignIn(binary) {
     const port = await rejected.start();
     const code = rejected.waitForAuthorization(state, () => undefined);
     const refusal = assert.rejects(code, /Invalid state/);
-    const response = await globalThis.fetch(`http://127.0.0.1:${port}/callback?code=first-code&state=wrong-state`, { signal: globalThis.AbortSignal.timeout(5000) });
+    const response = await globalThis.fetch(`http://127.0.0.1:${port}/callback?code=first-code&state=wrong-state`);
     assert.equal(response.status, 400);
     await refusal;
   } finally {
