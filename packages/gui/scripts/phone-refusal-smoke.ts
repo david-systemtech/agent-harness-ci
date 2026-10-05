@@ -11,6 +11,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const column = page.locator("[data-composer-column]");
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
+  const send = page.getByRole("button", { name: /^Send/ });
   const fits = async (control: Locator, name: string) => {
     const diagnostics = await page.evaluate(`(() => {
       const element = document.querySelector('[data-composer-column]');
@@ -39,8 +40,12 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await page.setViewportSize(viewport);
       await page.evaluate("globalThis.__phoneSmokeField = document.querySelector('[aria-label=Message]')");
       await field.fill(message);
-      console.log(`PHONE-REFUSAL ${engine}: filled draft length ${(await field.inputValue()).length}`);
-      try { await page.getByRole("button", { name: /^Send/ }).click(); }
+      try {
+        await expect(field).toHaveValue(message);
+        await expect(send).toBeEnabled();
+        console.log(`PHONE-REFUSAL ${engine}: draft observed and Send enabled`);
+        await send.click();
+      }
       catch (error) {
         const state = await page.evaluate(`(() => {
           const field = document.querySelector('[aria-label="Message"]');
@@ -75,8 +80,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(remedy).toContainText("admin");
       await remedy.scrollIntoViewIfNeeded();
       await fits(remedy, "remedy");
-      await page.getByRole("button", { name: /^Send/ }).scrollIntoViewIfNeeded();
-      await fits(page.getByRole("button", { name: /^Send/ }), "Send");
+      await send.scrollIntoViewIfNeeded();
+      await fits(send, "Send");
       await settings.click();
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
