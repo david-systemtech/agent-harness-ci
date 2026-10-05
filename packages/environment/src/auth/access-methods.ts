@@ -101,7 +101,9 @@ export const accessMethods = (options: AccessMethodsOptions): Required<Pick<Meth
     "access.sessions.setAccess": (params, { clientSession, commandId, tx }) => {
       const target = params.clientSessionId;
       if (target === clientSession.id) return { aggregate, rejected: { code: "conflict", message: "A client cannot change its own access; another admin client can.", data: { reason: "own_session" } } };
-      if (compareModes(params.ceiling, clientSession.ceiling) > 0) return { aggregate, rejected: aboveOwn(params.ceiling, clientSession.ceiling, "A client grant at") };
+      const own = clientSessions.heldCeiling(clientSession.id);
+      if (own === undefined) throw new ContractError({ code: "unauthorized", message: "This client session is no longer valid.", data: {} });
+      if (compareModes(params.ceiling, own) > 0) return { aggregate, rejected: aboveOwn(params.ceiling, own, "A client grant at") };
       const unheld = params.scopes.find((scope) => !clientSession.scopes.includes(scope));
       if (unheld !== undefined) return { aggregate, rejected: { code: "forbidden", message: `This client cannot grant ${unheld}; it does not hold that scope.`, data: { reason: "scope", scope: unheld } } };
       const changed = clientSessions.setAccess(tx, target, params.scopes, params.ceiling, byClientSession(clientSession.id, commandId));

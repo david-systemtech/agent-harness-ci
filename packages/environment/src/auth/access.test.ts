@@ -528,6 +528,21 @@ describe("access.sessions.setAccess", () => {
 
 
 describe("grant replacement refusals", () => {
+  it("bounds grants by the caller's current ceiling after another admin lowers it on an open connection", async () => {
+    const t = await start();
+    const { client } = await admin(t);
+    const caller = await t.pair({ ceiling: "bypassPermissions" });
+    const editor = await t.client({ token: caller.token, clientKind: "program" });
+    const phone = await t.pair({ scopes: ["read"], ceiling: "plan" });
+    await client.apply("access.sessions.setCeiling", { commandId: randomUUID(), clientSessionId: caller.clientSessionId, ceiling: "plan" });
+    expect((await editor.request("access.sessions.list", {})).sessions.find((session) => session.id === caller.clientSessionId)?.ceiling).toBe("plan");
+    const params = { clientSessionId: phone.clientSessionId, scopes: ["read"] as const };
+    expect(await editor.request("access.sessions.setAccess", { ...params, commandId: randomUUID(), ceiling: "bypassPermissions" })).toMatchObject({ receipt: { status: "rejected", error: { code: "forbidden", data: { reason: "ceiling", ceiling: "plan" } } } });
+    expect((await client.request("access.sessions.list", {})).sessions.find((session) => session.id === phone.clientSessionId)?.ceiling).toBe("plan");
+    expect((await accessLog(client)).filter((event) => event.type === "access.changed")).toHaveLength(0);
+    expect(await editor.apply("access.sessions.setAccess", { ...params, scopes: ["read", "sessions:write"], commandId: randomUUID(), ceiling: "plan" })).toMatchObject({ ceiling: "plan" });
+  });
+
   it("refuses self-edit, missing admin, unheld scopes, ceilings above the caller, and unknown or revoked targets", async () => {
     const t = await start();
     const { client, credential } = await admin(t);
