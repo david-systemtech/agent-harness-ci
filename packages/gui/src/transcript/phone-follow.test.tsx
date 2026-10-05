@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 
-it.each([[false, 844], [true, 844], [false, 780], [true, 780]] as const)("repins on focus/open and respects reading with layout resize %s and unoccluded height %s", async (resizeLayout, unoccludedHeight) => {
+it.each([[false, 844], [true, 844], [false, 780], [true, 780]] as const)("repins on focus/open and after gradual close/reopen with layout resize %s and unoccluded height %s", async (resizeLayout, unoccludedHeight) => {
   const callbacks = new Map<Element, () => void>();
   vi.stubGlobal("ResizeObserver", class {
     constructor(private readonly callback: () => void) {}
@@ -60,6 +60,17 @@ it.each([[false, 844], [true, 844], [false, 780], [true, 780]] as const)("repins
   expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(false);
   expect(document.activeElement).toBe(message);
   expect(message).toHaveProperty("value", "Keep this draft");
+  act(() => { if (resizeLayout) window.innerHeight = 480; viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  for (const height of [510, 540, 570, 600, 630, 660, 690, 720, 750, 780, 810, unoccludedHeight].filter(height => height <= unoccludedHeight)) {
+    act(() => { if (resizeLayout) window.innerHeight = height; viewport.height = height; viewport.dispatchEvent(new Event("resize")); });
+  }
+  expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(false);
+  expect(document.activeElement).toBe(message);
+  top = 300; fireEvent.scroll(transcript);
+  expect(screen.getByRole("button", { name: "Jump to the latest" })).toBeDefined();
+  act(() => { if (resizeLayout) window.innerHeight = 480; viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  expect(top).toBe(1650);
+  expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(true);
 });
 
 it("keeps a hidden phone pane at its reading position when another composer focuses and opens the keyboard", async () => {

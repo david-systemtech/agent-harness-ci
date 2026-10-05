@@ -262,7 +262,7 @@ acceptance validation. Starting allocation is 342 captures against the 400 cap;
 390×480 visual viewport with offsets 0 and 120, composer focus, streaming,
 reading/Jump to latest, browser-bar resizing, notices/cards and keyboard close.
 Focused tests also cover bar resizing after a focus-preserving close followed
-by gradual keyboard reopening, with visual-only and simultaneous height changes.
+by gradual keyboard close/reopen, with visual-only and simultaneous height changes.
 Hosted geometry proves shell/dock/latest-line bounds, readable transcript and
 stable document/window scroll. Animated keyboards, browser-bar settings,
 rotation/insets, focus zoom, selection and Home Screen behavior require dated

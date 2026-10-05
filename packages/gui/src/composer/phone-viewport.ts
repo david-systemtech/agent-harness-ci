@@ -40,7 +40,8 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       const keyboardNow = height < window.innerHeight || ((messageFocused || keyboardOpen) && height <= focusHeight * 0.75);
       if (!keyboardNow) {
         unoccludedHeight = window.innerHeight;
-        if (keyboardOpen || !messageFocused) focusHeight = unoccludedHeight;
+        // Follow the remaining growth during gradual closure, even with retained focus.
+        if (keyboardOpen || !messageFocused || unoccludedHeight > focusHeight) focusHeight = unoccludedHeight;
       }
       const keyboardOpened = keyboardNow && !keyboardOpen && messageFocused;
       // Keep the reserve through button taps: releasing it on blur can move Send
