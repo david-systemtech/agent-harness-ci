@@ -3,6 +3,11 @@ import { join } from "node:path";
 import type { Locator, Page } from "playwright";
 import { expect } from "playwright/test";
 
+/** Match text-named controls and labelled icon buttons without confusing empty icons. */
+export const composerControlExpression = (text: string | null, label: string | null): string => label === null
+  ? `Array.from(document.querySelector('[data-composer-column]').querySelectorAll('p[role="status"], button:not([aria-label])')).find(element => element.textContent === ${JSON.stringify(text)})`
+  : `document.querySelector('[data-composer-column]').querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(label)}]`)})`;
+
 /** Hosted real-client regression for the keyboard-height refusal in #1325. */
 export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, readDraft: () => Promise<string | null>): Promise<void> {
   const original = page.viewportSize();
@@ -11,27 +16,49 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const column = page.locator("[data-composer-column]");
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
-  const send = page.getByRole("button", { name: /^Send/ });
-  const fits = async (control: Locator, name: string) => {
-    const diagnostics = await page.evaluate(`(() => {
-      const element = document.querySelector('[data-composer-column]');
-      const rect = (node) => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
-      const parents = [];
-      for (let node = element; node; node = node.parentElement) {
-        const style = getComputedStyle(node);
-        if (node === element || style.overflowY !== "visible") parents.push({ tag: node.tagName, box: rect(node), overflowY: style.overflowY, scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight });
-      }
-      const active = document.activeElement;
-      const viewport = window.visualViewport;
-      return { parents, controls: [...element.querySelectorAll('p[role="status"], button')].map(node => ({ label: node.getAttribute("aria-label") || node.textContent, box: rect(node) })), active: active ? { tag: active.tagName, label: active.getAttribute("aria-label"), box: rect(active) } : null, viewport: viewport ? { height: viewport.height, width: viewport.width, offsetTop: viewport.offsetTop, scale: viewport.scale } : null };
+  const fits = async (control: Locator) => {
+    const text = await control.textContent();
+    const label = await control.getAttribute("aria-label");
+    const element = composerControlExpression(text, label);
+    // Scroll only the touch-scrollable composer, never an overflow-hidden ancestor
+    // or the document. Centering also leaves room for fractional edge geometry.
+    await page.evaluate(`(() => {
+      const element = ${element};
+      if (!element) throw new Error('The refusal/control must exist in the composer.');
+      const column = element.closest('[data-composer-column]');
+      const rect = element.getBoundingClientRect(), bounds = column.getBoundingClientRect();
+      column.scrollTop += rect.top - bounds.top - column.clientTop - (column.clientHeight - rect.height) / 2;
     })()`);
-    console.log(`PHONE-REFUSAL ${engine}: ${name} geometry ${JSON.stringify(diagnostics)}`);
-    const box = await control.boundingBox();
-    const region = await column.boundingBox();
-    const viewport = page.viewportSize();
-    assert(box && region && viewport, "The refusal and controls have rendered boxes.");
-    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, `The whole ${name} fits the user-scrollable composer: ${JSON.stringify({ engine, box, region, viewport, diagnostics })}`);
-    assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, `The ${name} is reachable inside the keyboard-height viewport: ${JSON.stringify({ engine, box, region, viewport, diagnostics })}`);
+    // Account/status changes can resize the column after intersection is observed.
+    // Read both boxes in one frame and wait for the original bounds condition.
+    await expect.poll(() => page.evaluate(`(() => {
+      const element = ${element};
+      if (!element) return { missing: true };
+      const box = element.getBoundingClientRect();
+      const region = element.closest('[data-composer-column]').getBoundingClientRect();
+      const inside = box.y >= region.y - 1 && box.bottom <= region.bottom + 1
+        && box.y >= 0 && box.bottom <= innerHeight + 1;
+      return inside ? true : { control: { y: box.y, height: box.height },
+        column: { y: region.y, height: region.height }, viewport: innerHeight };
+    })()`), { timeout: 60_000, message: "The whole refusal/control fits the user-scrollable composer and keyboard-height viewport." }).toBe(true);
+    // Intersection observes clipping by every overflow ancestor, not just the viewport.
+    try { await expect(control).toBeInViewport({ ratio: 1, timeout: 60_000 }); }
+    catch (error) {
+      console.error("PHONE-REFUSAL geometry", await page.evaluate(`(() => {
+        const element = ${element};
+        return JSON.stringify({ viewport: [innerWidth, innerHeight],
+          focus: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim().slice(0, 40),
+          ancestors: (() => { const result = []; for (let node = element; node; node = node.parentElement) {
+            const { x, y, width, height } = node.getBoundingClientRect();
+            result.push({ tag: node.tagName, column: node.hasAttribute('data-composer-column'),
+              above: node.hasAttribute('data-composer-above'), x, y, width, height,
+              scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight,
+              overflow: getComputedStyle(node).overflowY });
+          } return result; })()
+        });
+      })()`));
+      throw error;
+    }
   };
   await signIn(false);
   try {
@@ -63,11 +90,9 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(refusal).toContainText("no run can start");
       await expect(field).toHaveValue(message);
       assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-composer-column]')).overflowY"), "auto", "A touch user can scroll the full composer, including its refusal and Run settings.");
-      await refusal.scrollIntoViewIfNeeded();
-      await fits(refusal, "refusal");
+      await fits(refusal);
       await page.screenshot({ path: join(output, `phone-refusal-${engine}-${viewport.width}.png`) });
-      await settings.scrollIntoViewIfNeeded();
-      await fits(settings, "Run settings");
+      await fits(settings);
       await settings.click();
       const runSettings = page.getByRole("dialog", { name: "Run settings", exact: true });
       await expect(runSettings).toBeVisible();
@@ -93,19 +118,21 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(settings).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
-      await remedy.scrollIntoViewIfNeeded();
-      await fits(remedy, "remedy");
-      await send.scrollIntoViewIfNeeded();
-      await fits(send, "Send");
+      await fits(remedy);
+      await fits(page.getByRole("button", { name: /^Send/ }));
       await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
-      await expect(field).toHaveValue(message);
+      await expect(field).toHaveValue(message, { timeout: 60_000 });
     }
   } finally {
     await signIn(true);
     if (original) await page.setViewportSize(original);
+
   }
   await field.fill("");
+  // The next phase must not restore this saved draft while editing its own.
+  await expect(field).toHaveValue("");
+  await expect.poll(readDraft, { timeout: 60_000, message: "The cleared refusal draft reaches the environment before the next smoke phase." }).toBeNull();
   console.log(`PHONE-REFUSAL PASS ${engine}: keyboard-height refusal, remedy, Run settings, Send and durable draft`);
 }
