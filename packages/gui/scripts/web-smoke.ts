@@ -137,6 +137,8 @@ try {
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      // Observe the reloaded session's stream before treating its composer as idle.
+      await page.getByText("Permission deny.", { exact: true }).last().waitFor();
       console.log(`WEB-SMOKE PHASE ${name} refusal: start`);
       await phoneRefusalSmoke(page, name, output, async signedIn => {
         adapter.setStatus(account => signedInAs(signedIn ? `${account.id}@example.com` : null));
