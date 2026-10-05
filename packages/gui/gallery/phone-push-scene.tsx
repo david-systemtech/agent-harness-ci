@@ -3,7 +3,7 @@ import { PushController, PushControls, type PushFeatures } from "../src/web/push
 export const phonePushScene = (mode: "ready" | "disabled" | "denied" | "unavailable" | "install") => function PhonePushScene() {
   const controller = useMemo(() => {
     const features: PushFeatures = { secure: true, supported: mode !== "unavailable", ios: mode === "install", standalone: false };
-    const instance = new PushController(features, { permission: () => mode === "denied" ? "denied" : "granted", requestPermission: async () => "granted", subscription: async () => ({ endpoint: "https://fcm.googleapis.com/fcm/send/test", keys: { auth: "auth-for-tests", p256dh: "key-for-tests" } }), subscribe: async () => { throw new Error("Gallery has no push gateway."); }, unsubscribe: async () => undefined }, { key: async () => "key-for-tests", set: async () => undefined, remove: async () => undefined, test: async () => "retry" });
+    const instance = new PushController(features, { permission: () => mode === "denied" ? "denied" : "granted", requestPermission: async () => "granted", subscription: async () => ({ endpoint: "https://fcm.googleapis.com/fcm/send/test", keys: { auth: "auth-for-tests", p256dh: "key-for-tests" } }), subscribe: async () => { throw new Error("Gallery has no push gateway."); }, unsubscribe: async () => undefined }, { key: async () => "key-for-tests", registered: async () => mode === "ready", set: async () => undefined, remove: async () => undefined, test: async () => "retry" });
     if (mode === "ready") void instance.restore(true);
     return instance;
   }, []);

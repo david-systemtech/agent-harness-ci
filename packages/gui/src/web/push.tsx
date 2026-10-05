@@ -16,11 +16,10 @@ export interface PushBrowser {
   unsubscribe(expected?: PushSubscriptionData): Promise<void>;
 }
 export interface PushFeatures { readonly secure: boolean; readonly supported: boolean; readonly ios: boolean; readonly standalone: boolean }
-interface PushActions { key(): Promise<string>; set(subscription: PushSubscriptionData): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
+interface PushActions { key(): Promise<string>; registered(): Promise<boolean>; set(subscription: PushSubscriptionData): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
 export type PushState = "disabled" | "ready" | "denied" | "unavailable" | "install";
 /** Browser permission and subscription are browser-owned; registration status remains environment-owned. */
 export class PushController {
-  private retired: PushSubscriptionData | undefined;
   private readonly state;
   readonly read;
   readonly subscribe;
@@ -40,8 +39,12 @@ export class PushController {
     try {
       // Invoke permission synchronously in the click's user gesture, before waiting for a worker/key.
       if (await this.browser.requestPermission() !== "granted") { this.state.set({ status: "denied", busy: false }); return; }
-      if (this.retired) { await this.browser.unsubscribe(this.retired); this.retired = undefined; }
-      const existing = await this.browser.subscription();
+      let existing = await this.browser.subscription();
+      // The environment's current registration survives settings/session changes and page reloads.
+      if (existing && !await this.actions.registered()) {
+        await this.browser.unsubscribe(existing);
+        existing = await this.browser.subscription();
+      }
       const subscription = existing ?? await this.browser.subscribe(await this.actions.key());
       created = existing === null;
       await this.actions.set(subscription);
@@ -70,16 +73,17 @@ export class PushController {
   async test(): Promise<void> {
     if (this.read().busy || this.read().status !== "ready") return;
     this.state.update(state => ({ ...state, busy: true, line: undefined }));
+    let retiring = false;
     try {
       const subscription = await this.browser.subscription();
       const status = await this.actions.test();
       if (status === "retire") {
-        this.retired = subscription ?? undefined;
+        retiring = true;
         this.state.update(state => ({ ...state, status: "disabled" }));
-        if (this.retired) { await this.browser.unsubscribe(this.retired); this.retired = undefined; }
+        if (subscription) await this.browser.unsubscribe(subscription);
       }
       this.state.update(state => ({ ...state, status: status === "retire" ? "disabled" : state.status, line: status === "sent" ? "Test notification sent. Check your notifications." : "Test delivery failed. Enable push again or use the fallback below." }));
-    } catch { this.state.update(state => ({ ...state, line: this.retired ? "Could not clear the expired subscription. Enable push to retry or use the fallback below." : "Open a session and connect before testing push." })); }
+    } catch { this.state.update(state => ({ ...state, line: retiring ? "Could not clear the expired subscription. Enable push to retry or use the fallback below." : "Open a session and connect before testing push." })); }
     finally { this.state.update(state => ({ ...state, busy: false })); }
   }
 }
@@ -146,6 +150,11 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
     };
     return new PushController({ secure: window.isSecureContext, supported: "serviceWorker" in navigator && "PushManager" in window && "Notification" in window, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), standalone: window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true }, browser, {
       key: async () => { const result = await runtime.requests.call(environmentId, "attention.push.key", {}); if (!result.ok) throw new Error("Key unavailable."); return result.result.publicKey; },
+      registered: async () => {
+        const result = await runtime.requests.call(environmentId, "attention.targets.list", {});
+        if (!result.ok) throw new Error("Registration unavailable.");
+        return result.result.targets.some(target => target.id === id && !target.global && target.transport === "push" && target.enabled);
+      },
       set: subscription => accepted({ id, transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
       remove: () => accepted(),
       test: async () => { if (!sessionId) throw new Error("Open a session first."); const result = await runtime.requests.call(environmentId, "attention.push.test", { id, sessionId }); if (!result.ok) throw new Error("Test failed."); return result.result.status; },
