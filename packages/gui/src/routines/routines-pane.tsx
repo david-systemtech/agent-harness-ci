@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import { describeSchedule, type RoutineEntry } from "@agent-harness/contracts";
 import type { RoutineRow } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
@@ -81,7 +82,7 @@ export const RoutinesPane = () => {
         {group.stale && <p className="text-2xs text-ink-faint">Cached: what this window last saw.</p>}
         {group.loading && <p role="status" className="text-2xs text-ink-faint">Loading routines…</p>}
         {group.error && <p role="alert" className="text-xs text-signal">{group.error.message}</p>}
-        {group.routines.map((row) => <RoutineCard key={row.routineId} row={row} stale={group.stale} />)}
+        <SettingsCardGrid>{group.routines.map((row) => <RoutineCard key={row.routineId} row={row} stale={group.stale} />)}</SettingsCardGrid>
       </section>;
     })}
   </>;

@@ -108,6 +108,15 @@ describe("the Carry over step with nothing to carry", () => {
     expect(await checkCarryOver(client)).toEqual({ step: "carry-over", state: "skipped", reason: NOTHING, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
   });
 
+  it("keeps a fresh headless environment skipped after owned accounts are signed in", async () => {
+    const client = await start({ accounts: [], stateImportSource: machinePointedAt({ home: tempDir() }) });
+    await client.request("accounts.add", { commandId: randomUUID(), provider: "fake", label: "Server" });
+    const { accounts } = await client.request("accounts.refresh", {});
+    expect(accounts).toMatchObject([{ directory: { kind: "owned" }, status: { state: "signed-in" } }]);
+    expect(await checkCarryOver(client)).toMatchObject({ state: "skipped", reason: NOTHING, failing: [], actions: [] });
+    expect(await client.request("stateImport.detect", {})).toEqual({ dataFolder: null, terminalFolder: null });
+  });
+
   it("answers skipped when the adopted directory lists no session, or is not there at all", async () => {
     expect((await checkCarryOver(await start({ sessions: [] }))).state).toBe("skipped");
     expect((await checkCarryOver(await start({ sessions: [listed()], directory: join(tempDir(), "gone") }))).state).toBe("skipped");

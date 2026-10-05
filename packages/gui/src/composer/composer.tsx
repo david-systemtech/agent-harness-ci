@@ -23,7 +23,6 @@ import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
 import { classes } from "../ui/classes.js";
 import { IconButton } from "../ui/index.js";
-import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { RewoundStrip } from "../fork-rewind/rewound.js";
 import { Activity, BackgroundWork } from "./activity.js";
@@ -39,9 +38,12 @@ import { useComposition } from "./composition.js";
 import "./phone-conversation.css";
 import { StatusLine } from "../status/status-line.js";
 import { usePhoneFrame } from "../frame/phone-frame.js";
+import { PromptCard } from "../prompt-card/prompt-card.js";
 import { usePromptWalk } from "./walk.js";
 
 export interface ComposerProps {
+  /** An authoring dialog gives parked prompts their own flexible space above this composer. */
+  readonly authoring?: boolean;
   readonly environmentId: string;
   readonly sessionId: string;
 }
@@ -87,8 +89,9 @@ export interface ComposerProps {
  * Each action it wires is offered to the palette with whether it can be
  * done now, as the runtime says: dim there with the line while it cannot.
  */
-export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
+export const Composer = ({ environmentId, sessionId, authoring = false }: ComposerProps) => {
   const { narrow } = usePhoneFrame();
+  const compact = narrow && !authoring;
   const runtime = useRuntime();
   const clock = useClock();
   // The connections' phases: the lock and the shell's members are asked again whenever one moves.
@@ -238,14 +241,14 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   return (
     <>
       <div ref={above} data-composer-above>
-      <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />
+      {!authoring && <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />}
       <RewoundStrip />
-      {gone === undefined && !narrow && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
-      <PromptCard environmentId={environmentId} sessionId={sessionId} />
+      {!authoring && gone === undefined && !compact && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
+      {!authoring && <PromptCard environmentId={environmentId} sessionId={sessionId} />}
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
       </div>
-      {narrow && <div role="toolbar" aria-label="Conversation controls" data-phone-composer-toolbar>
+      {compact && <div role="toolbar" aria-label="Conversation controls" data-phone-composer-toolbar>
         <WorkspaceRow environmentId={environmentId} sessionId={sessionId} compact />
         <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} compact />
         <StatusLine environmentId={environmentId} sessionId={sessionId} compact />
@@ -273,8 +276,8 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
         {gone === undefined && (
           <div data-composer-editor className="shrink-0 px-3 pb-1" onDragOver={(event) => { attachments.dragging(event); if (event.dataTransfer.types.includes("Files")) setFileHover(true); }} onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFileHover(false); }} onDrop={(event) => { setFileHover(false); attachments.dropped(event); }}>
             {lock.locked && <p className="pb-1 text-xs text-amber">Locked: {lock.reason}</p>}
-            {!narrow && <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />}
-            {narrow && line !== undefined && <p role="status" className="pb-1 text-xs text-ink-muted">{line}</p>}
+            {!compact && (!authoring || runs.state !== "parked") && <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />}
+            {compact && line !== undefined && <p role="status" className="pb-1 text-xs text-ink-muted">{line}</p>}
             <div data-composer-card className={classes("relative rounded-[10px] border border-hairline-strong bg-wash focus-within:ring-3 focus-within:ring-beam/50", fileHover && "ring-2 ring-beam ring-offset-2 ring-offset-abyss")}>
               {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
               <AttachmentChips attachments={attachments} />
@@ -310,7 +313,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
                 />
               </div>
             </div>
-            {!narrow && line !== undefined && <p role="status" className="pt-1 text-xs text-ink-muted">{line}</p>}
+            {!compact && line !== undefined && <p role="status" className="pt-1 text-xs text-ink-muted">{line}</p>}
           </div>
         )}
       </KeyContext>

@@ -10,6 +10,7 @@ export const readySelector = "[data-revoke-confirmation]";
 /** look.md §5.1, §12.2–12.3: divided groups and thirty-two-pixel controls. */
 export const geometry: typeof settingsGeometry = (viewport) => [
   ...settingsGeometry(viewport),
+  { selector: '[data-settings-pane] [role="group"][aria-labelledby]', maxWidth: 768, contentFits: true },
   { selector: "[data-revoke-confirmation]", width: 384, paddingLeft: 16, paddingTop: 16 },
   { selector: 'ul[aria-label="Client sessions"] > li', paddingLeft: 12, paddingTop: 12 },
   { selector: 'ul[aria-label="Programs"] > li', paddingLeft: 12, paddingTop: 12 },

@@ -1,6 +1,7 @@
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { ReactNode } from "react";
 import { usePhoneFrame } from "../frame/phone-frame.js";
+import { PromptCard } from "../prompt-card/prompt-card.js";
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -46,7 +47,7 @@ export interface PaneContentsProps extends CaptionProps {
  * handed to it as it opened. An authoring card may supply its own header,
  * keeping the same session controls below it (#585).
  */
-export const SessionPane = ({ session, focused, header, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode }) => {
+export const SessionPane = ({ session, focused, header, authoring = false, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode; readonly authoring?: boolean }) => {
   const { narrow } = usePhoneFrame();
   const { environmentId, sessionId } = session;
   const [readingWidth] = usePresentation("readingWidth");
@@ -62,9 +63,12 @@ export const SessionPane = ({ session, focused, header, ...caption }: PaneConten
                     {header ?? <SessionCaption session={session} {...caption} />}
                     <TrustQuestion environmentId={environmentId} sessionId={sessionId} />
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
+                    {authoring && <div data-prompt-column className="mx-auto flex min-h-0 w-full shrink flex-col" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
+                      <PromptCard environmentId={environmentId} sessionId={sessionId} />
+                    </div>}
                     <div data-composer-column className="mx-auto w-full shrink-0" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
-                      <Composer environmentId={environmentId} sessionId={sessionId} />
-                      {!narrow && <StatusLine environmentId={environmentId} sessionId={sessionId} />}
+                      <Composer environmentId={environmentId} sessionId={sessionId} authoring={authoring} />
+                      {!authoring && !narrow && <StatusLine environmentId={environmentId} sessionId={sessionId} />}
                     </div>
                   </section>
                   <SideColumnView environmentId={environmentId} sessionId={sessionId} />

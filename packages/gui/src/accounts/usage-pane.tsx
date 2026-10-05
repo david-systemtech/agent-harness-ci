@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import {
   NO_PLAN_READING,
   NO_WINDOWS_READ,
@@ -36,9 +37,9 @@ export const UsagePane = () => {
     <>
       <p className="text-2xs leading-relaxed text-ink-faint">{settingsRow("accounts.usage").hint}</p>
       {usage.gauges.length === 0 && <p className="text-sm text-ink-faint">{NO_PLAN_READING}</p>}
-      {usage.gauges.map((gauge) => (
+      <SettingsCardGrid>{usage.gauges.map((gauge) => (
         <Gauge key={gauge.accounts.map(({ environmentId, accountId }) => `${environmentId} ${accountId}`).join(" ")} gauge={gauge} views={views} />
-      ))}
+      ))}</SettingsCardGrid>
       {usage.environments.map((answer) => (
         <EnvironmentLine key={answer.environmentId} answer={answer} view={views.find((view) => view.environmentId === answer.environmentId)} />
       ))}
