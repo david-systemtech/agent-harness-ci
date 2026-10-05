@@ -17,7 +17,7 @@ it.each<PromptKind>(["permission", "question", "plan", "denylist"])("captures %s
 });
 
 
-it("keeps the permission action inside its scroll area after fonts change the card height", async () => {
+it("corrects native scroll rounding and waits for a later permission card resize to settle", async () => {
   const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
   let finishFonts!: () => void;
   const ready = new Promise<void>(resolve => { finishFonts = resolve; });
@@ -29,20 +29,37 @@ it("keeps the permission action inside its scroll area after fonts change the ca
   root.innerHTML = '<div data-composer-above><button aria-label="Allow once">Allow once</button></div>';
   document.body.append(root);
   const well = root.querySelector<HTMLElement>("[data-composer-above]")!, action = well.querySelector<HTMLElement>("button")!;
-  let cardBottom = 164;
+  let cardBottom = 164.75;
+  let nativeBottom = 0;
   well.getBoundingClientRect = () => new DOMRect(0, 0, 300, 120);
   action.getBoundingClientRect = () => new DOMRect(10, cardBottom - well.scrollTop - 44, 150, 44);
-  action.scrollIntoView = () => { well.scrollTop = Math.round(cardBottom - 120); };
+  action.scrollIntoView = () => {
+    if (action.getBoundingClientRect().bottom > 120) well.scrollTop = Math.floor(cardBottom - 120);
+    nativeBottom = action.getBoundingClientRect().bottom;
+  };
   const stop = revealPermission();
   onTestFinished(() => {
     stop(); root.remove(); vi.unstubAllGlobals();
     if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
     else Object.defineProperty(document, "fonts", originalFonts);
   });
-  // The last layout grows by one pixel after the initial nearest-edge scroll.
-  cardBottom = 165; finishFonts(); await Promise.resolve();
-  for (let frame = 0; frame < 12; frame++) { frames.shift()?.(frame); await Promise.resolve(); }
-  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(well.getBoundingClientRect().bottom + 0.5);
+  const advanceFrame = async (time: number) => { frames.shift()?.(time); await Promise.resolve(); };
+  await advanceFrame(0);
+  expect(well.scrollTop).toBe(0);
+  expect(action.matches('[data-permission-revealed]')).toBe(false);
+  finishFonts(); await Promise.resolve();
+  await advanceFrame(1);
+  expect(nativeBottom).toBe(120.75);
+  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
+  expect(action.matches('[data-permission-revealed]')).toBe(false);
+  // Resize only after the first scroll, enough to move the action outside again.
+  cardBottom += 6;
+  expect(action.getBoundingClientRect().bottom).toBeGreaterThan(120);
+  await advanceFrame(2);
+  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
+  expect(action.matches('[data-permission-revealed]')).toBe(false);
+  for (let frame = 3; frame < 12; frame++) await advanceFrame(frame);
+  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
   expect(action.matches('[data-permission-revealed]')).toBe(true);
 });
 
