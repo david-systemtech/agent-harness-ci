@@ -1,5 +1,4 @@
 import { PAIRING_PRESETS, compareModes, pairingPreset, scopesInWords, type Ceiling, type PairingPreset } from "@agent-harness/contracts";
-import { grantWords } from "./words.js";
 
 /**
  * The pairing presets as a client offers them when it mints a code on an
@@ -33,13 +32,15 @@ export const ceilingAboveOwn = (ceiling: Ceiling, own: Ceiling | null, environme
 
 /** What a code of `preset` grants, in words, before a person changes what it lets them. */
 const presetWords = (preset: PairingPreset): string => {
-  switch (preset.chooses) {
-    case "nothing":
-      return grantWords(preset.scopes, preset.ceiling);
-    case "ceiling":
-      return `Grants ${scopesInWords(preset.scopes)}, up to the ceiling picked, preset ${preset.ceiling}.`;
-    case "scopes-and-ceiling":
-      return "Grants the scopes ticked, up to the ceiling picked.";
+  switch (preset.id) {
+    case "own-client":
+      return "Grants every scope: read and organise sessions, drive runs and answer prompts, use terminals, files and diffs, and administer the environment. Ceiling: bypassPermissions (run without permission checks; the denylist still applies).";
+    case "program":
+      return `Grants ${scopesInWords(preset.scopes)}: read and organise sessions, drive runs and answer prompts; no terminal or admin access. Pick a ceiling, initially ${preset.ceiling} (accept file edits; ask before other actions when the provider supports it).`;
+    case "phone":
+      return `Restricted choice. Grants ${scopesInWords(preset.scopes)}: read and organise sessions, drive runs and answer prompts; no terminal or admin access. Ceiling: ${preset.ceiling} (accept file edits; ask before other actions when the provider supports it), so bypass permissions is unavailable.`;
+    case "custom":
+      return "Choose scopes and a ceiling to raise or lower access for a single pairing, within this client’s grant. Initially read (read sessions) and plan (plan without making changes).";
   }
 };
 
