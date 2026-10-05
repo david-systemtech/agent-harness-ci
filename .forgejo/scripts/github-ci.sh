@@ -48,6 +48,14 @@ gh_api() {
   curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-max-time 180 --retry-all-errors -H @<(printf 'Authorization: Bearer %s\n' "$GH_CI_TOKEN") \
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
+# Gallery ZIPs can take minutes on a slow link. Give each attempt ten minutes,
+# with retries starting within ten minutes (at most twenty including the last
+# attempt). The gallery workflow's 30-minute deadline still bounds the entire
+# shard set, capture and publication included. Keep the 64 MiB transfer cap.
+gh_artifact() {
+  curl -sS --connect-timeout 15 --max-time 600 --retry 2 --retry-delay 3 --retry-max-time 600 --retry-all-errors --fail -L --max-filesize 67108864 -H @<(printf 'Authorization: Bearer %s\n' "$GH_CI_TOKEN") \
+    -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+}
 # A GET whose reply gets parsed. Through a file, because curl cannot rewind stdout: a retry after
 # a reply cut off mid-way appended the new reply to the partial one, and the parse then failed the
 # job (2026-10-02). Failed transfers and incomplete JSON never reach the callers' parsers.
@@ -203,7 +211,7 @@ for a in items:
     archives=()
     while read -r artifact name; do
       archive="$gl/$name.zip"
-      gh_api --fail -L --max-filesize 67108864 -o "$archive" "$api/actions/artifacts/$artifact/zip"
+      gh_artifact -o "$archive" "$api/actions/artifacts/$artifact/zip"
       archives+=("$archive")
     done <<< "$artifacts"
     gallery_format=$(python3 - "${archives[@]}" <<'PYFORMAT'

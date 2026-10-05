@@ -110,6 +110,13 @@ if stage == 'dispatch':
 elif stage == 'artifacts':
     out.write_text(json.dumps({'artifacts':[] if os.environ.get('FAKE_NO_ARTIFACT')=='true' else json.loads(os.environ['FAKE_ARTIFACTS']) if os.environ.get('FAKE_ARTIFACTS') else [{'id':99,'name':'window-gallery','size_in_bytes':int(os.environ.get('FAKE_ARTIFACT_SIZE','100')),'expired':False}]}))
 elif stage == 'archive':
+    # Advance a held transfer clock, with no wall-clock sleep. curl's request
+    # deadline decides whether the complete ZIP becomes available to publish.
+    duration = int(os.environ.get('FAKE_ARCHIVE_SECONDS', '0'))
+    if duration > int(value('--max-time', '0')):
+        out.write_bytes(b'PK')
+        sys.stderr.write('curl: (28) ZIP transfer exceeded its attempt budget\\n')
+        sys.exit(28)
     if os.environ.get('FAKE_GALLERY_ZIP'):
         import shutil
         archives=json.loads(os.environ.get('FAKE_GALLERY_ZIPS','{}'))
@@ -404,6 +411,38 @@ describe("the relay's GitHub API", () => {
 
 
 describe("the advisory gallery relay", () => {
+  it("publishes a valid ZIP whose held transfer takes 180 seconds, keeping JSON requests short", async () => {
+    const f = await apiFixture();
+    const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
+    const result = await relay(f, {
+      FAKE_ARCHIVE_SECONDS: "180", FAKE_PR_SHA: sha, GH_CI_EVENT: "gallery",
+      FORGEJO_PR: "42", FORGEJO_TOKEN: "token-for-tests",
+      FORGEJO_URL: "https://forge.example.invalid", FORGEJO_REPOSITORY: "example/project",
+    });
+    expect(result.code, result.stderr).toBe(0);
+    expect(readFileSync(`${f.env["FAKE_API_STATE"]}-comment`, "utf8")).toContain("![window-empty.dark.png](");
+    for (const { stage, args } of apiCalls(f)) {
+      const value = (flag: string) => Number(args[args.indexOf(flag) + 1]);
+      expect(value("--max-time")).toBe(stage === "archive" ? 600 : 120);
+      expect(value("--retry-max-time")).toBe(stage === "archive" ? 600 : 180);
+      if (stage === "archive") {
+        expect(value("--retry")).toBe(2);
+        expect(value("--connect-timeout")).toBe(15);
+        expect(value("--max-filesize")).toBe(64 * 1024 * 1024);
+        expect(args).toContain("--retry-all-errors");
+      }
+    }
+  });
+  it("stops an over-budget ZIP transfer before publishing its partial archive", async () => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_ARCHIVE_SECONDS: "601", GH_CI_EVENT: "gallery" });
+    expect(result.code).toBe(28);
+    expect(result.stderr).toContain("ZIP transfer exceeded its attempt budget");
+    expect(existsSync(`${f.env["FAKE_API_STATE"]}-comment`)).toBe(false);
+    expect(readFileSync(f.log, "utf8")).not.toContain("forgejo ");
+    expect(apiCalls(f).filter(({ stage }) => stage === "archive")).toHaveLength(1);
+  });
+
   it("dispatches its own gallery run and retrieves the small screenshot artifact", async () => {
     const f = await apiFixture();
     const sha = (await run("git", ["-C", f.checkout, "rev-parse", "HEAD"])).stdout.trim();
@@ -433,6 +472,7 @@ it("runs gallery independently and preserves geometry failures as blocking check
   expect(hosted).toContain("runs-on: ubuntu-24.04");
   expect(hosted).toContain("types: [gallery]");
   expect(relayWorkflow).not.toContain("continue-on-error: true");
+  expect(relayWorkflow).toContain("timeout-minutes: 30");
   expect(relayWorkflow).toContain("PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
   expect(relayWorkflow).toContain("'packages/gui/**'");
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
@@ -1124,10 +1164,11 @@ async function shardedGallery() {
   return { ...g, first, second, shardEnv: env };
 }
 
-it("publishes and accepts 472 captures as two complete independently bounded reports", async () => {
+it("publishes and accepts 472 captures from two slow ZIP transfers as complete independently bounded reports", async () => {
   const g = await shardedGallery();
-  const result = await relay(g.f, g.shardEnv);
+  const result = await relay(g.f, { ...g.shardEnv, FAKE_ARCHIVE_SECONDS: "180" });
   expect(result.code, result.stderr).toBe(0);
+  expect(apiCalls(g.f).filter(({ stage }) => stage === "archive")).toHaveLength(2);
   expect(g.comments).toHaveLength(2);
   expect(g.captures.size).toBe(472);
   expect(g.comments[0]!.body).toContain('"index": 1');
