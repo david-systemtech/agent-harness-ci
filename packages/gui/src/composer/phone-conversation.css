@@ -15,6 +15,8 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  /* Leave room to scroll a whole 44px action despite fractional layout edges. */
+  [data-web-client] [data-composer-above]:has([aria-label="Parked prompt"]) { min-height: 48px; }
   [data-web-client] [aria-label="Parked prompt"] { overflow-wrap: anywhere; }
   [data-web-client] [aria-label="Parked prompt"] header { flex-wrap: wrap; }
   [data-web-client] [aria-label="Parked prompt"] button { height: auto; max-width: 100%; flex-wrap: wrap; white-space: normal; }
