@@ -6,7 +6,7 @@ import { useHandoffPicker } from "../status/pane-dialogs.js";
 import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger, Tooltip } from "../ui/index.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import { VerbButton } from "../session/verb-button.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { useSlashCommand } from "./slash-commands.js";
 
 /** Configuration and execution belong to the Environment; this surface only reads and asks. */
@@ -35,8 +35,11 @@ export const useWorkspaceChecks = (environmentId: string, sessionId: string, say
   return view;
 };
 
-export const WorkspaceCheck = ({ view, sendFailure, sending }: { readonly view: ChecksView; readonly sendFailure: () => void; readonly sending: Offer }) => (
-  <section aria-label="Workspace check" className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+export const WorkspaceCheck = ({ view, sendFailure, sending }: { readonly view: ChecksView; readonly sendFailure: () => void; readonly sending: Offer }) => {
+  const shell = useShell();
+  // The browser disclosure owns missing-rights guidance; do not repeat it above the message field.
+  if (shell === undefined && view.availability.status === "absent" && view.availability.reason === "scope") return null;
+  return <section aria-label="Workspace check" className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
     {view.availability.status === "absent" ? <p className="text-ink-faint">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : (
       <>
         <p className="truncate font-mono text-2xs" title={view.value.workspace}>{view.value.workspace}</p>
@@ -44,8 +47,8 @@ export const WorkspaceCheck = ({ view, sendFailure, sending }: { readonly view: 
       </>
     )}
     {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check; Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" className="size-3" />Send failure</VerbButton>}
-  </section>
-);
+  </section>;
+};
 
 
 /** Recent folders start a new session; an existing session's present workspace cannot be moved. */
