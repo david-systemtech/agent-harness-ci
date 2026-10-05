@@ -45,7 +45,8 @@ const MissingBankForge = ({ environmentId, origin, reason }: { readonly environm
   const owner = environments.find((view) => view.environmentId === environmentId);
   const ownerName = owner === undefined ? environmentId : nameOf(owner);
   return <>
-    {sources.length === 0 ? <p className="text-2xs text-ink-muted">{oneLine(reason)}</p> : <p className="text-2xs text-ink-muted">A forge account for {origin} is connected on {sources.map(nameOf).join(", ")}, but this bank belongs to {ownerName}. Connect a forge account on {ownerName} to reach it.</p>}
+    <p className="text-2xs text-ink-muted">{oneLine(reason)}</p>
+    {sources.length > 0 && <p className="text-2xs text-ink-muted">A forge account for {origin} is connected on {sources.map(nameOf).join(", ")}, but this bank belongs to {ownerName}. Connect a forge account on {ownerName} for this bank.</p>}
     <BankButton label={`Connect forge on ${ownerName}`} icon={ArrowUpRight} onClick={() => settings.open("access.forges", environmentId)} />
   </>;
 };
