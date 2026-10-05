@@ -37,6 +37,8 @@ import { notWired, typedCommand, useSlashCommand, useWiredCommands } from "./sla
 import { useWorkspaceChecks, WorkspaceCheck, WorkspaceRow } from "./workspace-checks.js";
 import { useComposition } from "./composition.js";
 import "./phone-conversation.css";
+import { StatusLine } from "../status/status-line.js";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { usePromptWalk } from "./walk.js";
 
 export interface ComposerProps {
@@ -86,6 +88,7 @@ export interface ComposerProps {
  * done now, as the runtime says: dim there with the line while it cannot.
  */
 export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
+  const { narrow } = usePhoneFrame();
   const runtime = useRuntime();
   const clock = useClock();
   // The connections' phases: the lock and the shell's members are asked again whenever one moves.
@@ -237,11 +240,16 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
       <div ref={above} data-composer-above>
       <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />
       <RewoundStrip />
-      {gone === undefined && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
+      {gone === undefined && !narrow && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
       <PromptCard environmentId={environmentId} sessionId={sessionId} />
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
       </div>
+      {narrow && <div role="toolbar" aria-label="Conversation controls" data-phone-composer-toolbar>
+        <WorkspaceRow environmentId={environmentId} sessionId={sessionId} compact />
+        <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} compact />
+        <StatusLine environmentId={environmentId} sessionId={sessionId} compact />
+      </div>}
       <KeyContext context="composer" conditions={conditions}>
         <ComposerKeys
           send={submit}
@@ -263,9 +271,10 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
           }}
         />
         {gone === undefined && (
-          <div className="shrink-0 px-3 pb-1" onDragOver={(event) => { attachments.dragging(event); if (event.dataTransfer.types.includes("Files")) setFileHover(true); }} onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFileHover(false); }} onDrop={(event) => { setFileHover(false); attachments.dropped(event); }}>
+          <div data-composer-editor className="shrink-0 px-3 pb-1" onDragOver={(event) => { attachments.dragging(event); if (event.dataTransfer.types.includes("Files")) setFileHover(true); }} onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFileHover(false); }} onDrop={(event) => { setFileHover(false); attachments.dropped(event); }}>
             {lock.locked && <p className="pb-1 text-xs text-amber">Locked: {lock.reason}</p>}
-            <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />
+            {!narrow && <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />}
+            {narrow && line !== undefined && <p role="status" className="pb-1 text-xs text-ink-muted">{line}</p>}
             <div data-composer-card className={classes("relative rounded-[10px] border border-hairline-strong bg-wash focus-within:ring-3 focus-within:ring-beam/50", fileHover && "ring-2 ring-beam ring-offset-2 ring-offset-abyss")}>
               {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
               <AttachmentChips attachments={attachments} />
@@ -301,7 +310,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
                 />
               </div>
             </div>
-            {line !== undefined && <p role="status" className="pt-1 text-xs text-ink-muted">{line}</p>}
+            {!narrow && line !== undefined && <p role="status" className="pt-1 text-xs text-ink-muted">{line}</p>}
           </div>
         )}
       </KeyContext>

@@ -1197,6 +1197,22 @@ visible at keyboard height, including long cards and IME composition. Settings
 is full-height with registered-row drawer navigation; Set up keeps eleven
 steps and its sticky Back/Continue footer.
 
+On phones the composer area ends at the screen's bottom edge, with only the
+bottom safe-area inset underneath it, in a browser tab and from the Home Screen.
+Above the text box, one 48px row contains the workspace chip, Hand off, check
+state, Run settings and environment browser choice. Each control has a 44px
+touch target and accessible name. Workspace opens a sheet with the full path,
+branch and recent folders; check state opens its configuration, availability
+reason and Send failure offer. Run settings opens the existing account,
+model/effort, mode, containment, usage and spend controls in a sheet. Browser
+choice keeps its existing picker. The raw path and “Check is off.” consume no
+separate dock rows. Sheets trap and restore focus; closing them preserves drafts.
+Keep the textarea's autosizing rules and Attach/Send controls. The empty composer
+area at 390×844 uses at most 169px (about one fifth); space freed belongs to the
+transcript, retaining three readable lines at keyboard height. Dedicated compact
+composer scenes cover 320/360/390/430px widths, tall/short heights, text 16/20,
+zero/nonzero bottom inset and tab/Home Screen startup.
+
 Hosted gallery subsets at 390×844 and 360×740 cover dark/light, text 20,
 keyboard-height viewport, safe areas and long content. #1636 additionally keeps
 layout height 844 while visual height is 480 with offsetTop 0/120; focus,

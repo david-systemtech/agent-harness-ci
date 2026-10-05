@@ -17,13 +17,13 @@ export const phoneRunPickerScene = (stage: RunStage): SceneModule => ({
     let advanced = false;
     const show = () => {
       if (!expanded) {
-        const settings = document.querySelector<HTMLButtonElement>('[data-phone-status-toggle]');
+        const settings = document.querySelector<HTMLButtonElement>('[data-phone-status-toggle], [data-phone-composer-toolbar] [aria-label="Run settings"]');
         if (!settings) return;
         expanded = true;
         settings.click();
         return;
       }
-      if (!document.querySelector('[data-phone-status="open"]')) return;
+      if (!document.querySelector('[data-phone-status="open"], [data-phone-run-settings]')) return;
       if (!opened) {
         const chip = document.querySelector<HTMLButtonElement>(`[aria-label^="${stage === "Accounts" ? "Account" : "Model"}:"]`);
         if (!chip || !chip.hasAttribute("data-state") || chip.getAttribute("aria-disabled") === "true") return;

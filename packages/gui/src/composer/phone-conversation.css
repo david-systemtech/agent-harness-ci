@@ -50,3 +50,43 @@
     max-height: max(44px, min(35vh, calc(var(--phone-viewport-height, 100dvh) * 0.25)));
   }
 }
+
+@media (max-width: 639px) {
+  [data-web-client] [data-phone-composer-toolbar] {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 4px;
+    height: 48px;
+    padding: 2px 8px;
+  }
+  [data-web-client] [data-phone-composer-toolbar] button {
+    height: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+    padding: 0 8px;
+  }
+  [data-web-client] [data-phone-composer-toolbar] [data-workspace-chip] {
+    flex-shrink: 1;
+    font-size: max(16px, 1rem);
+  }
+  [data-phone-browser] { display: inline-flex; width: 44px; flex-shrink: 0; }
+  [data-phone-browser] button { width: 44px; }
+  [data-phone-browser] button > span { display: none; }
+  [data-web-client] [data-composer-editor] { padding: 0 8px; }
+  [data-web-client] [data-composer-card] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  [data-web-client] [data-grid-card]:has([data-phone-composer-toolbar]) {
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .phone-composer-sheet {
+    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: calc(100vw - 16px);
+    max-width: 480px;
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    gap: 12px;
+  }
+}

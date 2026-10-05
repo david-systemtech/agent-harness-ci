@@ -1,9 +1,9 @@
 import { baseName, type ChecksView } from "@agent-harness/client-runtime";
 import { useMemo } from "react";
-import { Folder, GitBranch, Hand, Terminal } from "lucide-react";
+import { Folder, GitBranch, Hand, Terminal, CircleCheck, CircleMinus, CircleAlert } from "lucide-react";
 import { usePaneGrid } from "../grid/grid.js";
 import { useHandoffPicker } from "../status/pane-dialogs.js";
-import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger, Tooltip } from "../ui/index.js";
+import { Button, Dialog, DialogContent, DialogTrigger, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger, Tooltip } from "../ui/index.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import { VerbButton } from "../session/verb-button.js";
 import { useObservable, useRuntime, useShell } from "../window-context.js";
@@ -35,10 +35,25 @@ export const useWorkspaceChecks = (environmentId: string, sessionId: string, say
   return view;
 };
 
-export const WorkspaceCheck = ({ view, sendFailure, sending }: { readonly view: ChecksView; readonly sendFailure: () => void; readonly sending: Offer }) => {
+export const WorkspaceCheck = ({ view, sendFailure, sending, compact = false }: { readonly view: ChecksView; readonly sendFailure: () => void; readonly sending: Offer; readonly compact?: boolean }) => {
   const shell = useShell();
   // The browser disclosure owns missing-rights guidance; do not repeat it above the message field.
-  if (shell === undefined && view.availability.status === "absent" && view.availability.reason === "scope") return null;
+  if (!compact && shell === undefined && view.availability.status === "absent" && view.availability.reason === "scope") return null;
+  if (compact) {
+    const state = view.availability.status === "absent" ? "unavailable" : view.offer !== null ? "failure ready to send" : view.value === null ? "reading" : view.value.command === null ? "off" : "configured";
+    const Icon = state === "off" ? CircleMinus : state === "configured" ? CircleCheck : CircleAlert;
+    return <Dialog>
+      <DialogTrigger asChild><Button aria-label={`Workspace check: ${state}`}><Icon aria-hidden="true" className="size-4" /></Button></DialogTrigger>
+      <DialogContent title="Workspace check" className="phone-composer-sheet">
+        {view.availability.status === "absent" ? <p className="text-sm text-ink-muted">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : <>
+          <p className="break-all font-mono text-sm">{view.value.workspace}</p>
+          {view.value.command === null ? <p>Check is off.</p> : <pre className="overflow-x-auto rounded-none bg-abyss p-2 text-sm">{`$ ${view.value.command}`}</pre>}
+          <p className="text-sm text-ink-muted">Use /check &lt;command&gt; to configure, /check now to run, or /check off to clear.</p>
+        </>}
+        {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check; Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" />Send failure</VerbButton>}
+      </DialogContent>
+    </Dialog>;
+  }
   return <section aria-label="Workspace check" className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
     {view.availability.status === "absent" ? <p className="text-ink-faint">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : (
       <>
@@ -52,7 +67,7 @@ export const WorkspaceCheck = ({ view, sendFailure, sending }: { readonly view: 
 
 
 /** Recent folders start a new session; an existing session's present workspace cannot be moved. */
-export const WorkspaceRow = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string }) => {
+export const WorkspaceRow = ({ environmentId, sessionId, compact = false }: { readonly environmentId: string; readonly sessionId: string; readonly compact?: boolean }) => {
   const runtime = useRuntime();
   const grid = usePaneGrid();
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
@@ -60,6 +75,27 @@ export const WorkspaceRow = ({ environmentId, sessionId }: { readonly environmen
   const handoff = useHandoffPicker();
   const workspace = projection.summary?.workspace;
   const label = workspace === undefined ? undefined : workspace.kind === "scratch" ? "scratch" : baseName(workspace.kind === "worktree" ? workspace.repository : workspace.path);
+  const chooseDirectory = (path: string) => {
+    const id = grid.newSession(environmentId);
+    grid.chooseChips(id, (held) => ({ ...held, environmentId, workspace: { environmentId, request: { kind: "directory", path } } }));
+  };
+  if (compact) return <>
+    <Dialog>
+      <DialogTrigger asChild><Button aria-label={`Workspace: ${label ?? "Reading workspace"}`} data-workspace-chip className="min-w-0 flex-1 gap-1 rounded-md bg-wash px-2">
+        <Folder aria-hidden="true" className="size-4 shrink-0" /><span className="truncate">{label ?? "Workspace"}</span>
+      </Button></DialogTrigger>
+      <DialogContent title="Workspace" className="phone-composer-sheet">
+        <p className="break-all font-mono text-sm">{workspace?.path ?? "Reading workspace…"}</p>
+        {workspace?.kind === "worktree" && <p className="break-all text-sm">Branch: {workspace.branch}</p>}
+        <h3 className="text-sm font-medium">Start a session in a recent folder</h3>
+        {known.length === 0 && <p className="text-sm text-ink-muted">No recent folders</p>}
+        {known.map(directory => <Button key={directory.path} disabled={directory.missingSince !== null} className="h-auto justify-start whitespace-normal break-all text-left" onClick={() => chooseDirectory(directory.path)}>
+          <Folder aria-hidden="true" className="shrink-0" />{directory.path}{directory.missingSince !== null && " · Missing"}
+        </Button>)}
+      </DialogContent>
+    </Dialog>
+    <Button aria-label="Hand off" data-handoff-chip onClick={() => handoff()}><Hand aria-hidden="true" className="size-4" /></Button>
+  </>;
   return <div className="flex shrink-0 items-center gap-2 px-3 py-1.5">
     <Menu>
       <Tooltip content={`${workspace?.path ?? "Reading workspace…"} · Recent folders · Enter opens; arrows choose`}>

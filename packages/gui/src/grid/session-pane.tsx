@@ -1,5 +1,6 @@
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { ReactNode } from "react";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -46,6 +47,7 @@ export interface PaneContentsProps extends CaptionProps {
  * keeping the same session controls below it (#585).
  */
 export const SessionPane = ({ session, focused, header, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode }) => {
+  const { narrow } = usePhoneFrame();
   const { environmentId, sessionId } = session;
   const [readingWidth] = usePresentation("readingWidth");
   return (
@@ -62,7 +64,7 @@ export const SessionPane = ({ session, focused, header, ...caption }: PaneConten
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
                     <div data-composer-column className="mx-auto w-full shrink-0" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
                       <Composer environmentId={environmentId} sessionId={sessionId} />
-                      <StatusLine environmentId={environmentId} sessionId={sessionId} />
+                      {!narrow && <StatusLine environmentId={environmentId} sessionId={sessionId} />}
                     </div>
                   </section>
                   <SideColumnView environmentId={environmentId} sessionId={sessionId} />

@@ -13,7 +13,7 @@ import { useMemo, useState, useId } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
-import { Button, Tooltip } from "../ui/index.js";
+import { Button, Dialog, DialogContent, DialogTrigger, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, modeLabel } from "./pickers.js";
@@ -26,6 +26,7 @@ import { WebRegisteredSurfaces } from "../platform/web-registrations.js";
 export interface StatusLineProps {
   readonly environmentId: string;
   readonly sessionId: string;
+  readonly compact?: boolean;
 }
 
 /**
@@ -47,7 +48,7 @@ export interface StatusLineProps {
  *   Run info (Mod+I) is the pane's caption's. `/handoff` opens the hand-off
  *   picker whenever; naming another environment, it says that is milestone 2's.
  */
-export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
+export const StatusLine = ({ environmentId, sessionId, compact = false }: StatusLineProps) => {
   const web = useShell() === undefined;
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
@@ -82,11 +83,8 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
     named === "" || named.toLowerCase() === (environment?.name ?? "").toLowerCase() ? openHandoff() : say(`Not handed off to ${named}: ${BETWEEN_ENVIRONMENTS}.`),
   );
 
-  return (
-    <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">
-      {web && <Button data-phone-status-toggle className="hidden" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><Settings2 aria-hidden="true" />Run settings<ChevronDown aria-hidden="true" /></Button>}
-      {web && <WebRegisteredSurfaces location="session-status" />}
-      <div id={detailsId} className="flex min-w-0 grow basis-[352px] flex-wrap items-center gap-x-2 gap-y-1">
+  const details = <>
+      <div id={detailsId} className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "" : "grow basis-[352px]"}`}>
         <span data-status-chip className="inline-flex h-[22px] max-w-[240px] items-center overflow-hidden rounded-md bg-wash px-1.5 [&_svg]:size-3 [&>span]:min-w-0 [&>span>span]:truncate" title={`${environment?.name ?? "This machine"}: ${environment?.phase ?? "connecting"}`}><EnvironmentBadge view={environment} /></span>
         <AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} />
         <ModelPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model} />
@@ -99,13 +97,29 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
           {facts.mode.clampedFrom !== null && <span className="text-amber"> {clampWords(facts.mode.clampedFrom)}</span>}
         </ModePicker>
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />
-        <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />
+        {!compact && <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />}
         {facts.offer !== undefined ? <HandoffOffer offer={facts.offer} /> : <RunLine facts={facts} />}
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-2">
         <SessionContextMeter environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model?.model ?? null} />
         <UsageMeter environmentId={environmentId} accountId={facts.accountId} />
       </span>
+  </>;
+  if (compact) return <>
+    <Dialog>
+      <DialogTrigger asChild><Button aria-label="Run settings"><Settings2 aria-hidden="true" className="size-4" /></Button></DialogTrigger>
+      <DialogContent data-phone-run-settings title="Run settings" className="phone-composer-sheet">
+        <WebRegisteredSurfaces location="session-status" />
+        {details}
+      </DialogContent>
+    </Dialog>
+    <span data-phone-browser><SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} /></span>
+  </>;
+  return (
+    <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">
+      {web && <Button data-phone-status-toggle className="hidden" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><Settings2 aria-hidden="true" />Run settings<ChevronDown aria-hidden="true" /></Button>}
+      {web && <WebRegisteredSurfaces location="session-status" />}
+      {details}
     </section>
   );
 };
