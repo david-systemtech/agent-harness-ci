@@ -28,7 +28,7 @@ export const phoneRunPickerScene = (stage: RunStage): SceneModule => ({
         const chip = document.querySelector<HTMLButtonElement>(`[aria-label^="${stage === "Accounts" ? "Account" : "Model"}:"]`);
         if (!chip || !chip.hasAttribute("data-state") || chip.getAttribute("aria-disabled") === "true") return;
         opened = true;
-        chip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "touch" }));
+        chip.click();
       }
       if (stage === "Effort" && !advanced) {
         const next = document.querySelector<HTMLButtonElement>('[data-run-sheet] [aria-label="Next: Effort"]');

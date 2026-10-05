@@ -13,7 +13,7 @@ import { glyphOf } from "../connections/environment-glyphs.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
 import { classes } from "../ui/classes.js";
-import { Button, Tooltip, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
+import { Button, Tooltip, Menu, MenuContent, MenuItem, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { WorkspacePopover } from "../workspace/picker.js";
 import { BrowserChoiceMenu } from "../browser/choice-menu.js";
@@ -21,7 +21,7 @@ import { Check, Cpu, Folder, GitBranch, KeyRound, Server, SlidersHorizontal } fr
 import { useSettings } from "../settings/settings-window.js";
 import { checkRequest } from "./check.js";
 import { usePhoneOverlay } from "../ui/phone.js";
-import { RunPickerColumn, RunPickerSteps, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
+import { RunPickerColumn, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
 import { requestWords } from "./words.js";
 
 /**
@@ -59,14 +59,15 @@ const Face = ({ children }: { readonly children: ReactNode }) => <span className
 const ChipMenu = ({ name, value, children, items, columns = false }: { readonly name: string; readonly value: string; readonly children: ReactNode; readonly items: ReactNode; readonly columns?: boolean }) => {
   const phone = usePhoneOverlay();
   const narrow = useNarrowRunPicker() || phone;
+  const [open, setOpen] = useState(false);
   return (
-    <Menu modal={!columns || narrow}>
+    <Menu open={open} onOpenChange={setOpen} modal={!columns || narrow}>
       <Tooltip content={`${name}: ${value} · Enter to open · ↑ ↓ to choose · Escape to close`}>
-        <MenuTrigger asChild>
+        <RunPickerTrigger sheet={columns && narrow} openSheet={() => setOpen(true)}>
           <Button data-new-session-chip aria-label={`${name}: ${value}`} className={classes(CHIP, name === "Account" && "shrink")}>
             <Face>{children}</Face>
           </Button>
-        </MenuTrigger>
+        </RunPickerTrigger>
       </Tooltip>
       <MenuContent data-run-sheet={columns && narrow ? "" : undefined} role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} side="top" align="start" className={columns ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0" : "max-h-[320px] max-w-md overflow-y-auto"}>
         {items}

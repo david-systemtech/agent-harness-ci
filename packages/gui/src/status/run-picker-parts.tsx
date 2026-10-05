@@ -1,7 +1,17 @@
 import { ArrowLeft, ArrowRight, Check, Cpu } from "lucide-react";
-import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
 import { classes } from "../ui/classes.js";
-import { Button, MenuItem, MenuLabel } from "../ui/index.js";
+import { Button, MenuItem, MenuLabel, MenuTrigger } from "../ui/index.js";
+
+/** A bottom sheet can cover its trigger: open after release so that release cannot select a row. */
+export const RunPickerTrigger = ({ sheet, openSheet, ...props }: ComponentProps<typeof MenuTrigger> & { readonly sheet: boolean; readonly openSheet: () => void }) =>
+  <MenuTrigger {...props} asChild onPointerDown={event => {
+    props.onPointerDown?.(event);
+    if (sheet) event.preventDefault();
+  }} onClick={event => {
+    props.onClick?.(event);
+    if (sheet && !event.defaultPrevented) openSheet();
+  }} />;
 
 /** Rows keep the popup open while a dependent choice is made. */
 export const RunChoiceRow = ({ label, note, under, selected, dim, primary, machine, icon: Icon, onSelect }: {

@@ -252,7 +252,15 @@ describe("the account picker", () => {
     Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 360 });
     onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: width }); });
     const { app } = await opened([desk({ scopes: ["read", "sessions:write", "runs:drive"], accounts: [{ id: "claude-max", label: "claude-max", status: { state: "signed-out", checkedAt: null, detail: null } }], sessions: [{ title: "Receipts", accountId: "claude-max" }] })]);
-    await app.user.click(within(statusLine()).getByRole("button", { name: /^Account:/ }));
+    const trigger = within(statusLine()).getByRole("button", { name: /^Account:/ });
+    act(() => trigger.focus());
+    await app.user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: "Run choices" });
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull());
+    await app.user.pointer({ target: trigger, keys: "[MouseLeft>]" });
+    expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull();
+    await app.user.pointer({ target: trigger, keys: "[/MouseLeft]" });
     const sheet = await screen.findByRole("dialog", { name: "Run choices" });
     const accounts = within(sheet).getByRole("group", { name: "Accounts" });
     const account = within(accounts).getByRole("menuitem", { name: /claude-max/ });

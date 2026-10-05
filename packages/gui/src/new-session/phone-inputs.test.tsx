@@ -185,7 +185,9 @@ it("observes pending creation and its refusal after pairing remounts the editor"
 it("chooses account, model and effort in separate phone steps and sends the chosen effort", async () => {
   const { user, surface, env, box } = await open();
   const trigger = within(surface).getByRole("button", { name: /^Account:/ });
-  await user.click(trigger);
+  await user.pointer({ target: trigger, keys: "[TouchA>]" });
+  expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull();
+  await user.pointer({ target: trigger, keys: "[/TouchA]" });
   const sheet = await screen.findByRole("dialog", { name: "Run choices" });
   expect(sheet.hasAttribute("data-run-sheet")).toBe(true);
   expect(within(sheet).getByRole("group", { name: "Accounts" })).toBeDefined();

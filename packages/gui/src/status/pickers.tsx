@@ -23,13 +23,13 @@ import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
-import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip } from "../ui/index.js";
+import { Button, Menu, MenuContent, MenuItem, MenuSeparator, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { useHandOffOnto } from "./hand-off.js";
 import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
-import { RunChoiceRow, RunPickerColumn, RunPickerSteps, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
+import { RunChoiceRow, RunPickerColumn, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 
 /**
@@ -107,11 +107,11 @@ const PickerButton = ({ name, value, offer, children, items, command, warning, c
   return (
     <Menu open={open} onOpenChange={setOpen} modal={!columns || narrow}>
       <Tooltip content={`${label} · /${command} · Enter to open${warning === undefined ? "" : ` · ${warning}`}`}>
-        <MenuTrigger asChild>
+        <RunPickerTrigger sheet={!!columns && narrow} openSheet={() => setOpen(true)}>
           <Button aria-label={label} className={classes(TRIGGER, name === "Account" ? "shrink" : "shrink-0")}>
             {content}
           </Button>
-        </MenuTrigger>
+        </RunPickerTrigger>
       </Tooltip>
       <MenuContent data-run-sheet={columns && narrow ? "" : undefined} side="top" align="start" role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} className={columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
         {items(() => setOpen(false))}
