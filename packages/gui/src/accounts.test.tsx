@@ -89,9 +89,9 @@ describe("provider sign-in attendance", () => {
     await app.user.click(within(signing).getByRole("button", { name: "Paste code from clipboard" }));
     expect(await within(signing).findByText("Clipboard access was refused. Paste the code into the field instead.")).toBeDefined();
     expect(laptop.requests("accounts.signin.code")).toHaveLength(0);
-    app.shell.answer("clipboard.readText", async () => "  code-for-tests#state-for-tests\n");
+    app.shell.answer("clipboard.readText", async () => "  code.for+tests/=#state-for-tests\n");
     await app.user.click(within(signing).getByRole("button", { name: "Paste code from clipboard" }));
-    await waitFor(() => expect(laptop.requests("accounts.signin.code").map(request => request.params)).toEqual([expect.objectContaining({ code: "code-for-tests#state-for-tests" })]));
+    await waitFor(() => expect(laptop.requests("accounts.signin.code").map(request => request.params)).toEqual([expect.objectContaining({ code: "code.for+tests/=#state-for-tests" })]));
     expect(app.environment("desk").requests("accounts.signin.code")).toHaveLength(0);
   });
 });

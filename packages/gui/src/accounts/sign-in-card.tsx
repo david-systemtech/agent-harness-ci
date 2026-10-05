@@ -41,8 +41,9 @@ type Sending = "add" | "start" | "code" | null;
  *   started (`accounts.signin.start`).
  * - The card follows the environment's sign-in through `accounts.signin.get`
  *   in the request cache: "Starting the sign-in…", then the verification URL,
- *   opened in the system browser through the shell's `openExternal` as it
- *   arrives (and again on a press), the code pasted and sent with
+ *   the local provider's browser flow left alone, or the paired flow's URL
+ *   opened through the shell's `openExternal` (and again on a press), the
+ *   full code pasted or read from the clipboard and sent with
  *   `accounts.signin.code` ("Checking the code…"), and the fallback command
  *   for a terminal on the environment's machine under it, and the time the
  *   sign-in has left, counted down on the environment's clock from its
@@ -166,7 +167,7 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false,
   const submitCode = (text: string) => {
     if (accountId === null) return;
     const code = text.trim();
-    if (!SignInCode.safeParse(code).success || !/^[A-Za-z0-9_-]+#[A-Za-z0-9_-]+$/.test(code)) {
+    if (!SignInCode.safeParse(code).success || !/^[^#\s]+#[^#\s]+$/.test(code)) {
       setError("Paste the full code from the provider page (code#state).");
       return;
     }
