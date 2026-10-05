@@ -178,7 +178,7 @@ export const startDesktop = async (
   const localGrant = grantFile(platform.paths.environment, reportError);
   const service = bundledService({ os: platform.os, environmentDir: platform.paths.environment, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
   const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
-  const installer = bundledInstaller(platform.paths.server);
+  const installer = bundledInstaller(platform.paths.server, platform.paths.environment);
   const gh = computerGh({ os: platform.os, process: ghProcess, environment });
   const notifications = desktopNotifications({ notification: electron.notification, window });
   serveShell(

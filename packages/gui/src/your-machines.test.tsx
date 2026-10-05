@@ -541,6 +541,23 @@ describe("Your machines' update controls", () => {
     ]);
   });
 
+  it("explains a bundled install's disk refusal from a released environment and keeps retry available", async () => {
+    const shell = fakeShell();
+    shell.answer("installer.bundledServer", async () => ({ version: "0.6.0", path: BUNDLED_PATH }));
+    shell.answer("installer.reserveSpace", async () => ({ availableBytes: 199864320, requiredBytes: 268435456 }));
+    const app = await opened({ desk: {
+      settings: { "updates.autoUpdate": false },
+      receipts: { "updates.apply": { rejected: "conflict", message: "The launcher refused to install 0.6.0: disk.", data: { reason: "install", launcherReason: "disk" } } },
+    } }, { shell, version: "0.6.0" });
+    const pane = await openMachines(app);
+    const desk = () => card(pane, "desk");
+    await app.user.click(await within(desk()).findByRole("button", { name: "Install the bundled 0.6.0" }));
+    expect(await within(desk()).findByText(/Insufficient disk space/)).toHaveProperty("textContent", expect.stringContaining("190.6 MiB available; 256 MiB reserve required"));
+    expect(within(desk()).getByText(/Insufficient disk space/).textContent).toContain("The existing environment remains running. Free space and retry.");
+    await app.user.click(within(desk()).getByRole("button", { name: "Install the bundled 0.6.0" }));
+    await waitFor(() => expect(app.environment("desk").requests("updates.apply")).toHaveLength(2));
+  });
+
   it("says on the local environment's card that it took the newer server the desktop carries by itself, with auto-update effective", async () => {
     const shell = fakeShell();
     shell.answer("installer.bundledServer", async () => ({ version: "0.6.0", path: BUNDLED_PATH }));

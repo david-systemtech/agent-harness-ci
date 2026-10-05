@@ -409,6 +409,23 @@ describe("the server artefact the desktop carries", () => {
     expect(desk.requests("updates.apply")).toEqual([]);
   });
 
+  it.each(["unreadable", "absent"])("keeps a disk refusal actionable when the native space probe is %s", async (probe) => {
+    const { runtime, until, bundled } = await launch({
+      settings: { "updates.autoUpdate": false },
+      receipts: { "updates.apply": { rejected: "conflict", message: "The launcher refused to install 0.6.0: disk.", data: { reason: "install", launcherReason: "disk" } } },
+      shell: (shell) => {
+        carrying("0.6.0")(shell);
+        if (probe === "absent") delete shell.installer.reserveSpace;
+        else shell.answer("installer.reserveSpace", async () => { throw new Error("The volume is unavailable."); });
+      },
+    });
+    await until(() => bundled().state === "offered", "offered the bundled server");
+    expect(await runtime.desktopUpdate.applyBundledServer()).toMatchObject({
+      state: "failed", reason: "install",
+      message: "Insufficient disk space to install 0.6.0. The available disk space could not be read; 256 MiB reserve required. The existing environment remains running. Free space and retry.",
+    });
+  });
+
   it("reports the environment's refusal with its reason", async () => {
     const { until, bundled } = await launch({
       updates: { status: { version: RUNNING } },
