@@ -94,3 +94,23 @@ it("bounds the portalled run sheet when only the visual viewport shrinks and pan
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   }
 });
+
+
+it("opens the mode gallery through the compact phone Run settings sheet", async () => {
+  const original = window.matchMedia;
+  const media = vi.spyOn(window, "matchMedia").mockImplementation(query => Object.assign(original(query), { matches: query === "(width < 640px)" }));
+  const width = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
+  try {
+    const container = document.createElement("div"); document.body.append(container);
+    const gallery = await mountGallery(container, "phone-mode-sheet", "light", undefined, { platform: "web" });
+    close = gallery.close;
+    const sheet = await screen.findByRole("dialog", { name: "Mode" });
+    expect(await gallery.ready).toBe(true);
+    for (const name of ["plan", "accept edits", "auto", "BYPASS"]) expect(within(sheet).getByRole("button", { name })).toBeDefined();
+    expect(within(sheet).getByRole("button", { name: "Close mode picker" })).toBeDefined();
+  } finally {
+    media.mockRestore();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  }
+});
