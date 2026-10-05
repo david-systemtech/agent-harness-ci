@@ -117,14 +117,23 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     const field = box.field.current;
     if (field === null) return;
     let width = -1;
+    let frame: number | undefined;
     const observer = new ResizeObserver(([entry]) => {
       if (entry === undefined || entry.contentRect.width === width) return;
       width = entry.contentRect.width;
-      field.style.height = "0px";
-      field.style.height = `${Math.max(44, field.scrollHeight)}px`;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      // Changing an observed height during delivery leaves notifications undelivered.
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        field.style.height = "0px";
+        field.style.height = `${Math.max(44, field.scrollHeight)}px`;
+      });
     });
     observer.observe(field);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
   }, [box.field]);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
   const menus = useMenus({ environmentId, sessionId, provider, text: box.text, caret: box.caret });

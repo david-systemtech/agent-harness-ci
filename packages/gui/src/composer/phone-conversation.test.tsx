@@ -22,6 +22,45 @@ it("keeps the composing draft until the input method commits, including an Enter
   await waitFor(() => expect(app.environment("desk").requests("runs.start")).toHaveLength(1));
 });
 
+it("resizes the message after width delivery without resizing it inside the observer cycle", async () => {
+  const Original = globalThis.ResizeObserver;
+  let deliver!: (width: number) => void;
+  vi.stubGlobal("ResizeObserver", class extends Original {
+    constructor(callback: ResizeObserverCallback) {
+      super(callback);
+      this.callback = callback;
+    }
+    private readonly callback: ResizeObserverCallback;
+    override observe(target: Element) {
+      if (target.getAttribute("aria-label") !== "Message") return super.observe(target);
+      deliver = width => this.callback([{ target, contentRect: new DOMRect(0, 0, width, 44), borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [] }], this);
+    }
+  });
+  onTestFinished(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
+  app.open("desk");
+  const field = await screen.findByRole("textbox", { name: "Message" });
+  const frames = new Map<number, FrameRequestCallback>(); let next = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++next, callback); return next; });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => { frames.delete(id); });
+  vi.spyOn(field, "scrollHeight", "get").mockReturnValue(96);
+  const height = field.style.height;
+  act(() => deliver(318));
+  expect(field.style.height).toBe(height);
+  act(() => deliver(288));
+  expect(field.style.height).toBe(height);
+  act(() => { const draw = [...frames.values()]; frames.clear(); draw.forEach(callback => callback(0)); });
+  expect(field.style.height).toBe("96px");
+  vi.spyOn(field, "scrollHeight", "get").mockReturnValue(120);
+  act(() => deliver(288));
+  act(() => { const draw = [...frames.values()]; frames.clear(); draw.forEach(callback => callback(0)); });
+  expect(field.style.height).toBe("96px");
+  act(() => deliver(302));
+  app.view.unmount();
+  act(() => { const draw = [...frames.values()]; frames.clear(); draw.forEach(callback => callback(0)); });
+  expect(field.style.height).toBe("96px");
+});
+
 it("fits the web conversation to the visual viewport and leaves pinch zoom alone", async () => {
   const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
