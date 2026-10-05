@@ -10,6 +10,44 @@ const runningProcess = (pid: number) => {
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
 };
 
+it.skipIf(process.platform !== "linux")("cancellation stops a held descendant after its command has exited", async () => {
+  const signal = new AbortController();
+  const output = new PassThrough();
+  let text = "";
+  let parentPid: number | undefined;
+  let descendantPid: number | undefined;
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  output.on("data", chunk => {
+    text += String(chunk);
+    const parent = /parent (\d+)/.exec(text);
+    const descendant = /descendant ready (\d+)/.exec(text);
+    if (parent) parentPid = Number(parent[1]);
+    if (descendant) { descendantPid = Number(descendant[1]); ready(); }
+  });
+  onTestFinished(() => {
+    vi.useRealTimers(); signal.abort();
+    for (const pid of [parentPid, descendantPid]) {
+      if (pid === undefined) continue;
+      try { process.kill(pid, "SIGKILL"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
+    output.destroy();
+  });
+  const leaf = "process.on('SIGTERM',()=>{}); console.log('descendant ready '+process.pid); process.send('ready'); setInterval(()=>{},60000);";
+  const parent = `const {spawn}=require('node:child_process'); console.log('parent '+process.pid); const child=spawn(process.execPath,['-e',${JSON.stringify(leaf)}],{stdio:['ignore','inherit','inherit','ipc']}); child.once('message',()=>process.exit(0));`;
+  const execution = smokeProcess(process.execPath, ["-e", parent], { cwd: process.cwd(), signal: signal.signal, stdout: output, stderr: output });
+  const reason = new Error("The exited command's smoke phase was cancelled.");
+  const stopped = expect(execution).rejects.toBe(reason);
+  await started;
+  while (runningProcess(parentPid!)) await new Promise<void>(resolve => setImmediate(resolve));
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  signal.abort(reason);
+  await vi.advanceTimersByTimeAsync(5_000);
+  await stopped;
+  expect(runningProcess(descendantPid!)).toBe(false);
+});
+
 it.skipIf(process.platform !== "linux").each([false, true])("cancellation kills an ignoring descendant whose output is separate (detached: %s)", async detached => {
   const dir = mkdtempSync(join(tmpdir(), "smoke-descendant-"));
   const signal = new AbortController();

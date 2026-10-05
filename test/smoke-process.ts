@@ -2,14 +2,14 @@ import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import type { Writable } from "node:stream";
 
-type ProcessIdentity = { pid: number; parent: number; started: string };
+type ProcessIdentity = { pid: number; parent: number; group: number; session: number; started: string };
 
 function identity(pid: number): ProcessIdentity | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
     if (fields[0] === "Z" || fields[0] === "X") return;
-    return { pid, parent: Number(fields[1]), started: fields[19]! };
+    return { pid, parent: Number(fields[1]), group: Number(fields[2]), session: Number(fields[3]), started: fields[19]! };
   } catch (error) {
     if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
     throw error;
@@ -18,7 +18,7 @@ function identity(pid: number): ProcessIdentity | undefined {
 
 // Capture ancestry before signalling parents: detached browsers are reparented when drivers exit.
 // Start times keep a reused PID from becoming a cancellation target during the grace period.
-function descendants(known: Map<number, ProcessIdentity>) {
+function descendants(known: Map<number, ProcessIdentity>, root: ProcessIdentity | undefined) {
   const table = new Map<number, ProcessIdentity>();
   for (const entry of readdirSync("/proc")) {
     if (!/^\d+$/.test(entry)) continue;
@@ -29,6 +29,16 @@ function descendants(known: Map<number, ProcessIdentity>) {
   for (const process of known.values()) {
     const current = table.get(process.pid);
     if (current?.started === process.started) owned.set(current.pid, current);
+  }
+  // The original group survives command exit. Its held output can keep the phase pending
+  // even when ancestry was lost before cancellation. Never adopt a reused command PID.
+  const command = root ? table.get(root.pid) : undefined;
+  if (root && (!command || command.started === root.started)) {
+    for (const process of table.values()) {
+      if (process.group === root.pid && process.session === root.pid && Number(process.started) >= Number(root.started)) {
+        owned.set(process.pid, process);
+      }
+    }
   }
   let changed = true;
   while (changed) {
@@ -63,16 +73,25 @@ export async function smokeProcess(command: string, args: string[], options: {
       let bytes = 0;
       let failure: Error | undefined;
       const terminate = (signal: NodeJS.Signals) => {
-        owned = descendants(owned);
+        owned = descendants(owned, root);
         let failure: unknown;
-        for (const processIdentity of [...owned.values()].reverse()) {
-          if (identity(processIdentity.pid)?.started !== processIdentity.started) continue;
-          try { process.kill(processIdentity.pid, signal); }
+        const send = (pid: number) => {
+          try { process.kill(pid, signal); }
           catch (error) {
             const code = (error as NodeJS.ErrnoException).code;
             // sudo must relay graceful termination to privileged install children.
             if (code !== "ESRCH" && !(code === "EPERM" && signal === "SIGTERM")) failure ??= error;
           }
+        };
+        // Retain group signalling as well as detached-descendant tracking, including children
+        // born between the snapshot and the signal. A surviving member anchors that group.
+        if (root && [...owned.values()].some(process => {
+          const current = identity(process.pid);
+          return current?.started === process.started && current.group === root.pid && current.session === root.pid;
+        })) send(-root.pid);
+        for (const processIdentity of [...owned.values()].reverse()) {
+          if (identity(processIdentity.pid)?.started !== processIdentity.started) continue;
+          send(processIdentity.pid);
         }
         if (failure) throw failure;
       };
