@@ -129,6 +129,16 @@ breakpoint, the side column is a sheet sized `min(480px, 85%)`; closing/hiding
 it retains terminal and delegated work. Drawers/sheets trap and restore focus
 and close predictably. Long titles and labels wrap without page overflow.
 
+The session drawer uses the same web-frame visible bounds, including keyboard
+height and visual offset, without another viewport observer. Opening Sessions
+focuses the non-input drawer; tapping Filter opens search. Results alone scroll
+in a bounded inner scroller with contained overscroll; Close, New session and
+footer actions stay reachable above the keyboard. At 390×480 visual bounds with
+offsetTop 120 in a tall layout, search/results and dismissal never scroll the
+document. Dismissal restores focus without a page jump. Selecting a result
+closes the drawer and preserves each session's draft and running work. Selected,
+running and waiting rows and explicit touch actions remain readable at text 20.
+
 Use look.md's abyss ground, panel cards, float overlays, hairline edges,
 rounded human controls and square machine output wells, existing icon names,
 focus and contrast. Phone preset text size is 16 using the existing 11–20

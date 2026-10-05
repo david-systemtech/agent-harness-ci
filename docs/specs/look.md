@@ -504,6 +504,14 @@ The By repository switch, environment headings, groups, shelves and restoration
 or pairing footer actions keep the GUI's registry and projection semantics.
 Footer rows use x 10/y 8,2xs/muted, hairline top and hover wash; no bug-report row.
 
+On a phone, the session drawer follows the shared web-frame visible height and
+offset, including a search keyboard. Opening Sessions focuses the drawer rather
+than its input. Tapping Filter keeps results in a bounded inner scroller with
+contained overscroll; Close, New session and footer actions remain visible.
+Search, scrolling and restored focus never jump the document. Selecting a row
+closes the drawer while retaining drafts and live work. Rows may grow at text 20;
+selected, running and waiting states and explicit touch actions stay readable.
+
 Rows use fixed 54px slots, headings 24, overscan 6. Row outer x 8/y 2, button fills
 available slot, md/x 8/y 6/gap 2. First line xs/18, gap 6:6px waiting amber dot
 outranks running cyan pulse, title truncates; trailing mono 2xs/faint relative
@@ -1174,6 +1182,12 @@ to wide mode; disable Split with a width reason. The existing below-900px
 pane-width dock rule becomes the side-column sheet, `min(480px, 85%)`. Closing
 or switching hides work without stopping a run, delegated task or terminal.
 Drawers/sheets trap and restore focus and close predictably.
+The session drawer consumes those shared visible bounds with no extra viewport
+observer. Open it onto a non-input focus target; only tapping Filter raises the
+search keyboard. Keep results scrolling internally, with Close, New session and
+footer actions above the keyboard. Restore focus with no document scroll on
+close or result selection. Hosted long-results evidence keeps a tall layout
+while visual height shrinks to 480 and offsetTop becomes 120, including text 20.
 
 Keep abyss/panel/float/hairline tokens, rounded human controls and square
 machine output wells, the icon names, focus and contrast. Phone preset text

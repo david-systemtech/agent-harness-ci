@@ -26,17 +26,20 @@ export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode 
   return <PhoneContext value={value}><Dialog.Root open={narrow && drawerShown} onOpenChange={showDrawer}>{children}</Dialog.Root></PhoneContext>;
 };
 
-/** Radix owns modal focus, Escape, outside dismissal and return to the header trigger. */
+/** Radix owns modal trapping and dismissal; focus changes never scroll the document. */
 export const SessionDrawer = () => {
   const { narrow } = usePhoneFrame();
   const content = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   if (!narrow) return null;
-  return <Dialog.Portal>
+  // Portal into the viewport owner so absolute bounds follow its height and top.
+  return <><span hidden ref={setAnchor} /><Dialog.Portal container={anchor?.closest<HTMLElement>("[data-web-client]") ?? undefined}>
     <Dialog.Overlay className="phone-frame-scrim fixed inset-0 z-40 bg-scrim/30" />
-    <Dialog.Content ref={content} onOpenAutoFocus={event => { event.preventDefault(); content.current?.focus(); }} onKeyDown={event => event.stopPropagation()} aria-describedby={undefined} className="phone-frame-drawer fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden rounded-r-xl border-r border-hairline bg-float text-ink outline-none">
+    <Dialog.Content ref={content} onOpenAutoFocus={event => { event.preventDefault(); returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; content.current?.focus({ preventScroll: true }); }} onCloseAutoFocus={event => { event.preventDefault(); returnFocus.current?.focus({ preventScroll: true }); }} onKeyDown={event => event.stopPropagation()} aria-describedby={undefined} className="phone-frame-drawer fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden rounded-r-xl border-r border-hairline bg-float text-ink outline-none">
       <Dialog.Title className="sr-only">Sessions</Dialog.Title>
       <Sidebar />
     </Dialog.Content>
-  </Dialog.Portal>;
+  </Dialog.Portal></>;
 };
 export const SessionDrawerTrigger = Dialog.Trigger;
