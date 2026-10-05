@@ -11,6 +11,7 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     let keyboardOpen = false;
     const clearPhone = () => {
       root.removeAttribute("data-phone-viewport");
+      frame.removeAttribute("data-phone-composing");
       for (const property of ["height", "top", "--phone-viewport-height"]) frame.style.removeProperty(property);
     };
     const fit = (event?: Event) => {
@@ -33,6 +34,10 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       fullHeight = Math.max(fullHeight, window.innerHeight);
       const keyboardNow = height < (viewport ? window.innerHeight : fullHeight);
       const keyboardOpened = keyboardNow && !keyboardOpen && document.activeElement instanceof Element && document.activeElement.matches('[aria-label="Message"]');
+      // Keep the reserve through button taps: releasing it on blur can move Send
+      // between pointer-down and pointer-up when the dock is already scrolling.
+      if (composing || keyboardOpened) frame.setAttribute("data-phone-composing", "");
+      else if (keyboardOpen && !keyboardNow) frame.removeAttribute("data-phone-composing");
       keyboardOpen = keyboardNow;
       // The transcript reads its new scrollport after the shell's bounds have changed.
       if (composing || keyboardOpened) frame.dispatchEvent(new Event("phone-composer-fit"));

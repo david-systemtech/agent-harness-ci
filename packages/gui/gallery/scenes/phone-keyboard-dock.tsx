@@ -11,7 +11,7 @@ export const arrangeWeb = (value: ScriptedWorld) => {
   env.emit(env.sessionId(), "assistant.text", { runId, itemId: "history", text: "A readable receipt line.\n\n".repeat(24), aborted: false });
   env.endRun(env.sessionId(), runId);
 };
-export const readySelector = '[data-keyboard-proof="passed"]';
+export const readySelector = "[data-keyboard-proof]";
 export const geometry = [
   { selector: '[aria-label="Transcript"]', minimumHeight: 84, visibleWithin: "[data-web-client]" },
   { selector: '[aria-label="Message"]', minimumHeight: 44, visibleWithin: "[data-web-client]" },
@@ -68,11 +68,22 @@ export const activate = () => {
     viewport.height = 480; viewport.offsetTop = 120; fit(); await settle(); verifyKeyboardDock(480, 120);
     if (!stopped) document.querySelector("[data-web-client]")!.setAttribute("data-keyboard-proof", "passed");
   };
+  const start = () => {
+    started = true;
+    observer.disconnect();
+    void run().catch(error => {
+      if (stopped) return;
+      // Let capture reach its page-error gate instead of hiding a failed assertion
+      // behind a readiness timeout. A failed proof still aborts the capture.
+      document.querySelector("[data-web-client]")!.setAttribute("data-keyboard-proof", "failed");
+      queueMicrotask(() => { throw error; });
+    });
+  };
   const observer = new MutationObserver(() => {
-    if (!started && document.querySelector('[aria-label="Message"]')) { started = true; observer.disconnect(); void run(); }
+    if (!started && document.querySelector('[aria-label="Message"]')) start();
   });
   observer.observe(document.body, { subtree: true, childList: true });
-  if (document.querySelector('[aria-label="Message"]')) { started = true; observer.disconnect(); void run(); }
+  if (document.querySelector('[aria-label="Message"]')) start();
   return () => {
     stopped = true; observer.disconnect(); stopInsets();
     if (original) Object.defineProperty(window, "visualViewport", original);
