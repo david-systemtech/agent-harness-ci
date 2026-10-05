@@ -642,7 +642,7 @@ export {
   grantWords,
   type ClientSessionSummary,
 } from "./access/words.js";
-export { readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
+export { readAccessLog, revokeSession, setSessionCeiling, setSessionAccess, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
 export { ceilingAboveOwn, offeredPresets, type OfferedPreset, type OfferedPresets } from "./access/presets.js";
 export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.js";
 export {

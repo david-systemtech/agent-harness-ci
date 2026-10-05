@@ -102,6 +102,16 @@ export const accessSessionsSetCeiling = defineMethod({
   kind: "command",
 });
 
+/** Replace another live client's grant. No self-edit or grant above the caller's scopes/ceiling. */
+export const accessSessionsSetAccess = defineMethod({
+  name: "access.sessions.setAccess",
+  scope: "admin",
+  params: commandParams({ clientSessionId: ClientSessionId, scopes: ScopeSet, ceiling: Ceiling }),
+  result: z.object({ clientSessionId: ClientSessionId, scopes: ScopeSet, ceiling: Ceiling }),
+  errors: [],
+  kind: "command",
+});
+
 /**
  * Renew the caller's own client session for another 30 days from now, with
  * a fresh token. The previous token stays valid too: expiry belongs to the

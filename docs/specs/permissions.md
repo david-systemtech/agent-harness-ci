@@ -58,6 +58,7 @@ Seven pieces in the env spec's `environment` package, with schemas, the mode ord
 - **Inheritance**: a run's ceiling is that of the client session that started it. A routine records the ceiling of the session that last saved it (`savedUnderCeiling`, carried by the routine workstream) and every firing is clamped to it; a bot does the same in milestone 2, and a Hermes profile paired to a bot connects under the bot's ceiling (ADR 0008). A completions request runs under its token's ceiling (ADR 0015).
 - **Clamp**: a requested mode above the ceiling becomes the ceiling, recorded in `run.policy.resolved` and returned by `permissions.mode.set`; never an error.
 - **Raising and lowering**: `access.sessions.setCeiling` (scope `admin`) is refused with `conflict` (`own_session`) when the target is the caller's own session, so no session changes its own ceiling whatever its scopes. Raising another session above the caller's own ceiling is refused the same way, `forbidden` with `data.reason` `ceiling` (#180); lowering is always allowed, even to a ceiling still above the caller's, and a value equal to the target's is no raise. The change is an `access.ceiling.changed` event and applies to the session's next run; running runs keep their resolved policy.
+- **Changing a grant** (#1632): `access.sessions.setAccess` (scope `admin`) atomically replaces another live client's non-empty scopes and ceiling. The target cannot be the caller (`conflict`, `own_session`); every requested scope must be held by the caller (`forbidden`, `scope`) and the requested ceiling must be at most the caller's (`forbidden`, `ceiling`), even when lowering an existing grant. Unknown targets are `not_found`; revoked or expired targets are `conflict` with that reason. An identical grant changes nothing. The access log's `access.changed` records the previous and new grant, the caller and command id. Existing sockets and subscriptions close and reconnect with the same token; the next authentication receives the new grant. Running runs retain their resolved policy. Another admin client can undo the change through the same method.
 - Answering a prompt needs scope `runs:drive` only; the answering session's ceiling does not bound the answer, since an environment belongs to one person (ADR 0001).
 
 ### Phone authority and attention
@@ -65,7 +66,7 @@ Seven pieces in the env spec's `environment` package, with schemas, the mode ord
 Phone grants `read`, `sessions:write`, `runs:drive` at `acceptEdits`; My own
 client keeps all scopes and `bypassPermissions`, even on a phone. Browser kind
 never changes a minted grant. Expanded Custom codes require a trusted minter
-within its scopes/ceiling and deliberate re-pairing; no self-raise. Files/Diff/
+within its scopes/ceiling. Another admin client may instead change the existing grant in Access without re-pairing; no client edits its own access. Files/Diff/
 terminal retain `terminal`, Settings writes/sign-in retain `admin`. Prompt
 answers retain the `runs:drive`-only rule above, including another client's ask.
 
