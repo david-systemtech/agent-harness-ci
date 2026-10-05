@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
 
 let close: (() => Promise<void>) | undefined;
@@ -32,8 +32,32 @@ it("shows the same choices in a bounded narrow dialog with Back", async () => {
   const gallery = await mountGallery(container, "run-picker-compact");
   close = gallery.close;
   const dialog = await screen.findByRole("dialog", { name: "Run choices" });
-  expect(within(dialog).getByRole("button", { name: "Back to accounts" })).toBeDefined();
+  expect(within(dialog).getByRole("button", { name: "Back: Accounts" })).toBeDefined();
   expect(within(dialog).getByRole("group", { name: "Models" })).toBeDefined();
+  expect(within(dialog).queryByRole("group", { name: "Effort" })).toBeNull();
   const checks = JSON.parse(container.dataset["galleryGeometry"] ?? "[]");
   expect(checks).toContainEqual({ selector: '[data-run-picker][data-narrow="true"]', width: 480 });
+});
+
+it.each(["accounts", "models", "effort"])("shows only the %s step in the phone gallery", async stage => {
+  const original = window.matchMedia;
+  const media = vi.spyOn(window, "matchMedia").mockImplementation(query => Object.assign(original(query), { matches: query === "(width < 640px)" }));
+  const width = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
+  try {
+    const container = document.createElement("div"); document.body.append(container);
+    const gallery = await mountGallery(container, `phone-run-picker-${stage}`, "dark", undefined, { platform: "web" });
+    close = gallery.close;
+    await screen.findByRole("button", { name: "Run settings" });
+    const sheet = await screen.findByRole("dialog", { name: "Run choices" });
+    expect(await gallery.ready).toBe(true);
+    for (const name of ["Accounts", "Models", "Effort"]) {
+      expect(within(sheet).queryByRole("group", { name }) !== null).toBe(name.toLowerCase() === stage);
+    }
+    expect(within(sheet).queryByText("desk")).toBeNull();
+    expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: "[data-run-sheet]", width: 344, visibleWithin: "[data-run-sheet]" });
+  } finally {
+    media.mockRestore();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  }
 });
