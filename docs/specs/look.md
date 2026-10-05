@@ -724,26 +724,28 @@ why. Context row shows tokens/window or unknown scale. Pool plan usage by
 account identity across environments; distinct accounts do not manufacture
 extra capacity. Usage Settings uses the same readings and drawing.
 
-### 10.6 Environment, account and model picker
+### 10.6 Account, model and effort picker
 
 Improve the picker by making its dependencies visible. Use one popup opened
 from either account or model chip, top/start,10px radius/float/ring, padding 0.
 Columns divided by hairline, independent max 320px lists/padding 6. Stage 1 is
-Environment and account 224px; stage 2 Model 256px; stage 3 Effort 256px only when
-supported. Environment headings use 16px badge, name and reachability sentence;
-account rows beneath show 12px KeyRound or 8px swatch, label, identity, provider,
+Account 224px; stage 2 Model 256px; stage 3 Effort 256px only when
+supported. Choose the environment only in its environment chip. This popup
+shows only that environment's accounts, with no environment headings or choices.
+Account rows show 12px KeyRound or 8px swatch, label, identity, provider,
 sign-in state and plan pressure. Label xs/500, note 2xs/muted, x 10/y 8/gap 8.
 Selected wash, keyboard-focused wash-strong/ink with check indicator; disabled
 50% opacity and visible reason. Use stable account/environment identities, not
 list positions. “Add an account” opens inline sign-in for the chosen environment.
 
-Environment change refreshes accounts/models as a single dependency choice;
+Changing the environment chip refreshes accounts/models as a single dependency choice;
 retain explicit selection only where it remains valid. Do not silently pick a
 similarly labelled account on another environment. Keep unavailable saved
 choices visible with reason. An existing session's account is fixed: choosing
 another account offers the runtime's fork action with that consequence named;
 a live run cannot switch its environment/account/model. New-session choices
-remain from its projection. Environment health is an explanation, not repeated
+remain from its projection; an optional effort is sent with the first run only
+when the chosen model supports it. Environment health is an explanation, not repeated
 header warnings. Loading/error/empty for each column uses §14, with Refresh or
 Sign in as appropriate, without clearing a valid earlier selection.
 
@@ -756,8 +758,11 @@ popup open for follow-on selection. Optional footer fast toggle, permission /
 browser submenu, context and plan reading, plus Manage accounts/models link.
 Keyboard arrows/Home/End within lists, Tab between stages, Enter selects,
 Escape closes/returns focus. Below enough width for columns, stack the same
-stages inside a 512px-max bounded dialog, with Back retaining selections; no
-horizontal overflow. The gallery tests both the popup and narrow dialog.
+stages one at a time inside a 512px-max bounded dialog, with Back retaining
+selections. Below 640px it is a bottom sheet: account, then model, then effort
+only where supported. Rows are at least 44px high, labels wrap, and its lists
+scroll within the viewport, including at 360px wide and with the keyboard
+open. The gallery covers the desktop popup and all three phone sections.
 
 ## 11. Overlays
 

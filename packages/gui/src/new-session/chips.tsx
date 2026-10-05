@@ -8,19 +8,20 @@ import {
   type NewSessionView,
 } from "@agent-harness/client-runtime";
 import type { WorkspaceRequest } from "@agent-harness/contracts";
-import { useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type ComponentType, type ReactNode } from "react";
 import { glyphOf } from "../connections/environment-glyphs.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
 import { classes } from "../ui/classes.js";
-import { Button, Tooltip, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
+import { Button, Tooltip, Menu, MenuItem, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { WorkspacePopover } from "../workspace/picker.js";
 import { BrowserChoiceMenu } from "../browser/choice-menu.js";
-import { Check, Cpu, Folder, GitBranch, KeyRound, Server } from "lucide-react";
+import { Check, Cpu, Folder, GitBranch, KeyRound, Server, SlidersHorizontal } from "lucide-react";
 import { useSettings } from "../settings/settings-window.js";
 import { checkRequest } from "./check.js";
 import { usePhoneOverlay } from "../ui/phone.js";
+import { RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
 import { requestWords } from "./words.js";
 
 /**
@@ -39,6 +40,7 @@ export interface ChipProps {
   readonly view: NewSessionView;
   /** The id the session is created under: a new worktree branch's preset name shows it. */
   readonly sessionId: string;
+  readonly effort?: string | null;
   /** Sets the chips chosen, the presets after them following. */
   choose(chips: NewSessionChips): void;
   /** Says a line on the surface: what could not be done. */
@@ -54,24 +56,29 @@ const CHIP = "h-[22px] min-w-0 max-w-[240px] gap-1 rounded-md bg-wash px-1.5 tex
 const Face = ({ children }: { readonly children: ReactNode }) => <span className="flex min-w-0 items-center gap-1 truncate">{children}</span>;
 
 /** A chip opening its options, with the account/model dependencies in one popup. */
-const ChipMenu = ({ name, value, children, items, columns = false }: { readonly name: string; readonly value: string; readonly children: ReactNode; readonly items: ReactNode; readonly columns?: boolean }) => (
-  <Menu modal={!columns}>
-    <Tooltip content={`${name}: ${value} · Enter to open · ↑ ↓ to choose · Escape to close`}>
-      <MenuTrigger asChild>
-        <Button data-new-session-chip aria-label={`${name}: ${value}`} className={classes(CHIP, name === "Account" && "shrink")}>
-          <Face>{children}</Face>
-        </Button>
-      </MenuTrigger>
-    </Tooltip>
-    <MenuContent side="top" align="start" className={columns ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0" : "max-h-[320px] max-w-md overflow-y-auto"}>
-      {items}
-    </MenuContent>
-  </Menu>
-);
+const ChipMenu = ({ name, value, children, items, columns = false }: { readonly name: string; readonly value: string; readonly children: ReactNode; readonly items: ReactNode; readonly columns?: boolean }) => {
+  const phone = usePhoneOverlay();
+  const narrow = useNarrowRunPicker() || phone;
+  const [open, setOpen] = useState(false);
+  return (
+    <Menu open={open} onOpenChange={setOpen} modal={!columns || narrow}>
+      <Tooltip content={`${name}: ${value} · Enter to open · ↑ ↓ to choose · Escape to close`}>
+        <RunPickerTrigger sheet={columns && narrow} openSheet={() => setOpen(true)}>
+          <Button data-new-session-chip aria-label={`${name}: ${value}`} className={classes(CHIP, name === "Account" && "shrink")}>
+            <Face>{children}</Face>
+          </Button>
+        </RunPickerTrigger>
+      </Tooltip>
+      <RunPickerContent sheet={columns && narrow} role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} side="top" align="start" className={columns ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0" : "max-h-[320px] max-w-md overflow-y-auto"}>
+        {items}
+      </RunPickerContent>
+    </Menu>
+  );
+};
 
 /** Options carry their selection, sign-in state and reason as words and an icon. */
 const Option = (props: { readonly onSelect: () => void; readonly absent?: string | null; readonly note?: string | undefined; readonly selected?: boolean; readonly keepOpen?: boolean; readonly children: ReactNode }) => (
-  <MenuItem title={["Enter to choose · ↑ ↓ Home End · Tab next column", props.note, props.absent].filter(Boolean).join(" · ")} onSelect={(event) => { if (props.keepOpen) event.preventDefault(); props.onSelect(); }} disabled={props.absent != null} className={classes("items-start gap-2 px-2.5 py-2 text-xs", props.selected && "bg-wash")}>
+  <MenuItem title={["Enter to choose · ↑ ↓ Home End · Tab next column", props.note, props.absent].filter(Boolean).join(" · ")} onSelect={(event) => { if (props.keepOpen) event.preventDefault(); props.onSelect(); }} disabled={props.absent != null} className={classes("items-start gap-2 px-2.5 py-2 text-xs [overflow-wrap:anywhere]", props.selected && "bg-wash")}>
     <span className="flex min-w-0 flex-1 flex-col">
       <span className={classes("flex items-center gap-2", props.absent != null && "text-ink-faint")}>{props.children}</span>
       {props.note !== undefined && <span className="pl-5 text-2xs text-ink-muted [overflow-wrap:anywhere]">{props.note}</span>}
@@ -120,53 +127,39 @@ const EnvironmentChip = ({ view, choose }: ChipProps) => {
   );
 };
 
-/** Arrows stay within a dependency list; Tab moves between the two columns. */
-const moveInColumns = (event: KeyboardEvent<HTMLDivElement>) => {
-  const target = event.target as HTMLElement;
-  const column = target.closest("[data-new-session-list]");
-  if (column === null) return;
-  const rows = [...column.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-disabled])')];
-  let next: HTMLElement | undefined;
-  if (event.key === "Tab") {
-    const columns = [...event.currentTarget.querySelectorAll("[data-new-session-list]")];
-    const destination = columns[(columns.indexOf(column) + 1) % columns.length];
-    next = destination?.querySelector<HTMLElement>('[role="menuitem"]:not([data-disabled])') ?? undefined;
-  } else if (event.key === "Home") next = rows[0];
-  else if (event.key === "End") next = rows.at(-1);
-  else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    const at = rows.indexOf(target.closest<HTMLElement>('[role="menuitem"]') ?? target);
-    next = rows[(at + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length];
-  }
-  if (next !== undefined) { event.preventDefault(); event.stopPropagation(); next.focus(); }
-};
-
 /** A new session chooses through its projection; no session or hand-off exists yet. */
-const AccountModelOptions = ({ view, choose }: ChipProps) => {
+const AccountModelOptions = ({ view, choose, effort, initialStage }: ChipProps & { readonly initialStage: RunStage }) => {
   const settings = useSettings();
+  const phone = usePhoneOverlay();
+  const narrow = useNarrowRunPicker() || phone;
+  const [activeColumn, setActiveColumn] = useState<RunStage>(initialStage);
   const environmentId = view.environment.value;
   const reading = readingWords(view.account.gauge ?? undefined);
-  return <div className="flex flex-col sm:flex-row" onKeyDown={moveInColumns}>
-    <div role="group" aria-label="Environment and account" className="w-[224px] max-w-full border-b border-hairline sm:border-r sm:border-b-0">
-      <p className="px-4 py-2 text-xs font-medium">Environment and account</p>
-      <div data-new-session-list className="max-h-[320px] overflow-y-auto p-1.5">
-        {view.environment.options.map(({ environment, unusable }) => <Option key={environment.environmentId} selected={environment.environmentId === environmentId} absent={unusable} keepOpen onSelect={() => choose({ environmentId: environment.environmentId })}>
-          <ChipGlyph view={environment} />{nameOf(environment)}
-        </Option>)}
+  const model = view.model.value;
+  const hasEffort = (model?.efforts.length ?? 0) > 0;
+  const active = activeColumn === "Effort" && !hasEffort ? "Models" : activeColumn;
+  const column = (name: RunStage, children: ReactNode) => <RunPickerColumn name={name} narrow={narrow} activeColumn={active} showEffortWithModel={false}>{children}</RunPickerColumn>;
+  return <div data-run-picker className={classes("flex flex-col", narrow && "w-[min(512px,calc(100vw-16px))]")} onKeyDownCapture={moveInColumns}>
+    {narrow && <RunPickerSteps stage={active} effort={hasEffort} change={setActiveColumn} />}
+    <div className={classes("flex min-w-0 divide-hairline", narrow ? "flex-col divide-y" : "divide-x")}>
+      {column("Accounts", <>
         {environmentId === null || view.account.options.length === 0 ? <Nothing>{environmentId === null ? "Choose an environment first." : "The environment holds no account yet."}</Nothing> : view.account.options.map((account) => <Option
           key={account.id} selected={account.id === view.account.value?.id} keepOpen={account.status.state === "signed-in"}
           note={[identityWords(account), account.provider, ACCOUNT_STATUS_WORDS[account.status.state], account.id === view.account.value?.id ? reading : undefined, account.id === view.account.value?.id ? HELD : undefined].filter(Boolean).join(" · ")}
-          onSelect={() => choose({ account: { environmentId, accountId: account.id } })}
-        ><KeyRound aria-hidden="true" className="size-3" /><span className="min-w-0 truncate font-medium">{account.label}</span></Option>)}
+          onSelect={() => { choose({ account: { environmentId, accountId: account.id } }); if (narrow) setActiveColumn("Models"); }}
+        ><KeyRound aria-hidden="true" className="size-3" /><span className="min-w-0 font-medium">{account.label}</span></Option>)}
         {environmentId !== null && <Option onSelect={() => settings.open("accounts.accounts", environmentId)}><KeyRound aria-hidden="true" className="size-3" />{view.account.options.length === 0 ? "Sign in an account" : "Manage accounts"}</Option>}
-      </div>
-    </div>
-    <div role="group" aria-label="Models" className="w-[256px] max-w-full">
-      <p className="px-4 py-2 text-xs font-medium">Models</p>
-      <div data-new-session-list className="max-h-[320px] overflow-y-auto p-1.5">
-        {view.model.options.length === 0 ? <Nothing>{view.account.value === null ? "Choose an account first: its models are the ones offered." : "The account offers no model yet."}</Nothing> : view.model.options.map((model) => <Option key={model.id} selected={model.id === view.model.value?.id} note={model.id === view.model.value?.id ? HELD : undefined} onSelect={() => choose({ model: model.id })}>
-          <Cpu aria-hidden="true" className="size-3" />{modelName(model)}
+      </>)}
+      {column("Models", <>
+        {view.model.options.length === 0 ? <Nothing>{view.account.value === null ? "Choose an account first: its models are the ones offered." : "The account offers no model yet."}</Nothing> : view.model.options.map((entry) => <Option key={entry.id} selected={entry.id === model?.id} keepOpen={entry.efforts.length > 0} note={entry.id === model?.id ? HELD : undefined} onSelect={() => { choose({ model: entry.id }); if (narrow && entry.efforts.length > 0) setActiveColumn("Effort"); }}>
+          <Cpu aria-hidden="true" className="size-3" />{modelName(entry)}
         </Option>)}
-      </div>
+      </>)}
+      {model !== null && hasEffort && column("Effort", <>
+        {[null, ...model.efforts].map(value => <Option key={value ?? "own"} selected={(effort ?? null) === value} onSelect={() => choose({ model: model.id, effort: value })}>
+          <SlidersHorizontal aria-hidden="true" className="size-3" />{value ?? "its own effort"}
+        </Option>)}
+      </>)}
     </div>
   </div>;
 };
@@ -174,13 +167,13 @@ const AccountModelOptions = ({ view, choose }: ChipProps) => {
 const AccountChip = (props: ChipProps) => {
   const value = props.view.account.value;
   const words = value === null ? "none" : `${value.label} ${identityWords(value)}`;
-  return <ChipMenu name="Account" value={words} columns items={<AccountModelOptions {...props} />}><KeyRound aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
+  return <ChipMenu name="Account" value={words} columns items={<AccountModelOptions {...props} initialStage="Accounts" />}><KeyRound aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
 };
 
 const ModelChip = (props: ChipProps) => {
   const value = props.view.model.value;
   const words = value === null ? "none" : modelName(value);
-  return <ChipMenu name="Model" value={words} columns items={<AccountModelOptions {...props} />}><Cpu aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
+  return <ChipMenu name="Model" value={words} columns items={<AccountModelOptions {...props} initialStage="Models" />}><Cpu aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
 };
 
 /**
