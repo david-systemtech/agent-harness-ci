@@ -26,8 +26,8 @@ it("explains an account held on another environment and opens Forges on the bank
   ] }, {}, (world) => {
     world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [bank] } }));
   });
-  await app.user.click(screen.getByRole("button", { name: "Settings", exact: true }));
-  await app.user.click(await screen.findByRole("button", { name: "Memory banks", exact: true }));
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   expect(await within(card).findByText(`A forge account for ${origin} is connected on server, but this bank belongs to desk. Connect a forge account on desk to reach it.`)).toBeDefined();
   expect(within(card).queryByText(/No forge account on this environment covers/)).toBeNull();
@@ -42,11 +42,11 @@ it("explains an account held on another environment and opens Forges on the bank
   await app.user.click(within(add).getByRole("button", { name: "Find the forge" }));
   await within(add).findByRole("region", { name: "The forge found" });
   await app.user.type(within(add).getByLabelText("Token"), "token-for-tests");
-  await app.user.click(within(add).getByRole("button", { name: "Add", exact: true }));
+  await app.user.click(within(add).getByRole("button", { name: "Add" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
   expect(app.environment("desk").forgeAccounts()).toHaveLength(1);
   expect(app.environment("server").requests("forge.accounts.add")).toHaveLength(0);
-  await app.user.click(screen.getByRole("button", { name: "Memory banks", exact: true }));
+  await app.user.click(screen.getByRole("button", { name: "Memory banks" }));
   const repaired = await screen.findByRole("region", { name: bank.name });
   expect(within(repaired).queryByRole("button", { name: "Connect forge on desk" })).toBeNull();
   expect(within(repaired).getByText("BANK.md lacks entities.")).toBeDefined();
@@ -69,8 +69,8 @@ it.each(cases)("compares another environment's account with %s", async (_, accou
   ] }, {}, (world) => {
     world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [bank] } }));
   });
-  await app.user.click(screen.getByRole("button", { name: "Settings", exact: true }));
-  await app.user.click(await screen.findByRole("button", { name: "Memory banks", exact: true }));
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   if (!local) await waitFor(() => expect(app.environment("server").requests("forge.accounts.list").length).toBeGreaterThan(0));
   if (matches) expect(await within(card).findByText(/is connected on server, but this bank belongs to desk/)).toBeDefined();
