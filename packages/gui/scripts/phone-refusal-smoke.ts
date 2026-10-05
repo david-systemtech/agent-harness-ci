@@ -16,7 +16,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
     const region = await column.boundingBox();
     const viewport = page.viewportSize();
     assert(box && region && viewport, "The refusal and controls have rendered boxes.");
-    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, "The whole refusal/control fits the user-scrollable composer.");
+    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, `The whole refusal/control fits the user-scrollable composer: ${JSON.stringify({ engine, box, region, viewport })}`);
     assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, "The refusal/control is reachable inside the keyboard-height viewport.");
   };
   await signIn(false);
@@ -47,6 +47,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(accountRow).toBeVisible();
       await accountRow.click();
       await page.keyboard.press("Escape");
+      await expect(choices).toBeHidden();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await remedy.scrollIntoViewIfNeeded();
