@@ -1770,7 +1770,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagers,
     scrub,
   });
-  const attention = await webAttention({ log, clock, environmentId: record.id, webOrigin: () => webOrigin, endpoints });
+  const attention = await webAttention({ log, vault, clock, environmentId: record.id, webOrigin: () => webOrigin, endpoints });
   closers.push(attention.close);
   if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
