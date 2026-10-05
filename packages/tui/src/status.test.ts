@@ -70,9 +70,9 @@ describe("status line one", () => {
     env.endRun(SESSION, runId);
     env.setUsage([reading("account-1", [window("five_hour", 0.42, "2026-09-25T09:00:00.000Z")])]);
     app.environment("laptop").setUsage([reading("account-9", [window("five_hour", 0.61, "2026-09-25T09:05:00.000Z"), window("seven_day", 0.12, "2026-09-25T09:05:00.000Z")])]);
-    await app.waitFor("5hr ██░░ 61% · Week █░░░ 12%");
+    await app.waitFor("5-hour ██░░ 61% · Weekly █░░░ 12%");
     const [one] = statusLines(app);
-    expect(one).toMatch(/^DE desk · work · claude-opus-4 high · ⏸ auto · ◐ workspace \(default\)\s+5hr ██░░ 61% · Week █░░░ 12%$/);
+    expect(one).toMatch(/^DE desk · work · claude-opus-4 high · ⏸ auto · ◐ workspace \(defau…\s+5-hour ██░░ 61% · Weekly █░░░ 12%$/);
   });
 
   it("says what a session with no run yet goes out as: the default account and model, the default mode, and no plan windows", async () => {
@@ -80,7 +80,7 @@ describe("status line one", () => {
     await app.waitFor("default account");
     const [one] = statusLines(app);
     expect(one).toContain("DE desk · default account · default model · ⏵⏵ accept edits · ◐ workspace (default)");
-    expect(one).not.toContain("5hr");
+    expect(one).not.toContain("5-hour");
   });
 
   it("shows the clamp of a session's mode above this connection's ceiling after its badge (#402)", async () => {
@@ -191,7 +191,7 @@ describe("status line two", () => {
   it("makes no offer while the account's window has room", async () => {
     const { app, env } = await opened([desk({ recommendation: { accountId: "account-2", reason: "most-room", message: "personal has the most room.", candidates: 1 } })]);
     env.setUsage([reading("account-1", [window("five_hour", 0.2, "2026-09-25T09:00:00.000Z")])]);
-    await app.waitFor("5hr");
+    await app.waitFor("5-hour");
     expect(app.frame()).not.toContain("Alt+H or /handoff");
   });
 });
