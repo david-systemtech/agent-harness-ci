@@ -243,26 +243,10 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
 
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
   const observer = await environment.client();
-  await page.evaluate(`(() => {
-    const events = []; globalThis.__phoneMenuTrace = events;
-    const label = element => element?.getAttribute?.('aria-label') ?? element?.tagName;
-    const state = () => ({ width: innerWidth, height: innerHeight, focus: label(document.activeElement), hasFocus: document.hasFocus(),
-      expanded: document.querySelector('[aria-label="More"]')?.getAttribute('aria-expanded'),
-      menus: [...document.querySelectorAll('[role="menu"]')].map(menu => ({ state: menu.getAttribute('data-state'), classes: menu.className.slice(-160) })),
-      closedDialogs: [...document.querySelectorAll('[role="dialog"][data-state="closed"]')].map(label),
-    });
-    const record = (type, detail) => { events.push({ at: Math.round(performance.now()), type, detail, ...state() }); if (events.length > 50) events.shift(); };
-    for (const type of ['focusin', 'focusout', 'pointerdown', 'pointerup', 'click', 'keydown']) document.addEventListener(type, event => record(type, { target: label(event.target), related: label(event.relatedTarget), key: event.key, stack: type === 'focusin' ? new Error().stack?.slice(0, 500) : undefined }), true);
-    for (const type of ['focus', 'blur', 'resize']) window.addEventListener(type, () => record(type));
-    let previous = JSON.stringify(state());
-    new MutationObserver(() => { const current = JSON.stringify(state()); if (current !== previous) { previous = current; record('mutation'); } }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-state', 'aria-expanded'] });
-    record('start');
-  })()`);
   for (const width of [390, 360]) {
     await page.setViewportSize({ width, height: 844 });
     await phoneMoreSmoke(page);
   }
-  console.log("[DEBUG-phone-menu-initial]", engine, await page.evaluate("JSON.stringify(globalThis.__phoneMenuTrace)"));
   await page.setViewportSize({ width: 390, height: 844 });
   // Full grant is minted separately by the runner; this never expands the Phone grant.
   for (const label of ["Files", "Diff", "Documents", "Tasks", "Terminal"]) {

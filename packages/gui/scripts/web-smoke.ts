@@ -200,8 +200,7 @@ try {
       await expect(ownPage.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused({ timeout: 60_000 });
       await expect(ownPage.locator("[data-header-session-title]")).toHaveText(`Hosted phone conversation (${name})`, { timeout: 60_000 });
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
-      try { await phonePaneSmoke(ownPage, name, environment, sessionId, () => previewRequests); }
-      catch (error) { console.error("[DEBUG-phone-menu]", name, await ownPage.evaluate("JSON.stringify(globalThis.__phoneMenuTrace)")); throw error; }
+      await phonePaneSmoke(ownPage, name, environment, sessionId, () => previewRequests);
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
       await denied.addInitScript("Object.defineProperty(window, 'indexedDB', { get() { throw new DOMException('Denied', 'SecurityError'); } });");
