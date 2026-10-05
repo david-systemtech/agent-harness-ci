@@ -118,7 +118,6 @@ it("plans normal and small desktop and every phone profile for the long authorin
       { width: 1400, height: 900 }, { width: 1024, height: 768 },
     ]);
   }
-  expect(plan.captures.filter(capture => capture.scene === "phone-bank-authoring")).toHaveLength(10);
+  expect(plan.captures.filter(capture => capture.scene === "phone-bank-authoring")).toHaveLength(8);
   expect(plan.captures.some(capture => capture.scene === "phone-bank-authoring" && capture.viewport.height === 480)).toBe(true);
-  expect(plan.captures.some(capture => capture.scene === "phone-bank-authoring" && capture.viewport.width === 360 && capture.viewport.height === 400)).toBe(true);
 });
