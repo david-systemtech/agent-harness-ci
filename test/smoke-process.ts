@@ -1,7 +1,48 @@
 import { spawn } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import type { Writable } from "node:stream";
 
-/** A hosted smoke phase owns its command and descendants until their output closes. */
+type ProcessIdentity = { pid: number; parent: number; started: string };
+
+function identity(pid: number): ProcessIdentity | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    if (fields[0] === "Z" || fields[0] === "X") return;
+    return { pid, parent: Number(fields[1]), started: fields[19]! };
+  } catch (error) {
+    if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+    throw error;
+  }
+}
+
+// Capture ancestry before signalling parents: detached browsers are reparented when drivers exit.
+// Start times keep a reused PID from becoming a cancellation target during the grace period.
+function descendants(known: Map<number, ProcessIdentity>) {
+  const table = new Map<number, ProcessIdentity>();
+  for (const entry of readdirSync("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    const process = identity(Number(entry));
+    if (process) table.set(process.pid, process);
+  }
+  const owned = new Map<number, ProcessIdentity>();
+  for (const process of known.values()) {
+    const current = table.get(process.pid);
+    if (current?.started === process.started) owned.set(current.pid, current);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const process of table.values()) {
+      if (!owned.has(process.pid) && owned.has(process.parent)) {
+        owned.set(process.pid, process); changed = true;
+      }
+    }
+  }
+  return owned;
+}
+
+/** Linux hosted smoke phases own their command and descendants, including detached browser groups. */
 export async function smokeProcess(command: string, args: string[], options: {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
@@ -10,23 +51,46 @@ export async function smokeProcess(command: string, args: string[], options: {
   readonly stderr?: Writable;
 }): Promise<{ stdout: string }> {
   options.signal.throwIfAborted();
+  if (process.platform !== "linux") throw new Error("Hosted smoke process cleanup requires Linux.");
   let abort = () => {};
-  let escalation: ReturnType<typeof setTimeout> | undefined;
+  let escalation: Promise<void> | undefined;
   try {
     return await new Promise((resolve, reject) => {
       const child = spawn(command, args, { cwd: options.cwd, env: options.env, detached: true });
+      const root = child.pid === undefined ? undefined : identity(child.pid);
+      let owned = new Map(root ? [[root.pid, root]] : []);
       let stdout = "";
       let bytes = 0;
       let failure: Error | undefined;
       const terminate = (signal: NodeJS.Signals) => {
-        if (child.pid === undefined) return;
-        try { process.kill(-child.pid, signal); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") reject(error); }
+        owned = descendants(owned);
+        let failure: unknown;
+        for (const processIdentity of [...owned.values()].reverse()) {
+          if (identity(processIdentity.pid)?.started !== processIdentity.started) continue;
+          try { process.kill(processIdentity.pid, signal); }
+          catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            // sudo must relay graceful termination to privileged install children.
+            if (code !== "ESRCH" && !(code === "EPERM" && signal === "SIGTERM")) failure ??= error;
+          }
+        }
+        if (failure) throw failure;
       };
       const stop = () => {
         // Give wrappers such as sudo time to relay termination to their children.
-        terminate("SIGTERM");
-        escalation ??= setTimeout(() => terminate("SIGKILL"), 5_000).unref();
+        if (escalation) return;
+        try { terminate("SIGTERM"); } catch (error) { reject(error); }
+        escalation = new Promise<void>((resolve, reject) => {
+          setTimeout(() => {
+            void (async () => {
+              terminate("SIGKILL");
+              while ([...owned.values()].some(process => identity(process.pid)?.started === process.started)) {
+                await new Promise<void>(resolve => setImmediate(resolve));
+              }
+            })().then(resolve, reject);
+          }, 5_000);
+        });
+        void escalation.catch(reject);
       };
       child.stdin.end();
       child.stdout.setEncoding("utf8");
@@ -51,7 +115,7 @@ export async function smokeProcess(command: string, args: string[], options: {
       if (options.signal.aborted) abort();
     });
   } finally {
-    if (escalation !== undefined) clearTimeout(escalation);
     options.signal.removeEventListener("abort", abort);
+    await escalation;
   }
 }

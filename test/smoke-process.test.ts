@@ -1,12 +1,69 @@
-import { PassThrough } from "node:stream";
+import { PassThrough, type Readable } from "node:stream";
+import { mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { smokeProcess } from "./smoke-process.js";
 
-it.skipIf(process.platform === "win32").each([false, true])("a cancelled smoke phase stops its held descendant (ignores termination: %s)", async ignoresTermination => {
+const runningProcess = (pid: number) => {
+  try { return !/\) [ZX] /.test(readFileSync(`/proc/${pid}/stat`, "utf8")); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+};
+
+it.skipIf(process.platform !== "linux").each([false, true])("cancellation kills an ignoring descendant whose output is separate (detached: %s)", async detached => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-descendant-"));
+  const signal = new AbortController();
+  const output = new PassThrough();
+  let closed = 0;
+  let outputClosed!: () => void;
+  const pipesClosed = new Promise<void>(resolve => { outputClosed = resolve; });
+  output.on("pipe", (source: Readable) => { source.once("close", () => { if (++closed === 2) outputClosed(); }); });
+  const pids: number[] = [];
+  let ready!: () => void;
+  let ignored!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  const terminationIgnored = new Promise<void>(resolve => { ignored = resolve; });
+  const watcher = watch(dir, (_, filename) => { if (filename === "ignored") ignored(); });
+  output.on("data", chunk => {
+    const match = /ready (\d+) (\d+)/.exec(String(chunk));
+    if (match) { pids.push(Number(match[1]), Number(match[2])); ready(); }
+  });
+  onTestFinished(() => {
+    vi.useRealTimers();
+    signal.abort();
+    for (const pid of pids) {
+      try { process.kill(pid, "SIGKILL"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
+    watcher.close(); output.destroy(); rmSync(dir, { recursive: true, force: true });
+  });
+  const leaf = `const {writeFileSync}=require('node:fs'); process.on('SIGTERM',()=>writeFileSync(${JSON.stringify(join(dir, "ignored"))},'ignored')); process.send(process.pid); setInterval(()=>{},60000);`;
+  const parent = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e',${JSON.stringify(leaf)}],{detached:${detached},stdio:['ignore','ignore','ignore','ipc']}); child.on('message',pid=>console.log('ready '+process.pid+' '+pid)); setInterval(()=>{},60000);`;
+  const execution = smokeProcess(process.execPath, ["-e", parent], { cwd: process.cwd(), signal: signal.signal, stdout: output, stderr: output });
+  const reason = new Error("The smoke phase was cancelled.");
+  const stopped = expect(execution).rejects.toBe(reason);
+  await started;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  signal.abort(reason);
+  if (!detached) await terminationIgnored;
+  // Observe parent exit before advancing the grace period: its output no longer holds close open.
+  while (runningProcess(pids[0]!)) await new Promise<void>(resolve => setImmediate(resolve));
+  await pipesClosed;
+  await vi.advanceTimersByTimeAsync(5_000);
+  await stopped;
+  expect(runningProcess(pids[1]!)).toBe(false);
+});
+
+it.skipIf(process.platform !== "linux").each([
+  { ignoresTermination: false, detached: false },
+  { ignoresTermination: true, detached: false },
+  { ignoresTermination: true, detached: true },
+])("a cancelled smoke phase stops its held descendant (ignores termination: $ignoresTermination, detached: $detached)", async ({ ignoresTermination, detached }) => {
   const signal = new AbortController();
   const output = new PassThrough();
   let text = "";
   let pid: number | undefined;
+  let descendant: number | undefined;
   let ready!: () => void;
   let ignored!: () => void;
   const terminationIgnored = new Promise<void>(resolve => { ignored = resolve; });
@@ -15,8 +72,11 @@ it.skipIf(process.platform === "win32").each([false, true])("a cancelled smoke p
     text += String(chunk);
     const match = /parent (\d+)/.exec(text);
     if (match) pid = Number(match[1]);
+    const leaf = /descendant ready (\d+)/.exec(text);
+    if (leaf) descendant = Number(leaf[1]);
     if (text.includes("descendant ready")) ready();
     if (text.includes("descendant ignored termination")) ignored();
+    if (text.includes("descendant stopped")) ignored();
   });
   onTestFinished(() => {
     vi.useRealTimers();
@@ -25,26 +85,28 @@ it.skipIf(process.platform === "win32").each([false, true])("a cancelled smoke p
       try { process.kill(-pid, "SIGKILL"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
     }
+    if (descendant) {
+      try { process.kill(descendant, "SIGKILL"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    }
     output.destroy();
   });
-  const leaf = `process.on('SIGTERM', () => { ${ignoresTermination ? "console.log('descendant ignored termination');" : "console.log('descendant stopped'); process.exit(0);"} }); console.log('descendant ready'); setInterval(() => {}, 60000);`;
-  const parent = `const {spawn} = require('node:child_process'); console.log('parent '+process.pid); spawn(process.execPath, ['-e', ${JSON.stringify(leaf)}], {stdio: ['ignore', 'inherit', 'inherit']}); setInterval(() => {}, 60000);`;
+  const leaf = `process.on('SIGTERM', () => { ${ignoresTermination ? "console.log('descendant ignored termination');" : "console.log('descendant stopped'); process.exit(0);"} }); console.log('descendant ready '+process.pid); setInterval(() => {}, 60000);`;
+  const parent = `const {spawn} = require('node:child_process'); console.log('parent '+process.pid); spawn(process.execPath, ['-e', ${JSON.stringify(leaf)}], {detached:${detached},stdio: ['ignore', 'inherit', 'inherit']}); setInterval(() => {}, 60000);`;
   const execution = smokeProcess(process.execPath, ["-e", parent], { cwd: process.cwd(), signal: signal.signal, stdout: output, stderr: output });
   const reason = new Error("The held smoke phase was cancelled.");
   const stopped = expect(execution).rejects.toBe(reason);
   // Attach a rejection handler before the event that cancels the process.
   await running;
-  if (ignoresTermination) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   signal.abort(reason);
-  if (ignoresTermination) {
-    await terminationIgnored;
-    await vi.advanceTimersByTimeAsync(5_000);
-  }
+  await terminationIgnored;
+  await vi.advanceTimersByTimeAsync(5_000);
   await stopped;
   if (!ignoresTermination) expect(text).toContain("descendant stopped");
 });
 
-it.skipIf(process.platform === "win32")("captures successful smoke output while streaming it to the job log", async () => {
+it.skipIf(process.platform !== "linux")("captures successful smoke output while streaming it to the job log", async () => {
   const output = new PassThrough();
   let log = "";
   output.on("data", chunk => { log += String(chunk); });
