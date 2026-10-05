@@ -42,5 +42,5 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
     await page.evaluate(`(() => { for (const edge of ["top", "right", "bottom", "left"]) document.documentElement.style.removeProperty("--phone-frame-safe-" + edge); })()`);
     if (original) await page.setViewportSize(original);
   }
-  console.log(`PHONE-FRAME PASS ${engine}: safe area, grant wrapping, no overlap, touch focus`);
+  console.log(`PHONE-SAFE-AREA PASS ${engine}: safe area, grant wrapping, no overlap, touch focus`);
 }
