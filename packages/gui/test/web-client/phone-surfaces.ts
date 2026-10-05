@@ -29,7 +29,22 @@ const noOverflow = async (page: Page): Promise<void> => {
 
 export const reachable = async (page: Page, control: Locator): Promise<void> => {
   await expect(control).toBeVisible();
-  await expect(control).toBeInViewport({ ratio: 1 });
+  try { await expect(control).toBeInViewport({ ratio: 1 }); }
+  catch (error) {
+    console.error("PHONE-CONTROL geometry", await control.evaluate(`element => {
+      const ancestors = [];
+      for (let node = element; node; node = node.parentElement) {
+        const box = node.getBoundingClientRect();
+        const style = getComputedStyle(node);
+        ancestors.push({ tag: node.tagName, label: node.getAttribute("aria-label"),
+          column: node.hasAttribute("data-composer-column"), above: node.hasAttribute("data-composer-above"),
+          x: box.x, y: box.y, width: box.width, height: box.height, overflow: style.overflowY,
+          scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight });
+      }
+      return { viewport: [innerWidth, innerHeight], visualHeight: visualViewport?.height, ancestors };
+    }`));
+    throw error;
+  }
   await expect.poll(async () => {
     const box = await control.boundingBox();
     const viewport = page.viewportSize();
