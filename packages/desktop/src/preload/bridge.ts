@@ -186,7 +186,7 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
     service: { pendingUpdate: () => ask("service.pendingUpdate"), applyUpdateNow: () => ask("service.applyUpdateNow"), install: () => ask("service.install"), start: () => ask("service.start"), status: () => ask("service.status") },
     preview: { grant: (content) => ask("preview.grant", content) },
     update: { current: () => ask("update.current"), apply: (staged, when) => ask("update.apply", staged, when) },
-    installer: { bundledServer: () => ask("installer.bundledServer") },
+    installer: { bundledServer: () => ask("installer.bundledServer"), reserveSpace: () => ask("installer.reserveSpace") },
     gh: { token: (host) => ask("gh.token", host) },
     webView: {
       debugger: {

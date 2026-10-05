@@ -212,6 +212,7 @@ export const shellMembers = ({
     "update.current": () => update.current(),
     "update.apply": (staged, when) => update.apply(stagedBuild(staged), applyWhen(when)),
     "installer.bundledServer": () => installer.bundledServer(),
+    "installer.reserveSpace": () => installer.reserveSpace!(),
     "gh.token": (host) => gh.token(host),
   };
 };

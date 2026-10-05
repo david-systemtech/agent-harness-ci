@@ -14,7 +14,7 @@ import {
 } from "@agent-harness/contracts/launcher";
 import { syncDirectory, syncTree, writeFileDurably, type DurableFs } from "./durable.js";
 import type { LauncherTimer } from "./launcher.js";
-import { SNAPSHOT_MARGIN_BYTES } from "./snapshot.js";
+import { SNAPSHOT_MARGIN_BYTES, snapshotNeeds } from "./snapshot.js";
 import { declaredVersion, isComplete, VERSION_SENTINEL, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
 
 /**
@@ -39,10 +39,9 @@ import { declaredVersion, isComplete, VERSION_SENTINEL, versionCommand, versionD
 export const PREFLIGHT_TIMEOUT_MS = 30_000;
 
 /**
- * The free room an install asks for on the data directory's disk: the room a
- * version needs to run, the snapshot's margin, which a switch to it asks
- * for again beyond the database's copy. A version is renamed into place, so
- * its own files take no more.
+ * The minimum reserve an install leaves free. Admission also budgets the
+ * database snapshot and rechecks after preflight. Renaming a staged version
+ * into place does not allocate another copy.
  */
 export const INSTALL_ROOM_BYTES = SNAPSHOT_MARGIN_BYTES;
 
@@ -62,6 +61,8 @@ export interface InstallerOptions {
   readonly freeBytes: (dataDir: string) => number;
   /** Writes one step to the service log. */
   readonly log: (text: string) => void;
+  /** Called only after a fresh candidate is durably installed, never for an existing version. */
+  readonly onInstalled?: (version: string) => void;
   /** The file calls that change something. Preset: node's own. */
   readonly fs?: DurableFs;
   /** The platform, which says whether a directory can be fsynced. Preset: this one. */
@@ -234,7 +235,8 @@ export const createInstaller = (options: InstallerOptions): Installer => {
     if (inspected.launcherProtocol > LAUNCHER_PROTOCOL) return refuse("launcher-protocol", needs(inspected.launcherProtocol));
     try {
       const free = freeBytes(dataDir);
-      if (free < INSTALL_ROOM_BYTES) return refuse("disk", `${free} bytes are free and a version needs ${INSTALL_ROOM_BYTES} to run`);
+      const needed = snapshotNeeds(dataDir);
+      if (free < needed) return refuse("disk", `${free} bytes are free and staging must leave ${needed} for the database snapshot and reserve`);
     } catch (error) {
       return refuse("io", messageOf(error));
     }
@@ -245,10 +247,14 @@ export const createInstaller = (options: InstallerOptions): Installer => {
     if (run.report.version !== version) return refuse("preflight", `its preflight reported ${run.report.version}`);
     if (run.report.launcherProtocol > LAUNCHER_PROTOCOL) return refuse("launcher-protocol", needs(run.report.launcherProtocol));
     try {
+      const needed = snapshotNeeds(dataDir);
+      const free = freeBytes(dataDir);
+      if (free < needed) return refuse("disk", `${free} bytes are free and staging must leave ${needed} for the database snapshot and reserve`);
       moveIntoVersions(dataDir, version, staged, fs, platform);
     } catch (error) {
       return refuse(noRoom(error) ? "disk" : "io", `it could not be moved into ${versions}: ${messageOf(error)}`);
     }
+    options.onInstalled?.(version);
     log(`installed ${version} into ${versions}: its preflight passed`);
     return { type: "installed" };
   };

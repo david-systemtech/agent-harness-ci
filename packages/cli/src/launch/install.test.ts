@@ -2,6 +2,7 @@ import { closeSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, readd
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { LAUNCHER_PROTOCOL, type InstallAnswer } from "@agent-harness/contracts/launcher";
+import { DATABASE_FILE } from "@agent-harness/contracts/launcher";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeTimer, installVersion, layOutVersion, preflightRuns, stageVersion } from "../../test/launcher-fixtures.js";
 import type { DurableFs } from "./durable.js";
@@ -90,6 +91,17 @@ const recordingFs = (dataDir: string, failAt?: { readonly call: string; readonly
 };
 
 describe.runIf(posix)("installing a staged version, without a launcher", () => {
+  it("refuses an install that leaves the margin but cannot also fit the database snapshot", async () => {
+    const dataDir = dataDirectory();
+    writeFileSync(join(dataDir, DATABASE_FILE), "user data");
+    const staged = stageVersion(dataDir, "0.6.0");
+    const { install } = installer(dataDir, { freeBytes: () => 256 * 1024 * 1024 });
+    expect(await install("0.6.0", staged)).toEqual({ type: "refused", reason: "disk" });
+    expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
+    expect(preflightRuns(dataDir)).toEqual([]);
+    expect(readFileSync(join(dataDir, DATABASE_FILE), "utf8")).toBe("user data");
+  });
+
   it("refuses incomplete, running no preflight and leaving both directories as they were, a staging folder that is not a whole version", async () => {
     const cases: [what: string, ask: (dataDir: string) => { version: string; staged: string }, why: (staged: string, dataDir: string) => string][] = [
       [

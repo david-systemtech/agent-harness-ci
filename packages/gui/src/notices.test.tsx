@@ -36,6 +36,38 @@ const bannerSaying = async (text: string) => {
 };
 
 describe("a notice", () => {
+  it("uses the Settings host as the only notice scrollport and restores the window scrollport on close", async () => {
+    const shell = fakeShell();
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ label: "Personal" }] }] }, { shell });
+    const desk = app.environment("desk");
+    await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
+    desk.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
+    await bannerSaying("desk is draining");
+    expect(bannerList().classList.contains("overflow-y-auto")).toBe(true);
+    await app.user.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    const notices = within(settings).getByRole("region", { name: "Notifications" });
+    const host = notices.parentElement as HTMLElement;
+    expect(host.classList.contains("overflow-y-auto")).toBe(true);
+    expect(host.classList.contains("max-h-[40%]")).toBe(true);
+    expect(notices.classList.contains("overflow-y-auto")).toBe(false);
+    expect(notices.className).not.toMatch(/max-h-/);
+    // Both notice feeds share the host's budget; the Settings pane keeps its own scrollport.
+    await act(async () => shell.changeSecretAccess("denied"));
+    const credentials = within(settings).getByRole("region", { name: "Credential access" });
+    expect(credentials.parentElement).toBe(host);
+    expect(settings.querySelector("[data-settings-scroll]")?.classList.contains("overflow-y-auto")).toBe(true);
+    await app.user.click(within(notices).getByRole("button", { name: "Dismiss" }));
+    expect(within(settings).queryByRole("region", { name: "Notifications" })).toBeNull();
+    await app.user.click(within(credentials).getByRole("button", { name: "Dismiss" }));
+    expect(host.childElementCount).toBe(0);
+    await app.user.click(within(settings).getByRole("button", { name: "Close Settings" }));
+    desk.notice("environment.updated", { fromVersion: "0.5.0", toVersion: "0.5.1" });
+    await bannerSaying("updated");
+    expect(bannerList().classList.contains("overflow-y-auto")).toBe(true);
+    expect(bannerList().classList.contains("max-h-[40%]")).toBe(true);
+  });
+
   it("waits for sustained credential access, cancelling the banner when a routine read settles", async () => {
     const shell = fakeShell();
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { shell, macOS: true });
@@ -234,6 +266,32 @@ describe("a notice", () => {
     await app.user.click(within(banner).getByRole("button", { name: "Open the session" }));
     expect(app.shown()).toEqual({ environmentId: laptop.environmentId, sessionId: laptop.sessionId(0) });
     await waitFor(() => expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull());
+  });
+
+  it("clears restarted environments' obsolete draining banners while Settings is open", async () => {
+    const app = await twoEnvironments();
+    const desk = app.environment("desk");
+    const laptop = app.environment("laptop");
+    await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
+    await act(async () => {
+      desk.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
+      laptop.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
+    });
+    await app.user.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    expect(within(settings).getAllByRole("alert")).toHaveLength(2);
+    await act(async () => desk.bye("draining"));
+    await act(async () => app.clock.advance(5000));
+    await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
+    await act(async () => desk.notice("environment.started", { harnessVersion: "0.1.0", protocolVersion: PROTOCOL_VERSION }));
+    await waitFor(() => expect(within(settings).queryByText("desk is draining: it takes no new runs until it restarts.")).toBeNull());
+    expect(within(settings).getByText("laptop is draining: it takes no new runs until it restarts.")).toBeDefined();
+    await act(async () => laptop.bye("draining"));
+    await act(async () => app.clock.advance(5000));
+    await waitFor(() => expect(laptop.requests("environment.subscribe")).toHaveLength(1));
+    await act(async () => laptop.notice("environment.started", { harnessVersion: "0.1.0", protocolVersion: PROTOCOL_VERSION }));
+    await waitFor(() => expect(within(settings).queryByRole("region", { name: "Notifications" })).toBeNull());
+    expect(within(settings).getByRole("button", { name: "Close Settings" })).toBeDefined();
   });
 
   it("is dismissed on this client only: taken off its notices, with nothing sent to the environment", async () => {

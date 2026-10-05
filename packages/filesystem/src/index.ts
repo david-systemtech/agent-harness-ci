@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, readdirSync, realpathSync, rmSync, statfsSync, statSync } from "node:fs";
 import { chmod, lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -45,4 +45,30 @@ const makeWritableSync = (path: string): void => {
 export const removeTreeSync = (path: string, remove: (path: string, options: { recursive: true; force: true }) => void = rmSync): void => {
   makeWritableSync(path);
   remove(path, { recursive: true, force: true });
+};
+
+
+/** Main, WAL and shm copies plus the reserve on their destination volume. */
+export const snapshotNeeds = (dataDir: string, databaseFile: string, reserveBytes: number): number =>
+  [databaseFile, `${databaseFile}-wal`, `${databaseFile}-shm`].reduce(
+    (bytes, name) => bytes + (statSync(join(dataDir, name), { throwIfNoEntry: false })?.size ?? 0),
+    reserveBytes,
+  );
+
+/** Conservative allocation for a copied tree; links are copied, never followed. */
+export const treeCopyBytes = (path: string, blockSize: number): number => {
+  const stat = lstatSync(path);
+  const own = Math.max(blockSize, Math.ceil(stat.size / blockSize) * blockSize);
+  return own + (stat.isDirectory() ? readdirSync(path).reduce((bytes, name) => bytes + treeCopyBytes(join(path, name), blockSize), 0) : 0);
+};
+
+/** The copy would leave too little room for activation; filesystem errors stay separate. */
+export class CopySpaceError extends Error {}
+
+/** Refuses a copy before it spends the room activation needs on the same volume. */
+export const requireCopyRoom = (source: string, dataDir: string, databaseFile: string, reserveBytes: number): void => {
+  const disk = statfsSync(dataDir);
+  const needed = treeCopyBytes(realpathSync(source), disk.bsize) + snapshotNeeds(dataDir, databaseFile, reserveBytes);
+  const free = disk.bavail * disk.bsize;
+  if (free < needed) throw new CopySpaceError(`Not enough disk space: staging and the database snapshot need ${needed} bytes, but only ${free} bytes are free. Free space and try again.`);
 };

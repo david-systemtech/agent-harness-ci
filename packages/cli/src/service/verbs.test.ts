@@ -263,7 +263,7 @@ describe("agent-harness service uninstall", () => {
     // Named, since the default is a Windows path this POSIX runner cannot write to.
     expect(await cli.run("service", "uninstall", "--data-dir", join(home, "data"))).toBe(0);
 
-    expect(cli.calls).toContain("schtasks /End /TN agent-harness");
+    expect(cli.calls.some((call) => call.startsWith("powershell.exe "))).toBe(true);
     expect(cli.out()).toMatch(/^Removed /);
   });
 

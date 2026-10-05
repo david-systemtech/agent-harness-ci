@@ -268,12 +268,16 @@ export interface ShellPreview {
 export interface ShellInstaller {
   /** The server artefact the desktop carries, its version and path; null for a desktop that carries none, as one run from a checkout. */
   bundledServer(): Promise<ShellBundledServer | null>;
+  /** Current free space on the local environment's data volume and the launcher's run reserve. */
+  reserveSpace?(): Promise<{ readonly availableBytes: number; readonly requiredBytes: number }>;
 }
 
 /** The server artefact the desktop carries: the version it holds, and where it is on this machine. */
 export interface ShellBundledServer {
   readonly version: string;
   readonly path: string;
+  /** The known bundle cannot be handed over yet; looking again retries the disk check. */
+  readonly refusal?: { readonly reason: "disk"; readonly message: string };
 }
 
 /**

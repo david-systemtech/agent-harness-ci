@@ -1,6 +1,9 @@
 import type { EnvironmentReadiness } from "./discovery.js";
 import type { BusyReason, DrainStarted, DrainTrigger, EnvironmentStatus } from "./lifecycle.js";
 
+/** Free space reserved for a version to run, also left beyond a database snapshot. */
+export const INSTALL_RESERVE_BYTES = 256 * 1024 * 1024;
+
 /**
  * What the environment and its launcher share (launcher-update spec, "The
  * channel" and "Versions and the launcher"): the messages on the IPC channel

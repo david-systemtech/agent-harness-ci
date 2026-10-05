@@ -1208,6 +1208,27 @@ const installAnswer = async (running: Running): Promise<{ answer: InstallAnswer 
 };
 
 describe.runIf(posix)("the launcher installing a staged version", () => {
+  it("reclaims only a newly installed candidate when disk space drops before switching, restarting the old environment with its data unchanged", async () => {
+    for (const alreadyInstalled of [false, true]) {
+      const { dataDir, staged } = beforeAnInstall();
+      if (alreadyInstalled) installVersion(dataDir, "0.6.0");
+      installVersion(dataDir, "0.4.0");
+      writeDatabase(dataDir, ["kept user data"], "closed");
+      const before = readDatabase(dataDir);
+      const updateId = "11111111-1111-4111-8111-111111111111";
+      scriptChild(dataDir, [{ install: { version: "0.6.0", staged }, switchTo: { updateId, version: "0.6.0" } }, "serve"]);
+      const running = launch({ dataDir, freeBytes: () => existsSync(join(dataDir, "versions", "0.6.0", ".complete")) ? 256 * 1024 * 1024 - 1 : 2 ** 40 });
+      expect((await installAnswer(running)).answer.type).toBe("installed");
+      await running.events("committed", 2);
+      expect(running.report().filter((line) => line.event === "started").map((line) => line.version)).toEqual(["0.5.0", "0.5.0"]);
+      expect(completeVersions(dataDir)).toEqual(alreadyInstalled ? ["0.4.0", "0.5.0", "0.6.0"] : ["0.4.0", "0.5.0"]);
+      expect(stateIn(dataDir)?.activeVersion).toBe("0.5.0");
+      expect(stateIn(dataDir)?.launcherVersion).toBe("0.5.0");
+      expect(readDatabase(dataDir)).toEqual(before);
+      await running.stop();
+    }
+  });
+
   it("runs the staged version's preflight on its own Node, renames it into the versions directory, its sentinel last, and only then answers installed", async () => {
     const { dataDir, staged } = beforeAnInstall();
     const stagedFiles = treeOf(staged);
@@ -1224,8 +1245,23 @@ describe.runIf(posix)("the launcher installing a staged version", () => {
       `launcher: preflight of 0.6.0: ${report}`,
       `launcher: installed 0.6.0 into ${join(dataDir, "versions")}: its preflight passed`,
     ]);
+    expect(stateIn(dataDir)?.stagedVersion).toBe("0.6.0");
+    expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
     // The preflight's 30 seconds went with its end.
     expect(running.timer.pending()).toEqual([]);
+  });
+
+  it("remembers a new waiting candidate across a launcher restart and reclaims it only after a refused switch", async () => {
+    const { dataDir } = beforeAnInstall();
+    const staging = launch({ dataDir });
+    expect((await installAnswer(staging)).answer.type).toBe("installed");
+    await staging.stop();
+    expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
+    scriptChild(dataDir, ["serve", { switchTo: { updateId: "11111111-1111-4111-8111-111111111111", version: "0.6.0" } }, "serve"]);
+    const switching = launch({ dataDir, freeBytes: () => 0 });
+    await switching.events("committed", 3);
+    expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
+    expect(stateIn(dataDir)?.stagedVersion).toBe(null);
   });
 
   it("answers installed without a second copy or a preflight for a version already complete in the versions directory, and clears the staged copy", async () => {
@@ -1309,7 +1345,7 @@ describe.runIf(posix)("the launcher installing a staged version", () => {
     const full = beforeAnInstall();
     const refused = launch({ dataDir: full.dataDir, freeBytes: () => 256 * 1024 * 1024 - 1 });
     expect((await installAnswer(refused)).answer).toEqual({ type: "refused", id: 3, reason: "disk" });
-    expect(refused.log()).toContain(`launcher: refuses install? of 0.6.0 from ${full.staged}: disk, as ${256 * 1024 * 1024 - 1} bytes are free and a version needs ${256 * 1024 * 1024} to run`);
+    expect(refused.log()).toContain(`launcher: refuses install? of 0.6.0 from ${full.staged}: disk, as ${256 * 1024 * 1024 - 1} bytes are free and staging must leave ${256 * 1024 * 1024} for the database snapshot and reserve`);
     expect(preflightRuns(full.dataDir)).toEqual([]);
 
     const unread = beforeAnInstall();

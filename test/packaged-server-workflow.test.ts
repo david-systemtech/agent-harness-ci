@@ -140,6 +140,23 @@ describe("the public release's packaged server smoke tests", () => {
     expect(body).toContain('Windows staging took');
   });
 
+  it("uninstalls a live scheduled-task environment before checking process exit and port closure", () => {
+    const body = job(hosted, "smoke-windows");
+    const liveStart = body.indexOf("Start-ScheduledTask -TaskName agent-harness");
+    const uninstall = body.indexOf("$uninstall = Start-Process");
+    const checked = body.indexOf("throw 'Desktop uninstall left the environment port open'");
+    expect(liveStart).toBeGreaterThan(-1);
+    expect(uninstall).toBeGreaterThan(liveStart);
+    expect(checked).toBeGreaterThan(uninstall);
+    expect(body.slice(liveStart, uninstall).split("\n").filter((line) => !line.trim().startsWith("#")).join("\n")).not.toContain("Stop-Tree");
+    expect(body).toContain("Wait-Ready 'scheduled-task start before uninstall (#1478)'");
+    expect(body).toContain("throw 'Desktop uninstall left an owned process running'");
+    expect(body).toContain("throw 'Desktop uninstall stopped an unrelated Node process'");
+    expect(body).toContain("$unrelatedNode = Join-Path $PSScriptRoot 'unrelated-node.exe'");
+    expect(body).toContain("Copy-Item -LiteralPath $node -Destination $unrelatedNode");
+    expect(body).toContain("$unrelated = Start-Process -FilePath $unrelatedNode");
+  });
+
   it("waits for the silent per-user Windows setup and uses its installed Node and CLI", () => {
     const body = job(hosted, "smoke-windows");
     expect(body).toContain("shell: pwsh");

@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { chromium } from "playwright";
 import { capturePlan, captureShard, sceneFiles } from "./capture-plan.js";
+import { verifyPhoneMenuReachability } from "./phone-menu-reachability.js";
 import { measureSceneGeometry } from "./geometry.js";
 import { waitForFloatingLayout } from "./floating-layout.js";
 import { compareCapture, geometryFailures, galleryFailed } from "./compare.js";
@@ -69,6 +70,7 @@ try {
     geometry[name] = measured;
     const failures = [
       ...await page.evaluate(measureSceneGeometry),
+      ...(scene.startsWith("phone-more-") ? await page.evaluate(verifyPhoneMenuReachability) : []),
       ...geometryFailures(measured, [{ measure: "$window", property: "overflow", maximum: 0 }]),
       ...(platform === "web" ? await page.evaluate((size) => {
         const actual = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);

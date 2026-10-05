@@ -5,6 +5,8 @@ import { App } from "../app.js";
 import { startWebWorld } from "../../gallery/world.js";
 
 it("opens a browser surface without a shell, sets the next run's driver and opens a page externally", async () => {
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
   const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", sessions: [{ title: "Receipts" }] }] }, {});
   const env = world.world.environment("desk");
   env.wire.answer("browser.status", () => ({ result: { headless: { allowRuns: true, availability: { available: true, source: { kind: "endpoint", endpoint: "http://localhost:9222" } }, liveContexts: 0 }, listener: { state: "listening", port: 47615 }, folder: { path: "/test/extension", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false } }));
@@ -18,6 +20,13 @@ it("opens a browser surface without a shell, sets the next run's driver and open
   const trigger = await screen.findByRole("button", { name: "Environment browser" });
   // Share the existing control row; another footer clips decisions above the keyboard.
   expect(within(screen.getByRole("region", { name: "Status line" })).getByRole("button", { name: "Environment browser" })).toBe(trigger);
+  await user.click(screen.getByRole("button", { name: "More" }));
+  const browser = within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Browser" });
+  expect(browser.getAttribute("aria-disabled")).toBe("true");
+  expect(browser.textContent).not.toContain("shell.webView");
+  expect(browser.textContent).toContain("Environment browser");
+  expect(browser.textContent).toContain("Open page");
+  await user.keyboard("{Escape}");
   await user.click(trigger);
   const dialog = within(screen.getByRole("dialog", { name: "Environment browser" }));
   await user.selectOptions(await dialog.findByRole("combobox", { name: "Browser for the next run" }), "1");

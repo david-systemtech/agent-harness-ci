@@ -47,6 +47,7 @@ export const ANSWERED = [
   "update.current",
   "update.apply",
   "installer.bundledServer",
+  "installer.reserveSpace",
   "gh.token",
   "webView.create",
   "webView.navigate",

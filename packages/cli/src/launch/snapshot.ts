@@ -1,7 +1,8 @@
+import { snapshotNeeds as databaseSnapshotNeeds } from "@agent-harness/filesystem";
 import * as nodeFs from "node:fs";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DATABASE_FILE, isOutcomeRecord, OUTCOME_RECORD_FILE, RESTORE_MARKER_FILE, UPDATE_ID_PATTERN, type OutcomeRecord } from "@agent-harness/contracts/launcher";
+import { DATABASE_FILE, INSTALL_RESERVE_BYTES, isOutcomeRecord, OUTCOME_RECORD_FILE, RESTORE_MARKER_FILE, UPDATE_ID_PATTERN, type OutcomeRecord } from "@agent-harness/contracts/launcher";
 import { createFileDurably, syncDirectory, syncFile, writeFileDurably, type DurableFs } from "./durable.js";
 
 /**
@@ -32,7 +33,7 @@ export const SNAPSHOTS_DIRECTORY = "snapshots";
 export { RESTORE_MARKER_FILE } from "@agent-harness/contracts/launcher";
 
 /** The room a snapshot leaves free beyond its copy, for the target's migrations and whatever else writes meanwhile. */
-export const SNAPSHOT_MARGIN_BYTES = 256 * 1024 * 1024;
+export const SNAPSHOT_MARGIN_BYTES = INSTALL_RESERVE_BYTES;
 
 /** The database's files, in the order they are copied: the main file, and the WAL and shm files SQLite keeps beside it in WAL mode. */
 const DATABASE_FILES = [DATABASE_FILE, `${DATABASE_FILE}-wal`, `${DATABASE_FILE}-shm`] as const;
@@ -74,7 +75,7 @@ export const hasSnapshot = (dataDir: string, updateId: string): boolean => exist
 
 /** The free bytes a snapshot of the database in `dataDir` needs: the size of its files, and the margin. */
 export const snapshotNeeds = (dataDir: string): number =>
-  DATABASE_FILES.reduce((bytes, name) => bytes + (statSync(join(dataDir, name), { throwIfNoEntry: false })?.size ?? 0), SNAPSHOT_MARGIN_BYTES);
+  databaseSnapshotNeeds(dataDir, DATABASE_FILE, SNAPSHOT_MARGIN_BYTES);
 
 /**
  * Snapshots the database in `dataDir` for the update `updateId`, once:

@@ -1,3 +1,5 @@
+// @vitest-environment jsdom-on-node
+import { readFileSync } from "node:fs";
 import { mountGallery } from "../../gallery/mount.js";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { expect, it, onTestFinished, vi } from "vitest";
@@ -138,4 +140,31 @@ it.each(["long", "question", "plan"])("mounts the phone-conversation-%s surface 
   expect(geometry).toContainEqual({ selector: "[data-web-client]", contentFits: true });
   expect(geometry).toContainEqual({ selector: '[aria-label="Transcript"]', minimumHeight: 44, visibleWithin: "[data-web-client]" });
   expect(geometry).toContainEqual({ selector: '[aria-label="Message"]', minimumHeight: 44, visibleWithin: "[data-web-client]" });
+});
+
+it("lets a phone user scroll the refused draft, remedy and Run settings in the composer region", async () => {
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const refusal = "The account personal is not signed in on this environment, so no run can start. Sign in in Settings, Accounts.";
+  const gallery = await mountGallery(root, "phone-refusal", "dark", {
+    "phone-refusal": {
+      platform: "web", route,
+      script: { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, accounts: [{ label: "personal" }], sessions: [{ title: "Receipts" }], receipts: { "runs.start": { rejected: "account_unavailable", message: refusal } } }] },
+      readySelector: '[aria-label="Message"]',
+    },
+  });
+  onTestFinished(async () => { await gallery.close(); root.remove(); });
+  await gallery.ready;
+  const input = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(input, { target: { value: "Explain the receipt totals.\n".repeat(6) } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  const line = await screen.findByText(`Not sent: ${refusal}`);
+  expect(input).toHaveProperty("value", "Explain the receipt totals.\n".repeat(6));
+  const column = line.closest("[data-composer-column]")!;
+  expect(column.contains(screen.getByRole("button", { name: "Run settings" }))).toBe(true);
+  const style = document.createElement("style"); style.textContent = readFileSync(new URL("./phone-conversation.css", import.meta.url), "utf8"); document.head.append(style);
+  onTestFinished(() => style.remove());
+  // jsdom has no layout: check the actual phone rule matching the rendered refusal's scroll owner.
+  const media = Array.from(style.sheet?.cssRules ?? []).filter((rule): rule is CSSMediaRule => rule.type === 4).filter(rule => rule.conditionText === "(max-width: 639px)");
+  const rules = media.flatMap(rule => Array.from(rule.cssRules)).filter((rule): rule is CSSStyleRule => rule.type === 1).filter(rule => column.matches(rule.selectorText));
+  expect(rules.some(rule => ["auto", "scroll"].includes(rule.style.getPropertyValue("overflow-y")))).toBe(true);
 });

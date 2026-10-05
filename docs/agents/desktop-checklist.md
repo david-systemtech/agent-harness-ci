@@ -320,11 +320,29 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
    server versions. Reinstall and start: the retained environment is usable.
    To remove retained data as well, delete that folder after uninstalling.
    If service cleanup fails, uninstall exits nonzero and keeps the app's
-   resources; fix the service error before retrying.
-   The hosted release smoke covers an installed and started launcher, task
-   removal and data retention. It starts the entry directly because its
-   temporary user has no interactive logon; record the live scheduled-task
-   stop separately on a Windows desktop.
+   resources. The task is disabled during cleanup to prevent another start;
+   `service-stop.json` in the data directory retains verified process identities
+   and exit times so retry checks survivors even after the scheduled action
+   has stopped. Successful cleanup removes that record. If a recorded identity
+   cannot be verified, cleanup keeps the registration instead of guessing which
+   process to stop. Keep the desktop closed and the task disabled. If the
+   environment still serves, reboot: this ends the recorded processes without
+   finding and ending launcher/server processes by hand. After reboot the
+   original recorded processes are gone, even if their PIDs have been reused;
+   an identity includes both PID and UTC start time, so do not end another
+   process just because its PID appears in the record. Confirm the environment
+   port is closed, then delete `service-stop.json` from the data directory
+   **before reinstalling or starting the app**, and retry uninstall.
+   If you already reinstalled and the environment is serving again, retry
+   uninstall to disable the current task, then follow the reboot and record
+   removal steps above before opening the desktop. Reinstall enables the task
+   again but does not clear an unfinished cleanup record. A descendant that
+   exits before its handle is captured is not recorded and needs no recovery.
+   The hosted release smoke starts the installed task before uninstall and
+   checks launcher/server exit, port closure, task removal, data retention
+   and an unrelated Node process staying alive. Its temporary user's batch
+   logon uses a Password principal with the installed action and limited
+   token; repeat with the normal InteractiveToken logon on a Windows desktop.
 
 ### Arch
 

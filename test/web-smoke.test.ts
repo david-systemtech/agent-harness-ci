@@ -30,5 +30,7 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
         expect(result.stdout).toContain(`${regression} PASS ${engine}`);
       }
     }
+    expect(result.stdout).toContain("PHONE-REFUSAL PASS chromium");
+    expect(result.stdout).toContain("PHONE-REFUSAL PASS webkit");
   } finally { await removeTree(out); }
 }, 600_000);

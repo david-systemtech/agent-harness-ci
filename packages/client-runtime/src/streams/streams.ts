@@ -66,6 +66,8 @@ export interface StreamsOptions {
    * (#142: run states, parked asks, notices, attention, client calls).
    */
   readonly applied?: (environmentId: string, stream: string, event: EventEnvelope, news: boolean) => void;
+  /** Authoritative environment status received in a snapshot, never a cached status. */
+  readonly environmentSnapshotted?: (environmentId: string, status: EnvironmentData["status"]) => void;
 }
 
 /** One environment's streams. */
@@ -143,7 +145,12 @@ export const createStreams = (options: StreamsOptions): Streams => {
       if (ENVIRONMENT_LOOK_NOTICES.has(event.type)) describe(stream);
       options.applied?.(stream.environmentId, stream.name, event, news);
     },
-    snapshotted: (stream) => describe(stream),
+    snapshotted(stream) {
+      describe(stream);
+      if (stream.name === "environment") {
+        options.environmentSnapshotted?.(stream.environmentId, (stream.value.read() as StreamState<EnvironmentData>).data?.status ?? null);
+      }
+    },
     ended(stream) {
       const sessionId = stream.name.slice("session.".length);
       const session = held(stream.environmentId, sessionId);

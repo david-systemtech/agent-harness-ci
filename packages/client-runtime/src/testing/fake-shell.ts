@@ -73,6 +73,7 @@ export interface ShellFunctions {
   "webView.destroy": ShellWebView["destroy"];
   "preview.grant": ShellPreview["grant"];
   "installer.bundledServer": ShellInstaller["bundledServer"];
+  "installer.reserveSpace": NonNullable<ShellInstaller["reserveSpace"]>;
   "update.current": ShellUpdate["current"];
   "update.apply": ShellUpdate["apply"];
   "service.pendingUpdate": NonNullable<ShellService["pendingUpdate"]>;
@@ -203,6 +204,7 @@ export const fakeShell = (): FakeShell => {
     "preview.grant": async () => `${PRODUCT_NAME}-preview://fake/${++previews}`,
     // Carries no server artefact, as a desktop run from a checkout; runs a build that updates itself, and applies one when asked.
     "installer.bundledServer": async () => null,
+    "installer.reserveSpace": async () => ({ availableBytes: 1024 * 1024 * 1024, requiredBytes: 256 * 1024 * 1024 }),
     "update.current": async () => ({ version: "0.0.0-test", platform: "linux", arch: "x64", format: "pacman" }),
     "update.apply": async () => ({ outcome: "applied" }),
     "service.pendingUpdate": async () => ({ state: "current" }),
@@ -288,7 +290,7 @@ export const fakeShell = (): FakeShell => {
       destroy: recorded("webView.destroy"),
     },
     preview: { grant: recorded("preview.grant") },
-    installer: { bundledServer: recorded("installer.bundledServer") },
+    installer: { bundledServer: recorded("installer.bundledServer"), reserveSpace: recorded("installer.reserveSpace") },
     update: { current: recorded("update.current"), apply: recorded("update.apply") },
     service: { pendingUpdate: recorded("service.pendingUpdate"), applyUpdateNow: recorded("service.applyUpdateNow"), install: recorded("service.install"), start: recorded("service.start"), status: recorded("service.status") },
     clipboard: { readText: recorded("clipboard.readText"), writeText: recorded("clipboard.writeText"), readImage: recorded("clipboard.readImage") },

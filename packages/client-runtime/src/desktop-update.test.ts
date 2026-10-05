@@ -396,6 +396,24 @@ describe("the server artefact the desktop carries", () => {
     for (const { desk } of [same, pending, none]) expect(desk.requests("updates.apply")).toEqual([]);
   });
 
+  it("keeps a bundled disk refusal retryable without reopening the desktop", async () => {
+    let room = false;
+    const message = "Not enough disk space for staging and the snapshot. Free space and retry.";
+    const { runtime, desk, until, bundled } = await launch({
+      updates: { status: { version: RUNNING } },
+      shell: (shell) => shell.answer("installer.bundledServer", async () => ({
+        version: "0.6.0", path: BUNDLED_PATH,
+        ...(!room && { refusal: { reason: "disk" as const, message } }),
+      })),
+    });
+    await until(() => bundled().state !== "unchecked" && bundled().state !== "handing-over", "finished the bundled lookup");
+    expect(bundled()).toEqual({ state: "failed", version: "0.6.0", reason: "disk", message });
+    expect(desk.requests("updates.apply")).toEqual([]);
+    room = true;
+    expect(await runtime.desktopUpdate.applyBundledServer()).toMatchObject({ state: "handed-over", version: "0.6.0" });
+    expect(params(desk, "updates.apply")).toEqual([{ commandId: expect.any(String) as unknown as string, version: "0.6.0", artefactPath: BUNDLED_PATH, when: "idle" }]);
+  });
+
   it("reports a shell that cannot say what it carries as a failure, at the start and on the card's call alike, never as a rejection", async () => {
     const { runtime, desk, until, bundled } = await launch({
       updates: { status: { version: RUNNING } },
@@ -407,6 +425,23 @@ describe("the server artefact the desktop carries", () => {
 
     expect(await runtime.desktopUpdate.applyBundledServer()).toEqual(failure);
     expect(desk.requests("updates.apply")).toEqual([]);
+  });
+
+  it.each(["unreadable", "absent"])("keeps a disk refusal actionable when the native space probe is %s", async (probe) => {
+    const { runtime, until, bundled } = await launch({
+      settings: { "updates.autoUpdate": false },
+      receipts: { "updates.apply": { rejected: "conflict", message: "The launcher refused to install 0.6.0: disk.", data: { reason: "install", launcherReason: "disk" } } },
+      shell: (shell) => {
+        carrying("0.6.0")(shell);
+        if (probe === "absent") delete shell.installer.reserveSpace;
+        else shell.answer("installer.reserveSpace", async () => { throw new Error("The volume is unavailable."); });
+      },
+    });
+    await until(() => bundled().state === "offered", "offered the bundled server");
+    expect(await runtime.desktopUpdate.applyBundledServer()).toMatchObject({
+      state: "failed", reason: "install",
+      message: "Insufficient disk space to install 0.6.0. The available disk space could not be read; 256 MiB reserve required. The existing environment remains running. Free space and retry.",
+    });
   });
 
   it("reports the environment's refusal with its reason", async () => {

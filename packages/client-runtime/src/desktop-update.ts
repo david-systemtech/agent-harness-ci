@@ -1,4 +1,4 @@
-import { ReleaseVersion, compareReleaseVersions, type ReleaseSource, type UpdatesStatus } from "@agent-harness/contracts";
+import { INSTALL_RESERVE_BYTES, ReleaseVersion, compareReleaseVersions, type ReleaseSource, type UpdatesStatus } from "@agent-harness/contracts";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/records.js";
 import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
@@ -246,6 +246,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     // Auto-update effective, and not a version whose update failed there: that is never retaken automatically.
     const effective = autoUpdate === true && (pinned ?? null) === null && !failedVersions.includes(bundled.version);
     if (!effective && !asked) return { state: "offered", version: bundled.version, environmentVersion };
+    if (bundled.refusal !== undefined) return { state: "failed", version: bundled.version, ...bundled.refusal };
     return handOver(environmentId, bundled.version, bundled.path);
   };
 
@@ -253,14 +254,33 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   const handOver = async (environmentId: string, version: string, path: string): Promise<BundledServerView> => {
     setBundled({ state: "handing-over", version });
     const answer = await host.call(environmentId, "updates.apply", { commandId: uuidv4(), version, artefactPath: path, when: "idle" });
-    if (!answer.ok) return { state: "failed", version, reason: answer.error.code, message: answer.error.message };
+    if (!answer.ok) return bundledFailure(version, answer.error.code, answer.error);
     const { receipt, result } = answer.result;
     if (receipt.status === "rejected" || result === undefined) {
       const error = receipt.status === "rejected" ? receipt.error : undefined;
       const reason = typeof error?.data["reason"] === "string" ? error.data["reason"] : (error?.code ?? "refused");
-      return { state: "failed", version, reason, message: error?.message ?? `The local environment did not take the bundled server ${version}.` };
+      return bundledFailure(version, reason, error);
     }
     return { state: "handed-over", version, updateId: result.updateId };
+  };
+
+  /** Released environments return only the disk enum; the desktop can inspect their data volume without an environment upgrade. */
+  const bundledFailure = async (version: string, reason: string, error: { readonly message: string; readonly data?: Readonly<Record<string, unknown>> } | undefined): Promise<BundledServerView> => {
+    let message = error?.message ?? `The local environment did not take the bundled server ${version}.`;
+    if (error?.data?.["reason"] === "install" && error.data["launcherReason"] === "disk") {
+      const mib = (bytes: number) => `${(Math.floor(bytes / (1024 * 1024) * 10) / 10).toLocaleString("en-US")} MiB`;
+      let space = `The available disk space could not be read; ${mib(INSTALL_RESERVE_BYTES)} reserve required.`;
+      try {
+        const reserve = await installer?.reserveSpace?.();
+        if (reserve !== undefined) {
+          space = `Currently ${mib(reserve.availableBytes)} available; ${mib(reserve.requiredBytes)} reserve required.`;
+        }
+      } catch {
+        // A diagnostic failure must not replace the install refusal or prevent retry.
+      }
+      message = `Insufficient disk space to install ${version}. ${space} The existing environment remains running. Free space and retry.`;
+    }
+    return { state: "failed", version, reason, message };
   };
 
   /** Runs the check now, when one is due and the local environment is ready; the next is due an hour after it ends. */
