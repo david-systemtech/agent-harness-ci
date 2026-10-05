@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { SettingsGroup } from "../settings/part.js";
 import { Button, Tooltip } from "../ui/index.js";
 import { useClientVersion, useObservable, useRuntime, useShell } from "../window-context.js";
+import { WebRegisteredSurfaces } from "../platform/web-registrations.js";
 import { RestartButton } from "./restart-to-update.js";
 
 /**
@@ -47,6 +48,7 @@ export const ClientBuild = () => {
         </>
       )}
       <RestartButton />
+      <WebRegisteredSurfaces location="settings-client" />
       </div>
     </SettingsGroup>
   );

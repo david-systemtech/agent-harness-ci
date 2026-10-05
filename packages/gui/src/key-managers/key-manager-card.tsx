@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import type { EnvironmentView, SetupStepView } from "@agent-harness/client-runtime";
 import { KEY_MANAGER_PROVIDERS, managedTool, type ManagedToolName } from "@agent-harness/contracts";
 import { useEffect, useMemo, useRef } from "react";
@@ -63,7 +64,7 @@ const KeyManagerSetUp = ({ view, step }: { readonly view: EnvironmentView; reado
   return (
     <>
       <StepStatus environmentId={environmentId} step={step} toolStarted={terminal.started} />
-      {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       {connections === null && ready && (
         <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
       )}

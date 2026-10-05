@@ -60,6 +60,7 @@ export type Answered = (typeof ANSWERED)[number];
 
 /** The members that answer nothing (`void` in the shell interface), each heard through `ipcMain.on`. */
 export const TOLD = [
+  "window.zoom",
   "window.minimize",
   "window.toggleMaximize",
   "window.close",

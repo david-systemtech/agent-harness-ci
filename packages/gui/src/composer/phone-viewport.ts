@@ -16,11 +16,10 @@ export const usePhoneViewport = (anchor: RefObject<HTMLElement | null>) => {
     };
     fit();
     viewport.addEventListener("resize", fit);
-    viewport.addEventListener("scroll", fit);
+    // Viewport scrolling must not pull a manually scrolled composer back to the focused control.
     frame.addEventListener("focusin", fit);
     return () => {
       viewport.removeEventListener("resize", fit);
-      viewport.removeEventListener("scroll", fit);
       frame.removeEventListener("focusin", fit);
       frame.style.removeProperty("--phone-viewport-height");
     };
