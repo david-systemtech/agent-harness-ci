@@ -13,7 +13,7 @@ export const arrangeWeb: NonNullable<SceneModule["arrangeWeb"]> = world => {
   env.emit(env.sessionId(), "assistant.text", { runId, itemId: "totals", text: "The receipts match the summary.\n\n".repeat(20), aborted: false });
   env.endRun(env.sessionId(), runId);
 };
-export const readySelector = '[data-compact-composer-proof="passed"]';
+export const readySelector = '[data-compact-composer-proof]';
 export const geometry = ({ height }: SceneViewport): readonly SceneGeometry[] => [
   { selector: "[data-web-client]", contentFits: true },
   { selector: "[data-phone-composer-toolbar]", height: 48, visibleWithin: "[data-web-client]", contentFits: true },
@@ -46,7 +46,8 @@ export const compactComposer = (inset: number, standalone: boolean) => () => {
       const card = document.querySelector<HTMLElement>("[data-composer-card]")!;
       const transcript = document.querySelector<HTMLElement>('[aria-label="Transcript"]')!;
       const bottom = frame.getBoundingClientRect().bottom - inset;
-      if (innerWidth === 390 && innerHeight === 844 && dock.getBoundingClientRect().height > 169) throw new Error("Empty phone composer exceeds its 169px budget");
+      const dockHeight = dock.getBoundingClientRect().height;
+      if (innerWidth === 390 && innerHeight === 844 && dockHeight > 169) throw new Error(`Empty phone composer is ${dockHeight}px high, exceeding its 169px budget`);
       for (const element of [dock, card]) {
         if (Math.abs(element.getBoundingClientRect().bottom - bottom) > 1) throw new Error("Compact composer does not reach the safe-area edge");
       }

@@ -298,7 +298,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
                 rows={1}
                 className="block max-h-[35vh] min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm leading-relaxed text-ink outline-none"
               />
-              <div className="flex items-center gap-2 px-2 pb-2">
+              <div data-composer-actions className="flex items-center gap-2 px-2 pb-2">
                 <IconButton label="Attach files" keys={pasteKey === undefined ? "/attach" : `/attach · ${pasteKey} paste`} onClick={attachments.choose}>
                   <Paperclip aria-hidden="true" />
                 </IconButton>

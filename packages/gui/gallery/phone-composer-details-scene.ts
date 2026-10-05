@@ -21,14 +21,18 @@ export const composerDetailsScene = (label: string, browser = false): SceneModul
         const bottom = parseFloat(getComputedStyle(sheet).bottom);
         if (Math.abs(sheet.getBoundingClientRect().bottom - (innerHeight - bottom)) > 1) throw new Error("Composer details do not reach the bottom sheet edge");
         sheet.setAttribute("data-composer-details-proof", "passed");
-      })().catch(error => { if (!stopped) queueMicrotask(() => { throw error; }); });
+      })().catch(error => {
+        if (stopped) return;
+        document.querySelector(".phone-composer-sheet")?.setAttribute("data-composer-details-proof", "failed");
+        queueMicrotask(() => { throw error; });
+      });
     };
     const observer = new MutationObserver(show);
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     show();
     return () => { stopped = true; observer.disconnect(); };
   },
-  readySelector: browser ? '[role="dialog"]:has([data-web-browser])' : '[data-composer-details-proof="passed"]',
+  readySelector: browser ? '[role="dialog"]:has([data-web-browser])' : '[data-composer-details-proof]',
   geometry: [
     { selector: browser ? '[role="dialog"]:has([data-web-browser])' : '.phone-composer-sheet', visibleWithin: browser ? '[role="dialog"]:has([data-web-browser])' : '.phone-composer-sheet', contentFits: true },
     { selector: browser ? '[role="dialog"]:has([data-web-browser]) button' : '.phone-composer-sheet button', renderedOnly: true, minimumWidth: 44, minimumHeight: 44 },
