@@ -62,7 +62,15 @@ const openMore = async (page: Page): Promise<Locator> => {
   await expect(page.locator(".phone-frame-menu")).toHaveCount(0);
   const trigger = page.getByRole("button", { name: "More", exact: true });
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  // Mouse-driven phone checks can leave a focused control's tooltip over More.
+  await page.mouse.move(0, 0);
+  const tooltip = page.getByRole("tooltip");
+  if (await tooltip.count()) {
+    await page.keyboard.press("Escape");
+    await expect(tooltip).toBeHidden();
+  }
   await trigger.click();
+  await page.mouse.move(0, 0);
   const menu = page.getByRole("menu");
   await expect(menu).toBeVisible();
   return menu;
@@ -94,7 +102,6 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
     try { await reachable(page, row); }
     catch (error) {
       console.error("PHONE-MENU state", name, await page.evaluate("JSON.stringify({viewport:[innerWidth,innerHeight],scroll:[scrollX,scrollY],focus:document.activeElement?.getAttribute('aria-label'),expanded:document.querySelector('[aria-label=More]')?.getAttribute('aria-expanded'),menu:document.querySelector('.phone-frame-menu')?.getAttribute('data-state')})"));
-      console.error("[DEBUG-phone-focus] events", await page.evaluate("JSON.stringify(window.__phoneEvents ?? [])"));
       throw error;
     }
     // Phone rows omit desktop shortcuts; a collapsed one-character column must fail.
@@ -213,29 +220,10 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
 }
 
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
-  await page.evaluate(`(() => {
-    window.__phoneEvents = [];
-    const identify = node => node instanceof Element ? [node.tagName, node.getAttribute('aria-label'), node.getAttribute('role')] : null;
-    const record = value => { window.__phoneEvents.push([Math.round(performance.now()), ...value]);
-      if (window.__phoneEvents.length > 100) window.__phoneEvents.shift(); };
-    for (const type of ['focus', 'blur', 'resize']) window.addEventListener(type, () => record(['window-' + type, identify(document.activeElement), document.hasFocus()]));
-    window.visualViewport?.addEventListener('resize', () => record(['visual-resize', visualViewport.width, visualViewport.height]));
-    record(['initial', identify(document.activeElement), document.hasFocus()]);
-    for (const type of ['focusin', 'focusout', 'pointerdown', 'pointerup', 'keydown'])
-      document.addEventListener(type, event => record([type, identify(event.target), identify(event.relatedTarget),
-        ['Escape', 'Tab', 'Enter'].includes(event.key) ? event.key : null]), true);
-    new MutationObserver(records => { for (const mutation of records) {
-      if (mutation.target.getAttribute('aria-label') === 'More')
-        record(['expanded', mutation.target.getAttribute('aria-expanded')]);
-      else if (mutation.target.classList.contains('phone-frame-menu'))
-        record(['menu-state', mutation.target.getAttribute('data-state')]);
-    }}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'data-state'] });
-  })()`);
   const observer = await environment.client();
   for (const width of [390, 360]) {
     await page.setViewportSize({ width, height: 844 });
     await phoneMoreSmoke(page);
-    console.log("[DEBUG-phone-focus] geometry", width, await page.evaluate("JSON.stringify(window.__phoneEvents)"));
   }
   await page.setViewportSize({ width: 390, height: 844 });
   // Full grant is minted separately by the runner; this never expands the Phone grant.
