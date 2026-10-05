@@ -121,9 +121,19 @@ continue when the client disconnects, hides a pane or switches sessions.
 
 ## Phone layout and input
 
-Below 640px show one visible conversation, a session drawer with shelves,
+Use one layout predicate for the frame, viewport fitting and phone/overlay
+styles: width below 640px, or a short touch layout with a coarse primary pointer,
+no hover, width 640–960px inclusive and layout height at most 500px. Thus rotation
+from 390×844 to 844×390 (and 360×740 to 740×360) keeps one visible conversation,
+the session drawer, active session, draft and live run. The bound keeps larger
+touch screens in the wide projection. Classify layout media, never the keyboard's
+reduced VisualViewport height or pinch-zoom dimensions. A non-touch desktop
+keeps its existing projection when its visual viewport shrinks.
+
+In the phone projection show a session drawer with shelves,
 search and actions, and a phone header with More, Settings and attention.
-Retain the desktop pane arrangement for returning to a wider viewport. Split
+Retain the desktop pane arrangement without overwriting it; restore it when
+returning to a genuinely wide non-phone viewport. Split
 is unavailable with a width reason. Below the existing 900px pane-width
 breakpoint, the side column is a sheet sized `min(480px, 85%)`; closing/hiding
 it retains terminal and delegated work. Drawers/sheets trap and restore focus
@@ -146,7 +156,7 @@ preference; text inputs are at least 16 CSS px. Hit areas are at least 44px,
 including icon buttons; tap actions replace hover-only controls without
 squeezing labels. Support enlarged text at 20 and ordinary pinch zoom.
 
-Below 640px, the Mode chip opens a mode-only bottom sheet bounded by the
+In the phone projection, the Mode chip opens a mode-only bottom sheet bounded by the
 visual viewport, including keyboard height. Each 44px-or-larger row wraps its
 label and description, marks the current selection, and disables modes above
 the connection ceiling with its existing reason. Close stays visible while
@@ -302,6 +312,16 @@ Hosted geometry proves shell/dock/latest-line bounds, readable transcript and
 stable document/window scroll. Animated keyboards, browser-bar settings,
 rotation/insets, focus zoom, selection and Home Screen behavior require dated
 handset evidence in #1556 and never block builders.
+#1641 adds 32 bounded landscape captures: 844×390 and 740×360, text 16/20,
+dark/light, a conversation, long-card keyboard dock, Sessions drawer and composer
+details sheet. Keep layout bounds unchanged while visual height shrinks to 300px
+with offsetTop 8; inject zero insets or 44px side/21px bottom insets. Check one
+projection, no page/horizontal overflow, three readable transcript lines,
+reachable Send/Stop and long-card decisions, bounded sheet/Close and trapped
+focus, and exactly one safe-area reserve at the dock edge. Focused transition
+tests prove portrait/landscape/portrait retains state, returning wide restores
+saved panes, and non-touch/zoom/keyboard-only changes never select phone layout.
+
 Surface owners supply separate scene/baseline modules and inspect hosted PR
 captures before landing; gallery evidence does not replace the real-client CI.
 
@@ -318,6 +338,7 @@ captures before landing; gallery evidence does not replace the real-client CI.
 | #1554 | README and phone/service runbooks, both presets side by side |
 | #1555 | Completed hosted browser regressions and release asset checks |
 | #1636 | Phone viewport/dock ownership, keyboard repin, focused following tests and bounded hosted keyboard scene; these Phone layout and Verification updates |
+| #1641 | Shared bounded landscape layout predicate, frame/viewport transitions, phone/overlay rules, landscape profiles/scenes/geometry and these layout/verification sections |
 | #1556 | One human phone checklist; no source edits, no builder/release dependency |
 
 Shared startup hooks stay with their owner; surface tickets own leaf modules

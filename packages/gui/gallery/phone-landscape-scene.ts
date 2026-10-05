@@ -1,0 +1,89 @@
+import type { SceneModule } from "./scene-registry.js";
+import { platform, script, route, arrangeWeb } from "./phone-compact-composer-scene.js";
+import { filledKeyboardPrompt } from "./scenes/phone-keyboard-dock.js";
+import { landscapeGeometry, verifyLandscape, verifyLandscapeOverlay } from "./phone-landscape-geometry.js";
+
+type Surface = "conversation" | "keyboard" | "drawer" | "details";
+export const landscapeScene = (surface: Surface): SceneModule => ({
+  platform, script, route,
+  arrangeWeb: world => {
+    arrangeWeb(world);
+    if (surface === "keyboard") {
+      const env = world.environment("desk");
+      env.startRun(env.sessionId(), "Continue checking the receipts.");
+      env.openPrompt(env.sessionId(), filledKeyboardPrompt);
+    }
+  },
+  readySelector: "[data-landscape-proof]",
+  geometry: surface === "conversation" || surface === "keyboard" ? landscapeGeometry : [
+    { selector: surface === "drawer" ? ".phone-frame-drawer" : ".phone-composer-sheet", ...(surface === "drawer" && { contentFits: true }) },
+    { selector: surface === "drawer" ? '[aria-label="Close sessions"]' : '.phone-composer-sheet [aria-label="Close dialog"]', minimumWidth: 44, minimumHeight: 44, hitTestable: true },
+  ],
+  activate: () => {
+    const root = document.documentElement;
+    const insets = innerWidth === 844 ? { top: 0, right: 44, bottom: 21, left: 44 } : { top: 0, right: 0, bottom: 0, left: 0 };
+    for (const [edge, value] of Object.entries(insets)) root.style.setProperty(`--phone-frame-safe-${edge}`, `${value}px`);
+    const actual = window.visualViewport;
+    const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    const viewport = Object.assign(new EventTarget(), { width: innerWidth, height: innerHeight, offsetTop: 0, offsetLeft: 0, scale: 1 });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    const fit = () => (actual ?? window).dispatchEvent(new Event("resize"));
+    const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    let stopped = false, started = false;
+    const run = async () => {
+      await document.fonts.ready;
+      const frame = document.querySelector<HTMLElement>("[data-web-client]")!;
+      if (!frame.hasAttribute("data-phone-frame")) throw new Error("Landscape restored the desktop projection");
+      document.querySelector<HTMLButtonElement>('[aria-label="Dismiss limited access"]')?.click();
+      await settle();
+      const field = document.querySelector<HTMLTextAreaElement>('[aria-label="Message"]')!;
+      fit(); await settle();
+      if (surface === "keyboard") {
+        field.focus({ preventScroll: true });
+        // Keep the layout viewport unchanged: only the keyboard's visual rectangle shrinks.
+        viewport.height = 300; viewport.offsetTop = 8; fit(); await settle();
+        const column = document.querySelector<HTMLElement>("[data-composer-column]")!;
+        column.scrollTop = 0;
+        const above = document.querySelector<HTMLElement>("[data-composer-above]")!;
+        const allow = Array.from(above.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Allow once"))!;
+        above.scrollTop += Math.max(0, allow.getBoundingClientRect().bottom - above.getBoundingClientRect().bottom);
+        await settle();
+        const action = allow.getBoundingClientRect(), well = above.getBoundingClientRect();
+        if (action.top < well.top - 1 || action.bottom > well.bottom + 1 || action.top < viewport.offsetTop || action.bottom > viewport.offsetTop + viewport.height) throw new Error("Landscape long card clips its decision");
+        // At the shortest keyboard height the dock itself scrolls. Prove both ends
+        // independently: the card action above, then the message/Stop row below.
+        column.scrollTop = column.scrollHeight;
+        await settle();
+      }
+      if (surface === "drawer" || surface === "details") {
+        // Overlay captures also use visual-only keyboard sizing, without changing media queries.
+        viewport.height = 300; viewport.offsetTop = 8; fit(); await settle();
+        const trigger = surface === "drawer" ? frame.querySelector<HTMLButtonElement>('[aria-label="Show sessions"]') : Array.from(frame.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.trim() === "Run settings");
+        trigger!.click(); await settle();
+        const selector = surface === "drawer" ? ".phone-frame-drawer" : ".phone-composer-sheet";
+        const overlay = document.querySelector<HTMLElement>(selector)!;
+        await Promise.all(overlay.getAnimations().map(animation => animation.finished.catch(() => undefined)));
+        verifyLandscapeOverlay(selector, viewport.height, viewport.offsetTop);
+      } else verifyLandscape(viewport.height, viewport.offsetTop, surface === "keyboard");
+      if (!stopped) frame.setAttribute("data-landscape-proof", "passed");
+    };
+    const start = () => {
+      if (started || !document.querySelector('[aria-label="Workspace: receipts"]')) return;
+      started = true; observer.disconnect();
+      void run().catch(error => {
+        if (stopped) return;
+        document.querySelector("[data-web-client]")?.setAttribute("data-landscape-proof", "failed");
+        queueMicrotask(() => { throw error; });
+      });
+    };
+    const observer = new MutationObserver(start);
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    start();
+    return () => {
+      stopped = true; observer.disconnect();
+      for (const edge of Object.keys(insets)) root.style.removeProperty(`--phone-frame-safe-${edge}`);
+      if (original) Object.defineProperty(window, "visualViewport", original);
+      else delete (window as { visualViewport?: unknown }).visualViewport;
+    };
+  },
+});

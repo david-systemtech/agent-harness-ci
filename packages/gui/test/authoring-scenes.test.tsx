@@ -49,10 +49,7 @@ it("keeps authoring in the dialog flow when shared phone styles load after the d
     append(readFileSync(new URL("../src/setup/authoring-conversation.css", import.meta.url), "utf8"));
     const shared = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
     append(shared.slice(shared.indexOf("[data-web-client] {")));
-    const phone = append(readFileSync(new URL("../src/composer/phone-conversation.css", import.meta.url), "utf8"));
-    // jsdom supplies no media layout: apply the real phone rules to the mounted phone scene.
-    const media = Array.from(phone.sheet!.cssRules).filter((rule): rule is CSSMediaRule => rule.type === 4 && (rule as CSSMediaRule).conditionText === "(max-width: 639px)");
-    append(media.flatMap(rule => Array.from(rule.cssRules)).map(rule => rule.cssText).join("\n"));
+    append(readFileSync(new URL("../src/composer/phone-conversation.css", import.meta.url), "utf8"));
     const dialog = screen.getByRole("dialog", { name: "Authoring conversation" });
     expect(getComputedStyle(dialog.querySelector("[data-authoring-frame]")!).position).toBe("static");
     const column = within(dialog).getByRole("textbox", { name: "Message" }).closest("[data-composer-column]")!;

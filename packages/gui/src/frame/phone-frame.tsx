@@ -12,17 +12,24 @@ interface PhoneFrame {
 const PhoneContext = createContext<PhoneFrame>({ narrow: false, drawerShown: false, drawerTrigger: { current: null }, showDrawer: () => undefined });
 export const usePhoneFrame = () => use(PhoneContext);
 
-/** Width changes only the projection; desktop sidebar preferences and pane sizes stay held. */
+/** Classify layout bounds, never keyboard/zoom-reduced VisualViewport dimensions.
+ * Short landscape phones retain the portrait projection; larger touch screens stay wide. */
+export const phoneLayoutMedia = () => [
+  window.matchMedia("(width < 640px)"),
+  window.matchMedia("(pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px)"),
+];
+
+/** Layout changes only the projection; desktop sidebar preferences and pane sizes stay held. */
 export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode }) => {
-  const [media] = useState(() => window.matchMedia("(width < 640px)"));
-  const [narrow, setNarrow] = useState(media.matches);
+  const [media] = useState(phoneLayoutMedia);
+  const [narrow, setNarrow] = useState(() => media.some(query => query.matches));
   const [drawerShown, showDrawer] = useState(false);
   const drawerTrigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const changed = () => { setNarrow(media.matches); if (!media.matches) showDrawer(false); };
-    media.addEventListener("change", changed);
+    const changed = () => { const phone = media.some(query => query.matches); setNarrow(phone); if (!phone) showDrawer(false); };
+    media.forEach(query => query.addEventListener("change", changed));
     changed();
-    return () => media.removeEventListener("change", changed);
+    return () => media.forEach(query => query.removeEventListener("change", changed));
   }, [media]);
   const value = useMemo(() => ({ narrow, drawerShown, drawerTrigger, showDrawer }), [narrow, drawerShown]);
   return <PhoneContext value={value}><Dialog.Root open={narrow && drawerShown} onOpenChange={showDrawer}>{children}</Dialog.Root></PhoneContext>;

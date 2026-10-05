@@ -10,7 +10,7 @@ const phoneViewport = (initial = true) => {
   vi.spyOn(window, "matchMedia").mockImplementation(value => value === query.media ? query : original(value));
   return (narrow: boolean) => act(() => { query.matches = narrow; query.dispatchEvent(new Event("change")); });
 };
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 it("opens a session drawer, traps focus and restores it after Escape or selecting a session", async () => {
   phoneViewport();
@@ -150,4 +150,51 @@ it("gives the narrow desktop grid a flex column parent within the session card",
   } finally {
     stylesheet.remove();
   }
+});
+
+
+it.each([[844, 390], [740, 360]])("retains a drawer, draft, active session and live run through portrait / %sx%s / portrait and restores wide panes", async (width, height) => {
+  const portrait = Object.assign(new EventTarget(), { matches: false, media: "(width < 640px)", onchange: null, addListener: () => undefined, removeListener: () => undefined });
+  const landscape = Object.assign(new EventTarget(), { ...portrait, matches: false, media: "(pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px)" });
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === portrait.media ? portrait : query === landscape.media ? landscape : original(query));
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "First task" }, { title: "Next task" }] }] });
+  app.open("desk");
+  await screen.findByRole("textbox", { name: "Message" });
+  await chooseHeaderAction(app, "Split right");
+  app.open("desk", 1);
+  const env = app.environment("desk");
+  await waitFor(() => expect(app.runtime.projections.session(env.environmentId, env.sessionId(1)).read().summary?.title).toBe("Next task"));
+  const fields = await screen.findAllByRole("textbox", { name: "Message" });
+  const field = fields[1]!;
+  act(() => env.startRun(env.sessionId(1), "Keep running through rotation"));
+  await waitFor(() => expect(app.runtime.projections.session(env.environmentId, env.sessionId(1)).read().runs.at(-1)?.state).toBe("running"));
+  act(() => field.focus());
+  await app.user.type(field, "Keep the rotation draft", { skipClick: true });
+  expect(field).toHaveProperty("value", "Keep the rotation draft");
+  const held = app.presentation.values.read();
+  const active = app.shown();
+  const resize = (w: number, h: number, narrow: boolean, shortTouch: boolean) => act(() => {
+    vi.stubGlobal("innerWidth", w); vi.stubGlobal("innerHeight", h);
+    // MediaQueryList change events reflect layout bounds, never VisualViewport.
+    portrait.matches = narrow; landscape.matches = shortTouch;
+    portrait.dispatchEvent(new Event("change")); landscape.dispatchEvent(new Event("change")); window.dispatchEvent(new Event("resize"));
+  });
+  resize(390, 844, true, false);
+  await app.user.click(screen.getByRole("button", { name: "Show sessions" }));
+  resize(width, height, false, true);
+  expect(screen.getAllByRole("region", { name: "Session pane", hidden: true }).filter(pane => !pane.closest("[hidden]"))).toHaveLength(1);
+  expect(screen.getByRole("dialog", { name: "Sessions" })).toBeDefined();
+  resize(390, 844, true, false);
+  expect(screen.getByRole("dialog", { name: "Sessions" })).toBeDefined();
+  await app.user.click(screen.getByRole("button", { name: "Close sessions" }));
+  expect(screen.getByRole("textbox", { name: "Message" })).toBe(field);
+  expect(field).toHaveProperty("value", "Keep the rotation draft");
+  expect(app.shown()).toEqual(active);
+  expect(app.runtime.projections.session(env.environmentId, env.sessionId(1)).read().runs.at(-1)?.state).toBe("running");
+  resize(1400, 900, false, false);
+  expect(screen.getAllByRole("region", { name: "Session pane" })).toHaveLength(2);
+  expect(app.presentation.values.read().paneLayout.rows).toEqual(held.paneLayout.rows);
+  expect(app.presentation.values.read().sidebarWidth).toBe(held.sidebarWidth);
+  expect(field).toHaveProperty("value", "Keep the rotation draft");
 });

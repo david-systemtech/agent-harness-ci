@@ -33,7 +33,7 @@ import {
 
 const DragContext = createContext<readonly [string | null, (id: string | null) => void] | null>(null);
 
-const PHONE_SPLIT_REASON = "Split needs a window at least 640px wide.";
+const PHONE_SPLIT_REASON = "Split needs a wide layout: at least 640px and not a short touch screen.";
 
 const PRESENT: Offer = { status: "present" };
 

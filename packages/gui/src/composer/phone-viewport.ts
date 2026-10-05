@@ -1,4 +1,5 @@
 import { useLayoutEffect, type RefObject } from "react";
+import { phoneLayoutMedia } from "../frame/phone-frame.js";
 
 /** The web frame is the single owner of keyboard bounds; never scroll its ancestors. */
 export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
@@ -7,6 +8,8 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     if (!frame) return;
     const subscribedViewport = window.visualViewport;
     const root = document.documentElement;
+    const media = phoneLayoutMedia();
+    let layoutWidth = window.innerWidth;
     let unoccludedHeight = window.innerHeight;
     let focusHeight = unoccludedHeight;
     let keyboardOpen = false;
@@ -17,7 +20,7 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     };
     const fit = (event?: Event) => {
       const viewport = window.visualViewport;
-      if (window.innerWidth >= 640) {
+      if (!media.some(query => query.matches)) {
         clearPhone();
         keyboardOpen = false; unoccludedHeight = focusHeight = window.innerHeight;
         frame.style.maxHeight = `${viewport?.height ?? window.innerHeight}px`;
@@ -26,6 +29,12 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       root.setAttribute("data-phone-viewport", "");
       // Keep the last unzoomed bounds. A second height observer would undo pinch zoom.
       if (viewport && viewport.scale !== 1) return;
+      // Rotation changes the unoccluded reference, unlike a same-width keyboard resize.
+      if (layoutWidth !== window.innerWidth) {
+        layoutWidth = window.innerWidth;
+        keyboardOpen = false; unoccludedHeight = focusHeight = window.innerHeight;
+        frame.removeAttribute("data-phone-composing");
+      }
       const height = viewport?.height ?? window.innerHeight;
       frame.style.removeProperty("max-height");
       frame.style.height = `${height}px`;
@@ -53,11 +62,13 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       if (composing || keyboardOpened) document.activeElement?.closest("[data-dock-owner]")?.dispatchEvent(new Event("phone-composer-fit"));
     };
     fit();
+    media.forEach(query => query.addEventListener("change", fit));
     window.addEventListener("resize", fit);
     subscribedViewport?.addEventListener("resize", fit);
     subscribedViewport?.addEventListener("scroll", fit);
     frame.addEventListener("focusin", fit);
     return () => {
+      media.forEach(query => query.removeEventListener("change", fit));
       window.removeEventListener("resize", fit);
       subscribedViewport?.removeEventListener("resize", fit);
       subscribedViewport?.removeEventListener("scroll", fit);
