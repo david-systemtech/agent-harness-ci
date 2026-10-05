@@ -1,3 +1,5 @@
+// @vitest-environment jsdom-on-node
+import { readFileSync } from "node:fs";
 import { screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
@@ -31,4 +33,29 @@ it.each(["settings-bank-authoring", "setup-authoring", "phone-bank-authoring"])(
   await user.click(within(request).getAllByRole("radio", { name: "Working agreements" })[0]!);
   await user.click(within(decisions).getByRole("button", { name: "Send answers" }));
   expect(await within(dialog).findByRole("article", { name: "Question" })).toBeDefined();
+});
+
+it("reserves authoring composer space when shared phone styles load after the dialog styles", async () => {
+  vi.stubGlobal("innerWidth", 390);
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "phone-bank-authoring", "dark"); close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const sheets: HTMLStyleElement[] = [];
+  const append = (css: string) => {
+    const style = document.createElement("style"); style.textContent = css; document.head.append(style); sheets.push(style); return style;
+  };
+  try {
+    append(readFileSync(new URL("../src/setup/authoring-conversation.css", import.meta.url), "utf8"));
+    const shared = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+    append(shared.slice(shared.indexOf("[data-web-client] {")));
+    const phone = append(readFileSync(new URL("../src/composer/phone-conversation.css", import.meta.url), "utf8"));
+    // jsdom supplies no media layout: apply the real phone rules to the mounted phone scene.
+    const media = Array.from(phone.sheet!.cssRules).filter((rule): rule is CSSMediaRule => rule.type === 4 && (rule as CSSMediaRule).conditionText === "(max-width: 639px)");
+    append(media.flatMap(rule => Array.from(rule.cssRules)).map(rule => rule.cssText).join("\n"));
+    const dialog = screen.getByRole("dialog", { name: "Authoring conversation" });
+    const column = within(dialog).getByRole("textbox", { name: "Message" }).closest("[data-composer-column]")!;
+    expect(getComputedStyle(column).flexShrink).toBe("0");
+    expect(getComputedStyle(column).maxHeight).toBe("none");
+    expect(getComputedStyle(dialog.querySelector('[aria-label="Parked prompt"]')!).maxHeight).toBe("60dvh");
+  } finally { sheets.forEach(sheet => sheet.remove()); }
 });
