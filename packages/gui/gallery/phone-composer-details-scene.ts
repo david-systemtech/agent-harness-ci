@@ -20,9 +20,16 @@ export const composerDetailsScene = (label: string, browser = false): SceneModul
         const sheet = document.querySelector<HTMLElement>(".phone-composer-sheet")!;
         await Promise.all(sheet.getAnimations().map(animation => animation.finished.catch(() => undefined)));
         if (stopped) return;
-        const bottom = parseFloat(getComputedStyle(sheet).bottom);
-        const actual = sheet.getBoundingClientRect().bottom;
-        if (Math.abs(actual - (innerHeight - bottom)) > 1) throw new Error(`Composer details end at ${actual}px; expected ${innerHeight - bottom}px (translate ${getComputedStyle(sheet).translate}, transform ${getComputedStyle(sheet).transform})`);
+        const viewport = window.visualViewport;
+        const top = viewport?.offsetTop ?? 0;
+        const left = viewport?.offsetLeft ?? 0;
+        const right = left + (viewport?.width ?? innerWidth);
+        const bottom = top + (viewport?.height ?? innerHeight);
+        const bounds = sheet.getBoundingClientRect();
+        if (bounds.top < top - 1 || bounds.bottom > bottom + 1 || bounds.left < left - 1 || bounds.right > right + 1) throw new Error("Composer details extend outside the visual viewport");
+        const frame = document.querySelector<HTMLElement>("[data-web-client]")!;
+        const inset = Math.max(8, parseFloat(getComputedStyle(frame).paddingBottom));
+        if (Math.abs(bounds.bottom - (bottom - inset)) > 1) throw new Error(`Composer details end at ${bounds.bottom}px; expected ${bottom - inset}px`);
         sheet.setAttribute("data-composer-details-proof", "passed");
       })().catch(error => {
         if (stopped) return;

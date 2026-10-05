@@ -55,6 +55,41 @@ it.each([
   expect(screen.queryByRole("tooltip")).toBeNull();
 });
 
+it.each([
+  ["Workspace: receipts", "Workspace"],
+  ["Workspace check: off", "Workspace check"],
+  ["Run settings", "Run settings"],
+])("keeps %s details within a shrinking and panning visual viewport", async (label, title) => {
+  const viewport = Object.assign(new EventTarget(), { height: 844, width: 390, scale: 1, offsetTop: 0, offsetLeft: 0 });
+  vi.stubGlobal("innerHeight", 844);
+  vi.stubGlobal("visualViewport", viewport);
+  await openPhone();
+  fireEvent.click(await screen.findByRole("button", { name: label }));
+  const sheet = await screen.findByRole("dialog", { name: title });
+  expect(sheet.style.getPropertyValue("--composer-sheet-height")).toBe("844px");
+  viewport.height = 480;
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(window.innerHeight).toBe(844);
+  expect(sheet.style.getPropertyValue("--composer-sheet-height")).toBe("480px");
+  viewport.offsetTop = 120;
+  viewport.width = 360;
+  viewport.offsetLeft = 15;
+  act(() => viewport.dispatchEvent(new Event("scroll")));
+  expect(sheet.style.getPropertyValue("--composer-sheet-top")).toBe("120px");
+  expect(sheet.style.getPropertyValue("--composer-sheet-width")).toBe("360px");
+  expect(sheet.style.getPropertyValue("--composer-sheet-left")).toBe("15px");
+  viewport.scale = 2;
+  viewport.height = 240;
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(sheet.style.getPropertyValue("--composer-sheet-height")).toBe("480px");
+  fireEvent.click(within(sheet).getByRole("button", { name: "Close dialog" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: title })).toBeNull());
+  viewport.scale = 1;
+  viewport.height = 844;
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(sheet.style.getPropertyValue("--composer-sheet-height")).toBe("480px");
+});
+
 it("restores the run-settings sheet after closing a nested account picker", async () => {
   const gallery = await openPhone(true, phoneRunPickerScene("Accounts"));
   await gallery.ready;

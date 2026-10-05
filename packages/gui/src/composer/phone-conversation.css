@@ -83,11 +83,12 @@
   }
   .phone-composer-sheet {
     top: auto;
-    bottom: max(8px, env(safe-area-inset-bottom));
+    bottom: calc(100% - var(--composer-sheet-height, 100%) - var(--composer-sheet-top, 0px) + max(8px, env(safe-area-inset-bottom)));
     transform: none;
-    width: calc(100vw - 16px);
+    left: calc(var(--composer-sheet-left, 0px) + var(--composer-sheet-width, 100vw) / 2);
+    width: calc(var(--composer-sheet-width, 100vw) - 16px);
     max-width: 480px;
-    max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    max-height: calc(var(--composer-sheet-height, 100dvh) - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     gap: 12px;
   }
   .phone-composer-sheet button, .phone-composer-sheet [data-status-chip] { font-size: max(16px, 1rem); }
