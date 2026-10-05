@@ -124,6 +124,31 @@ link/QR use the configured HTTPS origin and actual grant disclosure. QR scanning
 has denial/Cancel/manual fallback and stops tracks on exit. Custom expansion is
 deliberate and cannot exceed the minter's grant (web-client spec).
 
+### Provider sign-in on another environment (#1648)
+
+Every environment keeps its own provider sign-in. Pairing a client to two
+environments does not copy a credential or relay a sign-in through the other
+environment. Accounts offers “Sign in this account here too” for an identity
+signed in on another paired environment and absent here. It adds a local
+account label and starts the chosen environment's normal sign-in; the person
+chooses that identity on the provider page. The provider's status read decides
+which identity actually signed in.
+
+On a desktop's local environment, the provider CLI opens its own loopback
+authorisation page. The client leaves that browser flow alone and follows
+completion: it must not also automatically open the printed manual-code URL.
+The CLI owns the random-port, loopback-only listener, state and proof key,
+exchanges the code itself and closes the listener when done; cancellation and
+the environment's ten-minute expiry stop the CLI and its listener. If the
+service cannot open a browser, the manual page remains available.
+
+For a headless environment or a client on another device, the manual page is
+also a QR. It always names the environment being signed in. “Paste code from
+clipboard” reads only on a deliberate tap and submits the full `code#state`
+value once its shape and the published URL's state agree. Refused clipboard
+access leaves the ordinary paste field available. A phone's provider login
+can ease authorisation; it never becomes an environment credential itself.
+
 ### The terminal UI
 
 `/setup [environment]` draws one line per registered step from `projections.setup`: its label, state glyph and word, and reason when it needs attention; skipped steps dim. With no name it uses the session environment. While a step on that environment needs attention the header carries "Set up on <environment>: N of M done, K need attention (<step names>). Run it in the desktop window.", with M its registered steps (eleven with every entry built). Snapshots and notices redraw both without a call. After accepted writes the terminal issues itself (`/pair`, `/mode`, `/containment`, a sign-in) it calls `setup.check` for that step. Actions needing no card (`check-again`, `pull-now`, `restore`, `update`, `start-service`) run from the line with Enter; the first offered action is selected by default and `picker.preview` (Space, remappable) previews the next. A tool's Update is absent with its reason where the environment does not serve it, otherwise opening its tool terminal in the pane. Other actions point at the desktop (ADR 0016). Unreachable results stay cached, marked stale with "unreachable since". #572 implements this, preserving #261's check on opening without the stream flag.

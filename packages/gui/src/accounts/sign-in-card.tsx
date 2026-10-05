@@ -1,11 +1,13 @@
 import { LOCAL_PLACEHOLDER_ID, addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInLeftWords, startSignIn, uuidv4 } from "@agent-harness/client-runtime";
 import { Check, Copy, ExternalLink, KeyRound, LoaderCircle, Plus, Send, X } from "lucide-react";
-import type { AccountRecord } from "@agent-harness/contracts";
+import { SignInCode, type AccountRecord } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { useEnvironmentCountdown } from "../environment-countdown.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { Dialog, DialogContent, Input } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
+
+import { SignInQr } from "./sign-in-qr.js";
 
 import { AccountAction } from "./action.js";
 
@@ -15,6 +17,8 @@ export interface SignInCardProps {
   readonly inline?: boolean;
   /** The account to sign in, by its id and label; null to add a new one, labelled first. */
   readonly account: Pick<AccountRecord, "id" | "label"> | null;
+  /** A label and identity hint from another environment; starts a fresh local account, carries no credential. */
+  readonly suggestion?: { readonly label: string; readonly email: string };
   /** Closes the card. */
   readonly close: () => void;
   /** Says one line where the card was opened from: how the sign-in ended, or why it could not go on. */
@@ -48,18 +52,20 @@ type Sending = "add" | "start" | "code" | null;
  *   card cancels the sign-in it started (`accounts.signin.cancel`), since
  *   the card is its attendant.
  */
-export const SignInCard = ({ environmentId, account, close, say, inline = false }: SignInCardProps) => {
+export const SignInCard = ({ environmentId, account, close, say, inline = false, suggestion }: SignInCardProps) => {
   const heading = useId();
   const runtime = useRuntime();
   const shell = useShell();
   const environments = useObservable(runtime.projections.environments);
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
   const held = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "accounts.signin.get", {}), [runtime, environmentId]))?.result?.signIn;
-  const environment = environments.find((view) => view.environmentId === environmentId)?.name ?? THIS_MACHINE;
+  const view = environments.find((candidate) => candidate.environmentId === environmentId);
+  const environment = view?.name ?? THIS_MACHINE;
+  const localBrowser = shell !== undefined && view?.kind === "local";
   const [label, setLabel] = useState(account?.label ?? "");
   const [accountId, setAccountId] = useState<string | null>(account?.id ?? null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
-  const [sending, setSending] = useState<Sending>(account === null ? null : "start");
+  const [sending, setSending] = useState<Sending>(account === null ? (suggestion === undefined ? null : "add") : "start");
   const [typed, setTyped] = useState("");
   const [completed, setCompleted] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -114,9 +120,9 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
     else { close(); say(end); }
   }, [end]);
 
-  // The verification URL opens in the system browser as it arrives, once.
+  // The local provider opens its loopback flow itself. Paired flows open the manual URL once.
   useEffect(() => {
-    if (shell === undefined || url === null || opened.current === url || openExternal.status === "absent") return;
+    if (localBrowser || shell === undefined || url === null || opened.current === url || openExternal.status === "absent") return;
     opened.current = url;
     void shell?.openExternal?.(url);
   }, [url]);
@@ -130,11 +136,9 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
     return () => { window.removeEventListener("focus", resume); document.removeEventListener("visibilitychange", resume); };
   }, [runtime, environmentId, accountId, completed, shell]);
 
-  const add = (event: FormEvent) => {
-    event.preventDefault();
-    const trimmed = typed.trim();
+  const addLabel = (trimmed: string) => {
     const problem = labelProblem(trimmed);
-    if (problem !== undefined) return setError(problem);
+    if (problem !== undefined) { setSending(null); return setError(problem); }
     setLabel(trimmed);
     setSending("add");
     setError(null);
@@ -156,21 +160,45 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
     });
   };
 
-  const sendCode = (event: FormEvent) => {
-    event.preventDefault();
-    if (typed.trim() === "" || accountId === null) return;
+  const add = (event: FormEvent) => { event.preventDefault(); addLabel(typed.trim()); };
+  useEffect(() => { if (suggestion !== undefined) addLabel(suggestion.label); }, []);
+
+  const submitCode = (text: string) => {
+    if (accountId === null) return;
+    const code = text.trim();
+    if (!SignInCode.safeParse(code).success || !/^[A-Za-z0-9_-]+#[A-Za-z0-9_-]+$/.test(code)) {
+      setError("Paste the full code from the provider page (code#state).");
+      return;
+    }
+    const expectedState = url === null ? null : new URL(url).searchParams.get("state");
+    if (expectedState !== null && code.split("#")[1] !== expectedState) {
+      setError("This code belongs to another sign-in. Copy the code from this sign-in page.");
+      return;
+    }
     setSending("code");
     setError(null);
-    void sendSignInCode(runtime, environmentId, accountId, typed, uuidv4()).then((refused) => {
+    void sendSignInCode(runtime, environmentId, accountId, code, uuidv4()).then((refused) => {
       setSending(null);
       if (refused === undefined) setTyped("");
       else setError(refused);
     });
   };
 
+  const sendCode = (event: FormEvent) => { event.preventDefault(); submitCode(typed); };
+  const pasteCode = async () => {
+    try {
+      const text = await (clipboard?.readText() ?? navigator.clipboard.readText());
+      if (departed.current || ended.current) return;
+      setTyped(text.trim());
+      submitCode(text);
+    } catch {
+      if (!departed.current && !ended.current) setError("Clipboard access was refused. Paste the code into the field instead.");
+    }
+  };
+
   /** Leaving the card: the sign-in it started is its to end, so it is cancelled whatever state it has reached. */
   const leave = () => {
-    if (inline) departed.current = true;
+    departed.current = true;
     close();
     if (accountId === null || ended.current || (inline && attended.current === null)) return;
     ended.current = true;
@@ -185,6 +213,7 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
 
   const title = account === null && accountId === null ? `Add an account on ${environment}` : `Sign in: ${label} on ${environment}`;
   const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
+  const canReadClipboard = clipboard !== undefined || typeof navigator.clipboard?.readText === "function";
   const content = completed !== null ? <div className="flex flex-col gap-3">
     <p role="status" className="flex items-center gap-2 text-sm text-mint"><Check aria-hidden="true" className="size-4" />{completed}</p>
     <AccountAction icon={Check} variant="default" className="self-end" onClick={() => { say(completed); close(); }}>Done</AccountAction>
@@ -197,7 +226,7 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
               <Input value={typed} onChange={(event) => setTyped(event.target.value)} autoFocus />
             </label>
             <p className="text-xs text-ink-faint">The email it signs in as makes a good label.</p>
-            {error !== null && <p className="text-xs text-signal">{error}</p>}
+            {error !== null && <p role="alert" className="text-xs text-signal">{error}</p>}
             <div className="flex justify-end gap-2">
               <AccountAction icon={X} onClick={leave}>Cancel</AccountAction>
               <AccountAction icon={Plus} variant="default" type="submit">
@@ -207,9 +236,11 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
           </form>
         ) : (
           <div className="flex flex-col gap-2 text-sm">
+            {suggestion !== undefined && <p>Choose {suggestion.email} on the provider page. {environment} keeps its own sign-in.</p>}
             {showsPage && (
               <>
-                <p>Open this page and sign in:</p>
+                <p>{localBrowser ? "Finish signing in in the browser on this machine. This dialog completes automatically. If no browser opened, use the page below and paste its code." : `Sign in on ${environment}. Open this page on any device already signed in to the provider:`}</p>
+                <SignInQr url={url} />
                 <p className="break-all font-mono text-xs text-beam-text">{url}</p>
                 {shell === undefined ? <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm text-beam-text underline"><ExternalLink aria-hidden="true" className="size-4" />Open the sign-in page</a> : <AccountAction icon={ExternalLink}
                   className="self-start"
@@ -229,12 +260,13 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false 
                   Then paste the code it shows
                   <Input value={typed} onChange={(event) => setTyped(event.target.value)} autoFocus />
                 </label>
+                {canReadClipboard && <AccountAction icon={Copy} type="button" onClick={() => void pasteCode()}>Paste code from clipboard</AccountAction>}
                 <AccountAction icon={Send} variant="default" type="submit" className="self-end" disabled={typed.trim() === ""}>
                   Send the code
                 </AccountAction>
               </form>
             )}
-            {error !== null && <p className="text-xs text-signal">{error}</p>}
+            {error !== null && <p role="alert" className="text-xs text-signal">{error}</p>}
             {left !== undefined && (
               <p role="timer" className="text-xs text-ink-faint">
                 {signInLeftWords(left)}

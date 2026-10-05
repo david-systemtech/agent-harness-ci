@@ -65,7 +65,14 @@ it.each(["admin", "own-client"])("completes scripted sign-in and persists a sett
   expect(link.getAttribute("href")).toBe("https://provider.example.test/verify");
   expect(link.getAttribute("target")).toBe("_blank");
   expect(link.getAttribute("rel")).toContain("noopener");
-  await app.user.type(screen.getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests{Enter}");
+  if (grant === "own-client") {
+    const readText = vi.fn(async () => " code-for-tests#state-for-tests\n");
+    vi.stubGlobal("navigator", Object.create(navigator, { clipboard: { value: { readText } } }));
+    await app.user.click(screen.getByRole("button", { name: "Paste code from clipboard" }));
+    expect(readText).toHaveBeenCalledOnce();
+  } else {
+    await app.user.type(screen.getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#state-for-tests{Enter}");
+  }
   await waitFor(() => expect(app.environment.requests("accounts.signin.code")).toHaveLength(1));
   act(() => app.environment.signIn("done"));
   expect(await screen.findByText("Test account is signed in on desk.")).toBeDefined();

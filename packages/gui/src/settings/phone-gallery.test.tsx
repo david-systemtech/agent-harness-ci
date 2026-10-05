@@ -4,7 +4,7 @@ import { mountGallery } from "../../gallery/mount.js";
 import { phoneSettingsScene } from "../../gallery/phone-settings-scene.js";
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); vi.unstubAllGlobals(); });
-it.each(["constrained", "full", "setup", "picker"] as const)("phone Settings %s scene mounts the real web surface", async kind => {
+it.each(["constrained", "full", "setup", "picker", "qr"] as const)("phone Settings %s scene mounts the real web surface", async kind => {
   vi.stubGlobal("innerWidth", 390);
   const container = document.createElement("div"); document.body.append(container);
   const scene = phoneSettingsScene(kind);
@@ -14,7 +14,8 @@ it.each(["constrained", "full", "setup", "picker"] as const)("phone Settings %s 
   await gallery.ready;
   expect(gallery.world.shell).toBeUndefined();
   if (kind === "constrained") expect(screen.getByText(/Pair again using a Custom code with admin/)).toBeDefined();
-  if (kind === "full") expect(screen.getByRole("link", { name: "Open the sign-in page" })).toBeDefined();
+  if (kind === "full" || kind === "qr") expect(screen.getByRole("link", { name: "Open the sign-in page" })).toBeDefined();
+  if (kind === "full" || kind === "qr") expect(screen.getByRole("img", { name: "QR code of the provider sign-in page" })).toBeDefined();
   if (kind === "picker") {
     const picker = screen.getByRole("dialog", { name: "New-session defaults" });
     expect(picker.closest("[data-settings-dialog]")).toBeNull();
