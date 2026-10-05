@@ -67,13 +67,7 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
       const drawer = page.getByRole("dialog", { name: "Sessions", exact: true });
       await expect(drawer).toBeFocused();
       await page.keyboard.press("Tab");
-      try {
-        await expect.poll(() => drawer.evaluate("element => element.contains(document.activeElement)"), { timeout: 60_000, message: "Drawer traps focus after Tab." }).toBe(true);
-      } catch (error) {
-        const focus = await page.evaluate("({ tag: document.activeElement?.tagName, role: document.activeElement?.getAttribute('role'), label: document.activeElement?.getAttribute('aria-label'), dialogs: Array.from(document.querySelectorAll('[role=dialog]')).map(element => element.getAttribute('aria-label') || element.getAttribute('aria-labelledby')) })");
-        console.error(`PHONE-FOCUS ${engine} ${JSON.stringify({ viewport, colorScheme, focus })}`);
-        throw error;
-      }
+      await expect.poll(() => page.evaluate<boolean>("document.querySelector('.phone-frame-drawer')?.contains(document.activeElement) === true"), { timeout: 60_000, message: "Drawer traps focus after Tab." }).toBe(true);
       // A focused icon may open a tooltip whose first Escape dismisses only that tooltip.
       await drawer.getByRole("searchbox", { name: "Filter the sessions", exact: true }).click();
       await page.keyboard.press("Escape");
