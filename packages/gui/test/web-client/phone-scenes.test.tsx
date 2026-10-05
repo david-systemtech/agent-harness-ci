@@ -11,11 +11,11 @@ it("captures a waiting phone card with installation confined to Settings and no 
   onTestFinished(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
   const user = userEvent.setup();
   const about = async () => {
-    await user.click(await screen.findByRole("button", { name: "Settings", exact: true }));
-    await user.click(screen.getByRole("button", { name: "Settings rows", exact: true }));
-    const rows = await screen.findByRole("dialog", { name: "Settings rows", exact: true });
-    await user.click(within(rows).getByRole("button", { name: "About", exact: true }));
-    return screen.getByRole("dialog", { name: "Settings", exact: true });
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings rows" }));
+    const rows = await screen.findByRole("dialog", { name: "Settings rows" });
+    await user.click(within(rows).getByRole("button", { name: "About" }));
+    return screen.getByRole("dialog", { name: "Settings" });
   };
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const scene = await mountGallery(root, "phone-client-permission");

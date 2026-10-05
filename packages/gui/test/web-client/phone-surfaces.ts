@@ -41,11 +41,19 @@ export const reachable = async (page: Page, control: Locator): Promise<void> => 
 };
 
 const chooseRow = async (page: Page, label: string): Promise<void> => {
-  await page.getByRole("button", { name: "Settings rows", exact: true }).click();
-  const rows = page.getByRole("dialog", { name: "Settings rows", exact: true });
-  await rows.getByRole("button", { name: label, exact: true }).click();
-  await expect(rows).toBeHidden();
-  await expect(page.getByRole("button", { name: "Settings rows", exact: true })).toBeFocused();
+  try {
+    const toggle = page.getByRole("button", { name: "Settings rows", exact: true });
+    await expect(page.getByRole("dialog", { name: "Settings", exact: true })).toBeVisible();
+    await expect(toggle).toBeFocused();
+    await toggle.click();
+    const rows = page.getByRole("dialog", { name: "Settings rows", exact: true });
+    await rows.getByRole("button", { name: label, exact: true }).click();
+    await expect(rows).toBeHidden();
+    await expect(toggle).toBeFocused();
+  } catch (error) {
+    console.error("PHONE-SETTINGS row", label, await page.evaluate("JSON.stringify({viewport:[innerWidth,innerHeight],focus:document.activeElement?.getAttribute('aria-label'),settings:!!document.querySelector('[data-settings-dialog]'),navigation:!!document.querySelector('[data-phone-navigation]')})"));
+    throw error;
+  }
 };
 
 // Center each row with room at both scrollport edges before checking full intersection.
@@ -67,26 +75,6 @@ const revealMenuRow = async (page: Page, target: string | number): Promise<void>
 
 /** Inspect the real menu after scrolling each action, including disabled grant explanations. */
 const phoneMoreSmoke = async (page: Page): Promise<void> => {
-  await page.evaluate(`(() => {
-    window.__phoneMenuTrace = [];
-    if (window.__phoneMenuTracing) return;
-    window.__phoneMenuTracing = true;
-    const identify = node => node instanceof Element ? { tag: node.tagName,
-      label: node.getAttribute('aria-label'), role: node.getAttribute('role'),
-      menu: Boolean(node.closest('.phone-frame-menu')) } : null;
-    const record = value => { window.__phoneMenuTrace.push({ at: Math.round(performance.now()), ...value });
-      if (window.__phoneMenuTrace.length > 80) window.__phoneMenuTrace.shift(); };
-    for (const type of ['focusin', 'focusout', 'pointerdown', 'keydown', 'pagehide', 'resize', 'blur'])
-      window.addEventListener(type, event => record({ type, target: identify(event.target),
-        related: identify(event.relatedTarget), key: ['Escape', 'Tab', 'Enter'].includes(event.key) ? event.key : undefined }), true);
-    new MutationObserver(records => { for (const mutation of records) {
-      if (mutation.type === 'attributes' && mutation.target.getAttribute('aria-label') === 'More')
-        record({ type: 'expanded', value: mutation.target.getAttribute('aria-expanded') });
-      if (mutation.type === 'childList') for (const node of mutation.removedNodes)
-        if (node instanceof Element && (node.matches('[aria-label="More"]') || node.querySelector('[aria-label="More"]')))
-          record({ type: 'trigger-removed' });
-    }}).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-expanded'] });
-  })()`);
   const trigger = page.getByRole("button", { name: "More", exact: true });
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await trigger.click();
@@ -97,7 +85,6 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
     await revealMenuRow(page, name);
     try { await reachable(page, row); }
     catch (error) {
-      console.error("[DEBUG-phone-more] events", await page.evaluate("JSON.stringify(window.__phoneMenuTrace)"));
       console.error("PHONE-MENU state", name, await page.evaluate("JSON.stringify({viewport:[innerWidth,innerHeight],scroll:[scrollX,scrollY],focus:document.activeElement?.getAttribute('aria-label'),expanded:document.querySelector('[aria-label=More]')?.getAttribute('aria-expanded'),menu:document.querySelector('.phone-frame-menu')?.getAttribute('data-state')})"));
       throw error;
     }
@@ -264,7 +251,13 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
       const drawer = page.getByRole("dialog", { name: "Settings rows", exact: true });
       await expect(drawer.getByRole("button", { name: row.label, exact: true })).toHaveAttribute("aria-disabled", "true");
       await expect(drawer.getByText(row.dim, { exact: true })).toBeVisible();
+      const search = drawer.getByRole("searchbox", { name: "Search settings", exact: true });
+      await search.click();
+      await expect(search).toBeFocused();
       await page.keyboard.press("Escape");
+      await expect(drawer).toBeHidden();
+      await expect(page.getByRole("dialog", { name: "Settings", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Settings rows", exact: true })).toBeFocused();
       continue;
     }
     await chooseRow(page, row.label);

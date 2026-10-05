@@ -27,6 +27,17 @@ it.each(["phone", "own-client"] as const)("keeps Tab inside the %s session drawe
   await user.click(await screen.findByRole("button", { name: "Settings" }));
   await user.click(screen.getByRole("button", { name: "Settings rows" }));
   await user.click(within(await screen.findByRole("dialog", { name: "Settings rows" })).getByRole("button", { name: "Accounts" }));
+  const rowsToggle = screen.getByRole("button", { name: "Settings rows" });
+  await user.click(rowsToggle);
+  const settingsRows = await screen.findByRole("dialog", { name: "Settings rows" });
+  expect(within(settingsRows).getByRole("button", { name: "Bots" }).getAttribute("aria-disabled")).toBe("true");
+  const search = within(settingsRows).getByRole("searchbox", { name: "Search settings" });
+  await user.click(search);
+  expect(document.activeElement).toBe(search);
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings rows" })).toBeNull());
+  expect(screen.getByRole("dialog", { name: "Settings" })).toBeDefined();
+  await waitFor(() => expect(document.activeElement).toBe(rowsToggle));
   await user.click(screen.getByRole("button", { name: "Close Settings" }));
   for (let opening = 0; opening < 2; opening++) {
     const trigger = screen.getByRole("button", { name: "More" });
