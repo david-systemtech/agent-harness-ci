@@ -48,13 +48,21 @@ const chooseRow = async (page: Page, label: string): Promise<void> => {
   await expect(page.getByRole("button", { name: "Settings rows", exact: true })).toBeFocused();
 };
 
+// Center each row with room at both scrollport edges before checking full intersection.
+const revealMenuRow = async (row: Locator): Promise<void> => {
+  await row.evaluate(element => {
+    if (!("scrollIntoView" in element) || typeof element.scrollIntoView !== "function") throw new Error("A menu action must be scrollable.");
+    element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  });
+};
+
 /** Inspect the real menu after scrolling each action, including disabled grant explanations. */
 const phoneMoreSmoke = async (page: Page): Promise<void> => {
   await page.getByRole("button", { name: "More", exact: true }).click();
   const menu = page.getByRole("menu");
   for (const name of ["Terminal", "Browser", "Split right", "Split down"]) {
     const row = menu.getByRole("menuitem", { name, exact: true });
-    await row.scrollIntoViewIfNeeded();
+    await revealMenuRow(row);
     await reachable(page, row);
     // Phone rows omit desktop shortcuts; a collapsed one-character column must fail.
     await expect(row.locator("kbd")).toBeHidden();
@@ -65,8 +73,12 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
   }
   await expect(menu.getByRole("menuitem", { name: "Browser", exact: true })).not.toContainText("shell.webView");
   for (const row of await menu.getByRole("menuitem").all()) {
-    await row.scrollIntoViewIfNeeded();
-    await reachable(page, row);
+    await revealMenuRow(row);
+    try { await reachable(page, row); }
+    catch (error) {
+      console.error("PHONE-MENU clipping", await row.getAttribute("aria-label"), await row.boundingBox(), await menu.boundingBox(), page.viewportSize());
+      throw error;
+    }
   }
   await page.keyboard.press("Escape");
 };
