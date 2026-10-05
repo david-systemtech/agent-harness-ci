@@ -16,7 +16,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
     const region = await column.boundingBox();
     const viewport = page.viewportSize();
     assert(box && region && viewport, "The refusal and controls have rendered boxes.");
-    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, `The whole refusal/control fits the user-scrollable composer: ${JSON.stringify({ engine, control: await control.textContent(), box, region, viewport, composer: await column.evaluate(node => ({ scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight, styles: { minHeight: getComputedStyle(node).minHeight, maxHeight: getComputedStyle(node).maxHeight } })) })}`);
+    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1 ? undefined : `The whole refusal/control fits the user-scrollable composer: ${JSON.stringify({ engine, control: await control.textContent(), box, region, viewport, composer: await column.evaluate("node => ({ scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight, styles: { minHeight: getComputedStyle(node).minHeight, maxHeight: getComputedStyle(node).maxHeight } })") })}`);
     assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, "The refusal/control is reachable inside the keyboard-height viewport.");
   };
   await signIn(false);
