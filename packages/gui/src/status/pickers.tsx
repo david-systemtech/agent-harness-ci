@@ -17,7 +17,7 @@ import {
 } from "@agent-harness/client-runtime";
 import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
@@ -30,7 +30,7 @@ import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
-import { ModeSheet } from "./mode-sheet.js";
+import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 
 /**
@@ -91,7 +91,10 @@ const containmentLabel = (words: string): string => words.replace(/^[○◐●]\
  */
 const PickerButton = ({ name, value, offer, children, items, command, warning, columns, phoneItems }: PickerButtonProps) => {
   const [, say] = usePaneLine();
-  const [open, setOpen] = useState(false);
+  const [opening, setOpening] = useState({ open: false, id: 0 });
+  const { open } = opening;
+  const setOpen = (next: boolean) => setOpening(current => ({ open: next, id: next && !current.open ? current.id + 1 : current.id }));
+  const close = () => setOpening(current => current.id === opening.id ? { ...current, open: false } : current);
   const narrow = useNarrowRunPicker();
   const phone = useNarrowRunPicker(640);
   const modeSheet = phone && phoneItems !== undefined;
@@ -118,8 +121,10 @@ const PickerButton = ({ name, value, offer, children, items, command, warning, c
           </Button>
         </RunPickerTrigger>
       </Tooltip>
-      <RunPickerContent sheet={sheet} side="top" align="start" role={sheet ? "dialog" : "menu"} aria-label={modeSheet ? "Mode" : columns ? "Run choices" : undefined} {...(columns || modeSheet ? { "aria-labelledby": undefined } : {})} className={modeSheet ? "phone-mode-sheet rounded-[10px] p-0" : columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
-        {(modeSheet ? phoneItems : items)(() => setOpen(false))}
+      <RunPickerContent sheet={sheet}
+        onFocusCapture={modeSheet ? event => { if (event.target === event.currentTarget) focusModeSheet(event.currentTarget); } : undefined}
+        onKeyDownCapture={modeSheet ? trapModeSheetTab : undefined} side="top" align="start" role={sheet ? "dialog" : "menu"} aria-label={modeSheet ? "Mode" : columns ? "Run choices" : undefined} {...(columns || modeSheet ? { "aria-labelledby": undefined } : {})} className={modeSheet ? "phone-mode-sheet rounded-[10px] p-0" : columns ? classes("w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0", narrow ? "overflow-y-auto" : "overflow-hidden") : "w-72 max-h-[320px] overflow-y-auto"}>
+        {modeSheet ? <Fragment key={opening.id}>{phoneItems(close)}</Fragment> : items(close)}
       </RunPickerContent>
     </Menu>
   );
