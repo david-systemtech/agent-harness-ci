@@ -55,6 +55,11 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(choices).toContainText(/signed out/i);
       await choices.getByRole("menuitem").filter({ hasText: "claude-max" }).click();
       await page.keyboard.press("Escape");
+      // The closing popup restores focus after its exit animation. The phone viewport
+      // then scrolls that trigger into view; settle that event before scrolling elsewhere.
+      await expect(choices).toBeHidden();
+      await expect(account).toBeFocused();
+      console.log(`PHONE-REFUSAL ${engine}: Run choices closed and Account focus restored`);
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await remedy.scrollIntoViewIfNeeded();
