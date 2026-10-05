@@ -90,6 +90,7 @@ describe("the access log", () => {
       "socket.opened",
       "socket.closed",
       "scope.granted",
+      "access.changed",
       "ceiling.changed",
       "bypass.acknowledged",
       "settings.changed",

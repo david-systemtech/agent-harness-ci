@@ -492,8 +492,78 @@ describe("the access log", () => {
 });
 
 describe("scope grants and ceiling changes", () => {
-  it("have payload schemas in contracts, and no method that makes them yet (#129)", () => {
+  it("retain payload schemas for scope grants and ceiling changes", () => {
     expect(ACCESS_EVENT_PAYLOADS["scope.granted"].parse({ clientSessionId: "cs", granted: ["admin"], scopes: ["read", "admin"] })).toBeDefined();
     expect(ACCESS_EVENT_PAYLOADS["ceiling.changed"].parse({ clientSessionId: "cs", from: "plan", to: "auto" })).toBeDefined();
   });
+});
+
+
+describe("access.sessions.setAccess", () => {
+  it("changes a phone's access without pairing again, reconnects its sockets and records an undoable durable grant", async () => {
+    const dataDir = join(tempDir(), "data");
+    const t = await start({ dataDir });
+    const owner = await t.pair({ label: "owner", ceiling: "bypassPermissions" });
+    const client = await t.client({ token: owner.token, clientKind: "program" });
+    const phone = await t.pair({ scopes: ["read"], ceiling: "plan" });
+    const connected = await t.client({ token: phone.token, clientKind: "program" });
+    const commandId = randomUUID();
+    expect(await client.apply("access.sessions.setAccess", { commandId, clientSessionId: phone.clientSessionId, scopes: [...SCOPES], ceiling: "bypassPermissions" })).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
+    await connected.closed;
+    const expanded = await t.client({ token: phone.token, clientKind: "program" });
+    expect(expanded.hello).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
+    expect(await expanded.request("access.sessions.list", { live: true })).toBeDefined();
+    expect((await accessLog(client)).find((e) => e.type === "access.changed")).toMatchObject({ commandId, actor: { kind: "client_session", id: owner.clientSessionId }, payload: { clientSessionId: phone.clientSessionId, from: { scopes: ["read"], ceiling: "plan" }, to: { scopes: [...SCOPES], ceiling: "bypassPermissions" } } });
+    await client.apply("access.sessions.setAccess", { commandId: randomUUID(), clientSessionId: phone.clientSessionId, scopes: ["read"], ceiling: "plan" });
+    await expanded.closed;
+    const restricted = await t.client({ token: phone.token, clientKind: "program" });
+    expect((await refusal(restricted.request("access.sessions.list", {}))).code).toBe("forbidden");
+    await t.close();
+    const restarted = await start({ dataDir });
+    const resumed = await restarted.client({ token: phone.token, clientKind: "program" });
+    expect(resumed.hello).toMatchObject({ scopes: ["read"], ceiling: "plan" });
+  });
+});
+
+
+describe("grant replacement refusals", () => {
+  it("refuses self-edit, missing admin, unheld scopes, ceilings above the caller, and unknown or revoked targets", async () => {
+    const t = await start();
+    const { client, credential } = await admin(t);
+    const phone = await t.pair({ scopes: ["read"], ceiling: "plan" });
+    const params = { commandId: randomUUID(), clientSessionId: credential.clientSessionId, scopes: ["read"] as const, ceiling: "plan" as const };
+    expect(await client.request("access.sessions.setAccess", params)).toMatchObject({ receipt: { status: "rejected", error: { code: "conflict", data: { reason: "own_session" } } } });
+    const reader = await t.client({ token: phone.token, clientKind: "program" });
+    expect((await refusal(reader.request("access.sessions.setAccess", { ...params, commandId: randomUUID() }))).toWire()).toMatchObject({ code: "forbidden", data: { scope: "admin" } });
+    const limited = await t.pair({ scopes: ["read", "admin"], ceiling: "acceptEdits" });
+    const editor = await t.client({ token: limited.token, clientKind: "program" });
+    expect(await editor.request("access.sessions.setAccess", { ...params, commandId: randomUUID(), clientSessionId: phone.clientSessionId, scopes: ["read", "terminal"] })).toMatchObject({ receipt: { status: "rejected", error: { code: "forbidden", data: { reason: "scope", scope: "terminal" } } } });
+    expect(await editor.request("access.sessions.setAccess", { ...params, commandId: randomUUID(), clientSessionId: phone.clientSessionId, ceiling: "bypassPermissions" })).toMatchObject({ receipt: { status: "rejected", error: { code: "forbidden", data: { reason: "ceiling" } } } });
+    expect(await client.request("access.sessions.setAccess", { ...params, commandId: randomUUID(), clientSessionId: "missing" })).toMatchObject({ receipt: { status: "rejected", reason: "not_found" } });
+    await client.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: phone.clientSessionId });
+    expect(await client.request("access.sessions.setAccess", { ...params, commandId: randomUUID(), clientSessionId: phone.clientSessionId })).toMatchObject({ receipt: { status: "rejected", error: { data: { reason: "revoked" } } } });
+  });
+
+  it("leaves sockets and the access log unchanged for an identical grant and replays a command only once", async () => {
+    const t = await start();
+    const { client } = await admin(t);
+    const phone = await t.pair({ scopes: ["read"], ceiling: "plan" });
+    const connected = await t.client({ token: phone.token, clientKind: "program" });
+    const params = { commandId: randomUUID(), clientSessionId: phone.clientSessionId, scopes: ["read"] as const, ceiling: "plan" as const };
+    expect(await client.request("access.sessions.setAccess", params)).toMatchObject({ receipt: { changed: false } });
+    expect(await connected.request("environment.status", {})).toBeDefined();
+    const change = { ...params, commandId: randomUUID(), ceiling: "acceptEdits" as const };
+    const first = await client.request("access.sessions.setAccess", change);
+    expect(await client.request("access.sessions.setAccess", change)).toEqual({ receipt: first.receipt });
+    expect((await accessLog(client)).filter((event) => event.type === "access.changed")).toHaveLength(1);
+  });
+});
+
+
+it("refuses changing an expired client's grant", async () => {
+  const first = await startRestartable();
+  const phone = await first.pair({ scopes: ["read"], ceiling: "plan" });
+  const t = await restartAfter(first, 30 * DAY, start);
+  const { client } = await admin(t);
+  expect(await client.request("access.sessions.setAccess", { commandId: randomUUID(), clientSessionId: phone.clientSessionId, scopes: ["read"], ceiling: "plan" })).toMatchObject({ receipt: { status: "rejected", error: { code: "conflict", data: { reason: "expired" } } } });
 });

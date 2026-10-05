@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.sessions.setAccess response",
+  "type": "object",
+  "properties": {
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "accepted"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head once the command committed: its last event, or the head it saw when it appended none."
+            },
+            "changed": {
+              "type": "boolean",
+              "description": "False for a command that was accepted and changed nothing, so appended no event."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "rejected"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head when the command was rejected."
+            },
+            "changed": {
+              "type": "boolean",
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "description": "Why the command was rejected, the code of its error: not_found when its target does not exist."
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "description": "A stable error code in snake case."
+                },
+                "message": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "data"
+              ],
+              "description": "The rejection as an error: its code (the reason), a message for people and structured data."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed",
+            "reason",
+            "error"
+          ]
+        }
+      ],
+      "description": "A command's receipt: accepted (with the head sequence after it and whether it changed anything) or rejected (with the reason and the error). A retry with the same commandId answers the same receipt."
+    },
+    "result": {
+      "description": "The method's result, present when this request applied the command; absent on a retry and on a rejection.",
+      "type": "object",
+      "properties": {
+        "clientSessionId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A client session's id, as hello names it and the access methods list and revoke it."
+        },
+        "scopes": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "read",
+              "sessions:write",
+              "runs:drive",
+              "terminal",
+              "admin"
+            ],
+            "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+          },
+          "uniqueItems": true,
+          "description": "The scopes a client session holds, as a non-empty set."
+        },
+        "ceiling": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions."
+        }
+      },
+      "required": [
+        "clientSessionId",
+        "scopes",
+        "ceiling"
+      ]
+    }
+  },
+  "required": [
+    "receipt"
+  ]
+}

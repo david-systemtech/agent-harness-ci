@@ -29,7 +29,7 @@ at `acceptEdits`. My own client retains every scope and `bypassPermissions`, is
 valid for the owner's phone, and is never silently downgraded by browser kind.
 Existing links disclose and retain their minted grant. A program and Custom
 retain their choices/defaults; Custom expansion for terminal/admin is deliberate
-re-pairing, never self-raising and never above the minter's scopes/ceiling.
+re-pairing, or an access change by another admin client, never self-raising and never above the granting client's scopes/ceiling.
 
 Phone links/QR use the explicitly configured external HTTPS origin, including
 its port; desktop/TUI HTTP remains supported. Browser pairing opens sessions
@@ -38,3 +38,16 @@ network, supports manual address+code and HTTPS QR scanning with denial/cancel
 fallback and track cleanup. Browser Forget erases its local token and revokes
 when reachable; it has no unforgettably local environment. See
 [web-client.md](../specs/web-client.md).
+
+
+## Amendment: change paired access in place (2026-10-05, #1632)
+
+Rights are initially set at pairing. An admin client may subsequently replace
+another live paired client's scopes and ceiling through `access.sessions.setAccess`.
+Access offers Full access (My own client's grant), Restricted phone (Phone's
+grant), and Custom scopes and ceiling. A client never changes its own grant
+and never grants scopes or a ceiling beyond its own authority. Replacement is
+atomic and audited with the previous and new grant; the same operation undoes it.
+The affected client reconnects its open sockets and subscriptions with its
+existing token and receives the new grant without pairing again. Running runs
+keep their resolved policy. The permissions spec records refusal cases.

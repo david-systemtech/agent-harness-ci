@@ -6,7 +6,7 @@ import type { Pairings } from "./pairings.js";
 
 export interface AccessMethodsOptions {
   readonly pairings: Pick<Pairings, "ceilingOf" | "create">;
-  readonly clientSessions: Pick<ClientSessions, "list" | "refresh" | "revoke" | "setCeiling" | "heldCeiling">;
+  readonly clientSessions: Pick<ClientSessions, "list" | "refresh" | "revoke" | "setCeiling" | "heldCeiling" | "setAccess">;
   readonly accessLog: Pick<AccessLog, "list" | "stream">;
 }
 
@@ -16,6 +16,7 @@ type AccessMethodName =
   | "access.sessions.revoke"
   | "access.sessions.refresh"
   | "access.sessions.setCeiling"
+  | "access.sessions.setAccess"
   | "access.log.list";
 
 /**
@@ -95,6 +96,18 @@ export const accessMethods = (options: AccessMethodsOptions): Required<Pick<Meth
         return { aggregate, rejected: { code: "conflict", message: `The client session ${target} has been revoked.`, data: { reason: "revoked" } } };
       }
       return { aggregate, result: { clientSessionId: target, from: changed.from, to: changed.to } };
+    },
+
+    "access.sessions.setAccess": (params, { clientSession, commandId, tx }) => {
+      const target = params.clientSessionId;
+      if (target === clientSession.id) return { aggregate, rejected: { code: "conflict", message: "A client cannot change its own access; another admin client can.", data: { reason: "own_session" } } };
+      if (compareModes(params.ceiling, clientSession.ceiling) > 0) return { aggregate, rejected: aboveOwn(params.ceiling, clientSession.ceiling, "A client grant at") };
+      const unheld = params.scopes.find((scope) => !clientSession.scopes.includes(scope));
+      if (unheld !== undefined) return { aggregate, rejected: { code: "forbidden", message: `This client cannot grant ${unheld}; it does not hold that scope.`, data: { reason: "scope", scope: unheld } } };
+      const changed = clientSessions.setAccess(tx, target, params.scopes, params.ceiling, byClientSession(clientSession.id, commandId));
+      if (changed === "not_found") return { aggregate, rejected: { code: "not_found", message: `No client session is named ${target}.` } };
+      if (changed === "revoked" || changed === "expired") return { aggregate, rejected: { code: "conflict", message: `The client session ${target} is ${changed}.`, data: { reason: changed } } };
+      return { aggregate, result: { clientSessionId: target, scopes: params.scopes, ceiling: params.ceiling } };
     },
 
     "access.log.list": (params) => ({ events: accessLog.list(params.afterSequence ?? 0, params.limit ?? DEFAULT_LOG_PAGE) }),
