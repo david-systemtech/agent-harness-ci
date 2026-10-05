@@ -51,7 +51,7 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
   await expect(page.getByRole("button", { name: "Add an account…", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Close Settings", exact: true }).click();
   await page.getByRole("button", { name: "More", exact: true }).click();
-  for (const name of ["Files", "Diff", "Terminal", "Split right", "Split down"]) {
+  for (const name of ["Files", "Diff", "Terminal", "Browser", "Split right", "Split down"]) {
     await expect(page.getByRole("menuitem", { name, exact: true })).toHaveAttribute("aria-disabled", "true");
   }
   await page.keyboard.press("Escape");
@@ -94,7 +94,7 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string): Promise<void> {
   const observer = await environment.client();
   // Full grant is minted separately by the runner; this never expands the Phone grant.
-  for (const label of ["Files", "Diff", "Documents", "Tasks", "Terminal", "Browser"]) {
+  for (const label of ["Files", "Diff", "Documents", "Tasks", "Terminal"]) {
     await page.getByRole("button", { name: "More", exact: true }).click();
     await page.getByRole("menuitem", { name: label, exact: true }).click();
     const sheet = page.getByRole("dialog", { name: "Side column", exact: true });
@@ -124,16 +124,12 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
       const ctrl = sheet.getByRole("button", { name: "Ctrl", exact: true });
       await expect(ctrl).toBeEnabled();
       for (const name of ["Ctrl", "Esc", "Tab", "Select", "Close terminal"]) await reachable(page, sheet.getByRole("button", { name, exact: true }));
+      await expect.poll(async () => (await observer.request("terminals.list", { sessionId })).terminals.length, { timeout: 60_000 }).toBe(1);
       const terminals = await observer.request("terminals.list", { sessionId });
       assert.equal(terminals.terminals.length, 1); terminalId = terminals.terminals[0]!.id;
       // Close the sheet explicitly: Esc is also a terminal input control.
       await sheet.getByRole("button", { name: "Close side sheet", exact: true }).click();
     } else {
-      if (label === "Browser") {
-        await expect(sheet.getByRole("textbox", { name: "Page address", exact: true })).toBeVisible();
-        await expect(sheet.getByRole("combobox", { name: "Browser for the next run", exact: true })).toBeVisible();
-        assert.equal(await sheet.locator("iframe").count(), 0);
-      }
       await page.keyboard.press("Escape");
     }
     await expect(sheet).toBeHidden();
@@ -142,6 +138,16 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
     }
     await expect(page.getByRole("button", { name: "Show the side column", exact: true })).toBeFocused();
   }
+  // The web replacement lives in Status; the native Browser dock remains unavailable.
+  const browserTrigger = page.getByRole("button", { name: "Environment browser", exact: true });
+  await browserTrigger.click();
+  const browserDialog = page.getByRole("dialog", { name: "Environment browser", exact: true });
+  await expect(browserDialog.getByRole("textbox", { name: "Page address", exact: true })).toBeVisible();
+  await expect(browserDialog.getByRole("combobox", { name: "Browser for the next run", exact: true })).toBeVisible();
+  assert.equal(await browserDialog.locator("iframe").count(), 0, "The browser replacement never embeds a third-party page.");
+  await reachable(page, browserDialog.getByRole("button", { name: "Close browser", exact: true }));
+  await browserDialog.getByRole("button", { name: "Close browser", exact: true }).click();
+  await expect(browserDialog).toBeHidden(); await expect(browserTrigger).toBeFocused();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   for (const row of SETTINGS_ROWS) {
     if ("dim" in row) {
