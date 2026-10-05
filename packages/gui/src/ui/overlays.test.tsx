@@ -74,7 +74,33 @@ describe("window overlays", () => {
       expect(screen.queryByRole("tooltip")).toBeNull();
       act(() => vi.advanceTimersByTime(250));
       expect(screen.getByRole("tooltip").textContent).toBe("First hint");
-    } finally { vi.useRealTimers(); }
+    } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
+
+  it("does not leave a tooltip over the page after touch focus or synthetic hover", () => {
+    vi.useFakeTimers();
+    const original = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(hover: none)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+    try {
+      render(<Tooltip content="Show sessions"><button>Sessions</button></Tooltip>);
+      const trigger = screen.getByRole("button", { name: "Sessions" });
+      const pointer = (type: string, pointerType: string) => {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, "pointerType", { value: pointerType });
+        fireEvent(trigger, event);
+      };
+      pointer("pointerdown", "touch");
+      pointer("pointerup", "touch");
+      act(() => vi.advanceTimersByTime(1));
+      act(() => trigger.focus());
+      pointer("pointermove", "mouse");
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      fireEvent.keyDown(trigger, { key: "Tab" });
+      fireEvent.blur(trigger);
+      fireEvent.focus(trigger);
+      expect(screen.getByRole("tooltip").textContent).toBe("Show sessions");
+    } finally { vi.useRealTimers(); vi.restoreAllMocks(); }
   });
 
   it("keeps background shortcuts from receiving keys typed inside a modal", async () => {

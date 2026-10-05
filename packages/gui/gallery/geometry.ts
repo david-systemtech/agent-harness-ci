@@ -16,6 +16,16 @@ export function measureSceneGeometry(): string[] {
         || element.scrollHeight > element.clientHeight + (check.tolerance ?? 0.5))) {
         visibility.push(`${check.selector}[${index}]: content overflows its bounds`);
       }
+      if (check.minimumTop !== undefined && rect.top < check.minimumTop - (check.tolerance ?? 0.5)) {
+        visibility.push(`${check.selector}[${index}].top: got ${rect.top}, expected at least ${check.minimumTop}`);
+      }
+      if (check.below !== undefined) {
+        const preceding = Array.from(document.querySelectorAll(check.below));
+        if (preceding.length === 0) visibility.push(`${check.below}: no matching elements`);
+        else if (preceding.some(row => rect.top < row.getBoundingClientRect().bottom - (check.tolerance ?? 0.5))) {
+          visibility.push(`${check.selector}[${index}]: overlaps ${check.below}`);
+        }
+      }
       if (check.visibleWithin !== undefined) {
         if (style.visibility === "hidden" || style.visibility === "collapse") {
           visibility.push(`${check.selector}[${index}]: hidden inside ${check.visibleWithin}`);

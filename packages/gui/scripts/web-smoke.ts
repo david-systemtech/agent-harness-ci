@@ -1,3 +1,4 @@
+import { phoneFrameSmoke } from "./phone-frame-smoke.js";
 import { phoneRefusalSmoke } from "./phone-refusal-smoke.js";
 import { phonePushGateway, phonePushSmoke } from "./phone-push-smoke.js";
 import { webOriginSmoke } from "./web-origin-smoke.js";
@@ -75,7 +76,7 @@ try {
     publicRequests.length = 0;
     const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
     const browser = await engine.launch(name === "chromium" ? { channel: "chromium", args: ["--ignore-certificate-errors"] } : {});
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, ignoreHTTPSErrors: true });
     try {
       let page = await context.newPage();
       page.setDefaultTimeout(60_000);
@@ -98,6 +99,7 @@ try {
       await auditPublicCache(page, name, "initial installation");
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+      await phoneFrameSmoke(page, name);
       await page.getByRole("button", { name: "Show sessions", exact: true }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).waitFor({ state: "hidden" });
@@ -145,11 +147,12 @@ try {
       const own = pairingPreset("own-client");
       const ownCode = await environment.createPairing({ scopes: own.scopes, ceiling: own.ceiling });
       // An independent browser storage context proves this separately minted grant.
-      const ownContext = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
+      const ownContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, ignoreHTTPSErrors: true });
       const ownPage = await ownContext.newPage();
       await ownPage.goto(ownCode.link);
       await ownPage.locator("[data-web-grant]").filter({ hasText: "Ceiling: bypassPermissions" }).waitFor();
       assert((await ownPage.locator("[data-web-grant]").innerText()).includes("terminal, admin"), "My own client keeps its full grant.");
+      await phoneFrameSmoke(ownPage, `${name} full grant`);
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
       await denied.addInitScript("Object.defineProperty(window, 'indexedDB', { get() { throw new DOMException('Denied', 'SecurityError'); } });");

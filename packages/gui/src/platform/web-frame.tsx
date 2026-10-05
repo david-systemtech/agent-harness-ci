@@ -21,6 +21,7 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
 import { sessionLink, type BrowserRoute } from "./browser-boot.js";
 import type { BrowserPlatform } from "./browser-platform.js";
 import { WebRegisteredSurfaces } from "./web-registrations.js";
+import "./web-frame.css";
 
 export interface WebFrameProps { readonly platform: BrowserPlatform; readonly route: BrowserRoute }
 
@@ -30,7 +31,7 @@ export const WebViewport = ({ children, narrow = false }: { readonly children: R
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const resize = () => setHeight(viewport.height);
+    const resize = () => { if (viewport.scale === undefined || viewport.scale === 1) setHeight(viewport.height); };
     resize();
     viewport.addEventListener("resize", resize);
     return () => viewport.removeEventListener("resize", resize);
