@@ -8,6 +8,8 @@
   animation: none;
 }
 .authoring-dialog > div:first-child { flex-shrink: 0; }
+/* The shared phone frame is fixed; its nested authoring panel stays in the dialog's flex layout. */
+.authoring-dialog[data-authoring-dialog] [data-authoring-frame] { position: static; }
 @media (width < 640px) {
   .authoring-dialog[data-authoring-dialog] {
     width: 100vw;

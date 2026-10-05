@@ -35,7 +35,7 @@ it.each(["settings-bank-authoring", "setup-authoring", "phone-bank-authoring"])(
   expect(await within(dialog).findByRole("article", { name: "Question" })).toBeDefined();
 });
 
-it("reserves authoring composer space when shared phone styles load after the dialog styles", async () => {
+it("keeps authoring in the dialog flow when shared phone styles load after the dialog styles", async () => {
   vi.stubGlobal("innerWidth", 390);
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "phone-bank-authoring", "dark"); close = gallery.close;
@@ -45,6 +45,7 @@ it("reserves authoring composer space when shared phone styles load after the di
     const style = document.createElement("style"); style.textContent = css; document.head.append(style); sheets.push(style); return style;
   };
   try {
+    document.documentElement.setAttribute("data-phone-viewport", "");
     append(readFileSync(new URL("../src/setup/authoring-conversation.css", import.meta.url), "utf8"));
     const shared = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
     append(shared.slice(shared.indexOf("[data-web-client] {")));
@@ -53,9 +54,10 @@ it("reserves authoring composer space when shared phone styles load after the di
     const media = Array.from(phone.sheet!.cssRules).filter((rule): rule is CSSMediaRule => rule.type === 4 && (rule as CSSMediaRule).conditionText === "(max-width: 639px)");
     append(media.flatMap(rule => Array.from(rule.cssRules)).map(rule => rule.cssText).join("\n"));
     const dialog = screen.getByRole("dialog", { name: "Authoring conversation" });
+    expect(getComputedStyle(dialog.querySelector("[data-authoring-frame]")!).position).toBe("static");
     const column = within(dialog).getByRole("textbox", { name: "Message" }).closest("[data-composer-column]")!;
     expect(getComputedStyle(column).flexShrink).toBe("0");
     expect(getComputedStyle(column).maxHeight).toBe("none");
     expect(getComputedStyle(dialog.querySelector('[aria-label="Parked prompt"]')!).maxHeight).toBe("60dvh");
-  } finally { sheets.forEach(sheet => sheet.remove()); }
+  } finally { document.documentElement.removeAttribute("data-phone-viewport"); sheets.forEach(sheet => sheet.remove()); }
 });
