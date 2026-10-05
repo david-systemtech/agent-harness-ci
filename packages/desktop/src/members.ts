@@ -1,3 +1,4 @@
+import { changeZoom } from "./zoom.js";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import type {
@@ -122,6 +123,7 @@ export const shellMembers = ({
     return answer.canceled ? [] : answer.filePaths;
   };
   return {
+    "window.zoom": (action) => changeZoom(window.webContents, action),
     "window.state": () => windowState(window, platform.os),
     "window.minimize": () => window.minimize(),
     "window.toggleMaximize": () => window.isMaximized() ? window.unmaximize() : window.maximize(),
