@@ -13,7 +13,21 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
   const fits = async (control: Locator) => {
     // Intersection observes clipping by every overflow ancestor, not just the viewport.
-    await expect(control).toBeInViewport({ ratio: 1, timeout: 60_000 });
+    try { await expect(control).toBeInViewport({ ratio: 1, timeout: 60_000 }); }
+    catch (error) {
+      console.error("PHONE-REFUSAL geometry", await control.evaluate(`element => JSON.stringify({
+        viewport: [innerWidth, innerHeight],
+        focus: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim().slice(0, 40),
+        ancestors: (() => { const result = []; for (let node = element; node; node = node.parentElement) {
+          const { x, y, width, height } = node.getBoundingClientRect();
+          result.push({ tag: node.tagName, column: node.hasAttribute('data-composer-column'),
+            above: node.hasAttribute('data-composer-above'), x, y, width, height,
+            scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight,
+            overflow: getComputedStyle(node).overflowY });
+        } return result; })()
+      })`));
+      throw error;
+    }
     const box = await control.boundingBox();
     const region = await column.boundingBox();
     const viewport = page.viewportSize();
