@@ -3,6 +3,8 @@ import { verifyKeyboardDock, verifyReadableReplyLines } from "../phone-keyboard-
 import { safeAreas } from "../phone-frame-scene.js";
 export { platform, script, route } from "../phone-frame-scene.js";
 
+export const filledKeyboardPrompt = { promptId: "keyboard-permission", kind: "permission" as const, summary: "Read each receipt and compare its rounding with the summary. ".repeat(4), toolName: "Bash", input: { command: "printf receipts" } };
+
 let world: ScriptedWorld;
 export const arrangeWeb = (value: ScriptedWorld) => {
   world = value;
@@ -55,7 +57,7 @@ export const activate = () => {
     await settle(); verifyKeyboardDock(480, 120);
     document.querySelector<HTMLButtonElement>('[aria-label="Notifications"] [aria-label="Dismiss"]')!.click();
     await settle();
-    env.openPrompt(env.sessionId(), { promptId: "keyboard-permission", kind: "permission", summary: "Read each receipt and compare its rounding with the summary. ".repeat(24), toolName: "Bash", input: { command: "printf receipts" } });
+    env.openPrompt(env.sessionId(), filledKeyboardPrompt);
     await settle(); verifyKeyboardDock(480, 120);
     const above = document.querySelector<HTMLElement>("[data-composer-above]")!;
     if (above.scrollHeight <= above.clientHeight) throw new Error("Filled dock proof needs a scrolling waiting card");
