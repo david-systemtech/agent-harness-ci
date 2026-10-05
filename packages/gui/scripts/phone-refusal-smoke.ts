@@ -11,7 +11,19 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const column = page.locator("[data-composer-column]");
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
-  const fits = async (control: Locator) => {
+  const fits = async (control: Locator, name: string) => {
+    const diagnostics = await control.evaluate(`element => {
+      const rect = (node) => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+      const parents = [];
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (node === element || style.overflowY !== "visible") parents.push({ tag: node.tagName, box: rect(node), overflowY: style.overflowY, scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight });
+      }
+      const active = document.activeElement;
+      const viewport = window.visualViewport;
+      return { parents, active: active ? { tag: active.tagName, label: active.getAttribute("aria-label"), box: rect(active) } : null, viewport: viewport ? { height: viewport.height, width: viewport.width, offsetTop: viewport.offsetTop, scale: viewport.scale } : null };
+    }`);
+    console.log(`PHONE-REFUSAL ${engine}: ${name} geometry ${JSON.stringify(diagnostics)}`);
     const box = await control.boundingBox();
     const region = await column.boundingBox();
     const viewport = page.viewportSize();
@@ -22,6 +34,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   await signIn(false);
   try {
     for (const viewport of [{ width: 390, height: 480 }, { width: 360, height: 400 }]) {
+      console.log(`PHONE-REFUSAL ${engine}: viewport ${viewport.width}x${viewport.height}`);
       await page.setViewportSize(viewport);
       await field.fill(message);
       await page.getByRole("button", { name: /^Send/ }).click();
@@ -30,10 +43,10 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(field).toHaveValue(message);
       assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-composer-column]')).overflowY"), "auto", "A touch user can scroll the full composer, including its refusal and Run settings.");
       await refusal.scrollIntoViewIfNeeded();
-      await fits(refusal);
+      await fits(refusal, "refusal");
       await page.screenshot({ path: join(output, `phone-refusal-${engine}-${viewport.width}.png`) });
       await settings.scrollIntoViewIfNeeded();
-      await fits(settings);
+      await fits(settings, "Run settings");
       await settings.click();
       const account = page.getByRole("button", { name: /^Account:/ });
       await account.click();
@@ -44,9 +57,9 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await remedy.scrollIntoViewIfNeeded();
-      await fits(remedy);
+      await fits(remedy, "remedy");
       await page.getByRole("button", { name: /^Send/ }).scrollIntoViewIfNeeded();
-      await fits(page.getByRole("button", { name: /^Send/ }));
+      await fits(page.getByRole("button", { name: /^Send/ }), "Send");
       await settings.click();
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
