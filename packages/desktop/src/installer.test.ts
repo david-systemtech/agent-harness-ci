@@ -31,7 +31,7 @@ describe("installer", () => {
     const platform = platformOn("darwin");
     const { shell } = await start({ platform });
     vi.mocked(statfs).mockImplementationOnce(async (path) => ({
-      type: 0, bsize: 4096, blocks: 100000, bfree: 65536,
+      type: 0, bsize: 4096, frsize: 4096, blocks: 100000, bfree: 65536,
       bavail: path === platform.paths.environment ? 48795 : 0, files: 0, ffree: 0,
     }));
     expect(await shell().installer.reserveSpace!()).toEqual({ availableBytes: 199864320, requiredBytes: 268435456 });
