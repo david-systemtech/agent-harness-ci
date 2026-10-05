@@ -16,7 +16,7 @@ import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { Button, Dialog, DialogContent, DialogTrigger, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
-import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, modeLabel } from "./pickers.js";
+import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, RunPickerRequest, modeLabel, type RunPickerCommand } from "./pickers.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { UsageMeter } from "./usage-meter.js";
@@ -51,6 +51,7 @@ export interface StatusLineProps {
 export const StatusLine = ({ environmentId, sessionId, compact = false }: StatusLineProps) => {
   const web = useShell() === undefined;
   const [expanded, setExpanded] = useState(false);
+  const [requestedPicker, setRequestedPicker] = useState<RunPickerCommand | null>(null);
   const detailsId = useId();
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
@@ -106,10 +107,11 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
       </span>
   </>;
   if (compact) return <>
-    <Dialog>
+    {!expanded && (["account", "model", "mode", "containment"] as const).map(command => <PhonePickerCommand key={command} environmentId={environmentId} command={command} open={picker => { setRequestedPicker(picker); setExpanded(true); }} />)}
+    <Dialog open={expanded} onOpenChange={open => { setExpanded(open); if (!open) setRequestedPicker(null); }}>
       <DialogTrigger asChild><Button aria-label="Run settings"><Settings2 aria-hidden="true" className="size-4" /></Button></DialogTrigger>
       <DialogContent data-phone-run-settings title="Run settings" className="phone-composer-sheet">
-        {details}
+        <RunPickerRequest value={requestedPicker === null ? null : { command: requestedPicker, handled: () => setRequestedPicker(null) }}>{details}</RunPickerRequest>
       </DialogContent>
     </Dialog>
     <span data-phone-composer-browser><WebRegisteredSurfaces location="session-status" /></span>
@@ -121,6 +123,18 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
       {details}
     </section>
   );
+};
+
+const PICKER_CAPABILITIES = { account: "accounts.list", model: "models.list", mode: "permissions.mode.set", containment: "permissions.containment.set" } as const;
+
+/** Closed phone details keep the same command availability; mounted pickers take over when opened. */
+const PhonePickerCommand = ({ environmentId, command, open }: { readonly environmentId: string; readonly command: RunPickerCommand; readonly open: (command: RunPickerCommand) => void }) => {
+  const runtime = useRuntime();
+  useObservable(runtime.projections.environments);
+  const offer = runtime.capability(environmentId, PICKER_CAPABILITIES[command]);
+  const [, say] = usePaneLine();
+  useSlashCommand(command, () => { if (offer.status === "absent") say(offer.message); else open(command); }, offer);
+  return null;
 };
 
 /** Spend remains in status; the composer owns the single activity and elapsed-time tail. */

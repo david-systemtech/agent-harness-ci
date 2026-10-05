@@ -56,6 +56,29 @@ it("restores the run-settings sheet after closing a nested account picker", asyn
   expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
 });
 
+it("closes workspace details when a recent folder opens the new-session surface", async () => {
+  const gallery = await openPhone();
+  fireEvent.click(await screen.findByRole("button", { name: "Workspace: receipts" }));
+  const sheet = await screen.findByRole("dialog", { name: "Workspace" });
+  fireEvent.click(await within(sheet).findByRole("button", { name: "/work/receipts" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Workspace" })).toBeNull());
+  expect(await screen.findByRole("region", { name: "New session" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Workspace: directory receipts" })).toBeDefined();
+  const env = gallery.world.world.environment("desk");
+  expect(env.requests("sessions.setWorkspace")).toHaveLength(0);
+  expect(env.requests("sessions.create")).toHaveLength(0);
+});
+
+it.each(["account", "model", "mode", "containment"] as const)("keeps /%s wired while the Run settings sheet is closed", async command => {
+  const gallery = await openPhone();
+  const field = screen.getByRole("textbox", { name: "Message" });
+  act(() => field.focus());
+  fireEvent.change(field, { target: { value: `/${command}` } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(command === "account" || command === "model" ? await screen.findByRole("dialog", { name: "Run choices" }) : await screen.findByRole("menu")).toBeDefined();
+  expect(gallery.world.world.environment("desk").requests("runs.start")).toHaveLength(0);
+});
+
 it("explains the check state on tap without giving its path or off sentence a dock row", async () => {
   await openPhone();
   const check = await screen.findByRole("button", { name: "Workspace check: off" });
