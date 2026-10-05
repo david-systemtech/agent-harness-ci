@@ -594,3 +594,35 @@ offering `forge` with `admin`:
    variables (on macOS the app bundle's `Contents/MacOS` executable, not
    `open -a`, whose launch does not pass them on): the token handed over is
    the one `gh` stores, not `GH_TOKEN`'s.
+
+
+## Carry over after account sign-in
+
+Run on the released desktop with a disposable source profile and on a paired,
+fresh headless environment (#1626). Keep source directory inventories before
+and after; use test accounts and a test skill repository.
+
+1. **Desktop.** Import the source's accounts and sessions, then sign in the
+   adopted accounts and add a signed-in owned account. Reopen Set up > Carry
+   over. The adopted directories still show their inventories; the owned
+   account has no import card. Preview and import again: existing accounts
+   and sessions keep their ids and are not duplicated; source files stay intact.
+2. **Private skill source.** Without its forge credential, import a private
+   test skill source and its always-on choice. The partial failure remains
+   visible while accounts and sessions that succeeded stay carried. The report
+   points to Forges for the credential and Skills for an unavailable exact name.
+   Reopen the step: Open Forges and Open Skills explain where to repair it,
+   even when the retained failure came from an earlier release.
+3. **Preview is a plan.** Run a dry run after that failure. Its report says
+   that repository access was not tested and a failed import was not cleared;
+   Carry over still needs attention. Supply the test repository's forge
+   credential and restore any missing skill, then import again. Only remaining
+   items carry, and a successful real import clears the retained failure.
+4. **Headless server.** Select the paired fresh environment with signed-in
+   owned accounts, no adopted directories and no source folders. Carry over
+   shows one sentence saying there is nothing to carry, with no amber failure
+   or import controls. Continue advances the checklist without an import call.
+   Return to the desktop environment and verify its inventories and failure
+   state belong to that environment alone.
+
+These checks exercise setup and import behavior; they require no provider run.

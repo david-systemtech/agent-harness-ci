@@ -75,9 +75,11 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     failed.push(...plan.failed);
     notCarried.push(...plan.notCarried);
   }
+  let skillRepairs: (preview: boolean) => readonly StateImportReEnter[] = () => [];
   if (skills.status === "failed") failed.push({ label: "Skills", message: skills.diagnostic });
   else {
     const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [] });
+    skillRepairs = plan.repairs;
     planned.push({ snapshot: skills.snapshot, label: "Skills", items: plan.items });
     failed.push(...plan.failed);
   }
@@ -140,7 +142,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: banks.snapshot, ...(profiles.status === "read" && bankPlan.items.length > 0 && { dependencies: [profiles.snapshot] }), label: BANK_REGISTRY_LABEL, items: bankPlan.items });
     failed.push(...bankPlan.failed);
   } else if (banks.status === "failed") failed.push({ label: "Bank registry", message: banks.diagnostic });
-  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), repairs: (preview) => [...defaultRepair(preview), ...(bankPlan?.repairs(preview) ?? [])] }, stores.reportStores);
+  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), repairs: (preview) => [...defaultRepair(preview), ...skillRepairs(preview), ...(bankPlan?.repairs(preview) ?? [])] }, stores.reportStores);
 };
 
 /** Omission-only stores still participate in byte consistency and scrubbed store failures. */
