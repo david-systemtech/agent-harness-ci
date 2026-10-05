@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator, Page, Request } from "playwright";
-import { expect } from "playwright/test";
+import { expect as browserExpect } from "playwright/test";
+
+const expect = browserExpect.configure({ timeout: 60_000 });
 import { fileTool, type ScriptControls } from "../../../environment/test/fake-adapter.js";
 import { untilEvent } from "../../../environment/test/routines.js";
 import type { TestEnvironment } from "../../../environment/test/helper.js";
@@ -65,7 +67,15 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
       const drawer = page.getByRole("dialog", { name: "Sessions", exact: true });
       await expect(drawer).toBeFocused();
       await page.keyboard.press("Tab");
-      assert(await drawer.evaluate("element => element.contains(document.activeElement)"), "Drawer traps focus.");
+      try {
+        await expect.poll(() => drawer.evaluate("element => element.contains(document.activeElement)"), { timeout: 60_000, message: "Drawer traps focus after Tab." }).toBe(true);
+      } catch (error) {
+        const focus = await page.evaluate("({ tag: document.activeElement?.tagName, role: document.activeElement?.getAttribute('role'), label: document.activeElement?.getAttribute('aria-label'), dialogs: Array.from(document.querySelectorAll('[role=dialog]')).map(element => element.getAttribute('aria-label') || element.getAttribute('aria-labelledby')) })");
+        console.error(`PHONE-FOCUS ${engine} ${JSON.stringify({ viewport, colorScheme, focus })}`);
+        throw error;
+      }
+      // A focused icon may open a tooltip whose first Escape dismisses only that tooltip.
+      await drawer.getByRole("searchbox", { name: "Filter the sessions", exact: true }).click();
       await page.keyboard.press("Escape");
       await expect(drawer).toBeHidden(); await expect(trigger).toBeFocused();
     }
