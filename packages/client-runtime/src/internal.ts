@@ -104,7 +104,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       // A tool run's start and end, history too, so the run under way and each tool's last are as the stream says (#426).
       toolRuns.heard(environmentId, event);
       // Startup supersedes the preceding drain on this stream, including a replay onto an empty cache.
-      if (event.type === "environment.started") environmentNotices.restarted(environmentId);
+      if (event.type === "environment.started") environmentNotices.restarted(environmentId, event.sequence);
       // A resolution settles a parked ask, and takes back its notice, whether or not it is news: an answered prompt never parks
       // again. Only news says how it was settled (`environmentNotices.heard`, below).
       if (event.type === "prompt.resolved") {

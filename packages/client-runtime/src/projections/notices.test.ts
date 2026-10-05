@@ -108,6 +108,26 @@ describe("the notices from the environment's stream", () => {
     expect(runtime.projections.notices.read()).toEqual([]);
   });
 
+  it("keeps a current drain when empty-cache replay includes an older startup", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    const start = noticeEvent(1, env, "environment.started", { harnessVersion: "0.1.0", protocolVersion: 1 });
+    const drain = noticeEvent(2, env, "environment.draining", { drainingSince: "2026-09-24T00:00:02.000Z", trigger: "launcher" });
+    desk.notices.event(start);
+    desk.notices.event(drain);
+    await flush();
+    expect(runtime.projections.notices.read()).toHaveLength(1);
+    await runtime.connections.remove(env);
+    const adding = runtime.connections.add({ link: desk.wire.link });
+    await desk.wire.server.accept();
+    (await subscription(desk.wire, "sessions.subscribe")).synchronized(0);
+    const resumed = await subscription(desk.wire, "environment.subscribe");
+    resumed.event(start);
+    resumed.event(drain);
+    resumed.synchronized(2);
+    await adding;
+    expect(runtime.projections.notices.read().map((notice) => notice.kind)).toEqual(["draining"]);
+  });
+
   it("say it is draining, an account's warning and a prompt parked, each once, as news", async () => {
     const { runtime, desk, env } = await oneEnvironment();
     desk.notices.event(noticeEvent(1, env, "environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" }));

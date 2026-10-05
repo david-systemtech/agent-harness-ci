@@ -103,10 +103,12 @@ export interface EnvironmentNotices {
    */
   settled(environmentId: string, sessionId: string, promptId: string): void;
   /** A start supersedes the preceding drain, even when replayed as history. */
-  restarted(environmentId: string): void;
+  restarted(environmentId: string, sequence: number): void;
 }
 
 export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices => {
+  // Associate the displayed condition with its stream position without retaining dismissed notices.
+  const drainingSequences = new WeakMap<Notice, number>();
   /** What each parked prompt's notice was raised for, by notice id: the words its resolution says it with. */
   const parkedPrompts = new Map<string, { readonly title: string; readonly summary: string }>();
 
@@ -122,8 +124,8 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
   };
 
   return {
-    restarted(environmentId) {
-      notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "draining");
+    restarted(environmentId, sequence) {
+      notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "draining" && (drainingSequences.get(notice) ?? Infinity) < sequence);
     },
     heard(environmentId, event, context) {
       const parsed = EnvironmentNotice.safeParse(event);
@@ -141,10 +143,12 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           raise({ kind: "update-failed", message: `${name} could not be updated to ${toVersion} (${stage}: ${reason}). It is running ${fromVersion}.`, action: null });
           return;
         }
-        case "environment.draining":
-          if (notices.list.read().some((notice) => notice.environmentId === environmentId && notice.kind === "draining")) return;
-          raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });
+        case "environment.draining": {
+          const existing = notices.list.read().find((notice) => notice.environmentId === environmentId && notice.kind === "draining");
+          const shown = existing ?? raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });
+          drainingSequences.set(shown, event.sequence);
           return;
+        }
         case "account.updated": {
           const { accountId, change, warning } = notice.payload;
           if (warning !== null) raise({ kind: "account", message: `${name}: ${warning}`, action: null });
