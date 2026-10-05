@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
 
@@ -58,6 +58,39 @@ it.each(["accounts", "models", "effort"])("shows only the %s step in the phone g
     expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: "[data-run-sheet]", width: 344, visibleWithin: "[data-run-sheet]" });
   } finally {
     media.mockRestore();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  }
+});
+
+it("bounds the portalled run sheet when only the visual viewport shrinks and pans", async () => {
+  const viewport = Object.assign(new EventTarget(), { height: 844, width: 390, scale: 1, offsetTop: 0, offsetLeft: 0 });
+  vi.stubGlobal("visualViewport", viewport);
+  const width = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  try {
+    const container = document.createElement("div"); document.body.append(container);
+    const gallery = await mountGallery(container, "phone-run-picker-models", "light", undefined, { platform: "web" });
+    close = gallery.close;
+    const sheet = await screen.findByRole("dialog", { name: "Run choices" });
+    const wrapper = sheet.closest<HTMLElement>("[data-radix-popper-content-wrapper]")!;
+    const frame = container.querySelector<HTMLElement>("[data-web-client]")!;
+    expect(frame.contains(sheet)).toBe(false);
+    expect(wrapper.style.getPropertyValue("--run-sheet-height")).toBe("844px");
+    act(() => { Object.assign(viewport, { height: 400, width: 360, offsetTop: 80, offsetLeft: 15 }); viewport.dispatchEvent(new Event("resize")); });
+    expect(window.innerWidth).toBe(390);
+    expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("400px");
+    expect(wrapper.style.getPropertyValue("--run-sheet-height")).toBe("400px");
+    expect(wrapper.style.getPropertyValue("--run-sheet-width")).toBe("360px");
+    expect(wrapper.style.getPropertyValue("--run-sheet-top")).toBe("80px");
+    expect(wrapper.style.getPropertyValue("--run-sheet-left")).toBe("15px");
+    act(() => { viewport.offsetTop = 120; viewport.dispatchEvent(new Event("scroll")); });
+    expect(wrapper.style.getPropertyValue("--run-sheet-top")).toBe("120px");
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull());
+    act(() => { viewport.height = 844; viewport.dispatchEvent(new Event("resize")); });
+    expect(wrapper.style.getPropertyValue("--run-sheet-height")).toBe("");
+  } finally {
+    vi.unstubAllGlobals();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   }
 });

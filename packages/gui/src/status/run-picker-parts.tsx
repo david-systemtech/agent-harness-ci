@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, Check, Cpu } from "lucide-react";
-import { useEffect, useRef, useSyncExternalStore, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
 import { classes } from "../ui/classes.js";
-import { Button, MenuItem, MenuLabel, MenuTrigger } from "../ui/index.js";
+import { Button, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "../ui/index.js";
 
 /** A bottom sheet can cover its trigger: open after release so that release cannot select a row. */
 export const RunPickerTrigger = ({ sheet, openSheet, ...props }: ComponentProps<typeof MenuTrigger> & { readonly sheet: boolean; readonly openSheet: () => void }) =>
@@ -12,6 +12,30 @@ export const RunPickerTrigger = ({ sheet, openSheet, ...props }: ComponentProps<
     props.onClick?.(event);
     if (sheet && !event.defaultPrevented) openSheet();
   }} />;
+
+/** Portal bounds belong to the sheet's wrapper: the conversation frame is not its ancestor. */
+export const RunPickerContent = ({ sheet, ...props }: Omit<ComponentProps<typeof MenuContent>, "ref"> & { readonly sheet: boolean }) => {
+  const fit = useCallback((content: HTMLDivElement | null) => {
+    const wrapper = content?.closest<HTMLElement>("[data-radix-popper-content-wrapper]");
+    const viewport = window.visualViewport;
+    if (!sheet || !wrapper || !viewport) return;
+    const resize = () => {
+      wrapper.style.setProperty("--run-sheet-height", `${viewport.height}px`);
+      wrapper.style.setProperty("--run-sheet-width", `${viewport.width}px`);
+      wrapper.style.setProperty("--run-sheet-top", `${viewport.offsetTop}px`);
+      wrapper.style.setProperty("--run-sheet-left", `${viewport.offsetLeft}px`);
+    };
+    resize();
+    viewport.addEventListener("resize", resize);
+    viewport.addEventListener("scroll", resize);
+    return () => {
+      viewport.removeEventListener("resize", resize);
+      viewport.removeEventListener("scroll", resize);
+      for (const name of ["height", "width", "top", "left"]) wrapper.style.removeProperty(`--run-sheet-${name}`);
+    };
+  }, [sheet]);
+  return <MenuContent {...props} ref={fit} data-run-sheet={sheet ? "" : undefined} />;
+};
 
 /** Rows keep the popup open while a dependent choice is made. */
 export const RunChoiceRow = ({ label, note, under, selected, dim, primary, machine, icon: Icon, onSelect }: {

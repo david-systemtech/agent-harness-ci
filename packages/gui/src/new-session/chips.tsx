@@ -13,7 +13,7 @@ import { glyphOf } from "../connections/environment-glyphs.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
 import { classes } from "../ui/classes.js";
-import { Button, Tooltip, Menu, MenuContent, MenuItem, Popover, PopoverTrigger } from "../ui/index.js";
+import { Button, Tooltip, Menu, MenuItem, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { WorkspacePopover } from "../workspace/picker.js";
 import { BrowserChoiceMenu } from "../browser/choice-menu.js";
@@ -21,7 +21,7 @@ import { Check, Cpu, Folder, GitBranch, KeyRound, Server, SlidersHorizontal } fr
 import { useSettings } from "../settings/settings-window.js";
 import { checkRequest } from "./check.js";
 import { usePhoneOverlay } from "../ui/phone.js";
-import { RunPickerColumn, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
+import { RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
 import { requestWords } from "./words.js";
 
 /**
@@ -69,9 +69,9 @@ const ChipMenu = ({ name, value, children, items, columns = false }: { readonly 
           </Button>
         </RunPickerTrigger>
       </Tooltip>
-      <MenuContent data-run-sheet={columns && narrow ? "" : undefined} role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} side="top" align="start" className={columns ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0" : "max-h-[320px] max-w-md overflow-y-auto"}>
+      <RunPickerContent sheet={columns && narrow} role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} side="top" align="start" className={columns ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0" : "max-h-[320px] max-w-md overflow-y-auto"}>
         {items}
-      </MenuContent>
+      </RunPickerContent>
     </Menu>
   );
 };
