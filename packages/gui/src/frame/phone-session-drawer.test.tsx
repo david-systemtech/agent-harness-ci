@@ -12,7 +12,7 @@ it("keeps the session drawer inside the shared web bounds and restores focus wit
   vi.stubGlobal("innerHeight", 844);
   vi.stubGlobal("visualViewport", viewport);
   const original = window.matchMedia;
-  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query }) : original(query));
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
   onTestFinished(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "phone-drawer-search", "light", {
@@ -41,8 +41,8 @@ it("keeps the session drawer inside the shared web bounds and restores focus wit
 
 it("searches and switches sessions while retaining both drafts and running work", async () => {
   const original = window.matchMedia;
-  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query }) : original(query));
-  onTestFinished(() => vi.restoreAllMocks());
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+  onTestFinished(() => { vi.restoreAllMocks(); });
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipt review" }, { title: "Receipt follow-up" }, { title: "Other work" }] }] });
   app.open("desk");
   const env = app.environment("desk");
