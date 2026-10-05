@@ -3,7 +3,8 @@ import { useMemo } from "react";
 import { Folder, GitBranch, Hand, Terminal, CircleCheck, CircleMinus, CircleAlert } from "lucide-react";
 import { usePaneGrid } from "../grid/grid.js";
 import { useHandoffPicker } from "../status/pane-dialogs.js";
-import { Button, Dialog, DialogContent, DialogTrigger, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger, Tooltip } from "../ui/index.js";
+import { PhoneComposerSheet } from "./phone-composer-sheet.js";
+import { Button, Dialog, DialogTrigger, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger, Tooltip } from "../ui/index.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import { VerbButton } from "../session/verb-button.js";
 import { useObservable, useRuntime, useShell } from "../window-context.js";
@@ -44,14 +45,14 @@ export const WorkspaceCheck = ({ view, sendFailure, sending, compact = false }: 
     const Icon = state === "off" ? CircleMinus : state === "configured" ? CircleCheck : CircleAlert;
     return <Dialog>
       <DialogTrigger asChild><Button aria-label={`Workspace check: ${state}`}><Icon aria-hidden="true" className="size-4" /></Button></DialogTrigger>
-      <DialogContent title="Workspace check" className="phone-composer-sheet">
+      <PhoneComposerSheet title="Workspace check">
         {view.availability.status === "absent" ? <p className="text-sm text-ink-muted">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : <>
           <p className="break-all font-mono text-sm">{view.value.workspace}</p>
           {view.value.command === null ? <p>Check is off.</p> : <pre className="overflow-x-auto rounded-none bg-abyss p-2 text-sm">{`$ ${view.value.command}`}</pre>}
           <p className="text-sm text-ink-muted">Use /check &lt;command&gt; to configure, /check now to run, or /check off to clear.</p>
         </>}
         {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check; Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" />Send failure</VerbButton>}
-      </DialogContent>
+      </PhoneComposerSheet>
     </Dialog>;
   }
   return <section aria-label="Workspace check" className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
@@ -84,7 +85,7 @@ export const WorkspaceRow = ({ environmentId, sessionId, compact = false }: { re
       <DialogTrigger asChild><Button aria-label={`Workspace: ${label ?? "Reading workspace"}`} data-workspace-chip className="min-w-0 flex-1 gap-1 rounded-md bg-wash px-2">
         <Folder aria-hidden="true" className="size-4 shrink-0" /><span className="truncate">{label ?? "Workspace"}</span>
       </Button></DialogTrigger>
-      <DialogContent title="Workspace" className="phone-composer-sheet">
+      <PhoneComposerSheet title="Workspace">
         <p className="break-all font-mono text-sm">{workspace?.path ?? "Reading workspace…"}</p>
         {workspace?.kind === "worktree" && <p className="break-all text-sm">Branch: {workspace.branch}</p>}
         <h3 className="text-sm font-medium">Start a session in a recent folder</h3>
@@ -92,7 +93,7 @@ export const WorkspaceRow = ({ environmentId, sessionId, compact = false }: { re
         {known.map(directory => <Button key={directory.path} disabled={directory.missingSince !== null} className="h-auto justify-start whitespace-normal break-all text-left" onClick={() => chooseDirectory(directory.path)}>
           <Folder aria-hidden="true" className="shrink-0" />{directory.path}{directory.missingSince !== null && " · Missing"}
         </Button>)}
-      </DialogContent>
+      </PhoneComposerSheet>
     </Dialog>
     <Button aria-label="Hand off" data-handoff-chip onClick={() => handoff()}><Hand aria-hidden="true" className="size-4" /></Button>
   </>;

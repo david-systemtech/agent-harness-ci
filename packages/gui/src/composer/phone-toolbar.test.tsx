@@ -43,6 +43,18 @@ it("keeps workspace details in a sheet while preserving the draft and restoring 
   expect(field).toHaveProperty("value", "Compare these receipts");
 });
 
+it.each([
+  ["Workspace: receipts", "Workspace"],
+  ["Workspace check: off", "Workspace check"],
+  ["Run settings", "Run settings"],
+])("announces %s details before focusing an action or its tooltip", async (label, title) => {
+  await openPhone();
+  fireEvent.click(await screen.findByRole("button", { name: label }));
+  const sheet = await screen.findByRole("dialog", { name: title });
+  await waitFor(() => expect(document.activeElement).toBe(sheet));
+  expect(screen.queryByRole("tooltip")).toBeNull();
+});
+
 it("restores the run-settings sheet after closing a nested account picker", async () => {
   const gallery = await openPhone(true, phoneRunPickerScene("Accounts"));
   await gallery.ready;

@@ -88,17 +88,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(choices).toBeHidden();
       await expect(account).toBeFocused();
       console.log(`PHONE-REFUSAL ${engine}: Run choices closed and Account focus restored`);
-      const sheetBounds = await page.evaluate(`(() => {
-        const element = document.querySelector('[data-phone-run-settings]');
-        const box = node => { const rect = node.getBoundingClientRect(); return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }; };
-        const style = getComputedStyle(element);
-        const viewport = window.visualViewport;
-        return { sheet: box(element), close: box(element.querySelector('[aria-label="Close dialog"]')), scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight, top: style.top, bottom: style.bottom, translate: style.translate, transform: style.transform, viewport: viewport && { width: viewport.width, height: viewport.height, offsetTop: viewport.offsetTop, offsetLeft: viewport.offsetLeft }, page: { x: scrollX, y: scrollY, width: innerWidth, height: innerHeight } };
-      })()`);
-      await runSettings.getByRole("button", { name: "Close dialog", exact: true }).click().catch(error => {
-        console.error(`[DEBUG-1630-sheet] ${engine} ${JSON.stringify(sheetBounds)}`);
-        throw error;
-      });
+      await runSettings.getByRole("button", { name: "Close dialog", exact: true }).click();
       await expect(runSettings).toBeHidden();
       await expect(settings).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });

@@ -13,7 +13,8 @@ import { useMemo, useState, useId } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
-import { Button, Dialog, DialogContent, DialogTrigger, Tooltip } from "../ui/index.js";
+import { PhoneComposerSheet } from "../composer/phone-composer-sheet.js";
+import { Button, Dialog, DialogTrigger, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, RunPickerRequest, modeLabel, type RunPickerCommand } from "./pickers.js";
@@ -110,9 +111,9 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
     {!expanded && (["account", "model", "mode", "containment"] as const).map(command => <PhonePickerCommand key={command} environmentId={environmentId} command={command} open={picker => { setRequestedPicker(picker); setExpanded(true); }} />)}
     <Dialog open={expanded} onOpenChange={open => { setExpanded(open); if (!open) setRequestedPicker(null); }}>
       <DialogTrigger asChild><Button aria-label="Run settings"><Settings2 aria-hidden="true" className="size-4" /></Button></DialogTrigger>
-      <DialogContent data-phone-run-settings title="Run settings" className="phone-composer-sheet">
+      <PhoneComposerSheet data-phone-run-settings title="Run settings">
         <RunPickerRequest value={requestedPicker === null ? null : { command: requestedPicker, handled: () => setRequestedPicker(null) }}>{details}</RunPickerRequest>
-      </DialogContent>
+      </PhoneComposerSheet>
     </Dialog>
     <span data-phone-composer-browser><WebRegisteredSurfaces location="session-status" /></span>
   </>;

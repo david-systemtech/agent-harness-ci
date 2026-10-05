@@ -83,11 +83,11 @@
   .phone-composer-sheet {
     top: auto;
     bottom: max(8px, env(safe-area-inset-bottom));
-    translate: -50% 0;
     transform: none;
     width: calc(100vw - 16px);
     max-width: 480px;
     max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     gap: 12px;
   }
+  .phone-composer-sheet button, .phone-composer-sheet [data-status-chip] { font-size: max(16px, 1rem); }
 }
