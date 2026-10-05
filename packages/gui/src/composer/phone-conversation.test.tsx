@@ -113,7 +113,7 @@ it("fits a missing-workspace conversation before and after its message field ret
     await gallery.world.runtime.commands.dispatch(env.environmentId, "sessions.setWorkspace", { sessionId: env.sessionId(), workspace: { kind: "directory", path: "/work/receipts" } });
   });
   await screen.findByRole("textbox", { name: "Message" });
-  expect(screen.getByRole("region", { name: "Workspace check" })).toBeDefined();
+  expect(screen.getByRole("button", { name: /^Workspace check:/ })).toBeDefined();
   viewport.height = 400;
   act(() => viewport.dispatchEvent(new Event("resize")));
   expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("400px");

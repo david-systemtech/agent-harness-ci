@@ -16,6 +16,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const column = page.locator("[data-composer-column]");
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
+  const send = page.getByRole("button", { name: /^Send/ });
   const fits = async (control: Locator) => {
     const text = await control.textContent();
     const label = await control.getAttribute("aria-label");
