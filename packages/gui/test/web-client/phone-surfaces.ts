@@ -182,6 +182,22 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
 }
 
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
+  await page.evaluate(`(() => {
+    window.__phoneEvents = [];
+    const identify = node => node instanceof Element ? [node.tagName, node.getAttribute('aria-label'), node.getAttribute('role')] : null;
+    const record = value => { window.__phoneEvents.push([Math.round(performance.now()), ...value]);
+      if (window.__phoneEvents.length > 100) window.__phoneEvents.shift(); };
+    for (const type of ['focusin', 'focusout', 'pointerdown', 'pointerup', 'keydown'])
+      document.addEventListener(type, event => record([type, identify(event.target), identify(event.relatedTarget),
+        ['Escape', 'Tab', 'Enter'].includes(event.key) ? event.key : null]), true);
+    new MutationObserver(records => { for (const mutation of records) {
+      if (mutation.target.getAttribute('aria-label') === 'More')
+        record(['expanded', mutation.target.getAttribute('aria-expanded')]);
+      else if (mutation.target.classList.contains('phone-frame-menu'))
+        record(['menu-state', mutation.target.getAttribute('data-state')]);
+    }}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'data-state'] });
+  })()`);
+  try {
   const observer = await environment.client();
   for (const width of [390, 360]) {
     await page.setViewportSize({ width, height: 844 });
@@ -289,4 +305,8 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
   }
   await observer.close();
   console.log(`PHONE-PANES PASS ${engine}: all seven panes, retained PTY, isolated preview, every Settings row and all eleven steps, text at 20`);
+  } catch (error) {
+    console.error("[DEBUG-phone-focus] events", await page.evaluate("JSON.stringify(window.__phoneEvents)"));
+    throw error;
+  }
 }
