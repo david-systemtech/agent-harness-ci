@@ -7,11 +7,11 @@ export const activate = () => {
   let expanded = false, opened = false;
   const show = () => {
     if (!expanded) {
-      const toggle = document.querySelector<HTMLButtonElement>("[data-phone-status-toggle]");
+      const toggle = document.querySelector<HTMLButtonElement>('[data-phone-status-toggle], [data-phone-composer-toolbar] [aria-label="Run settings"]');
       if (!toggle) return;
       expanded = true; toggle.click(); return;
     }
-    if (!document.querySelector('[data-phone-status="open"]')) return;
+    if (!document.querySelector('[data-phone-status="open"], [data-phone-run-settings]')) return;
     if (!opened) {
       const chip = document.querySelector<HTMLButtonElement>('[aria-label^="Mode:"]');
       if (!chip?.hasAttribute("data-state") || chip.getAttribute("aria-disabled") === "true") return;

@@ -18,8 +18,8 @@ it("opens a browser surface without a shell, sets the next run's driver and open
   onTestFinished(async () => { app.unmount(); await world.runtime.close(); await world.presentation.close(); vi.restoreAllMocks(); });
   const user = userEvent.setup();
   const trigger = await screen.findByRole("button", { name: "Environment browser" });
-  // Share the existing control row; another footer clips decisions above the keyboard.
-  expect(within(screen.getByRole("region", { name: "Status line" })).getByRole("button", { name: "Environment browser" })).toBe(trigger);
+  // The browser shares the compact toolbar; no separate footer below the editor.
+  expect(within(screen.getByRole("toolbar", { name: "Conversation controls" })).getByRole("button", { name: "Environment browser" })).toBe(trigger);
   await user.click(screen.getByRole("button", { name: "More" }));
   const browser = within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Browser" });
   expect(browser.getAttribute("aria-disabled")).toBe("true");

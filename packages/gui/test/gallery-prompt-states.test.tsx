@@ -1,6 +1,7 @@
 import type { PromptKind } from "@agent-harness/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
+import { activate as revealPermission } from "../gallery/scenes/phone-gallery-permission.js";
 import { PromptScene } from "../gallery/prompt-scene.js";
 
 it.each<PromptKind>(["permission", "question", "plan", "denylist"])("captures %s while sending, after a refusal and once settled", async (kind) => {
@@ -13,4 +14,76 @@ it.each<PromptKind>(["permission", "question", "plan", "denylist"])("captures %s
       if (state === "settled") expect(screen.getByRole("article", { name: kind === "plan" ? "Plan" : kind === "question" ? "Question" : "Permission" })).toBeTruthy();
     } finally { view.unmount(); }
   }
+});
+
+
+it("corrects native scroll rounding and waits for a later permission card resize to settle", async () => {
+  const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+  let finishFonts!: () => void;
+  const ready = new Promise<void>(resolve => { finishFonts = resolve; });
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready } });
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  vi.stubGlobal("cancelAnimationFrame", () => undefined);
+  const root = document.createElement("div"); root.id = "root";
+  root.innerHTML = '<div data-composer-above><button aria-label="Allow once">Allow once</button></div>';
+  document.body.append(root);
+  const well = root.querySelector<HTMLElement>("[data-composer-above]")!, action = well.querySelector<HTMLElement>("button")!;
+  let cardBottom = 164.75;
+  let nativeBottom = 0;
+  well.getBoundingClientRect = () => new DOMRect(0, 0, 300, 120);
+  action.getBoundingClientRect = () => new DOMRect(10, cardBottom - well.scrollTop - 44, 150, 44);
+  action.scrollIntoView = () => {
+    if (action.getBoundingClientRect().bottom > 120) well.scrollTop = Math.floor(cardBottom - 120);
+    nativeBottom = action.getBoundingClientRect().bottom;
+  };
+  const stop = revealPermission();
+  onTestFinished(() => {
+    stop(); root.remove(); vi.unstubAllGlobals();
+    if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
+    else Object.defineProperty(document, "fonts", originalFonts);
+  });
+  const advanceFrame = async (time: number) => { frames.shift()?.(time); await Promise.resolve(); };
+  await advanceFrame(0);
+  expect(well.scrollTop).toBe(0);
+  expect(action.matches('[data-permission-revealed]')).toBe(false);
+  finishFonts(); await Promise.resolve();
+  await advanceFrame(1);
+  expect(nativeBottom).toBe(120.75);
+  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
+  expect(action.matches('[data-permission-revealed]')).toBe(false);
+  // Resize only after the first scroll, enough to move the action outside again.
+  cardBottom += 6;
+  expect(action.getBoundingClientRect().bottom).toBeGreaterThan(120);
+  await advanceFrame(2);
+  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
+  expect(action.matches('[data-permission-revealed]')).toBe(false);
+  for (let frame = 3; frame < 12; frame++) await advanceFrame(frame);
+  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
+  expect(action.matches('[data-permission-revealed]')).toBe(true);
+});
+
+
+it("does not reveal a disposed permission scene when its fonts finish loading", async () => {
+  const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+  let finishFonts!: () => void;
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: new Promise<void>(resolve => { finishFonts = resolve; }) } });
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  vi.stubGlobal("cancelAnimationFrame", () => undefined);
+  const root = document.createElement("div"); root.id = "root";
+  root.innerHTML = '<button aria-label="Allow once">Allow once</button>'; document.body.append(root);
+  const action = root.querySelector<HTMLButtonElement>("button")!;
+  const scroll = vi.spyOn(action, "scrollIntoView");
+  const stop = revealPermission();
+  onTestFinished(() => {
+    stop(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+    if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
+    else Object.defineProperty(document, "fonts", originalFonts);
+  });
+  frames.shift()?.(0); await Promise.resolve();
+  stop(); root.remove(); finishFonts(); await Promise.resolve();
+  for (let frame = 0; frame < 12; frame++) { frames.shift()?.(frame); await Promise.resolve(); }
+  expect(scroll).not.toHaveBeenCalled();
+  expect(action.matches('[data-permission-revealed]')).toBe(false);
 });

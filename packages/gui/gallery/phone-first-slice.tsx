@@ -30,15 +30,48 @@ export const phoneFirstScene = async (kind: "pairing" | "conversation" | "permis
     useEffect(() => () => { void runtime.close(); void presentation.close(); }, []);
     useEffect(() => {
       if (kind !== "permission") return;
-      const reveal = () => {
-        const decision = document.querySelector<HTMLElement>('[aria-label="Allow once"]');
-        if (decision) { decision.scrollIntoView({ block: "nearest" }); observer.disconnect(); }
-      };
-      const observer = new MutationObserver(reveal);
-      observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
-      reveal();
-      return () => observer.disconnect();
+      return revealPermissionDecision();
     }, []);
     return <div data-web-gallery style={{ width, height: `min(${height}px, 100dvh)`, margin: "auto" }}><App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: kind === "pairing" ? {} : { session } }} /></div>;
   };
 };
+
+
+/** Reveal as a person scrolling the waiting card would, after its font/layout changes. */
+export function revealPermissionDecision(): () => void {
+  let stopped = false, started = false, frame = 0;
+  const reveal = () => {
+    const decision = document.querySelector<HTMLElement>('[aria-label="Allow once"]');
+    if (decision === null || started) return;
+    started = true; observer.disconnect();
+    // Let the mounted card request its fonts before reading the current ready promise.
+    frame = requestAnimationFrame(() => {
+      if (stopped) return;
+      void (document.fonts?.ready ?? Promise.resolve()).then(() => {
+        let previous = "", stable = 0;
+        const settle = () => {
+          if (stopped) return;
+          decision.scrollIntoView({ block: "nearest" });
+          const well = decision.closest<HTMLElement>("[data-composer-above]");
+          if (well !== null) {
+            const action = decision.getBoundingClientRect(), bounds = well.getBoundingClientRect();
+            // Native nearest-edge scrolling rounds; leave room for a whole action.
+            const inset = Math.min(4, Math.max(0, bounds.height - action.height));
+            const bottom = Math.min(innerHeight, bounds.bottom) - inset;
+            if (action.bottom > bottom) well.scrollTop += Math.ceil(action.bottom - bottom);
+          }
+          const rect = decision.getBoundingClientRect();
+          const current = JSON.stringify([rect.x, rect.y, rect.width, rect.height, well?.scrollTop]);
+          stable = current === previous ? stable + 1 : 0; previous = current;
+          if (stable >= 3) { decision.dataset["permissionRevealed"] = ""; return; }
+          frame = requestAnimationFrame(settle);
+        };
+        if (!stopped) frame = requestAnimationFrame(settle);
+      });
+    });
+  };
+  const observer = new MutationObserver(reveal);
+  observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
+  reveal();
+  return () => { stopped = true; observer.disconnect(); cancelAnimationFrame(frame); };
+}

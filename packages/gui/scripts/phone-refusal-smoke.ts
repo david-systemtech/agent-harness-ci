@@ -95,6 +95,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await page.screenshot({ path: join(output, `phone-refusal-${engine}-${viewport.width}.png`) });
       await fits(settings);
       await settings.click();
+      const runSettings = page.getByRole("dialog", { name: "Run settings", exact: true });
+      await expect(runSettings).toBeVisible();
       const account = page.getByRole("button", { name: /^Account:/ });
       await account.click();
       const choices = page.getByRole("dialog", { name: "Run choices" });
@@ -112,11 +114,13 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(choices).toBeHidden();
       await expect(account).toBeFocused();
       console.log(`PHONE-REFUSAL ${engine}: Run choices closed and Account focus restored`);
+      await runSettings.getByRole("button", { name: "Close dialog", exact: true }).click();
+      await expect(runSettings).toBeHidden();
+      await expect(settings).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await fits(remedy);
       await fits(page.getByRole("button", { name: /^Send/ }));
-      await settings.click();
       await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
@@ -125,10 +129,11 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   } finally {
     await signIn(true);
     if (original) await page.setViewportSize(original);
-    await field.fill("");
-    // The next phase must not restore this saved draft while editing its own.
-    await expect(field).toHaveValue("");
-    await expect.poll(readDraft, { timeout: 60_000, message: "The cleared refusal draft reaches the environment before the next smoke phase." }).toBeNull();
+
   }
+  await field.fill("");
+  // The next phase must not restore this saved draft while editing its own.
+  await expect(field).toHaveValue("");
+  await expect.poll(readDraft, { timeout: 60_000, message: "The cleared refusal draft reaches the environment before the next smoke phase." }).toBeNull();
   console.log(`PHONE-REFUSAL PASS ${engine}: keyboard-height refusal, remedy, Run settings, Send and durable draft`);
 }

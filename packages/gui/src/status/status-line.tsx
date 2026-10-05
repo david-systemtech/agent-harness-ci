@@ -13,10 +13,11 @@ import { useMemo, useState, useId } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
-import { Button, Tooltip } from "../ui/index.js";
+import { PhoneComposerSheet } from "../composer/phone-composer-sheet.js";
+import { Button, Dialog, DialogTrigger, Tooltip } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
-import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, modeLabel } from "./pickers.js";
+import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker, RunPickerRequest, modeLabel, type RunPickerCommand } from "./pickers.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { UsageMeter } from "./usage-meter.js";
@@ -26,6 +27,7 @@ import { WebRegisteredSurfaces } from "../platform/web-registrations.js";
 export interface StatusLineProps {
   readonly environmentId: string;
   readonly sessionId: string;
+  readonly compact?: boolean;
 }
 
 /**
@@ -47,9 +49,10 @@ export interface StatusLineProps {
  *   Run info (Mod+I) is the pane's caption's. `/handoff` opens the hand-off
  *   picker whenever; naming another environment, it says that is milestone 2's.
  */
-export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
+export const StatusLine = ({ environmentId, sessionId, compact = false }: StatusLineProps) => {
   const web = useShell() === undefined;
   const [expanded, setExpanded] = useState(false);
+  const [requestedPicker, setRequestedPicker] = useState<RunPickerCommand | null>(null);
   const detailsId = useId();
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
@@ -82,11 +85,8 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
     named === "" || named.toLowerCase() === (environment?.name ?? "").toLowerCase() ? openHandoff() : say(`Not handed off to ${named}: ${BETWEEN_ENVIRONMENTS}.`),
   );
 
-  return (
-    <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">
-      {web && <Button data-phone-status-toggle className="hidden" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><Settings2 aria-hidden="true" />Run settings<ChevronDown aria-hidden="true" /></Button>}
-      {web && <WebRegisteredSurfaces location="session-status" />}
-      <div id={detailsId} className="flex min-w-0 grow basis-[352px] flex-wrap items-center gap-x-2 gap-y-1">
+  const details = <>
+      <div id={detailsId} className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ${compact ? "" : "grow basis-[352px]"}`}>
         <span data-status-chip className="inline-flex h-[22px] max-w-[240px] items-center overflow-hidden rounded-md bg-wash px-1.5 [&_svg]:size-3 [&>span]:min-w-0 [&>span>span]:truncate" title={`${environment?.name ?? "This machine"}: ${environment?.phase ?? "connecting"}`}><EnvironmentBadge view={environment} /></span>
         <AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} />
         <ModelPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model} />
@@ -106,8 +106,36 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
         <SessionContextMeter environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model?.model ?? null} />
         <UsageMeter environmentId={environmentId} accountId={facts.accountId} />
       </span>
+  </>;
+  if (compact) return <>
+    {!expanded && (["account", "model", "mode", "containment"] as const).map(command => <PhonePickerCommand key={command} environmentId={environmentId} command={command} open={picker => { setRequestedPicker(picker); setExpanded(true); }} />)}
+    <Dialog open={expanded} onOpenChange={open => { setExpanded(open); if (!open) setRequestedPicker(null); }}>
+      <DialogTrigger asChild><Button aria-label="Run settings"><Settings2 aria-hidden="true" className="size-4" /></Button></DialogTrigger>
+      <PhoneComposerSheet data-phone-run-settings title="Run settings">
+        <RunPickerRequest value={requestedPicker === null ? null : { command: requestedPicker, handled: () => setRequestedPicker(null) }}>{details}</RunPickerRequest>
+      </PhoneComposerSheet>
+    </Dialog>
+    <span data-phone-composer-browser><WebRegisteredSurfaces location="session-status" /></span>
+  </>;
+  return (
+    <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">
+      {web && <Button data-phone-status-toggle className="hidden" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}><Settings2 aria-hidden="true" />Run settings<ChevronDown aria-hidden="true" /></Button>}
+      {web && <WebRegisteredSurfaces location="session-status" />}
+      {details}
     </section>
   );
+};
+
+const PICKER_CAPABILITIES = { account: "accounts.list", model: "models.list", mode: "permissions.mode.set", containment: "permissions.containment.set" } as const;
+
+/** Closed phone details keep the same command availability; mounted pickers take over when opened. */
+const PhonePickerCommand = ({ environmentId, command, open }: { readonly environmentId: string; readonly command: RunPickerCommand; readonly open: (command: RunPickerCommand) => void }) => {
+  const runtime = useRuntime();
+  useObservable(runtime.projections.environments);
+  const offer = runtime.capability(environmentId, PICKER_CAPABILITIES[command]);
+  const [, say] = usePaneLine();
+  useSlashCommand(command, () => { if (offer.status === "absent") say(offer.message); else open(command); }, offer);
+  return null;
 };
 
 /** Spend remains in status; the composer owns the single activity and elapsed-time tail. */

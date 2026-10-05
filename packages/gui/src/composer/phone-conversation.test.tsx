@@ -5,6 +5,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { expect, it, onTestFinished, vi } from "vitest";
 import { renderApp } from "../../test/harness.js";
 import { composerControlExpression } from "../../scripts/phone-refusal-smoke.js";
+import { filledKeyboardPrompt } from "../../gallery/scenes/phone-keyboard-dock.js";
 import { route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
 it("keeps the composing draft until the input method commits, including an Enter without isComposing", async () => {
@@ -113,7 +114,7 @@ it("fits a missing-workspace conversation before and after its message field ret
     await gallery.world.runtime.commands.dispatch(env.environmentId, "sessions.setWorkspace", { sessionId: env.sessionId(), workspace: { kind: "directory", path: "/work/receipts" } });
   });
   await screen.findByRole("textbox", { name: "Message" });
-  expect(screen.getByRole("region", { name: "Workspace check" })).toBeDefined();
+  expect(screen.getByRole("button", { name: /^Workspace check:/ })).toBeDefined();
   viewport.height = 400;
   act(() => viewport.dispatchEvent(new Event("resize")));
   expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("400px");
@@ -267,4 +268,18 @@ it.each([["phone-bank-authoring", 390], ["settings-bank-authoring", 1024]] as co
   for (const option of within(dialog).getAllByRole("radio", { name: "Working agreements" })) fireEvent.click(option);
   fireEvent.click(within(decisions).getByRole("button", { name: "Send answers" }));
   await waitFor(() => expect(within(dialog).getAllByRole("region", { name: "Workspace check" })).toHaveLength(1));
+});
+
+
+it("renders the filled keyboard-proof permission card through the prompt contract", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
+  app.open("desk");
+  await screen.findByRole("textbox", { name: "Message" });
+  const env = app.environment("desk");
+  act(() => {
+    env.startRun(env.sessionId(), "Read the receipts");
+    env.openPrompt(env.sessionId(), filledKeyboardPrompt);
+  });
+  const card = await screen.findByRole("region", { name: "Parked prompt" });
+  expect(within(card).getByRole("button", { name: "Allow once" })).toBeDefined();
 });

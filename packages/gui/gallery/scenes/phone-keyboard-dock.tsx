@@ -1,7 +1,9 @@
 import type { ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
-import { verifyKeyboardDock } from "../phone-keyboard-dock-geometry.js";
+import { verifyKeyboardDock, verifyReadableReplyLines } from "../phone-keyboard-dock-geometry.js";
 import { safeAreas } from "../phone-frame-scene.js";
 export { platform, script, route } from "../phone-frame-scene.js";
+
+export const filledKeyboardPrompt = { promptId: "keyboard-permission", kind: "permission" as const, summary: "Read receipts", toolName: "Bash", input: { command: "printf receipts\n".repeat(24) } };
 
 let world: ScriptedWorld;
 export const arrangeWeb = (value: ScriptedWorld) => {
@@ -51,14 +53,30 @@ export const activate = () => {
     const jump = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Jump to the latest"));
     if (!jump) throw new Error("Keyboard proof missing Jump to latest");
     jump.click(); await settle(); verifyKeyboardDock(480, 120);
+    // A settled paragraph exercises the markdown line height as well as the streaming text.
+    env.emit(env.sessionId(), "assistant.text", { runId, itemId: "keyboard-stream", text: "The latest receipt line stays visible. " + "Another line arrives while reading. ".repeat(12), aborted: false });
+    await settle(); verifyKeyboardDock(480, 120);
     env.notice("environment.updated", { fromVersion: "0.5.0", toVersion: "0.5.1" });
     await settle(); verifyKeyboardDock(480, 120);
     document.querySelector<HTMLButtonElement>('[aria-label="Notifications"] [aria-label="Dismiss"]')!.click();
     await settle();
-    env.openPrompt(env.sessionId(), { promptId: "keyboard-permission", kind: "permission", summary: "Read receipts", toolName: "Bash", input: { command: "printf receipts" } });
+    env.openPrompt(env.sessionId(), filledKeyboardPrompt);
     await settle(); verifyKeyboardDock(480, 120);
+    const above = document.querySelector<HTMLElement>("[data-composer-above]")!;
+    if (above.scrollHeight <= above.clientHeight) throw new Error("Filled dock proof needs a scrolling waiting card");
+    verifyReadableReplyLines();
+    const notifications = document.querySelector<HTMLElement>('[aria-label="Notifications"]')!;
+    const dismiss = notifications.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!;
+    notifications.scrollTop += Math.max(0, dismiss.getBoundingClientRect().bottom - notifications.getBoundingClientRect().bottom);
+    await settle();
+    const noticeBounds = notifications.getBoundingClientRect(), dismissBounds = dismiss.getBoundingClientRect();
+    if (dismissBounds.top < noticeBounds.top || dismissBounds.bottom > noticeBounds.bottom + 1) throw new Error("Keyboard clips the notification action");
     const allow = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Allow once"));
     if (!allow) throw new Error("Keyboard proof missing waiting card");
+    above.scrollTop += Math.max(0, allow.getBoundingClientRect().bottom - above.getBoundingClientRect().bottom);
+    await settle();
+    const action = allow.getBoundingClientRect(), well = above.getBoundingClientRect();
+    if (action.top < well.top || action.bottom > well.bottom + 1) throw new Error("Keyboard clips the waiting-card action");
     allow.click(); await settle();
     field.focus({ preventScroll: true });
     // Browser bars resize, then keyboard close. Focus and draft must survive both.

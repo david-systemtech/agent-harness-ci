@@ -17,7 +17,7 @@ import {
 } from "@agent-harness/client-runtime";
 import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { createContext, Fragment, use, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
@@ -60,6 +60,10 @@ import { useHandedOnto, useModelChoice } from "./run-choices.js";
  *   (`containment_unavailable`) is one line.
  */
 
+export type RunPickerCommand = "account" | "model" | "mode" | "containment";
+/** A compact sheet hands its pending slash command to the existing picker after mounting. */
+export const RunPickerRequest = createContext<{ readonly command: RunPickerCommand; readonly handled: () => void } | null>(null);
+
 interface PickerButtonProps {
   /** What the picker picks: its button is named for it and the value it shows (`Mode: auto`). */
   readonly name: string;
@@ -75,7 +79,7 @@ interface PickerButtonProps {
   readonly columns?: boolean;
   readonly phoneItems?: (close: () => void) => ReactNode;
   /** The slash command that opens it. */
-  readonly command: "account" | "model" | "mode" | "containment";
+  readonly command: RunPickerCommand;
 }
 
 const TRIGGER = "h-[22px] max-w-[240px] min-w-0 gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal text-ink-muted hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3";
@@ -100,6 +104,13 @@ const PickerButton = ({ name, value, offer, children, items, command, warning, c
   const modeSheet = phone && phoneItems !== undefined;
   const sheet = !!columns && narrow || modeSheet;
   useSlashCommand(command, () => (offer.status === "absent" ? say(offer.message) : setOpen(true)), offer);
+  const request = use(RunPickerRequest);
+  useEffect(() => {
+    if (request?.command !== command) return;
+    request.handled();
+    if (offer.status === "absent") say(offer.message);
+    else setOpen(true);
+  }, [request, command, offer, say]);
   const label = `${name}: ${value}`;
   const Icon = PICKER_ICONS[command];
   const content = <><Icon aria-hidden="true" /><span className="min-w-0 truncate">{children}</span></>;
