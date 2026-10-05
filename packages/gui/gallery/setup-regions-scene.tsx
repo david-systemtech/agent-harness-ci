@@ -7,6 +7,7 @@ import { STEP_CARDS } from "../src/setup/cards.js";
 import type { StepCardProps } from "../src/setup/cards.js";
 import { useChecklist } from "../src/setup/checklist-window.js";
 import { MintedSessionCard } from "../src/setup/minted-session-card.js";
+import { authoringQuestions } from "./authoring-scene.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 export const joinPreview: BankJoinPreview = {
@@ -25,7 +26,7 @@ type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation";
 async function prepareRegion(kind: SetupRegion) {
   const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" ? "account" : kind;
   const prepared = await prepareWorld({ environments: [{
-    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser"],
+    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
   }] }, { firstLaunch: true });
@@ -51,7 +52,7 @@ async function prepareRegion(kind: SetupRegion) {
   if (sessionId !== undefined) {
     const { runId } = desk.startRun(sessionId, "Describe the project memory bank.");
     desk.emit(sessionId, "assistant.text", { runId, itemId: "authoring-reply", text: "I will keep project agreements and decisions in BANK.md. Tell me which facts the team should retain.", aborted: false });
-    desk.endRun(sessionId, runId);
+    desk.openPrompt(sessionId, authoringQuestions);
   }
   const OpenStep = () => { const { choose } = useChecklist(); useEffect(() => choose(target), [choose]); return null; };
   const PreviewCard = () => <JoinPreview preview={joinPreview} />;

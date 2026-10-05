@@ -4,6 +4,7 @@ import { useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type Rea
 import { File, SquareTerminal } from "lucide-react";
 import { classes } from "../ui/classes.js";
 import { useFollowed, useRuntime } from "../window-context.js";
+import { useLocalEscapeStep } from "../keys/key-dispatch.js";
 import { typedCommand, useWiredCommands } from "./slash-commands.js";
 
 /**
@@ -117,12 +118,13 @@ export const useMenus = ({ environmentId, sessionId, provider, text, caret }: Me
   const menu = menuOf(text, caret, commands, files);
   const open = menu !== null && menu.key !== dismissed ? menu : null;
   const at = open === null ? -1 : highlighted(open, highlight);
+  useLocalEscapeStep("surface", () => { if (open !== null) dismiss(open.key); }, open !== null);
   return {
     open,
     at,
     listId,
     keyDown(event) {
-      if (open === null || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.defaultPrevented || open === null || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.key === "Escape") dismiss(open.key);
       else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && open.rows.length > 0) {
         setHighlight({ key: open.key, index: (at + (event.key === "ArrowUp" ? -1 : 1) + open.rows.length) % open.rows.length });

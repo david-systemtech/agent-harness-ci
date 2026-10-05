@@ -1,0 +1,33 @@
+/* Keep the existing compact dialog until a desktop window has room to grow. */
+@media (min-width: 1280px) {
+  [data-settings-dialog] {
+    width: min(1440px, calc(100vw - 3rem));
+    height: min(900px, calc(100dvh - 3rem));
+  }
+}
+
+/* Forms retain their reading width; collections use all of the pane. */
+[data-settings-pane] > *,
+[data-settings-pane] :is(section, [role="group"]) { max-width: 768px; }
+[data-settings-pane] > [data-settings-card-grid],
+[data-settings-pane] > :has([data-settings-card-grid]),
+[data-settings-pane] :is(section, [role="group"]):has([data-settings-card-grid]),
+[data-settings-pane] [data-settings-card-grid] > * { max-width: none; }
+[data-settings-pane] :is(form, [data-bank-form], [data-account-sign-in]) {
+  max-width: 768px;
+}
+[data-settings-card-grid] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+}
+[data-settings-card-grid] > * { min-width: 0; overflow-wrap: anywhere; }
+[data-settings-card-grid] :is(input, select, textarea, button) { max-width: 100%; }
+[data-settings-card-grid] button { white-space: normal; }
+
+[data-settings-pane] [data-bank-content] { max-width: none; }
+[data-settings-pane] [data-bank-choices],
+[data-settings-pane] [data-access-pane] > :not([data-settings-card-grid]) { max-width: 768px; }
+[data-settings-card-grid] .flex > * { min-width: 0; }
