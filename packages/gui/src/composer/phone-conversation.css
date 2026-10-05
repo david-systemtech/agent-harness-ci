@@ -108,3 +108,12 @@
   }
   [data-web-client] [aria-label="Message"] { padding-block: 4px; }
 }
+
+/* A keyboard can shrink only VisualViewport, leaving the layout media query tall. */
+@media (max-width: 639px) {
+  [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [data-web-grant] {
+    white-space: nowrap;
+    overflow-x: auto;
+    padding-block: 4px;
+  }
+}
