@@ -1180,7 +1180,7 @@ at scale 1, with `100dvh`/window-height fallback, `viewport-fit=cover` and
 `env(safe-area-inset-*)`. Composer/status sit in the bottom flex region above
 the visible keyboard. Lock the phone web document/root and bound the shell;
 retain unzoomed bounds during pinch zoom and clean locks/styles/listeners on
-wide mode/unmount. Keep at least three readable transcript lines. Non-conversation
+wide mode/unmount. Keep at least three readable transcript lines while composing. Non-conversation
 controls stay above the conversation dock. Keep activity/asks/composer order,
 bound input/card focus scrolling to its owning scroller, and prevent notices from covering
 composer or waiting cards. Send/Stop, Allow/Deny and Continue/Finish remain

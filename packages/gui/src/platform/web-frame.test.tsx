@@ -107,7 +107,7 @@ it("owns phone height and offset without scrolling ancestors, preserves zoom and
   vi.stubGlobal("visualViewport", viewport);
   vi.stubGlobal("innerWidth", 390);
   vi.stubGlobal("innerHeight", 844);
-  onTestFinished(() => vi.unstubAllGlobals());
+  onTestFinished(() => { vi.unstubAllGlobals(); });
   const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
   const app = render(<WebViewport narrow><textarea aria-label="Message" defaultValue="Keep this draft" /></WebViewport>);
   const frame = app.container.firstElementChild as HTMLElement;
@@ -135,7 +135,7 @@ it("owns phone height and offset without scrolling ancestors, preserves zoom and
 
 it("bounds a phone without VisualViewport and removes listeners on unmount", () => {
   vi.stubGlobal("visualViewport", undefined); vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 740);
-  onTestFinished(() => vi.unstubAllGlobals());
+  onTestFinished(() => { vi.unstubAllGlobals(); });
   const app = render(<WebViewport narrow><p>Conversation</p></WebViewport>);
   const frame = app.container.firstElementChild as HTMLElement;
   expect(frame.style.height).toBe("740px");

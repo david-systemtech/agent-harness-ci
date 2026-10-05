@@ -145,7 +145,7 @@ styles and listeners on wide mode or unmount. Focus scrolls only the owning
 scroller, never ancestors. Composer focus/keyboard opening explicitly repins
 the latest transcript line after resizing; follow scrollport/content resizing
 and streaming until deliberate scroll up. Jump to latest resumes following.
-Reserve at least three normal text lines above the bottom dock. Non-conversation
+Reserve at least three normal text lines above the bottom dock while composing. Non-conversation
 controls stay above the conversation, and keyboard close retains draft/focus. Preserve the activity/asks/composer order; notices never cover a
 waiting card or composer. Send/Stop, Allow/Deny and Continue/Finish remain
 reachable at keyboard height. IME composition never sends early. Attachments,
