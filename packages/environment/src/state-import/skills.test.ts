@@ -1,3 +1,4 @@
+import { CarryOverInventory } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -315,7 +316,7 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
     expect.objectContaining({ id: ownedId, directory: expect.objectContaining({ kind: "owned" }), status: expect.objectContaining({ state: "signed-in" }) }),
   ]));
   const accountIds = [accountId, ownedId].sort();
-  const before = await client.request("carryOver.inventory", { accountId });
+  const before = CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId }));
   expect(before.sessions).toMatchObject({ total: 1, new: 0 });
   const failedCheck = (await client.request("setup.check", { step: "carry-over" })).results[0];
   expect(failedCheck).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
@@ -325,12 +326,12 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
     { label: expect.stringContaining("private"), message: expect.stringContaining("credential") },
   ]) } });
   expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
-  expect((await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
+  expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
   expect((await client.request("carryOver.run", { commandId: randomUUID(), accountId, dryRun: false, skills: true })).result?.sessions).toMatchObject({ imported: 0, held: 1 });
   authenticated = true;
   expect(await run(false)).toMatchObject({ result: { carried: { accounts: 0, skillSources: 1, alwaysOnSkills: 1 }, failed: [], reEnter: [] } });
   expect((await client.request("setup.check", { step: "carry-over" })).results[0]?.state).toBe("done");
   expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
-  expect((await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
+  expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
   expect(snapshotOf(source)).toEqual(sourceBytes);
 });
