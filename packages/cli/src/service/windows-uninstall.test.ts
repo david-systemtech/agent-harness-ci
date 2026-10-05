@@ -52,7 +52,7 @@ const server = async () => {
 const ready = async (port: number) => fetch(`http://127.0.0.1:${port}`).then(() => true, () => false);
 
 describe.skipIf(!hasPwsh && !process.env["CI"])("Windows uninstall process ownership", () => {
-  it.each(["running", "stopped", "wrong action", "inventory refused", "birth during stop", "retry after failed kill", "retry with a reused PID"])("uninstalls a %s task using process ownership, keeping unrelated processes", async (mode) => {
+  it.each(["running", "stopped", "wrong action", "inventory refused", "descendant exits before capture", "birth during stop", "retry after failed kill", "retry after external stop", "retry with a reused PID"])("uninstalls a %s task using process ownership, keeping unrelated processes", async (mode) => {
     expect(hasPwsh, "PowerShell is required in CI").toBe(true);
     const root = await server();
     const child = await server();
@@ -79,8 +79,15 @@ else {
 }
 foreach ($time in $times) { $births[[int]$time.id] = ([DateTime]$time.time).ToUniversalTime() }
 $script:refuseKill = $false
+$script:vanishBeforeCapture = $true
 function Get-Process {
   param($Id, $ErrorAction)
+  ${mode === "descendant exits before capture" ? `if ($Id -eq ${child.child.pid} -and $script:vanishBeforeCapture) {
+    $script:vanishBeforeCapture = $false
+    $departing = Microsoft.PowerShell.Management\\Get-Process -Id $Id
+    $departing.Kill()
+    $departing.WaitForExit()
+  }` : ""}
   $process = Microsoft.PowerShell.Management\\Get-Process -Id $Id -ErrorAction $ErrorAction
   if ($null -ne $process) {
     # Linux derives StartTime from uptime, with a different sub-millisecond
@@ -183,6 +190,22 @@ function Get-CimInstance {
         expect(deleted).toBe(false);
         expect(await ready(child.port)).toBe(true);
         expect(await ready(unrelated.port)).toBe(true);
+        return;
+      }
+      if (mode === "retry after external stop") {
+        const exited = once(child.child, "exit");
+        child.child.kill();
+        await exited;
+        await expect(service.uninstall()).rejects.toThrow(/all recorded processes have stopped, remove service-stop.json/);
+        expect(deleted).toBe(false);
+        // Documented recovery: recorded processes stopped and no port answers.
+        expect(await ready(root.port)).toBe(false);
+        expect(await ready(child.port)).toBe(false);
+        rmSync(recordFile);
+        await service.uninstall();
+        expect(deleted).toBe(true);
+        expect(await ready(unrelated.port)).toBe(true);
+        expect(await ready(reused.port)).toBe(true);
         return;
       }
       const beforeRetry = readFileSync(inventoryFile, "utf8");

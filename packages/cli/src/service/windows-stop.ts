@@ -47,7 +47,7 @@ function Capture-Tree {
   foreach ($node in @($owned.Values)) {
     if (!$handles.ContainsKey($node.id) -and $node.end -eq '') {
       $handle = Open-OwnedHandle $node
-      if ($null -eq $handle) { throw 'An owned process exited without a recorded exit time; inspect the retained cleanup record before retrying' }
+      if ($null -eq $handle) { throw 'An owned process exited without a recorded exit time; after confirming the environment port is closed and all recorded processes have stopped, remove service-stop.json from the data directory and retry' }
       $handles[$node.id] = $handle
     }
   }
@@ -66,9 +66,9 @@ function Capture-Tree {
         # An exit time fences old parent PIDs, including after handles are closed.
         if ($created -lt $ancestor.start -or ($ancestor.end -ne '' -and $created -gt $ancestor.end)) { continue }
         $node = [pscustomobject]@{ id = $id; start = $created; end = ''; depth = $ancestor.depth + 1 }
-        $owned[$id] = $node
         $handle = Open-OwnedHandle $node
-        if ($null -eq $handle) { throw 'A task descendant disappeared before its identity could be retained; cleanup ownership was saved for inspection' }
+        if ($null -eq $handle) { continue }
+        $owned[$id] = $node
         $handles[$id] = $handle
         $added = $true
         $total++

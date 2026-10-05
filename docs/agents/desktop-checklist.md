@@ -324,9 +324,13 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
    `service-stop.json` in the data directory retains verified process identities
    and exit times so retry checks survivors even after the scheduled action
    has stopped. Successful cleanup removes that record. If a recorded identity
-   cannot be verified, cleanup keeps the registration for inspection instead of
-   guessing which process to stop. Fix the service error before retrying, or
-   reinstall to enable the task again.
+   cannot be verified, cleanup keeps the registration instead of guessing which
+   process to stop. If a recorded process was ended outside cleanup, including
+   by a reboot, confirm the environment port is closed and all recorded processes
+   have stopped. Then delete `service-stop.json` from the data directory and
+   retry uninstall. A descendant that exits before its handle is captured is
+   not recorded and does not require this recovery. Reinstall enables the task
+   again but does not clear an unfinished cleanup record.
    The hosted release smoke starts the installed task before uninstall and
    checks launcher/server exit, port closure, task removal, data retention
    and an unrelated Node process staying alive. Its temporary user's batch
