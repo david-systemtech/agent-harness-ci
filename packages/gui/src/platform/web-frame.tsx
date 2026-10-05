@@ -24,6 +24,7 @@ import { sessionLink, type BrowserRoute } from "./browser-boot.js";
 import type { BrowserPlatform } from "./browser-platform.js";
 import { usePhoneViewport } from "../composer/phone-viewport.js";
 import { WebRegisteredSurfaces } from "./web-registrations.js";
+import "./web-frame.css";
 
 export interface WebFrameProps { readonly platform: BrowserPlatform; readonly route: BrowserRoute }
 

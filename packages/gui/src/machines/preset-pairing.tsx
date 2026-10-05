@@ -40,7 +40,7 @@ export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentVi
   return (
     <div className="flex flex-col gap-2">
       <ChoiceList label="What the code grants" value={current} choices={offered.presets.map(({ preset: offer, words, dim }) => ({
-        value: offer.id, label: offer.name, note: words,
+        value: offer.id, label: offer.id === "own-client" ? "My own client — everything for my own devices (phone included)" : offer.id === "phone" ? "Phone — restricted" : offer.name, note: words,
         ...(!writable ? { disabledReason: "Read-only on this environment." } : dim !== null ? { disabledReason: dim } : offer.scopes.some(scope => !allowedScope(scope)) ? { disabledReason: "This preset exceeds this client’s scopes. Choose Custom within the granted scopes." } : {}),
       }))} onValueChange={(value) => choose(value as PairingPresetId)} />
       {preset.chooses === "scopes-and-ceiling" && (

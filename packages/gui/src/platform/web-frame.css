@@ -1,0 +1,9 @@
+/* The visible viewport includes safe-area padding; its children never grow the page. */
+[data-web-client] { box-sizing: border-box; min-height: 0; overflow: hidden; }
+[data-web-client] [data-limited-access] {
+  min-width: 0;
+  flex-shrink: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

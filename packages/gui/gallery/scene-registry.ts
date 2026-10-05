@@ -16,6 +16,10 @@ export interface SceneGeometry {
   readonly visibleWithin?: string;
   /** Require wrapping content to fit its own box, not only the enclosing control. */
   readonly contentFits?: boolean;
+  /** Require this row to start after every rendered element matching the selector. */
+  readonly below?: string;
+  /** Keep the top of a surface below a scene's simulated status bar or notch. */
+  readonly minimumTop?: number;
   /** The control must receive a pointer at its centre, including through clipping ancestors. */
   readonly hitTestable?: boolean;
   readonly width?: number;
