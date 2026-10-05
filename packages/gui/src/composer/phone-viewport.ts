@@ -7,7 +7,8 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     if (!frame) return;
     const subscribedViewport = window.visualViewport;
     const root = document.documentElement;
-    let fullHeight = window.innerHeight;
+    let unoccludedHeight = window.innerHeight;
+    let focusHeight = unoccludedHeight;
     let keyboardOpen = false;
     const clearPhone = () => {
       root.removeAttribute("data-phone-viewport");
@@ -18,7 +19,7 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       const viewport = window.visualViewport;
       if (window.innerWidth >= 640) {
         clearPhone();
-        keyboardOpen = false; fullHeight = window.innerHeight;
+        keyboardOpen = false; unoccludedHeight = focusHeight = window.innerHeight;
         frame.style.maxHeight = `${viewport?.height ?? window.innerHeight}px`;
         return;
       }
@@ -32,10 +33,15 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       frame.style.setProperty("--phone-viewport-height", `${height}px`);
       const composing = event?.type === "focusin" && event.target instanceof Element && event.target.matches('[aria-label="Message"]');
       const messageFocused = document.activeElement instanceof Element && document.activeElement.matches('[aria-label="Message"]');
-      // Refresh unoccluded bounds before composing; keep them while a keyboard
-      // may shrink both viewports, including through button taps.
-      fullHeight = !keyboardOpen && !messageFocused ? window.innerHeight : Math.max(fullHeight, window.innerHeight);
-      const keyboardNow = height < fullHeight;
+      if (composing && !keyboardOpen) focusHeight = unoccludedHeight;
+      // Equal viewport heights cannot distinguish keyboard from browser chrome.
+      // A quarter-height loss marks layout-resizing keyboards; keep the focus
+      // snapshot through gradual resize events so animation cannot erase it.
+      const keyboardNow = height < window.innerHeight || ((messageFocused || keyboardOpen) && height <= focusHeight * 0.75);
+      if (!keyboardNow) {
+        unoccludedHeight = window.innerHeight;
+        if (keyboardOpen || !messageFocused) focusHeight = unoccludedHeight;
+      }
       const keyboardOpened = keyboardNow && !keyboardOpen && messageFocused;
       // Keep the reserve through button taps: releasing it on blur can move Send
       // between pointer-down and pointer-up when the dock is already scrolling.

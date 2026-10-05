@@ -145,6 +145,11 @@ styles and listeners on wide mode or unmount. Focus scrolls only the owning
 scroller, never ancestors. Composer focus/keyboard opening explicitly repins
 the latest transcript line after resizing; follow scrollport/content resizing
 and streaming until deliberate scroll up. Jump to latest resumes following.
+A visual/layout height gap identifies keyboard occlusion. When both heights
+change together, a reduction of at least a quarter from the composer-focus
+height identifies opening; retain that reference through gradual resize events.
+Smaller bar resizes refresh unoccluded bounds without repinning, including
+after a keyboard close that retains Message focus.
 Reserve at least three normal text lines above the bottom dock while composing;
 retain that reservation through button taps to avoid moving a target on blur. Non-conversation
 controls stay above the conversation, and keyboard close retains draft/focus. Preserve the activity/asks/composer order; notices never cover a
@@ -256,6 +261,8 @@ acceptance validation. Starting allocation is 342 captures against the 400 cap;
 #1636 additionally keeps the layout viewport at 390×844 while scripting a
 390×480 visual viewport with offsets 0 and 120, composer focus, streaming,
 reading/Jump to latest, browser-bar resizing, notices/cards and keyboard close.
+Focused tests also cover bar resizing after a focus-preserving close followed
+by gradual keyboard reopening, with visual-only and simultaneous height changes.
 Hosted geometry proves shell/dock/latest-line bounds, readable transcript and
 stable document/window scroll. Animated keyboards, browser-bar settings,
 rotation/insets, focus zoom, selection and Home Screen behavior require dated

@@ -606,6 +606,8 @@ scroller and unpins; focus uses preventScroll and never pans ancestors.
 On phone composer focus or keyboard opening, explicitly repin the latest line
 after shell resizing. While pinned, observe scrollport as well as content
 resizing; after deliberate scroll up, streaming preserves the reading position.
+Browser-bar resizes after a focus-preserving keyboard close keep that reading
+position; repin only for focus or a subsequent keyboard opening.
 
 ### 10.2 Transcript recipes
 
@@ -1186,7 +1188,8 @@ at scale 1, with `100dvh`/window-height fallback, `viewport-fit=cover` and
 the visible keyboard. Lock the phone web document/root and bound the shell;
 retain unzoomed bounds during pinch zoom and clean locks/styles/listeners on
 wide mode/unmount. Keep at least three readable transcript lines while composing; retain that
-reservation through button taps so blur cannot move Send. Non-conversation
+reservation through button taps so blur cannot move Send. Release it on keyboard
+close even when Message keeps focus; later bar resizes must not restore it. Non-conversation
 controls stay above the conversation dock. Keep activity/asks/composer order,
 bound input/card focus scrolling to its owning scroller, and prevent notices from covering
 composer or waiting cards. Send/Stop, Allow/Deny and Continue/Finish remain

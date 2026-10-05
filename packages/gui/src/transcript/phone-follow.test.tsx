@@ -102,3 +102,42 @@ it("keeps a hidden phone pane at its reading position when another composer focu
   expect(positions.get(hidden)).toBe(300);
   expect(within(hidden.parentElement!).getByText("Jump to the latest")).toBeDefined();
 });
+
+it.each([false, true])("preserves reading during bars resizing after a focused keyboard close, then repins on reopening with layout resize %s", async (resizeLayout) => {
+  const viewport = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, scale: 1 });
+  vi.stubGlobal("visualViewport", viewport); vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 844);
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "phone-gallery-conversation");
+  onTestFinished(async () => { await gallery.close(); root.remove(); vi.unstubAllGlobals(); });
+  await gallery.ready;
+  const transcript = screen.getByRole("region", { name: "Transcript" });
+  const message = screen.getByRole("textbox", { name: "Message" });
+  let visible = 400, top = 600;
+  Object.defineProperties(transcript, {
+    scrollHeight: { configurable: true, get: () => 1000 },
+    clientHeight: { configurable: true, get: () => visible },
+    scrollTop: { configurable: true, get: () => top, set: (value: number) => { top = Math.min(value, 1000 - visible); } },
+  });
+  fireEvent.scroll(transcript);
+  act(() => message.focus());
+  fireEvent.change(message, { target: { value: "Keep this draft" } });
+  act(() => { if (resizeLayout) window.innerHeight = 480; viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  act(() => { window.innerHeight = 844; viewport.height = 844; viewport.dispatchEvent(new Event("resize")); });
+  expect(document.activeElement).toBe(message);
+  expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(false);
+  top = 300; fireEvent.scroll(transcript);
+  act(() => { window.innerHeight = 780; viewport.height = 780; viewport.dispatchEvent(new Event("resize")); });
+  expect(top).toBe(300);
+  expect(screen.getByRole("button", { name: "Jump to the latest" })).toBeDefined();
+  expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(false);
+  visible = 100;
+  for (const height of [750, 720, 690, 660, 630, 600, 570, 540, 510, 480]) {
+    act(() => { if (resizeLayout) window.innerHeight = height; viewport.height = height; viewport.dispatchEvent(new Event("resize")); });
+  }
+  expect(top).toBe(900);
+  expect(screen.queryByRole("button", { name: "Jump to the latest" })).toBeNull();
+  act(() => { window.innerHeight = 780; viewport.height = 780; viewport.dispatchEvent(new Event("resize")); });
+  expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(false);
+  expect(document.activeElement).toBe(message);
+  expect(message).toHaveProperty("value", "Keep this draft");
+});
