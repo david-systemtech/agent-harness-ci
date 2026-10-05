@@ -76,7 +76,7 @@ export const RunPickerSteps = ({ stage, effort, change }: {
     steps.current?.parentElement?.querySelector<HTMLElement>(`[data-run-column="${stage}"] input, [data-run-column="${stage}"] [role="menuitem"]:not([data-disabled])`)?.focus();
   }, [stage]);
   const back = stage === "Effort" ? "Models" : "Accounts";
-  const next = stage === "Accounts" ? "Models" : effort ? "Effort" : undefined;
+  const next = stage === "Accounts" ? "Models" : stage === "Models" && effort ? "Effort" : undefined;
   return <div ref={steps} role="group" aria-label="Steps" data-run-column="Steps" className="flex min-w-0 items-center justify-between gap-2 border-b border-hairline p-1.5">
     {stage !== "Accounts" && <Button aria-label={`Back: ${back}`} onClick={() => change(back)}><ArrowLeft aria-hidden="true" />Back</Button>}
     <span className="text-xs text-ink-muted">{stage}</span>

@@ -190,6 +190,7 @@ describe("the model picker", () => {
     expect(within(dialog).queryByRole("group", { name: "Effort" })).toBeNull();
     await app.user.click(within(dialog).getByRole("menuitem", { name: "Opus (claude-opus-4)" }));
     expect(within(dialog).getByRole("group", { name: "Effort" })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /^Next:/ })).toBeNull();
     expect(within(dialog).queryByRole("group", { name: "Models" })).toBeNull();
     await app.user.click(within(dialog).getByRole("button", { name: "Back: Models" }));
     expect(within(dialog).getByRole("menuitem", { name: "Opus (claude-opus-4)" }).className).toContain("bg-wash");
@@ -246,6 +247,20 @@ describe("the model picker", () => {
 });
 
 describe("the account picker", () => {
+  it("keeps the signed-out phone account reachable with a constrained grant", async () => {
+    const width = globalThis.window.innerWidth;
+    Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 360 });
+    onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: width }); });
+    const { app } = await opened([desk({ scopes: ["read", "sessions:write", "runs:drive"], accounts: [{ id: "claude-max", label: "claude-max", status: { state: "signed-out", checkedAt: null, detail: null } }], sessions: [{ title: "Receipts", accountId: "claude-max" }] })]);
+    await app.user.click(within(statusLine()).getByRole("button", { name: /^Account:/ }));
+    const sheet = await screen.findByRole("dialog", { name: "Run choices" });
+    const accounts = within(sheet).getByRole("group", { name: "Accounts" });
+    const account = within(accounts).getByRole("menuitem", { name: /claude-max/ });
+    expect(account.textContent).toContain("signed out");
+    await app.user.click(account);
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(paneLine()).toContain("Cannot sign claude-max in"));
+  });
   it("lists the environment's accounts with their identity, sign-in status and plan reading, then Add an account", async () => {
     const { app, env } = await opened([
       desk({
