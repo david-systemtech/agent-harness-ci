@@ -1,5 +1,5 @@
 import type { ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
-import { verifyKeyboardDock } from "../phone-keyboard-dock-geometry.js";
+import { verifyKeyboardDock, verifyReadableReplyLines } from "../phone-keyboard-dock-geometry.js";
 import { safeAreas } from "../phone-frame-scene.js";
 export { platform, script, route } from "../phone-frame-scene.js";
 
@@ -55,8 +55,11 @@ export const activate = () => {
     await settle(); verifyKeyboardDock(480, 120);
     document.querySelector<HTMLButtonElement>('[aria-label="Notifications"] [aria-label="Dismiss"]')!.click();
     await settle();
-    env.openPrompt(env.sessionId(), { promptId: "keyboard-permission", kind: "permission", summary: "Read receipts", toolName: "Bash", input: { command: "printf receipts" } });
+    env.openPrompt(env.sessionId(), { promptId: "keyboard-permission", kind: "permission", summary: "Read each receipt and compare its rounding with the summary. ".repeat(24), toolName: "Bash", input: { command: "printf receipts" } });
     await settle(); verifyKeyboardDock(480, 120);
+    const above = document.querySelector<HTMLElement>("[data-composer-above]")!;
+    if (above.scrollHeight <= above.clientHeight) throw new Error("Filled dock proof needs a scrolling waiting card");
+    verifyReadableReplyLines();
     const notifications = document.querySelector<HTMLElement>('[aria-label="Notifications"]')!;
     const dismiss = notifications.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!;
     notifications.scrollTop += Math.max(0, dismiss.getBoundingClientRect().bottom - notifications.getBoundingClientRect().bottom);
@@ -65,6 +68,10 @@ export const activate = () => {
     if (dismissBounds.top < noticeBounds.top || dismissBounds.bottom > noticeBounds.bottom + 1) throw new Error("Keyboard clips the notification action");
     const allow = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Allow once"));
     if (!allow) throw new Error("Keyboard proof missing waiting card");
+    above.scrollTop += Math.max(0, allow.getBoundingClientRect().bottom - above.getBoundingClientRect().bottom);
+    await settle();
+    const action = allow.getBoundingClientRect(), well = above.getBoundingClientRect();
+    if (action.top < well.top || action.bottom > well.bottom + 1) throw new Error("Keyboard clips the waiting-card action");
     allow.click(); await settle();
     field.focus({ preventScroll: true });
     // Browser bars resize, then keyboard close. Focus and draft must survive both.
