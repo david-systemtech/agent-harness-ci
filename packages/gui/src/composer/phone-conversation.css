@@ -83,7 +83,8 @@
   .phone-composer-sheet {
     top: auto;
     bottom: max(8px, env(safe-area-inset-bottom));
-    transform: translateX(-50%);
+    translate: -50% 0;
+    transform: none;
     width: calc(100vw - 16px);
     max-width: 480px;
     max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
