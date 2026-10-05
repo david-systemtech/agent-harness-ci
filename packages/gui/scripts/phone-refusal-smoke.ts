@@ -35,6 +35,10 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   };
   await signIn(false);
   try {
+    // The preceding permission receipt can render while its run is still finishing.
+    // Enter the refusal draft after the composer has returned to starting a new run.
+    console.log(`PHONE-REFUSAL ${engine}: waiting for the previous run to finish`);
+    await expect(field).toHaveAttribute("placeholder", "Continue the session…", { timeout: 60_000 });
     for (const viewport of [{ width: 390, height: 480 }, { width: 360, height: 400 }]) {
       console.log(`PHONE-REFUSAL ${engine}: viewport ${viewport.width}x${viewport.height}`);
       await page.setViewportSize(viewport);
