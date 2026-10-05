@@ -22,6 +22,7 @@ import { useProvider } from "../session/provider.js";
 import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
 import { classes } from "../ui/classes.js";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { IconButton } from "../ui/index.js";
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
@@ -89,6 +90,7 @@ export interface ComposerProps {
 export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const runtime = useRuntime();
   const clock = useClock();
+  const { narrow } = usePhoneFrame();
   // The connections' phases: the lock and the shell's members are asked again whenever one moves.
   useObservable(runtime.projections.environments);
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
@@ -243,6 +245,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
       <PromptCard environmentId={environmentId} sessionId={sessionId} />
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
+      {narrow && <div className="px-3"><WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} /></div>}
       </div>
       <KeyContext context="composer" conditions={conditions}>
         <ComposerKeys
@@ -267,7 +270,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
         {gone === undefined && (
           <div className="shrink-0 px-3 pb-1" onDragOver={(event) => { attachments.dragging(event); if (event.dataTransfer.types.includes("Files")) setFileHover(true); }} onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFileHover(false); }} onDrop={(event) => { setFileHover(false); attachments.dropped(event); }}>
             {lock.locked && <p className="pb-1 text-xs text-amber">Locked: {lock.reason}</p>}
-            <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />
+            {!narrow && <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />}
             <div data-composer-card className={classes("relative rounded-[10px] border border-hairline-strong bg-wash focus-within:ring-3 focus-within:ring-beam/50", fileHover && "ring-2 ring-beam ring-offset-2 ring-offset-abyss")}>
               {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
               <AttachmentChips attachments={attachments} />

@@ -62,10 +62,13 @@ const InstallSurface = () => {
 };
 export const webModule: WebModule = { slot: "install", registration: {
   Surface: InstallSurface,
-  start() {
-    const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { readonly standalone?: boolean }).standalone === true;
-    const controller = new InstallController(window, { secure: window.isSecureContext, standalone, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), worker: "serviceWorker" in navigator });
-    active.set(controller);
-    return () => { controller.dispose(); active.set(undefined); };
-  },
+  start: () => startInstallSurface(),
 } };
+
+/** Shared browser lifecycle used by startup and scenes that include its real disclosure. */
+export const startInstallSurface = (): (() => void) => {
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { readonly standalone?: boolean }).standalone === true;
+  const controller = new InstallController(window, { secure: window.isSecureContext, standalone, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), worker: "serviceWorker" in navigator });
+  active.set(controller);
+  return () => { controller.dispose(); active.set(undefined); };
+};

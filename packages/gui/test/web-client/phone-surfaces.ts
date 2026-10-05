@@ -4,11 +4,12 @@ import { join } from "node:path";
 import type { Locator, Page, Request } from "playwright";
 import { expect as browserExpect } from "playwright/test";
 
-const expect = browserExpect.configure({ timeout: 60_000 });
 import { fileTool, type ScriptControls } from "../../../environment/test/fake-adapter.js";
 import { untilEvent } from "../../../environment/test/routines.js";
 import type { TestEnvironment } from "../../../environment/test/helper.js";
 import { SETTINGS_ROWS, STEP_ORDER, STEP_LABELS } from "@agent-harness/contracts";
+
+const expect = browserExpect.configure({ timeout: 60_000 });
 
 /** Scripted provider writes through the normal file observer, so Documents uses real events. */
 export async function* phoneDocument(controls: ScriptControls) {
@@ -28,11 +29,7 @@ const noOverflow = async (page: Page): Promise<void> => {
 
 export const reachable = async (page: Page, control: Locator): Promise<void> => {
   await expect(control).toBeVisible();
-  try { await expect(control).toBeInViewport({ ratio: 1 }); }
-  catch (error) {
-    console.error(`PHONE-CLIP ${await page.evaluate<string>("JSON.stringify(Array.from(document.querySelectorAll('[data-web-client], [data-web-grant], [data-grid-card], [data-dock-owner], [aria-label=\"Session pane\"], [aria-label=\"Transcript\"], [aria-label=\"Status line\"], [aria-label=\"Workspace check\"], [data-install-disclosure], [data-composer-column], [data-composer-above], [aria-label=\"Parked prompt\"], [aria-label=\"Allow once\"], [aria-label=\"Permission decision\"]')).map(element => { const style = getComputedStyle(element); return { name: element.getAttribute('aria-label') ?? element.tagName, attributes: Array.from(element.attributes).filter(attribute => attribute.name.startsWith('data-')).map(attribute => attribute.name), box: element.getBoundingClientRect().toJSON(), height: element.clientHeight, scrollHeight: element.scrollHeight, scrollTop: element.scrollTop, overflow: style.overflow, minHeight: style.minHeight, maxHeight: style.maxHeight, flex: style.flex }; }))")}`);
-    throw error;
-  }
+  await expect(control).toBeInViewport({ ratio: 1 });
   await expect.poll(async () => {
     const box = await control.boundingBox();
     const viewport = page.viewportSize();

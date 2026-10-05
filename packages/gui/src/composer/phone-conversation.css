@@ -47,3 +47,13 @@
     max-height: max(44px, min(35vh, calc(var(--phone-viewport-height, 100dvh) * 0.25)));
   }
 }
+
+/* Keep read-only grant details in their own scrolling line while the keyboard is up. */
+@media (max-width: 639px) and (max-height: 600px) {
+  [data-web-client] [data-web-grant] {
+    white-space: nowrap;
+    overflow-x: auto;
+    padding-block: 4px;
+  }
+  [data-web-client] [aria-label="Message"] { padding-block: 4px; }
+}
