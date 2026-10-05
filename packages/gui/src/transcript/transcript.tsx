@@ -229,7 +229,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
           </div>
         </section>
         {follow.away && (
-          <Button size="xs" variant="outline" title="Jump to the latest (Enter or Space)" onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float shadow-lg shadow-scrim/40">
+          <Button data-transcript-jump size="xs" variant="outline" title="Jump to the latest (Enter or Space)" onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float shadow-lg shadow-scrim/40">
             <ArrowDown aria-hidden="true" className="size-3" />Jump to the latest
           </Button>
         )}

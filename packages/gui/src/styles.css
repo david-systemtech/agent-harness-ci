@@ -352,3 +352,6 @@ html[data-phone-viewport] [data-web-client] {
 [data-web-client] [data-composer-column] {
   overscroll-behavior: contain;
 }
+
+/* The dark outline variant is translucent; a reading control must cover the text beneath it. */
+[data-web-client] [data-transcript-jump] { background: var(--float); }

@@ -61,7 +61,7 @@ it("suppresses phone root/transcript overscroll while leaving selection, zoom an
   const style = document.createElement("style");
   const source = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
   style.textContent = source.slice(source.indexOf("/* Only the mounted phone web frame"));
-  const frame = document.createElement("div"); frame.setAttribute("data-web-client", "");
+  const frame = document.createElement("div"); frame.id = "root"; frame.setAttribute("data-web-client", "");
   frame.innerHTML = '<section aria-label="Transcript"><pre><code>wide receipt line</code></pre></section><div data-composer-column></div>';
   document.body.append(frame); document.head.append(style); document.documentElement.setAttribute("data-phone-viewport", "");
   try {
@@ -80,7 +80,12 @@ it("suppresses phone root/transcript overscroll while leaving selection, zoom an
 it("keeps a history anchor and tool choices through disclosure and streaming", async () => {
   vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 844);
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
-  const gallery = await mountGallery(root, "reading", "dark", { reading: { ...readingScene, activate: undefined, readySelector: "pre code" } });
+  const script = readingScene.script;
+  if (!script || !readingScene.arrangeWeb) throw new Error("Reading fixture needs a scripted web world");
+  const gallery = await mountGallery(root, "reading", "dark", { reading: {
+    platform: readingScene.platform, script, route: readingScene.route,
+    arrangeWeb: readingScene.arrangeWeb, readySelector: "pre code",
+  } });
   onTestFinished(async () => { await gallery.close(); root.remove(); vi.unstubAllGlobals(); });
   await gallery.ready;
   const transcript = screen.getByRole("region", { name: "Transcript" });
