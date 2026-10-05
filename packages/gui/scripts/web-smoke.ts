@@ -203,7 +203,7 @@ try {
       await visit.reload();
       await visit.getByRole("heading", { name: "Pair with this environment" }).waitFor();
       assert(requests.every(url => !url.includes(code.code) && !url.includes(credential.token)), "No token or code reaches a request URL.");
-      assert.equal(errors.length, 0, "The real bundle produced no page errors.");
+      assert.deepEqual(errors, [], "The real bundle produced no page errors.");
       await context.close(); await denied.close();
       await webOriginSmoke(browser, environment, origin, bundle, output);
       console.log(`WEB-SMOKE PASS ${name}: pair/reload, list/open, stream, Allow/Deny once, reconnect, grants, revoke, visit-only storage`);
