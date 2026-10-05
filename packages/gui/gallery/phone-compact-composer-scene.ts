@@ -14,14 +14,13 @@ export const arrangeWeb: NonNullable<SceneModule["arrangeWeb"]> = world => {
   env.endRun(env.sessionId(), runId);
 };
 export const readySelector = '[data-compact-composer-proof="passed"]';
-export const geometry = ({ width, height }: SceneViewport): readonly SceneGeometry[] => [
+export const geometry = ({ height }: SceneViewport): readonly SceneGeometry[] => [
   { selector: "[data-web-client]", contentFits: true },
   { selector: "[data-phone-composer-toolbar]", height: 48, visibleWithin: "[data-web-client]", contentFits: true },
   { selector: "[data-phone-composer-toolbar] button", minimumHeight: 44, minimumWidth: 44, visibleWithin: "[data-web-client]" },
   { selector: '[aria-label="Send"], [aria-label="Attach files"]', minimumHeight: 44, minimumWidth: 44, visibleWithin: "[data-web-client]" },
   { selector: '[aria-label="Message"]', minimumHeight: 44, visibleWithin: "[data-web-client]" },
   { selector: '[aria-label="Transcript"]', minimumHeight: height >= 480 ? 84 : 44, visibleWithin: "[data-web-client]" },
-  ...(width === 390 && height === 844 ? [{ selector: "[data-composer-column]", maxHeight: 169 }] : []),
 ];
 
 /** The hosted browser proves the actual bottom edge and space returned to the transcript. */
@@ -47,6 +46,7 @@ export const compactComposer = (inset: number, standalone: boolean) => () => {
       const card = document.querySelector<HTMLElement>("[data-composer-card]")!;
       const transcript = document.querySelector<HTMLElement>('[aria-label="Transcript"]')!;
       const bottom = frame.getBoundingClientRect().bottom - inset;
+      if (innerWidth === 390 && innerHeight === 844 && dock.getBoundingClientRect().height > 169) throw new Error("Empty phone composer exceeds its 169px budget");
       for (const element of [dock, card]) {
         if (Math.abs(element.getBoundingClientRect().bottom - bottom) > 1) throw new Error("Compact composer does not reach the safe-area edge");
       }

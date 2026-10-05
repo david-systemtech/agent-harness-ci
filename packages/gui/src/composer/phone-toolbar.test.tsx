@@ -5,6 +5,7 @@ import { mountGallery } from "../../gallery/mount.js";
 import { route } from "../../gallery/phone-frame-scene.js";
 import { phoneRunPickerScene } from "../../gallery/phone-run-picker-scene.js";
 import type { SceneModule } from "../../gallery/scene-registry.js";
+import { renderApp } from "../../test/harness.js";
 
 const openPhone = async (terminal = true, scene?: SceneModule) => {
   vi.stubGlobal("innerWidth", 390);
@@ -77,6 +78,17 @@ it.each(["account", "model", "mode", "containment"] as const)("keeps /%s wired w
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(command === "account" || command === "model" ? await screen.findByRole("dialog", { name: "Run choices" }) : await screen.findByRole("menu")).toBeDefined();
   expect(gallery.world.world.environment("desk").requests("runs.start")).toHaveLength(0);
+});
+
+it("retains the desktop workspace and status controls at a narrow window width", async () => {
+  vi.stubGlobal("innerWidth", 390);
+  vi.stubGlobal("matchMedia", (query: string) => Object.assign(new EventTarget(), { matches: query === "(width < 640px)", media: query, onchange: null }));
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
+  app.open("desk");
+  expect(await screen.findByRole("button", { name: "Recent folders" })).toBeDefined();
+  expect(screen.getByRole("region", { name: "Status line" })).toBeDefined();
+  expect(screen.queryByRole("toolbar", { name: "Conversation controls" })).toBeNull();
 });
 
 it("explains the check state on tap without giving its path or off sentence a dock row", async () => {

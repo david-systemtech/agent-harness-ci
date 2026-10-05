@@ -95,8 +95,10 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
         const viewport = window.visualViewport;
         return { sheet: box(element), close: box(element.querySelector('[aria-label="Close dialog"]')), scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight, top: style.top, bottom: style.bottom, translate: style.translate, transform: style.transform, viewport: viewport && { width: viewport.width, height: viewport.height, offsetTop: viewport.offsetTop, offsetLeft: viewport.offsetLeft }, page: { x: scrollX, y: scrollY, width: innerWidth, height: innerHeight } };
       })()`);
-      console.error(`[DEBUG-1630-sheet] ${engine} ${JSON.stringify(sheetBounds)}`);
-      await runSettings.getByRole("button", { name: "Close dialog", exact: true }).click();
+      await runSettings.getByRole("button", { name: "Close dialog", exact: true }).click().catch(error => {
+        console.error(`[DEBUG-1630-sheet] ${engine} ${JSON.stringify(sheetBounds)}`);
+        throw error;
+      });
       await expect(runSettings).toBeHidden();
       await expect(settings).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });

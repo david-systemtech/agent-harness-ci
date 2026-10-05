@@ -26,7 +26,7 @@ import { IconButton } from "../ui/index.js";
 import { QueueStrip } from "../queue/queued.js";
 import { RewoundStrip } from "../fork-rewind/rewound.js";
 import { Activity, BackgroundWork } from "./activity.js";
-import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 import { MissingWorkspace, useGoneWorkspace } from "../workspace/missing.js";
 import { AttachmentChips, AttachmentPicker, useAttachments } from "./attachments.js";
 import { useBox } from "./box.js";
@@ -91,7 +91,8 @@ export interface ComposerProps {
  */
 export const Composer = ({ environmentId, sessionId, authoring = false }: ComposerProps) => {
   const { narrow } = usePhoneFrame();
-  const compact = narrow && !authoring;
+  const shell = useShell();
+  const compact = shell === undefined && narrow && !authoring;
   const runtime = useRuntime();
   const clock = useClock();
   // The connections' phases: the lock and the shell's members are asked again whenever one moves.

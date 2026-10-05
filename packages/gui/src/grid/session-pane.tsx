@@ -21,7 +21,7 @@ import { TrustQuestion } from "../skills/trust.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
 import { StatusLine } from "../status/status-line.js";
 import { COLUMN_WIDTHS, Transcript } from "../transcript/transcript.js";
-import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
 import { EmptyCaption, NewSessionCaption, SessionCaption, type CaptionProps } from "./caption.js";
 
 /** What a pane's contents take from the grid: whether it is the focused pane, marked, and its close. */
@@ -49,6 +49,7 @@ export interface PaneContentsProps extends CaptionProps {
  */
 export const SessionPane = ({ session, focused, header, authoring = false, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode; readonly authoring?: boolean }) => {
   const { narrow } = usePhoneFrame();
+  const shell = useShell();
   const { environmentId, sessionId } = session;
   const [readingWidth] = usePresentation("readingWidth");
   return (
@@ -68,7 +69,7 @@ export const SessionPane = ({ session, focused, header, authoring = false, ...ca
                     </div>}
                     <div data-composer-column className="mx-auto w-full shrink-0" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
                       <Composer environmentId={environmentId} sessionId={sessionId} authoring={authoring} />
-                      {!authoring && !narrow && <StatusLine environmentId={environmentId} sessionId={sessionId} />}
+                      {!authoring && (shell !== undefined || !narrow) && <StatusLine environmentId={environmentId} sessionId={sessionId} />}
                     </div>
                   </section>
                   <SideColumnView environmentId={environmentId} sessionId={sessionId} />
