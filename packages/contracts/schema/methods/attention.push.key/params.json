@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "attention.push.key params",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
