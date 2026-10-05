@@ -123,7 +123,7 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
 export async function phoneFrameSmoke(page: Page, engine: string): Promise<void> {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await chooseRow(page, "Accounts");
-  await expect(page.getByText(/pair again.*admin/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Give this phone full access", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add an account…", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Close Settings", exact: true }).click();
   await page.getByRole("button", { name: "More", exact: true }).click();
