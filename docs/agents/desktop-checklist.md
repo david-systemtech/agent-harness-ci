@@ -178,6 +178,13 @@ On every platform, with the window connected to this machine's environment:
 3. **Import.** Import opens the OS's file dialog filtered to JSON; choosing
    the exported file previews it, and a file that is not a theme file is
    refused with its reason, nothing saved.
+4. **Native dropdown contrast (#1620).** On Windows with the released app,
+   select Dark in Settings, Theme. Open the Environment dropdown in Settings
+   and a dropdown in a settings row or Set up, including a disabled option
+   where available. The opened list's text and background must be readable
+   together. Capture an opened list, switch to Light, and capture it again.
+   Repeat on the paired environment's web client, including the phone's
+   native picker. Keep both Windows screenshots with the release QA evidence.
 
 ## The terminal pane under the content policy (#409, #486)
 
