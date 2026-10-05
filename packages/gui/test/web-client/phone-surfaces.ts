@@ -31,7 +31,14 @@ export const reachable = async (page: Page, control: Locator): Promise<void> => 
   await expect(control).toBeVisible();
   try { await expect(control).toBeInViewport({ ratio: 1 }); }
   catch (error) {
-    console.error("PHONE-CONTROL geometry", await control.evaluate(`element => {
+    const label = await control.getAttribute("aria-label");
+    const text = await control.textContent();
+    const target = label === null
+      ? `Array.from(document.querySelectorAll('button, input, select, textarea, [role="menuitem"]')).find(node => node.textContent === ${JSON.stringify(text)})`
+      : `document.querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(label)}]`)})`;
+    console.error("PHONE-CONTROL geometry", await page.evaluate(`(() => {
+      const element = ${target};
+      if (!element) return { missing: true };
       const ancestors = [];
       for (let node = element; node; node = node.parentElement) {
         const box = node.getBoundingClientRect();
@@ -42,7 +49,7 @@ export const reachable = async (page: Page, control: Locator): Promise<void> => 
           scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight });
       }
       return { viewport: [innerWidth, innerHeight], visualHeight: visualViewport?.height, ancestors };
-    }`));
+    })()`));
     throw error;
   }
   await expect.poll(async () => {
