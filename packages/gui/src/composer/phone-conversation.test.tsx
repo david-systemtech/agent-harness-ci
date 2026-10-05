@@ -24,6 +24,7 @@ it("keeps the composing draft until the input method commits, including an Enter
 it("fits the web conversation to the visual viewport and leaves pinch zoom alone", async () => {
   const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 390);
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root";
   document.body.append(root);
@@ -44,8 +45,9 @@ it("fits the web conversation to the visual viewport and leaves pinch zoom alone
 });
 
 it("fits a missing-workspace conversation before and after its message field returns", async () => {
-  const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1 });
+  const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 390);
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "phone-missing-workspace", "light", {

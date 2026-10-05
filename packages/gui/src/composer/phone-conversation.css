@@ -4,10 +4,11 @@
   [data-web-client] [data-dock-owner] [data-composer-column] {
     display: flex;
     flex-direction: column;
-    max-height: calc(100% - 44px);
+    max-height: calc(100% - (3lh + 28px));
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  [data-web-client] [data-transcript-region] { min-height: calc(3lh + 28px); }
   [data-web-client] [data-composer-above] {
     flex-shrink: 1;
     overflow-y: auto;

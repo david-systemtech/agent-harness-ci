@@ -110,3 +110,12 @@ it("requires a discovered shard before capture", () => {
   expect(selected.shard).toEqual({ id: "phone-002", index: 1, count: 2 });
   expect(() => captureShard(plan, "phone-003")).toThrow("Invalid gallery shard selection");
 });
+
+
+it("keeps the keyboard dock proof at layout 390x844 instead of reducing the whole window", () => {
+  const plan = capturePlan(["phone-keyboard-dock"]);
+  expect(plan.captures.map(capture => [capture.name, capture.viewport])).toEqual([
+    ["phone-keyboard-dock-phone-390.light", { width: 390, height: 844 }],
+    ["phone-keyboard-dock-phone-390.dark", { width: 390, height: 844 }],
+  ]);
+});

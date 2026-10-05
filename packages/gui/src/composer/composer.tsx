@@ -36,7 +36,6 @@ import { useSessionDraft } from "./session-draft.js";
 import { notWired, typedCommand, useSlashCommand, useWiredCommands } from "./slash-commands.js";
 import { useWorkspaceChecks, WorkspaceCheck, WorkspaceRow } from "./workspace-checks.js";
 import { useComposition } from "./composition.js";
-import { usePhoneViewport } from "./phone-viewport.js";
 import "./phone-conversation.css";
 import { usePromptWalk } from "./walk.js";
 
@@ -99,7 +98,6 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const box = useBox();
   const { composing, ...composition } = useComposition();
   const above = useRef<HTMLDivElement>(null);
-  usePhoneViewport(above);
   useSessionDraft(environmentId, sessionId, projection, box);
   const sendKey = useFirstKey("composer.send");
   const newlineKey = useFirstKey("composer.newline");
