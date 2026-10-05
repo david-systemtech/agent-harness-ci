@@ -1,6 +1,6 @@
 """Publish validated hosted reports from the trusted checkout only."""
 import hashlib, html, json, os, re, struct, sys, urllib.error, urllib.parse, urllib.request, zipfile
-from gallery_reports import validate_shard, complete_set, MAX_ROWS, MAX_BYTES
+from gallery_reports import validate_shard, complete_set, phone_dimensions, MAX_ROWS, MAX_BYTES
 from gallery_allocation import LIMITS, MAX_PNGS, report_scenes
 base = os.environ['FORGEJO_URL'].rstrip('/')
 repository = os.environ['FORGEJO_REPOSITORY']; pr = os.environ['FORGEJO_PR']; head = sys.argv[1]
@@ -42,9 +42,7 @@ def read_report(archive):
             if 'shard' in report and not name.startswith('phone-'):
                 if len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) not in ((1400, 900), (1024, 768)): sys.exit('unexpected desktop gallery dimensions')
             if name.startswith('phone-'):
-                phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)([.](baseline|difference))?[.]png$', name)
-                profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
-                if phone is None or len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != profiles[phone[1]]: sys.exit('unexpected phone gallery dimensions')
+                if len(data) < 33 or data[12:16] != b'IHDR' or struct.unpack('>II', data[16:24]) != phone_dimensions(name): sys.exit('unexpected phone gallery dimensions')
         seen = set()
         for scene in scenes:
             name = scene['name']
@@ -101,7 +99,7 @@ for report, images, scenes in reports:
             url = asset['browser_download_url']; parsed = urllib.parse.urlsplit(url); origin = urllib.parse.urlsplit(base)
             if (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc) or not parsed.path.startswith('/attachments/') or any(c in url for c in '\n\r()'): raise ValueError('invalid asset URL')
             urls[name] = url
-        body = f'Window gallery for `{head}` (desktop 1400 × 900 / 1024 × 768; phone 390 × 844 / 360 × 740; text size 20; keyboard 390 × 480; light and dark).\n'
+        body = f'Window gallery for `{head}` (desktop 1400 × 900 / 1024 × 768; phone 320–430 CSS pixels, tall and short; text size 20; keyboard 390 × 480; light and dark).\n'
         budget = report.get('captureBudget')
         if isinstance(budget, dict) and all(isinstance(budget.get(k), int) for k in ('desktop', 'phone', 'total', 'limit', 'remaining')):
             body += f"\nCapture budget: {budget['desktop']} desktop + {budget['phone']} phone = {budget['total']}/{budget['limit']}; {budget['remaining']} slots reserved.\n"

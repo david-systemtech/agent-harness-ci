@@ -1031,13 +1031,81 @@ it("publishes and accepts every phone profile beside the preserved desktop captu
   for (const name of names) expect(accepted.stdout).toContain(`Accepted ${name}.png`);
 });
 
-it("refuses to publish a phone capture whose dimensions disagree with its profile name", async () => {
+it.each([
+  ["320", 320, 568],
+  ["320-short", 320, 320],
+  ["360-short", 360, 400],
+  ["430", 430, 932],
+  ["430-short", 430, 360],
+] as const)("publishes and accepts named phone-%s captures and their changed triplets", async (profile, width, height) => {
   const g = await storedGallery();
-  await g.capture(230, 1, ["phone-gallery-conversation-phone-390-keyboard.dark"], { width: 390, height: 844 });
+  const names = ["dark", "light"].map(ladder => `phone-frame-conversation-phone-${profile}.${ladder}`);
+  await g.capture(230, names.length, names, { width, height });
+  await run("python3", ["-c", `import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: files={n:z.read(n) for n in z.namelist()}
+report=json.loads(files['report.json'])
+report['pixelBlocking']=True
+report['shard']={'id':'phone-001','index':0,'count':1}
+for scene in report['scenes']:
+    scene['status']='changed'
+    for suffix in ('.baseline.png','.difference.png'): files[scene['name']+suffix]=files[scene['name']+'.png']
+files['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+    for name,data in files.items(): z.writestr(name,data)`, g.env.FAKE_GALLERY_ZIP]);
+  const env = { ...g.env, FAKE_ARTIFACTS: JSON.stringify([{ id: 99, name: "window-gallery-phone-001", size_in_bytes: statSync(g.env.FAKE_GALLERY_ZIP).size }]) };
+  const result = await relay(g.f, env);
+  expect(result.code, result.stderr).toBe(0);
+  expect(g.comments).toHaveLength(1);
+  expect(g.captures.size).toBe(2);
+  expect(g.attachments).toHaveLength(6);
+  await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...process.env, ...g.env } });
+  for (const [url, image] of g.captures) {
+    const filename = url.split("/").at(-1)!;
+    expect(readFileSync(join(g.f.checkout, "packages/gui/gallery/baselines", filename))).toEqual(image);
+  }
+  expect(readdirSync(join(g.f.checkout, "packages/gui/gallery/baselines"))).toHaveLength(2);
+});
+
+it.each([
+  ["390-keyboard", 390, 844],
+  ["320", 320, 320],
+  ["320-short", 320, 568],
+  ["360-short", 360, 740],
+  ["430", 430, 360],
+  ["430-short", 430, 932],
+  ["999", 320, 568],
+  ["320-extra", 320, 568],
+] as const)("refuses to publish phone-%s whose dimensions disagree with its profile name", async (profile, width, height) => {
+  const g = await storedGallery();
+  await g.capture(230, 1, [`phone-gallery-conversation-phone-${profile}.dark`], { width, height });
   const result = await relay(g.f, g.env);
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("unexpected phone gallery dimensions");
   expect(g.comments).toHaveLength(0);
+});
+
+it.each(["truncated-png", "invalid-ihdr", "wrong-size-difference", "invalid-name"])("rejects a phone-320 %s report before any publication", async mode => {
+  const g = await storedGallery();
+  await g.capture(230, 1, ["phone-frame-conversation-phone-320.dark"], { width: 320, height: 568 });
+  await run("python3", ["-c", `import json,struct,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z: files={n:z.read(n) for n in z.namelist()}
+report=json.loads(files['report.json']); scene=report['scenes'][0]; name=scene['name']+'.png'; data=files[name]
+if sys.argv[2]=='truncated-png': files[name]=data[:32]
+elif sys.argv[2]=='invalid-ihdr': files[name]=data[:12]+b'IDAT'+data[16:]
+elif sys.argv[2]=='wrong-size-difference':
+    scene['status']='changed'
+    files[scene['name']+'.baseline.png']=data
+    files[scene['name']+'.difference.png']=data[:16]+struct.pack('>II',320,320)+data[24:]
+else:
+    files['../'+name]=files.pop(name)
+files['report.json']=json.dumps(report).encode()
+with zipfile.ZipFile(sys.argv[1],'w') as z:
+    for name,data in files.items(): z.writestr(name,data)`, g.env.FAKE_GALLERY_ZIP, mode]);
+  const result = await relay(g.f, g.env);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain(mode === "invalid-name" ? "unexpected gallery entry" : "unexpected phone gallery dimensions");
+  expect(g.comments).toHaveLength(0);
+  expect(g.captures.size).toBe(0);
 });
 
 async function shardedGallery() {

@@ -6,7 +6,7 @@ root=$(git rev-parse --show-toplevel)
 python3 - "$(dirname "${BASH_SOURCE[0]}")" "$root" "$@" <<'PY'
 import hashlib, json, os, pathlib, re, shlex, struct, subprocess, sys, tempfile, urllib.parse, urllib.request
 sys.path.insert(0, sys.argv[1])
-from gallery_reports import validate_shard, complete_set, MAX_BYTES, MAX_THREAD_BYTES
+from gallery_reports import validate_shard, complete_set, phone_dimensions, MAX_BYTES, MAX_THREAD_BYTES
 from gallery_allocation import LIMITS, captures_fit_allocation
 root = pathlib.Path(sys.argv[2]); number = sys.argv[3]
 selected = set(sys.argv[4:])
@@ -100,10 +100,8 @@ for item in files:
         sys.exit('Gallery capture bytes do not match the reviewed manifest.')
     if len(data) < 33 or data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR': sys.exit('Gallery attachment is not a PNG.')
     dimensions = struct.unpack('>II', data[16:24])
-    phone = re.search(r'-phone-(390(?:-text-20|-keyboard)?|360)[.](dark|light)[.]png$', name)
     if name.startswith('phone-'):
-        profiles = {'390': (390, 844), '360': (360, 740), '390-text-20': (390, 844), '390-keyboard': (390, 480)}
-        if phone is None or dimensions != profiles[phone[1]]: sys.exit('Unexpected phone gallery dimensions.')
+        if dimensions != phone_dimensions(name): sys.exit('Unexpected phone gallery dimensions.')
     elif dimensions not in ((1400, 900), (1024, 768)): sys.exit('Unexpected gallery dimensions.')
     totals[item['report']] = totals.get(item['report'], 0) + len(data)
     if totals[item['report']] > MAX_BYTES: sys.exit('Gallery captures exceed their size limit.')
