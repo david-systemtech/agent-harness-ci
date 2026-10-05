@@ -34,8 +34,9 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     expect(result.stdout).toContain("WEB-SMOKE PASS webkit");
     expect(result.stdout).toContain("PHONE-INSTALL PASS chromium");
     expect(result.stdout).toContain("PHONE-INSTALL PASS webkit");
+    expectFrameChecks(result.stdout);
     for (const engine of ["chromium", "webkit"]) {
-      for (const regression of ["PHONE-FRAME", "PHONE-PANES", "PHONE-FALLBACK"]) {
+      for (const regression of ["PHONE-PANES", "PHONE-FALLBACK"]) {
         expect(result.stdout).toContain(`${regression} PASS ${engine}`);
       }
     }
@@ -45,3 +46,26 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     expect(result.stdout).toContain("PHONE-RUN-PICKER PASS webkit");
   } finally { controller.abort(); await removeTree(out); }
 }, 600_000);
+
+function expectFrameChecks(stdout: string) {
+  for (const engine of ["chromium", "webkit"]) {
+    expect(stdout).toContain(`PHONE-FRAME PASS ${engine}:`);
+    expect(stdout).toContain(`PHONE-SAFE-AREA PASS ${engine}:`);
+    expect(stdout).toContain(`PHONE-SAFE-AREA PASS ${engine} full grant:`);
+  }
+}
+
+// Completed stdout is the boundary: omitting any helper must fail the hosted gate.
+const frameOutput = [
+  { path: "frame chromium", line: "PHONE-FRAME PASS chromium: touch targets, drawer focus, grant restrictions" },
+  { path: "frame webkit", line: "PHONE-FRAME PASS webkit: touch targets, drawer focus, grant restrictions" },
+  { path: "safe area chromium", line: "PHONE-SAFE-AREA PASS chromium: safe area, grant wrapping, no overlap, touch focus" },
+  { path: "safe area webkit", line: "PHONE-SAFE-AREA PASS webkit: safe area, grant wrapping, no overlap, touch focus" },
+  { path: "safe area chromium full grant", line: "PHONE-SAFE-AREA PASS chromium full grant: safe area, grant wrapping, no overlap, touch focus" },
+  { path: "safe area webkit full grant", line: "PHONE-SAFE-AREA PASS webkit full grant: safe area, grant wrapping, no overlap, touch focus" },
+];
+it.each(frameOutput)("rejects hosted stdout missing $path", ({ path }) => {
+  expectFrameChecks(frameOutput.map(output => output.line).join("\n"));
+  const incomplete = frameOutput.filter(output => output.path !== path).map(output => output.line).join("\n");
+  expect(() => expectFrameChecks(incomplete)).toThrow();
+});
