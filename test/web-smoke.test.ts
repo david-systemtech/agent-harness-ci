@@ -25,5 +25,10 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     expect(result.stdout).toContain("WEB-SMOKE PASS webkit");
     expect(result.stdout).toContain("PHONE-INSTALL PASS chromium");
     expect(result.stdout).toContain("PHONE-INSTALL PASS webkit");
+    for (const engine of ["chromium", "webkit"]) {
+      for (const regression of ["PHONE-FRAME", "PHONE-PANES", "PHONE-FALLBACK"]) {
+        expect(result.stdout).toContain(`${regression} PASS ${engine}`);
+      }
+    }
   } finally { await removeTree(out); }
 }, 600_000);

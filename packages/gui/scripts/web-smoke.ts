@@ -1,10 +1,12 @@
+import { phoneDocument, phoneFrameSmoke, phonePaneSmoke, phoneReconnectSmoke, reachable } from "../test/web-client/phone-surfaces.js";
+import { phoneFallback } from "../test/web-client/phone-fallback.js";
 import { phonePushGateway, phonePushSmoke } from "./phone-push-smoke.js";
 import { webOriginSmoke } from "./web-origin-smoke.js";
 import { auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:https";
 import { connect, type AddressInfo } from "node:net";
@@ -55,7 +57,8 @@ secure.on("upgrade", (incoming, socket, head) => {
 await new Promise<void>(resolve => secure.listen(0, "127.0.0.1", resolve));
 const origin = `https://localhost:${(secure.address() as AddressInfo).port}`;
 let releaseStream: (() => void) | undefined;
-const adapter = fakeAdapter({ script: async function* ({ input, context }) {
+const adapter = fakeAdapter({ script: async function* (controls) {
+  const { input, context } = controls;
   releaseStream = undefined;
   const itemId = randomUUID();
   const reply = `Streaming the hosted reply: ${input.prompt.at(-1)?.text ?? ""}`;
@@ -63,7 +66,9 @@ const adapter = fakeAdapter({ script: async function* ({ input, context }) {
   await new Promise<void>(resolve => { releaseStream = resolve; });
   yield say(reply, itemId);
   const decision = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "permission", detail: { toolName: "Bash", toolCallId: "web-smoke-tool", input: { command: "printf smoke" }, summary: "Run the scripted smoke command" } });
-  yield say(`Permission ${decision.decision}.`); yield end();
+  yield say(`Permission ${decision.decision}.`);
+  if (decision.decision === "allow") yield* phoneDocument(controls);
+  yield end();
 } });
 const pushGateway = await phonePushGateway(readFileSync(join(output, "key.pem")), readFileSync(join(output, "cert.pem")));
 const environment = await startTestEnvironment({ adapter, webOrigin: origin, webClientDirectory: bundle });
@@ -72,7 +77,9 @@ try {
   const admin = await environment.client();
   for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
     publicRequests.length = 0;
-    const { id: sessionId } = await create(admin, { title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
+    const workspace = join(output, `phone-workspace-${name}`); mkdirSync(workspace);
+    const fallback = await phoneFallback(environment);
+    const { id: sessionId } = await create(admin, { workspace: { kind: "directory", path: workspace }, title: `Hosted phone conversation (${name})`, mode: "acceptEdits" });
     const browser = await engine.launch(name === "chromium" ? { channel: "chromium", args: ["--ignore-certificate-errors"] } : {});
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
     try {
@@ -109,11 +116,18 @@ try {
         await page.goto(`${origin}/#/session/${encodeURIComponent(environment.env.id)}/${encodeURIComponent(sessionId)}`);
         await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       }
+      await phoneFrameSmoke(page, name);
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();
-      assert(releaseStream, "The streamed reply reached the browser before completion."); releaseStream();
+      assert(releaseStream, "The streamed reply reached the browser before completion.");
+      await phoneReconnectSmoke(page, environment, sessionId, releaseStream);
+      await page.getByRole("button", { name: /^Allow once/ }).waitFor();
+      await page.setViewportSize({ width: 390, height: 460 });
+      await reachable(page, page.getByRole("button", { name: /^Allow once/ }));
+      await fallback.verify(sessionId, origin, name);
       await page.getByRole("button", { name: /^Allow once/ }).click();
+      await page.setViewportSize({ width: 390, height: 844 });
       await page.getByText("Permission allow.", { exact: true }).last().waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Deny this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
@@ -145,6 +159,10 @@ try {
       await ownPage.goto(ownCode.link);
       await ownPage.locator("[data-web-grant]").filter({ hasText: "Ceiling: bypassPermissions" }).waitFor();
       assert((await ownPage.locator("[data-web-grant]").innerText()).includes("terminal, admin"), "My own client keeps its full grant.");
+      await ownPage.goto(`${origin}/#/session/${encodeURIComponent(environment.env.id)}/${encodeURIComponent(sessionId)}`);
+      await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      ownPage.setDefaultTimeout(60_000);
+      await phonePaneSmoke(ownPage, name, environment, sessionId);
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
       await denied.addInitScript("Object.defineProperty(window, 'indexedDB', { get() { throw new DOMException('Denied', 'SecurityError'); } });");
@@ -160,7 +178,7 @@ try {
       await context.close(); await denied.close();
       await webOriginSmoke(browser, environment, origin, bundle, output);
       console.log(`WEB-SMOKE PASS ${name}: pair/reload, list/open, stream, Allow/Deny once, reconnect, grants, revoke, visit-only storage`);
-    } finally { await browser.close(); }
+    } finally { await browser.close(); await fallback.close(); }
   }
 } finally {
   await environment.close();

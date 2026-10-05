@@ -11,6 +11,8 @@
     // The terminal UI's tests import its Ink components.
     "jsx": "react-jsx"
   },
+  // Hosted phone regressions are Node helpers consumed by the existing smoke executable.
+  "files": ["packages/gui/test/web-client/phone-surfaces.ts", "packages/gui/test/web-client/phone-fallback.ts"],
   "include": [
     "*.ts",
     "eslint-rules",
