@@ -64,6 +64,39 @@ describe("the minted session on its card", () => {
     expect(env.liveRun(id)).toBeDefined();
   });
 
+  it.each(["question", "permission"] as const)("Escape answers an authoring %s without closing the conversation", async kind => {
+    const app = await openCard(); await mint(app);
+    const env = app.environment("desk"); const id = env.sessionId();
+    act(() => env.openPrompt(id, kind === "question" ? { kind, input: null, questions: [{ header: "Topic", question: "What should the bank retain?", options: [], multiSelect: false }] } : undefined));
+    const card = await screen.findByRole("region", { name: "Parked prompt" });
+    act(() => card.focus());
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(env.requests("permissions.prompts.answer").at(-1)?.params["decision"]).toBe("deny"));
+    expect(screen.getByRole("dialog", { name: "Authoring conversation" })).toBeDefined();
+  });
+
+  it.each(["/", "@"])("Escape dismisses the authoring composer's %s menu before denying its question", async text => {
+    const app = await openCard({ files: ["BANK.md"] }); await mint(app);
+    const env = app.environment("desk"); const id = env.sessionId();
+    act(() => env.openPrompt(id, { kind: "question", input: null, questions: [{ header: "Topic", question: "What should the bank retain?", options: [], multiSelect: false }] }));
+    await screen.findByRole("region", { name: "Parked prompt" });
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    await app.user.type(composer, text);
+    expect(await screen.findByRole("listbox")).toBeDefined();
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Authoring conversation" })).toBeDefined();
+    expect(composer).toHaveProperty("value", text);
+    expect(env.requests("permissions.prompts.answer")).toHaveLength(0);
+  });
+
+  it("Escape dismisses an idle authoring conversation when no local handler needs it", async () => {
+    const app = await openCard(); await mint(app);
+    await app.user.click(screen.getByRole("textbox", { name: "Message" }));
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Authoring conversation" })).toBeNull());
+  });
+
   it("streams the ordinary session's transcript under its running status and opens it in the main pane", async () => {
     const app = await openCard();
     await mint(app);
