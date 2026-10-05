@@ -172,23 +172,34 @@ describe("the model picker", () => {
     await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
   });
 
-  it("bounds narrow choices as a dialog and preserves the selection when going back", async () => {
+  it("shows one dependency at a time at 360px and keeps model and effort choices when going back", async () => {
     const previousWidth = globalThis.window.innerWidth;
-    Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 480 });
+    Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 360 });
     onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: previousWidth }); });
     const { app } = await opened([desk({ models })]);
-    const trigger = within(statusLine()).getByRole("button", { name: /^Model:/ });
-    act(() => trigger.focus());
-    await app.user.keyboard("{Enter}");
+    const trigger = within(statusLine()).getByRole("button", { name: /^Account:/ });
+    await app.user.click(trigger);
     const dialog = await screen.findByRole("dialog", { name: "Run choices" });
-    expect(within(dialog).queryByRole("group", { name: "Accounts" })).toBeNull();
-    await app.user.click(within(dialog).getByRole("menuitem", { name: "claude-haiku-4" }));
-    await app.user.click(within(dialog).getByRole("button", { name: "Back to accounts" }));
+    expect(dialog.hasAttribute("data-run-sheet")).toBe(true);
     expect(within(dialog).getByRole("group", { name: "Accounts" })).toBeTruthy();
-    await app.user.click(within(dialog).getByRole("button", { name: "Choose model and effort" }));
-    expect(within(dialog).getByRole("menuitem", { name: "claude-haiku-4" }).className).toContain("bg-wash");
+    expect(within(dialog).queryByRole("group", { name: "Models" })).toBeNull();
+    expect(within(dialog).queryByRole("group", { name: "Effort" })).toBeNull();
+    expect(within(dialog).queryByText("desk")).toBeNull();
+    await app.user.click(within(dialog).getByRole("button", { name: "Next: Models" }));
+    expect(within(dialog).queryByRole("group", { name: "Accounts" })).toBeNull();
+    expect(within(dialog).queryByRole("group", { name: "Effort" })).toBeNull();
+    await app.user.click(within(dialog).getByRole("menuitem", { name: "Opus (claude-opus-4)" }));
+    expect(within(dialog).getByRole("group", { name: "Effort" })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /^Next:/ })).toBeNull();
+    expect(within(dialog).queryByRole("group", { name: "Models" })).toBeNull();
+    await app.user.click(within(dialog).getByRole("button", { name: "Back: Models" }));
+    expect(within(dialog).getByRole("menuitem", { name: "Opus (claude-opus-4)" }).className).toContain("bg-wash");
+    await app.user.click(within(dialog).getByRole("menuitem", { name: "claude-haiku-4" }));
+    expect(within(dialog).queryByRole("group", { name: "Effort" })).toBeNull();
+    await app.user.click(within(dialog).getByRole("button", { name: "Back: Accounts" }));
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("searches a long catalogue and takes ArrowDown from search into the models column", async () => {
@@ -236,6 +247,28 @@ describe("the model picker", () => {
 });
 
 describe("the account picker", () => {
+  it("keeps the signed-out phone account reachable with a constrained grant", async () => {
+    const width = globalThis.window.innerWidth;
+    Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 360 });
+    onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: width }); });
+    const { app } = await opened([desk({ scopes: ["read", "sessions:write", "runs:drive"], accounts: [{ id: "claude-max", label: "claude-max", status: { state: "signed-out", checkedAt: null, detail: null } }], sessions: [{ title: "Receipts", accountId: "claude-max" }] })]);
+    const trigger = within(statusLine()).getByRole("button", { name: /^Account:/ });
+    act(() => trigger.focus());
+    await app.user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: "Run choices" });
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull());
+    await app.user.pointer({ target: trigger, keys: "[MouseLeft>]" });
+    expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull();
+    await app.user.pointer({ target: trigger, keys: "[/MouseLeft]" });
+    const sheet = await screen.findByRole("dialog", { name: "Run choices" });
+    const accounts = within(sheet).getByRole("group", { name: "Accounts" });
+    const account = within(accounts).getByRole("menuitem", { name: /claude-max/ });
+    expect(account.textContent).toContain("signed out");
+    await app.user.click(account);
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(paneLine()).toContain("Cannot sign claude-max in"));
+  });
   it("lists the environment's accounts with their identity, sign-in status and plan reading, then Add an account", async () => {
     const { app, env } = await opened([
       desk({

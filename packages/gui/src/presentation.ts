@@ -282,6 +282,7 @@ const readChips = (stored: unknown): NewSessionChips => {
   const held = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
   const environmentId = stringIn(held, "environmentId");
   const model = stringIn(held, "model");
+  const effort = held["effort"] === null ? null : stringIn(held, "effort");
   const account = { environmentId: stringIn(held["account"], "environmentId"), accountId: stringIn(held["account"], "accountId") };
   const workspaceOn = stringIn(held["workspace"], "environmentId");
   const browser = held["browser"] === null ? null : SessionBrowser.safeParse(held["browser"]).data;
@@ -290,6 +291,7 @@ const readChips = (stored: unknown): NewSessionChips => {
     ...(environmentId !== undefined && { environmentId }),
     ...(account.environmentId !== undefined && account.accountId !== undefined && { account: { environmentId: account.environmentId, accountId: account.accountId } }),
     ...(model !== undefined && { model }),
+    ...(effort !== undefined && { effort }),
     ...(browser !== undefined && { browser }),
     ...(workspaceOn !== undefined && request !== undefined && { workspace: { environmentId: workspaceOn, request } }),
   };
