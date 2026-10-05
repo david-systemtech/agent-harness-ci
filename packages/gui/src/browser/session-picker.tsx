@@ -5,7 +5,7 @@ import { useObservable, useRuntime } from "../window-context.js";
 import { BrowserChoiceMenu, BrowserChoiceSubmenu } from "./choice-menu.js";
 
 /** The session field changes through its command; a running browser remains the run's resolution. */
-export const SessionBrowserPicker = ({ environmentId, sessionId, submenu = false }: { readonly environmentId: string; readonly sessionId: string; readonly submenu?: boolean }) => {
+export const SessionBrowserPicker = ({ environmentId, sessionId, submenu = false, sheet = false }: { readonly environmentId: string; readonly sessionId: string; readonly submenu?: boolean; readonly sheet?: boolean }) => {
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.browsers(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const session = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
@@ -27,7 +27,7 @@ export const SessionBrowserPicker = ({ environmentId, sessionId, submenu = false
   const offer = busy ? { status: "absent" as const, message: "Changing the browser." } : capability;
   if (submenu) return <BrowserChoiceSubmenu rows={picker.rows} choose={(browser) => void choose(browser)} offer={offer} />;
   return <div className="contents">
-    <BrowserChoiceMenu rows={picker.rows} choose={(browser) => void choose(browser)} detail={resolved === undefined ? undefined : `${run?.state === "running" ? "This run" : "Last run"}: ${resolvedLabel}. ${resolved.message}`} className="h-[22px] max-w-[240px] min-w-0 gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3" offer={offer} />
+    <BrowserChoiceMenu sheet={sheet} rows={picker.rows} choose={(browser) => void choose(browser)} detail={resolved === undefined ? undefined : `${run?.state === "running" ? "This run" : "Last run"}: ${resolvedLabel}. ${resolved.message}`} className="h-[22px] max-w-[240px] min-w-0 gap-1 rounded-md bg-wash px-1.5 text-2xs font-normal hover:bg-wash-strong aria-expanded:bg-wash-strong [&_svg]:size-3" offer={offer} />
     {resolved !== undefined && <span className="sr-only">{run?.state === "running" ? "This run" : "Last run"}: {resolvedLabel}. {resolved.message}</span>}
   </div>;
 };

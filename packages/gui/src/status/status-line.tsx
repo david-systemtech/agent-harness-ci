@@ -113,7 +113,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
         {details}
       </DialogContent>
     </Dialog>
-    <span data-phone-browser><SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} /></span>
+    <span data-phone-browser><SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} sheet /></span>
   </>;
   return (
     <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">

@@ -81,3 +81,13 @@ it("explains a restricted check grant on tap and retains ordinary message sendin
   await waitFor(() => expect(env.requests("runs.start")).toHaveLength(1));
   expect(env.requests("checks.get")).toHaveLength(0);
 });
+
+it("opens the environment browser choices as a sheet from its toolbar icon", async () => {
+  await openPhone();
+  const browser = await screen.findByRole("button", { name: /^Browser:/ });
+  fireEvent.pointerDown(browser, { button: 0, ctrlKey: false, pointerType: "touch" });
+  fireEvent.pointerUp(browser, { button: 0, pointerType: "touch" });
+  fireEvent.click(browser);
+  const sheet = await screen.findByRole("dialog", { name: "Browser choices" });
+  expect(within(sheet).getAllByRole("menuitem").length).toBeGreaterThan(0);
+});

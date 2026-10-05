@@ -2,17 +2,19 @@ import type { BrowserRow } from "@agent-harness/client-runtime";
 import type { SessionBrowser } from "@agent-harness/contracts";
 import { Check, Globe } from "lucide-react";
 import { useState } from "react";
-import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Tooltip } from "../ui/index.js";
+import { Button, Menu, MenuItem, Tooltip } from "../ui/index.js";
+import { RunPickerContent, RunPickerTrigger } from "../status/run-picker-parts.js";
 import { classes } from "../ui/classes.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { useFirstKey, useWindowAction, type Offer } from "../keys/key-dispatch.js";
 
 /** Both browser chips draw the runtime's picker copy and refusals. */
-export const BrowserChoiceMenu = ({ rows, choose, className, detail, offer = { status: "present" } }: {
+export const BrowserChoiceMenu = ({ rows, choose, className, detail, sheet = false, offer = { status: "present" } }: {
   readonly rows: readonly BrowserRow[];
   readonly choose: (value: SessionBrowser | null) => void;
   readonly className?: string;
   readonly detail?: string | undefined;
+  readonly sheet?: boolean;
   readonly offer?: Offer;
 }) => {
   const keys = useFirstKey("app.browser.choose");
@@ -20,19 +22,19 @@ export const BrowserChoiceMenu = ({ rows, choose, className, detail, offer = { s
   const chosen = rows.find((row) => row.selected)?.label ?? "Default";
   useWindowAction("app.browser.choose", () => setOpen(true), offer);
   const disabled = offer.status === "absent" || rows.length === 0;
-  const trigger = <MenuTrigger asChild>
+  const trigger = <RunPickerTrigger sheet={sheet} openSheet={() => setOpen(true)}>
     <Button aria-label={`Browser: ${chosen}`} className={className} disabled={disabled}>
       <Globe aria-hidden="true" /> <span className="truncate">{chosen}</span>
     </Button>
-  </MenuTrigger>;
+  </RunPickerTrigger>;
   return (
     <Menu open={open} onOpenChange={setOpen}>
       <Tooltip content={[`Browser: ${chosen}`, keys ?? "Enter to open", detail, rows.find((row) => row.selected)?.unavailable?.message, offer.status === "absent" ? offer.message : undefined].filter(Boolean).join(" · ")}>
         {disabled ? <span tabIndex={0} className="inline-flex" aria-label={offer.status === "absent" ? offer.message : "Browser choices are loading."}>{trigger}</span> : trigger}
       </Tooltip>
-      <MenuContent side="top" align="start" className="w-72 max-h-[320px] overflow-y-auto">
+      <RunPickerContent sheet={sheet} side="top" align="start" role={sheet ? "dialog" : "menu"} aria-label={sheet ? "Browser choices" : undefined} {...(sheet ? { "aria-labelledby": undefined } : {})} className="w-72 max-h-[320px] overflow-y-auto">
         <BrowserChoiceRows rows={rows} choose={choose} />
-      </MenuContent>
+      </RunPickerContent>
     </Menu>
   );
 };

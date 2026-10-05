@@ -66,6 +66,7 @@
     flex-shrink: 0;
     padding: 0 8px;
   }
+  [data-web-client] [data-phone-composer-toolbar] button svg { width: 16px; height: 16px; }
   [data-web-client] [data-phone-composer-toolbar] [data-workspace-chip] {
     flex-shrink: 1;
     font-size: max(16px, 1rem);
