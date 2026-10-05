@@ -1213,7 +1213,7 @@ describe.runIf(posix)("the launcher installing a staged version", () => {
       const { dataDir, staged } = beforeAnInstall();
       if (alreadyInstalled) installVersion(dataDir, "0.6.0");
       installVersion(dataDir, "0.4.0");
-      writeDatabase(dataDir, ["kept user data"]);
+      writeDatabase(dataDir, ["kept user data"], "closed");
       const before = readDatabase(dataDir);
       const updateId = "11111111-1111-4111-8111-111111111111";
       scriptChild(dataDir, [{ install: { version: "0.6.0", staged }, switchTo: { updateId, version: "0.6.0" } }, "serve"]);
