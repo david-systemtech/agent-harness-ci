@@ -8,7 +8,7 @@ import { useChecklist } from "../src/setup/checklist-window.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 const since = "2026-10-02T00:00:00.000Z";
-const notebook = (): BankRecord => ({
+export const notebook = (): BankRecord => ({
   id: "0199aa00-0000-4000-8000-000000000002", name: "project-memory", kind: "personal",
   location: { kind: "local" }, checkout: "/banks/project-memory", checkoutOwnership: "managed", role: "read-write", enabled: true,
   accounts: "all", repositories: "all", defaultFor: ["project"], pins: [], mergeOverride: "none", privateCopy: false,

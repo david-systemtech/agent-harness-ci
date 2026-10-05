@@ -12,12 +12,13 @@ afterEach(async () => {
 });
 
 it.each([
-  ["settings-key-managers", "Key managers", "Project keys", "Add a key manager", 1400, 1000],
+  ["settings-key-managers", "Key managers", "Project keys", "Add a key manager", 1400, 1352],
   ["settings-key-managers", "Key managers", "Project keys", "Add a key manager", 1024, 976],
-  ["settings-forges", "Forges", "https://git.example.test", "Add a forge", 1400, 1000],
+  ["settings-forges", "Forges", "https://git.example.test", "Add a forge", 1400, 1352],
   ["settings-forges", "Forges", "https://git.example.test", "Add a forge", 1024, 976],
 ] as const)("renders %s over the runtime with measured cards and inline Add", async (scene, name, card, add, width, dialogWidth) => {
   vi.stubGlobal("innerWidth", width);
+  vi.stubGlobal("innerHeight", width === 1400 ? 900 : 768);
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
@@ -33,7 +34,7 @@ it.each([
     expect(await within(pane).findByRole("region", { name: "Move stored tokens" })).toBeDefined();
   }
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([
-    { selector: "[data-settings-dialog]", width: dialogWidth, height: 660 },
+    { selector: "[data-settings-dialog]", width: dialogWidth, height: width === 1400 ? 852 : 660 },
     { selector: "[data-access-card]", paddingLeft: 12, paddingTop: 12 },
     { selector: "[data-access-card] button", height: 28 },
     { selector: "[data-access-card] header > svg", width: 16, height: 16 },

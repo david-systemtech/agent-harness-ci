@@ -141,6 +141,8 @@ interface Dispatch {
 }
 
 const DispatchContext = createContext<Dispatch | null>(null);
+/** Escape takers inside a dialog, offered before its document-capture dismissal. */
+const EscapeBoundaryContext = createContext<Set<EscapeTaker> | null>(null);
 const RegionContext = createContext<Region | null>(null);
 /** The keys in force' source: the remaps and the switch, as the window holds them. */
 const KeyMapContext = createContext<KeyMap>(DEFAULT_KEY_MAP);
@@ -172,9 +174,9 @@ const offer = (dispatch: Dispatch, region: Region, event: PressedKey): boolean =
 const newRegion = (context: ActionContext, parent: Region | null): Region => ({ context, parent, wired: new Map(), conditions: { current: {} } });
 
 /** Walks Escape's order for a key that is Esc: the newest taker of the first step that has one does it. Says whether one did. */
-const walkEscape = (dispatch: Dispatch, event: PressedKey): boolean => {
+const walkEscape = (dispatch: Dispatch, event: PressedKey, escape = dispatch.escape): boolean => {
   if (chordOfEvent(event, dispatch.macOS) !== "Esc") return false;
-  const takers = [...dispatch.escape].reverse();
+  const takers = [...escape].reverse();
   for (const step of ESCAPE_STEPS) {
     const taker = takers.find((each) => each.step === step);
     if (taker === undefined) continue;
@@ -253,6 +255,30 @@ const useDispatch = (): Dispatch => {
   return dispatch;
 };
 
+/** Gives a dialog's conversation first refusal of Escape without reaching the surrounding window. */
+export const EscapeBoundary = ({ children }: { readonly children: (onEscapeKeyDown: (event: globalThis.KeyboardEvent) => void) => ReactNode }) => {
+  const dispatch = useDispatch();
+  const escape = useMemo(() => new Set<EscapeTaker>(), []);
+  const onEscapeKeyDown = (event: globalThis.KeyboardEvent) => {
+    if (!event.defaultPrevented && walkEscape(dispatch, event, escape)) event.preventDefault();
+  };
+  return <EscapeBoundaryContext value={escape}>{children(onEscapeKeyDown)}</EscapeBoundaryContext>;
+};
+
+/** A local menu takes Escape before its enclosing dialog; ordinary panes retain their input's handling. */
+export const useLocalEscapeStep = (step: EscapeStep, run: () => void, active = true): void => {
+  const escape = use(EscapeBoundaryContext);
+  const answered = use(AnsweredContext);
+  const latest = useRef(run);
+  useLayoutEffect(() => { latest.current = run; });
+  useEffect(() => {
+    if (escape === null || !active || !answered) return;
+    const taker: EscapeTaker = { step, run: () => latest.current() };
+    escape.add(taker);
+    return () => void escape.delete(taker);
+  }, [escape, step, active, answered]);
+};
+
 const ALWAYS = () => true;
 
 /**
@@ -324,6 +350,7 @@ export const useIsKeyOf = (id: KeyActionId): ((event: PressedKey) => boolean) =>
  */
 export const useEscapeStep = (step: EscapeStep, run: () => void, active = true): void => {
   const { escape } = useDispatch();
+  const local = use(EscapeBoundaryContext);
   const answered = use(AnsweredContext);
   const latest = useRef(run);
   useLayoutEffect(() => {
@@ -333,8 +360,9 @@ export const useEscapeStep = (step: EscapeStep, run: () => void, active = true):
     if (!active || !answered) return;
     const taker: EscapeTaker = { step, run: () => latest.current() };
     escape.add(taker);
-    return () => void escape.delete(taker);
-  }, [escape, step, active, answered]);
+    local?.add(taker);
+    return () => { escape.delete(taker); local?.delete(taker); };
+  }, [escape, local, step, active, answered]);
 };
 
 /**

@@ -1,0 +1,41 @@
+/* Authoring has its own conversation-sized surface, independent of the settings card's scrollport. */
+.authoring-dialog[data-authoring-dialog] {
+  width: calc(100vw - 32px);
+  max-width: 1100px;
+  height: calc(var(--authoring-viewport-height, 100dvh) - 32px);
+  max-height: calc(var(--authoring-viewport-height, 100dvh) - 32px);
+  overflow: hidden;
+  animation: none;
+}
+.authoring-dialog > div:first-child { flex-shrink: 0; }
+/* The shared phone frame is fixed; its nested authoring panel stays in the dialog's flex layout. */
+.authoring-dialog[data-authoring-dialog] [data-authoring-frame] { position: static; }
+@media (width < 640px) {
+  .authoring-dialog[data-authoring-dialog] {
+    width: 100vw;
+    height: var(--authoring-viewport-height, 100dvh);
+    max-height: var(--authoring-viewport-height, 100dvh);
+    top: 0;
+    left: 0;
+    border-radius: 0;
+    padding: 8px;
+    gap: 8px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  [data-authoring-header] { gap: 4px; padding: 0 8px; }
+  [data-authoring-header] h3 { flex: 1; }
+  [data-authoring-header] button { font-size: 0.75rem; }
+  [data-authoring-header] [aria-label="Status line"] { min-height: 0; padding: 0; }
+  [data-authoring-frame] [aria-label="Parked prompt"] { padding-block: 8px; gap: 4px; }
+  [data-authoring-frame] [data-prompt-decision] kbd { display: none; }
+  [data-authoring-frame] [data-prompt-decision] > p:last-child { display: none; }
+}
+
+/* Keep a readable transcript above even the longest parked question. */
+[data-authoring-frame] div:has(> [aria-label="Transcript"]) { min-height: 44px; }
+
+[data-authoring-dialog] [data-authoring-frame] [aria-label="Parked prompt"] { max-height: 60dvh; }
+
+/* The authoring composer keeps its natural size; the prompt body yields the remaining space. */
+[data-authoring-dialog] [data-authoring-frame] [data-dock-owner] [data-composer-column] { flex-shrink: 0; max-height: none; overflow: visible; }
