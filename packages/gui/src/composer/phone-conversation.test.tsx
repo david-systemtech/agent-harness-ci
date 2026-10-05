@@ -42,6 +42,11 @@ it("fits the web conversation to the visual viewport and leaves pinch zoom alone
 });
 
 it("fits a missing-workspace conversation before and after its message field returns", async () => {
+  vi.stubGlobal("innerWidth", 390);
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
+    ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+  onTestFinished(() => vi.restoreAllMocks());
   const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1 });
   vi.stubGlobal("visualViewport", viewport);
   onTestFinished(() => { vi.unstubAllGlobals(); });
@@ -56,6 +61,7 @@ it("fits a missing-workspace conversation before and after its message field ret
   onTestFinished(async () => { await gallery.close(); root.remove(); });
   await gallery.ready;
   expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Workspace check" })).toBeNull();
   const frame = root.querySelector<HTMLElement>("[data-web-client]")!;
   expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("480px");
   const env = gallery.world.world.environment("desk");
@@ -63,6 +69,7 @@ it("fits a missing-workspace conversation before and after its message field ret
     await gallery.world.runtime.commands.dispatch(env.environmentId, "sessions.setWorkspace", { sessionId: env.sessionId(), workspace: { kind: "directory", path: "/work/receipts" } });
   });
   await screen.findByRole("textbox", { name: "Message" });
+  expect(screen.getByRole("region", { name: "Workspace check" })).toBeDefined();
   viewport.height = 400;
   act(() => viewport.dispatchEvent(new Event("resize")));
   expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("400px");

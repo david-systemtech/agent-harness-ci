@@ -1,16 +1,18 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { buildRelease } from "./build.js";
 import { fixtureBuild, type FixtureBuild } from "../../test/release-fixtures.js";
 
+const repository = fileURLToPath(new URL("../../../../", import.meta.url));
 let fixture: FixtureBuild;
 afterEach(() => fixture?.remove());
 
 const addPhoneAssets = (root: string): void => {
   const web = join(root, "packages/gui/dist");
-  cpSync(resolve("packages/gui/public"), web, { recursive: true });
+  cpSync(join(repository, "packages/gui/public"), web, { recursive: true });
   writeFileSync(join(web, "service-worker.js"), 'const publicAssets = ["/", "/assets/app.js", "/manifest.webmanifest", "/phone-icons/icon-192.png", "/phone-icons/icon-512.png"];\n');
   writeFileSync(join(web, "assets/app.css"), "/* bundled stylesheet */\n");
 };
@@ -54,16 +56,16 @@ it("stages the same versioned phone assets into the container build output and r
   addPhoneAssets(fixture.root);
   const script = join(fixture.root, "scripts/stage-web-client.mjs");
   mkdirSync(dirname(script), { recursive: true });
-  cpSync(resolve("scripts/stage-web-client.mjs"), script);
+  cpSync(join(repository, "scripts/stage-web-client.mjs"), script);
   const destination = join(fixture.root, "packages/environment/dist/serve/web-client");
   mkdirSync(destination, { recursive: true });
   writeFileSync(join(destination, "stale.js"), "stale asset");
   execFileSync(process.execPath, [script]);
-  execFileSync(process.execPath, [resolve("scripts/image-version.mjs"), "0.5.0"], { cwd: fixture.root });
+  execFileSync(process.execPath, [join(repository, "scripts/image-version.mjs"), "0.5.0"], { cwd: fixture.root });
   sameBundle(join(fixture.root, "packages/gui/dist"), destination);
   expect(JSON.parse(readFileSync(join(destination, "version.json"), "utf8"))).toEqual({ version: "0.5.0" });
   expect(JSON.parse(readFileSync(join(fixture.root, "packages/environment/package.json"), "utf8")).version).toBe("0.5.0");
-  const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+  const dockerfile = readFileSync(join(repository, "Dockerfile"), "utf8");
   expect(dockerfile).toContain('HARNESS_VERSION="$HARNESS_VERSION" pnpm --filter @agent-harness/gui build');
   expect(dockerfile).toContain("node scripts/stage-web-client.mjs");
   expect(dockerfile).toContain("COPY --from=build /opt/agent-harness /opt/agent-harness");

@@ -245,7 +245,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
       <PromptCard environmentId={environmentId} sessionId={sessionId} />
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
-      {narrow && <div className="px-3"><WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} /></div>}
+      {narrow && gone === undefined && <div className="px-3"><WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} /></div>}
       </div>
       <KeyContext context="composer" conditions={conditions}>
         <ComposerKeys
