@@ -182,27 +182,6 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
 }
 
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
-  await page.evaluate(`(() => {
-    window.__phoneFocusTrace = [];
-    const identify = node => node instanceof Element ? {
-      label: node.getAttribute('aria-label'), role: node.getAttribute('role'),
-      menu: !!node.closest('.phone-frame-menu'), connected: node.isConnected } : null;
-    const record = value => { window.__phoneFocusTrace.push({ at: Math.round(performance.now()), ...value });
-      if (window.__phoneFocusTrace.length > 100) window.__phoneFocusTrace.shift(); };
-    const focus = HTMLElement.prototype.focus;
-    HTMLElement.prototype.focus = function(...args) {
-      record({ type: 'focus-call', target: identify(this), stack: new Error().stack?.split('\\n').slice(1, 5).join(' | ') });
-      return focus.apply(this, args);
-    };
-    for (const type of ['focusin', 'focusout', 'pointerdown', 'pointerup', 'keydown'])
-      document.addEventListener(type, event => record({ type, target: identify(event.target),
-        related: identify(event.relatedTarget), key: ['Escape', 'Tab', 'Enter'].includes(event.key) ? event.key : undefined }), true);
-    new MutationObserver(records => { for (const mutation of records) {
-      if (mutation.type === 'attributes' && mutation.target.getAttribute('aria-label') === 'More')
-        record({ type: 'expanded', value: mutation.target.getAttribute('aria-expanded') });
-    }}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-expanded'] });
-  })()`);
-  try {
   const observer = await environment.client();
   for (const width of [390, 360]) {
     await page.setViewportSize({ width, height: 844 });
@@ -310,9 +289,4 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
   }
   await observer.close();
   console.log(`PHONE-PANES PASS ${engine}: all seven panes, retained PTY, isolated preview, every Settings row and all eleven steps, text at 20`);
-  } catch (error) {
-    console.error("[DEBUG-phone-focus] events", await page.evaluate("JSON.stringify(window.__phoneFocusTrace)"));
-    console.error("[DEBUG-phone-focus] state", await page.evaluate("JSON.stringify({focus:document.activeElement?.getAttribute('aria-label'),expanded:document.querySelector('[aria-label=More]')?.getAttribute('aria-expanded'),menus:Array.from(document.querySelectorAll('.phone-frame-menu')).map(e=>({state:e.getAttribute('data-state'),display:getComputedStyle(e).display})),sheet:document.querySelector('[data-dock-sheet]')?.hidden})"));
-    throw error;
-  }
 }
