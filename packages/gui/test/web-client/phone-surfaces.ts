@@ -126,13 +126,33 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
   await expect(page.getByRole("button", { name: "Give this phone full access", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add an account…", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Close Settings", exact: true }).click();
-  await page.getByRole("button", { name: "More", exact: true }).click();
-  for (const name of ["Files", "Diff", "Terminal", "Browser", "Split right", "Split down"]) {
-    await expect(page.getByRole("menuitem", { name, exact: true })).toHaveAttribute("aria-disabled", "true");
+  const grant = page.locator("[data-web-grant]");
+  const scopes = await grant.getAttribute("data-scopes");
+  assert(scopes && !scopes.includes("terminal") && !scopes.includes("admin"), "The Phone pairing stays restricted.");
+  for (const name of ["Files", "Diff", "Terminal", "Preview"]) {
+    const menu = await openMore(page);
+    const entry = menu.getByRole("menuitem", { name, exact: true });
+    await revealMenuRow(page, name);
+    await expect(entry).toBeEnabled();
+    await expect(entry).toContainText("Give this phone full access");
+    await entry.click();
+    await expect(page.locator(".phone-frame-menu")).toHaveCount(0);
+    const upgrade = page.getByRole("dialog", { name: "Give this phone full access", exact: true });
+    await expect(upgrade).toBeVisible();
+    await expect(upgrade).toContainText("My own client");
+    await upgrade.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(upgrade).toBeHidden();
+    await expect(grant).toHaveAttribute("data-scopes", scopes);
+    await expect(grant).toHaveAttribute("data-ceiling", "acceptEdits");
+  }
+  const menu = await openMore(page);
+  for (const name of ["Browser", "Split right", "Split down"]) {
+    await expect(menu.getByRole("menuitem", { name, exact: true })).toHaveAttribute("aria-disabled", "true");
   }
   // Dismiss the initial grant-check menu too: a tooltip can consume Escape.
   await page.getByRole("button", { name: "More", exact: true }).click();
-  await expect(page.getByRole("menu")).toBeHidden();
+  await expect(menu).toBeHidden();
+  await expect(page.locator(".phone-frame-menu")).toHaveCount(0);
   for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }, { width: 390, height: 460 }]) {
     await page.setViewportSize(viewport);
     for (const colorScheme of ["dark", "light"] as const) {

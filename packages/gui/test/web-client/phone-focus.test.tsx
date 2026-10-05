@@ -43,6 +43,21 @@ it.each(["phone", "own-client"] as const)("keeps Tab inside the %s session drawe
   expect(screen.getByRole("dialog", { name: "Settings" })).toBeDefined();
   await waitFor(() => expect(document.activeElement).toBe(rowsToggle));
   await user.click(screen.getByRole("button", { name: "Close Settings" }));
+  if (preset === "phone") {
+    const pairing = world.runtime.connections.list.read();
+    for (const name of ["Files", "Diff", "Terminal", "Preview"]) {
+      await user.click(screen.getByRole("button", { name: "More" }));
+      const entry = await screen.findByRole("menuitem", { name });
+      expect(entry.getAttribute("aria-disabled")).not.toBe("true");
+      expect(entry.textContent).toContain("Give this phone full access");
+      await user.click(entry);
+      const upgrade = await screen.findByRole("dialog", { name: "Give this phone full access" });
+      expect(upgrade.textContent).toContain("My own client");
+      await user.click(within(upgrade).getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Give this phone full access" })).toBeNull());
+      expect(world.runtime.connections.list.read()).toEqual(pairing);
+    }
+  }
   for (let opening = 0; opening < 2; opening++) {
     const trigger = screen.getByRole("button", { name: "More" });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
