@@ -133,6 +133,8 @@ The first-run walk-through uses variant A from #1334: introduction from the firs
 
 ### Keyboard: the GUI column and the Keyboard shortcuts pane
 
+- **Desktop zoom** (#1621) is owned by the shell: Mod with `+`, unshifted `=` or numeric keypad plus zooms in; Mod with `-` zooms out; Mod+0 returns to actual size. More offers all three with their keys, even without a session. Zoom moves in ten percentage point steps between 50% and 200%. The shared registry lists `app.zoom.in`, `app.zoom.out` and `app.zoom.reset`; Keyboard shortcuts displays these fixed keys without remapping. A web client leaves zoom to its browser and names the browser controls in that pane.
+
 - **The GUI column.** The shared action list gains per action the GUI's default keys, `wired` or `absent` with a reason, an optional condition, and `off` for a key written but unbound until turned on. The terminal fields are unchanged; "a pressed action has a key" holds for the terminal column only, so an action only the GUI answers has an empty terminal column, which the terminal UI's help leaves out. A GUI action wired with no key is in the command palette and bindable.
 - **Keys** are written as the terminal column writes them, with `Mod` for ⌘ on macOS and Ctrl elsewhere.
 - **Defaults** reproduce the GUI map the surfaces port audit pins (the window's, the composer's, the cards', the find bar's, the palette's). ADR 0022 changes one row: Escape's last step, stopping a live run, is `app.interrupt` with Esc `off`, the switch "Esc stops the run".
