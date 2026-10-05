@@ -22,6 +22,7 @@ import { useProvider } from "../session/provider.js";
 import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
 import { classes } from "../ui/classes.js";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { IconButton } from "../ui/index.js";
 import { QueueStrip } from "../queue/queued.js";
 import { RewoundStrip } from "../fork-rewind/rewound.js";
@@ -90,6 +91,7 @@ export interface ComposerProps {
 export const Composer = ({ environmentId, sessionId, authoring = false }: ComposerProps) => {
   const runtime = useRuntime();
   const clock = useClock();
+  const { narrow } = usePhoneFrame();
   // The connections' phases: the lock and the shell's members are asked again whenever one moves.
   useObservable(runtime.projections.environments);
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
@@ -115,14 +117,23 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
     const field = box.field.current;
     if (field === null) return;
     let width = -1;
+    let frame: number | undefined;
     const observer = new ResizeObserver(([entry]) => {
       if (entry === undefined || entry.contentRect.width === width) return;
       width = entry.contentRect.width;
-      field.style.height = "0px";
-      field.style.height = `${Math.max(44, field.scrollHeight)}px`;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      // Changing an observed height during delivery leaves notifications undelivered.
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        field.style.height = "0px";
+        field.style.height = `${Math.max(44, field.scrollHeight)}px`;
+      });
     });
     observer.observe(field);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
   }, [box.field]);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
   const menus = useMenus({ environmentId, sessionId, provider, text: box.text, caret: box.caret });
@@ -243,6 +254,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
       {!authoring && <PromptCard environmentId={environmentId} sessionId={sessionId} />}
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
+      {narrow && gone === undefined && (!authoring || runs.state !== "parked") && <div className="px-3"><WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} /></div>}
       </div>
       <KeyContext context="composer" conditions={conditions}>
         <ComposerKeys
@@ -267,7 +279,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
         {gone === undefined && (
           <div className="shrink-0 px-3 pb-1" onDragOver={(event) => { attachments.dragging(event); if (event.dataTransfer.types.includes("Files")) setFileHover(true); }} onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setFileHover(false); }} onDrop={(event) => { setFileHover(false); attachments.dropped(event); }}>
             {lock.locked && <p className="pb-1 text-xs text-amber">Locked: {lock.reason}</p>}
-            {(!authoring || runs.state !== "parked") && <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />}
+            {!narrow && (!authoring || runs.state !== "parked") && <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />}
             <div data-composer-card className={classes("relative rounded-[10px] border border-hairline-strong bg-wash focus-within:ring-3 focus-within:ring-beam/50", fileHover && "ring-2 ring-beam ring-offset-2 ring-offset-abyss")}>
               {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
               <AttachmentChips attachments={attachments} />
