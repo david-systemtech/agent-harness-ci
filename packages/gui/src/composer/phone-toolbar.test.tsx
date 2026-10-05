@@ -123,7 +123,8 @@ it.each(["account", "model", "mode", "containment"] as const)("keeps /%s wired w
   act(() => field.focus());
   fireEvent.change(field, { target: { value: `/${command}` } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  expect(command === "account" || command === "model" ? await screen.findByRole("dialog", { name: "Run choices" }) : await screen.findByRole("menu")).toBeDefined();
+  if (command === "containment") expect(await screen.findByRole("menu")).toBeDefined();
+  else expect(await screen.findByRole("dialog", { name: command === "mode" ? "Mode" : "Run choices" })).toBeDefined();
   expect(gallery.world.world.environment("desk").requests("runs.start")).toHaveLength(0);
 });
 
