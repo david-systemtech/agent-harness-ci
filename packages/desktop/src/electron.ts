@@ -108,8 +108,22 @@ export interface MediaPermissionDetails {
   readonly mediaTypes?: readonly string[];
 }
 
+/** A native key press before Chromium or the renderer answers it. */
+export interface ElectronInput {
+  readonly type: string;
+  readonly key: string;
+  readonly code: string;
+  readonly control: boolean;
+  readonly meta: boolean;
+  readonly shift: boolean;
+  readonly alt: boolean;
+}
+
 /** The window's page: `BrowserWindow.webContents`. */
 export interface ElectronContents {
+  getZoomFactor(): number;
+  setZoomFactor(factor: number): void;
+  on(name: "before-input-event", listener: (details: Refusable, input: ElectronInput) => void): unknown;
   /**
    * Electron (25 and later) hands `will-navigate` one details object,
    * `Event<WebContentsWillNavigateEventParams>`: the URL beside

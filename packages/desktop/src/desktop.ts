@@ -1,3 +1,4 @@
+import { bindZoom } from "./zoom.js";
 import { join } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { APP_ID } from "./app-id.js";
@@ -152,6 +153,7 @@ export const startDesktop = async (
   for (const event of ["focus", "blur", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"] as const) {
     window.on(event, () => window.webContents.send(WINDOW_CHANNEL, windowState(window, platform.os)));
   }
+  bindZoom(window.webContents, platform.os);
   allowAppCamera(window.webContents);
   lockNavigation(window.webContents, (url) => void electron.shell.openExternal(url).catch(reportError));
   // The renderer's platform reports what it has no caller for to its console: its errors are the window's faults.

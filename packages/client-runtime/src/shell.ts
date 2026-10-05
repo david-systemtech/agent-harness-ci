@@ -150,6 +150,8 @@ export interface ShellWindowState {
 }
 
 export interface ShellWindow {
+  /** Desktop page zoom; absent in a web client, where the browser owns it. */
+  readonly zoom?: (action: "in" | "out" | "reset") => void;
   readonly minimize?: () => void;
   readonly toggleMaximize?: () => void;
   readonly close?: () => void;

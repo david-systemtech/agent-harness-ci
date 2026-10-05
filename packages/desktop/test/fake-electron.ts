@@ -71,6 +71,9 @@ export interface Navigation {
 }
 
 export interface FakeContents extends ElectronContents {
+  getZoomFactor(): number;
+  setZoomFactor(factor: number): void;
+  press(key: string, modifiers?: Partial<{ code: string; type: string; control: boolean; meta: boolean; shift: boolean; alt: boolean }>): { prevented: boolean };
   checkPermission(permission: string, details: MediaPermissionDetails, origin?: string, source?: ElectronContents | null): boolean;
   requestPermission(permission: string, details: MediaPermissionDetails, source?: ElectronContents): boolean;
   on(name: string, listener: (...args: never[]) => unknown): unknown;
@@ -228,8 +231,16 @@ const fakeContents = (): FakeContents => {
   let requestHook: RequestListener | undefined;
   let checkPermission: Parameters<ElectronContents["session"]["setPermissionCheckHandler"]>[0] | undefined;
   let requestPermission: Parameters<ElectronContents["session"]["setPermissionRequestHandler"]>[0] | undefined;
+  let zoomFactor = 1;
   const contents: FakeContents = {
     sent,
+    getZoomFactor: () => zoomFactor,
+    setZoomFactor: (factor) => { zoomFactor = factor; },
+    press(key, modifiers = {}) {
+      let prevented = false;
+      heard.emit("before-input-event", { preventDefault: () => { prevented = true; } }, { type: "keyDown", key, code: "", control: false, meta: false, shift: false, alt: false, ...modifiers });
+      return { prevented };
+    },
     on: heard.on,
     setWindowOpenHandler(handler) {
       openHandler = handler;
