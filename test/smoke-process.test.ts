@@ -1,4 +1,5 @@
-import { PassThrough } from "node:stream";
+import { execFileSync } from "node:child_process";
+import { PassThrough, Writable } from "node:stream";
 import { mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -202,4 +203,212 @@ it.skipIf(process.platform !== "linux")("preserves the command's failure status 
   await expect(smokeProcess(process.execPath, ["-e", "process.exit(7);"], {
     cwd: process.cwd(), signal: new AbortController().signal, stdout: output, stderr: output,
   })).rejects.toThrow(`${process.execPath} exited with 7.`);
+});
+
+it.skipIf(process.platform !== "linux")("cancellation preserves its reason when the caller cannot signal an owned descendant", async () => {
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  let pid = 0;
+  output.on("data", chunk => {
+    const match = /protected ready (\d+)/.exec(String(chunk));
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  const originalKill = process.kill.bind(process);
+  const kill = vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+    if (target === pid) throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+    return originalKill(target, signal);
+  });
+  const reason = new Error("Installer deadline expired.");
+  const execution = smokeProcess(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); console.log('protected ready '+process.pid); setInterval(()=>{},60000);"], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(pid)).toBe(false);
+  } finally {
+    kill.mockRestore(); vi.useRealTimers();
+    if (pid && runningProcess(pid)) originalKill(pid, "SIGKILL");
+    output.destroy();
+  }
+});
+
+
+const hostedOrdinaryUser = process.env["GITHUB_ACTIONS"] === "true" && process.env["RUNNER_ENVIRONMENT"] === "github-hosted" && process.getuid?.() !== 0;
+
+it.skipIf(!hostedOrdinaryUser).each([false, true])("an ordinary caller cancels a privileged installer descendant (detached: %s)", async detached => {
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let ready!: () => void;
+  let ignored!: () => void;
+  const terminationIgnored = new Promise<void>(resolve => { ignored = resolve; });
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  output.on("data", chunk => {
+    text += String(chunk);
+    const match = /privileged ready (\d+) uid=0/.exec(text);
+    if (match) { pid = Number(match[1]); ready(); }
+    if (text.includes("privileged ignored termination")) ignored();
+  });
+  const leaf = `import os, signal, time; ${detached ? "child = os.fork(); os._exit(0) if child else None; os.setsid();" : ""} signal.signal(signal.SIGTERM, lambda *_: print('privileged ignored termination', flush=True)); print('privileged ready '+str(os.getpid())+' uid='+str(os.getuid()), flush=True); time.sleep(600)`;
+  const parent = `const {spawn}=require('node:child_process'); console.log('installer uid='+process.getuid()); spawn('sudo',['-n','--','python3','-c',${JSON.stringify(leaf)}],{stdio:'inherit'});`;
+  const reason = new Error("Privileged installer deadline expired.");
+  onTestFinished(() => { vi.useRealTimers(); controller.abort(reason); });
+  const execution = smokeProcess(process.execPath, ["-e", parent], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output, privilegedCleanup: true,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    expect(text).toContain(`installer uid=${process.getuid!()}`);
+    expect(() => process.kill(pid, "SIGKILL")).toThrow(expect.objectContaining({ code: "EPERM" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await terminationIgnored;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(pid)).toBe(false);
+  } finally {
+    vi.useRealTimers(); controller.abort(reason);
+    if (pid && runningProcess(pid)) execFileSync("sudo", ["-n", "--", "kill", "-KILL", String(pid)]);
+    output.destroy();
+  }
+});
+
+it.skipIf(process.platform !== "linux")("cancellation leaves an unrelated process alive", async () => {
+  const { spawn } = await import("node:child_process");
+  const unrelated = spawn(process.execPath, ["-e", "console.log('ready'); setInterval(()=>{},60000);"], { stdio: ["ignore", "pipe", "ignore"] });
+  await new Promise<void>(resolve => { unrelated.stdout!.once("data", () => resolve()); });
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  output.once("data", () => ready());
+  const reason = new Error("Only the owned tree was cancelled.");
+  const execution = smokeProcess(process.execPath, ["-e", "console.log('ready'); setInterval(()=>{},60000);"], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(unrelated.pid!)).toBe(true);
+  } finally {
+    vi.useRealTimers(); controller.abort(reason); unrelated.kill("SIGKILL"); output.destroy();
+  }
+});
+
+it.skipIf(!hostedOrdinaryUser)("bounded cleanup reports a privileged survivor and preserves the original abort reason", async () => {
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  output.on("data", chunk => {
+    text += String(chunk);
+    const match = /unreachable ready (\d+)/.exec(text);
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  const leaf = "import os, signal, time; child = os.fork(); os._exit(0) if child else None; os.setsid(); signal.signal(signal.SIGTERM, lambda *_: None); print('unreachable ready '+str(os.getpid()), flush=True); time.sleep(600)";
+  const reason = new Error("Unprivileged installer deadline expired.");
+  onTestFinished(() => { vi.useRealTimers(); controller.abort(reason); });
+  const execution = smokeProcess("sudo", ["-n", "--", "python3", "-c", leaf], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const startedAt = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]!;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(pid)).toBe(true);
+    expect(text).toContain("SMOKE CLEANUP remaining owned descendants:");
+    expect(text).toContain(`"pid": ${pid}`);
+    expect(text).toContain(`"started": "${startedAt}"`);
+    expect(text).toContain('"uids": ["0", "0", "0", "0"]');
+  } finally {
+    vi.useRealTimers(); controller.abort(reason);
+    if (pid && runningProcess(pid)) execFileSync("sudo", ["-n", "--", "kill", "-KILL", String(pid)]);
+    output.destroy();
+  }
+});
+
+
+it.skipIf(process.platform !== "linux").each(["stdout", "stderr"] as const)("cancellation settles while %s is held by backpressure", async channel => {
+  const controller = new AbortController();
+  const errors = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let ready!: () => void;
+  let held!: () => void;
+  let release: (() => void) | undefined;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  const backpressured = new Promise<void>(resolve => { held = resolve; });
+  const output = new Writable({ highWaterMark: 1, write(_chunk, _encoding, callback) { release = callback; held(); } });
+  errors.on("data", chunk => {
+    text += String(chunk);
+    const match = /backpressure ready (\d+)/.exec(text);
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  const reason = new Error("Cancelled while the output sink is held.");
+  const execution = smokeProcess(process.execPath, ["-e", `process.on('SIGTERM',()=>{}); console.${channel === "stdout" ? "error" : "log"}('backpressure ready '+process.pid); process.${channel}.write(Buffer.alloc(256*1024, 'x')); setInterval(()=>{},60000);`], {
+    cwd: process.cwd(), signal: controller.signal, stdout: channel === "stdout" ? output : errors, stderr: channel === "stderr" ? output : errors,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  onTestFinished(async () => {
+    vi.useRealTimers(); controller.abort(reason);
+    // Release output only after the assertion or the test watchdog has finished.
+    output.destroy(); release?.();
+    if (pid && runningProcess(pid)) process.kill(pid, "SIGKILL");
+    await stopped;
+    errors.destroy();
+  });
+  await started;
+  await backpressured;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  controller.abort(reason);
+  await vi.advanceTimersByTimeAsync(5_000);
+  await stopped;
+  expect(runningProcess(pid)).toBe(false);
+}, 30_000);
+
+it.skipIf(process.platform !== "linux")("a held output sink queues at most the output budget before cleanup", async () => {
+  const controller = new AbortController();
+  const errors = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let release: (() => void) | undefined;
+  const output = new Writable({ highWaterMark: 1, write(_chunk, _encoding, callback) { release = callback; } });
+  errors.on("data", chunk => {
+    text += String(chunk);
+    const match = /budget ready (\d+)/.exec(text);
+    if (match) pid = Number(match[1]);
+  });
+  const execution = smokeProcess(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); console.error('budget ready '+process.pid); process.stdout.write(Buffer.alloc(9*1024*1024, 'x')); setInterval(()=>{},60000);"], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: errors,
+  });
+  const stopped = expect(execution).rejects.toThrow("Smoke output exceeded 8 MiB.");
+  onTestFinished(async () => {
+    output.destroy(); release?.(); controller.abort(new Error("The budget regression finished."));
+    if (pid && runningProcess(pid)) process.kill(pid, "SIGKILL");
+    await stopped; errors.destroy();
+  });
+  await stopped;
+  expect(output.writableLength).toBeGreaterThan(0);
+  expect(output.writableLength).toBeLessThanOrEqual(8 * 1024 * 1024);
+  expect(runningProcess(pid)).toBe(false);
 });
