@@ -49,14 +49,20 @@ const chooseRow = async (page: Page, label: string): Promise<void> => {
 };
 
 // Center each row with room at both scrollport edges before checking full intersection.
-const revealMenuRow = async (row: Locator): Promise<void> => {
-  await row.evaluate(element => {
-    const menu = element.closest(".phone-frame-menu");
-    if (!menu) throw new Error("A phone action must belong to the More scrollport.");
-    const row = element.getBoundingClientRect();
+const revealMenuRow = async (page: Page, target: string | number): Promise<void> => {
+  const row = typeof target === "number"
+    ? `rows[${target}]`
+    : `Array.from(rows).find(element => element.getAttribute('aria-label') === ${JSON.stringify(target)})`;
+  await page.evaluate(`(() => {
+    const menu = document.querySelector('.phone-frame-menu');
+    const rows = menu?.querySelectorAll('[role="menuitem"]');
+    if (!rows) throw new Error('The More scrollport must be open.');
+    const element = ${row};
+    if (!element) throw new Error('The phone menu action must exist.');
+    const rect = element.getBoundingClientRect();
     const bounds = menu.getBoundingClientRect();
-    menu.scrollTop += row.top - bounds.top - menu.clientTop - (menu.clientHeight - row.height) / 2;
-  });
+    menu.scrollTop += rect.top - bounds.top - menu.clientTop - (menu.clientHeight - rect.height) / 2;
+  })()`);
 };
 
 /** Inspect the real menu after scrolling each action, including disabled grant explanations. */
@@ -66,7 +72,7 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
   await expect(menu).toBeVisible();
   for (const name of ["Terminal", "Browser", "Split right", "Split down"]) {
     const row = menu.getByRole("menuitem", { name, exact: true });
-    await revealMenuRow(row);
+    await revealMenuRow(page, name);
     try { await reachable(page, row); }
     catch (error) {
       console.error("PHONE-MENU state", name, await page.evaluate("JSON.stringify({viewport:[innerWidth,innerHeight],scroll:[scrollX,scrollY],focus:document.activeElement?.getAttribute('aria-label'),expanded:document.querySelector('[aria-label=More]')?.getAttribute('aria-expanded'),menu:document.querySelector('.phone-frame-menu')?.getAttribute('data-state')})"));
@@ -80,8 +86,8 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
     }
   }
   await expect(menu.getByRole("menuitem", { name: "Browser", exact: true })).not.toContainText("shell.webView");
-  for (const row of await menu.getByRole("menuitem").all()) {
-    await revealMenuRow(row);
+  for (const [index, row] of (await menu.getByRole("menuitem").all()).entries()) {
+    await revealMenuRow(page, index);
     try { await reachable(page, row); }
     catch (error) {
       console.error("PHONE-MENU clipping", await row.getAttribute("aria-label"), await row.boundingBox(), await menu.boundingBox(), page.viewportSize());
