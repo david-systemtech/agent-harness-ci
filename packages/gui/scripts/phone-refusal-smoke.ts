@@ -126,6 +126,9 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
     await signIn(true);
     if (original) await page.setViewportSize(original);
     await field.fill("");
+    // The next phase must not restore this saved draft while editing its own.
+    await expect(field).toHaveValue("");
+    await expect.poll(readDraft, { timeout: 60_000, message: "The cleared refusal draft reaches the environment before the next smoke phase." }).toBeNull();
   }
   console.log(`PHONE-REFUSAL PASS ${engine}: keyboard-height refusal, remedy, Run settings, Send and durable draft`);
 }
