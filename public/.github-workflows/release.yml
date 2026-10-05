@@ -438,7 +438,7 @@ jobs:
               if ((Test-Path $serviceLog) -and (Select-String -LiteralPath $serviceLog -SimpleMatch 'names no version' -Quiet)) {
                 throw 'launcher-entry version check (#1382): service log holds "names no version"'
               }
-              if ($process.HasExited) { throw "$defect exited with $($process.ExitCode) before readiness" }
+              if ($null -ne $process -and $process.HasExited) { throw "$defect exited with $($process.ExitCode) before readiness" }
               $discovery = $null
               try {
                 $discovery = Invoke-RestMethod -Uri "http://127.0.0.1:$port/.well-known/agent-harness/environment" -TimeoutSec 2
@@ -485,22 +485,73 @@ jobs:
             throw
           } finally {
             try { Stop-Tree } finally {
-              # Exercise the desktop's own cleanup, without a preceding CLI uninstall.
-              $personalData = Join-Path $dataDir 'uninstall-retention-check.txt'
-              [IO.File]::WriteAllText($personalData, 'Personal data stays until the user removes it.')
-              $appDir = Split-Path (Split-Path $server -Parent) -Parent
-              $uninstaller = Join-Path $appDir "Uninstall agent-harness.exe"
-              # _?= keeps NSIS in this process so -Wait observes cleanup and its exit code.
-              $uninstall = Start-Process -FilePath $uninstaller -ArgumentList ('/S _?={0}' -f $appDir) -Wait -PassThru
-              if ($uninstall.ExitCode -ne 0) { throw "Desktop uninstall exited with $($uninstall.ExitCode)" }
-              if (Get-ScheduledTask -TaskName agent-harness -ErrorAction SilentlyContinue) { throw 'Desktop uninstall left the environment task registered' }
-              if (!(Test-Path $personalData)) { throw 'Desktop uninstall deleted personal environment data' }
-              foreach ($file in 'launcher-entry.cmd', 'bin\agent-harness.cmd', 'service.json') {
-                if (Test-Path (Join-Path $dataDir $file)) { throw 'Desktop uninstall left service launch scripts behind' }
+              $process = $null
+              $ownedHandles = @()
+              $unrelated = $null
+              try {
+                # The fixture user has a batch logon, so change only the task principal
+                # to Password; keep the installed conhost/cmd action and limited token.
+                $passwordFile = Join-Path $PSScriptRoot 'task-password.txt'
+                $task = Get-ScheduledTask -TaskName agent-harness
+                $task.Principal.LogonType = 'Password'
+                try {
+                  Register-ScheduledTask -InputObject $task -User "$env:USERDOMAIN\$env:USERNAME" -Password ([IO.File]::ReadAllText($passwordFile)) -Force | Out-Null
+                } finally { Remove-Item -LiteralPath $passwordFile -Force }
+                Start-ScheduledTask -TaskName agent-harness
+                Wait-Ready 'scheduled-task start before uninstall (#1478)'
+                # Keep native handles so PID reuse cannot make the exit checks lie.
+                $rows = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" })
+                if ($rows.Count -lt 2) { throw 'The scheduled task did not start its launcher and server' }
+                foreach ($row in $rows) {
+                  $handle = Get-Process -Id $row.ProcessId
+                  $null = $handle.SafeHandle
+                  if ($handle.StartTime.ToUniversalTime().ToString('yyyyMMddHHmmssffffff') -ne $row.CreationDate.ToUniversalTime().ToString('yyyyMMddHHmmssffffff')) { throw 'The scheduled task process identity changed before uninstall' }
+                  $ownedHandles += $handle
+                }
+                # A live executable inside the app directory would prevent NSIS from removing it.
+                $unrelatedNode = Join-Path $PSScriptRoot 'unrelated-node.exe'
+                Copy-Item -LiteralPath $node -Destination $unrelatedNode
+                $unrelated = Start-Process -FilePath $unrelatedNode -ArgumentList '-e "setInterval(() => {}, 1000)"' -WindowStyle Hidden -PassThru
+                $null = $unrelated.SafeHandle
+                # Exercise cleanup with the scheduled-task tree still serving, without
+                # a preceding Stop-Tree or CLI uninstall.
+                $personalData = Join-Path $dataDir 'uninstall-retention-check.txt'
+                [IO.File]::WriteAllText($personalData, 'Personal data stays until the user removes it.')
+                $appDir = Split-Path (Split-Path $server -Parent) -Parent
+                $uninstaller = Join-Path $appDir "Uninstall agent-harness.exe"
+                # _?= keeps NSIS in this process so -Wait observes cleanup and its exit code.
+                $uninstall = Start-Process -FilePath $uninstaller -ArgumentList ('/S _?={0}' -f $appDir) -Wait -PassThru
+                if ($uninstall.ExitCode -ne 0) { throw "Desktop uninstall exited with $($uninstall.ExitCode)" }
+                foreach ($handle in $ownedHandles) {
+                  if (!$handle.HasExited) { throw 'Desktop uninstall left an owned process running' }
+                }
+                if ($unrelated.HasExited) { throw 'Desktop uninstall stopped an unrelated Node process' }
+                $probe = [Net.Sockets.TcpClient]::new()
+                try {
+                  try { $probe.Connect('127.0.0.1', $port) } catch [Net.Sockets.SocketException] { }
+                  if ($probe.Connected) { throw 'Desktop uninstall left the environment port open' }
+                } finally { $probe.Dispose() }
+                if (Get-ScheduledTask -TaskName agent-harness -ErrorAction SilentlyContinue) { throw 'Desktop uninstall left the environment task registered' }
+                if (!(Test-Path $personalData)) { throw 'Desktop uninstall deleted personal environment data' }
+                foreach ($file in 'launcher-entry.cmd', 'bin\agent-harness.cmd', 'service.json') {
+                  if (Test-Path (Join-Path $dataDir $file)) { throw 'Desktop uninstall left service launch scripts behind' }
+                }
+                if (Test-Path $server) { throw 'Desktop uninstall left app resources behind' }
+                # _?= deliberately leaves the running uninstaller itself; the fixture removes it.
+                if (Test-Path $appDir) { Remove-Item -LiteralPath $appDir -Recurse -Force }
+              } finally {
+                # Failure cleanup runs after the assertions, preserving their evidence.
+                foreach ($handle in $ownedHandles) {
+                  try { if (!$handle.HasExited) { $handle.Kill(); $handle.WaitForExit() } } finally { $handle.Dispose() }
+                }
+                if ($null -ne $unrelated) {
+                  try { if (!$unrelated.HasExited) { $unrelated.Kill(); $unrelated.WaitForExit() } } finally { $unrelated.Dispose() }
+                }
+                if (Get-ScheduledTask -TaskName agent-harness -ErrorAction SilentlyContinue) {
+                  Stop-ScheduledTask -TaskName agent-harness
+                  Unregister-ScheduledTask -TaskName agent-harness -Confirm:$false
+                }
               }
-              if (Test-Path $server) { throw 'Desktop uninstall left app resources behind' }
-              # _?= deliberately leaves the running uninstaller itself; the fixture removes it.
-              if (Test-Path $appDir) { Remove-Item -LiteralPath $appDir -Recurse -Force }
               Remove-Item -LiteralPath $dataDir -Recurse -Force
             }
           }
@@ -510,6 +561,12 @@ jobs:
             [IO.File]::WriteAllText($script, $smoke, [Text.UTF8Encoding]::new($false))
             & icacls.exe $work /grant ('*{0}:(OI)(CI)F' -f $account.SID.Value) /T | Out-Host
             if ($LASTEXITCODE -ne 0) { throw 'Could not grant the smoke user access to its fixture' }
+            # Pass the temporary account password through an ACL-restricted file,
+            # never through process arguments or logs. The child deletes it after registration.
+            $passwordFile = Join-Path $work 'task-password.txt'
+            [IO.File]::WriteAllText($passwordFile, $credential.GetNetworkCredential().Password)
+            & icacls.exe $passwordFile /inheritance:r /grant:r ('*{0}:F' -f $account.SID.Value) '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw 'Could not protect the task registration credential' }
             $stdout = Join-Path $work 'stdout.log'
             $stderr = Join-Path $work 'stderr.log'
             $arguments = '-NoProfile -NonInteractive -File "{0}" -Version "{1}"' -f $script, $env:VERSION

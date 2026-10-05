@@ -4,6 +4,7 @@ import type { ServicePlatform } from "./platform.js";
 import type { ServiceCommands } from "./runner.js";
 import { SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
 import { escapeXml } from "./xml.js";
+import { stopWindowsTask } from "./windows-stop.js";
 
 /** The file in the data directory the task XML is written to for `schtasks /Create`, and removed from after. */
 export const TASK_XML_FILE = "service-task.xml";
@@ -20,8 +21,8 @@ export const TASK_XML_FILE = "service-task.xml";
  * quoting a path only for a space, and cmd would read an `&` or `^` in a bare
  * path, or strip the quotes of one that is quoted, so no command line carries
  * the path. Task Scheduler cannot redirect output, and has no stop timeout:
- * the entry writes the service log, and a stop (End) ends the processes at
- * once.
+ * the entry writes the service log. Uninstall captures and stops the task's
+ * process tree because End alone leaves its descendants running.
  */
 export const renderTaskXml = (spec: ServiceSpec, user: string): string =>
   [
@@ -139,7 +140,7 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
       return { createdDirectories: [] };
     },
     uninstall: async () => {
-      if (await isRunning()) await schtasks("/End", "/TN", name);
+      await stopWindowsTask(commands);
       await schtasks("/Delete", "/TN", name, "/F");
     },
     start: async () => {
