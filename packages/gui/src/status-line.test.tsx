@@ -153,6 +153,27 @@ describe("the status line", () => {
 });
 
 describe("the plan gauge", () => {
+  it("keeps an unknown provider window out of rings and lists it once as Other limit with its share and reset", async () => {
+    const { app, env } = await opened();
+    env.setUsage([reading("account-1", WORK, [
+      window("five_hour", 0.42, "2026-09-25T09:00:00.000Z"),
+      window("iguana_necktie", 0.37, "2026-09-25T09:00:00.000Z"),
+    ])]);
+    const gauge = await within(statusLine()).findByRole("group", { name: "Plan usage" });
+    await within(gauge).findByRole("img", { name: /42%/ });
+    expect(within(gauge).getAllByRole("img")).toHaveLength(1);
+    expect(gauge.outerHTML).not.toMatch(/iguana[_ ]necktie/);
+    await app.user.click(within(gauge).getByRole("button", { name: "Usage details" }));
+    const details = await screen.findByRole("dialog", { name: "Usage details" });
+    const label = within(details).getByText("Other limit");
+    expect(within(details).getAllByText("Other limit")).toHaveLength(1);
+    const row = label.parentElement?.parentElement as HTMLElement;
+    expect(within(row).getByText("37%")).toBeTruthy();
+    expect(within(row).getByText("2026-09-25T14:30:00.000Z")).toBeTruthy();
+    expect(details.outerHTML).not.toMatch(/iguana[_ ]necktie/);
+    expect(within(details).queryByRole("img", { name: /Other limit/ })).toBeNull();
+  });
+
   it("keeps current context separate from pooled plan usage and cumulative spend", async () => {
     const { app, env, session } = await opened();
     const { runId } = env.startRun(session, "Check the receipts", [], { model: "actual-model" });
@@ -169,7 +190,7 @@ describe("the plan gauge", () => {
   it("opens cached pooled readings above the meter, refreshes on open and request, and ages them only while open", async () => {
     const { app, env } = await opened();
     env.setUsage([{ ...reading("account-1", WORK, [window("five_hour", 0.8, "2026-09-25T09:00:00.000Z")]), readAt: app.clock.now().toISOString() }]);
-    await within(statusLine()).findByRole("img", { name: "5hr 80%" });
+    await within(statusLine()).findByRole("img", { name: "5-hour 80%" });
     const before = env.requests("accounts.usage").length;
     await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
     const details = await screen.findByRole("dialog", { name: "Usage details" });
@@ -192,7 +213,7 @@ describe("the plan gauge", () => {
     const { env } = await opened();
     env.setUsage([reading("account-1", WORK, [window("five_hour", 0.2, "2026-09-25T09:00:00.000Z"), window("seven_day", 0.8, "2026-09-25T09:00:00.000Z"), window("model_scoped:opus", 0.95, "2026-09-25T09:00:00.000Z")])]);
     const gauge = await within(statusLine()).findByRole("group", { name: "Plan usage" });
-    for (const [name, tone, value] of [["5hr 20%", "text-mint", "20"], ["Week 80%", "text-amber", "80"], ["Opus 95%", "text-signal", "95"]] as const) {
+    for (const [name, tone, value] of [["5-hour 20%", "text-mint", "20"], ["Weekly 80%", "text-amber", "80"], ["Weekly, Opus 95%", "text-signal", "95"]] as const) {
       const ring = await within(gauge).findByRole("img", { name });
       expect(ring.tagName).toBe("svg");
       expect(ring.getAttribute("class")).toContain(tone);
@@ -200,10 +221,10 @@ describe("the plan gauge", () => {
       expect((ring.querySelector('[data-usage-arc]') as SVGCircleElement).style.strokeDasharray).toBe(`${value} 100`);
     }
     env.setUsage([reading("account-1", WORK, [{ ...window("five_hour", 0, "2026-09-25T09:05:00.000Z"), utilisation: null }, { ...window("seven_day", 0, "2026-09-25T09:05:00.000Z", "rejected"), utilisation: null }])]);
-    const unknown = await within(gauge).findByRole("img", { name: "5hr —" });
+    const unknown = await within(gauge).findByRole("img", { name: "5-hour —" });
     expect(unknown.textContent).toBe("—");
     expect((unknown.querySelector('[data-usage-arc]') as SVGCircleElement).style.strokeDasharray).toBe("0 100");
-    const refused = within(gauge).getByRole("img", { name: "Week — out" });
+    const refused = within(gauge).getByRole("img", { name: "Weekly — out" });
     expect(refused.textContent).toBe("!");
     expect((refused.querySelector('[data-usage-arc]') as SVGCircleElement).style.strokeDasharray).toBe("100 100");
   });
@@ -213,14 +234,14 @@ describe("the plan gauge", () => {
     env.setUsage([reading("account-1", WORK, [window("five_hour", 0.42, "2026-09-25T09:00:00.000Z")])]);
     app.environment("laptop").setUsage([reading("account-9", WORK, [window("five_hour", 0.61, "2026-09-25T09:05:00.000Z"), window("seven_day", 0.12, "2026-09-25T09:05:00.000Z")])]);
     const gauge = await within(statusLine()).findByRole("group", { name: "Plan usage" });
-    await waitFor(() => expect(gauge.textContent).toBe("5hr 61Week 12"));
+    await waitFor(() => expect(gauge.textContent).toBe("5-hour 61Weekly 12"));
   });
 
   it("marks a window the provider refuses as out", async () => {
     const { env } = await opened();
     env.setUsage([reading("account-1", WORK, [window("five_hour", 1, "2026-09-25T09:00:00.000Z", "rejected")])]);
     const gauge = await within(statusLine()).findByRole("group", { name: "Plan usage" });
-    await waitFor(() => expect(gauge.textContent).toBe("5hr 100"));
+    await waitFor(() => expect(gauge.textContent).toBe("5-hour 100"));
   });
 });
 

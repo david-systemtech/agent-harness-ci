@@ -31,7 +31,7 @@ it("offers explicit push controls inside the same-origin environment's Attention
   presentation.set("firstLaunchDone", true); presentation.set("runLocalEnvironment", false);
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { address: location.origin, code: new URL(world.environment("desk").wire.link).hash.slice(1) } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
-  await screen.findByText(/Scopes: read · Ceiling/);
+  await screen.findByRole("note", { name: "Limited access" });
   expect(screen.queryByText("Phone notifications")).toBeNull();
   await userEvent.setup().click(screen.getByRole("button", { name: "Settings" }));
   await userEvent.setup().click(await screen.findByRole("button", { name: "Attention settings" }));

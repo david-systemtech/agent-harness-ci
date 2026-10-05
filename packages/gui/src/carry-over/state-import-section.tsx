@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { adminCall, clientLocalImportValues, uuidv7 } from "@agent-harness/client-runtime";
 import type { StateImportHoldings, StateImportReport } from "@agent-harness/contracts";
 import { ArrowRight, Download, ScanSearch } from "lucide-react";
@@ -74,7 +75,7 @@ const DetectedStateImport = ({ environmentId, needsRepair }: { readonly environm
           <Button variant="outline" title="Open Skills · Tab, Enter or Space" onClick={() => choose("skills")}><ArrowRight aria-hidden="true" />Open Skills</Button>
         </div>
       </>}
-      {admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {admin.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" title="Dry run · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(true)}><ScanSearch aria-hidden="true" />Dry run</Button>
         <Button variant="default" title="Import · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(false)}><Download aria-hidden="true" />Import</Button>

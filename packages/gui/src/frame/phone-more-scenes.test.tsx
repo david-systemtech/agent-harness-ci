@@ -19,9 +19,9 @@ it.each(["phone-more-phone", "phone-more-full"])("opens %s with grant explanatio
   const menu = within(screen.getByRole("menu"));
   const terminal = menu.getByRole("menuitem", { name: "Terminal" });
   if (name === "phone-more-phone") {
-    expect(terminal.getAttribute("aria-disabled")).toBe("true");
-    expect(terminal.textContent).toContain("terminal scope");
-    expect(terminal.textContent).toContain("pair again");
+    expect(terminal.getAttribute("aria-disabled")).not.toBe("true");
+    expect(terminal.textContent).toContain("Terminal unavailable");
+    expect(terminal.textContent).toContain("Give this phone full access");
   } else expect(terminal.getAttribute("aria-disabled")).not.toBe("true");
   const browser = menu.getByRole("menuitem", { name: "Browser" });
   expect(browser.textContent).not.toContain("shell.webView");

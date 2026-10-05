@@ -47,3 +47,11 @@ it("keeps the installing browser tab separate from the installed standalone clie
   expect(screen.queryByRole("button", { name: "Install client" })).toBeNull();
   controller.dispose();
 });
+
+it("draws no installation guidance when opened from the Home Screen", () => {
+  const controller = new InstallController(new EventTarget(), { secure: true, standalone: true, ios: true, worker: true });
+  const view = render(<InstallGuidance controller={controller} />);
+  expect(view.container.textContent).toBe("");
+  expect(screen.queryByRole("region", { name: "Home Screen installation" })).toBeNull();
+  controller.dispose();
+});

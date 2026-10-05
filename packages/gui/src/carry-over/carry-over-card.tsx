@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { adminCall, uuidv7 } from "@agent-harness/client-runtime";
 import type { AccountRecord, CarryOverInventory, CarryOverReport } from "@agent-harness/contracts";
 import { Download, RefreshCw } from "lucide-react";
@@ -27,7 +28,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
   return (
     <>
       <StepStatus environmentId={environmentId} step={step} handledActions={["import-again"]} />
-      {admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {admin.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       {accounts.error !== null && <p className="text-sm text-ink-muted">The accounts could not be read: {accounts.error.message}</p>}
       {accounts.value
         ?.filter((account) => account.directory.kind === "adopted")
