@@ -8,4 +8,4 @@ export const activate = () => {
   const stopReveal = revealDecision();
   return () => { stopReveal(); stopInstall(); };
 };
-export const readySelector = '[data-web-client] [aria-label="Allow once"]';
+export const readySelector = '[data-web-client] [aria-label="Allow once"][data-permission-revealed]';
