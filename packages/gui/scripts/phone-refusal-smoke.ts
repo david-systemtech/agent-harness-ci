@@ -4,7 +4,7 @@ import type { Locator, Page } from "playwright";
 import { expect } from "playwright/test";
 
 /** Hosted real-client regression for the keyboard-height refusal in #1325. */
-export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>): Promise<void> {
+export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, waitForDraft: (message: string) => Promise<void>): Promise<void> {
   const original = page.viewportSize();
   const message = "Explain the receipt totals and retain the original rounding rule.\n".repeat(6);
   const field = page.getByRole("textbox", { name: "Message", exact: true });
@@ -12,20 +12,33 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
   const fits = async (control: Locator) => {
+    const text = await control.textContent();
+    const element = `Array.from(document.querySelector('[data-composer-column]').querySelectorAll('p[role="status"], button')).find(element => element.textContent === ${JSON.stringify(text)})`;
+    // Scroll only the touch-scrollable composer, never an overflow-hidden ancestor
+    // or the document. Centering also leaves room for fractional edge geometry.
+    await page.evaluate(`(() => {
+      const element = ${element};
+      if (!element) throw new Error('The refusal/control must exist in the composer.');
+      const column = element.closest('[data-composer-column]');
+      const rect = element.getBoundingClientRect(), bounds = column.getBoundingClientRect();
+      column.scrollTop += rect.top - bounds.top - column.clientTop - (column.clientHeight - rect.height) / 2;
+    })()`);
     // Intersection observes clipping by every overflow ancestor, not just the viewport.
     try { await expect(control).toBeInViewport({ ratio: 1, timeout: 60_000 }); }
     catch (error) {
-      console.error("PHONE-REFUSAL geometry", await control.evaluate(`element => JSON.stringify({
-        viewport: [innerWidth, innerHeight],
-        focus: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim().slice(0, 40),
-        ancestors: (() => { const result = []; for (let node = element; node; node = node.parentElement) {
-          const { x, y, width, height } = node.getBoundingClientRect();
-          result.push({ tag: node.tagName, column: node.hasAttribute('data-composer-column'),
-            above: node.hasAttribute('data-composer-above'), x, y, width, height,
-            scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight,
-            overflow: getComputedStyle(node).overflowY });
-        } return result; })()
-      })`));
+      console.error("PHONE-REFUSAL geometry", await page.evaluate(`(() => {
+        const element = ${element};
+        return JSON.stringify({ viewport: [innerWidth, innerHeight],
+          focus: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent?.trim().slice(0, 40),
+          ancestors: (() => { const result = []; for (let node = element; node; node = node.parentElement) {
+            const { x, y, width, height } = node.getBoundingClientRect();
+            result.push({ tag: node.tagName, column: node.hasAttribute('data-composer-column'),
+              above: node.hasAttribute('data-composer-above'), x, y, width, height,
+              scrollTop: node.scrollTop, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight,
+              overflow: getComputedStyle(node).overflowY });
+          } return result; })()
+        });
+      })()`));
       throw error;
     }
     const box = await control.boundingBox();
@@ -45,10 +58,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(refusal).toContainText("no run can start");
       await expect(field).toHaveValue(message);
       assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-composer-column]')).overflowY"), "auto", "A touch user can scroll the full composer, including its refusal and Run settings.");
-      await refusal.scrollIntoViewIfNeeded();
       await fits(refusal);
       await page.screenshot({ path: join(output, `phone-refusal-${engine}-${viewport.width}.png`) });
-      await settings.scrollIntoViewIfNeeded();
       await fits(settings);
       await settings.click();
       const account = page.getByRole("button", { name: /^Account:/ });
@@ -59,14 +70,14 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await page.keyboard.press("Escape");
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
-      await remedy.scrollIntoViewIfNeeded();
       await fits(remedy);
-      await page.getByRole("button", { name: /^Send/ }).scrollIntoViewIfNeeded();
       await fits(page.getByRole("button", { name: /^Send/ }));
       await settings.click();
+      // Reload after the debounced draft has reached the real environment.
+      await waitForDraft(message);
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
-      await expect(field).toHaveValue(message);
+      await expect(field).toHaveValue(message, { timeout: 60_000 });
     }
   } finally {
     await signIn(true);

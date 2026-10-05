@@ -13,6 +13,7 @@ import { createServer } from "node:https";
 import { connect, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import { chromium, webkit } from "playwright";
+import { expect } from "playwright/test";
 import { pairingPreset, ClientSessionCredential } from "@agent-harness/contracts";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { create } from "../../environment/test/sessions.js";
@@ -154,6 +155,10 @@ try {
       await phoneRefusalSmoke(page, name, output, async signedIn => {
         adapter.setStatus(account => signedInAs(signedIn ? `${account.id}@example.com` : null));
         await admin.request("accounts.refresh", { accountId: "claude-max" });
+      }, async message => {
+        await expect.poll(async () => (await admin.request("sessions.get", { sessionId })).summary.draft, {
+          timeout: 60_000, message: "The real environment holds the refused draft before reload.",
+        }).toBe(message);
       });
       try { await phoneInstallSmoke(page, bundle, name, available => { originAvailable = available; }); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
