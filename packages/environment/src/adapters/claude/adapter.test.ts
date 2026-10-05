@@ -2024,6 +2024,19 @@ describe("a turn the provider opens on its own", () => {
 });
 
 describe("plan usage", () => {
+  it("preserves an unknown limit for details and reports its identifier once through the adapter diagnostic", async () => {
+    fake.controls = { usage: { name: "usage", answer: async () => ({
+      rate_limits_available: true,
+      rate_limits: { iguana_necktie: { utilization: 37, resets_at: "2026-09-30T00:00:00Z" } },
+    }) } };
+    const adapter = adapterWith();
+    expect((await adapter.usage({ id: "work", directory: "/data/accounts/work" })).windows).toEqual([
+      { window: "iguana_necktie", utilisation: 0.37, resetsAt: "2026-09-30T00:00:00.000Z" },
+    ]);
+    await adapter.usage({ id: "other", directory: "/data/accounts/other" });
+    expect(diagnostics.filter((line) => line.includes("iguana_necktie"))).toEqual(["Claude reported an unknown plan-usage window: iguana_necktie"]);
+  });
+
   it.each(["usage", "getUsage", "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET"])("is read on an unsampled query under the account's directory, through %s", async (name) => {
     fake.controls = {
       usage: { name, answer: async () => ({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 50, resets_at: "2026-09-24T05:00:00Z" } } }) },

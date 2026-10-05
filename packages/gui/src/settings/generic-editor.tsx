@@ -1,3 +1,4 @@
+import { ReadOnlyAccess } from "../connections/limited-access.js";
 import { clockTime, confirmationOf, describeKey, parseTyped, valueWords, writerOf, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
 import { SETTINGS, settingForm, type Confirmation, type MethodName, type SettingsKey } from "@agent-harness/contracts";
 import { Check, Save, SlidersHorizontal, X } from "lucide-react";
@@ -92,9 +93,7 @@ export const GenericEditor = ({ view, keys, saysWhyReadOnly = true }: GenericEdi
         <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>
       )}
       {lacking.map((line) => (
-        <p key={line} className="text-sm text-amber">
-          Read-only: {line}
-        </p>
+        <ReadOnlyAccess key={line} environmentId={view.environmentId} line={line}><p className="text-sm text-amber">Read-only: {line}</p></ReadOnlyAccess>
       ))}
       {values === null
         ? ready && <p className="text-sm text-ink-faint">{answer.error === null ? "Reading the settings…" : `The settings could not be read: ${answer.error.message}`}</p>

@@ -41,7 +41,7 @@ it.each(["files", "file", "diff", "documents", "tasks", "agent", "preview", "mar
     const environmentId = gallery.world.world.environment("desk").environmentId;
     const reason = gallery.world.runtime.capability(environmentId, "files.list");
     expect(reason.status).toBe("absent");
-    if (reason.status === "absent") expect(within(screen.getByRole("region", { name: "Files" })).getByText(reason.message)).toBeDefined();
+    expect(within(screen.getByRole("region", { name: "Files" })).getByRole("button", { name: "Give this phone full access" })).toBeDefined();
     expect(gallery.world.world.environment("desk").requests("files.list")).toHaveLength(0);
   }
 });

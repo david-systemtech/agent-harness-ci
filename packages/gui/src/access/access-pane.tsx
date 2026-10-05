@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { ConnectionGrant } from "../connections/connection-grant.js";
 import { revokeSession, setSessionCeiling, uuidv7, type AccessOutcome, type ClientSessionSummary, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type Ceiling } from "@agent-harness/contracts";
@@ -76,7 +77,7 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
       <ConnectionGrant view={view} />
       <p className="text-sm text-ink-muted">{settingsRow("environments.access").hint}</p>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, sessions !== null)}</p>}
-      {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       {ready && admin.status === "present" && sessions === null && (
         <p className="text-sm text-ink-faint">{answer.error === null ? "Reading the client sessions…" : `The client sessions could not be read: ${answer.error.message}`}</p>
       )}

@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountRecord } from "@agent-harness/contracts";
 import { Plus } from "lucide-react";
@@ -93,7 +94,7 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
           {reachWords(runtime, view)}: {accounts === null ? "this window has read none of its accounts." : "its accounts as this window last read them, read-only."}
         </p>
       )}
-      {ready && admin.status === "absent" && <p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">Read-only: {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">Read-only: {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p></AccessUnavailable>}
       {ready && <AdoptOffer environmentId={environmentId} environment={nameOf(view)} writable={writable} say={say} />}
       <div className="flex flex-wrap gap-2">
         <AccountAction icon={Plus} variant="default" disabled={!writable || signing !== undefined} onClick={() => signIn({ account: null })}>

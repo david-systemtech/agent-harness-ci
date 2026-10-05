@@ -1,4 +1,5 @@
 import { phoneRefusalSmoke } from "./phone-refusal-smoke.js";
+import { phoneRunPickerSmoke } from "./phone-run-picker-smoke.js";
 import { phonePushGateway, phonePushSmoke } from "./phone-push-smoke.js";
 import { webOriginSmoke } from "./web-origin-smoke.js";
 import { auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
@@ -56,7 +57,12 @@ secure.on("upgrade", (incoming, socket, head) => {
 await new Promise<void>(resolve => secure.listen(0, "127.0.0.1", resolve));
 const origin = `https://localhost:${(secure.address() as AddressInfo).port}`;
 let releaseStream: (() => void) | undefined;
-const adapter = fakeAdapter({ script: async function* ({ input, context }) {
+const adapter = fakeAdapter({ models: [
+  { id: "opus", family: "opus", tier: 3, efforts: ["low", "medium", "high", "max"] },
+  { id: "sonnet", family: "sonnet", tier: 2, efforts: ["low", "medium", "high"] },
+  { id: "haiku", family: "haiku", tier: 1, efforts: [] },
+  ...Array.from({ length: 12 }, (_, index) => ({ id: `sample-model-${index + 1}`, family: "sample", tier: 1, efforts: [] })),
+], script: async function* ({ input, context }) {
   releaseStream = undefined;
   const itemId = randomUUID();
   const reply = `Streaming the hosted reply: ${input.prompt.at(-1)?.text ?? ""}`;
@@ -67,8 +73,10 @@ const adapter = fakeAdapter({ script: async function* ({ input, context }) {
   yield say(`Permission ${decision.decision}.`); yield end();
 } });
 const pushGateway = await phonePushGateway(readFileSync(join(output, "key.pem")), readFileSync(join(output, "cert.pem")));
+console.log("WEB-SMOKE PHASE environment: start");
 const environment = await startTestEnvironment({ adapter, webOrigin: origin, webClientDirectory: bundle });
 upstream = environment.address;
+console.log("WEB-SMOKE PHASE environment: ready");
 try {
   const admin = await environment.client();
   for (const [name, engine] of [["chromium", chromium], ["webkit", webkit]] as const) {
@@ -90,14 +98,15 @@ try {
       const phone = pairingPreset("phone");
       const code = await environment.createPairing({ scopes: phone.scopes, ceiling: phone.ceiling });
       assert(code.link.startsWith(`${origin}/pair#`), "Canonical HTTPS links retain their port.");
+      console.log(`WEB-SMOKE PHASE ${name} pairing: start`);
       await page.goto(code.link);
-      await page.locator("[data-web-grant]").filter({ hasText: "Ceiling: acceptEdits" }).waitFor();
+      await page.locator('[data-web-grant][data-ceiling="acceptEdits"]').waitFor();
       assert.equal(new URL(page.url()).hash, "", "Pairing credentials leave the address bar.");
       try { await waitForPublicWorker(page, name); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
       await auditPublicCache(page, name, "initial installation");
       await page.reload();
-      await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+      await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await page.getByRole("button", { name: "Show sessions", exact: true }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await page.getByRole("dialog", { name: "Sessions", exact: true }).waitFor({ state: "hidden" });
@@ -110,6 +119,7 @@ try {
         await page.goto(`${origin}/#/session/${encodeURIComponent(environment.env.id)}/${encodeURIComponent(sessionId)}`);
         await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       }
+      console.log(`WEB-SMOKE PHASE ${name} permission conversation: start`);
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();
@@ -125,12 +135,18 @@ try {
       assert.equal(adapter.runs.slice(-2).reduce((count, run) => count + run.answers.length, 0), 2, "Each permission is answered exactly once.");
       await context.setOffline(true); await context.setOffline(false);
       await page.reload();
-      await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+      await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      // Observe the reloaded session's stream before treating its composer as idle.
+      await page.getByText("Permission deny.", { exact: true }).last().waitFor();
+      console.log(`WEB-SMOKE PHASE ${name} refusal: start`);
       await phoneRefusalSmoke(page, name, output, async signedIn => {
         adapter.setStatus(account => signedInAs(signedIn ? `${account.id}@example.com` : null));
         await admin.request("accounts.refresh", { accountId: "claude-max" });
-      });
+      }, async () => (await admin.request("sessions.get", { sessionId })).summary.draft);
+      console.log(`WEB-SMOKE PHASE ${name} phone run picker: start`);
+      await phoneRunPickerSmoke(page, name);
+      console.log(`WEB-SMOKE PHASE ${name} bundle update: start`);
       try { await phoneInstallSmoke(page, bundle, name, available => { originAvailable = available; }); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
       const credential = credentials[0]; assert(credential, "The browser completed pairing.");
@@ -139,7 +155,7 @@ try {
       const clamp = await wire.apply("permissions.mode.set", { commandId: randomUUID(), sessionId, mode: "bypassPermissions" });
       assert.equal(clamp.mode.effective, "acceptEdits", "The Phone ceiling is enforced.");
       await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: credential.clientSessionId });
-      await page.locator("[data-web-grant]").filter({ hasText: "blocked" }).waitFor();
+      await page.locator('[data-web-grant][data-phase="blocked"]').waitFor();
       await page.reload();
       assert.equal(await page.evaluate(`(async () => { const request = indexedDB.open('agent-harness-secrets'); const db = await new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); const read = db.transaction('secrets').objectStore('secrets').get(${JSON.stringify(environment.env.id)}); return await new Promise(resolve => { read.onsuccess = () => resolve(read.result === undefined); }); })()`), true, "Revocation erases the credential.");
       const own = pairingPreset("own-client");
@@ -148,8 +164,8 @@ try {
       const ownContext = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
       const ownPage = await ownContext.newPage();
       await ownPage.goto(ownCode.link);
-      await ownPage.locator("[data-web-grant]").filter({ hasText: "Ceiling: bypassPermissions" }).waitFor();
-      assert((await ownPage.locator("[data-web-grant]").innerText()).includes("terminal, admin"), "My own client keeps its full grant.");
+      await ownPage.locator('[data-web-grant][data-ceiling="bypassPermissions"]').waitFor();
+      assert((await ownPage.locator("[data-web-grant]").getAttribute("data-scopes"))?.includes("terminal, admin"), "My own client keeps its full grant.");
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
       await denied.addInitScript("Object.defineProperty(window, 'indexedDB', { get() { throw new DOMException('Denied', 'SecurityError'); } });");
@@ -157,17 +173,19 @@ try {
       const visitCode = await environment.createPairing({ scopes: phone.scopes, ceiling: phone.ceiling });
       await visit.goto(visitCode.link);
       await visit.getByText(/Storage is unavailable. Pair for this visit/).waitFor();
-      await visit.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+      await visit.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await visit.reload();
       await visit.getByRole("heading", { name: "Pair with this environment" }).waitFor();
       assert(requests.every(url => !url.includes(code.code) && !url.includes(credential.token)), "No token or code reaches a request URL.");
       assert.equal(errors.length, 0, "The real bundle produced no page errors.");
       await context.close(); await denied.close();
+      console.log(`WEB-SMOKE PHASE ${name} origin checks: start`);
       await webOriginSmoke(browser, environment, origin, bundle, output);
       console.log(`WEB-SMOKE PASS ${name}: pair/reload, list/open, stream, Allow/Deny once, reconnect, grants, revoke, visit-only storage`);
     } finally { await browser.close(); }
   }
 } finally {
+  console.log("WEB-SMOKE PHASE cleanup: start");
   await environment.close();
   await pushGateway.close();
   secure.closeAllConnections(); await new Promise<void>(resolve => secure.close(() => resolve()));

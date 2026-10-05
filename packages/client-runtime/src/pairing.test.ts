@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_ENVIRONMENT_PORT, DISCOVERY_PATH, PAIR_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { DEFAULT_ENVIRONMENT_PORT, DISCOVERY_PATH, PAIR_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION, SCOPES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { Address } from "../../environment/src/serve/http.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
@@ -153,6 +153,47 @@ describe("pairing with an environment", () => {
     const { sessions } = await admin.apply("access.sessions.list", {});
     expect(sessions.find((s) => s.id === before)?.revokedAt).toEqual(expect.any(String));
     expect(sessions.find((s) => s.id === after?.clientSessionId)?.revokedAt).toBeNull();
+  });
+
+  it.each([
+    { scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" },
+    { scopes: ["read"], ceiling: "bypassPermissions" },
+    { scopes: [...SCOPES], ceiling: "auto" },
+  ] as const)("keeps the saved pairing when a full-access replacement grants $scopes with $ceiling", async grant => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const before = runtime.connections.list.read();
+    const token = await platform.secrets.get(t.env.id);
+    const link = (await t.createPairing({ scopes: [...grant.scopes], ceiling: grant.ceiling })).link;
+
+    expect(await runtime.connections.add({ link }, { rePair: t.env.id, fullAccess: true })).toMatchObject({
+      status: "failed", failure: { reason: "refused", message: expect.stringContaining("full-access code") },
+    });
+    expect(runtime.connections.list.read()).toEqual(before);
+    expect(await platform.secrets.get(t.env.id)).toBe(token);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find(session => session.id === before[0]?.clientSessionId)?.revokedAt).toBeNull();
+  });
+
+  it("keeps the old pairing when the authenticated replacement grant is narrower than its exchange", async () => {
+    const t = await harness.environment();
+    let replacing = false;
+    const platform = inMemoryPlatform({ webSocket: rewritingWebSocket(frame => frame["type"] !== "hello" ? frame : { ...frame, scopes: ["read"] }, () => replacing) });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const before = runtime.connections.list.read();
+    const token = await platform.secrets.get(t.env.id);
+    replacing = true;
+    const link = (await t.createPairing({ scopes: [...SCOPES], ceiling: "bypassPermissions" })).link;
+
+    expect(await runtime.connections.add({ link }, { rePair: t.env.id, fullAccess: true })).toMatchObject({ status: "failed", failure: { reason: "refused" } });
+    expect(runtime.connections.list.read()).toEqual(before);
+    expect(await platform.secrets.get(t.env.id)).toBe(token);
   });
 
   it("re-pairs an unreadable earlier credential with a read-only code, without pretending to revoke the older session", async () => {

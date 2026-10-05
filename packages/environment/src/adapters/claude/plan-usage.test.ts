@@ -102,6 +102,26 @@ const probing = (answers: (() => Promise<UsageProbe>)[] = []) => {
 };
 
 describe("the reader", () => {
+  it("keeps an unknown limit's share and reset and logs its identifier once across accounts and fresh reads", async () => {
+    const clock = manualClock();
+    const messages: string[] = [];
+    const reader = createPlanUsageReader({
+      clock,
+      diagnostic: (message) => messages.push(message),
+      probe: async () => ({ identity, outcome: { kind: "read", response: {
+        rate_limits_available: true,
+        rate_limits: { iguana_necktie: { utilization: 37, resets_at: "2026-09-30T00:00:00Z" } },
+      } } }),
+    });
+    expect((await reader.read(account)).windows).toEqual([
+      { window: "iguana_necktie", utilisation: 0.37, resetsAt: "2026-09-30T00:00:00.000Z" },
+    ]);
+    clock.advance(PLAN_USAGE_MAX_AGE_MS);
+    await reader.read(account);
+    await reader.read({ id: "other", directory: "/data/accounts/other" });
+    expect(messages).toEqual(["Claude reported an unknown plan-usage window: iguana_necktie"]);
+  });
+
   it("shares a read in flight: two asks, one query", async () => {
     const clock = manualClock();
     let release!: () => void;
