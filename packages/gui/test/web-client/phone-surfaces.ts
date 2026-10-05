@@ -30,10 +30,15 @@ const noOverflow = async (page: Page): Promise<void> => {
 export const reachable = async (page: Page, control: Locator): Promise<void> => {
   await expect(control).toBeVisible();
   await expect(control).toBeInViewport({ ratio: 1 });
+  let reported = false;
   await expect.poll(async () => {
     const box = await control.boundingBox();
     const viewport = page.viewportSize();
     if (!box || !viewport) return { missing: true };
+    if (!reported && (box.width < 43.5 || box.height < 43.5 || box.x < -0.5 || box.y < -0.5 || box.x + box.width > viewport.width + 0.5 || box.y + box.height > viewport.height + 0.5)) {
+      console.error("[DEBUG-phone-more] initial geometry", await control.getAttribute("aria-label"), box, viewport);
+      reported = true;
+    }
     if (box.width < 43.5 || box.height < 43.5) return { tooSmall: box };
     if (box.x < -0.5 || box.y < -0.5 || box.x + box.width > viewport.width + 0.5 || box.y + box.height > viewport.height + 0.5) return { outside: box, viewport };
     return true;
@@ -62,11 +67,35 @@ const revealMenuRow = async (page: Page, target: string | number): Promise<void>
     const rect = element.getBoundingClientRect();
     const bounds = menu.getBoundingClientRect();
     menu.scrollTop += rect.top - bounds.top - menu.clientTop - (menu.clientHeight - rect.height) / 2;
+    window.__phoneMenuTrace?.push({ type: 'reveal', label: element.getAttribute('aria-label'),
+      at: Math.round(performance.now()), row: { y: rect.y, height: rect.height, width: rect.width },
+      menu: { y: bounds.y, height: bounds.height, scrollTop: menu.scrollTop },
+      focus: document.activeElement?.getAttribute('aria-label') });
   })()`);
 };
 
 /** Inspect the real menu after scrolling each action, including disabled grant explanations. */
 const phoneMoreSmoke = async (page: Page): Promise<void> => {
+  await page.evaluate(`(() => {
+    window.__phoneMenuTrace = [];
+    if (window.__phoneMenuTracing) return;
+    window.__phoneMenuTracing = true;
+    const identify = node => node instanceof Element ? { tag: node.tagName,
+      label: node.getAttribute('aria-label'), role: node.getAttribute('role'),
+      menu: Boolean(node.closest('.phone-frame-menu')) } : null;
+    const record = value => { window.__phoneMenuTrace.push({ at: Math.round(performance.now()), ...value });
+      if (window.__phoneMenuTrace.length > 80) window.__phoneMenuTrace.shift(); };
+    for (const type of ['focusin', 'focusout', 'pointerdown', 'keydown', 'pagehide'])
+      window.addEventListener(type, event => record({ type, target: identify(event.target),
+        related: identify(event.relatedTarget), key: ['Escape', 'Tab', 'Enter'].includes(event.key) ? event.key : undefined }), true);
+    new MutationObserver(records => { for (const mutation of records) {
+      if (mutation.type === 'attributes' && mutation.target.getAttribute('aria-label') === 'More')
+        record({ type: 'expanded', value: mutation.target.getAttribute('aria-expanded') });
+      if (mutation.type === 'childList') for (const node of mutation.removedNodes)
+        if (node instanceof Element && (node.matches('[aria-label="More"]') || node.querySelector('[aria-label="More"]')))
+          record({ type: 'trigger-removed' });
+    }}).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-expanded'] });
+  })()`);
   const trigger = page.getByRole("button", { name: "More", exact: true });
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await trigger.click();
@@ -77,6 +106,7 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
     await revealMenuRow(page, name);
     try { await reachable(page, row); }
     catch (error) {
+      console.error("[DEBUG-phone-more] events", await page.evaluate("JSON.stringify(window.__phoneMenuTrace)"));
       console.error("PHONE-MENU state", name, await page.evaluate("JSON.stringify({viewport:[innerWidth,innerHeight],scroll:[scrollX,scrollY],focus:document.activeElement?.getAttribute('aria-label'),expanded:document.querySelector('[aria-label=More]')?.getAttribute('aria-expanded'),menu:document.querySelector('.phone-frame-menu')?.getAttribute('data-state')})"));
       throw error;
     }
