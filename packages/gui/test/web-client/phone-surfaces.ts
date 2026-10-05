@@ -137,6 +137,9 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
       assert.equal(terminals.terminals.length, 1); terminalId = terminals.terminals[0]!.id;
       // Close the sheet explicitly: Esc is also a terminal input control.
       await sheet.getByRole("button", { name: "Close side sheet", exact: true }).click();
+    } else if (label === "Documents") {
+      // The opaque preview owns keyboard focus; the parent has an explicit touch close control.
+      await sheet.getByRole("button", { name: "Close side sheet", exact: true }).click();
     } else {
       await page.keyboard.press("Escape");
     }
