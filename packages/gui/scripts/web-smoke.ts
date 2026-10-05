@@ -130,7 +130,7 @@ try {
       await phoneRefusalSmoke(page, name, output, async signedIn => {
         adapter.setStatus(account => signedInAs(signedIn ? `${account.id}@example.com` : null));
         await admin.request("accounts.refresh", { accountId: "claude-max" });
-      });
+      }, async () => (await admin.request("sessions.get", { sessionId })).summary.draft);
       try { await phoneInstallSmoke(page, bundle, name, available => { originAvailable = available; }); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
       const credential = credentials[0]; assert(credential, "The browser completed pairing.");

@@ -4,7 +4,7 @@ import type { Locator, Page } from "playwright";
 import { expect } from "playwright/test";
 
 /** Hosted real-client regression for the keyboard-height refusal in #1325. */
-export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>): Promise<void> {
+export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, readDraft: () => Promise<string | null>): Promise<void> {
   const original = page.viewportSize();
   const message = "Explain the receipt totals and retain the original rounding rule.\n".repeat(6);
   const field = page.getByRole("textbox", { name: "Message", exact: true });
@@ -41,6 +41,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(choices).toContainText(/signed out/i);
       await choices.getByRole("menuitem").filter({ hasText: "claude-max" }).click();
       await page.keyboard.press("Escape");
+      await expect(choices).toBeHidden();
+      await expect(account).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await remedy.scrollIntoViewIfNeeded();
@@ -48,6 +50,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await page.getByRole("button", { name: /^Send/ }).scrollIntoViewIfNeeded();
       await fits(page.getByRole("button", { name: /^Send/ }));
       await settings.click();
+      await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await expect(field).toHaveValue(message);
