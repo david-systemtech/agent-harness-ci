@@ -1,3 +1,4 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { Plus } from "lucide-react";
 import { ActionButton as Button, useInlineAdd } from "../key-managers/action-button.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
@@ -74,7 +75,7 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
           {reachWords(runtime, view)}: {accounts === null ? "this window has read none of its forge accounts." : "its forge accounts as this window last read them, read-only."}
         </p>
       )}
-      {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       {!adding && (
         <div className="flex flex-wrap gap-2">
           <Button ref={trigger} icon={Plus} label="Add a forge" variant="default" disabled={!writable} onClick={() => setAdding(true)}>

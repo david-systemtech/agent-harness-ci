@@ -41,7 +41,7 @@ export const webOriginSmoke = async (browser: Browser, first: TestEnvironment, o
     const firstCode = await first.createPairing({ scopes: phone.scopes, ceiling: phone.ceiling });
     const page = await context.newPage(); page.setDefaultTimeout(60_000);
     await page.goto(firstCode.link);
-    await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+    await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
     const denied = await page.evaluate(async url => {
       try { await fetch(url); return false; } catch { return true; }
     }, secondOrigin + DISCOVERY_PATH);
