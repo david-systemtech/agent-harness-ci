@@ -13,6 +13,7 @@
   "dependencies": {
     "@agent-harness/client-runtime": "workspace:*",
     "@agent-harness/contracts": "workspace:*",
+    "@agent-harness/filesystem": "workspace:*",
     "@agent-harness/gui": "workspace:*",
     "@agent-harness/theme": "workspace:*",
     "jsqr": "1.4.0"

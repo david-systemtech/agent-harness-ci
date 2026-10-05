@@ -185,7 +185,8 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   const freeBytes = options.freeBytes ?? freeBytesOn;
   const write = options.log ?? ((line: string) => void process.stdout.write(`${line}\n`));
   const log = (text: string) => write(`${new Date(timer.now()).toISOString()} launcher: ${text}`);
-  const installer = createInstaller({ dataDir, timer, freeBytes, log });
+  const newCandidates = new Set<string>();
+  const installer = createInstaller({ dataDir, timer, freeBytes, log, onInstalled: (version) => newCandidates.add(version) });
 
   /** The service state as last read or written; set before any child runs. */
   let state!: ServiceState;
@@ -469,6 +470,12 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     runActive();
   };
 
+  const withoutCandidate = (next: ServiceState): ServiceState => {
+    const kept = { ...next };
+    delete kept.reclaimableVersion;
+    return kept;
+  };
+
   /**
    * Answers `switch?` from `from`: refused `not-installed` for a version not
    * complete in the versions directory, `disk` when a snapshot the update
@@ -486,6 +493,16 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     const answer = (reply: SwitchAnswer) => tell(from, { ...reply, id });
     const refuse = (reason: Extract<SwitchAnswer, { readonly type: "refused" }>["reason"], why: string) => {
       log(`refuses ${asked}: ${reason}, as ${why}`);
+      if ((newCandidates.has(version) || state.reclaimableVersion === version) && version !== state.activeVersion && version !== state.previousVersion && version !== ownVersion && version !== state.launcherVersion && state.pendingUpdate === null) {
+        try {
+          removeVersion(dataDir, version);
+          if (state.stagedVersion === version) save(withoutCandidate({ ...state, stagedVersion: null }));
+          newCandidates.delete(version);
+          log(`reclaimed newly installed ${version} after the refused switch`);
+        } catch (error) {
+          log(`${version} could not be reclaimed after the refused switch: ${messageOf(error)}`);
+        }
+      }
       answer({ type: "refused", reason });
     };
     if (!isComplete(dataDir, version)) return refuse("not-installed", `${version} is not complete in ${join(dataDir, VERSIONS_DIRECTORY)}`);
@@ -496,10 +513,11 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
         const free = freeBytes(dataDir);
         if (free < needed) return refuse("disk", `${free} bytes are free and a snapshot needs ${needed}`);
       }
-      save({ ...state, pendingUpdate: update, stagedVersion: null });
+      save(withoutCandidate({ ...state, pendingUpdate: update, stagedVersion: null }));
     } catch (error) {
       return refuse("io", messageOf(error));
     }
+    newCandidates.delete(version);
     from.switching = update;
     // A handover waits for no update: the one pending ends in a commit, whose watch comes first, or a rollback.
     cancelIdleAsk?.();
@@ -519,9 +537,10 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
    * should a watch end before the switch.
    */
   const keepStaged = (version: string) => {
-    if (state.stagedVersion === version) return;
+    if (state.stagedVersion === version && (state.reclaimableVersion === version || !newCandidates.has(version))) return;
     try {
-      save({ ...state, stagedVersion: version });
+      const next = withoutCandidate({ ...state, stagedVersion: version });
+      save(newCandidates.has(version) ? { ...next, reclaimableVersion: version } : next);
     } catch (error) {
       log(`${version} could not be recorded as staged, so a watch's end may prune it: ${messageOf(error)}`);
     }
@@ -562,7 +581,9 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
       case "install?": {
         const { id, version, staged } = message;
         void installer.install(version, staged).then((answer) => {
-          if (answer?.type === "installed") keepStaged(version);
+          if (answer?.type === "installed") {
+            keepStaged(version);
+          }
           if (answer !== undefined) tell(from, { ...answer, id });
         });
         return;

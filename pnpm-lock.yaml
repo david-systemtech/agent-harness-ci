@@ -122,6 +122,9 @@ importers:
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@agent-harness/filesystem':
+        specifier: workspace:*
+        version: link:../filesystem
       '@agent-harness/gui':
         specifier: workspace:*
         version: link:../gui

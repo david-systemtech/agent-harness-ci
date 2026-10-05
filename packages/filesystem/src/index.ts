@@ -46,3 +46,5 @@ export const removeTreeSync = (path: string, remove: (path: string, options: { r
   makeWritableSync(path);
   remove(path, { recursive: true, force: true });
 };
+
+export { requireCopyRoom, SNAPSHOT_MARGIN_BYTES, snapshotNeeds, treeCopyBytes } from "./disk.js";
