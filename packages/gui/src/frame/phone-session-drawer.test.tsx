@@ -1,5 +1,5 @@
 // @vitest-environment jsdom-on-node
-import { act, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { renderApp } from "../../test/harness.js";
@@ -22,7 +22,9 @@ it("keeps the session drawer inside the shared web bounds and restores focus wit
   await gallery.ready;
   const user = userEvent.setup();
   const trigger = screen.getByRole("button", { name: "Show sessions" });
-  await user.click(trigger);
+  screen.getByRole("textbox", { name: "Message" }).focus();
+  // Touch browsers can activate a button without focusing it first.
+  fireEvent.click(trigger);
   const drawer = screen.getByRole("dialog", { name: "Sessions" });
   const frame = root.querySelector<HTMLElement>("[data-web-client]")!;
   expect(drawer.closest("[data-web-client]")).toBe(frame);
