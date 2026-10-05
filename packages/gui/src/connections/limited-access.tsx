@@ -28,7 +28,7 @@ export const AccessUnavailable = ({ environmentId, answer, children }: { readonl
   const [details, showDetails] = useState(false);
   const view = views.find(candidate => candidate.environmentId === environmentId);
   if (shell !== undefined || answer.status !== "absent" || answer.reason !== "scope" || !view) return children;
-  return <div data-access-unavailable data-phone-grant-guidance className="flex flex-col items-start gap-2 text-sm text-ink-muted">
+  return <div data-access-unavailable data-phone-grant-guidance className="flex min-w-0 max-w-full flex-col items-start gap-2 text-sm text-ink-muted">
     <p>{!view.scopes.includes("terminal") && !view.scopes.includes("admin") ? "Files, changes, terminals and Settings changes are unavailable with this pairing." : !view.scopes.includes("terminal") ? "Files, changes and terminals are unavailable with this pairing." : "Settings changes and provider sign-in are unavailable with this pairing."}</p>
     <Button onClick={() => showDetails(true)}>Give this phone full access</Button>
     <AccessDetails view={view} open={details} onOpenChange={showDetails} pairingFirst />

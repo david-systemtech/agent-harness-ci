@@ -3,7 +3,7 @@ import { script, route, arrangeWeb } from "./phone-frame-scene.js";
 
 /** The actual browser grant, its compact disclosure and deliberate replacement flow. */
 export const phoneLimitedAccessScene = (step: "strip" | "details" | "pair"): SceneModule => ({
-  platform: "web", script, route, arrangeWeb,
+  platform: "web", script: script!, route, arrangeWeb: arrangeWeb!,
   activate: () => {
     let detailsOpened = false, pairingOpened = false;
     const advance = () => {
@@ -20,10 +20,10 @@ export const phoneLimitedAccessScene = (step: "strip" | "details" | "pair"): Sce
   },
   readySelector: step === "strip" ? '[data-limited-access]' : step === "details" ? '[data-access-sheet] ul' : '[data-access-sheet] [aria-label="Pair by link"]',
   geometry: ({ width }) => step === "strip" ? [
-    { selector: '[data-limited-access]', maxWidth: width, height: 45, contentFits: true },
+    { selector: '[data-limited-access]', width, height: 45, contentFits: true },
     { selector: '[data-limited-access] button', minimumWidth: 44, minimumHeight: 44 },
   ] : [
-    { selector: '[data-access-sheet]', maxWidth: width - 32 },
+    { selector: '[data-access-sheet]', visibleWithin: 'body' },
     { selector: '[data-access-sheet] p, [data-access-sheet] li', contentFits: true },
     { selector: '[data-access-sheet] button', minimumHeight: 44 },
   ],

@@ -3,7 +3,7 @@ import { AccessUnavailable } from "../connections/limited-access.js";
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button, Tooltip } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { createPaneTerminal, type PaneTerminal, type PaneView } from "./pane-terminal.js";
 import { useTerminalPanes } from "./terminal-panes.js";
 import { useTerminalTheme } from "./terminal-theme.js";
@@ -30,6 +30,7 @@ const NOTHING_YET: PaneView = { command: null, ended: null, line: null };
  */
 export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPaneProps) => {
   const runtime = useRuntime();
+  const shell = useShell();
   const panes = useTerminalPanes();
   const [, changeColumn] = useSideColumn({ environmentId, sessionId });
   const theme = useTerminalTheme();
@@ -81,6 +82,7 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
 
   const renew = view.command === null && view.ended !== null;
   const authority = runtime.capability(environmentId, "terminals.write");
+  const limited = shell === undefined && authority.status === "absent" && authority.reason === "scope";
   const draftAuthority = runtime.capability(environmentId, "sessions.setDraft");
   const unavailable = authority.status === "absent" || view.ended !== null || view.command !== null;
   return (
@@ -125,7 +127,7 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
           }}
           onPointerCancel={() => { touch.current = null; }} />}
       </div>
-      {phone && <div aria-label="Terminal keys" role="group" className="flex shrink-0 flex-wrap gap-1 border-t border-hairline bg-panel p-2">
+      {phone && !limited && <div aria-label="Terminal keys" role="group" className="flex shrink-0 flex-wrap gap-1 border-t border-hairline bg-panel p-2">
         <Tooltip content="Ctrl · then type a key">
           <Button className="min-h-11 min-w-11" disabled={unavailable} aria-pressed={control} onClick={() => terminal.current?.control("ctrl")}>Ctrl</Button>
         </Tooltip>
@@ -145,10 +147,10 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
           }}>Close terminal</Button>
         </Tooltip>
       </div>}
-      {phone && authority.status === "absent" && authority.reason === "scope" && <p className="shrink-0 px-3 py-2 text-sm text-ink-muted">
+      {phone && shell !== undefined && authority.status === "absent" && authority.reason === "scope" && <p className="shrink-0 px-3 py-2 text-sm text-ink-muted">
         To use this environment terminal, make a Custom pairing code with terminal scope on a trusted client, then deliberately pair again. The Phone preset does not grant terminal access.
       </p>}
-      {(phone || selection.length > 0) && <div className="shrink-0 border-t border-hairline bg-panel p-2">
+      {!limited && (phone || selection.length > 0) && <div className="shrink-0 border-t border-hairline bg-panel p-2">
         <Tooltip content="Add selected output to the session draft · Enter / Space">
           <Button data-terminal-selection-action className="min-h-11 whitespace-normal" disabled={selection.length === 0 || draftAuthority.status === "absent"} title={draftAuthority.status === "absent" ? draftAuthority.message : undefined} onPointerDown={event => event.preventDefault()} onClick={() => {
             const held = runtime.projections.session(environmentId, sessionId).read().draft ?? "";

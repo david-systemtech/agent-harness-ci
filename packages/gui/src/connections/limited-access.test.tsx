@@ -14,7 +14,7 @@ const opened = async () => {
   vi.stubGlobal("innerWidth", 320);
   const media = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : media(query));
-  const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Receipts" }] }] }, { settingsRow: "accounts.accounts" });
+  const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", capabilities: ["workspaceChecks"], scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Receipts" }] }] }, { settingsRow: "accounts.accounts" });
   const environment = world.world.environment("desk");
   // HTTPS terminates at the scripted transport boundary, as it does at a reverse proxy.
   const fetch: HttpFetch = (url, request) => world.world.fetch(url.replace(/^https:/, "http:"), request);
@@ -31,6 +31,7 @@ it("dismisses the short disclosure for this pairing across a remount", async () 
   const app = await opened();
   const note = screen.getByRole("note", { name: "Limited access" });
   expect(note.textContent).toBe("Limited access · Details");
+  expect(screen.queryByText(/without the terminal scope/)).toBeNull();
   await app.user.click(within(note).getByRole("button", { name: "Dismiss limited access" }));
   expect(screen.queryByRole("note", { name: "Limited access" })).toBeNull();
   await app.remount();
@@ -55,7 +56,7 @@ it("explains the actual grant in plain words and replaces it without changing th
   const before = app.environment.wire.opened();
   await app.user.click(within(pairing).getByRole("button", { name: "Pair" }));
   await waitFor(() => expect(app.environment.wire.opened()).toBeGreaterThan(before));
-  await act(async () => { await app.environment.accept({ scopes: SCOPES, ceiling: "bypassPermissions" }); });
+  await act(async () => { await app.environment.accept({ scopes: [...SCOPES], ceiling: "bypassPermissions" }); });
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Give this phone full access" })).toBeNull());
   expect(screen.queryByRole("note", { name: "Limited access" })).toBeNull();
   expect(focusedPane(app.presentation.values.read().paneLayout).session).toEqual(app.session);
