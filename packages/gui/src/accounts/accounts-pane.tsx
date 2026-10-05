@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import { AccessUnavailable } from "../connections/limited-access.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountIdentity, type AccountRecord } from "@agent-harness/contracts";
@@ -112,9 +113,9 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the accounts…" : `The accounts could not be read: ${listed.error.message}`}</p>
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No account is held here.</p>
-          : accounts.map((account) => (
+          : <SettingsCardGrid>{accounts.map((account) => (
               <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signing === undefined && signIn({ account })} remove={() => remove(account)} say={say} />
-            ))}
+            ))}</SettingsCardGrid>}
       {removing !== undefined && <ConfirmRemove environmentId={environmentId} environment={nameOf(view)} account={removing} close={() => remove(undefined)} say={say} />}
     </>
   );

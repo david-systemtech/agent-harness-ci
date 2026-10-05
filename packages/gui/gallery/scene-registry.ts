@@ -16,6 +16,8 @@ export interface SceneGeometry {
   readonly visibleWithin?: string;
   /** Require wrapping content to fit its own box, not only the enclosing control. */
   readonly contentFits?: boolean;
+  /** The control must receive a pointer at its centre, including through clipping ancestors. */
+  readonly hitTestable?: boolean;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;

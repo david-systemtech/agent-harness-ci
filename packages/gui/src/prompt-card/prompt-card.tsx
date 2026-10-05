@@ -3,7 +3,7 @@ import { choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer
 import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { ChevronDown, ChevronUp, ClipboardList, MessageCircleQuestionMark, ShieldAlert, StickyNote } from "lucide-react";
 import { Kbd } from "../ui/kbd.js";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createContext, use, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useEnvironmentCountdown } from "../environment-countdown.js";
 import { useInFocusedPane } from "../grid/grid.js";
 import { KeyContext, useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
@@ -29,6 +29,15 @@ interface CardFields {
 }
 
 const NO_FIELDS: CardFields = { note: "", picks: {} };
+
+type HeldFields = readonly [ReadonlyMap<string, CardFields>, Dispatch<SetStateAction<ReadonlyMap<string, CardFields>>>];
+const FieldsContext = createContext<HeldFields | null>(null);
+
+/** A conversation dialog may close without discarding answers still being composed. */
+export const PromptFieldsProvider = ({ children }: { readonly children: ReactNode }) => {
+  const fields = useState<ReadonlyMap<string, CardFields>>(new Map());
+  return <FieldsContext value={fields}>{children}</FieldsContext>;
+};
 
 /**
  * The parked prompt's card (docs/specs/gui.md, "A session pane"; story 10;
@@ -64,7 +73,8 @@ export const PromptCard = ({ environmentId, sessionId }: PromptCardProps) => {
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const parked = projection.parkedPrompts;
   const answering = useAnswering(environmentId, sessionId, parked);
-  const [filled, setFilled] = useState<ReadonlyMap<string, CardFields>>(new Map());
+  const localFields = useState<ReadonlyMap<string, CardFields>>(new Map());
+  const [filled, setFilled] = use(FieldsContext) ?? localFields;
   // What was filled in goes with its prompt once it is no longer parked.
   useEffect(() => {
     const still = new Set(parked.map((prompt) => prompt.promptId));
@@ -163,9 +173,26 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   const deny = () => (prompt.kind === "question" ? settle({ kind: "answer", answer: { decision: "deny", ...noteOf(fields.note) } }) : choose(rows[0]));
   const dim = capability.status === "absent";
   const permission = prompt.kind === "permission";
-  const pinnedDecision = permission || prompt.kind === "plan";
+  const question = prompt.kind === "question";
+  const pinnedDecision = permission || prompt.kind === "plan" || question;
   const shownLine = line ?? (dim ? capability.message : undefined);
   const facts = [place, ttl].filter((fact) => fact !== undefined).join(" · ");
+
+  const note = <>
+    <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
+    <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
+      <Textarea
+        id={noteId}
+        rows={2}
+        className={classes("min-h-12", (prompt.kind === "plan" || question) && "max-h-24 resize-none overflow-y-auto")}
+        aria-label="Note"
+        placeholder="A note for the agent, sent with the answer: why, or what to do after"
+        maxLength={10_000}
+        value={fields.note}
+        onChange={(event) => setFields({ ...fields, note: event.target.value })}
+      />
+    </PromptTooltip>
+  </>;
 
   const request = <PromptBody prompt={prompt} fields={fields} setFields={setFields} />;
 
@@ -179,7 +206,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
         aria-label="Parked prompt"
         tabIndex={-1}
         className={classes(
-          "mx-3 flex max-h-[60vh] shrink-0 flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
+          "mx-3 flex min-h-0 max-h-[60dvh] shrink flex-col gap-2 rounded-lg border px-3 py-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-beam/50",
           pinnedDecision ? "overflow-hidden" : "overflow-y-auto",
           dim ? "border-line bg-panel text-ink-muted" : classes("text-ink", EDGES[prompt.kind]),
         )}
@@ -200,21 +227,9 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
         </header>
         <div id={bodyId} hidden={collapsed} className={classes(pinnedDecision && !collapsed && "flex min-h-0 flex-col")}>
           <div className={classes("flex flex-col gap-2", pinnedDecision && "min-h-0")}>
-            {permission ? <div role="region" aria-label="Permission request" className="flex min-h-0 flex-col gap-2">{request}</div> : request}
-            <div role={permission ? "group" : undefined} aria-label={permission ? "Permission decision" : undefined} className="flex shrink-0 flex-col gap-2">
-              <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
-              <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
-                <Textarea
-                  id={noteId}
-                  rows={2}
-                  className={classes("min-h-12", prompt.kind === "plan" && "max-h-24 resize-none overflow-y-auto")}
-                  aria-label="Note"
-                  placeholder="A note for the agent, sent with the answer: why, or what to do after"
-                  maxLength={10_000}
-                  value={fields.note}
-                  onChange={(event) => setFields({ ...fields, note: event.target.value })}
-                />
-              </PromptTooltip>
+            {permission ? <div role="region" aria-label="Permission request" className="flex min-h-0 flex-col gap-2">{request}</div> : question ? <div role="region" aria-label="Questions" className="flex min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain"><div className="shrink-0">{request}</div><div className="flex shrink-0 flex-col gap-2">{note}</div></div> : request}
+            <div role={permission || question ? "group" : undefined} aria-label={permission ? "Permission decision" : question ? "Question decision" : undefined} data-prompt-decision className="flex shrink-0 flex-col gap-2">
+              {!question && note}
               {shownLine !== undefined && (
                 <p role="status" className={line === undefined ? "text-xs text-ink-muted" : "text-xs text-signal"}>
                   {shownLine}

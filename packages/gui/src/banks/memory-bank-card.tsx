@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import { AccessUnavailable } from "../connections/limited-access.js";
 import { adminCall, oneLine, uuidv4, uuidv7 } from "@agent-harness/client-runtime";
 import type { BankRecord, MemoryPromoteResult, ParamsOf } from "@agent-harness/contracts";
@@ -117,7 +118,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   return <>
     <p className="max-w-[56ch] text-sm text-ink-muted">Facts your agents keep</p>
     {(read.result === null || read.result.banks.length === 0) && <StepStatus environmentId={environmentId} step={step} />}
-    <div data-bank-content className="flex w-full max-w-[620px] flex-col gap-3.5">
+    <div data-bank-content className="flex min-w-0 w-full max-w-[620px] flex-col gap-3.5">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-2xs text-ink-faint">Shared notebooks for your accounts and projects.</p>
       <BankButton label="Sync all" icon={RefreshCw} disabled={busy} reason={syncCapability.status === "absent" ? oneLine(syncCapability.message) : read.result?.banks.some((bank) => bank.enabled) ? undefined : "No enabled banks to sync."} onClick={() => void sync()} />
@@ -127,7 +128,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
     {read.loading && read.result === null && <p role="status" className="text-xs text-ink-muted">Reading banks…</p>}
     {line !== undefined && removing === undefined && <p role="alert">{line}</p>}
     {read.error !== null && <p role="alert">{oneLine(read.error.message)}</p>}
-    {read.result?.banks.map((bank) => {
+    <SettingsCardGrid>{read.result?.banks.map((bank) => {
       const subjectStep = stepForBank(step, bank.id);
       const update = updates[`${environmentId}:${bank.id}`];
       const landing = bank.validator?.needsUpdate === false ? bank.status.landing : update ?? bank.status.landing;
@@ -177,7 +178,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
         {bank.status.manifest.state === "awaiting-review" && landing.state !== "awaiting-review" && <Tooltip content="Awaiting owner review · Tab, Enter or Space"><span className="inline-flex"><ExternalLink look="inline-flex items-center gap-1.5 text-beam-text underline" url={bank.status.manifest.pullRequest}><GitPullRequest aria-hidden="true" className="size-4" />Awaiting owner review</ExternalLink></span></Tooltip>}
         {bank.enabled && bank.role === "read-write" ? <MintedSessionCard environmentId={environmentId} step={subjectStep} subject={bank.id} artefact={{ kind: "folder", path: bank.checkout }} startLabel="Describe this bank" {...((landing.state === "awaiting-review" || bank.status.manifest.state === "awaiting-review") && { outcome: "landed and awaiting review" })} /> : <p className="text-2xs text-ink-faint">{bank.enabled ? "This bank is read only." : "Turn on this bank to use it in runs."}</p>}
       </section>;
-    })}
+    })}</SettingsCardGrid>
     <BankChoices value={mode} choose={(next) => { say(undefined); setMode(next); }} />
     {command.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={command}><p>Read-only: {oneLine(command.message)}</p></AccessUnavailable>}
     {forges.error !== null && <p role="alert">{oneLine(forges.error.message)}</p>}

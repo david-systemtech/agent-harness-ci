@@ -1,7 +1,7 @@
 import { uuidv4 } from "@agent-harness/client-runtime";
 import { CATALOGUE, type OwnedInstructionRow } from "@agent-harness/contracts";
 import { useState } from "react";
-import { Part } from "../settings/part.js";
+import { Part, SettingsCardGrid } from "../settings/part.js";
 import { Fold } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { InstructionButton } from "./instruction-button.js";
@@ -35,7 +35,7 @@ export const SuggestedInstructions = ({
                 Write a custom instruction
               </InstructionButton>
             ))}
-          {CATALOGUE.instructions.entries
+          <SettingsCardGrid>{CATALOGUE.instructions.entries
             .filter((entry) => entry.group === group.id && !dismissed.includes(entry.id))
             .map((entry) => {
               const ticked = rows.some((row) => row.origin?.catalogueId === entry.id);
@@ -64,7 +64,7 @@ export const SuggestedInstructions = ({
                   </InstructionButton>
                 </div>
               );
-            })}
+            })}</SettingsCardGrid>
         </Part>
       ))}
       <Fold summary="Dismissed" open={expanded} onOpenChange={expand}>

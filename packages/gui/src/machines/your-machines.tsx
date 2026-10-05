@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import { LOCAL_PLACEHOLDER_ID, type EnvironmentView, type SecretProtection } from "@agent-harness/client-runtime";
 import { useEffect, useState } from "react";
 import { useObservable, useRuntime, useShell } from "../window-context.js";
@@ -56,7 +57,7 @@ export const YourMachines = () => {
   return (
     <div className="flex min-w-0 flex-col gap-3.5">
       {forgotten !== undefined && <p className="text-sm text-ink">{forgotten}</p>}
-      {environments.map((view) => (
+      <SettingsCardGrid>{environments.map((view) => (
         <MachineCard
           key={view.environmentId}
           view={view}
@@ -65,7 +66,7 @@ export const YourMachines = () => {
           forgotten={setForgotten}
           offer={added.includes(view.environmentId) ? <SetUpOffer view={view} decline={() => decline(view.environmentId)} /> : undefined}
         />
-      ))}
+      ))}</SettingsCardGrid>
       <AddAMachine added={(environmentId) => setAdded((now) => (now.includes(environmentId) ? now : [...now, environmentId]))} />
     </div>
   );
