@@ -77,12 +77,12 @@ describe("/account", () => {
     env.setUsage([reading("account-1", MILO, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
     await command(app, "/account");
     await app.waitFor("Accounts on desk");
-    await app.waitFor("5hr 42% · Week 10%");
+    await app.waitFor("5-hour 42% · Weekly 10%");
     // Each account's row, and its plan reading on the line under it.
     const rows = app.rows();
     const work = rows.findIndex((row) => row.includes("› work"));
     expect(rows[work]).toMatch(/› work\s+milo@work\.test\s+signed in\s+this session/);
-    expect(rows[work + 1]).toContain("5hr 42% · Week 10%");
+    expect(rows[work + 1]).toContain("5-hour 42% · Weekly 10%");
     const personal = rows.findIndex((row) => row.includes("personal"));
     expect(rows[personal]).toMatch(/personal\s+milo@home\.test\s+sign-in expired/);
     expect(rows[personal + 1]).toContain("Not signed in.");
@@ -376,6 +376,17 @@ describe("/containment", () => {
 });
 
 describe("/usage", () => {
+  it("leaves unknown limits out of the status meter and names them once in usage details", async () => {
+    const { app, env } = await launch();
+    env.setUsage([reading("account-1", MILO, [window("five_hour", 0.42), window("iguana_necktie", 0.37)])]);
+    await app.waitFor("5-hour");
+    expect(app.frame()).not.toMatch(/iguana[_ ]necktie|Other limit|37%/);
+    await command(app, "/usage");
+    await app.waitFor(/Other limit\s+█*░* ?37%\s+resets/);
+    expect(app.frame().match(/Other limit/g)).toHaveLength(1);
+    expect(app.frame()).not.toMatch(/iguana[_ ]necktie/);
+  });
+
   it("shows the plan windows per account identity, pooled across environments, and why an account has none", async () => {
     const { app, env } = await launch([desk(), { name: "laptop", reach: "paired", accounts: [{ id: "account-9", label: "work", identity: MILO }] }]);
     env.setUsage([reading("account-1", MILO, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
@@ -385,7 +396,7 @@ describe("/usage", () => {
     await app.waitFor("Plan usage");
     await app.waitFor("milo@work.test · work on desk, work on laptop");
     await app.waitFor(/5-hour\s+█*░* ?61% out\s+resets \d\d:\d\d/);
-    expect(app.frame()).toMatch(/Week\s+█*░* ?10%/);
+    expect(app.frame()).toMatch(/Weekly\s+█*░* ?10%/);
     expect(app.frame()).toContain("milo@home.test · personal on desk");
     expect(app.frame()).toContain("scroll");
     expect(app.frame()).not.toContain("runs the action");
@@ -401,7 +412,7 @@ describe("/handoff", () => {
     await command(app, "/handoff");
     await app.waitFor("Hand off Receipts on desk");
     await app.waitFor("personal has the most room.");
-    await app.waitFor("5hr 12%");
+    await app.waitFor("5-hour 12%");
     // The cursor starts on the account the environment recommends.
     expect(app.rows().find((row) => row.includes("personal"))).toContain("› personal");
     await app.waitFor("hand-off between environments comes in milestone 2 (ADR 0005)");

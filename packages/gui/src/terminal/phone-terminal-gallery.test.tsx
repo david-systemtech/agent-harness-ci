@@ -18,11 +18,16 @@ it.each(["phone-terminal", "phone-terminal-no-authority"])("draws %s on the brow
   expect(getComputedStyle(screen.getByLabelText("Terminal sheet")).maxWidth).toBe("480px");
   expect(gallery.world.shell).toBeUndefined();
   expect(gallery.world.platform.client.kind).toBe("web");
-  await waitFor(() => expect(screen.getByRole("button", { name: "Close terminal" })).toBeDefined());
   if (name.endsWith("no-authority")) {
-    expect(screen.getByText(/Custom pairing code with terminal scope/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Give this phone full access" })).toBeDefined();
+    expect(screen.queryByRole("group", { name: "Terminal keys" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add to session" })).toBeNull();
+    expect(screen.queryByText(/Custom pairing code with terminal scope/)).toBeNull();
     expect(gallery.world.world.environment("desk").requests("terminals.open")).toEqual([]);
-  } else expect(screen.getByLabelText("Terminal screen").textContent).toContain("40 checks passed");
+  } else {
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close terminal" })).toBeDefined());
+    expect(screen.getByLabelText("Terminal screen").textContent).toContain("40 checks passed");
+  }
 });
 
 

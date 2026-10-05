@@ -1,4 +1,5 @@
 import { SettingsCardGrid } from "../settings/part.js";
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { adminCall, oneLine, uuidv4, uuidv7 } from "@agent-harness/client-runtime";
 import type { BankRecord, MemoryPromoteResult, ParamsOf } from "@agent-harness/contracts";
 import { Brain, GitPullRequest, Power, RefreshCw, Trash2, Upload, X } from "lucide-react";
@@ -178,7 +179,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
       </section>;
     })}</SettingsCardGrid>
     <BankChoices value={mode} choose={(next) => { say(undefined); setMode(next); }} />
-    {command.status === "absent" && <p>Read-only: {oneLine(command.message)}</p>}
+    {command.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={command}><p>Read-only: {oneLine(command.message)}</p></AccessUnavailable>}
     {forges.error !== null && <p role="alert">{oneLine(forges.error.message)}</p>}
     <div data-bank-form className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-4">
     {read.result !== null && (mode === "personal"

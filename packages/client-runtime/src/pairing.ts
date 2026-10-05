@@ -25,6 +25,8 @@ export type PairingInput = { readonly link: string } | { readonly address: strin
 /** Pair again in place: exchange the code for the saved connection to this environment, which must be the one that answers. */
 export interface PairingOptions {
   readonly rePair?: string;
+  /** Accept only a verified grant with every scope and the highest run ceiling, before replacing a saved pairing. */
+  readonly fullAccess?: boolean;
 }
 
 /**

@@ -119,6 +119,7 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
 
   return {
     window: {
+      zoom: (action) => tell("window.zoom", action),
       minimize: () => tell("window.minimize"),
       toggleMaximize: () => tell("window.toggleMaximize"),
       close: () => tell("window.close"),

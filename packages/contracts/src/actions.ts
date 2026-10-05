@@ -421,6 +421,9 @@ export const ACTION_GROUPS = [
     guiOnly("app.find", "Find in the conversation", inGui(["Mod+F"])),
     guiOnly("app.session.new", "Start a new session in the focused pane", inGui(["Mod+N"])),
     guiOnly("app.session.newInPane", "Start a new session in a new pane", inGui(["Mod+Shift+N"])),
+    guiOnly("app.zoom.in", "Zoom in", inGui(["Mod++", "Mod+=", "Mod+Shift+="])),
+    guiOnly("app.zoom.out", "Zoom out", inGui(["Mod+-"])),
+    guiOnly("app.zoom.reset", "Actual size", inGui(["Mod+0"])),
     guiOnly("app.sidebar.toggle", "Show or hide the sidebar", inGui(["Mod+B"])),
     guiOnly("app.terminal.toggle", "Show or hide the terminal", inGui(["Mod+J"])),
     guiOnly("app.browser.unpair", "Choose a paired Chrome to unpair", inGui([])),
@@ -680,6 +683,10 @@ export type KeyActionId = Exclude<ActionId, CommandActionId>;
 
 /** An entry of the list, its id one of the list's. */
 export type ListedAction = Action & { readonly id: ActionId };
+
+/** The desktop shell owns these fixed keys; a web client leaves them to its browser. */
+export const DESKTOP_ZOOM_ACTIONS = ["app.zoom.in", "app.zoom.out", "app.zoom.reset"] as const satisfies readonly KeyActionId[];
+export const isDesktopZoomAction = (id: string): boolean => DESKTOP_ZOOM_ACTIONS.some((action) => action === id);
 
 /** The shared action list, in the help overlay's order. */
 export const ACTIONS: readonly ListedAction[] = ACTION_GROUPS.flatMap((g) => g.actions as readonly Action[]) as readonly ListedAction[];

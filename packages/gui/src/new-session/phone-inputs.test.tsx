@@ -14,7 +14,7 @@ const open = async (receipts: Record<string, ScriptedReceipt> = {}, secondEnviro
   const media = vi.spyOn(window, "matchMedia").mockImplementation(query => Object.assign(original(query), { matches: query === "(width < 640px)" }));
   onTestFinished(() => media.mockRestore());
   const clock = manualClock();
-  const desk: Script["environments"][number] = { name: "desk", reach: "unpaired", receipts, scopes: ["read", "sessions:write", "runs:drive"], accounts: [{ id: "account-1", label: "Work", identity: { provider: "claude", email: "dev@work.test", organisation: null } }], models: [{ accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] }], sessions: [{ title: "Notes", workspace: { kind: "directory", path: "/work/notes" } }] };
+  const desk: Script["environments"][number] = { name: "desk", reach: "unpaired", receipts, scopes: ["read", "sessions:write", "runs:drive"], accounts: [{ id: "account-1", label: "Work", identity: { provider: "claude", email: "dev@work.test", organisation: null } }], models: [{ accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: ["low", "high"], label: "Opus 5" }] }], sessions: [{ title: "Notes", workspace: { kind: "directory", path: "/work/notes" } }] };
   const world = scriptedWorld(clock, { environments: [desk, ...(secondEnvironment ? [{ ...desk, name: "backup", receipts: {} }] : [])] });
   const view = Object.assign(Object.create(window) as Window & typeof globalThis, { indexedDB: new IDBFactory() });
   const platform = { ...browserPlatform(view, "0.0.0"), clock, fetch: world.fetch, webSocket: world.webSocket };
@@ -26,7 +26,7 @@ const open = async (receipts: Record<string, ScriptedReceipt> = {}, secondEnviro
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link: env.wire.link } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); history.replaceState(null, "", "/"); });
   const user = userEvent.setup();
-  await screen.findByText(/Scopes: read, sessions:write, runs:drive/);
+  await screen.findByRole("note", { name: "Limited access" });
   await user.click(screen.getByRole("button", { name: "Show sessions" }));
   await within(screen.getByRole("dialog", { name: "Sessions" })).findByRole("button", { name: /desk Notes/ });
   await user.click(screen.getByRole("button", { name: "Close sessions" }));
@@ -180,4 +180,31 @@ it("observes pending creation and its refusal after pairing remounts the editor"
     expect.objectContaining({ text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }),
     expect.objectContaining({ text: "Read this note", attachments: [{ kind: "image", name: "note.png", mediaType: "image/png", data: "iVBORw==" }] }),
   ]);
+});
+
+it("chooses account, model and effort in separate phone steps and sends the chosen effort", async () => {
+  const { user, surface, env, box } = await open();
+  const trigger = within(surface).getByRole("button", { name: /^Account:/ });
+  await user.pointer({ target: trigger, keys: "[TouchA>]" });
+  expect(screen.queryByRole("dialog", { name: "Run choices" })).toBeNull();
+  await user.pointer({ target: trigger, keys: "[/TouchA]" });
+  const sheet = await screen.findByRole("dialog", { name: "Run choices" });
+  expect(sheet.hasAttribute("data-run-sheet")).toBe(true);
+  expect(within(sheet).getByRole("group", { name: "Accounts" })).toBeDefined();
+  expect(within(sheet).queryByRole("group", { name: "Models" })).toBeNull();
+  expect(within(sheet).queryByRole("group", { name: "Effort" })).toBeNull();
+  expect(within(sheet).queryByText("desk")).toBeNull();
+  await user.click(within(sheet).getByRole("menuitem", { name: /^Work/ }));
+  expect(within(sheet).getByRole("group", { name: "Models" })).toBeDefined();
+  expect(within(sheet).queryByRole("group", { name: "Accounts" })).toBeNull();
+  await user.click(within(sheet).getByRole("menuitem", { name: /^Opus 5/ }));
+  expect(within(sheet).getByRole("group", { name: "Effort" })).toBeDefined();
+  expect(within(sheet).queryByRole("group", { name: "Models" })).toBeNull();
+  await user.click(within(sheet).getByRole("button", { name: "Back: Models" }));
+  await user.click(within(sheet).getByRole("button", { name: "Next: Effort" }));
+  await user.click(within(sheet).getByRole("menuitem", { name: "high" }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  await user.type(box, "Check the receipts");
+  await user.click(within(surface).getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(env.requests("runs.start")[0]?.params).toEqual(expect.objectContaining({ model: "claude-opus-5", effort: "high" })));
 });

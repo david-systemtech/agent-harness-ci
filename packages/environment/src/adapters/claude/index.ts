@@ -235,6 +235,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
 
   const usage = createPlanUsageReader({
     clock,
+    diagnostic,
     probe: async (account) => {
       const answered = await withControlQuery(control(account, tmpdir()), async (query) => {
         const [info, outcome] = await Promise.all([query.accountInfo().then((found) => found, () => null), readUsageMethod(query)]);

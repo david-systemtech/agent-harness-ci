@@ -1,4 +1,5 @@
 import { SettingsCardGrid } from "../settings/part.js";
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { Plus } from "lucide-react";
 import { ActionButton as Button, useInlineAdd } from "./action-button.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
@@ -62,7 +63,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
           {reachWords(runtime, view)}: {connections === null ? "this window has read none of its key managers." : "its key managers as this window last read them, read-only."}
         </p>
       )}
-      {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       {!adding && (
         <div className="flex flex-wrap gap-2">
           <Button ref={trigger} icon={Plus} label="Add a key manager" variant="default" disabled={!writable} onClick={() => setAdding(true)}>

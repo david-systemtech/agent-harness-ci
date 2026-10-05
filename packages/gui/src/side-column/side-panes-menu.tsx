@@ -1,8 +1,9 @@
+import { useOpenPairing } from "../connections/pairing.js";
 import { BookOpen, PanelRightClose, PanelRightOpen, PanelsTopLeft, FileDiff, Files, ListTodo } from "lucide-react";
 import { focusedPane } from "../grid/layout.js";
 import type { PaneSession } from "../presentation.js";
 import { MenuItem, Tooltip } from "../ui/index.js";
-import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
 import { hideColumn, showPane, useSideColumn } from "./column.js";
 import { PANES, paneCapability } from "./panes.js";
 
@@ -21,15 +22,18 @@ export const SidePaneMenuItems = () => {
 
 const ItemsFor = ({ session }: { readonly session: PaneSession }) => {
   const runtime = useRuntime();
+  const shell = useShell();
+  const openPairing = useOpenPairing();
   useObservable(runtime.projections.environments);
   const [column, change] = useSideColumn(session);
   return <>
     {ITEMS.map(({ pane, Icon }) => {
       const capability = paneCapability(runtime, session.environmentId, pane);
-      const absent = capability.status === "absent" ? capability.message : undefined;
+      const limited = shell === undefined && capability.status === "absent" && capability.reason === "scope";
+      const absent = limited ? "Unavailable · Give this phone full access" : capability.status === "absent" ? capability.message : undefined;
       const label = PANES[pane].label;
       return <Tooltip key={pane} content={[label, absent].filter(Boolean).join(" · ")}>
-        <MenuItem aria-label={label} disabled={absent !== undefined} onSelect={() => change((held) => showPane(held, pane))}>
+        <MenuItem aria-label={label} disabled={absent !== undefined && !limited} onSelect={() => limited ? openPairing({ rePair: session.environmentId, fullAccess: true }) : change((held) => showPane(held, pane))}>
           <Icon aria-hidden="true" /><span>{label}{absent !== undefined && <span className="block text-xs text-ink-faint">{absent}</span>}</span>
         </MenuItem>
       </Tooltip>;
