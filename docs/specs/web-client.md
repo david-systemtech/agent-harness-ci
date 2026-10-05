@@ -136,6 +136,15 @@ preference; text inputs are at least 16 CSS px. Hit areas are at least 44px,
 including icon buttons; tap actions replace hover-only controls without
 squeezing labels. Support enlarged text at 20 and ordinary pinch zoom.
 
+Below 640px, the Mode chip opens a mode-only bottom sheet bounded by the
+visual viewport, including keyboard height. Each 44px-or-larger row wraps its
+label and description, marks the current selection, and disables modes above
+the connection ceiling with its existing reason. Close stays visible while
+only the choices scroll; focus is trapped and restored. An allowed selection
+sends the existing mode command once and closes only on success. A failure
+stays visible with retry guidance and retains the current value. Dismissal
+keeps the draft, session and conversation scroll; the desktop menu remains.
+
 Composer and status stay in the bottom flex region above the visible keyboard;
 the transcript owns conversation scrolling. One web-frame owner locks the phone
 web document/root and bounds the shell to VisualViewport height and offsetTop
