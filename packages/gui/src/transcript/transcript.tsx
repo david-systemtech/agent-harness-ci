@@ -111,10 +111,10 @@ const useFollow = () => {
   }, [toEnd]);
 
   useEffect(() => {
-    const frame = box.current?.closest("[data-web-client]");
-    if (!frame) return;
-    frame.addEventListener("phone-composer-fit", jump);
-    return () => frame.removeEventListener("phone-composer-fit", jump);
+    const pane = box.current?.closest("[data-dock-owner]");
+    if (!pane) return;
+    pane.addEventListener("phone-composer-fit", jump);
+    return () => pane.removeEventListener("phone-composer-fit", jump);
   }, [jump]);
 
   /** Stops following the end, as a scroll up does: David was taken somewhere to read. */

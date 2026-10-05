@@ -1,9 +1,9 @@
 // @vitest-environment jsdom-on-node
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 
-it("repins on composer focus and keyboard opening, follows scrollport resizing, then respects deliberate reading", async () => {
+it.each([false, true])("repins on focus/open, follows resizing and respects reading with layout resize %s", async (resizeLayout) => {
   const callbacks = new Map<Element, () => void>();
   vi.stubGlobal("ResizeObserver", class {
     constructor(private readonly callback: () => void) {}
@@ -33,7 +33,7 @@ it("repins on composer focus and keyboard opening, follows scrollport resizing, 
   expect(top).toBe(800);
   top = 300; fireEvent.scroll(transcript);
   visible = 100;
-  act(() => { viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  act(() => { if (resizeLayout) window.innerHeight = 480; viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
   expect(top).toBe(900);
   const env = gallery.world.world.environment("desk");
   const { runId } = env.startRun(env.sessionId(), "Check more receipts");
@@ -53,4 +53,51 @@ it("repins on composer focus and keyboard opening, follows scrollport resizing, 
   expect(top).toBe(300);
   fireEvent.click(screen.getByRole("button", { name: "Jump to the latest" }));
   expect(top).toBe(1650);
+  const message = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(message, { target: { value: "Keep this draft" } });
+  act(() => { window.innerHeight = 844; viewport.height = 844; viewport.offsetTop = 0; viewport.dispatchEvent(new Event("resize")); });
+  expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(false);
+  expect(document.activeElement).toBe(message);
+  expect(message).toHaveProperty("value", "Keep this draft");
+});
+
+it("keeps a hidden phone pane at its reading position when another composer focuses and opens the keyboard", async () => {
+  const viewport = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, scale: 1 });
+  vi.stubGlobal("visualViewport", viewport); vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 844);
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
+    ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined })
+    : original(query));
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "phone-frame-conversation");
+  onTestFinished(async () => { await gallery.close(); root.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  await gallery.ready;
+  const env = gallery.world.world.environment("desk");
+  act(() => gallery.world.presentation.set("paneLayout", { focused: "first", rows: [{ id: "row", height: 100, panes: [
+    { id: "first", width: 50, session: { environmentId: env.environmentId, sessionId: env.sessionId() } },
+    { id: "second", width: 50, session: { environmentId: env.environmentId, sessionId: env.sessionId(1) } },
+  ] }] }));
+  await waitFor(() => expect(screen.getAllByRole("region", { name: "Transcript", hidden: true })).toHaveLength(2));
+  const transcripts = screen.getAllByRole("region", { name: "Transcript", hidden: true });
+  const visible = screen.getByRole("region", { name: "Transcript" });
+  const hidden = transcripts.find(transcript => transcript !== visible)!;
+  const positions = new Map(transcripts.map(transcript => [transcript, 600]));
+  for (const transcript of transcripts) {
+    Object.defineProperties(transcript, {
+      scrollHeight: { configurable: true, get: () => 1000 },
+      clientHeight: { configurable: true, get: () => 400 },
+      scrollTop: { configurable: true, get: () => positions.get(transcript), set: (value: number) => { positions.set(transcript, Math.min(value, 600)); } },
+    });
+    fireEvent.scroll(transcript);
+    positions.set(transcript, 300); fireEvent.scroll(transcript);
+  }
+  expect(within(hidden.parentElement!).getByText("Jump to the latest")).toBeDefined();
+  act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+  expect(positions.get(visible)).toBe(600);
+  expect(positions.get(hidden)).toBe(300);
+  positions.set(visible, 300); fireEvent.scroll(visible);
+  act(() => { viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  expect(positions.get(visible)).toBe(600);
+  expect(positions.get(hidden)).toBe(300);
+  expect(within(hidden.parentElement!).getByText("Jump to the latest")).toBeDefined();
 });

@@ -31,16 +31,17 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       frame.style.top = `${viewport?.offsetTop ?? 0}px`;
       frame.style.setProperty("--phone-viewport-height", `${height}px`);
       const composing = event?.type === "focusin" && event.target instanceof Element && event.target.matches('[aria-label="Message"]');
+      // Some browsers shrink the layout viewport with the keyboard too.
       fullHeight = Math.max(fullHeight, window.innerHeight);
-      const keyboardNow = height < (viewport ? window.innerHeight : fullHeight);
+      const keyboardNow = height < fullHeight;
       const keyboardOpened = keyboardNow && !keyboardOpen && document.activeElement instanceof Element && document.activeElement.matches('[aria-label="Message"]');
       // Keep the reserve through button taps: releasing it on blur can move Send
       // between pointer-down and pointer-up when the dock is already scrolling.
       if (composing || keyboardOpened) frame.setAttribute("data-phone-composing", "");
       else if (keyboardOpen && !keyboardNow) frame.removeAttribute("data-phone-composing");
       keyboardOpen = keyboardNow;
-      // The transcript reads its new scrollport after the shell's bounds have changed.
-      if (composing || keyboardOpened) frame.dispatchEvent(new Event("phone-composer-fit"));
+      // Only this composer's transcript repins after the shell's bounds change.
+      if (composing || keyboardOpened) document.activeElement?.closest("[data-dock-owner]")?.dispatchEvent(new Event("phone-composer-fit"));
     };
     fit();
     window.addEventListener("resize", fit);

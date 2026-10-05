@@ -102,7 +102,7 @@ it("preserves an embedded browser frame's height rule while bounding the visual 
 });
 
 
-it("owns phone height and offset without scrolling ancestors, preserves zoom and restores the document", () => {
+it.each([false, true])("owns phone bounds, preserves zoom and restores the document with layout resize %s", (resizeLayout) => {
   const viewport = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, scale: 1 });
   vi.stubGlobal("visualViewport", viewport);
   vi.stubGlobal("innerWidth", 390);
@@ -111,7 +111,7 @@ it("owns phone height and offset without scrolling ancestors, preserves zoom and
   const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
   const app = render(<WebViewport narrow><textarea aria-label="Message" defaultValue="Keep this draft" /><button>Send</button></WebViewport>);
   const frame = app.container.firstElementChild as HTMLElement;
-  act(() => { viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+  act(() => { if (resizeLayout) window.innerHeight = 480; viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
   act(() => { viewport.offsetTop = 120; viewport.dispatchEvent(new Event("scroll")); screen.getByRole("textbox", { name: "Message" }).focus(); });
   expect(frame.style.height).toBe("480px");
   expect(frame.style.top).toBe("120px");
@@ -124,7 +124,7 @@ it("owns phone height and offset without scrolling ancestors, preserves zoom and
   viewport.scale = 2; viewport.height = 240;
   act(() => viewport.dispatchEvent(new Event("resize")));
   expect(frame.style.height).toBe("480px");
-  viewport.scale = 1; viewport.height = 844; viewport.offsetTop = 0;
+  viewport.scale = 1; viewport.height = 844; viewport.offsetTop = 0; window.innerHeight = 844;
   act(() => viewport.dispatchEvent(new Event("resize")));
   expect(frame.style.height).toBe("844px");
   expect(frame.hasAttribute("data-phone-composing")).toBe(false);
