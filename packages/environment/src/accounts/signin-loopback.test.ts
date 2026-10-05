@@ -2,11 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { AccountRecord } from "@agent-harness/contracts";
 import { afterEach, expect, it } from "vitest";
 import { WAIT_MS } from "../../test/wire-client.js";
 import { manualClock } from "../../test/clock.js";
 import { claudeVerificationUrl } from "../adapters/claude/signin.js";
+import { bundledExecutable } from "../adapters/claude/executable.js";
 import { openEventLog, type EventLog } from "../event-log/event-log.js";
 import type { CommandContext } from "../serve/methods.js";
 import { createSignInDirector, SIGN_IN_EXPIRY_MS } from "./signin-director.js";
@@ -53,7 +56,7 @@ const setup = async () => {
     argv: [fileURLToPath(new URL("../../test/loopback-signin.mjs", import.meta.url))],
     probeArgv: [fileURLToPath(new URL("../../test/loopback-signin.mjs", import.meta.url)), "--help"],
     runsSignIn: result => result.code === 0,
-    env: () => ({ SCRIPTED_TOKEN_URL: `http://127.0.0.1:${address.port}/token` }),
+    env: () => ({ SCRIPTED_TOKEN_URL: `http://127.0.0.1:${address.port}/token`, SCRIPTED_NATIVE_CLI: bundledExecutable() ?? "missing-native-client" }),
     verificationUrl: claudeVerificationUrl, fallback: () => ({ posix: "scripted-provider", powershell: "scripted-provider" }),
   } } })({ account: () => account, finished: async () => ({ signedIn: true, account }) });
   resources.push({ director, log, provider });
@@ -70,14 +73,18 @@ const setup = async () => {
 
 const callbackUrl = (callback: string, state = "state-for-tests") => `${callback}?code=code-for-tests&state=${state}`;
 
-it("completes through the provider's loopback without stdin, with a proof key checked and a second use refused", async () => {
+it("keeps the first native callback through the provider exchange and ignores replay without stdin", async () => {
   const s = await setup();
   expect(new URL(s.callback).hostname).toBe("127.0.0.1");
   expect(s.url.searchParams.get("code_challenge_method")).toBe("S256");
   const first = fetch(callbackUrl(s.callback));
+  void first.catch(() => undefined);
   await eventually(() => s.exchanges.length).toBe(1);
   expect(createHash("sha256").update(s.exchanges[0]?.code_verifier ?? "").digest("base64url")).toBe(s.url.searchParams.get("code_challenge"));
-  expect((await fetch(callbackUrl(s.callback))).status).toBe(400);
+  const replay = await fetch(callbackUrl(s.callback), { signal: AbortSignal.timeout(2000) });
+  expect(replay.status).toBe(200);
+  expect(await replay.text()).toMatch(/already finishing/);
+  expect(s.exchanges).toHaveLength(1);
   s.release();
   expect((await first).status).toBe(200);
   await eventually(() => s.director.latest()?.state).toBe("done");
@@ -88,7 +95,8 @@ it("rejects a mismatched state without a token exchange", async () => {
   const s = await setup();
   expect((await fetch(callbackUrl(s.callback, "another-state"))).status).toBe(400);
   expect(s.exchanges).toEqual([]);
-  expect(s.director.latest()?.state).toBe("awaiting-code");
+  await eventually(() => s.director.latest()?.state).toBe("failed");
+  await expect(fetch(callbackUrl(s.callback))).rejects.toThrow();
 });
 
 it.each(["cancel", "timeout"])("closes the provider listener on %s", async action => {
@@ -108,4 +116,11 @@ it("completes the environment's own manual-code flow through stdin", async () =>
   await eventually(() => s.director.latest()?.state).toBe("done");
   expect(s.exchanges).toEqual([{ code: "code-for-tests", state: "state-for-tests", code_verifier: "proof-key-for-tests" }]);
   await expect(fetch(callbackUrl(s.callback))).rejects.toThrow();
+});
+
+it("runs the release smoke check against the installed native listener", async () => {
+  const binary = bundledExecutable();
+  expect(binary).not.toBeNull();
+  const result = await promisify(execFile)(process.execPath, [fileURLToPath(new URL("../../../../scripts/check-packaged-provider-sign-in.mjs", import.meta.url)), "--binary", binary ?? "missing-native-client"]);
+  expect(result.stdout).toMatch(/first response retained, replay ignored, wrong state refused, listener closed/);
 });
