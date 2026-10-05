@@ -164,12 +164,15 @@ try {
       // An independent browser storage context proves this separately minted grant.
       const ownContext = await browser.newContext({ viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
       const ownPage = await ownContext.newPage();
+      ownPage.setDefaultTimeout(60_000);
       await ownPage.goto(ownCode.link);
       await ownPage.locator("[data-web-grant]").filter({ hasText: "Ceiling: bypassPermissions" }).waitFor();
       assert((await ownPage.locator("[data-web-grant]").innerText()).includes("terminal, admin"), "My own client keeps its full grant.");
-      await ownPage.goto(`${origin}/#/session/${encodeURIComponent(environment.env.id)}/${encodeURIComponent(sessionId)}`);
+      await ownPage.getByRole("button", { name: "Show sessions", exact: true }).click();
+      const ownDrawer = ownPage.getByRole("dialog", { name: "Sessions", exact: true });
+      await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
+      await ownDrawer.waitFor({ state: "hidden" });
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
-      ownPage.setDefaultTimeout(60_000);
       await phonePaneSmoke(ownPage, name, environment, sessionId);
       await ownContext.close();
       const denied = await browser.newContext({ viewport: { width: 360, height: 740 }, ignoreHTTPSErrors: true });
