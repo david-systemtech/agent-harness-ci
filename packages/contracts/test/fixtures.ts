@@ -422,6 +422,11 @@ const invalidStatuses = [
 /** Params and result instances for every registered method. */
 const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...attentionMethodFixtures, ...pushMethodFixtures,
+  "web.origins.get": { params: { valid: [{}], invalid: [[]] }, result: { valid: [{ clientOrigins: [], connectOrigins: [] }], invalid: [{}] } },
+  "web.origins.set": {
+    params: { valid: [{ commandId: "0f8fad5b-d9cb-469f-a165-70867728950e", clientOrigins: ["https://client.example.test:8443"], connectOrigins: [] }], invalid: [{ commandId: "0f8fad5b-d9cb-469f-a165-70867728950e", clientOrigins: ["*"], connectOrigins: [] }, {}] },
+    result: { valid: [{ clientOrigins: [], connectOrigins: [] }], invalid: [{}] },
+  },
   "environment.status": {
     params: { valid: [{}], invalid: [[], "status"] },
     result: { valid: validStatuses, invalid: invalidStatuses },
@@ -639,6 +644,7 @@ const methodSchemaFixtures = Object.fromEntries(
 
 /** A valid and an invalid instance of every file the JSON Schema export writes. */
 export const schemaFixtures: Record<string, Fixtures> = {
+  "web/notices/origins.updated.json": { valid: [{}], invalid: [null, []] },
   ...attentionSchemaFixtures,
   "protocol-version.json": { valid: [1, 2], invalid: [0, 1.5, "1"] },
   "capability-flag.json": { valid: ["terminal"], invalid: ["", 1] },
@@ -819,6 +825,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "denylist.updated",
       "review.updated",
       "settings.changed",
+      "web.origins.updated",
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
@@ -871,6 +878,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "denylist.updated", payload: { sections: ["paths", "hosts"] } },
       { type: "review.updated", payload: {} },
       { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
+      { type: "web.origins.updated", payload: {} },
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "setup.result-changed", payload: pendingRead },
       { type: "skills.updated", payload: {} },

@@ -289,6 +289,11 @@
     },
     {
       "type": "string",
+      "const": "web.origins.updated",
+      "description": "Browser origins changed; every client refreshes web.origins.get."
+    },
+    {
+      "type": "string",
       "const": "setup.result-changed",
       "description": "A Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it."
     },

@@ -297,6 +297,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   [banksDraftsList.name]: ["bank.draft-queued", "bank.drafts-consumed"],
   "forge.gh.probe": ["tools.updated"],
   "settings.get": ["settings.changed"],
+  "web.origins.get": ["web.origins.updated"],
   "permissions.settings.get": ["settings.changed", "denylist.updated"],
   "permissions.denylist.get": ["denylist.updated"],
   "permissions.review.list": ["review.updated"],

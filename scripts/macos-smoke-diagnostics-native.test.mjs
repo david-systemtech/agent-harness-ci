@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { collectMacosSmokeDiagnostics, executeDiagnostic } from "./macos-smoke-diagnostics.mjs";
+import { collectMacosSmokeDiagnostics, collectRendererSmokeDiagnostics, executeDiagnostic } from "./macos-smoke-diagnostics.mjs";
 
 // Apple SDK contracts are exercised on a hosted Mac, without Electron or credentials.
-const native = { skip: process.platform !== "darwin", timeout: 90_000 };
+const native = { skip: process.platform !== "darwin", timeout: 180_000 };
 const fixture = fileURLToPath(new globalThis.URL("../test/fixtures/macos-smoke-image.swift", import.meta.url));
 const redactor = fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url));
 
@@ -32,6 +32,50 @@ test("captures a real CoreGraphics window array through JXA", native, async () =
       assert.equal(typeof window.bounds.Width, "number");
       assert.equal(typeof window.bounds.Height, "number");
     }
+  } finally { rmSync(work, { recursive: true, force: true }); }
+});
+
+test("both collectors mask a text fixture with a cold Swift module cache", native, async () => {
+  const work = mkdtempSync(join(tmpdir(), "native-collector-redaction-"));
+  const directory = join(work, "upload");
+  const privateDirectory = join(work, "private");
+  const raw = join(work, "fixture.png");
+  mkdirSync(privateDirectory, { mode: 0o700 });
+  try {
+    await executeDiagnostic("/usr/bin/swift", [fixture, "text", raw]);
+    const execute = async (command, args, options) => {
+      if (command.endsWith("screencapture")) {
+        writeFileSync(args.at(-1), readFileSync(raw));
+        return { stdout: "", stderr: "" };
+      }
+      if (command.endsWith("swift")) {
+        // Fixture generation warmed the default cache. Give the concurrently
+        // started redactors the cold cache used by a fresh release runner.
+        return executeDiagnostic(command, ["-module-cache-path", join(work, "swift-cache"), ...args], options);
+      }
+      return { stdout: "[]", stderr: "" };
+    };
+    await Promise.all([
+      collectMacosSmokeDiagnostics({ directory, privateDirectory, error: new Error("fixture timeout"), execute }),
+      collectRendererSmokeDiagnostics({ directory, privateDirectory, execute,
+        cdp: { errors: () => [], diagnostic: async method => {
+          if (method === "Page.captureScreenshot") return { data: readFileSync(raw).toString("base64") };
+          if (method === "Runtime.evaluate") return { result: { value: {} } };
+          return { nodes: [] };
+        } },
+      }),
+    ]);
+    for (const name of ["screenshot.png", "renderer-screenshot.png"]) {
+      if (!existsSync(join(directory, name))) {
+        const suffix = name.startsWith("renderer") ? ".error.json" : ".error.txt";
+        assert.fail(readFileSync(join(directory, name + suffix), "utf8"));
+      }
+      const after = JSON.parse((await executeDiagnostic("/usr/bin/swift", [fixture, "inspect", join(directory, name)])).stdout);
+      assert.deepEqual(after.text, [], name + " contains no readable credential");
+      assert.deepEqual([after.width, after.height], [1024, 512]);
+    }
+    assert.equal(existsSync(join(privateDirectory, "runner-screen.png")), false);
+    assert.equal(existsSync(join(privateDirectory, "renderer-screen.png")), false);
   } finally { rmSync(work, { recursive: true, force: true }); }
 });
 

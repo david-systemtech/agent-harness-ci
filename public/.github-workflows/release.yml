@@ -557,6 +557,11 @@ jobs:
           test "$code" -eq 3
           grep -q 'No service is installed' <<< "$status"
 
+      - name: Verify native screenshot diagnostics
+        run: |
+          server=unzipped/agent-harness.app/Contents/Resources/server
+          "$server/node/bin/node" --test scripts/macos-smoke-diagnostics-native.test.mjs
+
       - name: Verify packaged macOS tunnel ownership
         run: |
           set -euo pipefail

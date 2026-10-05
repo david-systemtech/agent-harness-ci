@@ -246,6 +246,98 @@ describe("the server artefact the desktop carries", () => {
     expect(desk.requests("updates.apply")).toEqual([]);
   });
 
+  it.each(["updating", "draining"] as const)("regains the local grant when the bundled server's %s restart rejects the earlier local session", async reason => {
+    const { clock, desk, runtime, until, bundled } = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.autoUpdate": false }, shell: carrying("0.6.0") });
+    await until(() => bundled().state === "offered", "offered the bundled server");
+    const firstSession = runtime.connections.list.read()[0]?.clientSessionId;
+    const firstToken = desk.wire.credential()?.token;
+    expect(runtime.connections.list.read()[0]?.phase).toBe("ready");
+    expect(await runtime.desktopUpdate.applyBundledServer()).toMatchObject({ state: "handed-over", version: "0.6.0" });
+
+    // The service's new process accepts fresh local grants, but not the old process's local session.
+    desk.autoAccept(false);
+    desk.bye(reason);
+    await until(() => runtime.connections.list.read()[0]?.phase === reason, "heard the owned environment restarting");
+    desk.discovery({ harnessVersion: "0.6.0" });
+    clock.advance(10_000);
+    await until(() => desk.wire.opened() === 2, "opened the owned update's reconnect");
+    const auth = await desk.server.expect("auth");
+    desk.autoAccept(true);
+    if (auth.token === firstToken) desk.bye("revoked");
+    else desk.server.hello();
+    await flush();
+    clock.advance(10_000);
+    await until(() => runtime.connections.list.read()[0]?.phase === "ready", "regained the local environment after the owned update revoked its earlier session");
+
+    expect(runtime.connections.list.read()[0]).toMatchObject({ kind: "local", phase: "ready", blocked: null });
+    expect(runtime.connections.list.read()[0]?.clientSessionId).not.toBe(firstSession);
+    expect(desk.wire.credential()?.token).not.toBe(firstToken);
+  });
+
+  it.each(["updating", "draining"] as const)("regains the local grant after a transport failure during the bundled server's %s restart", async reason => {
+    const { clock, desk, runtime, until, bundled } = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.autoUpdate": false }, shell: carrying("0.6.0") });
+    await until(() => bundled().state === "offered", "offered the bundled server");
+    const firstSession = runtime.connections.list.read()[0]?.clientSessionId;
+    const firstToken = desk.wire.credential()?.token;
+    await runtime.desktopUpdate.applyBundledServer();
+    desk.autoAccept(false);
+    desk.bye(reason);
+    await until(() => runtime.connections.list.read()[0]?.phase === reason, "heard the owned environment restarting");
+    clock.advance(10_000);
+    await until(() => desk.wire.opened() === 2, "opened the restart's first handshake");
+    await desk.server.expect("auth");
+    desk.server.drop();
+    await flush();
+    clock.advance(10_000);
+    await until(() => desk.wire.opened() === 3, "retried after the transient transport failure");
+    const auth = await desk.server.expect("auth");
+    desk.autoAccept(true);
+    if (auth.token === firstToken) desk.bye("revoked");
+    else desk.server.hello();
+    await until(() => runtime.connections.list.read()[0]?.phase === "ready", "regained the local environment after the transient transport failure and old session rejection");
+
+    expect(runtime.connections.list.read()[0]).toMatchObject({ kind: "local", phase: "ready", blocked: null });
+    expect(runtime.connections.list.read()[0]?.clientSessionId).not.toBe(firstSession);
+    expect(desk.wire.credential()?.token).not.toBe(firstToken);
+  });
+
+  it.each([false, true])("stops if the restarted service rejects the fresh local session too (transport failure before rejection: %s)", async transportFailure => {
+    const { clock, desk, runtime, until, bundled } = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.autoUpdate": false }, shell: carrying("0.6.0") });
+    await until(() => bundled().state === "offered", "offered the bundled server");
+    const firstToken = desk.wire.credential()?.token;
+    await runtime.desktopUpdate.applyBundledServer();
+    desk.autoAccept(false);
+    desk.bye("updating");
+    await until(() => runtime.connections.list.read()[0]?.phase === "updating", "heard the update");
+    clock.advance(10_000);
+    await until(() => desk.wire.opened() === 2, "opened the restart's handshake");
+    let auth = await desk.server.expect("auth");
+    if (auth.token === firstToken) {
+      desk.bye("revoked");
+      await until(() => desk.wire.opened() === 3, "exchanged the grant once and opened its handshake");
+      auth = await desk.server.expect("auth");
+    }
+    expect(auth.token).not.toBe(firstToken);
+    if (transportFailure) {
+      const freshToken = auth.token;
+      const openedBefore = desk.wire.opened();
+      desk.server.drop();
+      await flush();
+      clock.advance(10_000);
+      await until(() => desk.wire.opened() === openedBefore + 1, "retried the fresh session after the transport failure");
+      auth = await desk.server.expect("auth");
+      expect(auth.token).toBe(freshToken);
+    }
+    desk.bye("revoked");
+    await flush();
+    const socketsAfterRejection = desk.wire.opened();
+    clock.advance(HOUR);
+    await flush();
+
+    expect(runtime.connections.list.read()[0]).toMatchObject({ kind: "local", phase: "blocked", blocked: "revoked", retryAt: null });
+    expect(desk.wire.opened()).toBe(socketsAfterRejection);
+  });
+
   it("is offered instead when auto-update is not effective there, off or pinned, and handed over on the card's call", async () => {
     const off = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.autoUpdate": false }, shell: carrying("0.6.0") });
     await off.until(() => off.bundled().state === "offered", "offered the bundled server");

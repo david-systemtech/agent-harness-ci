@@ -292,6 +292,25 @@ describe("the network signal", () => {
 });
 
 describe("bye", () => {
+  it("keeps a paired client revoked after an update rejects its earlier session", async () => {
+    const { wire, clock, platform, runtime } = await paired();
+    wire.server.bye("updating");
+    await flush();
+    clock.advance(10_000);
+    await flush();
+    expect(wire.opened()).toBe(2);
+    await wire.server.expect("auth");
+    wire.server.bye("revoked");
+    await flush();
+    const socketsAfterRejection = wire.opened();
+    clock.advance(60 * 60_000);
+    await flush();
+
+    expect(record(runtime)).toMatchObject({ kind: "paired", phase: "blocked", blocked: "revoked", retryAt: null });
+    expect(await platform.secrets.get(wire.environmentId)).toBeUndefined();
+    expect(wire.opened()).toBe(socketsAfterRejection);
+  });
+
   it.each([
     ["revoked", "revoked"],
     ["unauthorized", "revoked"],

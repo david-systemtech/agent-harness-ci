@@ -18,6 +18,7 @@ import { PairingCode } from "./pairing-code.js";
  */
 export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentView; readonly writable: boolean }) => {
   const environment = nameOf(view);
+  const allowedScope = (scope: Scope) => view.scopes.includes(scope);
   const offered = offeredPresets(view.ceiling, environment);
   const [chosen, choose] = useState<PairingPresetId>(offered.preset.id);
   const [ceilings, pickCeiling] = useState<Partial<Record<PairingPresetId, Ceiling>>>({});
@@ -32,6 +33,7 @@ export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentVi
     ...(preset.chooses !== "nothing" && { ceiling }),
     ...(preset.chooses === "scopes-and-ceiling" && { scopes: ticked }),
   });
+  const missing = grant.ok ? grant.scopes.filter(scope => !allowedScope(scope)) : [];
   const above = ceilingAboveOwn(ceiling, view.ceiling, environment);
   const setTicked = (scope: Scope, on: boolean) => tick((now) => SCOPES.filter((held) => (held === scope ? on : now.includes(held))));
 
@@ -39,14 +41,14 @@ export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentVi
     <div className="flex flex-col gap-2">
       <ChoiceList label="What the code grants" value={current} choices={offered.presets.map(({ preset: offer, words, dim }) => ({
         value: offer.id, label: offer.name, note: words,
-        ...(!writable ? { disabledReason: "Read-only on this environment." } : dim !== null ? { disabledReason: dim } : {}),
+        ...(!writable ? { disabledReason: "Read-only on this environment." } : dim !== null ? { disabledReason: dim } : offer.scopes.some(scope => !allowedScope(scope)) ? { disabledReason: "This preset exceeds this client’s scopes. Choose Custom within the granted scopes." } : {}),
       }))} onValueChange={(value) => choose(value as PairingPresetId)} />
       {preset.chooses === "scopes-and-ceiling" && (
-        <div role="group" aria-label="Scopes" className="flex flex-wrap gap-3">
+        <div role="group" aria-label="Scopes" data-pairing-scopes className="flex flex-wrap gap-3">
           {SCOPES.map((scope) => (
             <label key={scope} className="flex items-center gap-1.5 font-mono text-2xs text-ink">
-              <Checkbox aria-label={scope} title={`${scope} (Space)`} checked={ticked.includes(scope)} disabled={!writable} onCheckedChange={(on) => setTicked(scope, on === true)} />
-              {scope}
+              <Checkbox aria-label={scope} title={`${scope} (Space)`} checked={ticked.includes(scope)} disabled={!writable || !allowedScope(scope)} onCheckedChange={(on) => setTicked(scope, on === true)} />
+              <span className="shrink-0">{scope}</span>{!allowedScope(scope) && <span className="min-w-0 text-ink-faint"> (not granted to this client)</span>}
             </label>
           ))}
         </div>
@@ -67,7 +69,8 @@ export const PresetPairing = ({ view, writable }: { readonly view: EnvironmentVi
       )}
       {!grant.ok && <p className="text-xs text-ink-faint">{grant.message}</p>}
       {above !== null && <p className="text-xs text-ink-faint">{above}</p>}
-      <PairingCode view={view} writable={writable && grant.ok && above === null} grant={grant.ok ? grant : preset} />
+      {missing.length > 0 && <p className="text-xs text-ink-faint">This client cannot grant {missing.join(", ")}. Choose scopes this client holds.</p>}
+      <PairingCode view={view} writable={writable && grant.ok && above === null && missing.length === 0} grant={grant.ok ? grant : preset} />
     </div>
   );
 };

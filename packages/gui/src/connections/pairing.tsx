@@ -12,6 +12,8 @@ import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { DialogFooter } from "../ui/dialog.js";
 import { DialogAction as Button } from "../ui/dialog-action.js";
 import { KeyRound, Link, QrCode, X } from "lucide-react";
+import "./phone-pairing.css";
+import { webCameraFor } from "../platform/web-camera.js";
 import { nameOf } from "./words.js";
 
 /**
@@ -64,6 +66,10 @@ export interface PairingFormProps {
 /** A pairing link, or an address and code (or a QR scanned, where the window has a camera), and the one line that says how the pairing went. */
 export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus = false }: PairingFormProps) => {
   const runtime = useRuntime();
+  const shell = useShell();
+  const camera = webCameraFor(runtime);
+  const scanner = scanQr ?? (camera ? () => camera.scanQr() : undefined);
+  useEffect(() => () => camera?.cancel(), [camera]);
   const [link, setLink] = useState(handed ?? "");
   const [address, setAddress] = useState("");
   const [code, setCode] = useState("");
@@ -75,6 +81,11 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
 
   const pair = useCallback(
     (input: PairingInput, options?: PairingOptions) => {
+      const parsed = parsePairingInput(input);
+      if (shell === undefined && parsed.ok && !parsed.origin.startsWith("https://")) {
+        setSaid({ kind: "line", line: "Use the environment’s HTTPS pairing link or HTTPS address. HTTP connections are unavailable in the browser." });
+        return;
+      }
       setSaid({ kind: "pairing" });
       runtime.connections.add(input, options ?? (rePair === undefined ? undefined : { rePair })).then(
         (outcome) => {
@@ -84,7 +95,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         (error: unknown) => setSaid({ kind: "line", line: `Not paired: ${messageOf(error)}` }),
       );
     },
-    [runtime, rePair, onPaired],
+    [runtime, rePair, onPaired, shell],
   );
 
   // A deep link pairs as it is opened, as a link pasted and sent would.
@@ -106,7 +117,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
   const scan = async () => {
     let scanned: string | undefined;
     try {
-      scanned = await scanQr?.();
+      scanned = await scanner?.();
     } catch (error) {
       return setSaid({ kind: "line", line: `Not scanned: ${messageOf(error)}` });
     }
@@ -116,21 +127,21 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-phone-pairing className="flex min-w-0 flex-col gap-4">
       <form aria-label="Pair by link" className="flex flex-col gap-1.5" onSubmit={byLink}>
         <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={linkField}>
           <Link aria-hidden="true" className="size-4" />Pairing link
         </label>
-        <Input title="Pairing link (paste; Enter to pair)" id={linkField} value={link} placeholder="http://desk:7433/pair#K7Q2M-XH4RT" onChange={(event) => setLink(event.target.value)} disabled={pairing} autoFocus={autoFocus} className="font-mono" />
+        <Input title="Pairing link (paste; Enter to pair)" id={linkField} value={link} placeholder="https://environment.example.test/pair#K7Q2M-XH4RT" onChange={(event) => setLink(event.target.value)} disabled={pairing} autoFocus={autoFocus} className="font-mono" />
         <div className="flex flex-wrap gap-2 pt-2">
           <Button icon={Link} keys="Enter" type="submit" variant="default" disabled={pairing}>Pair</Button>
-          {scanQr !== undefined && <Button icon={QrCode} disabled={pairing} onClick={() => void scan()}>Scan a QR</Button>}
+          {scanner !== undefined && <Button icon={QrCode} disabled={pairing} onClick={() => void scan()}>Scan a QR</Button>}
         </div>
       </form>
       <form aria-label="Pair by address and code" className="flex flex-col gap-2 rounded-lg border border-hairline bg-inset/60 p-3" onSubmit={byCode}>
         <p className="text-sm text-ink-muted">Or the environment's address and its code</p>
         <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={addressField}><Link aria-hidden="true" className="size-4" />Address</label>
-        <Input title="Address (type the environment address)" id={addressField} value={address} placeholder="desk:7433" onChange={(event) => setAddress(event.target.value)} disabled={pairing} className="font-mono" />
+        <Input title="Address (type the environment address)" id={addressField} value={address} placeholder="https://environment.example.test" onChange={(event) => setAddress(event.target.value)} disabled={pairing} className="font-mono" />
         <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={codeField}><KeyRound aria-hidden="true" className="size-4" />Pairing code</label>
         <Input title="Pairing code (type; Enter to pair)" id={codeField} value={code} placeholder="K7Q2M-XH4RT" onChange={(event) => setCode(event.target.value)} disabled={pairing} className="font-mono" />
         <Button icon={Link} keys="Enter" type="submit" disabled={pairing} className="self-start mt-2">Pair with the code</Button>

@@ -59,6 +59,7 @@ import {
 } from "./routines.js";
 import { SessionId } from "./sessions.js";
 import { SettingsChangedNoticePayload } from "./settings.js";
+import { WebOriginsUpdatedPayload } from "./web/origin-policy.js";
 import { StepResult } from "./setup.js";
 import { SkillsUpdatedPayload } from "./skills.js";
 import { TrustUpdatedPayload } from "./trust.js";
@@ -165,6 +166,7 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   // own directory changed (#494); a trust decision recorded or revoked (#500); an owned instruction
   // changed (#505).
   "settings.changed",
+  "web.origins.updated",
   "setup.result-changed",
   "skills.updated",
   "trust.updated",
@@ -260,6 +262,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "routine.endpoint-set": "A webhook endpoint was made or replaced; a client refreshes what it caches of the webhook endpoints.",
   "routine.endpoint-removed": "A webhook endpoint was removed; a client refreshes what it caches of the webhook endpoints.",
   "settings.changed": "Settings changed, with every settings.updated; a client refreshes what it caches of the settings.",
+  "web.origins.updated": "Browser origins changed; every client refreshes web.origins.get.",
   "setup.result-changed": "A Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it.",
   "skills.updated": "The skill set changed; a client reads skills.get again.",
   "trust.updated": "A trust decision was recorded or revoked; a client reads trust.get and trust.list again.",
@@ -624,6 +627,7 @@ export const EnvironmentNotice = z
     RoutineEndpointSet,
     RoutineEndpointRemoved,
     SettingsChanged,
+    describedNotice("web.origins.updated", WebOriginsUpdatedPayload, "The browser origin lists changed; read web.origins.get again."),
     SetupResultChanged,
     SkillsUpdated,
     TrustUpdated,

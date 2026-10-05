@@ -34,7 +34,7 @@ export const serveWebClient = (http: HttpSurface, root = WEB_CLIENT_DIRECTORY, p
       response.writeHead(200, {
         "content-type": contentType, "content-length": bytes.length, "cache-control": "no-store",
         "x-content-type-options": "nosniff", "referrer-policy": "no-referrer",
-        "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${connections.join(" ")}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`,
+        "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${connections.flatMap(origin => [origin, origin.replace(/^https:/, "wss:")]).join(" ")}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`,
       });
       response.end(request.method === "HEAD" ? undefined : bytes);
     } catch (error) {

@@ -1,3 +1,4 @@
+import { ConnectionGrant } from "../connections/connection-grant.js";
 import { revokeSession, setSessionCeiling, uuidv7, type AccessOutcome, type ClientSessionSummary, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type Ceiling } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
@@ -72,6 +73,7 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
 
   return (
     <>
+      <ConnectionGrant view={view} />
       <p className="text-sm text-ink-muted">{settingsRow("environments.access").hint}</p>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, sessions !== null)}</p>}
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}

@@ -1,4 +1,5 @@
 import { phonePushGateway, phonePushSmoke } from "./phone-push-smoke.js";
+import { webOriginSmoke } from "./web-origin-smoke.js";
 import { auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -157,6 +158,7 @@ try {
       assert(requests.every(url => !url.includes(code.code) && !url.includes(credential.token)), "No token or code reaches a request URL.");
       assert.equal(errors.length, 0, "The real bundle produced no page errors.");
       await context.close(); await denied.close();
+      await webOriginSmoke(browser, environment, origin, bundle, output);
       console.log(`WEB-SMOKE PASS ${name}: pair/reload, list/open, stream, Allow/Deny once, reconnect, grants, revoke, visit-only storage`);
     } finally { await browser.close(); }
   }
