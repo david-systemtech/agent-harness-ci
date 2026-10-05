@@ -51,8 +51,11 @@ const chooseRow = async (page: Page, label: string): Promise<void> => {
 // Center each row with room at both scrollport edges before checking full intersection.
 const revealMenuRow = async (row: Locator): Promise<void> => {
   await row.evaluate(element => {
-    if (!("scrollIntoView" in element) || typeof element.scrollIntoView !== "function") throw new Error("A menu action must be scrollable.");
-    element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    const menu = element.closest(".phone-frame-menu");
+    if (!menu) throw new Error("A phone action must belong to the More scrollport.");
+    const row = element.getBoundingClientRect();
+    const bounds = menu.getBoundingClientRect();
+    menu.scrollTop += row.top - bounds.top - menu.clientTop - (menu.clientHeight - row.height) / 2;
   });
 };
 
@@ -64,7 +67,11 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
   for (const name of ["Terminal", "Browser", "Split right", "Split down"]) {
     const row = menu.getByRole("menuitem", { name, exact: true });
     await revealMenuRow(row);
-    await reachable(page, row);
+    try { await reachable(page, row); }
+    catch (error) {
+      console.error("PHONE-MENU state", name, await page.evaluate("JSON.stringify({viewport:[innerWidth,innerHeight],scroll:[scrollX,scrollY],focus:document.activeElement?.getAttribute('aria-label'),expanded:document.querySelector('[aria-label=More]')?.getAttribute('aria-expanded'),menu:document.querySelector('.phone-frame-menu')?.getAttribute('data-state')})"));
+      throw error;
+    }
     // Phone rows omit desktop shortcuts; a collapsed one-character column must fail.
     await expect(row.locator("kbd")).toBeHidden();
     if (await row.locator(":scope > span > span").count()) {
