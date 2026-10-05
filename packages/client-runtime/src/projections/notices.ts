@@ -12,7 +12,8 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * - `environment.updated`: `updated`, "<name> was updated from A to B." (#127);
  * - `environment.update-failed`: `update-failed`, "<name> could not be
  *   updated to B (<stage>: <reason>). It is running A." (#344);
- * - `environment.draining`: `draining`;
+ * - `environment.draining`: one `draining` condition per environment;
+ * - `environment.started`: takes back that environment's obsolete drain, history too;
  * - `account.updated`: `account`, when the environment gives a warning (a
  *   login that reads as another identity, a sign-in refused as a duplicate)
  *   or the account's sign-in status changed; a relabel, an adoption, an
@@ -101,9 +102,15 @@ export interface EnvironmentNotices {
    * raised, since the resolution is not news.
    */
   settled(environmentId: string, sessionId: string, promptId: string): void;
+  /** A start supersedes the preceding drain, even when replayed as history. */
+  restarted(environmentId: string, sequence: number): void;
+  /** A ready snapshot supersedes drains even when the log head has been reset. */
+  ready(environmentId: string): void;
 }
 
 export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices => {
+  // Associate the displayed condition with its stream position without retaining dismissed notices.
+  const drainingSequences = new WeakMap<Notice, number>();
   /** What each parked prompt's notice was raised for, by notice id: the words its resolution says it with. */
   const parkedPrompts = new Map<string, { readonly title: string; readonly summary: string }>();
 
@@ -119,6 +126,12 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
   };
 
   return {
+    ready(environmentId) {
+      notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "draining");
+    },
+    restarted(environmentId, sequence) {
+      notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "draining" && (drainingSequences.get(notice) ?? Infinity) < sequence);
+    },
     heard(environmentId, event, context) {
       const parsed = EnvironmentNotice.safeParse(event);
       // A notice this client does not know (a newer environment's), or one that is not a notice at all (a client-addressed call), raises nothing.
@@ -135,9 +148,12 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           raise({ kind: "update-failed", message: `${name} could not be updated to ${toVersion} (${stage}: ${reason}). It is running ${fromVersion}.`, action: null });
           return;
         }
-        case "environment.draining":
-          raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });
+        case "environment.draining": {
+          const existing = notices.list.read().find((notice) => notice.environmentId === environmentId && notice.kind === "draining");
+          const shown = existing ?? raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });
+          drainingSequences.set(shown, event.sequence);
           return;
+        }
         case "account.updated": {
           const { accountId, change, warning } = notice.payload;
           if (warning !== null) raise({ kind: "account", message: `${name}: ${warning}`, action: null });

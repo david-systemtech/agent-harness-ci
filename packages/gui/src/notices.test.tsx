@@ -268,6 +268,32 @@ describe("a notice", () => {
     await waitFor(() => expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull());
   });
 
+  it("clears restarted environments' obsolete draining banners while Settings is open", async () => {
+    const app = await twoEnvironments();
+    const desk = app.environment("desk");
+    const laptop = app.environment("laptop");
+    await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
+    await act(async () => {
+      desk.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
+      laptop.notice("environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" });
+    });
+    await app.user.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    expect(within(settings).getAllByRole("alert")).toHaveLength(2);
+    await act(async () => desk.bye("draining"));
+    await act(async () => app.clock.advance(5000));
+    await waitFor(() => expect(desk.requests("environment.subscribe")).toHaveLength(1));
+    await act(async () => desk.notice("environment.started", { harnessVersion: "0.1.0", protocolVersion: PROTOCOL_VERSION }));
+    await waitFor(() => expect(within(settings).queryByText("desk is draining: it takes no new runs until it restarts.")).toBeNull());
+    expect(within(settings).getByText("laptop is draining: it takes no new runs until it restarts.")).toBeDefined();
+    await act(async () => laptop.bye("draining"));
+    await act(async () => app.clock.advance(5000));
+    await waitFor(() => expect(laptop.requests("environment.subscribe")).toHaveLength(1));
+    await act(async () => laptop.notice("environment.started", { harnessVersion: "0.1.0", protocolVersion: PROTOCOL_VERSION }));
+    await waitFor(() => expect(within(settings).queryByRole("region", { name: "Notifications" })).toBeNull());
+    expect(within(settings).getByRole("button", { name: "Close Settings" })).toBeDefined();
+  });
+
   it("is dismissed on this client only: taken off its notices, with nothing sent to the environment", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");
