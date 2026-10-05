@@ -192,12 +192,37 @@ try {
       await ownPage.goto(ownCode.link);
       await ownPage.locator('[data-web-grant][data-ceiling="bypassPermissions"]').waitFor();
       assert((await ownPage.locator("[data-web-grant]").getAttribute("data-scopes"))?.includes("terminal, admin"), "My own client keeps its full grant.");
+      await ownPage.evaluate(`(() => {
+        const events = [];
+        const trigger = document.querySelector('[aria-label="Show sessions"]');
+        const describe = node => node instanceof Element ? { tag: node.tagName, label: node.getAttribute('aria-label'), role: node.getAttribute('role'), connected: node.isConnected } : null;
+        const record = event => {
+          if (events.length >= 60) return;
+          events.push({ event, active: describe(document.activeElement), focused: document.hasFocus(), visibility: document.visibilityState, sameTrigger: trigger === document.querySelector('[aria-label="Show sessions"]'), triggerConnected: trigger?.isConnected, drawer: document.querySelector('.phone-frame-drawer')?.getAttribute('data-state') });
+        };
+        const handler = event => record(event.type + ':' + JSON.stringify(describe(event.target)));
+        for (const type of ['focusin', 'focusout', 'pointerdown', 'click']) document.addEventListener(type, handler, true);
+        let state;
+        const observer = new MutationObserver(() => {
+          const next = [trigger === document.querySelector('[aria-label="Show sessions"]'), trigger?.isConnected, document.querySelector('.phone-frame-drawer')?.getAttribute('data-state')].join(':');
+          if (next !== state) { state = next; record('mutation'); }
+        });
+        observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state'] });
+        window.__phoneFocusTrace = () => {
+          record('end'); observer.disconnect();
+          for (const type of ['focusin', 'focusout', 'pointerdown', 'click']) document.removeEventListener(type, handler, true);
+          delete window.__phoneFocusTrace;
+          return events;
+        };
+        record('start');
+      })()`);
       await ownPage.getByRole("button", { name: "Show sessions", exact: true }).click();
       const ownDrawer = ownPage.getByRole("dialog", { name: "Sessions", exact: true });
       await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await ownDrawer.waitFor({ state: "hidden" });
       // Radix restores focus after its close animation; wait before opening More.
-      await expect(ownPage.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused({ timeout: 60_000 });
+      try { await expect(ownPage.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused({ timeout: 60_000 }); }
+      finally { console.log(`[DEBUG-phone-focus] ${name}: ${JSON.stringify(await ownPage.evaluate("window.__phoneFocusTrace()"))}`); }
       await expect(ownPage.locator("[data-header-session-title]")).toHaveText(`Hosted phone conversation (${name})`, { timeout: 60_000 });
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       await phonePaneSmoke(ownPage, name, environment, sessionId, () => previewRequests);
