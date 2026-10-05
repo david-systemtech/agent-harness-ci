@@ -97,7 +97,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
           {facts.mode.clampedFrom !== null && <span className="text-amber"> {clampWords(facts.mode.clampedFrom)}</span>}
         </ModePicker>
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />
-        {!compact && <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />}
+        <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />
         {facts.offer !== undefined ? <HandoffOffer offer={facts.offer} /> : <RunLine facts={facts} />}
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-2">
@@ -109,11 +109,10 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
     <Dialog>
       <DialogTrigger asChild><Button aria-label="Run settings"><Settings2 aria-hidden="true" className="size-4" /></Button></DialogTrigger>
       <DialogContent data-phone-run-settings title="Run settings" className="phone-composer-sheet">
-        <WebRegisteredSurfaces location="session-status" />
         {details}
       </DialogContent>
     </Dialog>
-    <span data-phone-browser><SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} sheet /></span>
+    <span data-phone-composer-browser><WebRegisteredSurfaces location="session-status" /></span>
   </>;
   return (
     <section data-phone-status={expanded ? "open" : "closed"} aria-label="Status line" className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1 text-2xs text-ink-muted">

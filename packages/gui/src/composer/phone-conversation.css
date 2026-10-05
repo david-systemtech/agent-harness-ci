@@ -71,9 +71,8 @@
     flex-shrink: 1;
     font-size: max(16px, 1rem);
   }
-  [data-phone-browser] { display: inline-flex; width: 44px; flex-shrink: 0; }
-  [data-phone-browser] button { width: 44px; }
-  [data-phone-browser] button > span { display: none; }
+  [data-web-client] [data-phone-composer-toolbar] [data-phone-composer-browser] { display: inline-flex; width: 44px; flex-shrink: 0; }
+  [data-web-client] [data-phone-composer-toolbar] [data-phone-composer-browser] button { width: 44px; }
   [data-web-client] [data-composer-editor] { padding: 0 8px; }
   [data-web-client] [data-composer-card] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   [data-web-client] [data-grid-card]:has([data-phone-composer-toolbar]) {

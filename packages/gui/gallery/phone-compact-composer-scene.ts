@@ -2,11 +2,11 @@ import type { SceneGeometry, SceneModule, SceneViewport } from "./scene-registry
 import { webModule } from "../src/web/install.js";
 
 export const platform = "web";
-export const script: SceneModule["script"] = (() => ({ environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive", "terminal", "admin"], capabilities: ["workspaceChecks"],
+export const script: NonNullable<SceneModule["script"]> = (() => ({ environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive", "terminal", "admin"], capabilities: ["workspaceChecks"],
   sessions: [{ title: "Receipt totals", workspace: { kind: "directory", path: "/work/receipts" } }],
 }] }))();
 export const route: NonNullable<SceneModule["route"]> = world => ({ session: { environmentId: world.environment("desk").environmentId, sessionId: world.environment("desk").sessionId() } });
-export const arrangeWeb: SceneModule["arrangeWeb"] = world => {
+export const arrangeWeb: NonNullable<SceneModule["arrangeWeb"]> = world => {
   const env = world.environment("desk");
   env.wire.answer("checks.get", () => ({ result: { workspace: "/work/receipts", command: null } }));
   const { runId } = env.startRun(env.sessionId(), "Compare the receipts.");

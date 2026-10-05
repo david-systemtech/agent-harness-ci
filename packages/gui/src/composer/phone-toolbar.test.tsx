@@ -7,7 +7,7 @@ import { route } from "../../gallery/phone-frame-scene.js";
 const openPhone = async (terminal = true) => {
   vi.stubGlobal("innerWidth", 390);
   vi.stubGlobal("matchMedia", (query: string) => Object.assign(new EventTarget(), { matches: query === "(width < 640px)", media: query, onchange: null }));
-  onTestFinished(() => vi.unstubAllGlobals());
+  onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "phone-toolbar-test", "dark", {
     "phone-toolbar-test": {
@@ -56,7 +56,7 @@ it("opens all run details from the same toolbar as workspace, check and browser"
   expect(within(toolbar).getByRole("button", { name: "Workspace: receipts" })).toBeDefined();
   expect(within(toolbar).getByRole("button", { name: "Hand off" })).toBeDefined();
   expect(within(toolbar).getByRole("button", { name: /^Workspace check:/ })).toBeDefined();
-  expect(within(toolbar).getByRole("button", { name: /^Browser:/ })).toBeDefined();
+  expect(within(toolbar).getByRole("button", { name: "Environment browser" })).toBeDefined();
   fireEvent.click(within(toolbar).getByRole("button", { name: "Run settings" }));
   const sheet = await screen.findByRole("dialog", { name: "Run settings" });
   expect(within(sheet).getByRole("button", { name: /^Account:/ })).toBeDefined();
@@ -84,10 +84,10 @@ it("explains a restricted check grant on tap and retains ordinary message sendin
 
 it("opens the environment browser choices as a sheet from its toolbar icon", async () => {
   await openPhone();
-  const browser = await screen.findByRole("button", { name: /^Browser:/ });
+  const browser = await screen.findByRole("button", { name: "Environment browser" });
   fireEvent.pointerDown(browser, { button: 0, ctrlKey: false, pointerType: "touch" });
   fireEvent.pointerUp(browser, { button: 0, pointerType: "touch" });
   fireEvent.click(browser);
-  const sheet = await screen.findByRole("dialog", { name: "Browser choices" });
-  expect(within(sheet).getAllByRole("menuitem").length).toBeGreaterThan(0);
+  const sheet = await screen.findByRole("dialog", { name: "Environment browser" });
+  expect(within(sheet).getByRole("button", { name: "Close browser" })).toBeDefined();
 });

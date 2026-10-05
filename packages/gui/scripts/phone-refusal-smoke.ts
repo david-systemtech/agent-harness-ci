@@ -69,6 +69,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await settings.scrollIntoViewIfNeeded();
       await fits(settings, "Run settings");
       await settings.click();
+      const runSettings = page.getByRole("dialog", { name: "Run settings", exact: true });
+      await expect(runSettings).toBeVisible();
       const account = page.getByRole("button", { name: /^Account:/ });
       await account.click();
       const choices = page.getByRole("dialog", { name: "Run choices" });
@@ -86,13 +88,15 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(choices).toBeHidden();
       await expect(account).toBeFocused();
       console.log(`PHONE-REFUSAL ${engine}: Run choices closed and Account focus restored`);
+      await runSettings.getByRole("button", { name: "Close dialog", exact: true }).click();
+      await expect(runSettings).toBeHidden();
+      await expect(settings).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await remedy.scrollIntoViewIfNeeded();
       await fits(remedy, "remedy");
       await send.scrollIntoViewIfNeeded();
       await fits(send, "Send");
-      await settings.click();
       await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
