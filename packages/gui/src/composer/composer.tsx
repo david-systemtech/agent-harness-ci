@@ -23,7 +23,6 @@ import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
 import { classes } from "../ui/classes.js";
 import { IconButton } from "../ui/index.js";
-import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { RewoundStrip } from "../fork-rewind/rewound.js";
 import { Activity, BackgroundWork } from "./activity.js";
@@ -240,7 +239,6 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
       <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />
       <RewoundStrip />
       {gone === undefined && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
-      <PromptCard environmentId={environmentId} sessionId={sessionId} />
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
       </div>

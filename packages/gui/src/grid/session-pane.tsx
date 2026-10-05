@@ -1,5 +1,6 @@
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import type { ReactNode } from "react";
+import { PromptCard } from "../prompt-card/prompt-card.js";
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -60,6 +61,9 @@ export const SessionPane = ({ session, focused, header, ...caption }: PaneConten
                     {header ?? <SessionCaption session={session} {...caption} />}
                     <TrustQuestion environmentId={environmentId} sessionId={sessionId} />
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
+                    <div data-prompt-column className="mx-auto flex min-h-0 w-full shrink flex-col" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
+                      <PromptCard environmentId={environmentId} sessionId={sessionId} />
+                    </div>
                     <div data-composer-column className="mx-auto w-full shrink-0" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
                       <Composer environmentId={environmentId} sessionId={sessionId} />
                       <StatusLine environmentId={environmentId} sessionId={sessionId} />

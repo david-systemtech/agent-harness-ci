@@ -1,6 +1,6 @@
 import { uuidv4 } from "@agent-harness/client-runtime";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 import { MintedSessionCard } from "./setup/minted-session-card.js";
 import type { ComponentType } from "react";
@@ -27,13 +27,43 @@ const openCard = async (more: Partial<ScriptedEnvironment> = {}, draft = false, 
   return app;
 };
 
+const closeAuthoring = async (app: RenderedApp) => {
+  const dialog = screen.queryByRole("dialog", { name: "Authoring conversation" });
+  if (dialog !== null) await app.user.click(within(dialog).getByRole("button", { name: "Close dialog" }));
+};
+
 const mint = async (app: RenderedApp) => {
+  await closeAuthoring(app);
   await app.user.click(screen.getByRole("button", { name: "Start over" }));
   await screen.findByRole("textbox", { name: "Message" });
   return app.environment("desk").requests("setup.mint").at(-1);
 };
 
 describe("the minted session on its card", () => {
+  it("opens bank authoring in a conversation dialog and resumes the same session after closing it", async () => {
+    const app = await openCard();
+    await mint(app);
+    const dialog = await screen.findByRole("dialog", { name: "Authoring conversation" });
+    const env = app.environment("desk");
+    const id = env.sessionId();
+    const questions = Array.from({ length: 8 }, (_, at) => ({ header: `Topic ${at + 1}`, question: `What should topic ${at + 1} retain?`, options: [], multiSelect: false }));
+    act(() => env.openPrompt(id, { kind: "question", input: null, questions }));
+    const request = await within(dialog).findByRole("region", { name: "Questions" });
+    const decision = within(dialog).getByRole("group", { name: "Question decision" });
+    expect(within(request).queryByRole("button", { name: "Send answers" })).toBeNull();
+    await app.user.type(within(request).getAllByRole("textbox", { name: "Your own answer" })[0]!, "Working agreements");
+    await app.user.click(within(dialog).getByRole("button", { name: "Close dialog" }));
+    expect(screen.queryByRole("dialog", { name: "Authoring conversation" })).toBeNull();
+    await app.user.click(screen.getByRole("button", { name: "Continue authoring" }));
+    const resumed = await screen.findByRole("dialog", { name: "Authoring conversation" });
+    expect(within(resumed).getAllByRole("textbox", { name: "Your own answer" })[0]).toHaveProperty("value", "Working agreements");
+    await app.user.click(within(resumed).getByRole("button", { name: "Send answers" }));
+    await waitFor(() => expect(env.requests("permissions.prompts.answer").at(-1)?.params["answers"]).toEqual({ "What should topic 1 retain?": "Working agreements" }));
+    expect(decision.contains(request)).toBe(false);
+    expect(env.requests("setup.mint")).toHaveLength(1);
+    expect(env.liveRun(id)).toBeDefined();
+  });
+
   it("streams the ordinary session's transcript under its running status and opens it in the main pane", async () => {
     const app = await openCard();
     await mint(app);
@@ -51,11 +81,25 @@ describe("the minted session on its card", () => {
     expect(app.presentation.values.read().firstLaunchDone).toBe(true);
     await app.user.keyboard("{Control>},{/Control}");
     await app.user.click(await screen.findByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(await screen.findByRole("button", { name: "Continue authoring" }));
     expect(await screen.findByRole("status", { name: "Authoring status" })).toBeDefined();
     expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("running");
     expect(within(screen.getByRole("region", { name: "Transcript" })).getByRole("article", { name: "Reply" }).textContent).toContain("Working on BANK.md.");
     expect(env.requests("setup.mint")).toHaveLength(1);
     expect(env.liveRun(id)).toBe(runId);
+  });
+
+  it("resizes the authoring surface with the phone's visual viewport", async () => {
+    const viewport = Object.assign(new EventTarget(), { height: 844 });
+    vi.stubGlobal("visualViewport", viewport);
+    try {
+      const app = await openCard();
+      await mint(app);
+      const dialog = screen.getByRole("dialog", { name: "Authoring conversation" });
+      await waitFor(() => expect(dialog.style.getPropertyValue("--authoring-viewport-height")).toBe("844px"));
+      act(() => { viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
+      expect(dialog.style.getPropertyValue("--authoring-viewport-height")).toBe("480px");
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it("answers a parked permission on the card and resumes its running status", async () => {
@@ -78,6 +122,7 @@ describe("the minted session on its card", () => {
     const env = app.environment("desk");
     const id = env.sessionId();
     const runId = env.liveRun(id) as string;
+    await closeAuthoring(app);
     await app.user.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(env.liveRun(id)).toBe(runId);
     expect(env.requests("runs.interrupt")).toHaveLength(0);
@@ -88,6 +133,7 @@ describe("the minted session on its card", () => {
     });
     await waitFor(() => expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("img", { name: "Memory bank: done" })).toBeDefined());
     await app.user.click(screen.getByRole("button", { name: "Memory bank" }));
+    await app.user.click(await screen.findByRole("button", { name: "Continue authoring" }));
     expect(await screen.findByRole("textbox", { name: "Message" })).toBeDefined();
     await waitFor(() => expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("landed"));
   });
@@ -102,6 +148,7 @@ describe("the minted session on its card", () => {
       env.setSetup({ "memory-bank": { actions: ["try-again", "write-it-myself", "start-over"], targets: [{ action: "try-again", kind: "session", id, label: "the describe session" }] } });
       env.passSetup(["memory-bank"]);
     });
+    await closeAuthoring(app);
     await app.user.click(await screen.findByRole("button", { name: "Try again: the describe session" }));
     await waitFor(() => expect(env.requests("runs.send").at(-1)?.params).toMatchObject({ sessionId: id, text: "Continue where you stopped." }));
     await mint(app);
@@ -119,6 +166,7 @@ describe("the minted session on its card", () => {
       env.setSetup({ "memory-bank": { state: "done", reason: "BANK.md landed.", actions: ["revise"], targets: [{ action: "revise", kind: "bank", id: "bank-2", label: "Invoices" }] } });
       env.passSetup(["memory-bank"]);
     });
+    await closeAuthoring(app);
     await app.user.click(await screen.findByRole("button", { name: "Revise: Invoices" }));
     await waitFor(() => expect(env.requests("setup.mint").at(-1)?.params).toMatchObject({ subject: "bank-2", variant: "revise" }));
   });
@@ -158,6 +206,7 @@ describe("the minted session on its card", () => {
     await mint(app);
     expect(app.environment("desk").requests("setup.mint").at(-1)?.params).toMatchObject({ account: "account-2", model: "home-model", effort: "low" });
     expect(app.environment("desk").requests("settings.update")).toHaveLength(0);
+    await closeAuthoring(app);
     await app.user.selectOptions(select("Authoring account"), "account-1");
     await waitFor(() => expect(select("Authoring model").value).toBe("small-model"));
     await app.user.selectOptions(select("Authoring model"), "large-model");
@@ -177,6 +226,7 @@ describe("the minted session on its card", () => {
     const env = app.environment("desk");
     const id = env.sessionId();
     const runId = env.liveRun(id);
+    await closeAuthoring(app);
     await app.user.click(screen.getByRole("button", { name: "Permissions" }));
     await app.user.click(screen.getByRole("button", { name: "Open Permissions" }));
     expect(app.presentation.values.read().firstLaunchDone).toBe(false);
@@ -184,12 +234,15 @@ describe("the minted session on its card", () => {
     await app.user.click(within(within(settings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Set up" }));
     await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
     await app.user.click(screen.getByRole("button", { name: "Memory bank" }));
+    expect(screen.queryByRole("dialog", { name: "Authoring conversation" })).toBeNull();
     expect(effort().value).toBe("low");
+    await app.user.click(screen.getByRole("button", { name: "Continue authoring" }));
     expect(await screen.findByRole("textbox", { name: "Message" })).toBeDefined();
     expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("running");
     expect(env.requests("setup.mint")).toHaveLength(1);
     expect(env.liveRun(id)).toBe(runId);
 
+    await closeAuthoring(app);
     // An explicit Close ends the checklist run; the next opening uses fresh defaults.
     await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
     const reopenedSettings = await screen.findByRole("region", { name: "Settings" });
@@ -256,9 +309,11 @@ describe("the minted session on its card", () => {
     const env = app.environment("desk");
     const id = env.sessionId();
     env.wire.answer("setup.mint", () => ({ error: { code: "conflict", message: "The bank checkout is missing.", data: { reason: "bank_missing" } } }));
+    await closeAuthoring(app);
     await app.user.click(screen.getByRole("button", { name: "Start over" }));
     expect((await screen.findByRole("alert")).textContent).toBe("The bank checkout is missing.");
     expect(env.liveRun(id)).toBeDefined();
+    await app.user.click(screen.getByRole("button", { name: "Continue authoring" }));
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
     expect(app.runtime.projections.sessionList.read().rows).toHaveLength(1);
     env.wire.answer("setup.mint", async () => {

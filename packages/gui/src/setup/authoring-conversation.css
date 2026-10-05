@@ -1,0 +1,31 @@
+/* Authoring has its own conversation-sized surface, independent of the settings card's scrollport. */
+.authoring-dialog[data-authoring-dialog] {
+  width: calc(100vw - 32px);
+  max-width: 1100px;
+  height: calc(var(--authoring-viewport-height, 100dvh) - 32px);
+  max-height: calc(var(--authoring-viewport-height, 100dvh) - 32px);
+  overflow: hidden;
+}
+.authoring-dialog > div:first-child { flex-shrink: 0; }
+@media (width < 640px) {
+  .authoring-dialog[data-authoring-dialog] {
+    width: 100vw;
+    height: var(--authoring-viewport-height, 100dvh);
+    max-height: var(--authoring-viewport-height, 100dvh);
+    top: 0;
+    left: 0;
+    translate: none;
+    transform: none;
+    border-radius: 0;
+    padding: 8px;
+    gap: 8px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  [data-authoring-frame] header { gap: 4px; padding: 4px 8px; }
+  [data-authoring-frame] header h3 { flex: 1; }
+  [data-authoring-frame] header button { font-size: 0.75rem; }
+}
+
+/* Keep a readable transcript above even the longest parked question. */
+[data-authoring-frame] div:has(> [aria-label="Transcript"]) { min-height: 44px; }

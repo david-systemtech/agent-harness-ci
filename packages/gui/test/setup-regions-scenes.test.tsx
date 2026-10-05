@@ -18,10 +18,10 @@ it.each(["light", "dark"] as const)("shows four bounded setup regions in %s", as
     close = gallery.close;
     expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe(name));
-    const footer = screen.getByRole("navigation", { name: "Step navigation" });
+    const footer = screen.getByRole("navigation", { name: "Step navigation", hidden: name === "setup-authoring" });
     expect(container.querySelector("[data-setup-scroll]")?.contains(footer)).toBe(false);
-    expect(within(footer).getByRole("button", { name: "Continue" })).toBeDefined();
-    expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([
+    expect(within(footer).getByRole("button", { name: "Continue", hidden: name === "setup-authoring" })).toBeDefined();
+    if (name !== "setup-authoring") expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([
       { selector: 'nav[aria-label="Set up steps"]', width: 280 },
       { selector: '[data-setup-scroll] > div', maxWidth: 620 },
     ]));

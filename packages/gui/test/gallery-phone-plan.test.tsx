@@ -110,3 +110,14 @@ it("requires a discovered shard before capture", () => {
   expect(selected.shard).toEqual({ id: "phone-002", index: 1, count: 2 });
   expect(() => captureShard(plan, "phone-003")).toThrow("Invalid gallery shard selection");
 });
+
+it("plans normal and small desktop and every phone profile for the long authoring question", () => {
+  const plan = capturePlan(["settings-bank-authoring", "setup-authoring", "phone-bank-authoring"]);
+  for (const scene of ["settings-bank-authoring", "setup-authoring"]) {
+    expect(plan.captures.filter(capture => capture.scene === scene).map(capture => capture.viewport)).toEqual([
+      { width: 1400, height: 900 }, { width: 1024, height: 768 },
+    ]);
+  }
+  expect(plan.captures.filter(capture => capture.scene === "phone-bank-authoring")).toHaveLength(8);
+  expect(plan.captures.some(capture => capture.scene === "phone-bank-authoring" && capture.viewport.height === 480)).toBe(true);
+});
