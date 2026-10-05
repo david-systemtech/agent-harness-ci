@@ -62,10 +62,13 @@ export const treeCopyBytes = (path: string, blockSize: number): number => {
   return own + (stat.isDirectory() ? readdirSync(path).reduce((bytes, name) => bytes + treeCopyBytes(join(path, name), blockSize), 0) : 0);
 };
 
+/** The copy would leave too little room for activation; filesystem errors stay separate. */
+export class CopySpaceError extends Error {}
+
 /** Refuses a copy before it spends the room activation needs on the same volume. */
 export const requireCopyRoom = (source: string, dataDir: string, databaseFile: string, reserveBytes: number): void => {
   const disk = statfsSync(dataDir);
   const needed = treeCopyBytes(realpathSync(source), disk.bsize) + snapshotNeeds(dataDir, databaseFile, reserveBytes);
   const free = disk.bavail * disk.bsize;
-  if (free < needed) throw new Error(`Not enough disk space: staging and the database snapshot need ${needed} bytes, but only ${free} bytes are free. Free space and try again.`);
+  if (free < needed) throw new CopySpaceError(`Not enough disk space: staging and the database snapshot need ${needed} bytes, but only ${free} bytes are free. Free space and try again.`);
 };

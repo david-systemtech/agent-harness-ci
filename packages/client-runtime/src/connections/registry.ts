@@ -1265,7 +1265,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (!outcome.ok && outcome.refused) {
         notices.raise(environmentId, {
           kind: "update-refused",
-          message: `${machine.name} refused the update to ${version} (${outcome.reason}): ${outcome.message}`,
+          message: `Could not update ${machine.name} to ${version} (${outcome.reason}): ${outcome.message}`,
           action: null,
         });
       }

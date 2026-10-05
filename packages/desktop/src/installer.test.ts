@@ -60,6 +60,14 @@ describe("installer", () => {
     expect(await shell().installer.bundledServer()).toEqual({ version: "0.5.0", path: artefact.root });
   });
 
+  it("keeps filesystem probe errors as shell failures rather than disk-space refusals", async () => {
+    const artefact = fakeArtefact("linux");
+    const { shell, platform } = await carrying("linux", artefact.root);
+    writeFileSync(join(platform.paths.environment, "service-state.json"), JSON.stringify({ activeVersion: "0.4.0" }));
+    vi.mocked(statfsSync).mockImplementationOnce(() => { throw new Error("EACCES: data volume unavailable"); });
+    await expect(shell().installer.bundledServer()).rejects.toThrow("EACCES: data volume unavailable");
+  });
+
   it("answers the version and the path of the server artefact the desktop carries, on every platform", async () => {
     for (const os of ["darwin", "win32", "linux"] as const) {
       const artefact = fakeArtefact(os);

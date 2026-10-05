@@ -1,4 +1,4 @@
-import { requireCopyRoom } from "@agent-harness/filesystem";
+import { CopySpaceError, requireCopyRoom } from "@agent-harness/filesystem";
 import { readFile, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { ShellBundledServer, ShellInstaller } from "@agent-harness/client-runtime";
@@ -37,7 +37,8 @@ export const bundledInstaller = (server: string | undefined, environmentDir?: st
       try {
         requireCopyRoom(server, environmentDir, DATABASE_FILE, INSTALL_RESERVE_BYTES);
       } catch (error) {
-        return { version, path: server, refusal: { reason: "disk", message: error instanceof Error ? error.message : String(error) } };
+        if (!(error instanceof CopySpaceError)) throw error;
+        return { version, path: server, refusal: { reason: "disk", message: error.message } };
       }
     }
     return { version, path: server };
