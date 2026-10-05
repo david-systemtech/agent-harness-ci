@@ -3,7 +3,7 @@ import { verifyKeyboardDock, verifyReadableReplyLines } from "../phone-keyboard-
 import { safeAreas } from "../phone-frame-scene.js";
 export { platform, script, route } from "../phone-frame-scene.js";
 
-export const filledKeyboardPrompt = { promptId: "keyboard-permission", kind: "permission" as const, summary: "Read each receipt and compare its rounding with the summary. ".repeat(4), toolName: "Bash", input: { command: "printf receipts" } };
+export const filledKeyboardPrompt = { promptId: "keyboard-permission", kind: "permission" as const, summary: "Read receipts", toolName: "Bash", input: { command: "printf receipts\n".repeat(24) } };
 
 let world: ScriptedWorld;
 export const arrangeWeb = (value: ScriptedWorld) => {

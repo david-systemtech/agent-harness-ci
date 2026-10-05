@@ -32,7 +32,7 @@ export function verifyKeyboardDock(height: number, offset: number, latest = true
       if (last) {
         const line = document.createRange(); line.setStart(last, Math.max(0, last.length - 1)); line.setEnd(last, last.length);
         const rect = line.getBoundingClientRect();
-        if (rect.top < visible.top || rect.bottom > visible.bottom) throw new Error("Keyboard clips the latest reply line");
+        if (rect.top < visible.top || rect.bottom > visible.bottom) throw new Error(`Keyboard clips the latest reply line: ${JSON.stringify({ replyLine: rect.toJSON(), transcript: visible.toJSON(), height, offset, parked: !!frame.querySelector('[aria-label="Parked prompt"]') })}`);
       }
     }
   }
