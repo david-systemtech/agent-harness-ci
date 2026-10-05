@@ -39,9 +39,10 @@ export class InstallController {
 }
 export const InstallGuidance = ({ controller }: { readonly controller: InstallController }) => {
   const state = useSyncExternalStore(controller.subscribe, controller.read);
+  if (state.standalone) return null;
   return <section data-phone-install aria-label="Home Screen installation" className="flex min-w-0 flex-col gap-3 break-words rounded-lg border border-hairline bg-panel p-3">
     <h2 className="font-semibold">Open from your Home Screen</h2>
-    {state.standalone ? <p>This client is running from its Home Screen icon.</p> : !state.secure ? <p>Use HTTPS for installation, offline assets and push. Plain HTTP may offer a bookmark or Home Screen shortcut without these capabilities.</p> : state.ios ? <p>On iPhone or iPad, open this client in Safari, tap Share, then Add to Home Screen and Open as Web App when offered.</p> : state.offered ? <p>Your browser offers installation. Tap Install client to add its Home Screen icon.</p> : <p>On Android, use your browser's Install or Add to Home Screen menu. If it is unavailable, keep using this tab or add a bookmark; your browser may support a shortcut only.</p>}
+    {!state.secure ? <p>Use HTTPS for installation, offline assets and push. Plain HTTP may offer a bookmark or Home Screen shortcut without these capabilities.</p> : state.ios ? <p>On iPhone or iPad, open this client in Safari, tap Share, then Add to Home Screen and Open as Web App when offered.</p> : state.offered ? <p>Your browser offers installation. Tap Install client to add its Home Screen icon.</p> : <p>On Android, use your browser's Install or Add to Home Screen menu. If it is unavailable, keep using this tab or add a bookmark; your browser may support a shortcut only.</p>}
     {!state.worker && state.secure && <p>Offline assets are unavailable in this browser or blocked by its settings. You can keep using the connected client.</p>}
     <p className="text-ink-muted">Home Screen and browser tabs may use separate pairing storage. You may need to pair again in the installed client. Each keeps its own credentials; installing never copies them.</p>
     {state.line && <p role="status">{state.line}</p>}
@@ -52,20 +53,24 @@ const active = writable<InstallController | undefined>(undefined);
 export const reportOfflineUnavailable = (): void => active.read()?.workerUnavailable();
 const InstallSurface = () => {
   const controller = useSyncExternalStore(active.subscribe, active.read);
+  return controller ? <InstallSettingsRow controller={controller} /> : null;
+};
+const InstallSettingsRow = ({ controller }: { readonly controller: InstallController }) => {
+  const state = useSyncExternalStore(controller.subscribe, controller.read);
   const [open, setOpen] = useState(false);
-  if (!controller) return null;
-  // A bounded disclosure occupies its own flex row; it never overlays a waiting card or composer.
-  return <details data-install-disclosure className="max-h-[35dvh] shrink-0 overflow-y-auto border-t border-hairline px-3" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary className="flex min-h-11 cursor-pointer items-center text-sm">Home Screen installation</summary>
+  if (state.standalone) return null;
+  return <details data-install-disclosure className="min-w-0" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary className="flex min-h-11 cursor-pointer items-center text-sm">Add to Home Screen</summary>
     <InstallGuidance controller={controller} />
   </details>;
 };
-export const webModule: WebModule = { slot: "install", registration: {
+export const webModule = { slot: "install", registration: {
   Surface: InstallSurface,
+  surfaceLocation: "settings-client",
   start() {
     const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { readonly standalone?: boolean }).standalone === true;
     const controller = new InstallController(window, { secure: window.isSecureContext, standalone, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), worker: "serviceWorker" in navigator });
     active.set(controller);
     return () => { controller.dispose(); active.set(undefined); };
   },
-} };
+} } satisfies WebModule;
