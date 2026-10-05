@@ -23,6 +23,18 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       const rect = element.getBoundingClientRect(), bounds = column.getBoundingClientRect();
       column.scrollTop += rect.top - bounds.top - column.clientTop - (column.clientHeight - rect.height) / 2;
     })()`);
+    // Account/status changes can resize the column after intersection is observed.
+    // Read both boxes in one frame and wait for the original bounds condition.
+    await expect.poll(() => page.evaluate(`(() => {
+      const element = ${element};
+      if (!element) return { missing: true };
+      const box = element.getBoundingClientRect();
+      const region = element.closest('[data-composer-column]').getBoundingClientRect();
+      const inside = box.y >= region.y - 1 && box.bottom <= region.bottom + 1
+        && box.y >= 0 && box.bottom <= innerHeight + 1;
+      return inside ? true : { control: { y: box.y, height: box.height },
+        column: { y: region.y, height: region.height }, viewport: innerHeight };
+    })()`), { timeout: 60_000, message: "The whole refusal/control fits the user-scrollable composer and keyboard-height viewport." }).toBe(true);
     // Intersection observes clipping by every overflow ancestor, not just the viewport.
     try { await expect(control).toBeInViewport({ ratio: 1, timeout: 60_000 }); }
     catch (error) {
@@ -41,12 +53,6 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       })()`));
       throw error;
     }
-    const box = await control.boundingBox();
-    const region = await column.boundingBox();
-    const viewport = page.viewportSize();
-    assert(box && region && viewport, "The refusal and controls have rendered boxes.");
-    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, "The whole refusal/control fits the user-scrollable composer.");
-    assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, "The refusal/control is reachable inside the keyboard-height viewport.");
   };
   await signIn(false);
   try {

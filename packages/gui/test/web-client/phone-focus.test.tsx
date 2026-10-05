@@ -1,3 +1,4 @@
+import { pairingPreset } from "@agent-harness/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
@@ -7,15 +8,22 @@ import { startWebWorld } from "../../gallery/world.js";
 const close: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const stop of close.splice(0).reverse()) await stop(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it("keeps Tab inside the browser session drawer after Settings and More dismiss", async () => {
+it.each(["phone", "own-client"] as const)("keeps Tab inside the %s session drawer after Settings and More dismiss", async preset => {
   vi.stubGlobal("innerWidth", 390);
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
     ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
-  const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], sessions: [{ title: "Hosted focus fixture" }] }] }, {});
+  const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", scopes: pairingPreset(preset).scopes, sessions: [{ title: "Hosted focus fixture" }] }] }, {});
   const view = render(<App {...world} web={{ platform: world.platform, route: {} }} />);
   close.push(async () => { view.unmount(); await world.runtime.close(); await world.presentation.close(); });
   const user = userEvent.setup();
+  const sessions = await screen.findByRole("button", { name: "Show sessions" });
+  await user.click(sessions);
+  const initialDrawer = await screen.findByRole("dialog", { name: "Sessions" });
+  await user.click(within(initialDrawer).getByText("Hosted focus fixture", { exact: true }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(sessions));
+  await waitFor(() => expect(view.container.querySelector("[data-header-session-title]")?.textContent).toBe("Hosted focus fixture"));
   await user.click(await screen.findByRole("button", { name: "Settings" }));
   await user.click(screen.getByRole("button", { name: "Settings rows" }));
   await user.click(within(await screen.findByRole("dialog", { name: "Settings rows" })).getByRole("button", { name: "Accounts" }));

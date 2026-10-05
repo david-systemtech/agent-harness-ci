@@ -184,6 +184,9 @@ try {
       const ownDrawer = ownPage.getByRole("dialog", { name: "Sessions", exact: true });
       await ownDrawer.locator("[data-sidebar-row]").filter({ hasText: `Hosted phone conversation (${name})` }).click();
       await ownDrawer.waitFor({ state: "hidden" });
+      // Radix restores focus after its close animation; wait before opening More.
+      await expect(ownPage.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused();
+      await expect(ownPage.locator("[data-header-session-title]")).toHaveText(`Hosted phone conversation (${name})`);
       await ownPage.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       await phonePaneSmoke(ownPage, name, environment, sessionId, () => previewRequests);
       await ownContext.close();
