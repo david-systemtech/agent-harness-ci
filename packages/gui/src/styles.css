@@ -339,3 +339,16 @@ html[data-phone-viewport] [data-web-client] {
   box-sizing: border-box;
   overflow: hidden;
 }
+
+/* Native transcript reading: contain boundary gestures without intercepting touch or selection. */
+[data-web-client] [aria-label="Transcript"] {
+  overscroll-behavior: none;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+/* Capped input/detail wells keep their own scrolling, including horizontal code. */
+[data-web-client] [aria-label="Transcript"] pre,
+[data-web-client] [data-composer-column] {
+  overscroll-behavior: contain;
+}

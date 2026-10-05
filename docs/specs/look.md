@@ -609,6 +609,15 @@ resizing; after deliberate scroll up, streaming preserves the reading position.
 Browser-bar resizes after a focus-preserving keyboard close keep that reading
 position; repin only for focus or a subsequent keyboard opening.
 
+Phone web transcript selection also unpins following; later stream output keeps
+history text/ranges and the reading anchor intact. Jump to latest explicitly
+repins. Native selection/copy menus, long press, links and pinch zoom remain
+usable. Contain transcript/root boundary overscroll without a global touch
+blocker or swipe navigation. Code wells retain horizontal scrolling; capped
+input/detail wells are deliberate independently scrolling exceptions, with
+contained overscroll. Tool disclosure preserves per-call folds and cannot pan
+the outer page or dock.
+
 ### 10.2 Transcript recipes
 
 | Kind | Anatomy and states |
@@ -1196,6 +1205,14 @@ composer or waiting cards. Send/Stop, Allow/Deny and Continue/Finish remain
 visible at keyboard height, including long cards and IME composition. Settings
 is full-height with registered-row drawer navigation; Set up keeps eleven
 steps and its sticky Back/Continue footer.
+
+Phone web root and transcript use `overscroll-behavior: none` to suppress
+chaining/pull-to-refresh in supporting engines. Use explicit browser reload or
+Reload client and explicit Copy/Jump to latest, preserving the manual copy
+fallback on denial. No simulated haptics or synthetic refresh gesture. Native
+selection handles, OS rubberband and unsuppressed refresh gestures require
+engine-specific dated handset evidence under #1556; CSS alone proves no universal
+OS guarantee. Capped input/detail wells keep their own contained scrolling.
 
 Hosted gallery subsets at 390×844 and 360×740 cover dark/light, text 20,
 keyboard-height viewport, safe areas and long content. #1636 additionally keeps

@@ -158,6 +158,18 @@ reachable at keyboard height. IME composition never sends early. Attachments,
 queue/status, plan/question/permission cards and tool/fork/rewind actions fit
 one column and are usable by touch.
 
+Native reply/code selection and the OS copy menu remain available while reading
+history and receiving later stream output. Selecting transcript text pauses
+following, as scrolling up does; Jump to latest explicitly repins. Tool disclosure
+retains its per-call fold choices and changes only the transcript scroller, never
+the outer page or dock. Keep normal links, long press, pinch zoom and horizontal
+code-well scrolling; no custom swipe navigation, simulated haptics or global touch
+blocker. The locked phone root and transcript use `overscroll-behavior: none`
+to suppress scroll chaining and browser pull-to-refresh where supported. Capped
+input/detail wells remain independently scrollable with contained overscroll.
+CSS cannot promise suppression of every OS/browser refresh or rubberband gesture:
+record engines that still refresh with dated handset evidence under #1556.
+
 ## Browser replacements and Settings
 
 Browser adapters supply file-content pickers/download, clipboard with a
@@ -166,7 +178,9 @@ input[type=file] or paste. Workspace directories are selected on the environment
 never represented as phone filesystem paths. Native window controls, local
 service/bootstrap, this computer's gh and desktop installer/updater stay absent
 with reasons. Browser bundle updates offer Reload, separately from environment
-Update now.
+Update now. Use the browser’s explicit reload action or the existing Reload client
+update offer instead of a synthetic refresh gesture. Keep explicit Copy controls
+and the selectable-text clipboard-denial fallback.
 
 Files/Diff/Documents/Tasks use existing methods and projections in the sheet.
 Markdown renders normally. HTML/SVG is a static sandboxed srcdoc snapshot with
