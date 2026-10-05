@@ -13,7 +13,7 @@ it.each(["constrained", "full", "setup", "picker", "qr"] as const)("phone Settin
   if (kind === "setup") await screen.findByRole("heading", { name: "Carry over", level: 2 });
   await gallery.ready;
   expect(gallery.world.shell).toBeUndefined();
-  if (kind === "constrained") expect(screen.getByText(/Pair again using a Custom code with admin/)).toBeDefined();
+  if (kind === "constrained") expect(screen.getByRole("button", { name: "Give this phone full access" })).toBeDefined();
   if (kind === "full" || kind === "qr") expect(screen.getByRole("link", { name: "Open the sign-in page" })).toBeDefined();
   if (kind === "full" || kind === "qr") expect(screen.getByRole("img", { name: "QR code of the provider sign-in page" })).toBeDefined();
   if (kind === "picker") {
