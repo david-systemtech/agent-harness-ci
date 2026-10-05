@@ -37,9 +37,12 @@ import { useWorkspaceChecks, WorkspaceCheck, WorkspaceRow } from "./workspace-ch
 import { useComposition } from "./composition.js";
 import { usePhoneViewport } from "./phone-viewport.js";
 import "./phone-conversation.css";
+import { PromptCard } from "../prompt-card/prompt-card.js";
 import { usePromptWalk } from "./walk.js";
 
 export interface ComposerProps {
+  /** An authoring dialog gives parked prompts their own flexible space above this composer. */
+  readonly promptInComposer?: boolean;
   readonly environmentId: string;
   readonly sessionId: string;
 }
@@ -85,7 +88,7 @@ export interface ComposerProps {
  * Each action it wires is offered to the palette with whether it can be
  * done now, as the runtime says: dim there with the line while it cannot.
  */
-export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
+export const Composer = ({ environmentId, sessionId, promptInComposer = true }: ComposerProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   // The connections' phases: the lock and the shell's members are asked again whenever one moves.
@@ -239,6 +242,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
       <Activity environmentId={environmentId} sessionId={sessionId} stopping={liveRunId !== undefined && interruptAsked === liveRunId} />
       <RewoundStrip />
       {gone === undefined && <WorkspaceRow environmentId={environmentId} sessionId={sessionId} />}
+      {promptInComposer && <PromptCard environmentId={environmentId} sessionId={sessionId} />}
       <BackgroundWork environmentId={environmentId} sessionId={sessionId} />
       <QueueStrip />
       </div>

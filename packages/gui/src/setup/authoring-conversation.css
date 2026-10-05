@@ -5,6 +5,7 @@
   height: calc(var(--authoring-viewport-height, 100dvh) - 32px);
   max-height: calc(var(--authoring-viewport-height, 100dvh) - 32px);
   overflow: hidden;
+  animation: none;
 }
 .authoring-dialog > div:first-child { flex-shrink: 0; }
 @media (width < 640px) {
@@ -14,8 +15,6 @@
     max-height: var(--authoring-viewport-height, 100dvh);
     top: 0;
     left: 0;
-    translate: none;
-    transform: none;
     border-radius: 0;
     padding: 8px;
     gap: 8px;
@@ -25,7 +24,11 @@
   [data-authoring-frame] header { gap: 4px; padding: 4px 8px; }
   [data-authoring-frame] header h3 { flex: 1; }
   [data-authoring-frame] header button { font-size: 0.75rem; }
+  [data-authoring-frame] [data-prompt-decision] kbd { display: none; }
+  [data-authoring-frame] [data-prompt-decision] > p:last-child { display: none; }
 }
 
 /* Keep a readable transcript above even the longest parked question. */
 [data-authoring-frame] div:has(> [aria-label="Transcript"]) { min-height: 44px; }
+
+[data-authoring-frame] [aria-label="Parked prompt"] { max-height: 60dvh; }

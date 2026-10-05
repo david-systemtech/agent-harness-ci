@@ -26,7 +26,7 @@ type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation";
 async function prepareRegion(kind: SetupRegion) {
   const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" ? "account" : kind;
   const prepared = await prepareWorld({ environments: [{
-    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser"],
+    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
   }] }, { firstLaunch: true });

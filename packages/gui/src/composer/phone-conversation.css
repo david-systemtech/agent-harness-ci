@@ -48,9 +48,3 @@
     max-height: max(44px, min(35vh, calc(var(--phone-viewport-height, 100dvh) * 0.25)));
   }
 }
-/* The prompt owns its scrolling body; the composer and decision row stay outside it. */
-[data-web-client] [data-prompt-column] { min-height: 0; }
-@media (max-width: 639px) {
-  [data-web-client] [data-prompt-decision] kbd { display: none; }
-  [data-web-client] [data-prompt-decision] > p:last-child { display: none; }
-}

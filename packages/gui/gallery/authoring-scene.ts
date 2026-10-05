@@ -38,7 +38,7 @@ export function bankAuthoringScene(phone = false): SceneModule {
   };
   return {
     ...(phone ? { platform: "web", arrangeWeb: arrange } : { arrange: world => arrange(world) }),
-    script: { environments: [{ name: "desk", reach: phone ? "paired" : "local", capabilities: ["banks", "setup"], accounts: [{ label: "Project" }], sessions: [{ title: "Describe project-memory" }] }] },
+    script: { environments: [{ name: "desk", reach: phone ? "paired" : "local", capabilities: ["banks", "setup", "workspaceChecks"], accounts: [{ label: "Project" }], sessions: [{ title: "Describe project-memory" }] }] },
     presentation: { settingsRow: "knowledge.banks" },
     activate: () => {
       let opened = false, minted = false;
