@@ -254,9 +254,10 @@ it.skipIf(!hostedOrdinaryUser).each([false, true])("an ordinary caller cancels a
     const match = /privileged ready (\d+) uid=0/.exec(text);
     if (match) { pid = Number(match[1]); ready(); }
   });
-  const leaf = `import os, signal, time; ${detached ? "os.setsid();" : ""} signal.signal(signal.SIGTERM, lambda *_: None); print('privileged ready '+str(os.getpid())+' uid='+str(os.getuid()), flush=True); time.sleep(600)`;
+  const leaf = `import os, signal, time; ${detached ? "child = os.fork(); os._exit(0) if child else None; os.setsid();" : ""} signal.signal(signal.SIGTERM, lambda *_: None); print('privileged ready '+str(os.getpid())+' uid='+str(os.getuid()), flush=True); time.sleep(600)`;
   const parent = `const {spawn}=require('node:child_process'); console.log('installer uid='+process.getuid()); spawn('sudo',['-n','--','python3','-c',${JSON.stringify(leaf)}],{stdio:'inherit'});`;
   const reason = new Error("Privileged installer deadline expired.");
+  onTestFinished(() => { vi.useRealTimers(); controller.abort(reason); });
   const execution = smokeProcess(process.execPath, ["-e", parent], {
     cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output, privilegedCleanup: true,
   });
@@ -315,8 +316,9 @@ it.skipIf(!hostedOrdinaryUser)("bounded cleanup reports a privileged survivor an
     const match = /unreachable ready (\d+)/.exec(text);
     if (match) { pid = Number(match[1]); ready(); }
   });
-  const leaf = "import os, signal, time; os.setsid(); signal.signal(signal.SIGTERM, lambda *_: None); print('unreachable ready '+str(os.getpid()), flush=True); time.sleep(600)";
+  const leaf = "import os, signal, time; child = os.fork(); os._exit(0) if child else None; os.setsid(); signal.signal(signal.SIGTERM, lambda *_: None); print('unreachable ready '+str(os.getpid()), flush=True); time.sleep(600)";
   const reason = new Error("Unprivileged installer deadline expired.");
+  onTestFinished(() => { vi.useRealTimers(); controller.abort(reason); });
   const execution = smokeProcess("sudo", ["-n", "--", "python3", "-c", leaf], {
     cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output,
   });
