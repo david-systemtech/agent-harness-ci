@@ -54,15 +54,16 @@ export async function settingsScene(search: boolean, row: SettingsRowId = "accou
   };
 }
 
-/** look.md §12.1–12.2: capped dialog with 24px clearance on every side. */
+/** look.md §12.1–12.2: responsive dialog with 24px clearance on every side. */
 export const settingsGeometry = ({ width, height }: SceneViewport): readonly SceneGeometry[] => {
-  const dialogWidth = Math.min(1000, width - 48);
+  const dialogWidth = Math.min(width >= 1280 ? 1440 : 1000, width - 48);
   return [
-    { selector: "[data-settings-dialog]", width: dialogWidth, height: Math.min(660, height - 48) },
+    { selector: "[data-settings-dialog]", width: dialogWidth, height: Math.min(width >= 1280 ? 900 : 660, height - 48) },
     { selector: 'nav[aria-label="Settings rows"]', width: 208 },
     { selector: 'input[aria-label="Search settings"]', height: 32 },
     { selector: '[aria-label="Close Settings"]', width: 24, height: 24 },
     { selector: "[data-settings-pane]", width: dialogWidth - 208 },
+    { selector: "[data-settings-pane]", contentFits: true },
     { selector: 'nav[aria-label="Settings rows"] button svg', width: 16, height: 16 },
   ];
 };

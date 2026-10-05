@@ -869,9 +869,11 @@ approval must record the adopted values before a surface relies on them.
 
 ### 12.1 Dialog and navigation
 
-Settings overlays the visible session window, width min(1000px,100vw−3rem),
-height min(660px,100dvh−3rem), with fixed 1000px/660px caps, centred, xl/float/ring, padding 0/overflow-hidden.
-At 1400×900 its CSS box is x 200..1200/y 120..780; a ring may paint one pixel
+Settings overlays the visible session window, centred, xl/float/ring, padding
+0/overflow-hidden. Below 1280px window width, keep width min(1000px,100vw−3rem)
+and height min(660px,100dvh−3rem). From 1280px, grow to width
+min(1440px,100vw−3rem) and height min(900px,100dvh−3rem). Phone geometry remains §17.
+At 1400×900 its CSS box is x 24..1376/y 24..876; a ring may paint one pixel
 outside. Header x 16/y 12, sm title,2xs muted explanation,24px Close. Say which
 changes apply to future runs; appearance changes paint immediately. Open focus
 in search. Mod+, Close and the existing Escape order close it; background keys
@@ -905,7 +907,15 @@ Unknown stored/deep-linked row follows registry fallback to Set up.
 
 ### 12.2 Body and building blocks
 
-Selected body scrolls independently; content max 768px, x 24/y 20. Reset body
+Selected body scrolls independently; content fills the available pane, x 24/y 20.
+Single forms and groups retain a 768px maximum reading width, including nested
+non-collection groups in panes that also hold card grids. Card collections
+(machines, banks, accounts, key managers, forges, routines, skill sources and
+members, repository trust records, usage, instructions and client sessions) use a responsive grid, gap 14,
+with as many equal columns as fit a 26rem minimum card width. Below that minimum,
+a card fills the available width; long facts wrap and controls fit their card.
+At the default text size, 1400×900 shows two 541px cards per row, while
+1024×768 keeps one 720px card per row. No pane scrolls horizontally. Reset body
 scroll on row change; preserve explicit setting anchors. Environment-scoped
 panes put the picker with their title; everywhere panes group by named/badged
 environment; client panes have no irrelevant picker. About pins client version
@@ -1147,7 +1157,7 @@ script, geometry expectations and baseline; surface tickets add separate files.
 | composer / status / run-picker | Slash/files, attachments, queue, stopping, unavailable account/model, high usage, narrow stages | Field min 44/max 35vh; send 28; chips 22/max 240; ring 24; independent picker lists max 320; no text overlap |
 | dock-panes | Files/file/Diff/terminal/browser/documents/tasks/agent/preview, empty/loading/error | Rail 40, tabs 28, header 30, min 240; narrow sheet ≤480 and 85% pane; invisible native view behind modal |
 | palette / dialogs / parked-asks / notices | Query/no-match/disabled, confirms and errors, long banners | Palette top third/default 384/max 620/list 352; dialogs 384/512/560; scrim blur 4; banners never cover composer |
-| settings | Each registered pane, scope picker, filtered nav, read-only/unreachable, long forms | Box≤1000×660 and viewport−3rem; nav 208; search 32; body≤768/x 24/y 20; selected row/focus and labels |
+| settings | Each registered pane, scope picker, filtered nav, read-only/unreachable, long forms | Box≤1440×900 at wide windows, ≤1000×660 below 1280px, and viewport−3rem; nav 208; search 32; forms≤768/x 24/y 20; responsive card grid; selected row/focus and labels |
 | first-run | Intro starting/failure/ready, all 11 steps, account gate, close confirmation, long card | Rail 280, number 18, choices≤620; footer visible with Back/Skip/Continue or Finish in both captures |
 | product-surfaces | Pairing, queue/fork/rewind/check, theme, shortcuts, banks/routines | Shared primitive dimensions, state labels and scope/command parity |
 

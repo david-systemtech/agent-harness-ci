@@ -27,7 +27,7 @@ export interface SessionListProps {
  * changes it), and Revoke….
  */
 export const SessionList = ({ name, sessions, own, writable, setCeiling, revoke, changeAccess }: SessionListProps) => (
-  <ul aria-label={name} className="flex flex-col gap-2">
+  <ul aria-label={name} data-settings-card-grid>
     {sessions.map((session) => (
       <SessionItem key={session.id} session={session} own={session.id === own} writable={writable} setCeiling={setCeiling} revoke={revoke} changeAccess={changeAccess} />
     ))}

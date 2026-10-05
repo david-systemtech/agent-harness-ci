@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import { AccessUnavailable } from "../connections/limited-access.js";
 import { Plus } from "lucide-react";
 import { ActionButton as Button, useInlineAdd } from "../key-managers/action-button.js";
@@ -35,7 +36,7 @@ export const ForgesPane = () => {
 const ROW_GH: AddForgeGh = { computer: true, machine: false };
 
 const ForgesOn = ({ view }: { readonly view: EnvironmentView }) => (
-  <div data-access-pane className="flex max-w-[768px] flex-col gap-3.5">
+  <div data-access-pane className="flex min-w-0 flex-col gap-3.5">
     <p className="text-sm text-ink-muted">{settingsRow("access.forges").hint}</p>
     <ForgesList view={view} Account={ForgeCard} gh={ROW_GH} />
   </div>
@@ -89,7 +90,7 @@ export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the forge accounts…" : `The forge accounts could not be read: ${listed.error.message}`}</p>
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No forge account is on this environment.</p>
-          : accounts.map((account) => <Account key={account.id} environmentId={environmentId} account={account} writable={writable} say={say} />)}
+          : <SettingsCardGrid>{accounts.map((account) => <Account key={account.id} environmentId={environmentId} account={account} writable={writable} say={say} />)}</SettingsCardGrid>}
     </>
   );
 };
