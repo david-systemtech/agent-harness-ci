@@ -139,8 +139,11 @@ export const WindowNotices = () => {
   const noticeHost = useSettingsNoticeHost();
   const notices = useObservable(useRuntime().projections.notices);
   if (notices.length === 0) return null;
+  // Settings bounds both notice feeds together; another percentage cap here
+  // would shrink each feed inside that already bounded scrollport.
+  const scrollport = noticeHost?.host ? "" : "max-h-[40%] min-h-0 shrink-0 overflow-y-auto";
   const content = (
-    <section aria-label="Notifications" className="mb-[7px] max-h-[40%] min-h-0 shrink-0 overflow-y-auto">
+    <section aria-label="Notifications" className={`mb-[7px] min-w-0 ${scrollport}`}>
       <ul className="flex min-w-0 flex-col gap-1.5">
         {notices.map((notice) => <NoticeBanner key={notice.id} notice={notice} />)}
       </ul>

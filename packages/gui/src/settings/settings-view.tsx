@@ -49,7 +49,7 @@ export const SettingsView = () => {
               </div>
               <Button title={`Close Settings · Escape${toggleKey === undefined ? "" : ` · ${toggleKey}`}`} aria-label="Close Settings" size="icon-xs" onClick={close}><X aria-hidden="true" /></Button>
             </header>
-            <div ref={noticeHost?.setHost} className="max-h-[40%] shrink-0 overflow-y-auto px-4" />
+            <div data-settings-notices ref={noticeHost?.setHost} className="max-h-[40%] min-h-0 shrink-0 overflow-y-auto px-4" />
             <div data-settings-body className="flex min-h-0 flex-1">
               {phone ? <PhoneNavigation title="Settings rows" open={navigationOpen} onOpenChange={setNavigationOpen}>
                 <SettingsRail current={row} query={query} setQuery={setQuery} onChoose={() => { setNavigationOpen(false); setQuery(""); }} />
