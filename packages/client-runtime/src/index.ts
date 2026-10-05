@@ -540,6 +540,7 @@ export {
   pressureOf,
   readingWords,
   readingsOf,
+  meterReadingsOf,
   spendOf,
   startingAccount,
   windowLabel,

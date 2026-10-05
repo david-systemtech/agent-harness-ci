@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containmentWords, elapsedClock, gaugeOf, pressureOf, readingWords, readingsOf, spendOf, windowLabel, windowOut } from "./words.js";
+import { containmentWords, elapsedClock, gaugeOf, pressureOf, readingWords, readingsOf, meterReadingsOf, spendOf, windowLabel, windowOut } from "./words.js";
 
 /** The status line's and the pickers' words, as both renderers say them (docs/specs/tui.md, "Status, usage, pickers"; #147, moved here by #402). */
 
@@ -7,8 +7,16 @@ const gauge = { identity: null, accounts: [], readAt: "2026-09-25T09:00:00.000Z"
 const window = (name: string, utilisation: number | null, verdict: "rejected" | null = null) => ({ window: name, utilisation, resetsAt: null, verdict, observedAt: "2026-09-25T09:00:00.000Z" });
 
 describe("a plan window", () => {
+  it("keeps unknown limits in details with human names but leaves them out of compact meters", () => {
+    const unknown = { ...window("iguana_necktie", 0.37), resetsAt: "2026-09-30T00:00:00.000Z" };
+    const pooled = { ...gauge, windows: [window("five_hour", 0.42), unknown] };
+    expect(meterReadingsOf(pooled).map((reading) => reading.label)).toEqual(["5-hour"]);
+    expect(readingsOf(pooled)[1]).toMatchObject({ label: "Other limit", value: "37%", resetsAt: "2026-09-30T00:00:00.000Z" });
+    expect(readingWords(pooled)).toBe("5-hour 42% · Other limit 37%");
+  });
+
   it("is named as a gauge names it", () => {
-    expect(["five_hour", "seven_day", "model_scoped:fable", "extra_usage"].map(windowLabel)).toEqual(["5hr", "Week", "Fable", "extra usage"]);
+    expect(["five_hour", "seven_day", "model_scoped:fable", "extra_usage"].map(windowLabel)).toEqual(["5-hour", "Weekly", "Weekly, Fable", "Extra usage"]);
   });
 
   it("is pressed by the desktop's thresholds, a refusal out whatever it reads", () => {
@@ -22,9 +30,9 @@ describe("a plan window", () => {
   it("reads as its label, its percent with out when refused, its pressure, and when it rolls over", () => {
     const fiveHour = { ...window("five_hour", 0.42), resetsAt: "2026-09-25T14:00:00.000Z" };
     expect(readingsOf({ ...gauge, windows: [fiveHour, window("seven_day", 1.02, "rejected"), window("extra_usage", null)] })).toEqual([
-      { window: "five_hour", label: "5hr", utilisation: 0.42, value: "42%", pressure: "low", resetsAt: "2026-09-25T14:00:00.000Z" },
-      { window: "seven_day", label: "Week", utilisation: 1.02, value: "102% out", pressure: "out", resetsAt: null },
-      { window: "extra_usage", label: "extra usage", utilisation: null, value: "—", pressure: undefined, resetsAt: null },
+      { window: "five_hour", label: "5-hour", utilisation: 0.42, value: "42%", pressure: "low", resetsAt: "2026-09-25T14:00:00.000Z" },
+      { window: "seven_day", label: "Weekly", utilisation: 1.02, value: "102% out", pressure: "out", resetsAt: null },
+      { window: "extra_usage", label: "Extra usage", utilisation: null, value: "—", pressure: undefined, resetsAt: null },
     ]);
   });
 
@@ -36,7 +44,7 @@ describe("a plan window", () => {
   });
 
   it("reads a gauge in one line, or its reason when it has no window", () => {
-    expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), window("seven_day", 1.02, "rejected")] })).toBe("5hr 42% · Week 102% out");
+    expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), window("seven_day", 1.02, "rejected")] })).toBe("5-hour 42% · Weekly 102% out");
     expect(readingWords({ ...gauge, windows: [], unavailableReason: "Not signed in." })).toBe("Not signed in.");
     expect(readingWords(undefined)).toBeUndefined();
   });

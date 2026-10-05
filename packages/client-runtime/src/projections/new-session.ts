@@ -42,6 +42,8 @@ export interface NewSessionChips {
   readonly account?: { readonly environmentId: string; readonly accountId: string };
   /** The model chosen, by id. */
   readonly model?: string;
+  /** The first run's effort, used only when the chosen model supports it. */
+  readonly effort?: string | null;
   /** The workspace chosen, with the environment it was chosen on: another environment keeps its repository, or scratch. */
   readonly workspace?: { readonly environmentId: string; readonly request: WorkspaceRequest };
   /** The browser chosen: what the session starts with, null for the default (none chosen, which each run resolves). */

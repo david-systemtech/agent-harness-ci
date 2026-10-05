@@ -39,7 +39,13 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await account.click();
       const choices = page.getByRole("dialog", { name: "Run choices" });
       await expect(choices).toContainText(/signed out/i);
-      await choices.getByRole("menuitem").filter({ hasText: "claude-max" }).click();
+      const accountSection = choices.getByRole("group", { name: "Accounts", exact: true });
+      await expect(accountSection).toBeVisible();
+      await expect(choices.getByRole("group", { name: "Models", exact: true })).toHaveCount(0);
+      await expect(choices.getByRole("group", { name: "Effort", exact: true })).toHaveCount(0);
+      const accountRow = accountSection.getByRole("menuitem").filter({ hasText: "claude-max" });
+      await expect(accountRow).toBeVisible();
+      await accountRow.click();
       await page.keyboard.press("Escape");
       await expect(choices).toBeHidden();
       await expect(account).toBeFocused();
