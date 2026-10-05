@@ -1,3 +1,4 @@
+import { PLAN_USAGE_WINDOW_LABELS, isKnownUsageWindow } from "@agent-harness/contracts";
 import type { AccountIdentity } from "@agent-harness/contracts";
 import type { AccountRef, UsageReading, UsageWindow } from "../../adapter/contract.js";
 import type { Clock } from "../../serve/clock.js";
@@ -58,7 +59,7 @@ export const readUsageMethod = async (query: unknown): Promise<UsageOutcome> => 
 };
 
 /** The fixed windows, in the order a client lists them; the rest follow as they come. */
-const KNOWN_WINDOWS = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet", "seven_day_oauth_apps"] as const;
+const KNOWN_WINDOWS = Object.keys(PLAN_USAGE_WINDOW_LABELS).filter((window) => window !== "extra_usage");
 
 /** A percentage 0 to 100 as the fraction a reading carries (0 to 1 and beyond); null when absent. */
 const fraction = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) / 100 : null);
@@ -106,7 +107,7 @@ export const mapUsageResponse = (raw: unknown, identity: AccountIdentity, readAt
   const extra = limits["extra_usage"];
   if (isRecord(extra)) windows.push({ window: "extra_usage", utilisation: fraction(extra["utilization"]), resetsAt: null });
   for (const [name, entry] of Object.entries(limits)) {
-    if ((KNOWN_WINDOWS as readonly string[]).includes(name) || name === "model_scoped" || name === "extra_usage") continue;
+    if (KNOWN_WINDOWS.includes(name) || name === "model_scoped" || name === "extra_usage") continue;
     if (isRecord(entry)) windows.push(windowOf(name, entry));
   }
   return { identity, windows, readAt };
@@ -148,6 +149,8 @@ export interface PlanUsageReader {
 
 export interface PlanUsageReaderOptions {
   readonly clock: Pick<Clock, "now">;
+  /** Reports each unknown provider window once during this reader's lifetime. */
+  readonly diagnostic?: (message: string) => void;
   /** Reads an account once: its identity and its usage. Rejects when the account cannot be identified. */
   readonly probe: (account: AccountRef) => Promise<UsageProbe>;
 }
@@ -164,6 +167,12 @@ interface Held {
  * windows for a known reason is, for its six minutes.
  */
 export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsageReader => {
+  const unknown = new Set<string>();
+  const reportUnknown = (window: string) => {
+    if (isKnownUsageWindow(window) || unknown.has(window)) return;
+    unknown.add(window);
+    options.diagnostic?.(`Claude reported an unknown plan-usage window: ${window}`);
+  };
   const held = new Map<string, Held>();
   const inFlight = new Map<string, Promise<UsageReading>>();
   /**
@@ -190,6 +199,7 @@ export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsag
           const reading = (arrivedDuring.get(key) ?? [])
             .filter((arrived) => arrived.at >= at.getTime())
             .reduce((folded, arrived) => foldVerdict(folded, arrived.verdict), readingOf(probe, at.toISOString()));
+          for (const window of reading.windows) reportUnknown(window.window);
           if (probe.outcome.kind !== "failed") held.set(key, { reading, at: at.getTime() });
           return reading;
         } finally {
@@ -201,6 +211,7 @@ export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsag
       return read;
     },
     fold(account, verdict) {
+      reportUnknown(verdict.window);
       const key = keyOf(account);
       // A read under way takes this verdict unless the provider answers it after the verdict; one that begins after is
       // newer (a verdict with no reading to fold into is dropped for that reason).

@@ -70,11 +70,11 @@ describe("Accounts", () => {
     const accounts = await openRow(app, "Accounts");
 
     const personal = await within(accounts).findByRole("region", { name: "personal" });
-    await waitFor(() => expect(facts(personal)["Plan"]).toBe("5hr 42% · Week 10%"));
+    await waitFor(() => expect(facts(personal)["Plan"]).toBe("5-hour 42% · Weekly 10%"));
     expect(facts(personal)).toEqual({
       Identity: "milo@example.test",
       Status: "signed in",
-      Plan: "5hr 42% · Week 10%",
+      Plan: "5-hour 42% · Weekly 10%",
       Directory: "/home/milo/.account-1, adopted in place",
     });
     expect(facts(within(accounts).getByRole("region", { name: "work" }))).toEqual({
@@ -477,6 +477,21 @@ const pooled = (gauge: HTMLElement) =>
     .map((row) => row.textContent);
 
 describe("Usage", () => {
+  it("shows an unknown limit once by a human name in settings, with its share and no ring", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal", identity: MILO }] } });
+    const at = "2026-09-30T10:00:00.000Z";
+    const known = reading("account-1", 0.42, 0.1, at);
+    app.environment("desk").setUsage([{ ...known, windows: [...known.windows,
+      { window: "iguana_necktie", utilisation: 0.37, resetsAt: null, verdict: null, observedAt: at },
+    ] }]);
+    const usage = await openRow(app, "Usage");
+    const gauge = await within(usage).findByRole("region", { name: "milo@example.test" });
+    expect(within(gauge).getAllByText("Other limit")).toHaveLength(1);
+    expect(within(gauge).getByText("37%")).toBeTruthy();
+    expect(within(gauge).queryByRole("img", { name: /Other limit/ })).toBeNull();
+    expect(gauge.outerHTML).not.toMatch(/iguana[_ ]necktie/);
+  });
+
   it("shows every gauge pooled by account identity across every environment, with the accounts and environments in each, and an unreachable environment's readings as last read", async () => {
     const work: AccountIdentity = { provider: "claude", email: "work@example.test", organisation: "Example" };
     const app = await opened({
@@ -496,7 +511,7 @@ describe("Usage", () => {
 
     const milo = await within(usage).findByRole("region", { name: "milo@example.test" });
     await waitFor(() => expect(pooled(milo)).toEqual(["personal on desk", "laptop milo on laptop"]));
-    expect(windows(milo)).toEqual([expect.stringMatching(/^5-hour 50 50%, resets \d\d:\d\d$/), "Week 20 20%"]);
+    expect(windows(milo)).toEqual([expect.stringMatching(/^5-hour 50 50%, resets \d\d:\d\d$/), "Weekly 20 20%"]);
     expect(windows(within(usage).getByRole("region", { name: "work@example.test" }))).toEqual(["5-hour 95 95% out"]);
     const unread = within(usage).getByRole("region", { name: "An account never read" });
     expect(pooled(unread)).toEqual(["spare on desk"]);
@@ -512,7 +527,7 @@ describe("Usage", () => {
     laptop.server.drop();
     expect(await within(usage).findByText(/^laptop: Unreachable since \d\d:\d\d: its readings as this window last read them\.$/)).toBeDefined();
     expect(pooled(within(usage).getByRole("region", { name: "milo@example.test" }))).toEqual(["personal on desk", "laptop milo on laptop"]);
-    expect(windows(within(usage).getByRole("region", { name: "milo@example.test" }))[1]).toBe("Week 20 20%");
+    expect(windows(within(usage).getByRole("region", { name: "milo@example.test" }))[1]).toBe("Weekly 20 20%");
   });
 
   it("says when no account has a plan reading yet", async () => {

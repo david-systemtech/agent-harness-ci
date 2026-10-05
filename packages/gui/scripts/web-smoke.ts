@@ -1,4 +1,5 @@
 import { phoneRefusalSmoke } from "./phone-refusal-smoke.js";
+import { phoneRunPickerSmoke } from "./phone-run-picker-smoke.js";
 import { phonePushGateway, phonePushSmoke } from "./phone-push-smoke.js";
 import { webOriginSmoke } from "./web-origin-smoke.js";
 import { auditPublicCache, phoneInstallSmoke, waitForPublicWorker } from "./phone-install-smoke.js";
@@ -56,7 +57,12 @@ secure.on("upgrade", (incoming, socket, head) => {
 await new Promise<void>(resolve => secure.listen(0, "127.0.0.1", resolve));
 const origin = `https://localhost:${(secure.address() as AddressInfo).port}`;
 let releaseStream: (() => void) | undefined;
-const adapter = fakeAdapter({ script: async function* ({ input, context }) {
+const adapter = fakeAdapter({ models: [
+  { id: "opus", family: "opus", tier: 3, efforts: ["low", "medium", "high", "max"] },
+  { id: "sonnet", family: "sonnet", tier: 2, efforts: ["low", "medium", "high"] },
+  { id: "haiku", family: "haiku", tier: 1, efforts: [] },
+  ...Array.from({ length: 12 }, (_, index) => ({ id: `sample-model-${index + 1}`, family: "sample", tier: 1, efforts: [] })),
+], script: async function* ({ input, context }) {
   releaseStream = undefined;
   const itemId = randomUUID();
   const reply = `Streaming the hosted reply: ${input.prompt.at(-1)?.text ?? ""}`;
@@ -135,7 +141,9 @@ try {
       await phoneRefusalSmoke(page, name, output, async signedIn => {
         adapter.setStatus(account => signedInAs(signedIn ? `${account.id}@example.com` : null));
         await admin.request("accounts.refresh", { accountId: "claude-max" });
-      });
+      }, async () => (await admin.request("sessions.get", { sessionId })).summary.draft);
+      console.log(`WEB-SMOKE PHASE ${name} phone run picker: start`);
+      await phoneRunPickerSmoke(page, name);
       console.log(`WEB-SMOKE PHASE ${name} bundle update: start`);
       try { await phoneInstallSmoke(page, bundle, name, available => { originAvailable = available; }); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }

@@ -126,7 +126,7 @@ describe("the preload bundle", () => {
       "webView",
       "window",
     ]);
-    expect(Object.keys(shell["window"] ?? {}).sort()).toEqual(["close", "focus", "minimize", "onChange", "setBackgroundColour", "setBadge", "setTitle", "state", "toggleMaximize"]);
+    expect(Object.keys(shell["window"] ?? {}).sort()).toEqual(["close", "focus", "minimize", "onChange", "setBackgroundColour", "setBadge", "setTitle", "state", "toggleMaximize", "zoom"]);
     expect(Object.keys(shell["dialogs"] ?? {}).sort()).toEqual(["openDirectory", "openFile", "openFileContents", "save"]);
     expect(Object.keys(shell["clipboard"] ?? {}).sort()).toEqual(["readImage", "readText", "writeText"]);
     expect(Object.keys(shell["network"] ?? {})).toEqual(["allow"]);

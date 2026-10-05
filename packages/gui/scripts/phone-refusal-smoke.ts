@@ -4,7 +4,7 @@ import type { Locator, Page } from "playwright";
 import { expect } from "playwright/test";
 
 /** Hosted real-client regression for the keyboard-height refusal in #1325. */
-export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>): Promise<void> {
+export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, storedDraft: () => Promise<string | null>): Promise<void> {
   const original = page.viewportSize();
   const message = "Explain the receipt totals and retain the original rounding rule.\n".repeat(6);
   const field = page.getByRole("textbox", { name: "Message", exact: true });
@@ -30,8 +30,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
     const region = await column.boundingBox();
     const viewport = page.viewportSize();
     assert(box && region && viewport, "The refusal and controls have rendered boxes.");
-    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, `The whole ${name} fits the user-scrollable composer: ${JSON.stringify({ box, region, viewport, diagnostics })}`);
-    assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, `The ${name} is reachable inside the keyboard-height viewport: ${JSON.stringify({ box, region, viewport, diagnostics })}`);
+    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, `The whole ${name} fits the user-scrollable composer: ${JSON.stringify({ engine, box, region, viewport, diagnostics })}`);
+    assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, `The ${name} is reachable inside the keyboard-height viewport: ${JSON.stringify({ engine, box, region, viewport, diagnostics })}`);
   };
   await signIn(false);
   try {
@@ -69,7 +69,13 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await account.click();
       const choices = page.getByRole("dialog", { name: "Run choices" });
       await expect(choices).toContainText(/signed out/i);
-      await choices.getByRole("menuitem").filter({ hasText: "claude-max" }).click();
+      const accountSection = choices.getByRole("group", { name: "Accounts", exact: true });
+      await expect(accountSection).toBeVisible();
+      await expect(choices.getByRole("group", { name: "Models", exact: true })).toHaveCount(0);
+      await expect(choices.getByRole("group", { name: "Effort", exact: true })).toHaveCount(0);
+      const accountRow = accountSection.getByRole("menuitem").filter({ hasText: "claude-max" });
+      await expect(accountRow).toBeVisible();
+      await accountRow.click();
       await page.keyboard.press("Escape");
       // The closing popup restores focus after its exit animation. The phone viewport
       // then scrolls that trigger into view; settle that event before scrolling elsewhere.
@@ -83,6 +89,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await send.scrollIntoViewIfNeeded();
       await fits(send, "Send");
       await settings.click();
+      // Draft writes debounce; observe the save rather than racing it with navigation.
+      await expect.poll(storedDraft, { timeout: 60_000 }).toBe(message);
       await page.reload();
       await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
       await expect(field).toHaveValue(message);

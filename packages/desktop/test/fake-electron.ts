@@ -21,6 +21,7 @@ import type {
   ViewBounds,
   ElectronWebView,
   MediaPermissionDetails,
+  NativeMenuItem,
 } from "../src/electron.js";
 import { APP_URL } from "../src/schemes.js";
 
@@ -71,6 +72,9 @@ export interface Navigation {
 }
 
 export interface FakeContents extends ElectronContents {
+  getZoomFactor(): number;
+  setZoomFactor(factor: number): void;
+  press(key: string, modifiers?: Partial<{ code: string; type: string; control: boolean; meta: boolean; shift: boolean; alt: boolean }>): { prevented: boolean };
   checkPermission(permission: string, details: MediaPermissionDetails, origin?: string, source?: ElectronContents | null): boolean;
   requestPermission(permission: string, details: MediaPermissionDetails, source?: ElectronContents): boolean;
   on(name: string, listener: (...args: never[]) => unknown): unknown;
@@ -152,6 +156,7 @@ export interface FakeNotification extends ElectronNotification {
 }
 
 export interface FakeElectron extends DesktopElectron {
+  readonly menu: { set(template: NativeMenuItem[]): void; readonly template: NativeMenuItem[]; click(label: string): void };
   readonly app: FakeApp;
   readonly protocol: FakeProtocol;
   readonly ipcMain: FakeIpcMain;
@@ -228,8 +233,16 @@ const fakeContents = (): FakeContents => {
   let requestHook: RequestListener | undefined;
   let checkPermission: Parameters<ElectronContents["session"]["setPermissionCheckHandler"]>[0] | undefined;
   let requestPermission: Parameters<ElectronContents["session"]["setPermissionRequestHandler"]>[0] | undefined;
+  let zoomFactor = 1;
   const contents: FakeContents = {
     sent,
+    getZoomFactor: () => zoomFactor,
+    setZoomFactor: (factor) => { zoomFactor = factor; },
+    press(key, modifiers = {}) {
+      let prevented = false;
+      heard.emit("before-input-event", { preventDefault: () => { prevented = true; } }, { type: "keyDown", key, code: "", control: false, meta: false, shift: false, alt: false, ...modifiers });
+      return { prevented };
+    },
     on: heard.on,
     setWindowOpenHandler(handler) {
       openHandler = handler;
@@ -498,7 +511,34 @@ export const fakeElectron = ({
   const views: FakeWebView[] = [];
   const opened: string[] = [];
   const notifications: FakeNotification[] = [];
+  // Electron's default View roles change zoomLevel by 0.5, without a key event.
+  const zoom = (step: number) => {
+    const page = electron.window().webContents;
+    page.setZoomFactor(page.getZoomFactor() * Math.pow(1.2, step));
+  };
+  let template: NativeMenuItem[] = [
+    { label: "Zoom In", click: () => zoom(0.5) },
+    { label: "Zoom Out", click: () => zoom(-0.5) },
+    { label: "Actual Size", click: () => electron.window().webContents.setZoomFactor(1) },
+  ];
   const electron: FakeElectron = {
+    menu: {
+      get template() { return template; },
+      set(items) { template = items; },
+      click(label) {
+        const find = (items: NativeMenuItem[]): NativeMenuItem | undefined => {
+          for (const item of items) {
+            if (item.label === label) return item;
+            const nested = find(item.submenu ?? []);
+            if (nested) return nested;
+          }
+          return undefined;
+        };
+        const item = find(template);
+        if (!item?.click) throw new Error(`No native menu action: ${label}`);
+        item.click();
+      },
+    },
     app: fakeApp(os, ready, version),
     protocol: fakeProtocol(),
     ipcMain: fakeIpcMain(),

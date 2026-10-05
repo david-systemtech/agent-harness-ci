@@ -1,4 +1,4 @@
-import { ACTIONS, actionById, isCommandId, keyClashes, reservedGuiKey, type ListedAction } from "@agent-harness/contracts";
+import { ACTIONS, DESKTOP_ZOOM_ACTIONS, isDesktopZoomAction, actionById, isCommandId, keyClashes, reservedGuiKey, type ListedAction } from "@agent-harness/contracts";
 import { chordOfKey } from "./chords.js";
 
 /**
@@ -26,7 +26,7 @@ export interface KeyMap {
 export const DEFAULT_KEY_MAP: KeyMap = Object.freeze({ remaps: Object.freeze({}), escStopsRun: false });
 
 /** Whether `action`'s GUI keys may be remapped: pressed, and wired in the GUI column (a slash command is typed). */
-export const isRemappable = (action: ListedAction): boolean => !isCommandId(action.id) && action.gui.status === "wired";
+export const isRemappable = (action: ListedAction): boolean => !isCommandId(action.id) && !isDesktopZoomAction(action.id) && action.gui.status === "wired";
 
 /** The GUI column's own keys for `action`; none where it has the action absent or typed. */
 export const defaultGuiKeys = (action: ListedAction): readonly string[] => (action.gui.status === "wired" ? action.gui.keys : []);
@@ -78,6 +78,10 @@ const FIELDS_OWN_WORDS = {
  * never becomes an approval (#404).
  */
 export const keyRefusal = (id: string, key: string): string | undefined => {
+  const zoomChord = chordOfKey(key, false).replace("Shift+", "");
+  if (!isDesktopZoomAction(id) && DESKTOP_ZOOM_ACTIONS.some((zoom) => defaultGuiKeys(actionById(zoom)!).some((held) => chordOfKey(held, false) === zoomChord))) {
+    return `${key} controls zoom: the desktop shell or browser owns it.`;
+  }
   const reserved = reservedGuiKey(id, key);
   if (reserved !== undefined) return reserved;
   const action = actionById(id);
