@@ -56,6 +56,18 @@ const chooseRow = async (page: Page, label: string): Promise<void> => {
   }
 };
 
+const openMore = async (page: Page): Promise<Locator> => {
+  // Closed animated portals keep their dismissal handlers until they unmount.
+  // Wait for the old portal, rather than only its hidden accessibility role.
+  await expect(page.locator(".phone-frame-menu")).toHaveCount(0);
+  const trigger = page.getByRole("button", { name: "More", exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  return menu;
+};
+
 // Center each row with room at both scrollport edges before checking full intersection.
 const revealMenuRow = async (page: Page, target: string | number): Promise<void> => {
   const row = typeof target === "number"
@@ -75,11 +87,7 @@ const revealMenuRow = async (page: Page, target: string | number): Promise<void>
 
 /** Inspect the real menu after scrolling each action, including disabled grant explanations. */
 const phoneMoreSmoke = async (page: Page): Promise<void> => {
-  const trigger = page.getByRole("button", { name: "More", exact: true });
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await trigger.click();
-  const menu = page.getByRole("menu");
-  await expect(menu).toBeVisible();
+  const menu = await openMore(page);
   for (const name of ["Terminal", "Browser", "Split right", "Split down"]) {
     const row = menu.getByRole("menuitem", { name, exact: true });
     await revealMenuRow(page, name);
@@ -108,6 +116,7 @@ const phoneMoreSmoke = async (page: Page): Promise<void> => {
   // and verify dismissal before the next viewport opens this menu again.
   await page.getByRole("button", { name: "More", exact: true }).click();
   await expect(menu).toBeHidden();
+  await expect(page.locator(".phone-frame-menu")).toHaveCount(0);
 };
 
 /** Uses the production page from P01's HTTPS runner, never a gallery or fake shell. */
@@ -182,22 +191,6 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
 }
 
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {
-  await page.evaluate(`(() => {
-    window.__phoneEvents = [];
-    const identify = node => node instanceof Element ? [node.tagName, node.getAttribute('aria-label'), node.getAttribute('role')] : null;
-    const record = value => { window.__phoneEvents.push([Math.round(performance.now()), ...value]);
-      if (window.__phoneEvents.length > 100) window.__phoneEvents.shift(); };
-    for (const type of ['focusin', 'focusout', 'pointerdown', 'pointerup', 'keydown'])
-      document.addEventListener(type, event => record([type, identify(event.target), identify(event.relatedTarget),
-        ['Escape', 'Tab', 'Enter'].includes(event.key) ? event.key : null]), true);
-    new MutationObserver(records => { for (const mutation of records) {
-      if (mutation.target.getAttribute('aria-label') === 'More')
-        record(['expanded', mutation.target.getAttribute('aria-expanded')]);
-      else if (mutation.target.classList.contains('phone-frame-menu'))
-        record(['menu-state', mutation.target.getAttribute('data-state')]);
-    }}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'data-state'] });
-  })()`);
-  try {
   const observer = await environment.client();
   for (const width of [390, 360]) {
     await page.setViewportSize({ width, height: 844 });
@@ -206,8 +199,9 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
   await page.setViewportSize({ width: 390, height: 844 });
   // Full grant is minted separately by the runner; this never expands the Phone grant.
   for (const label of ["Files", "Diff", "Documents", "Tasks", "Terminal"]) {
-    await page.getByRole("button", { name: "More", exact: true }).click();
-    await page.getByRole("menuitem", { name: label, exact: true }).click();
+    const menu = await openMore(page);
+    await menu.getByRole("menuitem", { name: label, exact: true }).click();
+    await expect(page.locator(".phone-frame-menu")).toHaveCount(0);
     const sheet = page.getByRole("dialog", { name: "Side column", exact: true });
     await expect(sheet).toBeVisible();
     if (label !== "Terminal") await expect(sheet.getByRole("button", { name: "Close side sheet", exact: true })).toBeFocused();
@@ -305,8 +299,4 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
   }
   await observer.close();
   console.log(`PHONE-PANES PASS ${engine}: all seven panes, retained PTY, isolated preview, every Settings row and all eleven steps, text at 20`);
-  } catch (error) {
-    console.error("[DEBUG-phone-focus] events", await page.evaluate("JSON.stringify(window.__phoneEvents)"));
-    throw error;
-  }
 }
