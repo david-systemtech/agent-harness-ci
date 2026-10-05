@@ -34,6 +34,17 @@ describe.each(workflows)("the %s release's packed servers", (_name, workflow) =>
 });
 
 describe("the public release's packaged server smoke tests", () => {
+  it.each(["smoke-windows", "smoke-macos", "smoke-linux"])("checks replay handling in the packaged provider listener with its own Node in %s", name => {
+    const body = job(hosted, name);
+    expect(body).toContain(name === "smoke-windows"
+      ? "& $node scripts/check-packaged-provider-sign-in.mjs $server"
+      : '"$server/node/bin/node" scripts/check-packaged-provider-sign-in.mjs "$server"');
+    if (name === "smoke-windows") {
+      expect(body).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-provider-sign-in.mjs').Path -Destination (Join-Path $work 'scripts')");
+      expect(body).toContain("if ($LASTEXITCODE -ne 0) { throw 'Packaged provider sign-in check failed' }");
+    }
+  });
+
   it("checks a packaged macOS replacement with a kept credential separately from fresh server starts", () => {
     const body = job(hosted, "smoke-macos");
     expect(body).toContain("- name: Replace the packaged desktop with an existing client credential");
