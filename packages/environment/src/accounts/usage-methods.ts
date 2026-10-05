@@ -1,4 +1,4 @@
-import { ContractError, type AccountRecord, type AccountUsage, type HandoffRecommendation, type HandoffTrigger } from "@agent-harness/contracts";
+import { ContractError, usageWindowLabel, type AccountRecord, type AccountUsage, type HandoffRecommendation, type HandoffTrigger } from "@agent-harness/contracts";
 import type { Clock } from "../serve/clock.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import {
@@ -6,7 +6,6 @@ import {
   handoffTrigger,
   isFresh,
   rankAccounts,
-  windowFor,
   type AccountPlanUsage,
   type HandoffTriggerMatch,
 } from "./handoff.js";
@@ -40,10 +39,6 @@ export interface UsageMethodsOptions {
 }
 
 const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
-
-/** A window as a sentence names it: the label of the shipped rule `windowFor` finds it by, else the provider's name. */
-const windowInWords = (reading: AccountUsage | null | undefined, window: string, now: number): string =>
-  DEFAULT_HANDOFF_THRESHOLDS.find((threshold) => windowFor(reading, threshold, now)?.window === window)?.label ?? window;
 
 const triggerOf = (match: HandoffTriggerMatch): HandoffTrigger => ({
   threshold: match.threshold.id,
@@ -105,9 +100,8 @@ export const recommendHandoff = (options: UsageMethodsOptions, fromAccountId: st
       basis: null,
     };
   }
-  const reading = targets.find((entry) => entry.accountId === best.accountId)?.reading;
   const most = fromAccountId === undefined ? "the most room" : "the most room of the others";
-  const room = `${labelOf(best.accountId)} has ${most}, ${percent(best.headroom)} free in its ${windowInWords(reading, best.binding.window, now)} window.`;
+  const room = `${labelOf(best.accountId)} has ${most}, ${percent(best.headroom)} free in its ${usageWindowLabel(best.binding.window)} window.`;
   return {
     accountId: best.accountId,
     reason: trigger === null ? "most-room" : trigger.window.verdict === "rejected" ? "limit-reached" : "limit-near",

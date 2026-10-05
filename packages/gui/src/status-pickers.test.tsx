@@ -248,7 +248,7 @@ describe("the account picker", () => {
     env.setUsage([reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
     await within(statusLine()).findByRole("group", { name: "Plan usage" });
     const menu = await openPicker(app, "Account");
-    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work milo@work.testsigned in · this session · claude5hr 42% · Week 10%");
+    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work milo@work.testsigned in · this session · claude5-hour 42% · Weekly 10%");
     expect(within(menu).getByRole("menuitem", { name: /^personal/ }).textContent).toBe("personal milo@home.testsign-in expired · Sign in · claudeNot signed in.");
     expect(within(menu).getByRole("menuitem", { name: "Add an account…" })).toBeTruthy();
   });
@@ -319,8 +319,8 @@ describe("the hand-off offer and picker", () => {
     const dialog = await screen.findByRole("dialog", { name: "Hand off Receipts on desk" });
     expect(dialog.textContent).toContain(out.message);
     const accounts = within(dialog).getByRole("list", { name: "Accounts" });
-    await waitFor(() => expect(within(accounts).getByRole("button", { name: /^work/ }).textContent).toContain("work milo@work.test signed in · this session5hr 100% out"));
-    expect(within(accounts).getByRole("button", { name: /^personal/ }).textContent).toContain("personal milo@home.test signed in · recommended5hr 12%");
+    await waitFor(() => expect(within(accounts).getByRole("button", { name: /^work/ }).textContent).toContain("work milo@work.test signed in · this session5-hour 100% out"));
+    expect(within(accounts).getByRole("button", { name: /^personal/ }).textContent).toContain("personal milo@home.test signed in · recommended5-hour 12%");
     expect(within(accounts).getByText("hand-off between environments comes in milestone 2 (ADR 0005)")).toBeTruthy();
 
     await app.user.click(within(accounts).getByRole("button", { name: /^personal/ }));

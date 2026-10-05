@@ -16,7 +16,7 @@ it.each(["light", "dark"] as const)("shows status chips with 20/80/95 percent us
   close = gallery.close;
   await waitFor(() => expect(screen.getAllByRole("region", { name: "Status line" })).toHaveLength(3));
   for (const [index, line] of screen.getAllByRole("region", { name: "Status line" }).entries()) {
-    expect(await within(line).findByRole("img", { name: `5hr ${[20, 80, 95][index]}%` })).toBeDefined();
+    expect(await within(line).findByRole("img", { name: `5-hour ${[20, 80, 95][index]}%` })).toBeDefined();
     expect(within(line).getByRole("button", { name: /^Mode:/ })).toBeDefined();
     expect(within(line).getByRole("button", { name: /^Containment:/ })).toBeDefined();
   }
