@@ -595,6 +595,61 @@ offering `forge` with `admin`:
    `open -a`, whose launch does not pass them on): the token handed over is
    the one `gh` stores, not `GH_TOKEN`'s.
 
+## Memory banks and accounts on another environment (#1627)
+
+1. Pair a server holding a verified forge account with the desktop. On the
+   desktop's local environment, register a bank from that forge without
+   connecting a local forge account. Use a self-hosted forge with a non-default
+   HTTPS port and a repository that refuses anonymous reads.
+2. Open Settings, Memory banks on the local environment. The unreachable bank
+   names the server holding the account and the local environment owning the
+   bank. Any invalid manifest remains a separate reported problem.
+3. Press Connect forge on the local environment. Forges opens on that same
+   environment. Add its account there; no credential is copied from the server.
+   Return to Memory banks and Sync. The bank becomes reachable. An invalid
+   manifest still needs its own repair.
+4. Repeat with an account on a different HTTPS port or an unverified alias:
+   neither is described as the account that covers the bank. A verified alias
+   for the exact origin is recognized.
+
+Run this section on the released Windows desktop with its paired server;
+record bank reachability and any independent manifest failure in the release's
+hands-on evidence.
+
+## Carry over after account sign-in
+
+Run on the released desktop with a disposable source profile and on a paired,
+fresh headless environment (#1626). Keep source directory inventories before
+and after; use test accounts and a test skill repository.
+
+1. **Desktop.** Import the source's accounts and sessions, then sign in the
+   adopted accounts and add a signed-in owned account. Reopen Set up > Carry
+   over. The adopted directories still show their inventories; the owned
+   account has no import card. Preview and import again: existing accounts
+   and sessions keep their ids and are not duplicated; source files stay intact.
+2. **Private skill source.** Without its forge credential, import a private
+   test skill source and its always-on choice. The partial failure remains
+   visible while accounts and sessions that succeeded stay carried. The report
+   points to Forges for the credential and Skills for an unavailable exact name.
+   Reopen the step: Open Forges and Open Skills explain where to repair it,
+   even when the retained failure came from an earlier release. With a verified
+   alias or an SSH URL served by a forge account on a non-default web port,
+   the credential repair names that account's canonical origin. For an SSH
+   source with no forge account, a missing key or unknown host key names this
+   environment machine's SSH keys and known-hosts entry, not a Forges repair.
+3. **Preview is a plan.** Run a dry run after that failure. Its report says
+   that repository access was not tested and a failed import was not cleared;
+   Carry over still needs attention. Supply the test repository's forge
+   credential and restore any missing skill, then import again. Only remaining
+   items carry, and a successful real import clears the retained failure.
+4. **Headless server.** Select the paired fresh environment with signed-in
+   owned accounts, no adopted directories and no source folders. Carry over
+   shows one sentence saying there is nothing to carry, with no amber failure
+   or import controls. Continue advances the checklist without an import call.
+   Return to the desktop environment and verify its inventories and failure
+   state belong to that environment alone.
+
+These checks exercise setup and import behavior; they require no provider run.
 
 ## Window zoom (#1621)
 

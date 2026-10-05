@@ -5,10 +5,29 @@ import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { smokeProcess } from "./smoke-process.js";
 
+vi.mock("node:fs", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
+
 const runningProcess = (pid: number) => {
   try { return !/\) [ZX] /.test(readFileSync(`/proc/${pid}/stat`, "utf8")); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+  catch (error) { if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return false; throw error; }
 };
+
+it.each(["ENOENT", "ESRCH"])("observes a process that disappears during a procfs read as exited (%s)", code => {
+  const error = Object.assign(new Error("The process disappeared during read."), { code });
+  const read = vi.mocked(readFileSync).mockImplementationOnce(() => { throw error; });
+  try { expect(runningProcess(123)).toBe(false); }
+  finally { read.mockReset(); }
+});
+
+it.each(["EACCES", "EIO"])("propagates an unrelated procfs read error (%s)", code => {
+  const error = Object.assign(new Error("Cannot read process state."), { code });
+  const read = vi.mocked(readFileSync).mockImplementationOnce(() => { throw error; });
+  try { expect(() => runningProcess(123)).toThrow(error); }
+  finally { read.mockReset(); }
+});
 
 it.skipIf(process.platform !== "linux").each([false, true])("cancellation stops a held descendant after its command has exited (detached: %s)", async detached => {
   const signal = new AbortController();
@@ -26,7 +45,7 @@ it.skipIf(process.platform !== "linux").each([false, true])("cancellation stops 
     if (descendant) { descendantPid = Number(descendant[1]); ready(); }
   });
   onTestFinished(() => {
-    vi.useRealTimers(); signal.abort();
+    vi.useRealTimers(); signal.abort(reason);
     for (const pid of [parentPid, descendantPid]) {
       if (pid === undefined) continue;
       try { process.kill(pid, "SIGKILL"); }
@@ -39,13 +58,21 @@ it.skipIf(process.platform !== "linux").each([false, true])("cancellation stops 
   const execution = smokeProcess(process.execPath, ["-e", parent], { cwd: process.cwd(), signal: signal.signal, stdout: output, stderr: output });
   const reason = new Error("The exited command's smoke phase was cancelled.");
   const stopped = expect(execution).rejects.toBe(reason);
-  await started;
-  while (runningProcess(parentPid!)) await new Promise<void>(resolve => setImmediate(resolve));
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  signal.abort(reason);
-  await vi.advanceTimersByTimeAsync(5_000);
-  await stopped;
-  expect(runningProcess(descendantPid!)).toBe(false);
+  try {
+    await started;
+    while (runningProcess(parentPid!)) await new Promise<void>(resolve => setImmediate(resolve));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    signal.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(descendantPid!)).toBe(false);
+  } finally {
+    // Observation errors must still settle the cancellation assertion before this test finishes.
+    if (!signal.signal.aborted) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    signal.abort(reason);
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+  }
 });
 
 it.skipIf(process.platform !== "linux").each([false, true])("cancellation kills an ignoring descendant whose output is separate (detached: %s)", async detached => {
@@ -64,7 +91,7 @@ it.skipIf(process.platform !== "linux").each([false, true])("cancellation kills 
   });
   onTestFinished(() => {
     vi.useRealTimers();
-    signal.abort();
+    signal.abort(reason);
     for (const pid of pids) {
       try { process.kill(pid, "SIGKILL"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
@@ -76,15 +103,23 @@ it.skipIf(process.platform !== "linux").each([false, true])("cancellation kills 
   const execution = smokeProcess(process.execPath, ["-e", parent], { cwd: process.cwd(), signal: signal.signal, stdout: output, stderr: output });
   const reason = new Error("The smoke phase was cancelled.");
   const stopped = expect(execution).rejects.toBe(reason);
-  await started;
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  signal.abort(reason);
-  if (!detached) await terminationIgnored;
-  // Observe command exit while its ignoring descendant still belongs to this phase.
-  while (runningProcess(pids[0]!)) await new Promise<void>(resolve => setImmediate(resolve));
-  await vi.advanceTimersByTimeAsync(5_000);
-  await stopped;
-  expect(runningProcess(pids[1]!)).toBe(false);
+  try {
+    await started;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    signal.abort(reason);
+    if (!detached) await terminationIgnored;
+    // Observe command exit while its ignoring descendant still belongs to this phase.
+    while (runningProcess(pids[0]!)) await new Promise<void>(resolve => setImmediate(resolve));
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(pids[1]!)).toBe(false);
+  } finally {
+    // Observation errors must still settle the cancellation assertion before this test finishes.
+    if (!signal.signal.aborted) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    signal.abort(reason);
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+  }
 });
 
 it.skipIf(process.platform !== "linux").each([
@@ -113,7 +148,7 @@ it.skipIf(process.platform !== "linux").each([
   });
   onTestFinished(() => {
     vi.useRealTimers();
-    signal.abort();
+    signal.abort(reason);
     if (pid) {
       try { process.kill(pid, "SIGKILL"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
@@ -129,14 +164,22 @@ it.skipIf(process.platform !== "linux").each([
   const execution = smokeProcess(process.execPath, ["-e", parent], { cwd: process.cwd(), signal: signal.signal, stdout: output, stderr: output });
   const reason = new Error("The held smoke phase was cancelled.");
   const stopped = expect(execution).rejects.toBe(reason);
-  // Attach a rejection handler before the event that cancels the process.
-  await running;
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  signal.abort(reason);
-  await terminationIgnored;
-  await vi.advanceTimersByTimeAsync(5_000);
-  await stopped;
-  if (!ignoresTermination) expect(text).toContain("descendant stopped");
+  try {
+    // Attach a rejection handler before the event that cancels the process.
+    await running;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    signal.abort(reason);
+    await terminationIgnored;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    if (!ignoresTermination) expect(text).toContain("descendant stopped");
+  } finally {
+    // Observation errors must still settle the cancellation assertion before this test finishes.
+    if (!signal.signal.aborted) vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    signal.abort(reason);
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+  }
 });
 
 it.skipIf(process.platform !== "linux")("captures successful smoke output while streaming it to the job log", async () => {

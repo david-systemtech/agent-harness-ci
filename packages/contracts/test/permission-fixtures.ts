@@ -365,6 +365,10 @@ export const permissionMethodFixtures: Record<string, { params: Fixtures; result
     },
     result: { valid: [{ sessionId, ...answeredPrompt }, { sessionId, ...planAnswer }], invalid: [answeredPrompt, { sessionId, ...answeredPrompt, decidedBy: undefined }] },
   },
+  "access.sessions.setAccess": {
+    params: { valid: [{ ...target, scopes: ["read"], ceiling: "plan" }], invalid: [target, { ...target, scopes: [], ceiling: "plan" }, { ...target, scopes: ["unknown"], ceiling: "plan" }, { ...target, scopes: ["read", "read"], ceiling: "plan" }] },
+    result: { valid: [{ clientSessionId: "cs-2", scopes: ["read"], ceiling: "plan" }], invalid: [{ clientSessionId: "cs-2", scopes: ["read"] }] },
+  },
   "access.sessions.setCeiling": {
     params: {
       valid: [{ ...target, ceiling: "plan" }, { ...target, ceiling: "bypassPermissions" }],
