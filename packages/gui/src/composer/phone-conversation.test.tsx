@@ -24,6 +24,7 @@ it("keeps the composing draft until the input method commits, including an Enter
 it("fits the web conversation to the visual viewport and leaves pinch zoom alone", async () => {
   const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 390);
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root";
   document.body.append(root);
@@ -44,8 +45,9 @@ it("fits the web conversation to the visual viewport and leaves pinch zoom alone
 });
 
 it("fits a missing-workspace conversation before and after its message field returns", async () => {
-  const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1 });
+  const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 390);
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "phone-missing-workspace", "light", {
@@ -165,23 +167,29 @@ it("lets a phone user scroll the refused draft, remedy and Run settings in the c
 it("lets a phone user scroll away from the focused input without the viewport pulling it back", async () => {
   const viewport = Object.assign(new EventTarget(), { height: 400, width: 360, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 360);
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "phone-gallery-conversation");
   onTestFinished(async () => { await gallery.close(); root.remove(); });
   await gallery.ready;
   const field = screen.getByRole("textbox", { name: "Message" });
-  const scroll = vi.spyOn(field, "scrollIntoView");
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  const frame = root.querySelector<HTMLElement>("[data-web-client]")!;
+  const column = field.closest<HTMLElement>("[data-composer-column]")!;
   onTestFinished(() => scroll.mockRestore());
   act(() => field.focus());
-  expect(scroll).toHaveBeenCalled();
-  scroll.mockClear();
+  expect(scroll).not.toHaveBeenCalled();
+  column.scrollTop = 37;
   // Scrolling to a refusal/Send can move the visual viewport while focus remains in the field.
   viewport.offsetTop = 30;
   act(() => viewport.dispatchEvent(new Event("scroll")));
   expect(scroll).not.toHaveBeenCalled();
+  expect(column.scrollTop).toBe(37);
+  expect(frame.style.top).toBe("30px");
   viewport.height = 480;
   act(() => viewport.dispatchEvent(new Event("resize")));
-  expect(scroll).toHaveBeenCalled();
-  expect(root.querySelector<HTMLElement>("[data-web-client]")!.style.getPropertyValue("--phone-viewport-height")).toBe("480px");
+  expect(scroll).not.toHaveBeenCalled();
+  expect(column.scrollTop).toBe(37);
+  expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("480px");
 });

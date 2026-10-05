@@ -89,6 +89,7 @@ const useFollow = () => {
       if (following.current) toEnd();
     });
     observer.observe(content);
+    if (box.current) observer.observe(box.current);
     return () => observer.disconnect();
   }, [toEnd]);
 
@@ -108,6 +109,13 @@ const useFollow = () => {
     setAway(false);
     toEnd();
   }, [toEnd]);
+
+  useEffect(() => {
+    const pane = box.current?.closest("[data-dock-owner]");
+    if (!pane) return;
+    pane.addEventListener("phone-composer-fit", jump);
+    return () => pane.removeEventListener("phone-composer-fit", jump);
+  }, [jump]);
 
   /** Stops following the end, as a scroll up does: David was taken somewhere to read. */
   const stop = useCallback(() => {
@@ -130,9 +138,10 @@ const useReveal = (follow: { readonly column: RefObject<HTMLDivElement | null>; 
     const call = [...(column.current?.querySelectorAll<HTMLElement>("[data-tool-call]") ?? [])].find((element) => element.dataset["toolCall"] === revealed.toolCallId);
     if (call === undefined) return;
     stop();
-    // jsdom has no scrolling into view; a window does.
-    if (typeof call.scrollIntoView === "function") call.scrollIntoView({ block: "center" });
-    call.focus();
+    // Reveal only within the transcript; ancestor scrolling can pan the phone shell.
+    const scroller = column.current?.parentElement;
+    if (scroller) scroller.scrollTop += call.getBoundingClientRect().top - scroller.getBoundingClientRect().top - (scroller.clientHeight - call.clientHeight) / 2;
+    call.focus({ preventScroll: true });
   }, [column, stop, revealed]);
 };
 
@@ -173,7 +182,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   return (
     <KeyContext context="transcript" conditions={find.conditions}>
       <FindKeys find={find} />
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div data-transcript-region className="relative flex min-h-0 flex-1 flex-col">
         <section
           aria-label="Transcript"
           ref={follow.box}
