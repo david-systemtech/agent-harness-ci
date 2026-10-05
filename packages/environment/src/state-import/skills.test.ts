@@ -348,24 +348,30 @@ it("names the serving forge account's canonical origin for SSH and verified alia
     instance.user(TOKEN, { login: "fixture", id: 42 });
     instance.repositories(TOKEN, []);
   }
+  const canonical = "https://forge.skills.test:5526";
+  const verifiedAlias = "https://alias.skills.test";
   const source = tempDir();
   writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [
-    { url: "git@127.0.0.1:team/private.git", subdir: "." },
-    { url: `${alias.origin}/team/other`, subdir: "." },
+    { url: "git@forge.skills.test:team/private.git", subdir: "." },
+    { url: `${verifiedAlias}/team/other`, subdir: "." },
   ], alwaysOn: [] }));
   const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    forgeFetch: (url, init) => fetch(String(url).replace(canonical, forge.origin).replace(verifiedAlias, alias.origin), init),
     skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr: "fatal: Authentication failed", truncated: false, timedOut: false, missing: false } }),
     stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
   });
   onCleanup(() => t.close());
   const client = await t.client();
-  const account = await added(client, { url: forge.origin, kind: "forgejo", aliases: [alias.origin] });
-  expect(account.aliases[0]?.verifiedAt).not.toBeNull();
+  const account = await added(client, { url: canonical, kind: "forgejo", aliases: [verifiedAlias] });
+  expect(account.aliases).toEqual([{ origin: verifiedAlias, verifiedAt: expect.any(String) }]);
   const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
   onCleanup(() => logged.mockRestore());
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-  expect(imported.result?.failed).toHaveLength(2);
-  expect(imported.result?.reEnter).toEqual([{ label: `Forge credential for ${forge.origin}, then import again`, step: "forges" }]);
+  expect(imported.result?.failed).toEqual([
+    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
+    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
+  ]);
+  expect(imported.result?.reEnter).toEqual([{ label: `Forge credential for ${canonical}, then import again`, step: "forges" }]);
 });
 
 
