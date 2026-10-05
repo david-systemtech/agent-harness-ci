@@ -248,13 +248,16 @@ it.skipIf(!hostedOrdinaryUser).each([false, true])("an ordinary caller cancels a
   let text = "";
   let pid = 0;
   let ready!: () => void;
+  let ignored!: () => void;
+  const terminationIgnored = new Promise<void>(resolve => { ignored = resolve; });
   const started = new Promise<void>(resolve => { ready = resolve; });
   output.on("data", chunk => {
     text += String(chunk);
     const match = /privileged ready (\d+) uid=0/.exec(text);
     if (match) { pid = Number(match[1]); ready(); }
+    if (text.includes("privileged ignored termination")) ignored();
   });
-  const leaf = `import os, signal, time; ${detached ? "child = os.fork(); os._exit(0) if child else None; os.setsid();" : ""} signal.signal(signal.SIGTERM, lambda *_: None); print('privileged ready '+str(os.getpid())+' uid='+str(os.getuid()), flush=True); time.sleep(600)`;
+  const leaf = `import os, signal, time; ${detached ? "child = os.fork(); os._exit(0) if child else None; os.setsid();" : ""} signal.signal(signal.SIGTERM, lambda *_: print('privileged ignored termination', flush=True)); print('privileged ready '+str(os.getpid())+' uid='+str(os.getuid()), flush=True); time.sleep(600)`;
   const parent = `const {spawn}=require('node:child_process'); console.log('installer uid='+process.getuid()); spawn('sudo',['-n','--','python3','-c',${JSON.stringify(leaf)}],{stdio:'inherit'});`;
   const reason = new Error("Privileged installer deadline expired.");
   onTestFinished(() => { vi.useRealTimers(); controller.abort(reason); });
@@ -268,6 +271,7 @@ it.skipIf(!hostedOrdinaryUser).each([false, true])("an ordinary caller cancels a
     expect(() => process.kill(pid, "SIGKILL")).toThrow(expect.objectContaining({ code: "EPERM" }));
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     controller.abort(reason);
+    await terminationIgnored;
     await vi.advanceTimersByTimeAsync(5_000);
     await stopped;
     expect(runningProcess(pid)).toBe(false);
