@@ -150,11 +150,9 @@ platform as not run.
 
 ## Headless Linux (the install script)
 
-**Blocked until a release publishes its artefacts and a download reaches the
-box.** No release publishes the server artefacts yet (the release workflow,
-#358), and the sign-in proxy in front of `git.systemtech.dev:5526` answers a
-release download 401 (#476); until both, the script stops at the release lookup
-("no release is published on the stable channel") or at the download.
+Use a published release from the public GitHub release channel. The dry-run
+smoke below resolves public downloads without credentials; full service
+installation still needs evidence from an actual machine.
 Containers without `systemd --user` are not served by the script:
 `service install` fails there, and a container runs the image instead (the
 Container section).
@@ -198,9 +196,8 @@ versions under `~/Library/Application Support/agent-harness/versions`.
 
 ## Windows (the install script)
 
-**Not run yet, and blocked as the headless Linux section is**: no release
-publishes the artefacts yet, and the sign-in proxy answers a release download
-401 (#476). `test/install-ps1-script.test.ts` runs `install.ps1` under
+Full installation needs actual Windows evidence, separately from the public
+release's anonymous dry-run smoke. `test/install-ps1-script.test.ts` runs `install.ps1` under
 PowerShell 7 on Linux against a fake `curl.exe` and `whoami.exe`; what only a
 real Windows proves is below. Record, for each step, whether it ran under
 Windows PowerShell 5.1 (the `powershell` every Windows has) and under
@@ -351,3 +348,33 @@ Linux, macOS or Windows; the agent lane uses scripted service managers and
 runs no containers. Repeat the platform steps above with the next release,
 then copy the container recipe on a Linux host and schedule the downloaded
 updater every five minutes as docs/host-updater.md describes.
+
+## Packaged web client and phone connection (#1554)
+
+Every server archive and container contains the matching-version web client;
+no separate frontend deployment is needed. Use a release containing this work.
+The [phone guide](../phone.md) gives the exact packaged `serve --web-origin`
+and Phone/My own client/Custom pairing commands. `service install` has no
+`--web-origin` option: persistent installs read `AGENT_HARNESS_WEB_ORIGIN`
+from the service/container environment, not a later terminal export.
+
+The coordinator performs these deployment checks; builders use hosted CI.
+Record platform/version, outcomes and redacted evidence alongside the
+[web-client checklist](web-client-checklist.md):
+
+1. Verify the unpacked artefact and container output include the release's
+   static client assets. Hosted release tests prove packaging; a deployed
+   candidate must be checked separately.
+2. Configure the exact external HTTPS origin, including a non-default port.
+   Inspect existing Tailscale Serve services before choosing a free HTTPS port;
+   preserve them, proxy to the environment's loopback listener, use a valid
+   managed certificate and never enable Funnel. Verify root/assets and `/ws`.
+3. Mint `pair --preset phone`, then separately `pair --preset own-client` as
+   the environment's OS user. Links and QR must carry that HTTPS origin/port;
+   Phone grants read/session/run with `acceptEdits`, My own client keeps all
+   scopes with `bypassPermissions`, even when consumed by a phone browser.
+4. Complete the handset checklist for real provider sign-in, keyboard/safe
+   areas, Home Screen storage, background/locked push and notification taps
+   over mobile data/Tailscale. Signed receiver doubles do not prove the live
+   webhook-to-Matrix destination. Record that evidence in #1556, referencing
+   #1492 for sign-in. It is owed human evidence, not a builder or release gate.

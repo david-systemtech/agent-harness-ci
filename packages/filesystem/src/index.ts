@@ -48,14 +48,11 @@ export const removeTreeSync = (path: string, remove: (path: string, options: { r
 };
 
 
-/** Room left for migrations and writes beyond the database snapshot. */
-export const SNAPSHOT_MARGIN_BYTES = 256 * 1024 * 1024;
-
 /** Main, WAL and shm copies plus the reserve on their destination volume. */
-export const snapshotNeeds = (dataDir: string, databaseFile: string): number =>
+export const snapshotNeeds = (dataDir: string, databaseFile: string, reserveBytes: number): number =>
   [databaseFile, `${databaseFile}-wal`, `${databaseFile}-shm`].reduce(
     (bytes, name) => bytes + (statSync(join(dataDir, name), { throwIfNoEntry: false })?.size ?? 0),
-    SNAPSHOT_MARGIN_BYTES,
+    reserveBytes,
   );
 
 /** Conservative allocation for a copied tree; links are copied, never followed. */
@@ -66,9 +63,9 @@ export const treeCopyBytes = (path: string, blockSize: number): number => {
 };
 
 /** Refuses a copy before it spends the room activation needs on the same volume. */
-export const requireCopyRoom = (source: string, dataDir: string, databaseFile: string): void => {
+export const requireCopyRoom = (source: string, dataDir: string, databaseFile: string, reserveBytes: number): void => {
   const disk = statfsSync(dataDir);
-  const needed = treeCopyBytes(realpathSync(source), disk.bsize) + snapshotNeeds(dataDir, databaseFile);
+  const needed = treeCopyBytes(realpathSync(source), disk.bsize) + snapshotNeeds(dataDir, databaseFile, reserveBytes);
   const free = disk.bavail * disk.bsize;
   if (free < needed) throw new Error(`Not enough disk space: staging and the database snapshot need ${needed} bytes, but only ${free} bytes are free. Free space and try again.`);
 };

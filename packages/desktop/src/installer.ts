@@ -1,8 +1,8 @@
 import { requireCopyRoom } from "@agent-harness/filesystem";
-import { readFile } from "node:fs/promises";
+import { readFile, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { ShellBundledServer, ShellInstaller } from "@agent-harness/client-runtime";
-import { ARTEFACT_CLI_PACKAGE, compareReleaseVersions, DATABASE_FILE, RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
+import { ARTEFACT_CLI_PACKAGE, compareReleaseVersions, DATABASE_FILE, INSTALL_RESERVE_BYTES, RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
 
 /**
  * The shell's `installer` (launcher-update spec, "The desktop moves with its
@@ -13,6 +13,11 @@ import { ARTEFACT_CLI_PACKAGE, compareReleaseVersions, DATABASE_FILE, RELEASE_VE
 
 /** The installer of a desktop carrying the artefact unpacked at `server`; one carrying none (`undefined`) answers null. */
 export const bundledInstaller = (server: string | undefined, environmentDir?: string): ShellInstaller => ({
+  async reserveSpace() {
+    if (environmentDir === undefined) throw new Error("No local environment data directory is configured.");
+    const { bavail, bsize } = await statfs(environmentDir);
+    return { availableBytes: bavail * bsize, requiredBytes: INSTALL_RESERVE_BYTES };
+  },
   async bundledServer(): Promise<ShellBundledServer | null> {
     if (server === undefined) return null;
     const file = join(server, ...ARTEFACT_CLI_PACKAGE);
@@ -29,7 +34,7 @@ export const bundledInstaller = (server: string | undefined, environmentDir?: st
     const active = state?.activeVersion;
     // Older running releases cannot budget their bundled copy; the new desktop must do so before handoff.
     if (environmentDir !== undefined && state !== undefined && (typeof active !== "string" || !RELEASE_VERSION_PATTERN.test(active) || compareReleaseVersions(version, active) > 0)) {
-      requireCopyRoom(server, environmentDir, DATABASE_FILE);
+      requireCopyRoom(server, environmentDir, DATABASE_FILE, INSTALL_RESERVE_BYTES);
     }
     return { version, path: server };
   },

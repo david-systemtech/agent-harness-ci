@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { cp, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { ARTEFACT_CLI_ENTRY, ARTEFACT_CLI_PACKAGE, artefactNode, DATABASE_FILE } from "@agent-harness/contracts";
+import { ARTEFACT_CLI_ENTRY, ARTEFACT_CLI_PACKAGE, artefactNode, DATABASE_FILE, INSTALL_RESERVE_BYTES } from "@agent-harness/contracts";
 import { stagingArea } from "../serve/launcher-files.js";
 
 /**
@@ -135,7 +135,7 @@ export const stageArtefact = async (options: {
   mkdirSync(area, { recursive: true, mode: 0o700 });
   if (shape === "folder") {
     try {
-      requireCopyRoom(artefact, dataDir, DATABASE_FILE);
+      requireCopyRoom(artefact, dataDir, DATABASE_FILE, INSTALL_RESERVE_BYTES);
     } catch (cause) {
       throw new StagingError("unusable", cause instanceof Error ? cause.message : String(cause), { cause });
     }

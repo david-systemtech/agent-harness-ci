@@ -1,4 +1,5 @@
 import { statfsSync, writeFileSync } from "node:fs";
+import { readFile, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
 import { DATABASE_FILE } from "@agent-harness/contracts/launcher";
@@ -13,6 +14,11 @@ vi.mock("node:fs", async (original) => {
 });
 afterEach(() => { cleanUp(); vi.mocked(statfsSync).mockReset(); });
 
+vi.mock("node:fs/promises", async (original) => {
+  const fs = await original<{ readFile: typeof readFile; statfs: typeof statfs }>();
+  return { ...fs, statfs: vi.fn(fs.statfs) };
+});
+
 /**
  * The shell's `installer` (launcher-update spec, "The desktop moves with its
  * local environment"): the server artefact the desktop carries, which the
@@ -26,6 +32,17 @@ const carrying = (os: ShellPlatform, server: string) => {
 };
 
 describe("installer", () => {
+  it("reports space available to the user on the environment data volume, with the launcher reserve, through the shell", async () => {
+    const platform = platformOn("darwin");
+    const { shell } = await start({ platform });
+    vi.mocked(statfs).mockImplementationOnce(async (path) => ({
+      type: 0, bsize: 4096, frsize: 4096, blocks: 100000, bfree: 65536,
+      bavail: path === platform.paths.environment ? 48795 : 0, files: 0, ffree: 0,
+    }));
+    expect(await shell().installer.reserveSpace!()).toEqual({ availableBytes: 199864320, requiredBytes: 268435456 });
+  });
+
+
   it("refuses handing a bundle to an older installed environment before that environment can consume the snapshot reserve", async () => {
     const artefact = fakeArtefact("linux");
     const { shell, platform } = await carrying("linux", artefact.root);

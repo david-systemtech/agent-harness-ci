@@ -233,7 +233,7 @@ describe("the shell interface", () => {
     expectTypeOf<keyof ShellUpdate>().toEqualTypeOf<"current" | "apply">();
     expectTypeOf<Parameters<ShellUpdate["apply"]>>().toEqualTypeOf<[staged: ShellStagedBuild, when: "now" | "quit"]>();
     expectTypeOf<Awaited<ReturnType<ShellUpdate["current"]>>["format"]>().toEqualTypeOf<string | null>();
-    expectTypeOf<keyof ShellInstaller>().toEqualTypeOf<"bundledServer">();
+    expectTypeOf<keyof ShellInstaller>().toEqualTypeOf<"bundledServer" | "reserveSpace">();
     expectTypeOf<Awaited<ReturnType<ShellInstaller["bundledServer"]>>>().toEqualTypeOf<{ readonly version: string; readonly path: string } | null>();
   });
 
