@@ -7,9 +7,12 @@
 }
 
 /* Forms retain their reading width; collections use all of the pane. */
-[data-settings-pane] > * { max-width: 768px; }
+[data-settings-pane] > *,
+[data-settings-pane] :is(section, [role="group"]) { max-width: 768px; }
 [data-settings-pane] > [data-settings-card-grid],
-[data-settings-pane] > :has([data-settings-card-grid]) { max-width: none; }
+[data-settings-pane] > :has([data-settings-card-grid]),
+[data-settings-pane] :is(section, [role="group"]):has([data-settings-card-grid]),
+[data-settings-pane] [data-settings-card-grid] > * { max-width: none; }
 [data-settings-pane] :is(form, [data-bank-form], [data-account-sign-in]) {
   max-width: 768px;
 }

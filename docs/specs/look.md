@@ -889,9 +889,10 @@ Unknown stored/deep-linked row follows registry fallback to Set up.
 ### 12.2 Body and building blocks
 
 Selected body scrolls independently; content fills the available pane, x 24/y 20.
-Single forms and groups retain a 768px maximum reading width. Card collections
+Single forms and groups retain a 768px maximum reading width, including nested
+non-collection groups in panes that also hold card grids. Card collections
 (machines, banks, accounts, key managers, forges, routines, skill sources and
-members, usage, instructions and client sessions) use a responsive grid, gap 14,
+members, repository trust records, usage, instructions and client sessions) use a responsive grid, gap 14,
 with as many equal columns as fit a 26rem minimum card width. Below that minimum,
 a card fills the available width; long facts wrap and controls fit their card.
 At the default text size, 1400×900 shows two 541px cards per row, while

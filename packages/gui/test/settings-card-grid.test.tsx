@@ -15,7 +15,7 @@ it.each([
   ["settings-key-managers", "[data-access-card]"],
   ["settings-forges", "[data-access-card]"],
   ["settings-routines", "[data-routine-card]"],
-  ["settings-skills", 'section[aria-label="review"], section[aria-label^="https://git.example.test/team/"]'],
+  ["settings-skills", 'section[aria-label="review"], section[aria-label^="https://git.example.test/team/"], section[aria-label^="Trusted:"], section[aria-label^="Declined:"]'],
   ["settings-usage", 'ul[aria-label="Accounts"]'],
   ["settings-access", 'ul[aria-label="Client sessions"] > li'],
 ] as const)("%s puts its records in a responsive collection, leaving forms outside", async (name, selector) => {
