@@ -325,12 +325,19 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
    and exit times so retry checks survivors even after the scheduled action
    has stopped. Successful cleanup removes that record. If a recorded identity
    cannot be verified, cleanup keeps the registration instead of guessing which
-   process to stop. If a recorded process was ended outside cleanup, including
-   by a reboot, confirm the environment port is closed and all recorded processes
-   have stopped. Then delete `service-stop.json` from the data directory and
-   retry uninstall. A descendant that exits before its handle is captured is
-   not recorded and does not require this recovery. Reinstall enables the task
-   again but does not clear an unfinished cleanup record.
+   process to stop. Keep the desktop closed and the task disabled. If the
+   environment still serves, reboot: this ends the recorded processes without
+   finding and ending launcher/server processes by hand. After reboot the
+   original recorded processes are gone, even if their PIDs have been reused;
+   an identity includes both PID and UTC start time, so do not end another
+   process just because its PID appears in the record. Confirm the environment
+   port is closed, then delete `service-stop.json` from the data directory
+   **before reinstalling or starting the app**, and retry uninstall.
+   If you already reinstalled and the environment is serving again, retry
+   uninstall to disable the current task, then follow the reboot and record
+   removal steps above before opening the desktop. Reinstall enables the task
+   again but does not clear an unfinished cleanup record. A descendant that
+   exits before its handle is captured is not recorded and needs no recovery.
    The hosted release smoke starts the installed task before uninstall and
    checks launcher/server exit, port closure, task removal, data retention
    and an unrelated Node process staying alive. Its temporary user's batch
