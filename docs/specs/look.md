@@ -726,6 +726,15 @@ mode remains legible. Unavailable stored model/mode amber with reason; absent
 capability is a disabled chip with explanatory tooltip. Live cyan dot; pending
 asks cyan question/amber permission with count; settled state absent.
 
+Below 640px, the Mode chip opens a mode-only bottom sheet bounded by the
+visual viewport, including keyboard height. Each 44px-or-larger row wraps its
+label and description, marks the current selection, and disables modes above
+the connection ceiling with its existing reason. Close stays visible while
+only the choices scroll; focus is trapped and restored. An allowed selection
+sends the existing mode command once and closes only on success. A failure
+stays visible with retry guidance and retains the current value. Dismissal
+keeps the draft, session and conversation scroll; the desktop menu remains.
+
 Rings encode **used** share.24px wrapper,36×36 drawing grid, stroke 4,
 start−90°, number fixed 9px (8px at 100), no percent glyph. Mint below 75%, amber
 at 75%, signal at 90%; tint 12% disc. Unknown reading dash and empty track;
@@ -1208,6 +1217,10 @@ search keyboard. Keep results scrolling internally, with Close, New session and
 footer actions above the keyboard. Restore focus with no document scroll on
 close or result selection. Hosted long-results evidence keeps a tall layout
 while visual height shrinks to 480 and offsetTop becomes 120, including text 20.
+
+The Mode bottom sheet follows §10.5: one labelled choice per row, current
+selection and disabled ceiling reason, a fixed Close header and a scrolling
+choice list. It traps/restores focus without moving the conversation dock.
 
 Keep abyss/panel/float/hairline tokens, rounded human controls and square
 machine output wells, the icon names, focus and contrast. Phone preset text
