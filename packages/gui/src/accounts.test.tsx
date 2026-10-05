@@ -55,6 +55,47 @@ const reading = (accountId: string, fiveHour: number, week: number, observedAt =
   unavailableReason: null,
 });
 
+describe("provider sign-in attendance", () => {
+  it("offers an account signed in elsewhere and starts only the chosen environment's own flow", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "Personal", identity: MILO }] }, laptop: { accounts: [] } });
+    const accounts = await openRow(app, "Accounts", "laptop");
+    const offer = await within(accounts).findByRole("group", { name: "milo@example.test on desk" });
+    await app.user.click(within(offer).getByRole("button", { name: "Sign in this account here too" }));
+    await within(accounts).findByRole("region", { name: "Sign in: Personal on laptop" });
+    expect(app.environment("laptop").requests("accounts.add").map(request => request.params)).toEqual([expect.objectContaining({ label: "Personal" })]);
+    expect(app.environment("laptop").requests("accounts.add").map(request => Object.keys(request.params).sort())).toEqual([["commandId", "label"]]);
+    expect(app.environment("desk").requests("accounts.add")).toEqual([]);
+    expect(app.environment("desk").requests("accounts.signin.start")).toEqual([]);
+    expect(within(accounts).getByText(/Choose milo@example.test on the provider page/)).toBeDefined();
+  });
+
+  it("shows the manual URL as a QR, refuses malformed and wrong-state codes, and submits the clipboard code in one tap", async () => {
+    const app = await opened({ laptop: { accounts: [{ label: "Travel", status: { state: "signed-out", checkedAt: null, detail: null } }] } });
+    const accounts = await openRow(app, "Accounts", "laptop");
+    await app.user.click(within(await within(accounts).findByRole("region", { name: "Travel" })).getByRole("button", { name: "Sign in again" }));
+    const signing = await within(accounts).findByRole("region", { name: "Sign in: Travel on laptop" });
+    const laptop = app.environment("laptop");
+    laptop.signIn("awaiting-code", { url: "https://provider.example.test/oauth/authorize?state=state-for-tests" });
+    expect(await within(signing).findByRole("img", { name: "QR code of the provider sign-in page" })).toBeDefined();
+    const code = within(signing).getByRole("textbox", { name: "Then paste the code it shows" });
+    await app.user.type(code, "not-a-code{Enter}");
+    expect(await within(signing).findByRole("alert")).toHaveProperty("textContent", "Paste the full code from the provider page (code#state).");
+    expect(laptop.requests("accounts.signin.code")).toHaveLength(0);
+    await app.user.clear(code);
+    await app.user.type(code, "code-for-tests#another-state{Enter}");
+    expect(await within(signing).findByRole("alert")).toHaveProperty("textContent", "This code belongs to another sign-in. Copy the code from this sign-in page.");
+    expect(laptop.requests("accounts.signin.code")).toHaveLength(0);
+    app.shell.answer("clipboard.readText", async () => { throw new Error("denied"); });
+    await app.user.click(within(signing).getByRole("button", { name: "Paste code from clipboard" }));
+    expect(await within(signing).findByText("Clipboard access was refused. Paste the code into the field instead.")).toBeDefined();
+    expect(laptop.requests("accounts.signin.code")).toHaveLength(0);
+    app.shell.answer("clipboard.readText", async () => "  code.for+tests/=#state-for-tests\n");
+    await app.user.click(within(signing).getByRole("button", { name: "Paste code from clipboard" }));
+    await waitFor(() => expect(laptop.requests("accounts.signin.code").map(request => request.params)).toEqual([expect.objectContaining({ code: "code.for+tests/=#state-for-tests" })]));
+    expect(app.environment("desk").requests("accounts.signin.code")).toHaveLength(0);
+  });
+});
+
 describe("Accounts", () => {
   it("lists the picked environment's accounts from accounts.list, each with its label, identity, status, plan reading and directory", async () => {
     const app = await opened({
@@ -70,11 +111,11 @@ describe("Accounts", () => {
     const accounts = await openRow(app, "Accounts");
 
     const personal = await within(accounts).findByRole("region", { name: "personal" });
-    await waitFor(() => expect(facts(personal)["Plan"]).toBe("5hr 42% · Week 10%"));
+    await waitFor(() => expect(facts(personal)["Plan"]).toBe("5-hour 42% · Weekly 10%"));
     expect(facts(personal)).toEqual({
       Identity: "milo@example.test",
       Status: "signed in",
-      Plan: "5hr 42% · Week 10%",
+      Plan: "5-hour 42% · Weekly 10%",
       Directory: "/home/milo/.account-1, adopted in place",
     });
     expect(facts(within(accounts).getByRole("region", { name: "work" }))).toEqual({
@@ -143,8 +184,8 @@ describe("Accounts", () => {
     await within(signing).findByRole("button", { name: "Copy terminal command" });
     await app.user.click(within(signing).getByRole("button", { name: "Copy terminal command" }));
     expect(app.shell.calls.filter(([member]) => member === "clipboard.writeText").at(-1)?.slice(1)).toEqual([within(signing).getByRole("region", { name: "Terminal fallback" }).querySelector("code")?.textContent]);
-    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests{Enter}");
-    await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests" })]));
+    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
+    await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests#for-tests" })]));
     desk.signIn("done");
     expect(await within(accounts).findByText("personal is signed in on desk.")).toBeDefined();
     expect(within(signing).getByRole("button", { name: "Done" })).toBeDefined();
@@ -477,6 +518,21 @@ const pooled = (gauge: HTMLElement) =>
     .map((row) => row.textContent);
 
 describe("Usage", () => {
+  it("shows an unknown limit once by a human name in settings, with its share and no ring", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal", identity: MILO }] } });
+    const at = "2026-09-30T10:00:00.000Z";
+    const known = reading("account-1", 0.42, 0.1, at);
+    app.environment("desk").setUsage([{ ...known, windows: [...known.windows,
+      { window: "iguana_necktie", utilisation: 0.37, resetsAt: null, verdict: null, observedAt: at },
+    ] }]);
+    const usage = await openRow(app, "Usage");
+    const gauge = await within(usage).findByRole("region", { name: "milo@example.test" });
+    expect(within(gauge).getAllByText("Other limit")).toHaveLength(1);
+    expect(within(gauge).getByText("37%")).toBeTruthy();
+    expect(within(gauge).queryByRole("img", { name: /Other limit/ })).toBeNull();
+    expect(gauge.outerHTML).not.toMatch(/iguana[_ ]necktie/);
+  });
+
   it("shows every gauge pooled by account identity across every environment, with the accounts and environments in each, and an unreachable environment's readings as last read", async () => {
     const work: AccountIdentity = { provider: "claude", email: "work@example.test", organisation: "Example" };
     const app = await opened({
@@ -496,7 +552,7 @@ describe("Usage", () => {
 
     const milo = await within(usage).findByRole("region", { name: "milo@example.test" });
     await waitFor(() => expect(pooled(milo)).toEqual(["personal on desk", "laptop milo on laptop"]));
-    expect(windows(milo)).toEqual([expect.stringMatching(/^5-hour 50 50%, resets \d\d:\d\d$/), "Week 20 20%"]);
+    expect(windows(milo)).toEqual([expect.stringMatching(/^5-hour 50 50%, resets \d\d:\d\d$/), "Weekly 20 20%"]);
     expect(windows(within(usage).getByRole("region", { name: "work@example.test" }))).toEqual(["5-hour 95 95% out"]);
     const unread = within(usage).getByRole("region", { name: "An account never read" });
     expect(pooled(unread)).toEqual(["spare on desk"]);
@@ -512,7 +568,7 @@ describe("Usage", () => {
     laptop.server.drop();
     expect(await within(usage).findByText(/^laptop: Unreachable since \d\d:\d\d: its readings as this window last read them\.$/)).toBeDefined();
     expect(pooled(within(usage).getByRole("region", { name: "milo@example.test" }))).toEqual(["personal on desk", "laptop milo on laptop"]);
-    expect(windows(within(usage).getByRole("region", { name: "milo@example.test" }))[1]).toBe("Week 20 20%");
+    expect(windows(within(usage).getByRole("region", { name: "milo@example.test" }))[1]).toBe("Weekly 20 20%");
   });
 
   it("says when no account has a plan reading yet", async () => {

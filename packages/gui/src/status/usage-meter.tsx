@@ -1,4 +1,4 @@
-import { elapsedClock, gaugeOf, gaugeWho, NO_PLAN_READING, NO_WINDOWS_READ, readingsOf, type UsageGauge, type UsageView } from "@agent-harness/client-runtime";
+import { elapsedClock, gaugeOf, gaugeWho, meterReadingsOf, NO_PLAN_READING, NO_WINDOWS_READ, readingsOf, type UsageGauge, type UsageView } from "@agent-harness/client-runtime";
 import { Gauge, RefreshCw } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
 import { Button, Popover, PopoverContent, PopoverTrigger, Tooltip } from "../ui/index.js";
@@ -10,7 +10,7 @@ export const UsageMeter = ({ environmentId, accountId }: { readonly environmentI
   const runtime = useRuntime();
   const usage = useObservable(runtime.projections.usage);
   const gauge = gaugeOf(usage.gauges, environmentId, accountId);
-  const readings = readingsOf(gauge);
+  const readings = meterReadingsOf(gauge);
   const [open, setOpen] = useState(false);
   const refresh = () => {
     for (const id of new Set([environmentId, ...(gauge?.accounts.map((account) => account.environmentId) ?? [])])) runtime.requests.refresh(id, "accounts.usage", {});

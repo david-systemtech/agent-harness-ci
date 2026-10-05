@@ -56,6 +56,13 @@ const useQuietCalls = (projection: SessionProjection): ((toolCallId: string) => 
   return (toolCallId) => quietFor(current, toolCallId, now);
 };
 
+/** Native web transcript selection is reading, even when its handles scroll at the end. */
+const selectedIn = (element: HTMLElement): boolean => {
+  const selection = element.ownerDocument.getSelection();
+  return element.closest("[data-web-client]") !== null && selection !== null && !selection.isCollapsed
+    && element.contains(selection.anchorNode) && element.contains(selection.focusNode);
+};
+
 /**
  * Following the end: the scroll box kept at its end as what it holds grows,
  * until the reader scrolls up (a scroll that moved up, not merely one short of
@@ -89,6 +96,7 @@ const useFollow = () => {
       if (following.current) toEnd();
     });
     observer.observe(content);
+    if (box.current) observer.observe(box.current);
     return () => observer.disconnect();
   }, [toEnd]);
 
@@ -98,7 +106,7 @@ const useFollow = () => {
     const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight < AT_END_PX;
     const movedUp = element.scrollTop < lastTop.current;
     lastTop.current = element.scrollTop;
-    if (atEnd) following.current = true;
+    if (atEnd && !selectedIn(element)) following.current = true;
     else if (movedUp) following.current = false;
     setAway(!following.current);
   }, []);
@@ -109,11 +117,29 @@ const useFollow = () => {
     toEnd();
   }, [toEnd]);
 
-  /** Stops following the end, as a scroll up does: David was taken somewhere to read. */
+  useEffect(() => {
+    const pane = box.current?.closest("[data-dock-owner]");
+    if (!pane) return;
+    pane.addEventListener("phone-composer-fit", jump);
+    return () => pane.removeEventListener("phone-composer-fit", jump);
+  }, [jump]);
+
+  /** Stops following the end when the reader is taken somewhere to read. */
   const stop = useCallback(() => {
     following.current = false;
     setAway(true);
   }, []);
+
+  // Native selection is reading too. Keep the OS menu and handles intact; only pause following.
+  useEffect(() => {
+    const element = box.current;
+    if (!element?.closest("[data-web-client]")) return;
+    const selected = () => {
+      if (selectedIn(element)) stop();
+    };
+    element.ownerDocument.addEventListener("selectionchange", selected);
+    return () => element.ownerDocument.removeEventListener("selectionchange", selected);
+  }, [stop]);
 
   return { box, column, away, onScroll, jump, stop };
 };
@@ -130,9 +156,10 @@ const useReveal = (follow: { readonly column: RefObject<HTMLDivElement | null>; 
     const call = [...(column.current?.querySelectorAll<HTMLElement>("[data-tool-call]") ?? [])].find((element) => element.dataset["toolCall"] === revealed.toolCallId);
     if (call === undefined) return;
     stop();
-    // jsdom has no scrolling into view; a window does.
-    if (typeof call.scrollIntoView === "function") call.scrollIntoView({ block: "center" });
-    call.focus();
+    // Reveal only within the transcript; ancestor scrolling can pan the phone shell.
+    const scroller = column.current?.parentElement;
+    if (scroller) scroller.scrollTop += call.getBoundingClientRect().top - scroller.getBoundingClientRect().top - (scroller.clientHeight - call.clientHeight) / 2;
+    call.focus({ preventScroll: true });
   }, [column, stop, revealed]);
 };
 
@@ -173,7 +200,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   return (
     <KeyContext context="transcript" conditions={find.conditions}>
       <FindKeys find={find} />
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div data-transcript-region className="relative flex min-h-0 flex-1 flex-col">
         <section
           aria-label="Transcript"
           ref={follow.box}
@@ -202,7 +229,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
           </div>
         </section>
         {follow.away && (
-          <Button size="xs" variant="outline" title="Jump to the latest (Enter or Space)" onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float shadow-lg shadow-scrim/40">
+          <Button data-transcript-jump size="xs" variant="outline" title="Jump to the latest (Enter or Space)" onClick={follow.jump} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line-strong bg-float shadow-lg shadow-scrim/40">
             <ArrowDown aria-hidden="true" className="size-3" />Jump to the latest
           </Button>
         )}

@@ -1,19 +1,21 @@
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { adminCall, clientLocalImportValues, uuidv7 } from "@agent-harness/client-runtime";
 import type { StateImportHoldings, StateImportReport } from "@agent-harness/contracts";
-import { Download, ScanSearch } from "lucide-react";
+import { ArrowRight, Download, ScanSearch } from "lucide-react";
 import { CountGrid } from "./count-grid.js";
 import { useMemo, useState } from "react";
 import { TEXT_SIZE_LEAST, TEXT_SIZE_MOST } from "../presentation.js";
+import { useChecklist } from "../setup/checklist-window.js";
 import { Button } from "../ui/index.js";
 import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { StateImportResult } from "./state-import-report.js";
 
 /** The state import is offered only when the environment serves it and finds a source folder (ADR 0036). */
-export const StateImportSection = ({ environmentId }: { readonly environmentId: string }) => {
+export const StateImportSection = ({ environmentId, needsRepair }: { readonly environmentId: string; readonly needsRepair: boolean }) => {
   const runtime = useRuntime();
   useObservable(runtime.projections.environments);
   return runtime.capability(environmentId, "stateImport").status === "present"
-    ? <DetectedStateImport key={environmentId} environmentId={environmentId} />
+    ? <DetectedStateImport key={environmentId} environmentId={environmentId} needsRepair={needsRepair} />
     : null;
 };
 
@@ -22,8 +24,9 @@ const Holdings = ({ holds }: { readonly holds: StateImportHoldings }) => (
   <CountGrid label="Source holdings" rows={[["Profiles", foundCount(holds.profiles)], ["Banks", foundCount(holds.banks)], ["Routines", foundCount(holds.routines)], ["Instructions", foundCount(holds.instructions)], ["Skill sources", foundCount(holds.skillSources)], ["Connections", foundCount(holds.connections)]]} />
 );
 
-const DetectedStateImport = ({ environmentId }: { readonly environmentId: string }) => {
+const DetectedStateImport = ({ environmentId, needsRepair }: { readonly environmentId: string; readonly needsRepair: boolean }) => {
   const runtime = useRuntime();
+  const { choose } = useChecklist();
   const found = useObservable(useMemo(() => runtime.requests.cached(environmentId, "stateImport.detect", {}), [runtime, environmentId]));
   const clock = useClock();
   const [report, setReport] = useState<StateImportReport | undefined>(undefined);
@@ -65,7 +68,14 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
         </>
       )}
       {detection.terminalFolder !== null && <p className="text-sm text-ink-muted">Terminal-client state folder: {detection.terminalFolder.path}</p>}
-      {admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
+      {needsRepair && <>
+        <p className="text-sm text-ink-muted">Provider sign-in does not grant access to private skill repositories. Add or repair their credentials in Forges; restore missing exact skill names in Skills, then import again. For SSH sources without a forge account, check this environment machine's SSH keys and known-hosts entry. Accounts and sessions already carried are kept.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" title="Open Forges · Tab, Enter or Space" onClick={() => choose("forges")}><ArrowRight aria-hidden="true" />Open Forges</Button>
+          <Button variant="outline" title="Open Skills · Tab, Enter or Space" onClick={() => choose("skills")}><ArrowRight aria-hidden="true" />Open Skills</Button>
+        </div>
+      </>}
+      {admin.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" title="Dry run · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(true)}><ScanSearch aria-hidden="true" />Dry run</Button>
         <Button variant="default" title="Import · Tab, Enter or Space" disabled={busy || admin.status === "absent"} onClick={() => void run(false)}><Download aria-hidden="true" />Import</Button>

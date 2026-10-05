@@ -101,6 +101,10 @@ const eventLine = (event: Pick<EventEnvelope, "type" | "payload">, labelOf: (cli
       const read = payloadOf(type.data, event.payload);
       return read && `${labelOf(read.clientSessionId)} was granted ${scopesWords(read.granted)}.`;
     }
+    case "access.changed": {
+      const read = payloadOf(type.data, event.payload);
+      return read && `${labelOf(read.clientSessionId)}'s access changed from ${scopesWords(read.from.scopes)} up to ${read.from.ceiling} to ${scopesWords(read.to.scopes)} up to ${read.to.ceiling}.`;
+    }
     case "ceiling.changed": {
       const read = payloadOf(type.data, event.payload);
       return read && `${labelOf(read.clientSessionId)}'s ceiling went from ${read.from} to ${read.to}.`;

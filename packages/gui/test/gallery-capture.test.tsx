@@ -182,3 +182,20 @@ it.each(["Send", "Allow once", "Continue"])("rejects a hidden %s action even whe
   button.style.visibility = "visible";
   expect(measureSceneGeometry()).toEqual([]);
 });
+
+it("rejects a visible decision that an overlay intercepts", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "button", hitTestable: true }]);
+  root.innerHTML = '<button><span>Send answers</span></button><div data-cover></div>';
+  document.body.append(root);
+  const button = root.querySelector("button")!;
+  vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 40, 120, 32));
+  const hit = vi.fn(() => root.querySelector("[data-cover]"));
+  Object.defineProperty(document, "elementFromPoint", { configurable: true, value: hit });
+  expect(measureSceneGeometry()).toEqual(["button[0]: not hit-testable at its centre"]);
+  hit.mockReturnValue(button.querySelector("span"));
+  expect(measureSceneGeometry()).toEqual([]);
+  hit.mockReturnValue(null);
+  expect(measureSceneGeometry()).toHaveLength(1);
+});

@@ -1,7 +1,41 @@
-import { Check, Cpu } from "lucide-react";
-import { useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, Check, Cpu } from "lucide-react";
+import { useCallback, useEffect, useRef, useSyncExternalStore, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
 import { classes } from "../ui/classes.js";
-import { MenuItem, MenuLabel } from "../ui/index.js";
+import { Button, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "../ui/index.js";
+
+/** A bottom sheet can cover its trigger: open after release so that release cannot select a row. */
+export const RunPickerTrigger = ({ sheet, openSheet, ...props }: ComponentProps<typeof MenuTrigger> & { readonly sheet: boolean; readonly openSheet: () => void }) =>
+  <MenuTrigger {...props} asChild onPointerDown={event => {
+    props.onPointerDown?.(event);
+    if (sheet) event.preventDefault();
+  }} onClick={event => {
+    props.onClick?.(event);
+    if (sheet && !event.defaultPrevented) openSheet();
+  }} />;
+
+/** Portal bounds belong to the sheet's wrapper: the conversation frame is not its ancestor. */
+export const RunPickerContent = ({ sheet, ...props }: Omit<ComponentProps<typeof MenuContent>, "ref"> & { readonly sheet: boolean }) => {
+  const fit = useCallback((content: HTMLDivElement | null) => {
+    const wrapper = content?.closest<HTMLElement>("[data-radix-popper-content-wrapper]");
+    const viewport = window.visualViewport;
+    if (!sheet || !wrapper || !viewport) return;
+    const resize = () => {
+      wrapper.style.setProperty("--run-sheet-height", `${viewport.height}px`);
+      wrapper.style.setProperty("--run-sheet-width", `${viewport.width}px`);
+      wrapper.style.setProperty("--run-sheet-top", `${viewport.offsetTop}px`);
+      wrapper.style.setProperty("--run-sheet-left", `${viewport.offsetLeft}px`);
+    };
+    resize();
+    viewport.addEventListener("resize", resize);
+    viewport.addEventListener("scroll", resize);
+    return () => {
+      viewport.removeEventListener("resize", resize);
+      viewport.removeEventListener("scroll", resize);
+      for (const name of ["height", "width", "top", "left"]) wrapper.style.removeProperty(`--run-sheet-${name}`);
+    };
+  }, [sheet]);
+  return <MenuContent {...props} ref={fit} data-run-sheet={sheet ? "" : undefined} />;
+};
 
 /** Rows keep the popup open while a dependent choice is made. */
 export const RunChoiceRow = ({ label, note, under, selected, dim, primary, machine, icon: Icon, onSelect }: {
@@ -63,3 +97,23 @@ export const RunPickerColumn = ({ name, narrow, activeColumn, showEffortWithMode
     <MenuLabel className="px-4 py-2">{name}</MenuLabel>
     <div data-run-list className="max-h-[320px] overflow-y-auto p-1.5">{children}</div>
   </div>;
+
+/** One dependency at a time, with focus following the visible list after a step changes. */
+export const RunPickerSteps = ({ stage, effort, change }: {
+  readonly stage: RunStage; readonly effort: boolean; readonly change: (stage: RunStage) => void;
+}) => {
+  const steps = useRef<HTMLDivElement>(null);
+  const previous = useRef(stage);
+  useEffect(() => {
+    if (previous.current === stage) return;
+    previous.current = stage;
+    steps.current?.parentElement?.querySelector<HTMLElement>(`[data-run-column="${stage}"] input, [data-run-column="${stage}"] [role="menuitem"]:not([data-disabled])`)?.focus();
+  }, [stage]);
+  const back = stage === "Effort" ? "Models" : "Accounts";
+  const next = stage === "Accounts" ? "Models" : stage === "Models" && effort ? "Effort" : undefined;
+  return <div ref={steps} role="group" aria-label="Steps" data-run-column="Steps" className="flex min-w-0 items-center justify-between gap-2 border-b border-hairline p-1.5">
+    {stage !== "Accounts" && <Button aria-label={`Back: ${back}`} onClick={() => change(back)}><ArrowLeft aria-hidden="true" />Back</Button>}
+    <span className="text-xs text-ink-muted">{stage}</span>
+    {next !== undefined && <Button aria-label={`Next: ${next}`} onClick={() => change(next)}>Next<ArrowRight aria-hidden="true" /></Button>}
+  </div>;
+};

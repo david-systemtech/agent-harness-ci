@@ -1,3 +1,4 @@
+import { usageWindowLabel } from "@agent-harness/contracts";
 import type { AccountUsage, HandoffBasis, UsageWindow } from "@agent-harness/contracts";
 
 /**
@@ -56,9 +57,9 @@ export interface HandoffThreshold {
  * (metered apart, and its exhaustion takes one model rather than the account).
  */
 export const DEFAULT_HANDOFF_THRESHOLDS: readonly HandoffThreshold[] = [
-  { id: "five_hour", label: "5-hour", at: 0.9, match: { kind: "window", window: "five_hour" } },
-  { id: "seven_day", label: "weekly", at: 0.98, match: { kind: "window", window: "seven_day" } },
-  { id: "fable", label: "Fable", at: 0.95, match: { kind: "model", name: "fable" } },
+  { id: "five_hour", label: usageWindowLabel("five_hour"), at: 0.9, match: { kind: "window", window: "five_hour" } },
+  { id: "seven_day", label: usageWindowLabel("seven_day"), at: 0.98, match: { kind: "window", window: "seven_day" } },
+  { id: "fable", label: usageWindowLabel("model_scoped:Fable"), at: 0.95, match: { kind: "model", name: "fable" } },
 ];
 
 /**

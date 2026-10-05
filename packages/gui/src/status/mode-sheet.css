@@ -1,0 +1,10 @@
+/* Shared run-sheet portal positioning supplies the visual viewport bounds. */
+[data-run-sheet].phone-mode-sheet { overflow: hidden; }
+[data-mode-sheet] { display: flex; flex-direction: column; max-height: inherit; font-size: max(16px, 1rem); }
+.mode-sheet-header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--hairline); }
+.mode-sheet-header button { min-height: 44px; min-width: 44px; font-size: inherit; }
+.mode-sheet-choices { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
+.mode-sheet-choice { display: flex; width: 100%; min-height: 44px; min-width: 44px; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 6px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.mode-sheet-choice[aria-pressed="true"] { background: var(--wash); }
+.mode-sheet-choice:disabled { opacity: 0.6; }
+.mode-sheet-choice:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }

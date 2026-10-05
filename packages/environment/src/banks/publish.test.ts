@@ -122,11 +122,14 @@ it("refuses publication while a local landing is held without creating a remote 
   const gate = tempDir();
   const ready = join(gate, "ready");
   const release = join(gate, "release");
-  execFileSync("mkfifo", [release]);
+  // Hold the reader after readiness so release can arrive before it starts reading.
+  const reader = join(gate, "reader");
+  execFileSync("mkfifo", [release, reader]);
+  const readerDescriptor = openSync(reader, constants.O_RDWR | constants.O_NONBLOCK);
   const descriptor = openSync(release, constants.O_RDWR | constants.O_NONBLOCK);
   const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
   const wrapper = join(gate, "git");
-  writeFileSync(wrapper, `#!/bin/sh\nfor arg do\n  if [ "$arg" = commit ]; then touch '${ready}'; read ignored < '${release}'; fi\ndone\nexec '${realGit}' "$@"\n`);
+  writeFileSync(wrapper, `#!/bin/sh\nfor arg do\n  if [ "$arg" = commit ]; then exec 3< '${release}'; touch '${ready}'; read ignored < '${reader}'; read ignored <&3; exec 3<&-; fi\ndone\nexec '${realGit}' "$@"\n`);
   chmodSync(wrapper, 0o755);
   const previousPath = process.env["PATH"];
   process.env["PATH"] = `${gate}:${previousPath}`;
@@ -136,11 +139,17 @@ it("refuses publication while a local landing is held without creating a remote 
     await expect(h.client.request("banks.publish", { commandId: randomUUID(), bankId: h.bank.id })).rejects.toMatchObject({ code: "conflict", data: { reason: "landing_in_progress" } });
     expect(h.forge.requests.some((r) => r.path === "/api/v1/user/repos")).toBe(false);
   } finally {
-    writeSync(descriptor, "continue\n");
-    closeSync(descriptor);
-    process.env["PATH"] = previousPath;
+    try {
+      writeSync(descriptor, "continue\n");
+      writeSync(readerDescriptor, "read\n");
+      const result = await landing;
+      expect(result, JSON.stringify(result)).toMatchObject({ state: "landed" });
+    } finally {
+      closeSync(descriptor);
+      closeSync(readerDescriptor);
+      process.env["PATH"] = previousPath;
+    }
   }
-  expect((await landing).state).toBe("landed");
 });
 
 it("refuses a publication path that is a symlink without overwriting its target", async () => {

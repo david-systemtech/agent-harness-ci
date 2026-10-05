@@ -13,11 +13,15 @@ const gauge = (utilisation: number | null, observedAt: string, window = "five_ho
 });
 
 describe("planDelta", () => {
+  it("uses a human label for an unknown provider limit in the turn's cost", () => {
+    expect(planDelta(markOf(gauge(0.1, "2026-09-25T10:00:00.000Z", "iguana_necktie")), markOf(gauge(0.12, "2026-09-25T10:05:00.000Z", "iguana_necktie")))).toEqual(["2.0% of the Other limit window"]);
+  });
+
   it("names each window that moved, once a reading observed after the mark has come", () => {
     const before = markOf(gauge(0.1, "2026-09-25T10:00:00.000Z"));
     expect(planDelta(before, markOf(gauge(0.1, "2026-09-25T10:00:00.000Z")))).toBeNull();
     expect(planDelta(before, markOf(gauge(0.132, "2026-09-25T10:05:00.000Z")))).toEqual(["3.2% of the 5-hour window"]);
-    expect(planDelta(markOf(gauge(0.5, "2026-09-25T10:00:00.000Z", "seven_day")), markOf(gauge(0.51, "2026-09-25T10:05:00.000Z", "seven_day")))).toEqual(["1.0% of the week"]);
+    expect(planDelta(markOf(gauge(0.5, "2026-09-25T10:00:00.000Z", "seven_day")), markOf(gauge(0.51, "2026-09-25T10:05:00.000Z", "seven_day")))).toEqual(["1.0% of the Weekly window"]);
   });
 
   it("says nothing of a move under a tenth of a percent, or of a window with no number", () => {

@@ -372,6 +372,26 @@ describe("usage.updated", () => {
 });
 
 describe("accounts.handoff.recommend", () => {
+  it.each([
+    ["seven_day", "Weekly"],
+    ["model_scoped:Fable", "Weekly, Fable"],
+  ])("uses the shared human name for the %s threshold and notice", async (window, label) => {
+    const { client } = await start({ usage: (account, now) => usageOf(`${account.id}@example.test`, [usageWindow(window as string, account.id === "work" ? 0.99 : 0.2, RESETS)], now) });
+    await usage(client);
+    const answer = await recommend(client, "work");
+    expect(answer.trigger?.label).toBe(label);
+    expect(answer.message).toContain(`${label} window`);
+    expect(answer.message).not.toContain(window as string);
+  });
+
+  it("names an unknown binding limit for a person in the recommendation", async () => {
+    const { client } = await start({ usage: (account, now) => usageOf(`${account.id}@example.test`, [usageWindow("iguana_necktie", account.id === "work" ? 0.4 : 0.2, RESETS)], now) });
+    await usage(client);
+    const answer = await recommend(client);
+    expect(answer.message).toContain("Other limit");
+    expect(answer.message).not.toMatch(/iguana[_ ]necktie/);
+  });
+
   it("answers from the readings the environment holds, never reading a provider", async () => {
     const { adapter, client } = await start();
     expect(await recommend(client)).toEqual({

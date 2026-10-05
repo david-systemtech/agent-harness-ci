@@ -1,3 +1,4 @@
+import { accessInWords } from "./change-access.js";
 import { KeyRound, Laptop, Terminal, Bot } from "lucide-react";
 import { OWN_CEILING, clientSessionWords, type ClientSessionSummary } from "@agent-harness/client-runtime";
 import { MODES, type Ceiling } from "@agent-harness/contracts";
@@ -13,6 +14,7 @@ export interface SessionListProps {
   readonly own: string | null;
   /** Whether the list's ceilings and revocations can be sent: the environment is ready and this client holds `admin`. */
   readonly writable: boolean;
+  changeAccess(session: ClientSessionSummary): void;
   setCeiling(session: ClientSessionSummary, ceiling: Ceiling): void;
   revoke(session: ClientSessionSummary): void;
 }
@@ -24,20 +26,20 @@ export interface SessionListProps {
  * modes (this client's own shown, not changed: another admin session
  * changes it), and Revoke….
  */
-export const SessionList = ({ name, sessions, own, writable, setCeiling, revoke }: SessionListProps) => (
-  <ul aria-label={name} className="flex flex-col gap-2">
+export const SessionList = ({ name, sessions, own, writable, setCeiling, revoke, changeAccess }: SessionListProps) => (
+  <ul aria-label={name} data-settings-card-grid>
     {sessions.map((session) => (
-      <SessionItem key={session.id} session={session} own={session.id === own} writable={writable} setCeiling={setCeiling} revoke={revoke} />
+      <SessionItem key={session.id} session={session} own={session.id === own} writable={writable} setCeiling={setCeiling} revoke={revoke} changeAccess={changeAccess} />
     ))}
   </ul>
 );
 
-interface SessionItemProps extends Pick<SessionListProps, "writable" | "setCeiling" | "revoke"> {
+interface SessionItemProps extends Pick<SessionListProps, "writable" | "setCeiling" | "revoke" | "changeAccess"> {
   readonly session: ClientSessionSummary;
   readonly own: boolean;
 }
 
-const SessionItem = ({ session, own, writable, setCeiling, revoke }: SessionItemProps) => {
+const SessionItem = ({ session, own, writable, setCeiling, revoke, changeAccess }: SessionItemProps) => {
   const clock = useClock();
   const ceiling = useId();
   const Icon = session.kind === "program" ? Bot : session.kind === "tui" ? Terminal : Laptop;
@@ -51,6 +53,7 @@ const SessionItem = ({ session, own, writable, setCeiling, revoke }: SessionItem
           {own && <Badge variant="secondary">This client</Badge>}
         </p>
         <p className="text-xs text-ink-muted">{clientSessionWords(session, clock.now())}</p>
+        <p className="text-xs text-ink-muted">{accessInWords(session.scopes, session.ceiling)}</p>
         {own && (
           <p id={why} className="text-xs text-ink-faint">
             {OWN_CEILING}
@@ -75,6 +78,7 @@ const SessionItem = ({ session, own, writable, setCeiling, revoke }: SessionItem
             </option>
           ))}
         </Select>
+        <Button disabled={!writable || own} onClick={() => changeAccess(session)} title={own ? "Another admin client can change this client's access." : "Change access (Enter or Space)"}>Change access</Button>
         <Button variant="destructive" disabled={!writable} onClick={() => revoke(session)} title="Revoke… (Enter or Space)">
           <KeyRound aria-hidden="true" data-icon="inline-start" />Revoke…
         </Button>

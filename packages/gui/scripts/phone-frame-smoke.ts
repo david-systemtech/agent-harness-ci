@@ -13,18 +13,21 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
   try {
     for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }, { width: 390, height: 480 }]) {
       await page.setViewportSize(viewport);
-      await expect(page.locator("[data-web-grant]")).toContainText("Scopes:");
+      await expect(page.locator("[data-web-grant]")).toHaveAttribute("data-phase", "ready");
+      const limited = await page.locator("[data-web-grant]").getAttribute("data-ceiling") !== "bypassPermissions";
+      if (limited) await expect(page.locator("[data-limited-access]")).toBeVisible();
       await expect.poll(() => page.evaluate<boolean>(`(() => {
         const frame = document.querySelector("[data-web-client]");
         const header = frame.querySelector("header").getBoundingClientRect();
-        const grant = frame.querySelector("[data-web-grant]");
-        const disclosure = grant.getBoundingClientRect();
+        const grant = frame.querySelector("[data-limited-access]");
+        const disclosure = grant?.getBoundingClientRect();
         const main = frame.querySelector("main").getBoundingClientRect();
         const visibleHeight = window.visualViewport?.height ?? innerHeight;
-        return header.top >= 20 && header.bottom <= disclosure.top + 0.5
-          && disclosure.bottom <= main.top + 0.5 && main.bottom <= visibleHeight + 0.5
-          && disclosure.left >= 8 && disclosure.right <= innerWidth - 8 + 0.5
-          && grant.scrollWidth <= grant.clientWidth && grant.scrollHeight <= grant.clientHeight;
+        return header.top >= 20 && main.bottom <= visibleHeight + 0.5
+          && (disclosure ? header.bottom <= disclosure.top + 0.5 && disclosure.bottom <= main.top + 0.5
+            && disclosure.left >= 8 && disclosure.right <= innerWidth - 8 + 0.5
+            && grant.scrollWidth <= grant.clientWidth && grant.scrollHeight <= grant.clientHeight
+            : header.bottom <= main.top + 0.5);
       })()`)).toBe(true);
     }
     await page.getByRole("button", { name: "Show sessions", exact: true }).tap();
@@ -32,6 +35,7 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
     await expect(drawer).toBeVisible();
     await drawer.getByRole("button", { name: "Close sessions", exact: true }).tap();
     await expect(drawer).toBeHidden();
+    await expect(page.getByRole("button", { name: "Show sessions", exact: true })).toBeFocused();
     await expect(page.locator("[data-ui-tooltip]")).toHaveCount(0);
     assert(await page.locator('meta[name="viewport"]').getAttribute("content").then(value => value?.includes("viewport-fit=cover")), "The production page admits device safe-area insets.");
   } finally {

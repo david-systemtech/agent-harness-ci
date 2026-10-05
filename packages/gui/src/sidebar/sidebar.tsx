@@ -120,7 +120,7 @@ const Headings = () => {
           <FolderGit2 aria-hidden="true" />
         </IconButton>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2">
+      <div data-sidebar-scroll className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2">
         {query === "" ? (
           <>
             {dragged !== null && !headings.some((heading) => heading.kind === "pinned") && <EmptyPinned />}

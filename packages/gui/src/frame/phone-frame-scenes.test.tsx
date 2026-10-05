@@ -117,11 +117,11 @@ it("rejects a grant overlapping the header or pane and a header inside the notch
   const root = document.createElement("div"); root.id = "root";
   root.dataset["galleryGeometry"] = JSON.stringify([
     { selector: "header", minimumTop: 20 },
-    { selector: "[data-web-grant]", below: "header", contentFits: true },
-    { selector: "main", below: "[data-web-grant]" },
+    { selector: "[data-limited-access]", below: "header", contentFits: true },
+    { selector: "main", below: "[data-limited-access]" },
   ]);
   const header = document.createElement("header");
-  const grant = document.createElement("p"); grant.dataset["webGrant"] = "";
+  const grant = document.createElement("p"); grant.dataset["limitedAccess"] = "";
   const main = document.createElement("main");
   root.append(header, grant, main); document.body.append(root);
   let headerTop = 20, grantTop = 60, mainTop = 150;
@@ -132,7 +132,7 @@ it("rejects a grant overlapping the header or pane and a header inside the notch
   grantTop = 72;
   expect(measureSceneGeometry()).toEqual([]);
   mainTop = 140;
-  expect(measureSceneGeometry()).toEqual([expect.stringContaining("overlaps [data-web-grant]")]);
+  expect(measureSceneGeometry()).toEqual([expect.stringContaining("overlaps [data-limited-access]")]);
   mainTop = 150; headerTop = 0;
   expect(measureSceneGeometry()).toEqual([expect.stringContaining("top: got 0")]);
 });

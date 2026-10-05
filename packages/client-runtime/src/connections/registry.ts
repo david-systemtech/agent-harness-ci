@@ -1,6 +1,7 @@
 import type { PendingUpdate } from "@agent-harness/contracts";
 import {
   ClientSessionCredential,
+  SCOPES,
   commandResponse,
   type DiscoveryDocument,
   type Frame,
@@ -1041,6 +1042,20 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           answer.socket.close();
           return pairingFailed(refusal.reason, refusal.message);
         }
+      }
+
+      if (options.fullAccess && (
+        !answer.ok ||
+        credential.ceiling !== "bypassPermissions" || SCOPES.some(scope => !credential.scopes.includes(scope)) ||
+        answer.socket.hello.ceiling !== "bypassPermissions" || SCOPES.some(scope => !answer.socket.hello.scopes.includes(scope))
+      )) {
+        if (answer.ok) {
+          if (answer.socket.hello.scopes.includes("admin")) {
+            await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket: answer.socket });
+          }
+          answer.socket.close();
+        }
+        return pairingFailed("refused", "Full access could not be confirmed. Use a full-access code made with My own client. This phone's pairing has not changed.");
       }
 
       // Re-pairing in place gives up the client session the connection held: it is revoked before the new token is kept, over the

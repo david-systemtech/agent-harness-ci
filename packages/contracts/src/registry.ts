@@ -12,6 +12,7 @@ import {
   accessSessionsRefresh,
   accessSessionsRevoke,
   accessSessionsSetCeiling,
+  accessSessionsSetAccess,
 } from "./methods/access.js";
 import {
   environmentDrain,
@@ -225,6 +226,7 @@ export const methods = [
   accessSessionsRevoke,
   accessSessionsRefresh,
   accessSessionsSetCeiling,
+  accessSessionsSetAccess,
   accessLogList,
   sessionsCreate,
   sessionsSetWorkspace,

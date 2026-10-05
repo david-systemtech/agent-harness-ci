@@ -39,6 +39,10 @@ const memoryTable = () => {
       const existing = stored.get(id);
       if (existing) existing.expiresAt = expiresAt;
     },
+    setAccess: (_tx, id, scopes, ceiling) => {
+      const existing = stored.get(id);
+      if (existing) { existing.scopes = [...scopes]; existing.ceiling = ceiling; }
+    },
     setCeiling: (_tx, id, ceiling) => {
       const existing = stored.get(id);
       if (existing) existing.ceiling = ceiling;

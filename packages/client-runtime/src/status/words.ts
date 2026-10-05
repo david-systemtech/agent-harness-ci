@@ -1,3 +1,4 @@
+import { isKnownUsageWindow, usageWindowLabel } from "@agent-harness/contracts";
 import type { AccountCatalogue, AccountRecord, AccountStatusState, ContainmentLevel, HandoffRecommendation, Mode, ModelEntry, ModelUsage, UsageWindow } from "@agent-harness/contracts";
 import type { UsageGauge } from "../projections/accounts.js";
 import type { SessionProjection } from "../projections/session.js";
@@ -34,19 +35,9 @@ export const containmentWords = (level: ContainmentLevel, isDefault: boolean): s
   return isDefault ? `${glyph} (default)` : glyph;
 };
 
-/** A plan window's short name, as a gauge draws it: `5hr`, `Week`, a model's own bucket by its name. */
-export const windowLabel = (window: string): string => {
-  if (window === "five_hour") return "5hr";
-  if (window === "seven_day") return "Week";
-  if (window.startsWith("model_scoped:")) {
-    const model = window.slice("model_scoped:".length);
-    return model.charAt(0).toUpperCase() + model.slice(1);
-  }
-  return window.replace(/_/g, " ");
-};
-
-/** A plan window's name in a sentence or a list: `5-hour`, `Week`, a model's bucket. */
-export const windowWords = (window: string): string => (window === "five_hour" ? "5-hour" : windowLabel(window));
+/** A plan window's human-readable name, shared with environment notices. */
+export const windowLabel = usageWindowLabel;
+export const windowWords = usageWindowLabel;
 
 /** A fraction as a whole percent: `42%`; `—` when the provider does not say. */
 export const percent = (utilisation: number | null): string => (utilisation === null ? "—" : `${Math.round(utilisation * 100)}%`);
@@ -86,7 +77,10 @@ export const readingsOf = (gauge: UsageGauge | undefined): readonly Reading[] =>
     resetsAt: window.resetsAt,
   }));
 
-/** A gauge's windows in one line: `5hr 42% · Week 10%`; its reason when it has none. */
+/** Compact meters show only recognised windows; details retain every limit. */
+export const meterReadingsOf = (gauge: UsageGauge | undefined): readonly Reading[] => readingsOf(gauge).filter((reading) => isKnownUsageWindow(reading.window));
+
+/** A gauge's windows in one line: `5-hour 42% · Weekly 10%`; its reason when it has none. */
 export const readingWords = (gauge: UsageGauge | undefined): string | undefined => {
   if (!gauge) return undefined;
   if (gauge.windows.length === 0) return gauge.unavailableReason ?? undefined;
