@@ -22,22 +22,16 @@ import { Button } from "../ui/button.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { sessionLink, type BrowserRoute } from "./browser-boot.js";
 import type { BrowserPlatform } from "./browser-platform.js";
+import { usePhoneViewport } from "../composer/phone-viewport.js";
 import { WebRegisteredSurfaces } from "./web-registrations.js";
 
 export interface WebFrameProps { readonly platform: BrowserPlatform; readonly route: BrowserRoute }
 
 /** Shared browser bounds: a keyboard can shrink this without resizing the layout viewport. */
 export const WebViewport = ({ children, narrow = false, connection }: { readonly children: ReactNode; readonly narrow?: boolean; readonly connection?: EnvironmentView | undefined }) => {
-  const [height, setHeight] = useState<number>();
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const resize = () => setHeight(viewport.height);
-    resize();
-    viewport.addEventListener("resize", resize);
-    return () => viewport.removeEventListener("resize", resize);
-  }, []);
-  return <div data-web-client data-web-grant={connection ? "" : undefined} data-phase={connection?.phase} data-ceiling={connection?.ceiling ?? undefined} data-scopes={connection?.scopes.join(", ")} data-phone-frame={narrow ? "" : undefined} className="flex h-dvh min-w-0 flex-col bg-abyss text-ink" style={{ maxHeight: height }}>{children}</div>;
+  const frame = useRef<HTMLDivElement>(null);
+  usePhoneViewport(frame);
+  return <div ref={frame} data-web-client data-web-grant={connection ? "" : undefined} data-phase={connection?.phase} data-ceiling={connection?.ceiling ?? undefined} data-scopes={connection?.scopes.join(", ")} data-phone-frame={narrow ? "" : undefined} className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">{children}</div>;
 };
 /** The first browser slice uses the same session components and environment-owned work. */
 export const WebFrame = (props: WebFrameProps) => (
@@ -106,14 +100,14 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     </header>}
     {persistence === "visit-only" && <p role="status" className="shrink-0 border-b border-hairline bg-panel px-3 py-2 text-sm">Storage is unavailable. Pair for this visit; this connection will be forgotten when you close or reload.</p>}
     {selected && <LimitedAccess view={selected} />}
-    {selected?.phase === "blocked" && <p role="status" className="px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
-    {line && <p role="status" className="px-3 py-2 text-sm">{line}</p>}
+    {selected?.phase === "blocked" && <p role="status" className="shrink-0 px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
+    {line && <p role="status" className="shrink-0 px-3 py-2 text-sm">{line}</p>}
+    <WebRegisteredSurfaces />
     {(paired.length === 0 || pairing) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} onPaired={() => { setPairing(false); setHandedLink(undefined); setLine(undefined); }} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <WindowNotices />
       <PaneGrid />
     </main>}
     <SessionDrawer />
     {settings.shown && <SettingsView />}
-    <WebRegisteredSurfaces />
   </WebViewport>;
 };

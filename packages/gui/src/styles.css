@@ -322,3 +322,20 @@
 [data-web-client] [data-composer-column] { min-height: 0; max-height: 100%; flex-shrink: 1; overflow-y: auto; }
 [data-web-client] [aria-label="Parked prompt"] { max-height: none; }
 [data-web-client] [aria-label="Permission decision"] > div > span { flex-wrap: wrap; }
+
+
+/* Only the mounted phone web frame locks the document; wide and desktop clients keep their bounds. */
+html[data-phone-viewport],
+html[data-phone-viewport] body,
+html[data-phone-viewport] #root {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html[data-phone-viewport] [data-web-client] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
