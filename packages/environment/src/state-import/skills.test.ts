@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
+import { startFakeForge } from "../../test/fake-forge.js";
+import { added, TOKEN } from "../../test/forge.js";
 import { snapshotOf } from "../../test/accounts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
@@ -334,4 +336,54 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
   expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
   expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
   expect(snapshotOf(source)).toEqual(sourceBytes);
+});
+
+
+it("names the serving forge account's canonical origin for SSH and verified alias authentication failures", async () => {
+  const forge = await startFakeForge();
+  const alias = await startFakeForge();
+  onCleanup(() => forge.close());
+  onCleanup(() => alias.close());
+  for (const instance of [forge, alias]) {
+    instance.user(TOKEN, { login: "fixture", id: 42 });
+    instance.repositories(TOKEN, []);
+  }
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [
+    { url: "git@127.0.0.1:team/private.git", subdir: "." },
+    { url: `${alias.origin}/team/other`, subdir: "." },
+  ], alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr: "fatal: Authentication failed", truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const account = await added(client, { url: forge.origin, kind: "forgejo", aliases: [alias.origin] });
+  expect(account.aliases[0]?.verifiedAt).not.toBeNull();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(imported.result?.failed).toHaveLength(2);
+  expect(imported.result?.reEnter).toEqual([{ label: `Forge credential for ${forge.origin}, then import again`, step: "forges" }]);
+});
+
+
+it.each([
+  ["git@ssh.skills.test:team/private.git", "Permission denied (publickey)."],
+  ["ssh://git@ssh.skills.test:2222/team/private.git", "Host key verification failed."],
+])("keeps machine SSH repair guidance for an unmanaged source %s", async (url, stderr) => {
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [{ url, subdir: "." }], alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS,
+    skillsGit: async () => ({ outcome: "ran", git: { ok: false, code: 128, stdout: Buffer.alloc(0), stderr, truncated: false, timedOut: false, missing: false } }),
+    stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }),
+  });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => logged.mockRestore());
+  const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(imported.result?.failed).toEqual([{ label: expect.any(String), message: expect.stringMatching(/SSH keys and known-hosts entry for ssh.skills.test/) }]);
+  expect(imported.result?.reEnter).toEqual([]);
 });

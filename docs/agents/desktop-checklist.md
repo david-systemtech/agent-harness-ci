@@ -612,7 +612,11 @@ and after; use test accounts and a test skill repository.
    visible while accounts and sessions that succeeded stay carried. The report
    points to Forges for the credential and Skills for an unavailable exact name.
    Reopen the step: Open Forges and Open Skills explain where to repair it,
-   even when the retained failure came from an earlier release.
+   even when the retained failure came from an earlier release. With a verified
+   alias or an SSH URL served by a forge account on a non-default web port,
+   the credential repair names that account's canonical origin. For an SSH
+   source with no forge account, a missing key or unknown host key names this
+   environment machine's SSH keys and known-hosts entry, not a Forges repair.
 3. **Preview is a plan.** Run a dry run after that failure. Its report says
    that repository access was not tested and a failed import was not cleared;
    Carry over still needs attention. Supply the test repository's forge

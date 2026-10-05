@@ -68,7 +68,7 @@ const DetectedStateImport = ({ environmentId, needsRepair }: { readonly environm
       )}
       {detection.terminalFolder !== null && <p className="text-sm text-ink-muted">Terminal-client state folder: {detection.terminalFolder.path}</p>}
       {needsRepair && <>
-        <p className="text-sm text-ink-muted">Provider sign-in does not grant access to private skill repositories. Add or repair their credentials in Forges; restore missing exact skill names in Skills, then import again. Accounts and sessions already carried are kept.</p>
+        <p className="text-sm text-ink-muted">Provider sign-in does not grant access to private skill repositories. Add or repair their credentials in Forges; restore missing exact skill names in Skills, then import again. For SSH sources without a forge account, check this environment machine's SSH keys and known-hosts entry. Accounts and sessions already carried are kept.</p>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" title="Open Forges · Tab, Enter or Space" onClick={() => choose("forges")}><ArrowRight aria-hidden="true" />Open Forges</Button>
           <Button variant="outline" title="Open Skills · Tab, Enter or Space" onClick={() => choose("skills")}><ArrowRight aria-hidden="true" />Open Skills</Button>

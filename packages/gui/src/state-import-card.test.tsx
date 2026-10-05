@@ -39,6 +39,7 @@ describe("State import on Carry over", () => {
       targets: [{ action: "import-again", kind: "environment", id: "desk", label: "The state import" }],
     } } });
     expect(await screen.findByText(/Provider sign-in does not grant access to private skill repositories/)).toBeDefined();
+    expect(section().getByText(/SSH keys and known-hosts entry/)).toBeDefined();
     expect(section().getByRole("button", { name: "Open Forges" })).toBeDefined();
     expect(section().getByRole("button", { name: "Open Skills" })).toBeDefined();
     const preview = report(true);

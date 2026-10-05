@@ -1,4 +1,4 @@
-import { ContractError, normaliseRemote, registry, repositoryIdentityOf, SKILLS_STREAM_KIND, type StateImportFailure, type StateImportReEnter } from "@agent-harness/contracts";
+import { ContractError, forgeOriginHost, matchForgeAccount, normaliseRemote, registry, repositoryIdentityOf, SKILLS_STREAM_KIND, type StateImportFailure, type StateImportReEnter } from "@agent-harness/contracts";
 import { join } from "node:path";
 import { readSkillFolder, sourceRootNaming } from "../skills/reader.js";
 import { readSkillChoices } from "../skills/choices.js";
@@ -70,8 +70,16 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
           handler = await sources.add.prepare(params, context);
         } catch (error) {
           if (error instanceof ContractError && error.data["problem"] === "authentication") {
-            const origin = normaliseRemote(parsed.data.url)?.origin;
-            if (origin !== undefined) repairs.set(origin, { label: `Forge credential for ${origin}, then import again`, step: "forges" });
+            const remote = normaliseRemote(parsed.data.url);
+            if (remote !== null) {
+              const account = matchForgeAccount(remote, options.forgeAccounts());
+              if (account === null && remote.sshDerived) {
+                const line = error.data["line"];
+                throw new ContractError({ ...error.toWire(), message: `SSH authentication failed. Check this environment machine's SSH keys and known-hosts entry for ${forgeOriginHost(remote.origin)}, using the source's SSH port, then import again.${typeof line === "string" ? ` ${line}` : ""}` });
+              }
+              const origin = account?.origin ?? remote.origin;
+              repairs.set(origin, { label: `Forge credential for ${origin}, then import again`, step: "forges" });
+            }
           }
           throw error;
         }
