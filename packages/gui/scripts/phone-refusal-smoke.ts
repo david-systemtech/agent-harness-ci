@@ -37,8 +37,19 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
     for (const viewport of [{ width: 390, height: 480 }, { width: 360, height: 400 }]) {
       console.log(`PHONE-REFUSAL ${engine}: viewport ${viewport.width}x${viewport.height}`);
       await page.setViewportSize(viewport);
+      await page.evaluate("globalThis.__phoneSmokeField = document.querySelector('[aria-label=Message]')");
       await field.fill(message);
-      await page.getByRole("button", { name: /^Send/ }).click();
+      console.log(`PHONE-REFUSAL ${engine}: filled draft length ${(await field.inputValue()).length}`);
+      try { await page.getByRole("button", { name: /^Send/ }).click(); }
+      catch (error) {
+        const state = await page.evaluate(`(() => {
+          const field = document.querySelector('[aria-label="Message"]');
+          const column = document.querySelector('[data-composer-column]');
+          return { draftLength: field?.value.length, sameField: field === globalThis.__phoneSmokeField, originalConnected: globalThis.__phoneSmokeField?.isConnected, composer: column?.innerText, grant: document.querySelector('[data-web-grant]')?.innerText };
+        })()`);
+        console.error(`PHONE-REFUSAL ${engine}: Send failed ${JSON.stringify(state)}`);
+        throw error;
+      } finally { await page.evaluate("delete globalThis.__phoneSmokeField"); }
       await expect(refusal).toContainText("not signed in");
       await expect(refusal).toContainText("no run can start");
       await expect(field).toHaveValue(message);
