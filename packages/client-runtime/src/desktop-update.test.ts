@@ -396,6 +396,24 @@ describe("the server artefact the desktop carries", () => {
     for (const { desk } of [same, pending, none]) expect(desk.requests("updates.apply")).toEqual([]);
   });
 
+  it("keeps a bundled disk refusal retryable without reopening the desktop", async () => {
+    let room = false;
+    const message = "Not enough disk space for staging and the snapshot. Free space and retry.";
+    const { runtime, desk, until, bundled } = await launch({
+      updates: { status: { version: RUNNING } },
+      shell: (shell) => shell.answer("installer.bundledServer", async () => ({
+        version: "0.6.0", path: BUNDLED_PATH,
+        ...(!room && { refusal: { reason: "disk" as const, message } }),
+      })),
+    });
+    await until(() => bundled().state !== "unchecked" && bundled().state !== "handing-over", "finished the bundled lookup");
+    expect(bundled()).toEqual({ state: "failed", version: "0.6.0", reason: "disk", message });
+    expect(desk.requests("updates.apply")).toEqual([]);
+    room = true;
+    expect(await runtime.desktopUpdate.applyBundledServer()).toMatchObject({ state: "handed-over", version: "0.6.0" });
+    expect(params(desk, "updates.apply")).toEqual([{ commandId: expect.any(String) as unknown as string, version: "0.6.0", artefactPath: BUNDLED_PATH, when: "idle" }]);
+  });
+
   it("reports a shell that cannot say what it carries as a failure, at the start and on the card's call alike, never as a rejection", async () => {
     const { runtime, desk, until, bundled } = await launch({
       updates: { status: { version: RUNNING } },

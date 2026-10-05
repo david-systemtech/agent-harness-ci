@@ -234,7 +234,7 @@ describe("the shell interface", () => {
     expectTypeOf<Parameters<ShellUpdate["apply"]>>().toEqualTypeOf<[staged: ShellStagedBuild, when: "now" | "quit"]>();
     expectTypeOf<Awaited<ReturnType<ShellUpdate["current"]>>["format"]>().toEqualTypeOf<string | null>();
     expectTypeOf<keyof ShellInstaller>().toEqualTypeOf<"bundledServer" | "reserveSpace">();
-    expectTypeOf<Awaited<ReturnType<ShellInstaller["bundledServer"]>>>().toEqualTypeOf<{ readonly version: string; readonly path: string } | null>();
+    expectTypeOf<Awaited<ReturnType<ShellInstaller["bundledServer"]>>>().toEqualTypeOf<{ readonly version: string; readonly path: string; readonly refusal?: { readonly reason: "disk"; readonly message: string } } | null>();
   });
 
   it("carries strings where a session might have passed: a notification's tag, handed back on a click, and a deep link", () => {

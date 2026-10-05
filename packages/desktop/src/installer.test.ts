@@ -49,7 +49,13 @@ describe("installer", () => {
     writeFileSync(join(platform.paths.environment, "service-state.json"), JSON.stringify({ activeVersion: "0.4.0" }));
     writeFileSync(join(platform.paths.environment, DATABASE_FILE), "user data");
     vi.mocked(statfsSync).mockReturnValue({ ...statfsSync(platform.paths.environment), bsize: 4096, bavail: 65536 });
-    await expect(shell().installer.bundledServer()).rejects.toThrow(/disk space.*staging.*snapshot/i);
+    expect(await shell().installer.bundledServer()).toEqual({
+      version: "0.5.0", path: artefact.root,
+      refusal: { reason: "disk", message: expect.stringMatching(/disk space.*staging.*snapshot/i) as unknown as string },
+    });
+    vi.mocked(statfsSync).mockReturnValue({ ...statfsSync(platform.paths.environment), bsize: 4096, bavail: 262144 });
+    expect(await shell().installer.bundledServer()).toEqual({ version: "0.5.0", path: artefact.root });
+    vi.mocked(statfsSync).mockReturnValue({ ...statfsSync(platform.paths.environment), bsize: 4096, bavail: 65536 });
     writeFileSync(join(platform.paths.environment, "service-state.json"), JSON.stringify({ activeVersion: "0.5.0" }));
     expect(await shell().installer.bundledServer()).toEqual({ version: "0.5.0", path: artefact.root });
   });

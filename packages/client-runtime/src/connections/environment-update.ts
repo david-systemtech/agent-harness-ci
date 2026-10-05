@@ -43,12 +43,15 @@ export const failed = (reason: "unreachable" | "no-token" | "malformed", message
  * story 15; #918). Undefined for a shell that carries none (the terminal UI
  * has no shell, a desktop run from a checkout carries none), carries another
  * version, or cannot say what it carries: the ask then names the version
- * alone, as it did before.
+ * alone, as it did before. A known bundle refused for disk space is returned
+ * as a refusal: downloading it instead would also spend its snapshot reserve.
  */
-export const carriedArtefact = async (shell: Shell | undefined, version: string): Promise<string | undefined> => {
+export const carriedArtefact = async (shell: Shell | undefined, version: string): Promise<string | undefined | Extract<UpdateEnvironmentOutcome, { readonly ok: false }>> => {
   try {
     const carried = await shell?.installer?.bundledServer();
-    return carried?.version === version ? carried.path : undefined;
+    if (carried?.version !== version) return undefined;
+    if (carried.refusal !== undefined) return { ok: false, refused: true, ...carried.refusal };
+    return carried.path;
   } catch {
     return undefined;
   }

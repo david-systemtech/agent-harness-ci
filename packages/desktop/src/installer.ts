@@ -34,7 +34,11 @@ export const bundledInstaller = (server: string | undefined, environmentDir?: st
     const active = state?.activeVersion;
     // Older running releases cannot budget their bundled copy; the new desktop must do so before handoff.
     if (environmentDir !== undefined && state !== undefined && (typeof active !== "string" || !RELEASE_VERSION_PATTERN.test(active) || compareReleaseVersions(version, active) > 0)) {
-      requireCopyRoom(server, environmentDir, DATABASE_FILE, INSTALL_RESERVE_BYTES);
+      try {
+        requireCopyRoom(server, environmentDir, DATABASE_FILE, INSTALL_RESERVE_BYTES);
+      } catch (error) {
+        return { version, path: server, refusal: { reason: "disk", message: error instanceof Error ? error.message : String(error) } };
+      }
     }
     return { version, path: server };
   },

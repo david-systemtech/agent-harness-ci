@@ -1244,7 +1244,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         if (token.ok) {
           // The local environment stages the server this desktop carries, when it is the version asked, rather than downloading it (#918).
           const artefactPath = entry.saved.kind === "local" ? await carriedArtefact(platform.shell, version) : undefined;
-          outcome = await askOverRoute(platform.fetch, entry.saved.address, token.token, { version, ...(artefactPath !== undefined && { artefactPath }) });
+          outcome = typeof artefactPath === "object" ? artefactPath
+            : await askOverRoute(platform.fetch, entry.saved.address, token.token, { version, ...(artefactPath !== undefined && { artefactPath }) });
         } else {
           outcome = token.outcome;
         }

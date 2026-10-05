@@ -246,6 +246,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     // Auto-update effective, and not a version whose update failed there: that is never retaken automatically.
     const effective = autoUpdate === true && (pinned ?? null) === null && !failedVersions.includes(bundled.version);
     if (!effective && !asked) return { state: "offered", version: bundled.version, environmentVersion };
+    if (bundled.refusal !== undefined) return { state: "failed", version: bundled.version, ...bundled.refusal };
     return handOver(environmentId, bundled.version, bundled.path);
   };
 

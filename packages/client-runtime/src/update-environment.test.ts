@@ -408,6 +408,22 @@ describe("update-environment from a desktop whose local environment is blocked o
     expect(record(runtime)).toMatchObject({ phase: "updating", blocked: null, action: null });
   });
 
+  it("keeps a bundled disk refusal across the protocol gap without falling back to a download, then retries the bundle", async () => {
+    let room = false;
+    const message = "Not enough disk space for staging and the snapshot. Free space and retry.";
+    const { wire, runtime } = await blockedLocal(carrying(async () => ({
+      version: CLIENT_VERSION, path: BUNDLED_PATH,
+      ...(!room && { refusal: { reason: "disk" as const, message } }),
+    })));
+    expect(await runtime.connections.updateEnvironment(wire.environmentId)).toEqual({ ok: false, refused: true, reason: "disk", message });
+    expect(wire.updatePosts()).toEqual([]);
+    expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", action: "update-environment" });
+    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `desk refused the update to ${CLIENT_VERSION} (disk): ${message}` })]);
+    room = true;
+    expect(await runtime.connections.updateEnvironment(wire.environmentId)).toMatchObject({ ok: true, toVersion: CLIENT_VERSION });
+    expect(wire.updatePosts()).toEqual([{ token: wire.credential()?.token, body: { version: CLIENT_VERSION, artefactPath: BUNDLED_PATH } }]);
+  });
+
   it.each<readonly [string, ShellFunctions["installer.bundledServer"]]>([
     ["carries none, as one run from a checkout", async () => null],
     ["carries an older version", async () => ({ version: "0.5.0", path: BUNDLED_PATH })],
