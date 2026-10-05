@@ -5,7 +5,7 @@ import { renderApp, type ScriptedEnvironment } from "../../test/harness.js";
 const openMode = async (extra: Partial<ScriptedEnvironment> = {}) => {
   const width = window.innerWidth;
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
-  onTestFinished(() => Object.defineProperty(window, "innerWidth", { configurable: true, value: width }));
+  onTestFinished(() => { Object.defineProperty(window, "innerWidth", { configurable: true, value: width }); });
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Receipts", mode: "acceptEdits" }], ...extra }] });
   app.open("desk");
   await screen.findByText("Nothing said yet.");
