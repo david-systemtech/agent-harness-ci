@@ -46,6 +46,23 @@ import { preflight, PREFLIGHT_USAGE } from "./preflight.js";
 import { TUI_USAGE, tui, type RunTui } from "./tui.js";
 import { UPDATE_USAGE, update } from "./update.js";
 
+const PAIR_USAGE = `${PRODUCT_NAME} pair [--preset <${PAIRING_PRESET_IDS.join("|")}>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`;
+const PAIR_HELP = [
+  `usage: ${PAIR_USAGE}`,
+  "",
+  "own-client: My own client — everything for your own devices, a phone included.",
+  "  Every scope, including terminal and admin; ceiling bypassPermissions (run without permission checks; the denylist still applies).",
+  "program: A program — read, sessions:write and runs:drive; pick --ceiling (initially acceptEdits).",
+  "phone: Phone — restricted.",
+  "  read, sessions:write and runs:drive; ceiling acceptEdits (accept file edits; ask before other actions when the provider supports it).",
+  "  Bypass permissions is unavailable; no terminal or admin access.",
+  "custom: Choose --scopes and --ceiling to raise or lower access for a single pairing.",
+  "  Initially read (read sessions) and plan (plan without making changes).",
+  "Scopes: read (read sessions), sessions:write (organise sessions), runs:drive (drive runs and answer prompts), terminal (terminals, files and diffs), admin (administer the environment).",
+  "A code grants at most its minter's scopes and ceiling. My own client is valid on a phone; browser pairing never downgrades the chosen grant.",
+  "",
+].join("\n");
+
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>] [--web-origin <https-origin>]`,
@@ -56,7 +73,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
   `       ${PRODUCT_NAME} service start`,
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
-  `       ${PRODUCT_NAME} pair [--preset <${PAIRING_PRESET_IDS.join("|")}>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
+  `       ${PAIR_USAGE}`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),
   ...BROWSER_USAGE.map((line) => `       ${line}`),
   ...BANK_USAGE.map((line) => `       ${line}`),
@@ -182,6 +199,10 @@ const netOf = (context: CliContext): Net => context.net ?? { fetch: globalThis.f
  * the link and the short code. The environment must be running.
  */
 const pair = async (args: readonly string[], context: CliContext): Promise<number> => {
+  if (args.length === 1 && args[0] === "--help") {
+    context.stdout(PAIR_HELP);
+    return 0;
+  }
   const parsed = parsePair(args);
   const net = netOf(context);
   try {

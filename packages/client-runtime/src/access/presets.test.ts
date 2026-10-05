@@ -41,10 +41,10 @@ describe("the presets offered", () => {
 
   it("say what each grants: my own client every scope up to bypassPermissions, a program its three up to the ceiling picked, custom what is ticked and picked", () => {
     expect(offeredPresets("bypassPermissions", "laptop").presets.map(({ words }) => words)).toEqual([
-      "Grants every scope, up to bypassPermissions.",
-      "Grants read, sessions:write and runs:drive, up to the ceiling picked, preset acceptEdits.",
-      "Grants read, sessions:write and runs:drive, up to acceptEdits.",
-      "Grants the scopes ticked, up to the ceiling picked.",
+      "Grants every scope: read and organise sessions, drive runs and answer prompts, use terminals, files and diffs, and administer the environment. Ceiling: bypassPermissions (run without permission checks; the denylist still applies).",
+      "Grants read, sessions:write and runs:drive: read and organise sessions, drive runs and answer prompts; no terminal or admin access. Pick a ceiling, initially acceptEdits (accept file edits; ask before other actions when the provider supports it).",
+      "Restricted choice. Grants read, sessions:write and runs:drive: read and organise sessions, drive runs and answer prompts; no terminal or admin access. Ceiling: acceptEdits (accept file edits; ask before other actions when the provider supports it), so bypass permissions is unavailable.",
+      "Choose scopes and a ceiling to raise or lower access for a single pairing, within this client’s grant. Initially read (read sessions) and plan (plan without making changes).",
     ]);
   });
 

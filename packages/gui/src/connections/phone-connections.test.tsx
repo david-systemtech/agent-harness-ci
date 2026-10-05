@@ -1,3 +1,5 @@
+import { SCOPES } from "@agent-harness/contracts";
+import type { SceneRegistry } from "../../gallery/scene-registry.js";
 import { userEvent } from "@testing-library/user-event";
 import { act, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
@@ -97,4 +99,42 @@ it("touch cancellation from the Settings pairing form restores manual entry and 
   expect(stop).toHaveBeenCalledOnce();
   expect(document.querySelector(".web-camera")).toBeNull();
   expect(within(pairing).getByRole("textbox", { name: "Pairing code" })).toBeDefined();
+});
+
+
+it.each(["desktop", "web"] as const)("explains each pairing grant on %s and defaults to everything for the owner's phone", async platform => {
+  vi.stubGlobal("innerWidth", platform === "web" ? 390 : 1280);
+  const container = document.createElement("div"); document.body.append(container);
+  const registry = {
+    "pairing-grants": {
+      ...(platform === "web" ? { platform: "web" as const } : {}),
+      script: { environments: [{ name: "desk", reach: "paired", scopes: [...SCOPES], hello: { ceiling: "bypassPermissions" } }] },
+      presentation: { settingsRow: "environments.machines" },
+    },
+  } satisfies SceneRegistry;
+  await act(async () => { const gallery = await mountGallery(container, "pairing-grants", "light", registry); close = gallery.close; });
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Settings" }));
+  const card = await screen.findByRole("region", { name: "desk" });
+  const part = within(card).getByRole("region", { name: "Pair another client" });
+  const radios = within(part).getAllByRole("radio");
+  expect(radios.map(radio => radio.getAttribute("aria-label"))).toEqual([
+    "My own client — everything for my own devices (phone included)", "A program", "Phone — restricted", "Custom",
+  ]);
+  expect(radios[0]?.getAttribute("aria-checked")).toBe("true");
+  const description = (radio: HTMLElement) => document.getElementById(radio.getAttribute("aria-describedby")!)!.textContent;
+  expect(description(radios[0]!)).toContain("use terminals, files and diffs, and administer the environment");
+  expect(description(radios[0]!)).toContain("bypassPermissions (run without permission checks");
+  expect(description(radios[1]!)).toContain("read and organise sessions, drive runs and answer prompts; no terminal or admin access");
+  expect(description(radios[1]!)).toContain("initially acceptEdits (accept file edits; ask before other actions");
+  expect(description(radios[2]!)).toContain("Restricted choice");
+  expect(description(radios[2]!)).toContain("bypass permissions is unavailable");
+  expect(description(radios[3]!)).toContain("raise or lower access for a single pairing");
+  expect(description(radios[3]!)).toContain("Initially read (read sessions) and plan (plan without making changes)");
+  await user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+  const code = await within(part).findByRole("group", { name: "Pairing code" });
+  expect(code.textContent).toContain("Grants every scope, up to bypassPermissions.");
+  await user.click(radios[2]!);
+  await user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+  await waitFor(() => expect(code.textContent).toContain("Grants read, sessions:write and runs:drive, up to acceptEdits."));
 });
