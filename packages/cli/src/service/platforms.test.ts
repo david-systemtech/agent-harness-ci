@@ -8,6 +8,7 @@ import { COMMAND_TIMEOUT_MS, STOP_COMMAND_TIMEOUT_MS } from "./runner.js";
 import type { ServiceSpec } from "./spec.js";
 import { renderSystemdUnit } from "./systemd.js";
 import { renderTaskXml, decodeTaskXml } from "./task-scheduler.js";
+import { windowsStopArguments } from "./windows-stop.js";
 
 let cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -560,17 +561,25 @@ describe("the Task Scheduler logon task", () => {
     expect(decodeTaskXml(xml)).toBe(xml);
   });
 
-  it("start runs the task; uninstall ends a running task and deletes it", async () => {
+  it("start runs the task; uninstall stops its process tree before deleting it", async () => {
     const { service, calls } = platformFor("win32", tempHome(), running);
     await service.start();
     expect(calls).toEqual(["schtasks /Run /TN agent-harness"]);
     calls.length = 0;
     await service.uninstall();
     expect(calls).toEqual([
-      "schtasks /Query /TN agent-harness /FO CSV /NH",
-      "schtasks /End /TN agent-harness",
+      ["powershell.exe", ...windowsStopArguments()].join(" "),
       "schtasks /Delete /TN agent-harness /F",
     ]);
+  });
+
+  it("keeps registration when process-tree shutdown fails", async () => {
+    const { service, calls } = platformFor("win32", tempHome(), (command) =>
+      command === "powershell.exe" ? { code: 1, stderr: "A scheduled task process survived cleanup" } : undefined,
+    );
+    await expect(service.uninstall()).rejects.toThrow(/survived cleanup/);
+    await expect(service.uninstall()).rejects.toThrow(/^Could not stop the scheduled task's process tree:/);
+    expect(calls.some((call) => call.includes("/Delete"))).toBe(false);
   });
 
   it("gives every command 30 seconds, /End too: it sends no signal, so a stop waits for no drain", async () => {

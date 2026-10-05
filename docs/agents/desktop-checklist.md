@@ -320,11 +320,13 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
    server versions. Reinstall and start: the retained environment is usable.
    To remove retained data as well, delete that folder after uninstalling.
    If service cleanup fails, uninstall exits nonzero and keeps the app's
-   resources; fix the service error before retrying.
-   The hosted release smoke covers an installed and started launcher, task
-   removal and data retention. It starts the entry directly because its
-   temporary user has no interactive logon; record the live scheduled-task
-   stop separately on a Windows desktop.
+   resources. The task is disabled during cleanup to prevent another start;
+   fix the service error before retrying, or reinstall to enable it again.
+   The hosted release smoke starts the installed task before uninstall and
+   checks launcher/server exit, port closure, task removal, data retention
+   and an unrelated Node process staying alive. Its temporary user's batch
+   logon uses a Password principal with the installed action and limited
+   token; repeat with the normal InteractiveToken logon on a Windows desktop.
 
 ### Arch
 
