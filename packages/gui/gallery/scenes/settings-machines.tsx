@@ -8,6 +8,7 @@ export const readySelector = '[aria-label="QR code of the pairing link"]';
 /** look.md §5.1, §12.2–12.3: card inset, sixteen-pixel badge, shared controls. */
 export const geometry: typeof settingsGeometry = (viewport) => [
   ...settingsGeometry(viewport),
+  { selector: "[data-machine-card]", width: viewport.width >= 1280 ? 541 : 720, contentFits: true },
   { selector: "[data-machine-card]", paddingLeft: 12, paddingTop: 12 },
   { selector: "[data-machine-card] > header > svg", width: 16, height: 16 },
   { selector: '[data-machine-card] button[data-variant][data-size="default"]', height: 32 },

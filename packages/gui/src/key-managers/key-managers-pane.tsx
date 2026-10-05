@@ -1,3 +1,4 @@
+import { SettingsCardGrid } from "../settings/part.js";
 import { Plus } from "lucide-react";
 import { ActionButton as Button, useInlineAdd } from "./action-button.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
@@ -54,7 +55,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
   const admin = runtime.capability(environmentId, "keyManagers.connections.add");
   const writable = admin.status === "present";
   return (
-    <div data-access-pane className="flex max-w-[768px] flex-col gap-3.5">
+    <div data-access-pane className="flex min-w-0 flex-col gap-3.5">
       {hint}
       {!ready && (
         <p className="text-sm text-amber">
@@ -75,7 +76,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
         : connections.length === 0
           ? <p className="text-sm text-ink-muted">No key manager is connected here.</p>
-          : connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} writable={writable} say={say} />)}
+          : <SettingsCardGrid>{connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} writable={writable} say={say} />)}</SettingsCardGrid>}
       {connections !== null && connections.length > 0 && <MoveCard environmentId={environmentId} connections={connections} writable={writable} />}
       <InjectionSetting view={view} />
     </div>

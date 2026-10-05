@@ -1,10 +1,11 @@
 import { useId, type ReactNode } from "react";
 import { RadioGroup, RadioGroupItem, Tooltip } from "../ui/index.js";
+import "./settings-layout.css";
 import { classes } from "../ui/classes.js";
 
 /** The bounded pane's content stack and title, with scope controls beside it. */
 export const SettingsPane = ({ title, actions, pinned, children }: { readonly title: string; readonly actions?: ReactNode; readonly pinned?: ReactNode; readonly children: ReactNode }) => (
-  <div data-settings-pane className="mx-auto flex w-full max-w-[816px] flex-col gap-3.5 px-6 py-5">
+  <div data-settings-pane className="mx-auto flex min-w-0 w-full flex-col gap-3.5 px-6 py-5">
     <header className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold leading-tight text-ink">{title}</h2>
       {pinned}
@@ -13,6 +14,9 @@ export const SettingsPane = ({ title, actions, pinned, children }: { readonly ti
     {children}
   </div>
 );
+
+/** Card collections fill the pane and choose columns from the space available. */
+export const SettingsCardGrid = ({ children }: { readonly children: ReactNode }) => <div data-settings-card-grid>{children}</div>;
 
 /** A named group with an optional header and divided body rows (look.md §12.2). */
 export const SettingsGroup = ({ title, children }: { readonly title?: string; readonly children: ReactNode }) => {

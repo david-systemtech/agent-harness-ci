@@ -9,7 +9,14 @@ import { prepareWorld, startWorld } from "../world.js";
 
 const prepared = await prepareWorld({ environments: [{ name: "desk", reach: "local", accounts: [{ label: "Personal" }] }] });
 const skills: SkillsView = {
-  ownDirectory: "/home/example/skills/own", sources: [], choices: [], accountId: "personal",
+  ownDirectory: "/home/example/skills/own", sources: ["procedures", "guides"].map((name, index) => ({
+    id: `0199dd00-0000-4000-8000-00000000000${index + 1}`,
+    url: `https://git.example.test/team/${name}`, identity: `https://git.example.test/team/${name}`,
+    folder: ".", follow: { kind: "branch", branch: null }, position: index + 1,
+    addedBy: { kind: "client_session", id: "desk" }, addedAt: "2026-10-02T00:00:00.000Z",
+    commit: "c".repeat(40), skillCount: 1, sync: { outcome: "ok", since: "2026-10-02T00:00:00.000Z" },
+    attemptedAt: "2026-10-02T00:00:00.000Z",
+  })), choices: [], accountId: "personal",
   accounts: [{ accountId: "personal", channel: "system-prompt-append", reason: null }],
   members: [{ name: "review", kind: "skill", path: "skills/review", description: "Read the change and explain what matters.", invocation: "model+slash", userInvocable: true, argumentHint: null, whileActive: [],
     origin: { kind: "manifest", repository: "https://git.example.test/team/procedures", path: "skills/review", commit: null, licence: "MIT" },
@@ -41,5 +48,6 @@ export const readySelector = '[data-skills-scene-ready="true"]';
 export const geometry = (viewport: SceneViewport) => [
   ...settingsGeometry(viewport),
   { selector: 'input[aria-label="Source URL"]', height: 32 },
+  { selector: '[data-settings-card-grid] > section[aria-label^="https://git.example.test/team/"]', width: viewport.width >= 1280 ? 541 : 720, contentFits: true },
   { selector: '[aria-label="Every prompt review on personal"]', width: 32, height: 18.4 },
 ];
