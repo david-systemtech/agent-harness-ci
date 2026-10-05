@@ -12,7 +12,8 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
   const fits = async (control: Locator, name: string) => {
-    const diagnostics = await control.evaluate(`element => {
+    const diagnostics = await page.evaluate(`(() => {
+      const element = document.querySelector('[data-composer-column]');
       const rect = (node) => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
       const parents = [];
       for (let node = element; node; node = node.parentElement) {
@@ -21,15 +22,15 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       }
       const active = document.activeElement;
       const viewport = window.visualViewport;
-      return { parents, active: active ? { tag: active.tagName, label: active.getAttribute("aria-label"), box: rect(active) } : null, viewport: viewport ? { height: viewport.height, width: viewport.width, offsetTop: viewport.offsetTop, scale: viewport.scale } : null };
-    }`);
+      return { parents, controls: [...element.querySelectorAll('p[role="status"], button')].map(node => ({ label: node.getAttribute("aria-label") || node.textContent, box: rect(node) })), active: active ? { tag: active.tagName, label: active.getAttribute("aria-label"), box: rect(active) } : null, viewport: viewport ? { height: viewport.height, width: viewport.width, offsetTop: viewport.offsetTop, scale: viewport.scale } : null };
+    })()`);
     console.log(`PHONE-REFUSAL ${engine}: ${name} geometry ${JSON.stringify(diagnostics)}`);
     const box = await control.boundingBox();
     const region = await column.boundingBox();
     const viewport = page.viewportSize();
     assert(box && region && viewport, "The refusal and controls have rendered boxes.");
-    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, "The whole refusal/control fits the user-scrollable composer.");
-    assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, "The refusal/control is reachable inside the keyboard-height viewport.");
+    assert(box.y >= region.y - 1 && box.y + box.height <= region.y + region.height + 1, `The whole ${name} fits the user-scrollable composer: ${JSON.stringify({ box, region, viewport, diagnostics })}`);
+    assert(box.y >= 0 && box.y + box.height <= viewport.height + 1, `The ${name} is reachable inside the keyboard-height viewport: ${JSON.stringify({ box, region, viewport, diagnostics })}`);
   };
   await signIn(false);
   try {
