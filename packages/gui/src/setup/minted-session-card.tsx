@@ -6,6 +6,7 @@ import { SessionPane } from "../grid/session-pane.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { sideColumnKey } from "../presentation.js";
 import { NO_COLUMN, showPane } from "../side-column/column.js";
+import { StatusLine } from "../status/status-line.js";
 import { PaneLines } from "../session/pane-line.js";
 import { PromptFieldsProvider } from "../prompt-card/prompt-card.js";
 import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog.js";
@@ -116,10 +117,11 @@ const MintedConversation = ({ environmentId, sessionId, expanded, setExpanded, o
     <PromptFieldsProvider><Dialog open={expanded} onOpenChange={setExpanded}>
       <DialogTrigger asChild><Button variant="outline">Continue authoring</Button></DialogTrigger>
       <DialogContent title="Authoring conversation" data-authoring-dialog className="authoring-dialog left-0 top-0 translate-x-0 translate-y-0 sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2" style={viewportHeight === undefined ? undefined : { "--authoring-viewport-height": `${viewportHeight}px` } as CSSProperties}>
-        <section aria-label="Authoring conversation" data-authoring-frame data-web-client={web ? "" : undefined} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-hairline bg-panel"><PaneLines><SessionPane authoring session={session} focused={true} marked={false} close={() => undefined} header={<header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-hairline bg-raised/50 px-3 py-2">
-    <h3 className="min-w-0 text-xs font-medium text-ink">{projection.summary?.title ?? "Authoring conversation"}</h3>
-    <p role="status" aria-label="Authoring status" className="text-2xs text-ink-muted">{projection.parkedPrompts.length > 0 ? "waiting for you" : isLive(runs.state) ? "running" : outcome ?? (projection.draft !== null ? "waiting for you" : "needs attention")}</p>
-    <Button variant="outline" size="sm" title="Open in the main window · Tab, Enter or Space" onClick={() => { open(session); checklist.leaveForMain(); }}><ExternalLink aria-hidden="true" />Open in the main window</Button>
+        <section aria-label="Authoring conversation" data-authoring-frame data-web-client={web ? "" : undefined} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-hairline bg-panel"><PaneLines><SessionPane authoring session={session} focused={true} marked={false} close={() => undefined} header={<header data-authoring-header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-hairline bg-raised/50 px-3 py-2">
+    <h3 className="min-w-0 flex-1 truncate text-xs font-medium text-ink">{projection.summary?.title ?? "Authoring conversation"}</h3>
+    <p role="status" aria-label="Authoring status" className="sr-only text-2xs text-ink-muted sm:not-sr-only">{projection.parkedPrompts.length > 0 ? "waiting for you" : isLive(runs.state) ? "running" : outcome ?? (projection.draft !== null ? "waiting for you" : "needs attention")}</p>
+    <Button variant="outline" size="sm" aria-label="Open in the main window" title="Open in the main window · Tab, Enter or Space" onClick={() => { open(session); checklist.leaveForMain(); }}><ExternalLink aria-hidden="true" /><span className="hidden sm:inline">Open in the main window</span></Button>
+    <StatusLine environmentId={environmentId} sessionId={sessionId} />
   </header>} /></PaneLines></section>
       </DialogContent>
     </Dialog></PromptFieldsProvider>

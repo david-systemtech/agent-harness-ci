@@ -21,9 +21,11 @@
     padding-top: max(8px, env(safe-area-inset-top));
     padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
-  [data-authoring-frame] header { gap: 4px; padding: 4px 8px; }
-  [data-authoring-frame] header h3 { flex: 1; }
-  [data-authoring-frame] header button { font-size: 0.75rem; }
+  [data-authoring-header] { gap: 4px; padding: 0 8px; }
+  [data-authoring-header] h3 { flex: 1; }
+  [data-authoring-header] button { font-size: 0.75rem; }
+  [data-authoring-header] [aria-label="Status line"] { min-height: 0; padding: 0; }
+  [data-authoring-frame] [aria-label="Parked prompt"] { padding-block: 8px; gap: 4px; }
   [data-authoring-frame] [data-prompt-decision] kbd { display: none; }
   [data-authoring-frame] [data-prompt-decision] > p:last-child { display: none; }
 }
@@ -32,3 +34,6 @@
 [data-authoring-frame] div:has(> [aria-label="Transcript"]) { min-height: 44px; }
 
 [data-authoring-frame] [aria-label="Parked prompt"] { max-height: 60dvh; }
+
+/* The authoring composer keeps its natural size; the prompt body yields the remaining space. */
+[data-authoring-frame] [data-composer-column] { flex-shrink: 0; max-height: none; overflow: visible; }

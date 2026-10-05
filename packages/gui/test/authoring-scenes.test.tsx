@@ -32,4 +32,3 @@ it.each(["settings-bank-authoring", "setup-authoring", "phone-bank-authoring"])(
   await user.click(within(decisions).getByRole("button", { name: "Send answers" }));
   expect(await within(dialog).findByRole("article", { name: "Question" })).toBeDefined();
 });
-

@@ -65,8 +65,8 @@ export const SessionPane = ({ session, focused, header, authoring = false, ...ca
                       <PromptCard environmentId={environmentId} sessionId={sessionId} />
                     </div>}
                     <div data-composer-column className="mx-auto w-full shrink-0" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
-                      <Composer environmentId={environmentId} sessionId={sessionId} promptInComposer={!authoring} />
-                      <StatusLine environmentId={environmentId} sessionId={sessionId} />
+                      <Composer environmentId={environmentId} sessionId={sessionId} authoring={authoring} />
+                      {!authoring && <StatusLine environmentId={environmentId} sessionId={sessionId} />}
                     </div>
                   </section>
                   <SideColumnView environmentId={environmentId} sessionId={sessionId} />
