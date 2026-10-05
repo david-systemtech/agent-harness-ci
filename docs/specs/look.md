@@ -613,7 +613,8 @@ Phone web transcript selection also unpins following; later stream output keeps
 history text/ranges and the reading anchor intact. Jump to latest explicitly
 repins. Native selection/copy menus, long press, links and pinch zoom remain
 usable. Contain transcript/root boundary overscroll without a global touch
-blocker or swipe navigation. Code wells retain horizontal scrolling; capped
+blocker or swipe navigation. Uncapped code wells contain horizontal overscroll
+and pass vertical gestures to the transcript; capped
 input/detail wells are deliberate independently scrolling exceptions, with
 contained overscroll. Tool disclosure preserves per-call folds and cannot pan
 the outer page or dock.

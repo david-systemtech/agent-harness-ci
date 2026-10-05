@@ -167,6 +167,8 @@ code-well scrolling; no custom swipe navigation, simulated haptics or global tou
 blocker. The locked phone root and transcript use `overscroll-behavior: none`
 to suppress scroll chaining and browser pull-to-refresh where supported. Capped
 input/detail wells remain independently scrollable with contained overscroll.
+Uncapped Markdown code contains horizontal overscroll only; vertical gestures
+continue to the transcript.
 CSS cannot promise suppression of every OS/browser refresh or rubberband gesture:
 record engines that still refresh with dated handset evidence under #1556.
 

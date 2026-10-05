@@ -347,8 +347,12 @@ html[data-phone-viewport] [data-web-client] {
   -webkit-user-select: text;
   touch-action: auto;
 }
-/* Capped input/detail wells keep their own scrolling, including horizontal code. */
-[data-web-client] [aria-label="Transcript"] pre,
+/* Uncapped code passes vertical gestures to the transcript while containing horizontal scrolling. */
+[data-web-client] [aria-label="Transcript"] pre {
+  overscroll-behavior: contain auto;
+}
+/* Only capped input/detail wells contain scrolling on both axes. */
+[data-web-client] [aria-label="Transcript"] pre[data-tool-raw],
 [data-web-client] [data-composer-column] {
   overscroll-behavior: contain;
 }

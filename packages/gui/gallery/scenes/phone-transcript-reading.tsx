@@ -49,6 +49,14 @@ export const activate = () => {
     const result = Array.from(card.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Result")!;
     result.click(); await settle();
     const code = transcript.querySelector<HTMLElement>("pre code")!;
+    const codeScroll = getComputedStyle(code.parentElement!);
+    if (codeScroll.overscrollBehaviorX !== "contain" || codeScroll.overscrollBehaviorY !== "auto") throw new Error("Uncapped code must pass vertical scrolling to the transcript");
+    const raw = card.querySelector<HTMLElement>("[data-tool-raw]");
+    if (!raw) throw new Error("Reading proof missing capped tool output");
+    for (const well of [raw, dock]) {
+      const scroll = getComputedStyle(well);
+      if (scroll.overscrollBehaviorX !== "contain" || scroll.overscrollBehaviorY !== "contain") throw new Error("Capped well containment missing");
+    }
     transcript.scrollTop += code.getBoundingClientRect().top - transcript.getBoundingClientRect().top - 12;
     transcript.dispatchEvent(new Event("scroll")); await settle();
     const reading = transcript.scrollTop;

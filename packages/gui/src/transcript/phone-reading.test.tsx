@@ -62,7 +62,7 @@ it("suppresses phone root/transcript overscroll while leaving selection, zoom an
   const source = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
   style.textContent = source.slice(source.indexOf("/* Only the mounted phone web frame"));
   const frame = document.createElement("div"); frame.id = "root"; frame.setAttribute("data-web-client", "");
-  frame.innerHTML = '<section aria-label="Transcript"><pre><code>wide receipt line</code></pre></section><div data-composer-column></div>';
+  frame.innerHTML = '<section aria-label="Transcript"><pre><code>wide receipt line</code></pre><pre data-tool-raw>capped tool output</pre></section><div data-composer-column></div>';
   document.body.append(frame); document.head.append(style); document.documentElement.setAttribute("data-phone-viewport", "");
   try {
     for (const element of [document.documentElement, document.body, document.getElementById("root")].filter(element => element !== null)) {
@@ -73,7 +73,8 @@ it("suppresses phone root/transcript overscroll while leaving selection, zoom an
     expect(getComputedStyle(transcript).overscrollBehavior).toBe("none");
     expect(getComputedStyle(transcript).userSelect).toBe("text");
     expect(getComputedStyle(transcript).touchAction).toBe("auto");
-    for (const well of [frame.querySelector("pre")!, frame.querySelector("[data-composer-column]")!]) expect(getComputedStyle(well).overscrollBehavior).toBe("contain");
+    expect(getComputedStyle(frame.querySelector("pre:not([data-tool-raw])")!).overscrollBehavior).toBe("contain auto");
+    for (const well of [frame.querySelector("[data-tool-raw]")!, frame.querySelector("[data-composer-column]")!]) expect(getComputedStyle(well).overscrollBehavior).toBe("contain");
   } finally { document.documentElement.removeAttribute("data-phone-viewport"); frame.remove(); style.remove(); }
 });
 
