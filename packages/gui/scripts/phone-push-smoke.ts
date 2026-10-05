@@ -114,7 +114,7 @@ export async function phonePushSmoke({ context, page, environment, token, sessio
   const returned = await context.newPage();
   await returned.goto(clicked);
   await expect(returned).toHaveURL(payload.url);
-  await returned.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+  await returned.locator('[data-web-grant][data-phase="ready"]').waitFor();
   await returned.close(); await observer.close(); await wire.close();
   const replacement = await context.newPage();
   console.log("PHONE-PUSH PASS chromium: encrypted HTTPS gateway, closed page, real worker notification, OS-tap boundary double and same-origin click return");
