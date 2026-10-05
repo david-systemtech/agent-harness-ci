@@ -505,7 +505,10 @@ jobs:
                   if ($handle.StartTime.ToUniversalTime().ToString('yyyyMMddHHmmssffffff') -ne $row.CreationDate.ToUniversalTime().ToString('yyyyMMddHHmmssffffff')) { throw 'The scheduled task process identity changed before uninstall' }
                   $ownedHandles += $handle
                 }
-                $unrelated = Start-Process -FilePath $node -ArgumentList '-e "setInterval(() => {}, 1000)"' -WindowStyle Hidden -PassThru
+                # A live executable inside the app directory would prevent NSIS from removing it.
+                $unrelatedNode = Join-Path $PSScriptRoot 'unrelated-node.exe'
+                Copy-Item -LiteralPath $node -Destination $unrelatedNode
+                $unrelated = Start-Process -FilePath $unrelatedNode -ArgumentList '-e "setInterval(() => {}, 1000)"' -WindowStyle Hidden -PassThru
                 $null = $unrelated.SafeHandle
                 # Exercise cleanup with the scheduled-task tree still serving, without
                 # a preceding Stop-Tree or CLI uninstall.

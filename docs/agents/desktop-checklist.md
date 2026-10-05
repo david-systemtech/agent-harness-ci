@@ -321,7 +321,12 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
    To remove retained data as well, delete that folder after uninstalling.
    If service cleanup fails, uninstall exits nonzero and keeps the app's
    resources. The task is disabled during cleanup to prevent another start;
-   fix the service error before retrying, or reinstall to enable it again.
+   `service-stop.json` in the data directory retains verified process identities
+   and exit times so retry checks survivors even after the scheduled action
+   has stopped. Successful cleanup removes that record. If a recorded identity
+   cannot be verified, cleanup keeps the registration for inspection instead of
+   guessing which process to stop. Fix the service error before retrying, or
+   reinstall to enable the task again.
    The hosted release smoke starts the installed task before uninstall and
    checks launcher/server exit, port closure, task removal, data retention
    and an unrelated Node process staying alive. Its temporary user's batch
