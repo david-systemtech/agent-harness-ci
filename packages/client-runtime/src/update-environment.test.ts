@@ -154,7 +154,7 @@ describe("update-environment while blocked protocol-mismatch", () => {
 
     expect(outcome).toEqual({ ok: false, refused: true, reason, message: error.message });
     expect(notices(runtime)).toEqual([
-      expect.objectContaining({ environmentId: wire.environmentId, action: null, message: `fake refused the update to ${CLIENT_VERSION} (${reason}): ${error.message}` }),
+      expect.objectContaining({ environmentId: wire.environmentId, action: null, message: `Could not update fake to ${CLIENT_VERSION} (${reason}): ${error.message}` }),
     ]);
     // Still blocked, and the action is still offered to ask again.
     expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", action: "update-environment" });
@@ -377,7 +377,7 @@ describe("update-environment on a local environment blocked on an older protocol
 
     expect(await runtime.connections.updateEnvironment(wire.environmentId)).toMatchObject({ ok: false, refused: true, reason: "pinned" });
     const exchanged = wire.credential();
-    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `desk refused the update to ${CLIENT_VERSION} (pinned): desk is pinned to 0.5.0.` })]);
+    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `Could not update desk to ${CLIENT_VERSION} (pinned): desk is pinned to 0.5.0.` })]);
     expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", action: "update-environment" });
 
     wire.updateRoute({ status: 200, body: { updateId: "6f1c2d3e-4a5b-4c6d-8e7f-1a2b3c4d5e6f", toVersion: CLIENT_VERSION } });
@@ -406,6 +406,22 @@ describe("update-environment from a desktop whose local environment is blocked o
     expect(outcome).toEqual({ ok: true, updateId: expect.any(String) as unknown as string, toVersion: CLIENT_VERSION });
     expect(wire.updatePosts()).toEqual([{ token: wire.credential()?.token, body: { version: CLIENT_VERSION, artefactPath: BUNDLED_PATH } }]);
     expect(record(runtime)).toMatchObject({ phase: "updating", blocked: null, action: null });
+  });
+
+  it("keeps a bundled disk refusal across the protocol gap without falling back to a download, then retries the bundle", async () => {
+    let room = false;
+    const message = "Not enough disk space for staging and the snapshot. Free space and retry.";
+    const { wire, runtime } = await blockedLocal(carrying(async () => ({
+      version: CLIENT_VERSION, path: BUNDLED_PATH,
+      ...(!room && { refusal: { reason: "disk" as const, message } }),
+    })));
+    expect(await runtime.connections.updateEnvironment(wire.environmentId)).toEqual({ ok: false, refused: true, reason: "disk", message });
+    expect(wire.updatePosts()).toEqual([]);
+    expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", action: "update-environment" });
+    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `Could not update desk to ${CLIENT_VERSION} (disk): ${message}` })]);
+    room = true;
+    expect(await runtime.connections.updateEnvironment(wire.environmentId)).toMatchObject({ ok: true, toVersion: CLIENT_VERSION });
+    expect(wire.updatePosts()).toEqual([{ token: wire.credential()?.token, body: { version: CLIENT_VERSION, artefactPath: BUNDLED_PATH } }]);
   });
 
   it.each<readonly [string, ShellFunctions["installer.bundledServer"]]>([
@@ -437,7 +453,7 @@ describe("update-environment from a desktop whose local environment is blocked o
 
     expect(await runtime.connections.updateEnvironment(wire.environmentId)).toEqual({ ok: false, refused: true, reason: "invalid_params", message: refusal });
     expect(wire.updatePosts()).toEqual([{ token: wire.credential()?.token, body: { version: CLIENT_VERSION, artefactPath: BUNDLED_PATH } }]);
-    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `desk refused the update to ${CLIENT_VERSION} (invalid_params): ${refusal}` })]);
+    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `Could not update desk to ${CLIENT_VERSION} (invalid_params): ${refusal}` })]);
     expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", action: "update-environment" });
   });
 });
@@ -478,7 +494,7 @@ describe("update-environment otherwise", () => {
       result: { receipt: { status: "rejected", sequence: 1, changed: false, reason: "conflict", error: { code: "conflict", message: "The update to 0.6.0 is draining; it cannot be changed now.", data: { reason: "in_progress" } } } },
     }));
     expect(await runtime.connections.updateEnvironment(wire.environmentId)).toMatchObject({ ok: false, refused: true, reason: "in_progress" });
-    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `fake refused the update to ${CLIENT_VERSION} (in_progress): The update to 0.6.0 is draining; it cannot be changed now.` })]);
+    expect(notices(runtime)).toEqual([expect.objectContaining({ message: `Could not update fake to ${CLIENT_VERSION} (in_progress): The update to 0.6.0 is draining; it cannot be changed now.` })]);
 
     wire.answer("updates.apply", () => ({ error: { code: "forbidden", message: "updates.apply needs the admin scope, which this client session does not hold.", data: { scope: "admin" } } }));
     expect(await runtime.connections.updateEnvironment(wire.environmentId)).toMatchObject({ ok: false, refused: true, reason: "forbidden" });

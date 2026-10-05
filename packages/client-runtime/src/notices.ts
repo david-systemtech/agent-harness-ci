@@ -22,8 +22,8 @@ export const NOTICE_LIMIT = 100;
  * What a notice is about: the connection's own kinds; from
  * `environment.subscribe`, `updated` (the environment now runs another
  * harness version), `update-failed` (an update did not take, and the
- * version it went from runs), `update-refused` (the environment refused the
- * update this client asked of it, `update-environment`), `draining` (it takes no new runs until it
+ * version it went from runs), `update-refused` (the environment or the desktop's
+ * disk check refused `update-environment`), `draining` (it takes no new runs until it
  * restarts), `account` (an account changed in a way worth saying: the
  * environment's warning, or its sign-in status), `prompt-parked` (a run
  * waits for a person's answer) and `prompt-resolved` (a prompt this client

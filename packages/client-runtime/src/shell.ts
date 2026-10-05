@@ -276,6 +276,8 @@ export interface ShellInstaller {
 export interface ShellBundledServer {
   readonly version: string;
   readonly path: string;
+  /** The known bundle cannot be handed over yet; looking again retries the disk check. */
+  readonly refusal?: { readonly reason: "disk"; readonly message: string };
 }
 
 /**

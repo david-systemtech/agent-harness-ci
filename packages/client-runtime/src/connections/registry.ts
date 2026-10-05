@@ -113,8 +113,8 @@ export interface Connections {
    * rather than download) and then shows `updating` through the
    * environment's restart until `hello` agrees and clears the block; any
    * other sends `updates.apply` on its socket, and follows the
-   * `bye: updating` the restart brings. An
-   * environment that refuses raises the notice `update-refused` naming why.
+   * `bye: updating` the restart brings. A refusal by the environment or the
+   * desktop's bundled-copy disk check raises `update-refused` naming why.
    * Rejects for an unknown environment.
    */
   updateEnvironment(environmentId: string): Promise<UpdateEnvironmentOutcome>;
@@ -1244,7 +1244,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         if (token.ok) {
           // The local environment stages the server this desktop carries, when it is the version asked, rather than downloading it (#918).
           const artefactPath = entry.saved.kind === "local" ? await carriedArtefact(platform.shell, version) : undefined;
-          outcome = await askOverRoute(platform.fetch, entry.saved.address, token.token, { version, ...(artefactPath !== undefined && { artefactPath }) });
+          outcome = typeof artefactPath === "object" ? artefactPath
+            : await askOverRoute(platform.fetch, entry.saved.address, token.token, { version, ...(artefactPath !== undefined && { artefactPath }) });
         } else {
           outcome = token.outcome;
         }
@@ -1264,7 +1265,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (!outcome.ok && outcome.refused) {
         notices.raise(environmentId, {
           kind: "update-refused",
-          message: `${machine.name} refused the update to ${version} (${outcome.reason}): ${outcome.message}`,
+          message: `Could not update ${machine.name} to ${version} (${outcome.reason}): ${outcome.message}`,
           action: null,
         });
       }

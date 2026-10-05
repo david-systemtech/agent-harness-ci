@@ -43,6 +43,8 @@ export interface ServiceState {
    * for idle, so pruning keeps it.
    */
   readonly stagedVersion: string | null;
+  /** Newly installed, never activated candidate owned by this attempt; older state records omit it. */
+  readonly reclaimableVersion?: string;
   /** The handover to a newer launcher that was not confirmed, so the launcher that handed over runs on, if there was one since the last confirmed handover. */
   readonly failedHandover: FailedHandover | null;
 }
@@ -81,6 +83,8 @@ const stateOf = (value: unknown): ServiceState | string => {
   if (watchDeadline !== null && !isTime(watchDeadline)) return "watchDeadline is neither a time nor null";
   if (watchedUpdateId !== null && !isUpdateId(watchedUpdateId)) return "watchedUpdateId is neither an update id nor null";
   if (stagedVersion !== null && !isVersion(stagedVersion)) return "stagedVersion is neither a version nor null";
+  const reclaimableVersion = value["reclaimableVersion"];
+  if (reclaimableVersion !== undefined && (!isVersion(reclaimableVersion) || reclaimableVersion !== stagedVersion)) return "reclaimableVersion is not the staged version";
   if (failedHandover !== null && !isFailedHandover(failedHandover)) return "failedHandover is neither a failed handover nor null";
   return {
     activeVersion,
@@ -90,6 +94,7 @@ const stateOf = (value: unknown): ServiceState | string => {
     watchDeadline,
     watchedUpdateId,
     stagedVersion,
+    ...(reclaimableVersion === undefined ? {} : { reclaimableVersion }),
     failedHandover: failedHandover === null ? null : { toVersion: failedHandover.toVersion, at: failedHandover.at },
   };
 };
