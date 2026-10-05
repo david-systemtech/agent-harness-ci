@@ -11,16 +11,22 @@ export async function smokeProcess(command: string, args: string[], options: {
 }): Promise<{ stdout: string }> {
   options.signal.throwIfAborted();
   let abort = () => {};
+  let escalation: ReturnType<typeof setTimeout> | undefined;
   try {
     return await new Promise((resolve, reject) => {
       const child = spawn(command, args, { cwd: options.cwd, env: options.env, detached: true });
       let stdout = "";
       let bytes = 0;
       let failure: Error | undefined;
-      const stop = () => {
+      const terminate = (signal: NodeJS.Signals) => {
         if (child.pid === undefined) return;
-        try { process.kill(-child.pid, "SIGTERM"); }
+        try { process.kill(-child.pid, signal); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") reject(error); }
+      };
+      const stop = () => {
+        // Give wrappers such as sudo time to relay termination to their children.
+        terminate("SIGTERM");
+        escalation ??= setTimeout(() => terminate("SIGKILL"), 5_000).unref();
       };
       child.stdin.end();
       child.stdout.setEncoding("utf8");
@@ -44,5 +50,8 @@ export async function smokeProcess(command: string, args: string[], options: {
       options.signal.addEventListener("abort", abort, { once: true });
       if (options.signal.aborted) abort();
     });
-  } finally { options.signal.removeEventListener("abort", abort); }
+  } finally {
+    if (escalation !== undefined) clearTimeout(escalation);
+    options.signal.removeEventListener("abort", abort);
+  }
 }
