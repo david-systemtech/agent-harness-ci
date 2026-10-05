@@ -605,7 +605,9 @@ content. Mod+minus makes it smaller; Mod+0 returns to actual size. Repeat in
 Settings, and verify the Keyboard shortcuts pane lists all three fixed actions.
 Repeat zoom out and in until they stop at 50% and 200%. In More, select
 Zoom in, Zoom out and Actual size; reset must remain available without a
-session. In a web client, confirm the browser still owns its zoom shortcuts.
+session. Repeat with the native View menu: Zoom In and Zoom Out must stop at
+the same limits, and Actual Size must return to 100%. In a web client, confirm
+the browser still owns its zoom shortcuts.
 
 Not run on real Windows, macOS or Linux for this change: the shared builder
 uses the desktop harness and jsdom, without launching Electron or a browser.

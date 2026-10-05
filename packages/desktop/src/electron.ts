@@ -300,6 +300,16 @@ export interface ElectronNotifications {
   create(options: NotificationOptions): ElectronNotification;
 }
 
+/** The native menu template fields used by the desktop. */
+export interface NativeMenuItem {
+  readonly role?: "appMenu" | "fileMenu" | "editMenu" | "windowMenu" | "reload" | "forceReload" | "toggleDevTools" | "togglefullscreen";
+  readonly label?: string;
+  readonly type?: "separator";
+  readonly accelerator?: string;
+  readonly click?: () => void;
+  readonly submenu?: NativeMenuItem[];
+}
+
 /** Electron's main-process modules, and the window's constructor, as the desktop takes them. */
 export interface DesktopElectron {
   readonly app: ElectronApp;
@@ -313,6 +323,8 @@ export interface DesktopElectron {
   readonly nativeTheme: { readonly shouldUseDarkColors: boolean };
   readonly safeStorage: ElectronSafeStorage;
   readonly notification: ElectronNotifications;
+  /** Builds and installs the native application menu. */
+  readonly menu: { set(template: NativeMenuItem[]): void };
   /** `new BrowserWindow(options)`. */
   openWindow(options: WindowOptions): ElectronBrowserWindow;
   openWebView(options: ViewOptions): ElectronWebView;

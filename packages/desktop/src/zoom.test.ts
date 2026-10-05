@@ -5,6 +5,23 @@ import { fakeElectron } from "../test/fake-electron.js";
 afterEach(cleanUp);
 
 describe.each(["win32", "darwin", "linux"] as const)("window zoom on %s", (os) => {
+  it("keeps native View menu clicks within the same limits and increments as keys and shell controls", async () => {
+    const { electron } = await start({ electron: fakeElectron({ os }), platform: platformOn(os) });
+    const page = electron.window().webContents;
+    page.setZoomFactor(2);
+    electron.menu.click("Zoom In");
+    expect(page.getZoomFactor()).toBe(2);
+    page.setZoomFactor(0.5);
+    electron.menu.click("Zoom Out");
+    expect(page.getZoomFactor()).toBe(0.5);
+    electron.menu.click("Actual Size");
+    expect(page.getZoomFactor()).toBe(1);
+    electron.menu.click("Zoom In");
+    expect(page.getZoomFactor()).toBe(1.1);
+    electron.menu.click("Zoom Out");
+    expect(page.getZoomFactor()).toBe(1);
+  });
+
   it("zooms in with plus, unshifted equals and keypad plus, out with minus, and resets with zero", async () => {
     const { electron } = await start({ electron: fakeElectron({ os }), platform: platformOn(os) });
     const page = electron.window().webContents;
