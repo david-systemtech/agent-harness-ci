@@ -1,0 +1,36 @@
+@media (max-width: 639px) {
+  .phone-prompt-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 8px; padding: 2px 8px; }
+  .phone-prompt-summary > span { flex: 1; }
+  .phone-prompt-summary button { min-width: 44px; min-height: 44px; font-size: max(16px, 1rem); }
+  .phone-prompt-line { width: 100%; max-height: 2lh; overflow-y: auto; overflow-wrap: anywhere; }
+  .phone-prompt-scrim { position: absolute; inset: 0; z-index: 50; }
+  .phone-prompt-sheet {
+    position: absolute;
+    z-index: 50;
+    inset: max(8px, var(--phone-frame-safe-top, env(safe-area-inset-top))) max(8px, var(--phone-frame-safe-right, env(safe-area-inset-right))) max(8px, var(--phone-frame-safe-bottom, env(safe-area-inset-bottom))) max(8px, var(--phone-frame-safe-left, env(safe-area-inset-left)));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    min-height: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+  }
+  .phone-prompt-sheet [data-phone-prompt-body] { flex: 1; }
+  .phone-prompt-sheet button { min-width: 44px; min-height: 44px; height: auto; white-space: normal; font-size: max(16px, 1rem); }
+  .phone-prompt-sheet :is(input, textarea) { min-height: 44px; font-size: max(16px, 1rem); }
+  .phone-prompt-sheet [data-phone-prompt-answer] > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .phone-prompt-sheet [data-prompt-choice] { display: flex; min-width: 0; flex-direction: column; gap: 0; }
+  .phone-prompt-sheet [data-prompt-choice] button { width: 100%; }
+  .phone-prompt-sheet [data-prompt-choice] > span { font-size: 0.6rem; }
+  .phone-prompt-sheet kbd { display: none; }
+  .phone-prompt-sheet [data-phone-prompt-body] [aria-label="Arguments"] { max-height: none; min-width: 0; flex-shrink: 0; }
+  .phone-prompt-sheet [aria-label="Plan body"] { max-height: none; overflow: visible; mask-image: none; }
+  .phone-prompt-sheet [data-question-option] > span,
+  .phone-prompt-sheet [data-question-option] input { width: 44px; height: 44px; }
+  .phone-prompt-sheet [data-question-option] svg { inset: 14px; }
+  .phone-prompt-sheet [data-question-option] label { min-height: 44px; min-width: 0; }
+  .phone-prompt-sheet [role="status"] { max-height: 2lh; overflow-y: auto; }
+  body:has(.phone-prompt-sheet) [data-ui-tooltip] { pointer-events: none !important; }
+}

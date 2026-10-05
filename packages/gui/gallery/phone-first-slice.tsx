@@ -37,41 +37,17 @@ export const phoneFirstScene = async (kind: "pairing" | "conversation" | "permis
 };
 
 
-/** Reveal as a person scrolling the waiting card would, after its font/layout changes. */
+/** Open the bounded phone request; desktop cards already anchor their decisions. */
 export function revealPermissionDecision(): () => void {
-  let stopped = false, started = false, frame = 0;
   const reveal = () => {
+    const details = document.querySelector<HTMLButtonElement>('.phone-prompt-summary button');
     const decision = document.querySelector<HTMLElement>('[aria-label="Allow once"]');
-    if (decision === null || started) return;
-    started = true; observer.disconnect();
-    // Let the mounted card request its fonts before reading the current ready promise.
-    frame = requestAnimationFrame(() => {
-      if (stopped) return;
-      void (document.fonts?.ready ?? Promise.resolve()).then(() => {
-        let previous = "", stable = 0;
-        const settle = () => {
-          if (stopped) return;
-          decision.scrollIntoView({ block: "nearest" });
-          const well = decision.closest<HTMLElement>("[data-composer-above]");
-          if (well !== null) {
-            const action = decision.getBoundingClientRect(), bounds = well.getBoundingClientRect();
-            // Native nearest-edge scrolling rounds; leave room for a whole action.
-            const inset = Math.min(4, Math.max(0, bounds.height - action.height));
-            const bottom = Math.min(innerHeight, bounds.bottom) - inset;
-            if (action.bottom > bottom) well.scrollTop += Math.ceil(action.bottom - bottom);
-          }
-          const rect = decision.getBoundingClientRect();
-          const current = JSON.stringify([rect.x, rect.y, rect.width, rect.height, well?.scrollTop]);
-          stable = current === previous ? stable + 1 : 0; previous = current;
-          if (stable >= 3) { decision.dataset["permissionRevealed"] = ""; return; }
-          frame = requestAnimationFrame(settle);
-        };
-        if (!stopped) frame = requestAnimationFrame(settle);
-      });
-    });
+    if (!decision) { details?.click(); return; }
+    decision.dataset["permissionRevealed"] = "";
+    observer.disconnect();
   };
   const observer = new MutationObserver(reveal);
   observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
   reveal();
-  return () => { stopped = true; observer.disconnect(); cancelAnimationFrame(frame); };
+  return () => observer.disconnect();
 }

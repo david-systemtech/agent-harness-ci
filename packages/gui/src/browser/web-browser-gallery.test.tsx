@@ -19,15 +19,15 @@ it("captures actual phone drivers and a disconnected Chrome without desktop capa
   expect(document.querySelector("iframe")).toBeNull();
 });
 
-it("rejects a full-sized Allow button clipped by its keyboard-height scrolling region", () => {
+it("rejects a full-sized Allow button clipped by its keyboard-height request sheet", () => {
   const root = document.createElement("div");
   root.id = "root";
   root.dataset["galleryGeometry"] = JSON.stringify(permissionGeometry.filter(check => check.selector === '[aria-label="Allow once"]'));
-  root.innerHTML = '<main data-web-client><div data-composer-above><button aria-label="Allow once">Allow once</button></div></main>';
+  root.innerHTML = '<main data-web-client><div class="phone-prompt-sheet"><button aria-label="Allow once">Allow once</button></div></main>';
   document.body.append(root);
   onTestFinished(() => { root.remove(); vi.restoreAllMocks(); });
   vi.spyOn(root.querySelector("main")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 390, 480));
-  vi.spyOn(root.querySelector("[data-composer-above]")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 223, 390, 21));
+  vi.spyOn(root.querySelector(".phone-prompt-sheet")!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 223, 390, 21));
   vi.spyOn(root.querySelector("button")!, "getBoundingClientRect").mockReturnValue(new DOMRect(12, 224, 160, 44));
-  expect(measureSceneGeometry()).toContain('[aria-label="Allow once"][0]: clipped outside [data-composer-above]');
+  expect(measureSceneGeometry()).toContain('[aria-label="Allow once"][0]: clipped outside .phone-prompt-sheet');
 });
