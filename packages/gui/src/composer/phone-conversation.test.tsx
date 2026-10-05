@@ -4,6 +4,7 @@ import { mountGallery } from "../../gallery/mount.js";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { renderApp } from "../../test/harness.js";
+import { composerControlExpression } from "../../scripts/phone-refusal-smoke.js";
 import { route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
 it("keeps the composing draft until the input method commits, including an Enter without isComposing", async () => {
@@ -161,6 +162,13 @@ it("lets a phone user scroll the refused draft, remedy and Run settings in the c
   expect(input).toHaveProperty("value", "Explain the receipt totals.\n".repeat(6));
   const column = line.closest("[data-composer-column]")!;
   expect(column.contains(screen.getByRole("button", { name: "Run settings" }))).toBe(true);
+  // Exercise the hosted lookup against production markup, including text-named
+  // Run settings and the icon-only Send beside an equally empty Attach files.
+  const send = screen.getByRole("button", { name: "Send" });
+  expect(send.textContent).toBe(screen.getByRole("button", { name: "Attach files" }).textContent);
+  for (const control of [screen.getByRole("button", { name: "Run settings" }), send, line]) {
+    expect(window.eval(composerControlExpression(control.textContent, control.getAttribute("aria-label")))).toBe(control);
+  }
   const style = document.createElement("style"); style.textContent = readFileSync(new URL("./phone-conversation.css", import.meta.url), "utf8"); document.head.append(style);
   onTestFinished(() => style.remove());
   // jsdom has no layout: check the actual phone rule matching the rendered refusal's scroll owner.

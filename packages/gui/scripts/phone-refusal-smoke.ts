@@ -3,6 +3,11 @@ import { join } from "node:path";
 import type { Locator, Page } from "playwright";
 import { expect } from "playwright/test";
 
+/** Match text-named controls and labelled icon buttons without confusing empty icons. */
+export const composerControlExpression = (text: string | null, label: string | null): string => label === null
+  ? `Array.from(document.querySelector('[data-composer-column]').querySelectorAll('p[role="status"], button:not([aria-label])')).find(element => element.textContent === ${JSON.stringify(text)})`
+  : `document.querySelector('[data-composer-column]').querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(label)}]`)})`;
+
 /** Hosted real-client regression for the keyboard-height refusal in #1325. */
 export async function phoneRefusalSmoke(page: Page, engine: string, output: string, signIn: (signedIn: boolean) => Promise<void>, waitForDraft: (message: string) => Promise<void>): Promise<void> {
   const original = page.viewportSize();
@@ -14,11 +19,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const fits = async (control: Locator) => {
     const text = await control.textContent();
     const label = await control.getAttribute("aria-label");
-    // Icon buttons can share empty text. Identify them by the locator's label;
-    // text is only used for the refusal/remedy status paragraphs.
-    const element = label === null
-      ? `Array.from(document.querySelector('[data-composer-column]').querySelectorAll('p[role="status"]')).find(element => element.textContent === ${JSON.stringify(text)})`
-      : `document.querySelector('[data-composer-column]').querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(label)}]`)})`;
+    const element = composerControlExpression(text, label);
     // Scroll only the touch-scrollable composer, never an overflow-hidden ancestor
     // or the document. Centering also leaves room for fractional edge geometry.
     await page.evaluate(`(() => {
