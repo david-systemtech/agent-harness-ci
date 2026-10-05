@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
@@ -202,4 +203,140 @@ it.skipIf(process.platform !== "linux")("preserves the command's failure status 
   await expect(smokeProcess(process.execPath, ["-e", "process.exit(7);"], {
     cwd: process.cwd(), signal: new AbortController().signal, stdout: output, stderr: output,
   })).rejects.toThrow(`${process.execPath} exited with 7.`);
+});
+
+it.skipIf(process.platform !== "linux")("cancellation preserves its reason when the caller cannot signal an owned descendant", async () => {
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  let pid = 0;
+  output.on("data", chunk => {
+    const match = /protected ready (\d+)/.exec(String(chunk));
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  const originalKill = process.kill.bind(process);
+  const kill = vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+    if (target === pid) throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+    return originalKill(target, signal);
+  });
+  const reason = new Error("Installer deadline expired.");
+  const execution = smokeProcess(process.execPath, ["-e", "process.on('SIGTERM',()=>{}); console.log('protected ready '+process.pid); setInterval(()=>{},60000);"], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(pid)).toBe(false);
+  } finally {
+    kill.mockRestore(); vi.useRealTimers();
+    if (pid && runningProcess(pid)) originalKill(pid, "SIGKILL");
+    output.destroy();
+  }
+});
+
+
+const hostedOrdinaryUser = process.env["GITHUB_ACTIONS"] === "true" && process.env["RUNNER_ENVIRONMENT"] === "github-hosted" && process.getuid?.() !== 0;
+
+it.skipIf(!hostedOrdinaryUser).each([false, true])("an ordinary caller cancels a privileged installer descendant (detached: %s)", async detached => {
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  output.on("data", chunk => {
+    text += String(chunk);
+    const match = /privileged ready (\d+) uid=0/.exec(text);
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  const leaf = `import os, signal, time; ${detached ? "os.setsid();" : ""} signal.signal(signal.SIGTERM, lambda *_: None); print('privileged ready '+str(os.getpid())+' uid='+str(os.getuid()), flush=True); time.sleep(600)`;
+  const parent = `const {spawn}=require('node:child_process'); console.log('installer uid='+process.getuid()); spawn('sudo',['-n','--','python3','-c',${JSON.stringify(leaf)}],{stdio:'inherit'});`;
+  const reason = new Error("Privileged installer deadline expired.");
+  const execution = smokeProcess(process.execPath, ["-e", parent], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output, privilegedCleanup: true,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    expect(text).toContain(`installer uid=${process.getuid!()}`);
+    expect(() => process.kill(pid, "SIGKILL")).toThrow(expect.objectContaining({ code: "EPERM" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(pid)).toBe(false);
+  } finally {
+    vi.useRealTimers(); controller.abort(reason);
+    if (pid && runningProcess(pid)) execFileSync("sudo", ["-n", "--", "kill", "-KILL", String(pid)]);
+    output.destroy();
+  }
+});
+
+it.skipIf(process.platform !== "linux")("cancellation leaves an unrelated process alive", async () => {
+  const { spawn } = await import("node:child_process");
+  const unrelated = spawn(process.execPath, ["-e", "console.log('ready'); setInterval(()=>{},60000);"], { stdio: ["ignore", "pipe", "ignore"] });
+  await new Promise<void>(resolve => { unrelated.stdout!.once("data", () => resolve()); });
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  output.once("data", () => ready());
+  const reason = new Error("Only the owned tree was cancelled.");
+  const execution = smokeProcess(process.execPath, ["-e", "console.log('ready'); setInterval(()=>{},60000);"], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(unrelated.pid!)).toBe(true);
+  } finally {
+    vi.useRealTimers(); controller.abort(reason); unrelated.kill("SIGKILL"); output.destroy();
+  }
+});
+
+it.skipIf(!hostedOrdinaryUser)("bounded cleanup reports a privileged survivor and preserves the original abort reason", async () => {
+  const controller = new AbortController();
+  const output = new PassThrough();
+  let text = "";
+  let pid = 0;
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  output.on("data", chunk => {
+    text += String(chunk);
+    const match = /unreachable ready (\d+)/.exec(text);
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  const leaf = "import os, signal, time; os.setsid(); signal.signal(signal.SIGTERM, lambda *_: None); print('unreachable ready '+str(os.getpid()), flush=True); time.sleep(600)";
+  const reason = new Error("Unprivileged installer deadline expired.");
+  const execution = smokeProcess("sudo", ["-n", "--", "python3", "-c", leaf], {
+    cwd: process.cwd(), signal: controller.signal, stdout: output, stderr: output,
+  });
+  const stopped = expect(execution).rejects.toBe(reason);
+  try {
+    await started;
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const startedAt = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]!;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    controller.abort(reason);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await stopped;
+    expect(runningProcess(pid)).toBe(true);
+    expect(text).toContain("SMOKE CLEANUP remaining owned descendants:");
+    expect(text).toContain(`"pid": ${pid}`);
+    expect(text).toContain(`"started": "${startedAt}"`);
+    expect(text).toContain('"uids": ["0", "0", "0", "0"]');
+  } finally {
+    vi.useRealTimers(); controller.abort(reason);
+    if (pid && runningProcess(pid)) execFileSync("sudo", ["-n", "--", "kill", "-KILL", String(pid)]);
+    output.destroy();
+  }
 });

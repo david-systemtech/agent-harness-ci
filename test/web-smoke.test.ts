@@ -4,15 +4,16 @@ import { join, resolve } from "node:path";
 import { removeTree } from "../packages/filesystem/src/index.js";
 import { expect, it, onTestFinished } from "vitest";
 import { smokeProcess } from "./smoke-process.js";
-async function phase(name: string, args: string[], cwd: string, signal: AbortSignal, env = process.env) {
-  console.log(`WEB-SMOKE PHASE ${name}: start`);
-  const execution = smokeProcess("pnpm", args, { cwd, env, signal });
+async function phase(name: string, args: string[], cwd: string, signal: AbortSignal, env = process.env, privilegedCleanup = false) {
+  const started = performance.now();
+  console.log(`WEB-SMOKE PHASE ${name}: start (uid=${process.getuid?.()}, pnpm ${args.join(" ")})`);
+  const execution = smokeProcess("pnpm", args, { cwd, env, signal, privilegedCleanup });
   try {
     const result = await execution;
-    console.log(`WEB-SMOKE PHASE ${name}: complete`);
+    console.log(`WEB-SMOKE PHASE ${name}: complete (${Math.round(performance.now() - started)} ms)`);
     return result;
   } catch (error) {
-    console.error(`WEB-SMOKE PHASE ${name}: failed`);
+    console.error(`WEB-SMOKE PHASE ${name}: failed (${Math.round(performance.now() - started)} ms, ${signal.aborted ? String(signal.reason) : String(error)})`);
     throw error;
   }
 }
@@ -26,7 +27,8 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
   const deadline = (ms: number) => AbortSignal.any([controller.signal, AbortSignal.timeout(ms)]);
   try {
     const cwd = resolve("packages/gui");
-    await phase("browser installation", ["exec", "playwright", "install", "--with-deps", "chromium", "webkit"], cwd, deadline(180_000));
+    await phase("browser system dependencies", ["exec", "playwright", "install-deps", "chromium", "webkit"], cwd, deadline(240_000), process.env, true);
+    await phase("browser downloads", ["exec", "playwright", "install", "chromium", "webkit"], cwd, deadline(240_000));
     await phase("production build", ["exec", "vite", "build", "--outDir", join(out, "web")], cwd, deadline(120_000));
     const result = await phase("conversation", ["exec", "tsx", "--conditions=@agent-harness/source", "scripts/web-smoke.ts"], cwd, deadline(240_000),
       { ...process.env, WEB_SMOKE_BUNDLE: join(out, "web"), WEB_SMOKE_OUTPUT: out });
@@ -44,4 +46,4 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     expect(result.stdout).toContain("PHONE-RUN-PICKER PASS chromium");
     expect(result.stdout).toContain("PHONE-RUN-PICKER PASS webkit");
   } finally { controller.abort(); await removeTree(out); }
-}, 600_000);
+}, 960_000);
