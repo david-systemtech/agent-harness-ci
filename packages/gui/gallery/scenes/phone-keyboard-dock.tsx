@@ -57,6 +57,12 @@ export const activate = () => {
     await settle();
     env.openPrompt(env.sessionId(), { promptId: "keyboard-permission", kind: "permission", summary: "Read receipts", toolName: "Bash", input: { command: "printf receipts" } });
     await settle(); verifyKeyboardDock(480, 120);
+    const notifications = document.querySelector<HTMLElement>('[aria-label="Notifications"]')!;
+    const dismiss = notifications.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!;
+    notifications.scrollTop += Math.max(0, dismiss.getBoundingClientRect().bottom - notifications.getBoundingClientRect().bottom);
+    await settle();
+    const noticeBounds = notifications.getBoundingClientRect(), dismissBounds = dismiss.getBoundingClientRect();
+    if (dismissBounds.top < noticeBounds.top || dismissBounds.bottom > noticeBounds.bottom + 1) throw new Error("Keyboard clips the notification action");
     const allow = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Allow once"));
     if (!allow) throw new Error("Keyboard proof missing waiting card");
     allow.click(); await settle();

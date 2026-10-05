@@ -109,11 +109,16 @@
   [data-web-client] [aria-label="Message"] { padding-block: 4px; }
 }
 
-/* A keyboard can shrink only VisualViewport, leaving the layout media query tall. */
+/* Notification cards share the visible keyboard bounds with the compact dock.
+   Three transcript lines remain reserved; the notification action can scroll fully into view. */
 @media (max-width: 639px) {
-  [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [data-web-grant] {
-    white-space: nowrap;
-    overflow-x: auto;
-    padding-block: 4px;
+  [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [data-composer-column] {
+    max-height: calc(100% - 3lh);
+  }
+  [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [data-transcript-region] {
+    min-height: 3lh;
+  }
+  [data-web-client][data-phone-composing]:has([data-phone-composer-toolbar]) [aria-label="Notifications"] {
+    max-height: max(48px, min(12dvh, calc(var(--phone-viewport-height, 100dvh) * 0.1)));
   }
 }

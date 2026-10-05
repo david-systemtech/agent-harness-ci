@@ -6,6 +6,7 @@ export function verifyKeyboardDock(height: number, offset: number, latest = true
   const header = document.querySelector<HTMLElement>("[data-window-header]")!;
   const field = document.querySelector<HTMLElement>('[aria-label="Message"]')!;
   const bounds = frame.getBoundingClientRect();
+  const dockBounds = dock.getBoundingClientRect();
   const near = (actual: number, expected: number, name: string) => {
     if (Math.abs(actual - expected) > 1) throw new Error(`Keyboard dock ${name}: ${actual}, expected ${expected}`);
   };
@@ -16,7 +17,11 @@ export function verifyKeyboardDock(height: number, offset: number, latest = true
   if (visible.height < 3 * parseFloat(getComputedStyle(transcript).lineHeight)) throw new Error("Keyboard leaves fewer than three readable transcript lines");
   for (const element of [field, ...frame.querySelectorAll<HTMLElement>('[aria-label="Send"], [aria-label="Stop"]')]) {
     const rect = element.getBoundingClientRect();
-    if (rect.top < offset || rect.bottom > offset + height) throw new Error(`Keyboard hides ${element.getAttribute("aria-label")}: ${JSON.stringify({ height, offset, control: rect.toJSON(), dock: dock.getBoundingClientRect().toJSON(), dockScrollTop: dock.scrollTop, parked: !!frame.querySelector('[aria-label="Parked prompt"]'), notices: !!frame.querySelector('[aria-label="Notifications"]'), dockStyle: { maxHeight: getComputedStyle(dock).maxHeight, lineHeight: getComputedStyle(dock).lineHeight }, children: Array.from(dock.children).map(child => ({ key: child.getAttribute("data-key-context") ?? child.tagName, rect: child.getBoundingClientRect().toJSON(), minHeight: getComputedStyle(child).minHeight })), parents: [dock.parentElement!, dock.closest("[data-dock-owner]")!, transcript, header].map(parent => ({ rect: parent.getBoundingClientRect().toJSON(), lineHeight: getComputedStyle(parent).lineHeight })) })}`);
+    if (rect.top < offset || rect.bottom > offset + height) throw new Error(`Keyboard hides ${element.getAttribute("aria-label")}: ${JSON.stringify({
+      height, offset, control: rect.toJSON(), dock: dockBounds.toJSON(), dockScrollTop: dock.scrollTop,
+      parked: !!frame.querySelector('[aria-label="Parked prompt"]'), notices: !!frame.querySelector('[aria-label="Notifications"]'),
+    })}`);
+    if (rect.top < dockBounds.top || rect.bottom > dockBounds.bottom + 1) throw new Error(`Keyboard clips ${element.getAttribute("aria-label")} inside the dock`);
   }
   if (latest) {
     const reply = Array.from(transcript.querySelectorAll('[aria-label="Reply"]')).at(-1);
