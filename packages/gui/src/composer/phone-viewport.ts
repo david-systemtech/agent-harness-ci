@@ -31,10 +31,12 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       frame.style.top = `${viewport?.offsetTop ?? 0}px`;
       frame.style.setProperty("--phone-viewport-height", `${height}px`);
       const composing = event?.type === "focusin" && event.target instanceof Element && event.target.matches('[aria-label="Message"]');
-      // Some browsers shrink the layout viewport with the keyboard too.
-      fullHeight = Math.max(fullHeight, window.innerHeight);
+      const messageFocused = document.activeElement instanceof Element && document.activeElement.matches('[aria-label="Message"]');
+      // Refresh unoccluded bounds before composing; keep them while a keyboard
+      // may shrink both viewports, including through button taps.
+      fullHeight = !keyboardOpen && !messageFocused ? window.innerHeight : Math.max(fullHeight, window.innerHeight);
       const keyboardNow = height < fullHeight;
-      const keyboardOpened = keyboardNow && !keyboardOpen && document.activeElement instanceof Element && document.activeElement.matches('[aria-label="Message"]');
+      const keyboardOpened = keyboardNow && !keyboardOpen && messageFocused;
       // Keep the reserve through button taps: releasing it on blur can move Send
       // between pointer-down and pointer-up when the dock is already scrolling.
       if (composing || keyboardOpened) frame.setAttribute("data-phone-composing", "");

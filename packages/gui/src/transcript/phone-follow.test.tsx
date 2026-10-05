@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 
-it.each([false, true])("repins on focus/open, follows resizing and respects reading with layout resize %s", async (resizeLayout) => {
+it.each([[false, 844], [true, 844], [false, 780], [true, 780]] as const)("repins on focus/open and respects reading with layout resize %s and unoccluded height %s", async (resizeLayout, unoccludedHeight) => {
   const callbacks = new Map<Element, () => void>();
   vi.stubGlobal("ResizeObserver", class {
     constructor(private readonly callback: () => void) {}
@@ -16,6 +16,7 @@ it.each([false, true])("repins on focus/open, follows resizing and respects read
   const gallery = await mountGallery(root, "phone-gallery-conversation");
   onTestFinished(async () => { await gallery.close(); root.remove(); vi.unstubAllGlobals(); });
   await gallery.ready;
+  act(() => { window.innerHeight = unoccludedHeight; viewport.height = unoccludedHeight; viewport.dispatchEvent(new Event("resize")); });
   const transcript = screen.getByRole("region", { name: "Transcript" });
   let height = 1000, visible = 400, top = 600;
   Object.defineProperties(transcript, {
@@ -55,7 +56,7 @@ it.each([false, true])("repins on focus/open, follows resizing and respects read
   expect(top).toBe(1650);
   const message = screen.getByRole("textbox", { name: "Message" });
   fireEvent.change(message, { target: { value: "Keep this draft" } });
-  act(() => { window.innerHeight = 844; viewport.height = 844; viewport.offsetTop = 0; viewport.dispatchEvent(new Event("resize")); });
+  act(() => { window.innerHeight = unoccludedHeight; viewport.height = unoccludedHeight; viewport.offsetTop = 0; viewport.dispatchEvent(new Event("resize")); });
   expect(root.querySelector("[data-web-client]")?.hasAttribute("data-phone-composing")).toBe(false);
   expect(document.activeElement).toBe(message);
   expect(message).toHaveProperty("value", "Keep this draft");

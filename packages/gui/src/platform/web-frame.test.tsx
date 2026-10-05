@@ -102,7 +102,7 @@ it("preserves an embedded browser frame's height rule while bounding the visual 
 });
 
 
-it.each([false, true])("owns phone bounds, preserves zoom and restores the document with layout resize %s", (resizeLayout) => {
+it.each([[false, 844], [true, 844], [false, 780], [true, 780]] as const)("owns phone bounds, preserves zoom and restores the document with layout resize %s and unoccluded height %s", (resizeLayout, unoccludedHeight) => {
   const viewport = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, scale: 1 });
   vi.stubGlobal("visualViewport", viewport);
   vi.stubGlobal("innerWidth", 390);
@@ -111,6 +111,8 @@ it.each([false, true])("owns phone bounds, preserves zoom and restores the docum
   const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
   const app = render(<WebViewport narrow><textarea aria-label="Message" defaultValue="Keep this draft" /><button>Send</button></WebViewport>);
   const frame = app.container.firstElementChild as HTMLElement;
+  act(() => { window.innerHeight = unoccludedHeight; viewport.height = unoccludedHeight; viewport.dispatchEvent(new Event("resize")); });
+  act(() => screen.getByRole("textbox", { name: "Message" }).focus());
   act(() => { if (resizeLayout) window.innerHeight = 480; viewport.height = 480; viewport.dispatchEvent(new Event("resize")); });
   act(() => { viewport.offsetTop = 120; viewport.dispatchEvent(new Event("scroll")); screen.getByRole("textbox", { name: "Message" }).focus(); });
   expect(frame.style.height).toBe("480px");
@@ -124,9 +126,9 @@ it.each([false, true])("owns phone bounds, preserves zoom and restores the docum
   viewport.scale = 2; viewport.height = 240;
   act(() => viewport.dispatchEvent(new Event("resize")));
   expect(frame.style.height).toBe("480px");
-  viewport.scale = 1; viewport.height = 844; viewport.offsetTop = 0; window.innerHeight = 844;
+  viewport.scale = 1; viewport.height = unoccludedHeight; viewport.offsetTop = 0; window.innerHeight = unoccludedHeight;
   act(() => viewport.dispatchEvent(new Event("resize")));
-  expect(frame.style.height).toBe("844px");
+  expect(frame.style.height).toBe(`${unoccludedHeight}px`);
   expect(frame.hasAttribute("data-phone-composing")).toBe(false);
   expect(frame.style.top).toBe("0px");
   expect(screen.getByRole("textbox", { name: "Message" })).toHaveProperty("value", "Keep this draft");
