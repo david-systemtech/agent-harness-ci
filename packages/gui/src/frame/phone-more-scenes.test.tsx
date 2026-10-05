@@ -31,9 +31,9 @@ it.each(["phone-more-phone", "phone-more-full"])("opens %s with grant explanatio
   expect(menu.getByRole("menuitem", { name: "Pair with an environment" })).toBeDefined();
 });
 
-it("rejects a More action that remains clipped even after scrolling", () => {
+it.each(["menuitem", "button"])("rejects a More %s that remains clipped even after scrolling", role => {
   const menu = document.createElement("div"); menu.className = "phone-frame-menu"; menu.style.overflowY = "auto";
-  const row = document.createElement("div"); row.setAttribute("role", "menuitem"); row.ariaLabel = "Tasks";
+  const row = document.createElement(role === "button" ? "button" : "div"); row.setAttribute("role", role); row.ariaLabel = "Tasks";
   menu.append(row); document.body.append(menu);
   vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 288, 200));
   let y = 230;

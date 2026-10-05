@@ -6,7 +6,7 @@ export function verifyPhoneMenuReachability(): string[] {
   const top = menu.scrollTop;
   const style = getComputedStyle(menu);
   if (style.overflowY !== "auto" && style.overflowY !== "scroll") failures.push("More menu has no vertical scrollport");
-  for (const row of menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) {
+  for (const row of menu.querySelectorAll<HTMLElement>('[role="menuitem"], button')) {
     row.scrollIntoView({ block: "nearest", behavior: "instant" });
     const rect = row.getBoundingClientRect();
     const bounds = menu.getBoundingClientRect();
