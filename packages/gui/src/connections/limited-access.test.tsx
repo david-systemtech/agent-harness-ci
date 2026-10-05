@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import { SCOPES } from "@agent-harness/contracts";
+import { SCOPES, type Mode } from "@agent-harness/contracts";
 import type { HttpFetch, WebSocketFactory } from "@agent-harness/client-runtime";
 import { App } from "../app.js";
 import { startWebWorld } from "../../gallery/world.js";
@@ -10,11 +10,11 @@ import { focusedPane } from "../grid/layout.js";
 
 const stops: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
-const opened = async () => {
+const opened = async (ceiling: Mode = "acceptEdits") => {
   vi.stubGlobal("innerWidth", 320);
   const media = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : media(query));
-  const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", capabilities: ["workspaceChecks"], scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" }, sessions: [{ title: "Receipts" }] }] }, { settingsRow: "accounts.accounts" });
+  const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired", capabilities: ["workspaceChecks"], scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling }, sessions: [{ title: "Receipts" }] }] }, { settingsRow: "accounts.accounts" });
   const environment = world.world.environment("desk");
   // HTTPS terminates at the scripted transport boundary, as it does at a reverse proxy.
   const fetch: HttpFetch = (url, request) => world.world.fetch(url.replace(/^https:/, "http:"), request);
@@ -99,4 +99,58 @@ it("discloses a new limited pairing after the previous pairing was dismissed", a
   await app.user.click(screen.getByRole("button", { name: "Dismiss limited access" }));
   await act(async () => { await app.runtime.connections.add({ link: app.environment.wire.link.replace(/^http:/, "https:") }, { rePair: app.environment.environmentId }); });
   expect(await screen.findByRole("note", { name: "Limited access" })).toBeDefined();
+});
+
+it.each([
+  { name: "Phone code", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits", menu: false },
+  { name: "read-only code", scopes: ["read"], ceiling: "bypassPermissions", menu: true },
+  { name: "lower-ceiling code", scopes: [...SCOPES], ceiling: "auto", menu: false },
+] as const)("keeps the old pairing, session and upgrade sheet after a $name", async grant => {
+  const app = await opened();
+  const before = app.runtime.connections.list.read();
+  if (grant.menu) {
+    await app.user.click(screen.getByRole("button", { name: "More" }));
+    await app.user.click(await screen.findByRole("menuitem", { name: "Terminal" }));
+  } else {
+    await app.user.click(screen.getByRole("button", { name: "Details" }));
+    await app.user.click(screen.getByRole("button", { name: "Give this phone full access" }));
+  }
+  const pairing = await screen.findByRole("dialog", { name: "Give this phone full access" });
+  await app.user.type(within(pairing).getByRole("textbox", { name: "Pairing link" }), app.environment.wire.link.replace(/^http:/, "https:"));
+  app.environment.autoAccept(false);
+  const openedBefore = app.environment.wire.opened();
+  await app.user.click(within(pairing).getByRole("button", { name: "Pair" }));
+  await waitFor(() => expect(app.environment.wire.opened()).toBeGreaterThan(openedBefore));
+  await act(async () => { await app.environment.accept({ scopes: [...grant.scopes], ceiling: grant.ceiling }); });
+  expect(await within(pairing).findByText(/full-access code made with My own client/)).toBeDefined();
+  expect(app.runtime.connections.list.read()).toEqual(before);
+  expect(focusedPane(app.presentation.values.read().paneLayout).session).toEqual(app.session);
+  await app.user.keyboard("{Escape}");
+  expect(await screen.findByRole("textbox", { name: "Message" })).toBeDefined();
+});
+
+it("explains automatic provider review and the bound on available run modes", async () => {
+  const app = await opened("auto");
+  await app.user.click(screen.getByRole("button", { name: "Details" }));
+  const sheet = await screen.findByRole("dialog", { name: "This phone's access" });
+  expect(sheet.textContent).toContain("The provider can review actions automatically where supported.");
+  expect(sheet.textContent).toContain("This pairing limits the permission modes available to runs.");
+  expect(sheet.textContent).not.toContain("Runs ask for permission before making changes.");
+});
+
+it("keeps the saved pairing when the full-access replacement cannot authenticate", async () => {
+  const app = await opened();
+  const before = app.runtime.connections.list.read();
+  await app.user.click(screen.getByRole("button", { name: "Details" }));
+  await app.user.click(screen.getByRole("button", { name: "Give this phone full access" }));
+  const pairing = await screen.findByRole("dialog", { name: "Give this phone full access" });
+  await app.user.type(within(pairing).getByRole("textbox", { name: "Pairing link" }), app.environment.wire.link.replace(/^http:/, "https:"));
+  app.environment.autoAccept(false);
+  const openedBefore = app.environment.wire.opened();
+  await app.user.click(within(pairing).getByRole("button", { name: "Pair" }));
+  await waitFor(() => expect(app.environment.wire.opened()).toBeGreaterThan(openedBefore));
+  act(() => { app.environment.wire.server.bye("unauthorized"); });
+  expect(await within(pairing).findByText(/This phone's pairing has not changed/)).toBeDefined();
+  expect(app.runtime.connections.list.read()).toEqual(before);
+  expect(focusedPane(app.presentation.values.read().paneLayout).session).toEqual(app.session);
 });

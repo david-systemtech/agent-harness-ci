@@ -50,14 +50,14 @@ const AccessDetails = ({ view, open, onOpenChange, pairingFirst = false }: { rea
   const standardPhone = view.scopes.includes("read") && view.scopes.includes("sessions:write") && view.scopes.includes("runs:drive");
   return <Dialog open={open} onOpenChange={close}>
     {open && <DialogContent data-access-sheet title={pairingShown ? "Give this phone full access" : "This phone's access"} className="max-w-[32rem] max-h-[calc(100dvh-2rem)] overflow-y-auto" description={pairingShown ? FULL_ACCESS_GUIDANCE : `Paired with ${view.name ?? "this environment"}. Access comes from the code you used.`}>
-      {pairingShown ? <PairingForm rePair={view.environmentId} autoFocus onPaired={() => close(false)} /> : <>
+      {pairingShown ? <PairingForm fullAccess rePair={view.environmentId} autoFocus onPaired={() => close(false)} /> : <>
         {standardPhone && <p>Read sessions, send messages and answer permission requests. You can also create and organise sessions.</p>}
         <ul className="list-disc pl-5 text-sm">
           {RIGHTS.filter(([scope]) => !standardPhone || ((scope === "terminal" || scope === "admin") && view.scopes.includes(scope))).map(([scope, words]) => <li key={scope}>{words}: {view.scopes.includes(scope) ? "available" : "unavailable"}.</li>)}
         </ul>
         {!view.scopes.includes("terminal") && <p>Files, changes and terminals are unavailable.</p>}
         {!view.scopes.includes("admin") && <p>Settings changes and provider sign-in are unavailable.</p>}
-        <p className="text-sm">{view.ceiling === "bypassPermissions" ? "Runs can work without permission checks." : view.ceiling === "acceptEdits" ? "Runs can edit files; other actions may ask for permission." : view.ceiling === "plan" ? "Runs are limited to planning." : view.ceiling === "auto" ? "Runs ask for permission before making changes." : "The run permissions are not known yet."}</p>
+        <p className="text-sm">{view.ceiling === "bypassPermissions" ? "Runs can work without permission checks." : view.ceiling === "acceptEdits" ? "Runs can edit files; other actions may ask for permission." : view.ceiling === "plan" ? "Runs are limited to planning." : view.ceiling === "auto" ? "The provider can review actions automatically where supported." : "The run permissions are not known yet."} This pairing limits the permission modes available to runs.</p>
         <Button onClick={() => setPairing(true)}>Give this phone full access</Button>
       </>}
     </DialogContent>}

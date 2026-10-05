@@ -61,10 +61,12 @@ export interface PairingFormProps {
   readonly scanQr?: (() => Promise<string | undefined>) | undefined;
   /** Whether the link's field takes the focus as the form opens. */
   readonly autoFocus?: boolean;
+  /** Require a verified full grant before accepting this replacement. */
+  readonly fullAccess?: boolean;
 }
 
 /** A pairing link, or an address and code (or a QR scanned, where the window has a camera), and the one line that says how the pairing went. */
-export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus = false }: PairingFormProps) => {
+export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus = false, fullAccess = false }: PairingFormProps) => {
   const runtime = useRuntime();
   const shell = useShell();
   const camera = webCameraFor(runtime);
@@ -87,7 +89,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         return;
       }
       setSaid({ kind: "pairing" });
-      runtime.connections.add(input, options ?? (rePair === undefined ? undefined : { rePair })).then(
+      runtime.connections.add(input, { ...(options ?? (rePair === undefined ? {} : { rePair })), ...(fullAccess && { fullAccess: true }) }).then(
         (outcome) => {
           setSaid(saidOf(outcome, input, runtime.projections.environments.read()));
           if (outcome.status === "paired") onPaired?.(outcome.environmentId);
@@ -95,7 +97,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         (error: unknown) => setSaid({ kind: "line", line: `Not paired: ${messageOf(error)}` }),
       );
     },
-    [runtime, rePair, onPaired, shell],
+    [runtime, rePair, onPaired, shell, fullAccess],
   );
 
   // A deep link pairs as it is opened, as a link pasted and sent would.
@@ -214,7 +216,7 @@ export const PairingProvider = ({ children }: { readonly children: ReactNode }) 
             description={request.fullAccess ? FULL_ACCESS_GUIDANCE : "Paste the pairing link another client made, or type the environment's address and its code."}
             className="max-w-[32rem] max-h-[calc(100dvh-4rem)] overflow-y-auto"
           >
-            <PairingForm key={request.opened} rePair={request.rePair} link={request.link} onPaired={request.fullAccess ? () => setRequest(undefined) : undefined} />
+            <PairingForm key={request.opened} fullAccess={request.fullAccess ?? false} rePair={request.rePair} link={request.link} onPaired={request.fullAccess ? () => setRequest(undefined) : undefined} />
             <DialogFooter><DialogClose asChild><Button icon={X} keys="Enter / Space / Escape">Close</Button></DialogClose></DialogFooter>
           </DialogContent>
         )}
