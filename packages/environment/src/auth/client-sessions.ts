@@ -118,6 +118,8 @@ export interface ClientSessions {
     ceiling: Ceiling,
     attribution: Attribution,
   ): { readonly from: Ceiling; readonly to: Ceiling; readonly changed: boolean } | "revoked" | undefined;
+  setAccess(tx: Tx, id: string, scopes: readonly Scope[], ceiling: Ceiling, attribution: Attribution): "revoked" | "expired" | "not_found" | "changed" | "unchanged";
+  onAccessChanged(listener: (id: string) => void): () => void;
   /**
    * The client session's ceiling now; undefined when it is unknown, revoked
    * or expired, so nothing is started under the ceiling of a client session
@@ -140,6 +142,7 @@ export interface ClientSessions {
 
 /** What the wire needs of the client sessions: verification, expiry, revocations, and its sockets recorded. */
 export interface SocketSessions {
+  onAccessChanged(listener: (id: string) => void): () => void;
   verify(token: string): Verification;
   expiresAt(id: string): number | undefined;
   onRevoked(listener: (id: string) => void): () => void;
@@ -161,6 +164,7 @@ export const socketSessions = (sessions: ClientSessions, atomically: <T>(work: (
     }
   };
   return {
+    onAccessChanged: (listener) => sessions.onAccessChanged(listener),
     verify: (token) => sessions.verify(token),
     expiresAt: (id) => sessions.expiresAt(id),
     onRevoked: (listener) => sessions.onRevoked(listener),
@@ -183,7 +187,7 @@ export interface ClientSessionsOptions {
 interface Mirrored {
   readonly kind: ClientKind;
   readonly label: string;
-  readonly scopes: readonly Scope[];
+  scopes: readonly Scope[];
   ceiling: Ceiling;
   readonly local: boolean;
   readonly createdAt: number;
@@ -219,6 +223,7 @@ export const createClientSessions = (options: ClientSessionsOptions): ClientSess
   const { table, accessLog, key, environmentId, clock } = options;
   const known = new Map<string, Mirrored>(table.all().map((row) => [row.id, mirror(row)]));
   const listeners = new Set<(id: string) => void>();
+  const accessListeners = new Set<(id: string) => void>();
 
   const tell = (id: string) => {
     for (const listener of [...listeners]) {
@@ -375,6 +380,30 @@ export const createClientSessions = (options: ClientSessionsOptions): ClientSess
     ceiling(id) {
       const entry = known.get(id);
       return entry === undefined || !live(entry, clock.now().getTime()) ? undefined : entry.ceiling;
+    },
+
+    setAccess(tx, id, scopes, ceiling, attribution) {
+      const entry = known.get(id);
+      if (!entry) return "not_found";
+      if (entry.revokedAt !== null) return "revoked";
+      if (!live(entry, clock.now().getTime())) return "expired";
+      if (entry.ceiling === ceiling && entry.scopes.length === scopes.length && entry.scopes.every((scope) => scopes.includes(scope))) return "unchanged";
+      const to = { scopes: [...scopes], ceiling };
+      table.setAccess(tx, id, to.scopes, ceiling);
+      accessLog.record(tx, "access.changed", { clientSessionId: id, from: { scopes: [...entry.scopes], ceiling: entry.ceiling }, to }, attribution);
+      tx.afterCommit(() => {
+        entry.scopes = to.scopes;
+        entry.ceiling = ceiling;
+        for (const listener of [...accessListeners]) {
+          try { listener(id); } catch (error) { console.error("An access-change listener threw:", error); }
+        }
+      });
+      return "changed";
+    },
+
+    onAccessChanged(listener) {
+      accessListeners.add(listener);
+      return () => void accessListeners.delete(listener);
     },
 
     heldCeiling: (id) => known.get(id)?.ceiling,

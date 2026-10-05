@@ -84,8 +84,10 @@ const adapter = fakeAdapter({ models: [
   yield end();
 } });
 const pushGateway = await phonePushGateway(readFileSync(join(output, "key.pem")), readFileSync(join(output, "cert.pem")));
+console.log("WEB-SMOKE PHASE environment: start");
 const environment = await startTestEnvironment({ adapter, webOrigin: origin, webClientDirectory: bundle });
 upstream = environment.address;
+console.log("WEB-SMOKE PHASE environment: ready");
 try {
   const admin = await environment.client();
   for (const [name, engine] of [["webkit", webkit], ["chromium", chromium]] as const) {
@@ -109,6 +111,7 @@ try {
       const phone = pairingPreset("phone");
       const code = await environment.createPairing({ scopes: phone.scopes, ceiling: phone.ceiling });
       assert(code.link.startsWith(`${origin}/pair#`), "Canonical HTTPS links retain their port.");
+      console.log(`WEB-SMOKE PHASE ${name} pairing: start`);
       await page.goto(code.link);
       await page.locator('[data-web-grant][data-ceiling="acceptEdits"]').waitFor();
       assert.equal(new URL(page.url()).hash, "", "Pairing credentials leave the address bar.");
@@ -130,6 +133,7 @@ try {
         await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       }
       await phoneFrameSmoke(page, name);
+      console.log(`WEB-SMOKE PHASE ${name} permission conversation: start`);
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();
@@ -158,11 +162,16 @@ try {
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
+      // Observe the reloaded session's stream before treating its composer as idle.
+      await page.getByText("Permission deny.", { exact: true }).last().waitFor();
+      console.log(`WEB-SMOKE PHASE ${name} refusal: start`);
       await phoneRefusalSmoke(page, name, output, async signedIn => {
         adapter.setStatus(account => signedInAs(signedIn ? `${account.id}@example.com` : null));
         await admin.request("accounts.refresh", { accountId: "claude-max" });
       }, async () => (await admin.request("sessions.get", { sessionId })).summary.draft);
+      console.log(`WEB-SMOKE PHASE ${name} phone run picker: start`);
       await phoneRunPickerSmoke(page, name);
+      console.log(`WEB-SMOKE PHASE ${name} bundle update: start`);
       try { await phoneInstallSmoke(page, bundle, name, available => { originAvailable = available; }); }
       catch (error) { console.error(`PHONE-INSTALL ${name}: public requests ${JSON.stringify(publicRequests)}`); throw error; }
       const credential = credentials[0]; assert(credential, "The browser completed pairing.");
@@ -205,11 +214,13 @@ try {
       assert(requests.every(url => !url.includes(code.code) && !url.includes(credential.token)), "No token or code reaches a request URL.");
       assert.deepEqual(errors, [], "The real bundle produced no page errors.");
       await context.close(); await denied.close();
+      console.log(`WEB-SMOKE PHASE ${name} origin checks: start`);
       await webOriginSmoke(browser, environment, origin, bundle, output);
       console.log(`WEB-SMOKE PASS ${name}: pair/reload, list/open, stream, Allow/Deny once, reconnect, grants, revoke, visit-only storage`);
     } finally { await browser.close(); await fallback.close(); }
   }
 } finally {
+  console.log("WEB-SMOKE PHASE cleanup: start");
   await environment.close();
   await pushGateway.close();
   secure.closeAllConnections(); await new Promise<void>(resolve => secure.close(() => resolve()));

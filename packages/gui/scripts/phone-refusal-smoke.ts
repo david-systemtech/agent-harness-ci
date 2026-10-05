@@ -16,6 +16,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   const column = page.locator("[data-composer-column]");
   const refusal = column.locator('p[role="status"]').filter({ hasText: "Not sent:" });
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
+  const send = page.getByRole("button", { name: /^Send/ });
   const fits = async (control: Locator) => {
     const text = await control.textContent();
     const label = await control.getAttribute("aria-label");
@@ -62,10 +63,30 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   };
   await signIn(false);
   try {
+    // The preceding permission receipt can render while its run is still finishing.
+    // Enter the refusal draft after the composer has returned to starting a new run.
+    console.log(`PHONE-REFUSAL ${engine}: waiting for the previous run to finish`);
+    await expect(field).toHaveAttribute("placeholder", "Continue the session…", { timeout: 60_000 });
     for (const viewport of [{ width: 390, height: 480 }, { width: 360, height: 400 }]) {
+      console.log(`PHONE-REFUSAL ${engine}: viewport ${viewport.width}x${viewport.height}`);
       await page.setViewportSize(viewport);
+      await page.evaluate("globalThis.__phoneSmokeField = document.querySelector('[aria-label=Message]')");
       await field.fill(message);
-      await page.getByRole("button", { name: /^Send/ }).click();
+      try {
+        await expect(field).toHaveValue(message);
+        await expect(send).toBeEnabled();
+        console.log(`PHONE-REFUSAL ${engine}: draft observed and Send enabled`);
+        await send.click();
+      }
+      catch (error) {
+        const state = await page.evaluate(`(() => {
+          const field = document.querySelector('[aria-label="Message"]');
+          const column = document.querySelector('[data-composer-column]');
+          return { draftLength: field?.value.length, sameField: field === globalThis.__phoneSmokeField, originalConnected: globalThis.__phoneSmokeField?.isConnected, composer: column?.innerText, grant: document.querySelector('[data-web-grant]')?.innerText };
+        })()`);
+        console.error(`PHONE-REFUSAL ${engine}: Send failed ${JSON.stringify(state)}`);
+        throw error;
+      } finally { await page.evaluate("delete globalThis.__phoneSmokeField"); }
       await expect(refusal).toContainText("not signed in");
       await expect(refusal).toContainText("no run can start");
       await expect(field).toHaveValue(message);
@@ -86,8 +107,11 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(accountRow).toBeVisible();
       await accountRow.click();
       await page.keyboard.press("Escape");
+      // The closing popup restores focus after its exit animation. The phone viewport
+      // then scrolls that trigger into view; settle that event before scrolling elsewhere.
       await expect(choices).toBeHidden();
       await expect(account).toBeFocused();
+      console.log(`PHONE-REFUSAL ${engine}: Run choices closed and Account focus restored`);
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
       await expect(remedy).toContainText("admin");
       await fits(remedy);

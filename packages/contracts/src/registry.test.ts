@@ -85,6 +85,7 @@ describe("the method registry", () => {
       "access.sessions.revoke": "admin",
       "access.sessions.refresh": "read",
       "access.sessions.setCeiling": "admin",
+      "access.sessions.setAccess": "admin",
       "access.log.list": "admin",
     });
   });
@@ -246,6 +247,7 @@ describe("the method registry", () => {
       "access.sessions.revoke",
       "access.sessions.refresh",
       "access.sessions.setCeiling",
+      "access.sessions.setAccess",
       ...methods.filter((m) => m.kind === "command" && /^(sessions|groups)\./.test(m.name)).map((m) => m.name),
       "runs.start",
       "runs.send",
@@ -444,6 +446,7 @@ describe("the method registry", () => {
       | "access.sessions.revoke"
       | "access.sessions.refresh"
       | "access.sessions.setCeiling"
+      | "access.sessions.setAccess"
       | "access.log.list"
       | "sessions.create"
       | "sessions.setWorkspace"

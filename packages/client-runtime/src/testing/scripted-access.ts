@@ -2,6 +2,7 @@ import {
   ACCESS_EVENT_PAYLOADS,
   ACCESS_STREAM_KIND,
   Ceiling,
+  ScopeSet,
   EnvironmentStatus,
   SCOPES,
   registry,
@@ -77,6 +78,7 @@ export const ACCESS_COMMANDS: readonly string[] = [
   "access.sessions.list",
   "access.sessions.revoke",
   "access.sessions.setCeiling",
+  "access.sessions.setAccess",
   "access.pairings.create",
   "access.log.list",
   "environment.status",
@@ -112,6 +114,7 @@ export const scriptedAccess = (host: AccessHost): ScriptedAccessHandle => {
   const { clock, wire } = host;
   const others = (host.clientSessions ?? []).map((c, i) => clientSessionOf(clock, c, i));
   const revoked = new Map<string, string>();
+  const grants = new Map<string, ResultOf<"access.sessions.setAccess">>();
   const ceilings = new Map<string, Ceiling>();
   const log: EventEnvelope[] = [];
 
@@ -124,7 +127,7 @@ export const scriptedAccess = (host: AccessHost): ScriptedAccessHandle => {
   };
   const clientSessions = (): ClientSessionRow[] => {
     const mine = own();
-    return [...others, ...(mine === undefined ? [] : [mine])].map((c) => ({ ...c, ceiling: ceilings.get(c.id) ?? c.ceiling, revokedAt: revoked.get(c.id) ?? c.revokedAt }));
+    return [...others, ...(mine === undefined ? [] : [mine])].map((c) => ({ ...c, ...grants.get(c.id), ceiling: ceilings.get(c.id) ?? grants.get(c.id)?.ceiling ?? c.ceiling, revokedAt: revoked.get(c.id) ?? c.revokedAt }));
   };
 
   /** Appends an access event, as the command's client session (this client's own) or the script. */
@@ -189,6 +192,23 @@ export const scriptedAccess = (host: AccessHost): ScriptedAccessHandle => {
     ceilings.set(id, to);
     const answer = accepted({ clientSessionId: id, from: target.ceiling, to });
     append("ceiling.changed", { clientSessionId: id, from: target.ceiling, to }, host.head());
+    return answer;
+  });
+
+  wire.answer("access.sessions.setAccess", (params) => {
+    const refused = host.refusal("access.sessions.setAccess");
+    if (refused) return refused;
+    const id = String(params["clientSessionId"]);
+    if (id === own()?.id) return rejected("conflict", "A client cannot change its own access.", { reason: "own_session" });
+    const target = clientSessions().find((c) => c.id === id);
+    if (!target) return rejected("not_found", `No client session is named ${id}.`);
+    if (target.revokedAt !== null) return rejected("conflict", "This client is revoked.", { reason: "revoked" });
+    const to = { scopes: ScopeSet.parse(params["scopes"]), ceiling: Ceiling.parse(params["ceiling"]) };
+    const grant = { clientSessionId: id, ...to };
+    grants.set(id, grant);
+    ceilings.delete(id);
+    const answer = accepted(grant);
+    append("access.changed", { clientSessionId: id, from: { scopes: target.scopes, ceiling: target.ceiling }, to }, host.head());
     return answer;
   });
 

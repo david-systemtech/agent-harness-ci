@@ -64,6 +64,7 @@ it("resizes the message after width delivery without resizing it inside the obse
 it("fits the web conversation to the visual viewport and leaves pinch zoom alone", async () => {
   const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 390);
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root";
   document.body.append(root);
@@ -89,8 +90,9 @@ it("fits a missing-workspace conversation before and after its message field ret
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
     ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
   onTestFinished(() => { vi.restoreAllMocks(); });
-  const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1 });
+  const viewport = Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 0 });
   vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 390);
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "phone-missing-workspace", "light", {
@@ -214,4 +216,34 @@ it("lets a phone user scroll the refused draft, remedy and Run settings in the c
   const media = Array.from(style.sheet?.cssRules ?? []).filter((rule): rule is CSSMediaRule => rule.type === 4).filter(rule => rule.conditionText === "(max-width: 639px)");
   const rules = media.flatMap(rule => Array.from(rule.cssRules)).filter((rule): rule is CSSStyleRule => rule.type === 1).filter(rule => column.matches(rule.selectorText));
   expect(rules.some(rule => ["auto", "scroll"].includes(rule.style.getPropertyValue("overflow-y")))).toBe(true);
+});
+
+it("lets a phone user scroll away from the focused input without the viewport pulling it back", async () => {
+  const viewport = Object.assign(new EventTarget(), { height: 400, width: 360, scale: 1, offsetTop: 0 });
+  vi.stubGlobal("visualViewport", viewport);
+  vi.stubGlobal("innerWidth", 360);
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "phone-gallery-conversation");
+  onTestFinished(async () => { await gallery.close(); root.remove(); });
+  await gallery.ready;
+  const field = screen.getByRole("textbox", { name: "Message" });
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  const frame = root.querySelector<HTMLElement>("[data-web-client]")!;
+  const column = field.closest<HTMLElement>("[data-composer-column]")!;
+  onTestFinished(() => scroll.mockRestore());
+  act(() => field.focus());
+  expect(scroll).not.toHaveBeenCalled();
+  column.scrollTop = 37;
+  // Scrolling to a refusal/Send can move the visual viewport while focus remains in the field.
+  viewport.offsetTop = 30;
+  act(() => viewport.dispatchEvent(new Event("scroll")));
+  expect(scroll).not.toHaveBeenCalled();
+  expect(column.scrollTop).toBe(37);
+  expect(frame.style.top).toBe("30px");
+  viewport.height = 480;
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(scroll).not.toHaveBeenCalled();
+  expect(column.scrollTop).toBe(37);
+  expect(frame.style.getPropertyValue("--phone-viewport-height")).toBe("480px");
 });

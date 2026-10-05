@@ -31,7 +31,7 @@ export const StateImportResult = ({ report, clientLocalApplied }: { readonly rep
       <h4 className="text-xs font-medium">{report.dryRun ? "Dry run report" : "Import report"}</h4>
       {(report.sharedProjects ?? []).map((source) => <p key={source.sourceId}>{source.sourceId} shares a projects folder with {source.ownerSourceId}. Sessions and memory carry once, under the first source in source-id order.</p>)}
       <h5 className="text-xs font-medium">Carried</h5>
-      {report.dryRun && <p className="text-ink-muted">These counts show what an import would carry. Nothing was written.</p>}
+      {report.dryRun && <p className="text-ink-muted">These counts show what an import would carry. Nothing was written. A dry run does not test repository access or clear a failed import.</p>}
       <CountGrid label="Carried counts" rows={CARRIED_ROWS.map(([kind, label]) => [label, report.carried[kind]])} />
       <h5 className="text-xs font-medium">Re-enter</h5>
       {report.reEnter.length === 0 && <p>None.</p>}

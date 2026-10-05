@@ -1,4 +1,4 @@
-import type { Ceiling, EventEnvelope } from "@agent-harness/contracts";
+import type { Ceiling, Scope, EventEnvelope } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { adminCall } from "../status/actions.js";
 import type { ClientSessionSummary } from "./words.js";
@@ -37,6 +37,18 @@ export const setSessionCeiling = async (
   const changed = answer.result;
   if (changed === undefined || changed.from === changed.to) return { ok: true, line: `${session.label}'s ceiling is ${ceiling} already.` };
   return { ok: true, line: `Changed ${session.label}'s ceiling from ${changed.from} to ${changed.to}: its next run takes it.` };
+};
+
+/** Replace another client's grant immediately, without minting a new pairing code. */
+export const setSessionAccess = async (
+  runtime: Pick<Runtime, "requests">,
+  environmentId: string,
+  session: Pick<ClientSessionSummary, "id" | "label">,
+  grant: { readonly scopes: readonly Scope[]; readonly ceiling: Ceiling },
+  commandId: string,
+): Promise<AccessOutcome> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "access.sessions.setAccess", { commandId, clientSessionId: session.id, scopes: [...grant.scopes], ceiling: grant.ceiling }));
+  return answer.ok ? { ok: true, line: `Changed ${session.label}'s access: its connections reconnect with the new grant, without pairing again.` } : { ok: false, line: `Not changed: ${answer.line}` };
 };
 
 /** Revokes a client session (`access.sessions.revoke`): its sockets close and its token is refused from then on. */

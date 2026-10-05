@@ -1,7 +1,7 @@
 import { AccessUnavailable } from "../connections/limited-access.js";
 import { ConnectionGrant } from "../connections/connection-grant.js";
-import { revokeSession, setSessionCeiling, uuidv7, type AccessOutcome, type ClientSessionSummary, type EnvironmentView } from "@agent-harness/client-runtime";
-import { settingsRow, type Ceiling } from "@agent-harness/contracts";
+import { revokeSession, setSessionCeiling, setSessionAccess, uuidv7, type AccessOutcome, type ClientSessionSummary, type EnvironmentView } from "@agent-harness/client-runtime";
+import { settingsRow, type Scope, type Ceiling } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { readOnlyLine } from "../settings/generic-editor.js";
@@ -9,6 +9,7 @@ import { Part } from "../settings/part.js";
 import { useWrittenOver } from "../settings/settings-values.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { ChangeAccess } from "./change-access.js";
 import { AccessLog } from "./access-log.js";
 import { ConfirmRevoke } from "./confirm-revoke.js";
 import { ProgramPairing } from "./program-pairing.js";
@@ -41,6 +42,7 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
   const connection = useObservable(runtime.connections.list).find((record) => record.environmentId === environmentId);
   const [said, setSaid] = useState<AccessOutcome | undefined>(undefined);
   const [revoking, setRevoking] = useState<ClientSessionSummary | undefined>(undefined);
+  const [changing, setChanging] = useState<ClientSessionSummary | undefined>(undefined);
   const [verbs, setVerbs] = useState(0);
 
   const ready = view.phase === "ready";
@@ -70,7 +72,14 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
     setSaid(undefined);
     setRevoking(session);
   };
-  const lists = { own, writable, setCeiling, revoke: ask };
+  const changeAccess = async (grant: { readonly scopes: readonly Scope[]; readonly ceiling: Ceiling }) => {
+    if (!changing) return;
+    const outcome = await setSessionAccess(runtime, environmentId, changing, grant, uuidv7(clock.now()));
+    if (outcome.ok) setChanging(undefined);
+    await done(outcome);
+    return outcome;
+  };
+  const lists = { own, writable, setCeiling, revoke: ask, changeAccess: setChanging };
 
   return (
     <>
@@ -99,6 +108,7 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
           <AccessLog view={view} sessions={sessions} after={verbs} />
         </>
       )}
+      {changing !== undefined && <ChangeAccess session={changing} view={view} writable={writable} save={changeAccess} close={() => setChanging(undefined)} />}
       {revoking !== undefined && (
         <ConfirmRevoke environment={nameOf(view)} session={revoking} own={revoking.id === own} close={() => setRevoking(undefined)} revoke={() => revoke(revoking)} />
       )}

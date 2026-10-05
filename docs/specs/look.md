@@ -601,7 +601,13 @@ all rows for a streaming delta. Closed fold children are unmounted.
 Opening a session pins to end. Follow content growth while pinned; a user scroll
 up at least 48px away unpins; within 48px re-pins. Unpinned “Jump to latest” is
 centred 12px above bottom,24px outline pill/float/large scrim/40 shadow. Click
-pins directly; no smooth scroll. Search/jump centres row and unpins.
+pins directly; no smooth scroll. Search/jump centres row within its owning
+scroller and unpins; focus uses preventScroll and never pans ancestors.
+On phone composer focus or keyboard opening, explicitly repin the latest line
+after shell resizing. While pinned, observe scrollport as well as content
+resizing; after deliberate scroll up, streaming preserves the reading position.
+Browser-bar resizes after a focus-preserving keyboard close keep that reading
+position; repin only for focus or a subsequent keyboard opening.
 
 ### 10.2 Transcript recipes
 
@@ -1176,17 +1182,29 @@ all tap hit areas at least 44px, including icons. Touch exposes actions that
 otherwise need hover. Long labels wrap without horizontal page overflow;
 keep pinch zoom and enlarged text at 20.
 
-Use `100dvh` and VisualViewport fallback with `viewport-fit=cover` and
+Use one phone web-frame viewport owner for VisualViewport height and offsetTop
+at scale 1, with `100dvh`/window-height fallback, `viewport-fit=cover` and
 `env(safe-area-inset-*)`. Composer/status sit in the bottom flex region above
-the visible keyboard; only transcript scrolls. Keep activity/asks/composer
-order, scroll active input/card into view, and prevent notices from covering
+the visible keyboard. Lock the phone web document/root and bound the shell;
+retain unzoomed bounds during pinch zoom and clean locks/styles/listeners on
+wide mode/unmount. Keep at least three readable transcript lines while composing; retain that
+reservation through button taps so blur cannot move Send. Release it on keyboard
+close even when Message keeps focus; later bar resizes must not restore it. Non-conversation
+controls stay above the conversation dock. Keep activity/asks/composer order,
+bound input/card focus scrolling to its owning scroller, and prevent notices from covering
 composer or waiting cards. Send/Stop, Allow/Deny and Continue/Finish remain
 visible at keyboard height, including long cards and IME composition. Settings
 is full-height with registered-row drawer navigation; Set up keeps eleven
 steps and its sticky Back/Continue footer.
 
 Hosted gallery subsets at 390×844 and 360×740 cover dark/light, text 20,
-keyboard-height viewport, safe areas and long content. Assert 44px hit areas,
+keyboard-height viewport, safe areas and long content. #1636 additionally keeps
+layout height 844 while visual height is 480 with offsetTop 0/120; focus,
+streaming, scrollport resizing, banner/card insertion and keyboard close must
+keep shell/dock/latest-line visible and document/window scroll stable. Real
+animated keyboard, bars/settings, rotation/insets, focus zoom, selection and
+Home Screen proof is handset-only dated evidence in #1556, never a builder gate.
+Assert 44px hit areas,
 no page overflow, visible Send/Allow/Continue, drawer/sheet focus and no notice
 occlusion. Use web-platform scene mode exposing actual browser capabilities;
 phone scenes do not silently use fake desktop capabilities. #1541 owns
