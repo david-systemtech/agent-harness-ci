@@ -71,7 +71,7 @@ export async function phoneInstallSmoke(page: Page, bundle: string, engine: stri
   assert.equal(await textbox.inputValue(), "Draft retained across a client update.", "An update never forces navigation while composing.");
   await textbox.dispatchEvent("compositionend");
   await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), reload.click()]);
-  await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+  await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
   await textbox.waitFor();
   await expect(textbox, "The runtime persists the draft before activating the waiting bundle.").toHaveValue("Draft retained across a client update.", { timeout: 60_000 });
   console.log(`PHONE-INSTALL ${engine}: draft survived the explicit update`);
@@ -99,7 +99,7 @@ export async function phoneInstallSmoke(page: Page, bundle: string, engine: stri
   console.log(`PHONE-INSTALL ${engine}: stale shell reached; reconnecting`);
   setOriginAvailable(true);
   await page.reload();
-  await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
+  await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
   await textbox.waitFor();
   await expect(textbox).toHaveValue("Draft retained across a client update.", { timeout: 60_000 });
   console.log(`PHONE-INSTALL PASS ${engine}: public-only cache, waiting update, IME guard, durable draft, stale offline shell`);

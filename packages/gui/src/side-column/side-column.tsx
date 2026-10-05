@@ -1,4 +1,5 @@
 import "./side-column.css";
+import { AccessUnavailable } from "../connections/limited-access.js";
 import { directoryOf, outsideWorkspace, typedPath } from "@agent-harness/client-runtime";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -163,7 +164,7 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
               <section key={pane} id={`${dockId}-${pane}`} aria-label={PANES[pane].label} hidden={pane !== shown} className="flex min-h-0 flex-1 flex-col">
                 <DockHeader pane={pane} hide={hide} close={() => close(pane)} />
                 {capability.status === "absent" && !PANES[pane].drawnWhileAbsent ? (
-                  <p className="px-3 py-2 text-sm text-ink-faint">{capability.message}</p>
+                  <div className="px-3 py-2"><AccessUnavailable environmentId={environmentId} answer={capability}><p className="text-sm text-ink-faint">{capability.message}</p></AccessUnavailable></div>
                 ) : (
                   <PaneBody
                     pane={pane}

@@ -1,3 +1,4 @@
+import { ReadOnlyAccess } from "../connections/limited-access.js";
 import { LOCAL_PLACEHOLDER_ID, type EnvironmentView } from "@agent-harness/client-runtime";
 import { MAX_SEED_CHROMA, THEME_SEED_NAMES, Theme, ThemeName, type ThemeSeedName } from "@agent-harness/contracts";
 import { LADDERS, SEED_TOKENS, SHIPPED_THEMES, clampWords, cssVariables, derive, readThemeFile, themeFile, type DerivedTheme, type LadderName } from "@agent-harness/theme";
@@ -117,9 +118,7 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
     <div className="flex flex-col gap-3">
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, settings.values !== null)}</p>}
       {lacking.map((line) => (
-        <p key={line} className="text-sm text-amber">
-          Read-only: {line}
-        </p>
+        <ReadOnlyAccess key={line} environmentId={view.environmentId} line={line}><p className="text-sm text-amber">Read-only: {line}</p></ReadOnlyAccess>
       ))}
       {saved !== undefined && (
         <p className="text-sm font-medium text-ink">

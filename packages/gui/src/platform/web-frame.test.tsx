@@ -27,7 +27,7 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   const link = env.wire.link.replace(/^http:/, "https:");
   const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link } } }} />);
   onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
-  await screen.findByText(/Scopes: read, sessions:write, runs:drive · Ceiling: acceptEdits/);
+  await screen.findByRole("note", { name: "Limited access" });
   expect(screen.queryByText(/Starting this machine/)).toBeNull();
   const user = userEvent.setup();
   await screen.findByRole("option", { name: "Check the receipts" });
@@ -51,7 +51,7 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   const incoming = new URL(link);
   app.rerender(<App key="new-pairing-visit" runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { address: incoming.origin, code: incoming.hash.slice(1) } } }} />);
   await screen.findByDisplayValue(link);
-  expect(screen.getByText(/Scopes: read, sessions:write, runs:drive · Ceiling: acceptEdits/)).toBeDefined();
+  expect(screen.getByRole("note", { name: "Limited access" })).toBeDefined();
   await user.click(screen.getByRole("button", { name: "Pair" }));
   await user.click(await screen.findByRole("button", { name: "Pair again" }));
   await waitFor(() => expect(screen.queryByRole("heading", { name: "Pair with this environment" })).toBeNull());
