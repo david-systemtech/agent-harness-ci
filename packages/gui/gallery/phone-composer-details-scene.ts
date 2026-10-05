@@ -18,8 +18,11 @@ export const composerDetailsScene = (label: string, browser = false): SceneModul
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         if (stopped) return;
         const sheet = document.querySelector<HTMLElement>(".phone-composer-sheet")!;
+        await Promise.all(sheet.getAnimations().map(animation => animation.finished.catch(() => undefined)));
+        if (stopped) return;
         const bottom = parseFloat(getComputedStyle(sheet).bottom);
-        if (Math.abs(sheet.getBoundingClientRect().bottom - (innerHeight - bottom)) > 1) throw new Error("Composer details do not reach the bottom sheet edge");
+        const actual = sheet.getBoundingClientRect().bottom;
+        if (Math.abs(actual - (innerHeight - bottom)) > 1) throw new Error(`Composer details end at ${actual}px; expected ${innerHeight - bottom}px (translate ${getComputedStyle(sheet).translate}, transform ${getComputedStyle(sheet).transform})`);
         sheet.setAttribute("data-composer-details-proof", "passed");
       })().catch(error => {
         if (stopped) return;

@@ -7,7 +7,10 @@ export async function phoneRunPickerSmoke(page: Page, engine: string): Promise<v
   const layout = await page.evaluate<{ width: number; height: number }>("({ width: innerWidth, height: innerHeight })");
   const settings = page.getByRole("button", { name: "Run settings", exact: true });
   if (await settings.getAttribute("aria-expanded") !== "true") await settings.click();
-  await page.getByRole("button", { name: /^Model:/ }).click();
+  const runSettings = page.getByRole("dialog", { name: "Run settings", exact: true });
+  await expect(runSettings).toBeVisible();
+  const model = runSettings.getByRole("button", { name: /^Model:/ });
+  await model.click();
   const choices = page.getByRole("dialog", { name: "Run choices" });
   const models = choices.getByRole("group", { name: "Models", exact: true });
   const search = models.getByRole("textbox", { name: "Search models" });
@@ -56,7 +59,10 @@ export async function phoneRunPickerSmoke(page: Page, engine: string): Promise<v
     await page.evaluate("window.dispatchEvent(new Event('smoke-run-picker-restore'))");
     await page.keyboard.press("Escape");
     await expect(choices).toBeHidden();
-    await settings.click();
+    await expect(model).toBeFocused();
+    await runSettings.getByRole("button", { name: "Close dialog", exact: true }).click();
+    await expect(runSettings).toBeHidden();
+    await expect(settings).toBeFocused();
   }
   console.log(`PHONE-RUN-PICKER PASS ${engine}: search and last row fit a shrinking and panning visual viewport`);
 }
