@@ -105,7 +105,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
   } finally {
     await signIn(true);
     if (original) await page.setViewportSize(original);
-    await field.fill("");
   }
+  await field.fill("");
   console.log(`PHONE-REFUSAL PASS ${engine}: keyboard-height refusal, remedy, Run settings, Send and durable draft`);
 }
