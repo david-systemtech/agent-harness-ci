@@ -5,7 +5,7 @@ import { noticeEvent } from "../test/events.js";
 import { forgeEventPayload, forgeRecord } from "../test/forges.js";
 import { keyManagerEventPayload, keyManagerRecord, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
 import { subscription } from "../test/scripted.js";
-import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS } from "./requests.js";
+import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS, UPDATE_APPLY_TIMEOUT_MS } from "./requests.js";
 import { writable } from "./observable.js";
 import type { ConnectionRecord } from "./connections/records.js";
 import { fakeWire, flush } from "./testing/fake-wire.js";
@@ -16,7 +16,7 @@ import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
  * non-mutating calls and the `admin` calls, which are direct requests): never
  * queued, refused at once absent-with-reason when the connection cannot take
  * it, answered with the method's response checked against its schema, and
- * given up after 30 seconds; and the request cache (#128), which keeps a
+ * given up after 30 seconds (20 minutes for update staging); and the request cache (#128), which keeps a
  * query's answer five minutes and fetches it again on ready and on the
  * notice that says it may have changed.
  */
@@ -148,6 +148,52 @@ describe("requests.call", () => {
     clock.advance(1);
     await flush();
     expect(settled).toMatchObject({ ok: false, error: { code: "timeout" } });
+  });
+
+  it.each(["accepted", "rejected"] as const)("keeps a staging update open past 30 seconds and returns its %s receipt", async (status) => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer("updates.apply", () => undefined);
+    let settled: unknown;
+    const answer = runtime.requests.call(id, "updates.apply", { commandId: "0199aa00-0000-7000-8000-0000000000ab", when: "idle" });
+    void answer.then((result) => (settled = result));
+    const request = await wire.server.request("updates.apply");
+    for (let i = 0; i < 3; i++) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    expect(settled).toBeUndefined();
+    const receipt = status === "accepted"
+      ? { status, sequence: 1, changed: true }
+      : { status, sequence: 1, changed: false, reason: "conflict", error: { code: "conflict", message: "The launcher refused to install 0.6.0: disk.", data: { reason: "install", launcherReason: "disk" } } };
+    wire.server.send({ type: "response", id: request.id, result: {
+      receipt,
+      ...(status === "accepted" && { result: { updateId: "0199aa00-0000-4000-8000-000000000001", toVersion: "0.6.0" } }),
+    } });
+    expect(await answer).toMatchObject({ ok: true, result: { receipt } });
+  });
+
+  it("bounds an unanswered update stage at 20 minutes", async () => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer("updates.apply", () => undefined);
+    let settled: unknown;
+    const answer = runtime.requests.call(id, "updates.apply", { commandId: "0199aa00-0000-7000-8000-0000000000ab", when: "idle" });
+    void answer.then((result) => (settled = result));
+    await wire.server.request("updates.apply");
+    for (let elapsed = 0; elapsed < UPDATE_APPLY_TIMEOUT_MS - 20_000; elapsed += 20_000) {
+      wire.server.ping();
+      await flush();
+      clock.advance(20_000);
+      await flush();
+    }
+    wire.server.ping();
+    await flush();
+    clock.advance(19_999);
+    await flush();
+    expect(settled).toBeUndefined();
+    clock.advance(1);
+    expect(await answer).toEqual({ ok: false, error: { code: "timeout", message: "The environment did not answer updates.apply within 1200 seconds." } });
   });
 
   it("answers unreachable when the socket closes before the answer", async () => {
