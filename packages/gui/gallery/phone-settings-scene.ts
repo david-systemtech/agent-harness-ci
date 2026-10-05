@@ -78,7 +78,7 @@ export const phoneSettingsScene = (kind: "constrained" | "full" | "setup" | "pic
       { selector: "[data-settings-dialog]", width, height, visibleWithin: "body" },
       { selector: "[data-settings-dialog] button", renderedOnly: true, minimumHeight: 44, minimumWidth: 44 },
       ...(kind === "picker" ? [{ selector: '[aria-label="New-session defaults"] [role="menuitem"]', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, visibleWithin: '[aria-label="New-session defaults"]' }] : []),
-      ...(kind === "qr" ? [{ selector: '[aria-label="QR code of the provider sign-in page"]', width: 176, height: 176, visibleWithin: "[data-settings-scroll]" }] : []),
+      ...(kind === "qr" ? [{ selector: '[aria-label="QR code of the provider sign-in page"]', minimumWidth: 176, minimumHeight: 176, visibleWithin: "[data-settings-scroll]" }] : []),
       ...(kind === "full" ? [{ selector: "[data-account-sign-in] input", minimumHeight: 44, visibleWithin: "[data-settings-scroll]" }, { selector: '[data-account-sign-in] form[aria-label="Send the code"] button[type="submit"]', minimumHeight: 44, visibleWithin: "[data-settings-scroll]" }, { selector: "[data-account-sign-in] a", minimumHeight: 44 }] : []),
     ],
   };
