@@ -27,6 +27,7 @@ assert(output && bundle, "The hosted workflow must supply its build and output d
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(output, "key.pem"), "-out", join(output, "cert.pem"), "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost"], { stdio: "ignore" });
 let upstream: Address | undefined = undefined;
 let originAvailable = true;
+const clientSockets = new Set<import("node:stream").Duplex>();
 const publicRequests: { path: string; mode: string | undefined; status?: number; finished: boolean }[] = [];
 const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: readFileSync(join(output, "cert.pem")) }, (incoming, response) => {
   if (!originAvailable) { response.destroy(); return; }
@@ -46,6 +47,8 @@ const secure = createServer({ key: readFileSync(join(output, "key.pem")), cert: 
 });
 secure.on("upgrade", (incoming, socket, head) => {
   if (!originAvailable || !upstream) { socket.destroy(); return; }
+  clientSockets.add(socket);
+  socket.on("close", () => clientSockets.delete(socket));
   const target = connect(upstream.port, upstream.host, () => {
     const headers = Object.entries(incoming.headers).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`).join("\r\n");
     target.write(`${incoming.method ?? "GET"} ${incoming.url ?? "/ws"} HTTP/1.1\r\n${headers}\r\n\r\n`);
@@ -121,7 +124,10 @@ try {
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Allow this scripted reply." }).last().waitFor();
       assert(releaseStream, "The streamed reply reached the browser before completion.");
-      await phoneReconnectSmoke(page, environment, sessionId, releaseStream);
+      await phoneReconnectSmoke(page, environment, sessionId, releaseStream, available => {
+        originAvailable = available;
+        if (!available) for (const socket of clientSockets) socket.destroy();
+      });
       await page.getByRole("button", { name: /^Allow once/ }).waitFor();
       await page.setViewportSize({ width: 390, height: 460 });
       await reachable(page, page.getByRole("button", { name: /^Allow once/ }));

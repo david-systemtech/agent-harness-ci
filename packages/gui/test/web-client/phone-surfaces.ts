@@ -78,14 +78,19 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
   console.log(`PHONE-FRAME PASS ${engine}: 390/360px, keyboard height, both color schemes, touch targets, drawer focus, grant restrictions`);
 }
 
-export async function phoneReconnectSmoke(page: Page, environment: TestEnvironment, sessionId: string, release: () => void): Promise<void> {
+export async function phoneReconnectSmoke(page: Page, environment: TestEnvironment, sessionId: string, release: () => void, setOriginAvailable: (available: boolean) => void): Promise<void> {
   await page.context().setOffline(true);
-  await expect(page.locator("[data-web-grant]")).not.toContainText("ready");
-  const after = environment.env.log.head();
-  const prompt = untilEvent(environment, { kind: "session", id: sessionId }, event => event.sequence > after && event.type === "prompt.opened");
-  release();
-  await prompt;
-  await page.context().setOffline(false);
+  setOriginAvailable(false);
+  try {
+    await expect(page.locator("[data-web-grant]")).not.toContainText("ready");
+    const after = environment.env.log.head();
+    const prompt = untilEvent(environment, { kind: "session", id: sessionId }, event => event.sequence > after && event.type === "prompt.opened");
+    release();
+    await prompt;
+  } finally {
+    setOriginAvailable(true);
+    await page.context().setOffline(false);
+  }
   await page.locator("[data-web-grant]").filter({ hasText: "ready" }).waitFor();
   await expect(page.getByRole("button", { name: /^Allow once/ })).toHaveCount(1);
   await expect(page.getByRole("button", { name: /^Allow once/ })).toBeVisible();
