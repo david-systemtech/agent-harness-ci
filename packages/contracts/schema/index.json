@@ -4015,6 +4015,30 @@
       "title": "web.origins.set error"
     },
     {
+      "path": "methods/attention.push.key/params.json",
+      "title": "attention.push.key params"
+    },
+    {
+      "path": "methods/attention.push.key/result.json",
+      "title": "attention.push.key result"
+    },
+    {
+      "path": "methods/attention.push.key/error.json",
+      "title": "attention.push.key error"
+    },
+    {
+      "path": "methods/attention.push.test/params.json",
+      "title": "attention.push.test params"
+    },
+    {
+      "path": "methods/attention.push.test/result.json",
+      "title": "attention.push.test result"
+    },
+    {
+      "path": "methods/attention.push.test/error.json",
+      "title": "attention.push.test error"
+    },
+    {
       "path": "methods/attention.targets.list/params.json",
       "title": "attention.targets.list params"
     },
@@ -7504,6 +7528,24 @@
       "result": "methods/web.origins.set/result.json",
       "response": "methods/web.origins.set/response.json",
       "error": "methods/web.origins.set/error.json"
+    },
+    {
+      "name": "attention.push.key",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/attention.push.key/params.json",
+      "result": "methods/attention.push.key/result.json",
+      "error": "methods/attention.push.key/error.json"
+    },
+    {
+      "name": "attention.push.test",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/attention.push.test/params.json",
+      "result": "methods/attention.push.test/result.json",
+      "error": "methods/attention.push.test/error.json"
     },
     {
       "name": "attention.targets.list",

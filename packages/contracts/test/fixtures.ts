@@ -1,3 +1,4 @@
+import { pushMethodFixtures } from "./push-fixtures.js";
 import { attentionMethodFixtures, attentionSchemaFixtures } from "./attention-fixtures.js";
 import { bankValidatorUpdateMethodFixtures, bankValidatorUpdateSchemaFixtures } from "./bank-validator-update-fixtures.js";
 import { bankMigrationSchemaFixtures, bankMigrationMethodFixtures } from "./bank-migration-fixtures.js";
@@ -420,7 +421,7 @@ const invalidStatuses = [
 
 /** Params and result instances for every registered method. */
 const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
-  ...attentionMethodFixtures,
+  ...attentionMethodFixtures, ...pushMethodFixtures,
   "web.origins.get": { params: { valid: [{}], invalid: [[]] }, result: { valid: [{ clientOrigins: [], connectOrigins: [] }], invalid: [{}] } },
   "web.origins.set": {
     params: { valid: [{ commandId: "0f8fad5b-d9cb-469f-a165-70867728950e", clientOrigins: ["https://client.example.test:8443"], connectOrigins: [] }], invalid: [{ commandId: "0f8fad5b-d9cb-469f-a165-70867728950e", clientOrigins: ["*"], connectOrigins: [] }, {}] },

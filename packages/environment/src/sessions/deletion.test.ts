@@ -262,6 +262,7 @@ describe("a deleted session", () => {
    * a served query whose params carry a `sessionId` and that is missing here.
    */
   const queriedOnDeleted = (sessionId: string): Partial<Record<MethodName, Record<string, unknown>>> => ({
+    "attention.push.test": { sessionId, id: "push-for-tests" },
     "sessions.get": { sessionId },
     "terminals.list": { sessionId },
     "files.list": { sessionId },

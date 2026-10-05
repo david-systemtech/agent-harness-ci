@@ -420,6 +420,8 @@ describe("the method registry", () => {
 
   it("types params and results from the table", () => {
     expectTypeOf<MethodName>().toEqualTypeOf<
+      | "attention.push.key"
+      | "attention.push.test"
       | "web.origins.get"
       | "web.origins.set"
       | "attention.targets.list"
