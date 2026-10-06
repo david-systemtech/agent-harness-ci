@@ -148,7 +148,9 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
    * it was handed over for the next quit, and a check that finds nothing
    * newer, or fails, changes nothing about it. A build whose install
    * failed stays failed until another build is staged: the same build
-   * ready again would offer the restart that failed (#1692).
+   * ready again would offer the restart that failed (#1692). Only a check
+   * whose hand-over for the quit succeeds after one that failed sets it
+   * ready, past this (#1707).
    */
   const showCheck = (build: DesktopBuildView): void => {
     const held = view.read().build;
@@ -169,6 +171,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   let bundledLooked = false;
   /** The build last handed to the shell for the next quit. */
   let handedForQuit: ShellStagedBuild | undefined;
+  /** The view the last failed hand-over for the next quit left, told apart from a failed restart of the same build. */
+  let quitFailure: DesktopBuildView | undefined;
   /** The release page of the local environment's release source, as the last check read it. */
   let releasePage: string | undefined;
 
@@ -230,9 +234,12 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     showCheck({ state: "ready", version, staged });
     if (handedForQuit?.path === staged.path && handedForQuit.sha256 === staged.sha256) return { state: "ready", version, staged };
     const outcome = await apply(staged, "quit");
-    if (outcome !== null) return applyFailed(version, outcome, staged);
+    if (outcome !== null) return (quitFailure = applyFailed(version, outcome, staged));
     handedForQuit = staged;
-    return { state: "ready", version, staged };
+    const ready: DesktopBuildView = { state: "ready", version, staged };
+    // The hand-over that failed is now done, so its failure no longer holds the build; a restart that failed still does (#1707).
+    if (view.read().build === quitFailure) setBuild(ready);
+    return ready;
   };
 
   /** Applies `staged` through the shell: null once applied (or handed over for the quit), else what failed. */
