@@ -93,7 +93,7 @@ export const QuestionForm = ({ prompt, picks, setPicks }: QuestionFormProps) => 
               );
             })}
             <label htmlFor={`${id}-${at}-words`} className="flex items-center gap-2 text-xs text-ink-muted"><TextCursorInput aria-hidden="true" className="size-3.5" />Your own answer</label>
-            <PromptTooltip content={["Your own answer", sendKey].filter(Boolean).join(" · ")}>
+            <PromptTooltip content="Your own answer" keys={sendKey}>
               <Input
                 id={`${id}-${at}-words`}
                 aria-label="Your own answer"

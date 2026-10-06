@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { KeyRound } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountAction } from "../accounts/action.js";
 import { PhoneFrameProvider } from "../frame/phone-frame.js";
+import { ChoiceList } from "../settings/part.js";
 import { IconButton } from "./button.js";
 import { DialogAction } from "./dialog-action.js";
 import { Tooltip, TooltipProvider } from "./tooltip.js";
@@ -46,6 +49,20 @@ describe("on the phone layout", () => {
     fireEvent.keyDown(document.body, { key: "Tab" });
     act(() => screen.getByRole("button", { name: "Pair" }).focus());
     expect(screen.getByRole("tooltip").textContent).toBe("Pair");
+  });
+
+  it("draws an account action's and a settings choice's hints without their key legends", () => {
+    phoneLayout();
+    render(<PhoneFrameProvider><TooltipProvider>
+      <AccountAction icon={KeyRound}>Sign in</AccountAction>
+      <ChoiceList label="Effort" value="high" choices={[{ value: "high", label: "High", note: "Thinks longer." }]} onValueChange={() => undefined} />
+    </TooltipProvider></PhoneFrameProvider>);
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => screen.getByRole("button", { name: "Sign in" }).focus());
+    expect(screen.getByRole("tooltip").textContent).toBe("Sign in");
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => screen.getByRole("radio", { name: "High" }).focus());
+    expect(screen.getByRole("tooltip").textContent).toBe("High");
   });
 });
 

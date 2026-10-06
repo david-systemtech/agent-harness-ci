@@ -192,7 +192,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
 
   const note = <>
     <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
-    <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
+    <PromptTooltip content="Note" keys={[denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ") || undefined}>
       <Textarea
         id={noteId}
         rows={2}

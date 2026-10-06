@@ -66,7 +66,7 @@ export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
           <span className="min-w-0 truncate text-xs text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>
         </>}
       </div>
-      <Tooltip content={["Search sessions and commands", searchKeys].filter(Boolean).join(" · ")}>
+      <Tooltip content="Search sessions and commands" keys={searchKeys}>
         <Button aria-label="Search sessions and commands" size="xs" className="hidden min-w-0 max-w-[448px] flex-1 justify-start gap-2 border border-hairline-strong bg-wash text-ink-faint min-[1024px]:inline-flex" onClick={() => actions.find((action) => action.id === "app.palette")?.run()}>
           <Search aria-hidden="true" /><span className="min-w-0 flex-1 truncate">Search sessions and commands</span><kbd className="shrink-0">{searchKeys}</kbd>
         </Button>

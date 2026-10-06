@@ -139,7 +139,7 @@ export const HandoffPicker = ({ environmentId, sessionId, at = null, signIn, clo
               const models = catalogues.value?.find((catalogue) => catalogue.accountId === account.id)?.models;
               return (
                 <li key={account.id}>
-                  <Tooltip content={<>{account.label} · Enter / Space{blocked ? ` · ${blocked}` : ""}</>}>
+                  <Tooltip content={blocked ? `${account.label} · ${blocked}` : account.label} keys="Enter / Space">
                   <span role={blocked ? "group" : undefined} tabIndex={blocked ? 0 : undefined} aria-label={blocked ? `${account.label} · ${blocked}` : undefined} className="block rounded-lg focus-visible:outline-2 focus-visible:outline-beam">
                   <button
                     type="button"

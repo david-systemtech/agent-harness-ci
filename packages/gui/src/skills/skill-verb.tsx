@@ -73,7 +73,7 @@ export const SkillButton = ({
     : method.endsWith("edit") ? Pencil : Check;
   return (
     <span className="flex w-fit flex-col gap-1">
-      <Tooltip content={<>{children} · Enter / Space</>}><Button size="sm" variant="outline" disabled={busy || why !== undefined} onClick={onClick}><Icon aria-hidden="true" />
+      <Tooltip content={children} keys="Enter / Space"><Button size="sm" variant="outline" disabled={busy || why !== undefined} onClick={onClick}><Icon aria-hidden="true" />
         {children}
       </Button></Tooltip>
       {why !== undefined && <span className="text-xs text-ink-faint">{why}</span>}

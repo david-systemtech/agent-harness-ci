@@ -34,7 +34,7 @@ const ActionItem = ({ id, label, icon: Icon, select }: { readonly id: KeyActionI
   const authority = session ? runtime.capability(session.environmentId, "terminals.open") : undefined;
   const limited = shell === undefined && id === "app.terminal.toggle" && action?.offer.status === "absent" && authority?.status === "absent" && authority.reason === "scope";
   const reason = limited ? "Terminal unavailable · Give this phone full access" : action === undefined ? "Open a session first." : action.offer.status === "absent" ? action.offer.message : undefined;
-  return <Tooltip content={[label, keys, reason].filter(Boolean).join(" · ")}>
+  return <Tooltip content={[label, reason].filter(Boolean).join(" · ")} keys={keys}>
     <MenuItem aria-label={label} disabled={reason !== undefined && !limited} onSelect={() => { if (limited && session) select(() => openPairing({ rePair: session.environmentId, fullAccess: true })); else if (action !== undefined) select(() => action.run()); }}>
       <Icon aria-hidden="true" /><span>{label}{reason !== undefined && <span className="block text-xs text-ink-faint">{reason}</span>}</span><MenuShortcut>{keys}</MenuShortcut>
     </MenuItem>
