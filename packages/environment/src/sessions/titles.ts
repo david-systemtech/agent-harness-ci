@@ -27,18 +27,27 @@ import { sessionStream } from "./streams.js";
 /** The most characters a generated title has. */
 export const GENERATED_TITLE_LENGTH = 80;
 
+/** The mark a shortened title ends with, so the cut shows (#1731). */
+const ELLIPSIS = "…";
+
 /**
  * The title a text generates: its first line with anything but white space
  * on it, every run of white space collapsed to one space and the ends
- * trimmed, cut to `GENERATED_TITLE_LENGTH` characters (whole code points, so
- * no character is split) with no white space left at the cut. Null for a
- * text with no such line.
+ * trimmed. A line of at most `GENERATED_TITLE_LENGTH` characters is the
+ * title whole; a longer one is cut to leave room for an ellipsis, at the
+ * last space within that room, or inside the word when there is none, and
+ * ends with the ellipsis, so the title is still at most that long. Lengths
+ * count code points, so no character is split. Null for a text with no such
+ * line.
  */
 export const generatedTitle = (text: string): string | null => {
   const line = text.split(/\r\n|\r|\n/).find((candidate) => candidate.trim() !== "");
   if (line === undefined) return null;
-  const collapsed = line.replace(/\s+/g, " ").trim();
-  return Array.from(collapsed).slice(0, GENERATED_TITLE_LENGTH).join("").trimEnd();
+  const characters = Array.from(line.replace(/\s+/g, " ").trim());
+  if (characters.length <= GENERATED_TITLE_LENGTH) return characters.join("");
+  const room = GENERATED_TITLE_LENGTH - ELLIPSIS.length;
+  const boundary = characters.lastIndexOf(" ", room);
+  return `${characters.slice(0, boundary > 0 ? boundary : room).join("")}${ELLIPSIS}`;
 };
 
 const titleGenerated = (payload: SessionTitleGeneratedPayload): EventInput => ({ type: "session.title-generated", payload });

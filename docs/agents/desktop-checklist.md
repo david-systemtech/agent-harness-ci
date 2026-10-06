@@ -300,7 +300,10 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
    says `Signature=adhoc`, and `codesign --verify --deep --strict` passes.
 2. **Its resources.** `Contents/Resources/server/node/bin/node --version`
    runs the artefact's Node, and `Contents/Info.plist` lists `agent-harness`
-   under `CFBundleURLTypes`.
+   under `CFBundleURLTypes`. `codesign -dv` on that Node says
+   `Identifier=node` and Node's own `TeamIdentifier`, as on the Node of the
+   release's `agent-harness-darwin-arm64.tar.gz`, not `Signature=adhoc`
+   (#1724).
 
 ### Windows
 

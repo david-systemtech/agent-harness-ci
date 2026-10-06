@@ -105,7 +105,7 @@ jobs:
       - name: The darwin-arm64 server artefact
         run: |
           set -euo pipefail
-          rm -rf server desktop unzipped
+          rm -rf server desktop unzipped tarball
           pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform darwin-arm64 \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
 
@@ -127,6 +127,17 @@ jobs:
           test -x "$app/Contents/Resources/server/node/bin/node"
           test -f "$app/Contents/Resources/server/node_modules/@agent-harness/contracts/package.json"
           grep -q "\"version\": *\"${TAG#v}\"" "$app/Contents/Resources/server/packages/cli/package.json"
+
+      # An environment's stored key names the Node that wrote it, so the desktop's Node is the tarball's, signed alike (#1724).
+      - name: The bundled server's Node is signed as the server artefact's
+        run: |
+          set -euo pipefail
+          mkdir tarball
+          tar -xzf server/agent-harness-darwin-arm64.tar.gz -C tarball
+          bundled=$(codesign -d -r- unzipped/agent-harness.app/Contents/Resources/server/node/bin/node 2>&1 | grep '^designated => ')
+          artefact=$(codesign -d -r- tarball/node/bin/node 2>&1 | grep '^designated => ')
+          printf 'desktop:  %s\nartefact: %s\n' "$bundled" "$artefact"
+          test "$bundled" = "$artefact"
 
       - name: Hand the desktop to the release job
         env:
