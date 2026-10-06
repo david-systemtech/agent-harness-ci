@@ -74,6 +74,12 @@ for ($i = 0; $i -lt $secrets.Count; $i++) {
 }
 $unknown = @{ password = 'unknown"credential-suffix-for-tests' }
 Write-WindowsSmokeText -Path (Join-Path $env:FIXTURE_ROOT 'unknown.json') -Text ($unknown | ConvertTo-Json)
+$keyed = [ordered]@{}
+$keyed[$secrets[0]] = @{ count = 1 }
+$keyed[$secrets[1]] = @{ count = 2 }
+$keyed['password'] = 123456
+$keyed['nested'] = [ordered]@{ token = $false; apiKey = $null; count = 3 }
+Write-WindowsSmokeText -Path (Join-Path $env:FIXTURE_ROOT 'keyed.json') -Text ($keyed | ConvertTo-Json) -Secrets $secrets
 `);
     await run(pwsh, ["-NoProfile", "-NonInteractive", "-File", harness], { env: {
       ...env, FIXTURE_ROOT: scratch, DIAGNOSTICS_SCRIPT: join(import.meta.dirname, "../scripts/windows-smoke-diagnostics.ps1"),
@@ -84,6 +90,9 @@ Write-WindowsSmokeText -Path (Join-Path $env:FIXTURE_ROOT 'unknown.json') -Text 
       expect(JSON.parse(readFileSync(join(scratch, `${i}.log`), "utf8").split("\n")[1] ?? "{}")).toEqual(expected);
     }
     expect(JSON.parse(readFileSync(join(scratch, "unknown.json"), "utf8"))).toEqual({ password: "[REDACTED]" });
+    // A secret used as a key is redacted without one key overwriting another, and a
+    // credential key's non-string value is redacted too.
+    expect(JSON.parse(readFileSync(join(scratch, "keyed.json"), "utf8"))).toEqual({ "[REDACTED]": { count: 1 }, "[REDACTED] (2)": { count: 2 }, password: "[REDACTED]", nested: { token: "[REDACTED]", apiKey: null, count: 3 } });
   });
 
   it("retains task results, scoped events, logs, process and port state before fixture deletion, with credentials redacted", async () => {

@@ -25,10 +25,16 @@ function Protect-WindowsSmokeValue {
   if ($Value -is [Collections.IDictionary]) {
     $protected = [ordered]@{}
     foreach ($key in $Value.Keys) {
-      if ($Value[$key] -is [string] -and $key -match 'token|password|secret|credential|api[_-]?key|authorization') {
-        $protected[$key] = '[REDACTED]'
+      # A key can hold a known secret too; number repeats so no entry overwrites another.
+      $name = Protect-WindowsSmokePlainText -Text $key -Secrets $Secrets
+      $base = $name
+      for ($n = 2; $protected.Contains($name); $n++) { $name = "$base ($n)" }
+      $item = $Value[$key]
+      $scalar = $null -ne $item -and $item -isnot [Collections.IDictionary] -and $item -isnot [array]
+      if ($scalar -and $key -match 'token|password|secret|credential|api[_-]?key|authorization') {
+        $protected[$name] = '[REDACTED]'
       } else {
-        $protected[$key] = Protect-WindowsSmokeValue -Value $Value[$key] -Secrets $Secrets
+        $protected[$name] = Protect-WindowsSmokeValue -Value $item -Secrets $Secrets
       }
     }
     return $protected
