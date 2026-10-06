@@ -5,7 +5,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { collectMacosSmokeDiagnostics, collectRendererSmokeDiagnostics, executeDiagnostic } from "./macos-smoke-diagnostics.mjs";
+import { collectMacosSmokeDiagnostics, collectRendererSmokeDiagnostics, executeDiagnostic, executeSwift } from "./macos-smoke-diagnostics.mjs";
 
 // Apple SDK contracts are exercised on a hosted Mac, without Electron or credentials.
 const native = { skip: process.platform !== "darwin", timeout: 180_000 };
@@ -42,7 +42,7 @@ test("both collectors mask a text fixture with a cold Swift module cache", nativ
   const raw = join(work, "fixture.png");
   mkdirSync(privateDirectory, { mode: 0o700 });
   try {
-    await executeDiagnostic("/usr/bin/swift", [fixture, "text", raw]);
+    await executeSwift([fixture, "text", raw]);
     const execute = async (command, args, options) => {
       if (command.endsWith("screencapture")) {
         writeFileSync(args.at(-1), readFileSync(raw));
@@ -70,7 +70,7 @@ test("both collectors mask a text fixture with a cold Swift module cache", nativ
         const suffix = name.startsWith("renderer") ? ".error.json" : ".error.txt";
         assert.fail(readFileSync(join(directory, name + suffix), "utf8"));
       }
-      const after = JSON.parse((await executeDiagnostic("/usr/bin/swift", [fixture, "inspect", join(directory, name)])).stdout);
+      const after = JSON.parse((await executeSwift([fixture, "inspect", join(directory, name)])).stdout);
       assert.deepEqual(after.text, [], name + " contains no readable credential");
       assert.deepEqual([after.width, after.height], [1024, 512]);
     }
@@ -83,13 +83,13 @@ test("compiles the image tool and masks readable text while retaining non-text g
   const work = mkdtempSync(join(tmpdir(), "native-screen-redaction-"));
   const raw = join(work, "raw.png");
   const sanitized = join(work, "sanitized.png");
-  const inspect = async path => JSON.parse((await executeDiagnostic("/usr/bin/swift", [fixture, "inspect", path])).stdout);
+  const inspect = async path => JSON.parse((await executeSwift([fixture, "inspect", path])).stdout);
   try {
-    await executeDiagnostic("/usr/bin/swift", [fixture, "text", raw]);
+    await executeSwift([fixture, "text", raw]);
     const original = readFileSync(raw);
     const before = await inspect(raw);
     assert.match(before.text.join(" "), /TOKEN-FOR-TESTS-KEPT/);
-    await executeDiagnostic("/usr/bin/swift", [redactor, raw, sanitized]);
+    await executeSwift([redactor, raw, sanitized]);
     const after = await inspect(sanitized);
     assert.deepEqual([after.width, after.height], [1024, 512]);
     assert.deepEqual(after.text, [], "no recognized text remains in the uploaded image");
@@ -104,8 +104,8 @@ test("omits image output when the native OCR finds no text to mask", native, asy
   const raw = join(work, "raw.png");
   const sanitized = join(work, "sanitized.png");
   try {
-    await executeDiagnostic("/usr/bin/swift", [fixture, "blank", raw]);
-    await assert.rejects(executeDiagnostic("/usr/bin/swift", [redactor, raw, sanitized]));
+    await executeSwift([fixture, "blank", raw]);
+    await assert.rejects(executeSwift([redactor, raw, sanitized]));
     assert.equal(existsSync(sanitized), false);
     assert.ok(existsSync(raw));
   } finally { rmSync(work, { recursive: true, force: true }); }

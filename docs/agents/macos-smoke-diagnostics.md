@@ -7,10 +7,11 @@ private and are removed after redaction. Failed collectors leave an error file
 while the other evidence and original failure survive. Screenshot failure files
 include the command exit code, signal, killed flag and credential-redacted stderr.
 Error messages and stderr are sanitized before each is limited to 32 KB.
-Swift screenshot redaction has a separate two-minute command budget: compiling
-Apple SDK modules from a cold cache can exceed the other collectors' twenty-second
-limit before OCR even starts. A timeout still kills the command and removes both
-raw and partial output images.
+Every Swift script, screenshot redaction and the native checks' own fixture
+images alike, runs through `executeSwift` with a separate two-minute command
+budget: compiling Apple SDK modules from a cold cache can exceed the other
+collectors' twenty-second limit before the script even starts (#1684). A timeout
+still kills the command and removes both raw and partial output images.
 
 `test/macos-smoke-diagnostics.test.ts` verifies redaction, failure handling,
 bounded commands and the Core Foundation reference bridge through the command

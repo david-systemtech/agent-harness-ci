@@ -26,13 +26,15 @@ const { createCdpEvaluator } = await import(script) as {
 };
 interface DiagnosticCall { command: string; args: string[] }
 const diagnostics = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-smoke-diagnostics.mjs")).href;
-const { collectRendererSmokeDiagnostics, collectMacosSmokeDiagnostics, executeDiagnostic, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } = await import(diagnostics) as {
+const { collectRendererSmokeDiagnostics, collectMacosSmokeDiagnostics, executeDiagnostic, executeSwift, swiftCompileTimeout, finishSmoke, persistDesktopLog, persistSmokeFailure, redactDiagnostic } = await import(diagnostics) as {
   collectRendererSmokeDiagnostics: (input: {
     directory: string; privateDirectory: string; secrets: string[];
     cdp: { diagnostic: (method: string, params?: Record<string, unknown>) => Promise<unknown>; errors: () => unknown[] };
     execute: (command: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
   }) => Promise<void>;
   executeDiagnostic: (command: string, args: string[], options?: { timeout: number }) => Promise<{ stdout: string; stderr: string }>;
+  executeSwift: (args: string[], execute?: (command: string, args: string[], options: { timeout: number }) => Promise<{ stdout: string; stderr: string }>) => Promise<{ stdout: string; stderr: string }>;
+  swiftCompileTimeout: number;
   persistDesktopLog: (directory: string, privateDirectory: string, secrets: string[]) => void;
   persistSmokeFailure: (directory: string, error: Error, secrets: string[]) => void;
   redactDiagnostic: (text: string, secrets?: string[]) => string;
@@ -154,6 +156,24 @@ describe("packaged macOS timeout evidence", () => {
       })).toThrow();
       expect(readFileSync(join(directory, "failure.txt"), "utf8")).toContain("Received undefined");
     } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
+  it("gives every Swift script the cold-compile allowance, the native checks' own fixtures included", async () => {
+    const calls: { command: string; args: string[]; timeout: number }[] = [];
+    await executeSwift(["fixture.swift", "text", "raw.png"], async (command, args, { timeout }) => {
+      calls.push({ command, args, timeout });
+      return { stdout: "", stderr: "" };
+    });
+    expect(calls).toEqual([{ command: "/usr/bin/swift", args: ["fixture.swift", "text", "raw.png"], timeout: swiftCompileTimeout }]);
+    // A fresh hosted Mac compiles a Swift script in about 15 to 20 seconds before it runs (#1684).
+    expect(swiftCompileTimeout).toBeGreaterThanOrEqual(120_000);
+    const native = readFileSync(join(import.meta.dirname, "..", "scripts", "macos-smoke-diagnostics-native.test.mjs"), "utf8");
+    expect(native).toContain("executeSwift(");
+    // No call names a Swift command, in any quote style, by path or by name, outside executeSwift.
+    expect(native).not.toMatch(/\(\s*["'`](?:[^"'`]*\/)?swift["'`]\s*,/);
+    // The only direct calls: osascript, and the cold-cache wrapper passing executeSwift's options on.
+    expect(native.match(/executeDiagnostic\(/g)).toHaveLength(2);
+    expect(native).toContain('return executeDiagnostic(command, ["-module-cache-path", join(work, "swift-cache"), ...args], options);');
   });
 
   it("retains a failed command's exit status and captured stderr", async () => {

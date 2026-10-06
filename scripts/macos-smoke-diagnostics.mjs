@@ -15,8 +15,8 @@ export function redactDiagnostic(text, secrets = []) {
   return clean;
 }
 
-// Swift may compile Apple SDK modules from a cold cache before OCR starts.
-const screenshotTimeout = 120_000;
+// Swift may compile Apple SDK modules from a cold cache before a script runs.
+export const swiftCompileTimeout = 120_000;
 
 export const executeDiagnostic = (command, args, { timeout = 20_000 } = {}) => new Promise((resolve, reject) => {
   execFile(command, args, { timeout, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -24,6 +24,9 @@ export const executeDiagnostic = (command, args, { timeout = 20_000 } = {}) => n
     else resolve({ stdout, stderr });
   });
 });
+
+/** Runs a Swift script, compile included, for the collectors and the native checks' fixtures alike. */
+export const executeSwift = (args, execute = executeDiagnostic) => execute("/usr/bin/swift", args, { timeout: swiftCompileTimeout });
 
 // Sanitize before truncation, so a credential crossing the size limit cannot leak.
 function commandFailure(error, secrets) {
@@ -103,7 +106,7 @@ export async function collectRendererSmokeDiagnostics({ directory, privateDirect
       try {
         const answer = await cdp.diagnostic("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
         writeFileSync(rawScreen, Buffer.from(answer.data, "base64"), { mode: 0o600 });
-        await execute("/usr/bin/swift", [fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url)), rawScreen, screen], { timeout: screenshotTimeout });
+        await executeSwift([fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url)), rawScreen, screen], execute);
       } catch (error) {
         rmSync(screen, { force: true });
         save("renderer-screenshot.png.error.json", commandFailure(error, secrets));
@@ -137,7 +140,7 @@ export async function collectMacosSmokeDiagnostics({ directory, privateDirectory
         await execute("/usr/sbin/screencapture", ["-x", rawScreen]);
         // Mask every recognized text region, including credentials not known to the script.
         // The sanitized window list retains dialog titles; the screenshot retains the dialog's shape.
-        await execute("/usr/bin/swift", [fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url)), rawScreen, screen], { timeout: screenshotTimeout });
+        await executeSwift([fileURLToPath(new globalThis.URL("./redact-macos-smoke-screen.swift", import.meta.url)), rawScreen, screen], execute);
       } catch (failure) {
         rmSync(screen, { force: true });
         save("screenshot.png.error.txt", JSON.stringify(commandFailure(failure, secrets), null, 2));
