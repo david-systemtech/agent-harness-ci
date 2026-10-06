@@ -64,7 +64,18 @@ export interface ScriptedStart {
   readonly install?: { readonly version: string; readonly staged: string };
   /** How many of the launcher's `idle?` it answers busy with a run running before it answers idle. Preset: none. */
   readonly busyFor?: number;
+  /**
+   * Before it says `prepared`, says its OS keychain read waits on the person
+   * (`credential-access` `waiting`) and reports `credential-waiting`; once
+   * the test writes `CREDENTIAL_ANSWER_FILE` it says how the person answered:
+   * `answered` goes on to `prepared`, `refused` exits 1, as a start whose
+   * signing key cannot be read does.
+   */
+  readonly credential?: "answered" | "refused";
 }
+
+/** The file in the data directory a scripted child waiting on its stored key (`credential`) waits for: the person answering the OS's prompt. */
+export const CREDENTIAL_ANSWER_FILE = "credential-answer";
 
 export type ChildStart = ChildBehaviour | ScriptedStart;
 
