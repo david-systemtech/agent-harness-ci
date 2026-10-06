@@ -259,6 +259,7 @@ export {
   type OfferedSetupAction,
   type RestorableStep,
   type SetupActionPlan,
+  type UpdateNowOutcome,
 } from "./setup/actions.js";
 export {
   STEP_STATE_WORDS,
@@ -661,6 +662,7 @@ export {
   credentialPromptWords,
   environmentVersionWords,
   offersClientVersion,
+  pendingUpdateId,
   pendingUpdateWords,
   pinnedWords,
   updatesUnreadWords,

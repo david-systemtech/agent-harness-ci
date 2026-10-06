@@ -1,6 +1,7 @@
 import { STEP_HINTS } from "@agent-harness/contracts";
 import { ListChecks, X } from "lucide-react";
 import { useId, useState } from "react";
+import { nativeFrame, useWindowFrame, WindowControls } from "../frame/window-controls.js";
 import { CredentialNoticeHost } from "../notices/credential-notice.js";
 import { EnvironmentPicker } from "../settings/environment-picker.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
@@ -30,6 +31,7 @@ export const ChecklistView = () => {
   const heading = useId();
   const railId = useId();
   const [railOpen, setRailOpen] = useState(false);
+  const frame = useWindowFrame();
   const step = view?.steps.find((candidate) => candidate.id === shown);
   const rail = (
     <nav id={railId} aria-label="Set up steps" className="flex w-[280px] max-w-full min-h-0 shrink-0 flex-col overflow-y-auto border-r border-hairline bg-panel px-2.5 pt-4 pb-2.5">
@@ -69,7 +71,7 @@ export const ChecklistView = () => {
   );
   return (
     <section data-phone-setup aria-labelledby={heading} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-abyss text-ink">
-      <header className="flex h-11 shrink-0 items-center gap-4 border-b border-hairline bg-panel px-4">
+      <header {...nativeFrame(frame)} className="flex h-11 shrink-0 items-center gap-4 border-b border-hairline bg-panel px-4">
         <h1 id={heading} className="text-base font-semibold text-ink">
           Set up
         </h1>
@@ -79,6 +81,7 @@ export const ChecklistView = () => {
         <Tooltip content="Close Set up" keys="Tab, Enter">
           <Button aria-label="Close Set up" className="ml-auto" onClick={close}><X aria-hidden="true" />Close</Button>
         </Tooltip>
+        <WindowControls state={frame} />
       </header>
       <CredentialNoticeHost />
       {view !== undefined && picked !== undefined && <ReachLine view={view} environment={picked} />}

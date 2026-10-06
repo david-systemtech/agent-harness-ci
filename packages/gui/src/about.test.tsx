@@ -96,6 +96,55 @@ describe("About", () => {
     expect(app.environment("desk").requests("updates.apply").map((request) => request.params)).toEqual([{ commandId: expect.any(String), when: "idle" }]);
   });
 
+  it("keeps Update now's line while its update is pending, and drops it once the update fails and rolls back", async () => {
+    const app = await opened({ updates: { updateId: UPDATE_ID, status: { version: "0.5.0", newest: "0.6.0" } } });
+    const about = await openAbout(app);
+    const desk = app.environment("desk");
+    await app.user.click(await within(about).findByRole("button", { name: "Update now" }));
+    expect(await within(about).findByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
+
+    desk.setUpdates({ status: { pending: WAITING } });
+    desk.notice("environment.update-pending", WAITING);
+    expect(await within(about).findByText(/^Waiting to update to 0\.6\.0 until desk is idle/)).toBeDefined();
+    expect(within(about).getByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
+
+    const failed = { updateId: UPDATE_ID, fromVersion: "0.5.0", toVersion: "0.6.0", stage: "trial", reason: "credential", rolledBack: true } as const;
+    desk.setUpdates({ status: { pending: { state: "current" }, lastOutcome: { outcome: "failed", ...failed, at: "2026-09-24T00:05:00.000Z" }, failedVersions: ["0.6.0"] } });
+    desk.notice("environment.update-failed", failed);
+    await waitFor(() => expect(within(about).queryByText("Updating to 0.6.0 once desk is idle.")).toBeNull());
+    expect(within(about).queryByText(/^Waiting to update/)).toBeNull();
+  });
+
+  it("keeps Update now's line while its update is pending, and drops it once the update commits and the target runs", async () => {
+    const app = await opened({ updates: { updateId: UPDATE_ID, status: { version: "0.5.0", newest: "0.6.0" } } });
+    const about = await openAbout(app);
+    const desk = app.environment("desk");
+    await app.user.click(await within(about).findByRole("button", { name: "Update now" }));
+    expect(await within(about).findByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
+
+    desk.setUpdates({ status: { pending: WAITING } });
+    desk.notice("environment.update-pending", WAITING);
+    expect(await within(about).findByText(/^Waiting to update to 0\.6\.0 until desk is idle/)).toBeDefined();
+    expect(within(about).getByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
+
+    const updated = { updateId: UPDATE_ID, fromVersion: "0.5.0", toVersion: "0.6.0" } as const;
+    desk.setUpdates({ status: { version: "0.6.0", pending: { state: "current" }, lastOutcome: { outcome: "updated", ...updated, at: "2026-09-24T00:05:00.000Z" } } });
+    desk.notice("environment.updated", updated);
+    expect(await within(about).findByText("Version 0.6.0")).toBeDefined();
+    await waitFor(() => expect(within(about).queryByText("Updating to 0.6.0 once desk is idle.")).toBeNull());
+    expect(within(about).queryByText(/^Waiting to update/)).toBeNull();
+  });
+
+  it("drops Update now's line once its update is withdrawn, even when no read showed it pending", async () => {
+    const app = await opened({ updates: { updateId: UPDATE_ID, status: { version: "0.5.0", newest: "0.6.0" } } });
+    const about = await openAbout(app);
+    await app.user.click(await within(about).findByRole("button", { name: "Update now" }));
+    expect(await within(about).findByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
+
+    app.environment("desk").notice("environment.update-cancelled", { updateId: UPDATE_ID, toVersion: "0.6.0", cause: "requested" });
+    await waitFor(() => expect(within(about).queryByText("Updating to 0.6.0 once desk is idle.")).toBeNull());
+  });
+
   it("offers Drain and update now while the update waits on running work, asks once saying running runs are cut at the drain's cap, and sends updates.apply now", async () => {
     const app = await opened({ updates: { status: { version: "0.5.0", newest: "0.6.0", pending: WAITING } } });
     const about = await openAbout(app);

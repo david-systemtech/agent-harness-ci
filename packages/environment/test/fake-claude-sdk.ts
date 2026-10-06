@@ -309,10 +309,14 @@ export class FakeSdk {
   /** What `getSessionMessages` answers, per provider session. */
   readonly stored = new Map<string, { type: string; uuid: string; message?: unknown }[]>();
   readonly storedReads: { sessionId: string; options: unknown; configDir: string | undefined }[] = [];
+  /** The `made(count)` calls still waiting, by count. */
+  readonly #madeWaiters = new Map<number, ((query: FakeQuery) => void)[]>();
 
   readonly query = (params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }): FakeQuery => {
     const made = new FakeQuery(params, this.controls);
     this.queries.push(made);
+    for (const resolve of this.#madeWaiters.get(this.queries.length) ?? []) resolve(made);
+    this.#madeWaiters.delete(this.queries.length);
     return made;
   };
 
@@ -328,13 +332,11 @@ export class FakeSdk {
     return found;
   }
 
-  /** Resolves once the adapter has made `count` queries. */
-  async made(count: number): Promise<FakeQuery> {
-    for (let tries = 0; this.queries.length < count; tries += 1) {
-      if (tries > 200) throw new Error(`The adapter made ${this.queries.length} queries, not ${count}.`);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-    }
-    return this.queries[count - 1] as FakeQuery;
+  /** Resolves once the adapter has made `count` queries: it waits on that query itself, so the test's own timeout is the only bound (#1761). */
+  made(count: number): Promise<FakeQuery> {
+    const found = this.queries[count - 1];
+    if (found !== undefined) return Promise.resolve(found);
+    return new Promise((resolve) => this.#madeWaiters.set(count, [...(this.#madeWaiters.get(count) ?? []), resolve]));
   }
 }
 

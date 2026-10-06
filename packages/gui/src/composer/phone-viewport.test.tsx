@@ -125,3 +125,51 @@ it("retains the keyboard reserve through layout-resizing rotation, gradual close
   expect(frame.hasAttribute("data-phone-composing")).toBe(false);
   expect(document.activeElement).toBe(field);
 });
+
+// A browser revealing the focused Message scrolls clipped boxes a reader cannot scroll back (#1737).
+const ClippedConversation = () => {
+  const { narrow } = usePhoneFrame();
+  return <WebViewport narrow={narrow}>
+    <main data-testid="main" style={{ overflowX: "hidden", overflowY: "hidden" }}>
+      <div data-testid="card" style={{ overflowX: "hidden", overflowY: "hidden" }}>
+        <div data-dock-owner>
+          <section data-testid="transcript" style={{ overflowY: "auto" }} />
+          <div data-testid="column" style={{ overflowY: "auto" }}><textarea aria-label="Message" defaultValue="Keep the draft" /></div>
+          <div data-testid="terminal" style={{ overflowX: "hidden", overflowY: "hidden" }} />
+        </div>
+      </div>
+    </main>
+  </WebViewport>;
+};
+
+it.each(["focus then shrink", "shrink then focus"] as const)("keeps clipped boxes around the dock unscrolled through a layout-resizing keyboard: %s", order => {
+  const resize = layout(390, 844);
+  const viewport = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, scale: 1 });
+  vi.stubGlobal("visualViewport", viewport);
+  const app = render(<PhoneFrameProvider><ClippedConversation /></PhoneFrameProvider>);
+  const frame = app.container.firstElementChild as HTMLElement;
+  const field = screen.getByRole("textbox", { name: "Message" });
+  const [main, card, transcript, column, terminal] = (["main", "card", "transcript", "column", "terminal"] as const).map(id => screen.getByTestId(id)) as [HTMLElement, HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  // The browser reveals the field against the bounds it had before the shell refits.
+  const shrink = () => { viewport.height = 480; frame.scrollTop = 40; main.scrollTop = 60; card.scrollTop = 298; resize(390, 480); };
+  if (order === "focus then shrink") { act(() => field.focus()); shrink(); }
+  else { shrink(); act(() => { card.scrollTop = 116; field.focus(); }); }
+  expect(frame.style.height).toBe("480px");
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  expect([frame.scrollTop, main.scrollTop, card.scrollTop]).toEqual([0, 0, 0]);
+  // A reveal after the refit arrives as a scroll event; the reader's own scrollers, and a clipped one
+  // that encloses no dock (a terminal's own scrollable element), keep their place.
+  transcript.scrollTop = 50; column.scrollTop = 20; terminal.scrollTop = 30;
+  act(() => { card.scrollTop = 116; for (const box of [card, transcript, terminal]) box.dispatchEvent(new Event("scroll")); });
+  expect([card.scrollTop, transcript.scrollTop, column.scrollTop, terminal.scrollTop]).toEqual([0, 50, 20, 30]);
+  // Growing back with Message still focused restores the whole layout on that one resize.
+  viewport.height = 844; card.scrollTop = 298;
+  resize(390, 844);
+  expect(frame.style.height).toBe("844px");
+  expect(card.scrollTop).toBe(0);
+  expect(document.activeElement).toBe(field);
+  // A wide layout owns no keyboard bounds, so its scroll offsets are left alone.
+  resize(1400, 900);
+  act(() => { card.scrollTop = 40; card.dispatchEvent(new Event("scroll")); });
+  expect(card.scrollTop).toBe(40);
+});

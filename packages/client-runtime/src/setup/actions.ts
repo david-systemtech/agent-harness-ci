@@ -192,6 +192,11 @@ export interface ActionOutcome {
   readonly line: string;
 }
 
+/** What Update now did: its line and, when taken, the update it took. */
+export interface UpdateNowOutcome extends ActionOutcome {
+  readonly updateId?: string;
+}
+
 /** Pull each named source, continuing past refusals, and report its sync rather than just its command receipt. */
 export const pullSetupSources = async (runtime: Pick<Runtime, "requests">, environmentId: string, sources: readonly NamedItem[], now: () => Date): Promise<ActionOutcome> => {
   const outcomes: ActionOutcome[] = [];
@@ -233,8 +238,9 @@ export const restoreStep = async (
  * environment waits on (the pin, else the channel's newest), under the idle
  * rules, as a direct `admin` command with `commandId`; with `when: now`,
  * Drain and update now (#825), which takes the waiting update and drains at
- * once. Says which version it goes to, naming the environment; a refusal is
- * "Not updated: <why>".
+ * once. Says which version it goes to, naming the environment, with the
+ * update it took, whose line holds only while that update is pending (#1749);
+ * a refusal is "Not updated: <why>".
  */
 export const updateEnvironment = async (
   runtime: Pick<Runtime, "requests">,
@@ -242,10 +248,11 @@ export const updateEnvironment = async (
   name: string,
   commandId: string,
   when: UpdateWhen = "idle",
-): Promise<ActionOutcome> => {
+): Promise<UpdateNowOutcome> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "updates.apply", { commandId, when }));
   if (!answer.ok) return { ok: false, line: `Not updated: ${answer.line}` };
   const toVersion = answer.result?.toVersion;
-  if (when === "now") return { ok: true, line: toVersion === undefined ? `Draining ${name} to update it.` : `Draining ${name} to update to ${toVersion}.` };
-  return { ok: true, line: toVersion === undefined ? `Updating ${name} once it is idle.` : `Updating to ${toVersion} once ${name} is idle.` };
+  const taken = answer.result === undefined ? {} : { updateId: answer.result.updateId };
+  if (when === "now") return { ok: true, ...taken, line: toVersion === undefined ? `Draining ${name} to update it.` : `Draining ${name} to update to ${toVersion}.` };
+  return { ok: true, ...taken, line: toVersion === undefined ? `Updating ${name} once it is idle.` : `Updating to ${toVersion} once ${name} is idle.` };
 };

@@ -62,7 +62,7 @@ export function capturePlan(scenes: readonly string[]) {
       if (scene === "phone-keyboard-dock") return profile.suffix === "phone-390";
       if (scene === "phone-gallery-conversation") return profile.suffix === "phone-390";
       if (scene === "phone-pairing-unlisted-origin") return profile.suffix === "phone-390";
-      if (scene === "phone-gallery-permission" || scene === "phone-gallery-continue" || scene === "phone-attention-keyboard") return profile.suffix === "phone-390-keyboard";
+      if (scene === "phone-gallery-permission" || scene === "phone-gallery-continue" || scene === "phone-attention-keyboard" || scene === "phone-layout-keyboard") return profile.suffix === "phone-390-keyboard";
       if (scene === "phone-attention-pending") return profile.suffix !== "phone-390-keyboard";
       return true;
     }).flatMap(({ suffix, viewport, textSize }) => (["light", "dark"] as const).map(ladder => ({
