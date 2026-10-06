@@ -25,6 +25,18 @@ const step = (name: string, title: string) => {
   const end = body.findIndex((line, i) => i > start && line.startsWith("      - "));
   return body.slice(start, end === -1 ? undefined : end).join("\n");
 };
+/** The jobs `name` names in its `needs:`, directly. */
+const needs = (name: string): string[] => {
+  const line = job(name).find((entry) => entry.startsWith("    needs: ")) ?? "";
+  return line.slice("    needs: ".length).replace(/^\[|\]$/g, "").split(",").map((entry) => entry.trim()).filter(Boolean);
+};
+/** Every job `name` waits for, directly or through another job. */
+const waitsFor = (name: string): Set<string> => {
+  const found = new Set<string>();
+  const visit = (next: string) => { for (const need of needs(next)) if (!found.has(need)) { found.add(need); visit(need); } };
+  visit(name);
+  return found;
+};
 let scratch: string | undefined;
 afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
 
@@ -62,14 +74,15 @@ describe("the public GitHub release workflow", () => {
   });
 
   it("gates every publishing operation on the prepared run's publish flag, and latest on stability too", () => {
-    expect(step("check", "The tag's release is not published yet")).toContain("if: steps.run.outputs.publish == 'true'");
-    expect(step("image", "Authenticate to ghcr for a tag only")).toContain("if: needs.check.outputs.publish == 'true'");
+    expect(step("prepare", "The tag's release is not published yet")).toContain("if: steps.run.outputs.publish == 'true'");
+    expect(step("image-push", "Authenticate to ghcr for a tag only")).toContain("if: needs.prepare.outputs.publish == 'true'");
     const image = step("image", "Build the image locally");
     expect(image).toContain("push: false");
     expect(image).toContain("load: true");
-    expect(step("image", "Push the verified image on a tag")).toContain("if: needs.check.outputs.publish == 'true'");
-    expect(step("release", "Upload every asset to a draft release, then publish it")).toContain("if: needs.check.outputs.publish == 'true'");
-    expect(step("release", "Point latest at the stable release's exact image")).toContain("if: needs.check.outputs.publish == 'true' && needs.check.outputs.prerelease == 'false'");
+    expect(step("image-push", "Push the verified image on a tag")).toContain("if: needs.prepare.outputs.publish == 'true'");
+    expect(step("release", "Upload every asset to a draft release, then publish it")).toContain("if: needs.prepare.outputs.publish == 'true'");
+    expect(step("release", "Point latest at the stable release's exact image")).toContain("if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.prerelease == 'false'");
+    expect(workflow).not.toContain("needs.check.");
     expect(step("release", "Keep all artefacts, including for a dry run")).not.toContain("if:");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("packages: write");
@@ -78,11 +91,10 @@ describe("the public GitHub release workflow", () => {
 
   it.each(["1.2.3-beta.2", "0.0.0"])("checks the built image's reported version %s before any push", async (reported) => {
     const build = step("image", "Build the image locally");
-    expect(build).toContain("HARNESS_VERSION=${{ needs.check.outputs.version }}");
+    expect(build).toContain("HARNESS_VERSION=${{ needs.prepare.outputs.version }}");
     const check = step("image", "Check the image's version");
-    const publish = step("image", "Push the verified image on a tag");
-    const imageSteps = job("image").join("\n");
-    expect(imageSteps.indexOf(check)).toBeLessThan(imageSteps.indexOf(publish));
+    const publish = step("image-push", "Push the verified image on a tag");
+    expect(needs("image-push")).toContain("image");
     scratch = mkdtempSync(join(tmpdir(), "release-image-version-"));
     const bin = join(scratch, "bin");
     mkdirSync(bin);
@@ -107,7 +119,9 @@ esac
 
   it("smokes the host updater against the built image before pushing it, without applying an update", async () => {
     const smoke = step("image", "Inspect a container update without applying it");
-    expect(job("image").join("\n").indexOf(smoke)).toBeLessThan(job("image").join("\n").indexOf(step("image", "Push the verified image on a tag")));
+    const kept = step("image", "Keep the verified image for its push");
+    expect(job("image").join("\n").indexOf(smoke)).toBeLessThan(job("image").join("\n").indexOf(kept));
+    expect(job("image").join("\n")).not.toMatch(/docker push|login-action/);
     scratch = mkdtempSync(join(tmpdir(), "release-updater-smoke-"));
     const bin = join(scratch, "bin");
     mkdirSync(bin);
@@ -149,7 +163,7 @@ esac
       expect(body).toContain(`build-desktop --platform ${platform} --tag "$TAG" --server server/agent-harness-${platform}.${format === "nsis" ? "zip" : "tar.gz"}`);
       expect(body).toContain(`path: desktop/${filename}`);
       expect(body).toContain(`name: desktop-${platform}`);
-      expect(body).toContain("needs: [check, image]");
+      expect(needs(name ?? "")).toEqual(["prepare", "image"]);
     }
     expect(job("desktop-windows").join("\n")).toContain("electronuserland/builder:24-wine-");
     // GitHub mounts its own HOME into container jobs, owned by the runner's user, and wine refuses
@@ -158,7 +172,54 @@ esac
     expect(job("desktop-macos").join("\n")).toContain('codesign --verify --deep --strict "$app"');
     expect(job("desktop-arch").join("\n")).toContain('grep -qx "pkgname = agent-harness-desktop"');
     expect(step("release", "The desktop jobs' builds")).toContain("merge-multiple: true");
-    expect(job("release")).toContain("    needs: [check, image, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
+    expect(job("release")).toContain("    needs: [prepare, verify, image-push, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
+  });
+
+  it("builds and smokes from the prepared run alone, beside the suite, which starts with the run", () => {
+    expect(needs("verify")).toEqual([]);
+    const verify = job("verify").join("\n");
+    for (const command of ["pnpm typecheck", "pnpm lint", "pnpm test --maxWorkers=4"]) expect(verify).toContain(`      - run: ${command}`);
+    expect(step("verify", "The JSON Schema export is current")).toContain("pnpm --filter @agent-harness/contracts export-schemas");
+    expect(job("prepare").join("\n")).not.toMatch(/pnpm (typecheck|lint|test)/);
+    expect(needs("image")).toEqual(["prepare"]);
+    for (const [smoke, build] of [["smoke-windows", "desktop-windows"], ["smoke-macos", "desktop-macos"], ["smoke-linux", "desktop-arch"]] as const) {
+      expect(needs(build)).toEqual(["prepare", "image"]);
+      expect(needs(smoke)).toEqual(["prepare", build]);
+    }
+    for (const build of ["image", "desktop-macos", "desktop-windows", "desktop-arch", "smoke-windows", "smoke-macos", "smoke-linux"]) {
+      expect(waitsFor(build).has("verify"), build).toBe(false);
+    }
+  });
+
+  it("runs no publishing step, and grants no job a write to the registry, unless the suite passed", () => {
+    const publishing = /docker push|docker\/login-action|publish-release --tag "\$TAG" --from|imagetools create/;
+    const publishers = [...jobs.keys()].filter((name) => publishing.test(job(name).join("\n")));
+    expect(publishers.sort()).toEqual(["image-push", "release"]);
+    const writers = [...jobs.keys()].filter((name) => job(name).includes("      packages: write"));
+    expect(writers.sort()).toEqual(["image-push", "release"]);
+    for (const name of [...publishers, ...writers]) expect(waitsFor(name).has("verify"), name).toBe(true);
+    expect(needs("release")).toEqual(expect.arrayContaining(["verify", "image-push"]));
+  });
+
+  it("pushes the very image the image job checked, handed on as an artifact", () => {
+    const kept = step("image", "Keep the verified image for its push");
+    expect(kept).toContain('docker save "$IMAGE_REFERENCE"');
+    const upload = step("image", "Hand the verified image to its push");
+    expect(upload).toContain("uses: actions/upload-artifact@");
+    expect(upload).toContain("name: container-image");
+    const pushJob = job("image-push").join("\n");
+    const download = step("image-push", "The verified image");
+    expect(download).toContain("uses: actions/download-artifact@");
+    expect(download).toContain("name: container-image");
+    const load = step("image-push", "Load the verified image");
+    expect(load).toContain("docker load");
+    expect(pushJob.indexOf(load)).toBeLessThan(pushJob.indexOf(step("image-push", "Push the verified image on a tag")));
+    expect(pushJob).toContain("IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}");
+    expect(pushJob).toContain("digest: ${{ steps.publish.outputs.digest || needs.image.outputs.digest }}");
+    const release = job("release").join("\n");
+    expect(release).toContain("IMAGE_REFERENCE: ${{ needs.image-push.outputs.reference }}");
+    expect(release).toContain("IMAGE_DIGEST: ${{ needs.image-push.outputs.digest }}");
+    expect(release).not.toContain("needs.image.outputs");
   });
 
   it("checks persisted channel targets on the packaged Linux server's second start", () => {
