@@ -1,6 +1,6 @@
 import type { PendingUpdate } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { bundledServerWords, drainableUpdate, offersClientVersion, pendingUpdateWords } from "./words.js";
+import { bundledServerWords, drainableUpdate, offersClientVersion, pendingUpdateId, pendingUpdateWords } from "./words.js";
 
 /**
  * What the update controls say of a pending update, when a client offers
@@ -62,6 +62,16 @@ describe("the update Drain and update now takes", () => {
     expect(drainableUpdate({ state: "draining", ...PENDING, cause: "requested" })).toBeNull();
     expect(drainableUpdate({ state: "switching", ...PENDING, cause: "requested" })).toBeNull();
     expect(drainableUpdate({ state: "blocked", reason: "launcher", toVersion: "0.6.0", message: "It needs a newer launcher." })).toBeNull();
+  });
+});
+
+describe("the id of the pending update", () => {
+  it("is the update's in every state that holds one, and none when nothing is pending or the update is blocked", () => {
+    expect(pendingUpdateId({ state: "staging", updateId: PENDING.updateId, toVersion: "0.6.0", source: "request" })).toBe(PENDING.updateId);
+    expect(pendingUpdateId({ state: "waiting", ...PENDING, waitsOn: null })).toBe(PENDING.updateId);
+    expect(pendingUpdateId({ state: "draining", ...PENDING, cause: "requested" })).toBe(PENDING.updateId);
+    expect(pendingUpdateId({ state: "current" })).toBeNull();
+    expect(pendingUpdateId({ state: "blocked", reason: "launcher", toVersion: "0.6.0", message: "It needs a newer launcher." })).toBeNull();
   });
 });
 

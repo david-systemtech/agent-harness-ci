@@ -81,6 +81,9 @@ export type WaitingUpdate = Extract<PendingUpdate, { readonly state: "waiting" }
  */
 export const drainableUpdate = (pending: PendingUpdate): WaitingUpdate | null => (pending.state === "waiting" && pending.waitsOn !== null ? pending : null);
 
+/** The id of the pending update; null when none is, or it is blocked, which holds no update. */
+export const pendingUpdateId = (pending: PendingUpdate): string | null => ("updateId" in pending ? pending.updateId : null);
+
 /** What Drain and update now asks before it drains `environment` for the update to `toVersion`. */
 export const drainAndUpdateQuestion = (environment: string, toVersion: string): string => `Drain ${environment} and update it to ${toVersion} now?`;
 

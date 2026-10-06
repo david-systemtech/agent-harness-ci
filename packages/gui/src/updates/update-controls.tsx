@@ -4,23 +4,40 @@ import {
   drainAndUpdateQuestion,
   drainableUpdate,
   environmentVersionWords,
+  pendingUpdateId,
   pendingUpdateWords,
   pinnedWords,
   updateEnvironment,
   updatesUnreadWords,
   uuidv7,
   type ActionOutcome,
+  type CachedAnswer,
   type EnvironmentView,
+  type UpdateNowOutcome,
 } from "@agent-harness/client-runtime";
 import { RELEASE_CHANNELS, type MethodName, type SettingsKey, type UpdateWhen } from "@agent-harness/contracts";
 import { ArrowUpCircle, ArrowDownToLine, CircleStop, Radio, RefreshCw, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { DialogFooter } from "../ui/dialog.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Button, Dialog, DialogClose, DialogContent, Select, Switch, Tooltip } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { useUpdatesStatus } from "./use-updates-status.js";
+
+/** What a control did, or why it was not taken; for Update now, with the `updates.status` read held when its answer came. */
+type Said = ActionOutcome | (UpdateNowOutcome & { readonly readBefore: CachedAnswer<"updates.status">["result"] });
+
+/**
+ * Whether what was said still holds: a refusal or a write's until the next
+ * action; Update now's while its update is pending, or until a read after
+ * its answer says otherwise, once the update took, failed, rolled back, was
+ * replaced or withdrawn, which the status above and its notice say (#1749).
+ */
+const saysTruly = (said: Said, read: CachedAnswer<"updates.status">["result"]): boolean => {
+  if (!("readBefore" in said) || said.updateId === undefined || read === null || read === said.readBefore) return true;
+  return pendingUpdateId(read.pending) === said.updateId;
+};
 
 /** A channel as a person reads it. */
 const CHANNEL_WORDS: Readonly<Record<(typeof RELEASE_CHANNELS)[number], string>> = { stable: "Stable", beta: "Beta" };
@@ -36,7 +53,8 @@ const CHANNEL_WORDS: Readonly<Record<(typeof RELEASE_CHANNELS)[number], string>>
  * `updates.apply` now, asked once in a dialog that closes unanswered once
  * that update no longer waits on work. What either did, or why it or a
  * write was not taken, is one line; a write taken shows in its control, as
- * in the generic editor. Each control is read-only while the
+ * in the generic editor; Update now's line holds only while the update it
+ * took is pending (#1749). Each control is read-only while the
  * environment is not ready or the connection lacks its method's scope; what
  * holds the controls says why, once.
  */
@@ -46,7 +64,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
   const { environmentId } = view;
   const status = useUpdatesStatus(environmentId);
   const settings = useSettingsValues(environmentId);
-  const [said, setSaid] = useState<ActionOutcome | undefined>(undefined);
+  const [said, setSaid] = useState<Said | undefined>(undefined);
   // The id of the update Drain and update now's dialog asks about.
   const [asking, setAsking] = useState<string | undefined>(undefined);
   const channelLabel = useId();
@@ -62,8 +80,14 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
   useEffect(() => {
     if (asking !== undefined && asking !== drainableId) setAsking(undefined);
   }, [asking, drainableId]);
+  // The `updates.status` read held when Update now's answer came, kept from the last render.
+  const lastRead = useRef(status.result);
+  useEffect(() => {
+    lastRead.current = status.result;
+  }, [status.result]);
   const values = settings.values;
   const pinned = values?.["updates.pinnedVersion"];
+  const shown = said !== undefined && saysTruly(said, status.result) ? said : undefined;
 
   const save = (key: SettingsKey, value: unknown) => {
     setSaid(undefined);
@@ -72,7 +96,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
   const update = (when: UpdateWhen) => {
     setAsking(undefined);
     setSaid(undefined);
-    void updateEnvironment(runtime, environmentId, name, uuidv7(clock.now()), when).then(setSaid);
+    void updateEnvironment(runtime, environmentId, name, uuidv7(clock.now()), when).then((outcome) => setSaid({ ...outcome, readBefore: lastRead.current }));
   };
 
   return (
@@ -134,7 +158,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
           </Button></Tooltip>
         )}
       </div>
-      {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
+      {shown !== undefined && <p role="status" className={shown.ok ? "text-ink-muted" : "text-signal"}>{shown.line}</p>}
       <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
         {drainable !== null && (
           <DialogContent showClose={false} title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
