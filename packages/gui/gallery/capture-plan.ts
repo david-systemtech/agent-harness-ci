@@ -61,6 +61,7 @@ export function capturePlan(scenes: readonly string[]) {
     (scene.startsWith("phone-landscape-") ? LANDSCAPE_PHONE_PROFILES : scene.startsWith("phone-compact-composer-") ? COMPACT_COMPOSER_PROFILES : PHONE_PROFILES).filter(profile => {
       if (scene === "phone-keyboard-dock") return profile.suffix === "phone-390";
       if (scene === "phone-gallery-conversation") return profile.suffix === "phone-390";
+      if (scene === "phone-pairing-unlisted-origin") return profile.suffix === "phone-390";
       if (scene === "phone-gallery-permission" || scene === "phone-gallery-continue" || scene === "phone-attention-keyboard") return profile.suffix === "phone-390-keyboard";
       if (scene === "phone-attention-pending") return profile.suffix !== "phone-390-keyboard";
       return true;
