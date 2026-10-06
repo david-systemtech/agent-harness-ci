@@ -271,10 +271,12 @@ describe("the packaged macOS update smoke", () => {
 
   it("requires navigation after recovery to answer protection inside the product's access deadline, with nothing left waiting", async () => {
     const settings = (rows: string[]) => {
-      const dom = new JSDOM(`<section aria-label="Settings"><nav aria-label="Settings rows">${rows.map(row => `<button aria-label="${row}">${row}</button>`).join("")}</nav><main></main></section>`);
-      for (const row of rows) dom.window.document.querySelector(`[aria-label="${row}"]`)?.addEventListener("click", () => {
-        dom.window.document.querySelector("main")!.innerHTML = `<section aria-label="${row}"></section>`;
-      });
+      const dom = new JSDOM("");
+      const show = (open: string) => {
+        dom.window.document.body.innerHTML = `<section aria-label="Settings"><nav aria-label="Settings rows">${rows.map(row => `<button aria-label="${row}">${row}</button>`).join("")}</nav><section aria-label="${open}"></section></section>`;
+        for (const row of rows) dom.window.document.querySelector(`[aria-label="${row}"]`)?.addEventListener("click", () => show(row));
+      };
+      show("Credential access");
       return dom.window.document;
     };
     const navigate = (protection: string, access: string | null, rows = ["About", "Your machines"]) => {
