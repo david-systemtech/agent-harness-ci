@@ -250,7 +250,7 @@ const KnownDirectoryRow = ({ directory, disabled, take, hide }: { readonly direc
   const under = gone ?? (directory.repositoryIdentity === null ? undefined : repositoryWords(directory.repositoryIdentity));
   return (
     <li className="flex items-center gap-2 rounded-lg border border-hairline bg-inset/60 px-2 py-1">
-      <Tooltip content={`${directory.path} · Enter / Space${gone ? ` · ${gone}` : ""}`}>
+      <Tooltip content={gone ? `${directory.path} · ${gone}` : directory.path} keys="Enter / Space">
       <span role={gone ? "group" : undefined} tabIndex={gone ? 0 : undefined} aria-label={gone ? `${directory.path} · ${gone}` : undefined} className="min-w-0 flex-1">
       <button
         type="button"

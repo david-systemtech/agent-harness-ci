@@ -100,7 +100,7 @@ export const Browse = ({ environmentId, where, at, takeWords, take, go, relist, 
         </>
       )}
       <label className="flex items-center gap-2 text-xs text-ink-muted">
-        <Tooltip content="Dot-directories · Space"><Switch aria-label="Dot-directories" checked={at.hidden} disabled={waiting} onCheckedChange={(hidden) => relist({ path: listing?.path ?? at.path, hidden })} /></Tooltip><Eye aria-hidden="true" className="size-4" />
+        <Tooltip content="Dot-directories" keys="Space"><Switch aria-label="Dot-directories" checked={at.hidden} disabled={waiting} onCheckedChange={(hidden) => relist({ path: listing?.path ?? at.path, hidden })} /></Tooltip><Eye aria-hidden="true" className="size-4" />
         Dot-directories
       </label>
       <PickerLine line={line ?? own} />

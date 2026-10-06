@@ -56,7 +56,7 @@ export const TooltipProvider = ({ children, delayDuration = TOOLTIP_DELAY_MS, sk
 export const useKeyLegend = (keys: string | undefined): string | undefined => usePhoneFrame().narrow ? undefined : keys;
 
 /** Keyboard focus reveals the hint immediately; isolated controls get the same default timing. `keys` is the legend after its content. */
-export const Tooltip = ({ content, keys, children, className, onEscapeKeyDown, open, defaultOpen = false, onOpenChange, ...props }: ComponentProps<typeof RadixTooltip.Root> & { readonly content: ReactNode; readonly keys?: string; readonly children: ReactElement; readonly className?: string; readonly onEscapeKeyDown?: ComponentProps<typeof RadixTooltip.Content>["onEscapeKeyDown"] }) => {
+export const Tooltip = ({ content, keys, children, className, onEscapeKeyDown, open, defaultOpen = false, onOpenChange, ...props }: ComponentProps<typeof RadixTooltip.Root> & { readonly content: ReactNode; readonly keys?: string | undefined; readonly children: ReactElement; readonly className?: string; readonly onEscapeKeyDown?: ComponentProps<typeof RadixTooltip.Content>["onEscapeKeyDown"] }) => {
   const shared = useContext(HasTooltipProvider);
   const { narrow } = usePhoneFrame();
   const legend = useKeyLegend(keys);

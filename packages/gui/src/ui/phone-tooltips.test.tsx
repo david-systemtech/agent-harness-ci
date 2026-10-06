@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PhoneFrameProvider } from "../frame/phone-frame.js";
 import { IconButton } from "./button.js";
+import { DialogAction } from "./dialog-action.js";
 import { Tooltip, TooltipProvider } from "./tooltip.js";
 
 /**
@@ -37,6 +38,14 @@ describe("on the phone layout", () => {
     fireEvent.keyDown(document.body, { key: "Tab", shiftKey: true });
     act(() => close.focus());
     expect(screen.getByRole("tooltip").textContent).toBe("Close side sheet");
+  });
+
+  it("draws a dialog action's hint without its key legend", () => {
+    phoneLayout();
+    render(<PhoneFrameProvider><TooltipProvider><DialogAction>Pair</DialogAction></TooltipProvider></PhoneFrameProvider>);
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => screen.getByRole("button", { name: "Pair" }).focus());
+    expect(screen.getByRole("tooltip").textContent).toBe("Pair");
   });
 });
 
