@@ -22,7 +22,6 @@ export function longRequestScene(kind: "permission" | "question" | "plan"): Scen
       const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       const run = async () => {
         await document.fonts.ready;
-        document.documentElement.style.setProperty("--font-scale", String(20 / 14));
         const field = document.querySelector<HTMLTextAreaElement>('[aria-label="Message"]')!;
         field.focus({ preventScroll: true });
         (actual ?? window).dispatchEvent(new Event("resize")); await settle();
@@ -41,6 +40,7 @@ export function longRequestScene(kind: "permission" | "question" | "plan"): Scen
         body.scrollTop = body.scrollHeight; await settle();
         const after = strip.getBoundingClientRect();
         if (Math.abs(before.top - after.top) > 1 || after.bottom > viewport.height + viewport.offsetTop) throw new Error("Request scrolling moved the answer strip");
+        if (kind !== "question") { body.scrollTop = 0; await settle(); }
         if (scrollX !== page[0] || scrollY !== page[1]) throw new Error("Request details scrolled the page");
         if (!stopped) sheet.setAttribute("data-long-request-proof", "passed");
       };

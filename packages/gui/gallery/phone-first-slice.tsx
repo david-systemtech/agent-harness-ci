@@ -37,17 +37,36 @@ export const phoneFirstScene = async (kind: "pairing" | "conversation" | "permis
 };
 
 
-/** Open the bounded phone request; desktop cards already anchor their decisions. */
+/** Phone requests open Details; legacy desktop fixtures reveal only their own request scroller. */
 export function revealPermissionDecision(): () => void {
+  let stopped = false, started = false, frame = 0;
   const reveal = () => {
-    const details = document.querySelector<HTMLButtonElement>('.phone-prompt-summary button');
+    const details = document.querySelector<HTMLButtonElement>(".phone-prompt-summary button");
     const decision = document.querySelector<HTMLElement>('[aria-label="Allow once"]');
     if (!decision) { details?.click(); return; }
-    decision.dataset["permissionRevealed"] = "";
-    observer.disconnect();
+    if (started) return;
+    started = true; observer.disconnect();
+    void (document.fonts?.ready ?? Promise.resolve()).then(() => {
+      let previous = "", stable = 0;
+      const settle = () => {
+        if (stopped) return;
+        const well = decision.closest<HTMLElement>("[data-composer-above]");
+        if (well) {
+          const action = decision.getBoundingClientRect(), bounds = well.getBoundingClientRect();
+          const bottom = bounds.bottom - Math.min(4, Math.max(0, bounds.height - action.height));
+          if (action.bottom > bottom) well.scrollTop += Math.ceil(action.bottom - bottom);
+        }
+        const rect = decision.getBoundingClientRect();
+        const current = JSON.stringify([rect.x, rect.y, rect.width, rect.height, well?.scrollTop]);
+        stable = current === previous ? stable + 1 : 0; previous = current;
+        if (stable >= 3) { decision.dataset["permissionRevealed"] = ""; return; }
+        frame = requestAnimationFrame(settle);
+      };
+      if (!stopped) frame = requestAnimationFrame(settle);
+    });
   };
   const observer = new MutationObserver(reveal);
   observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
   reveal();
-  return () => observer.disconnect();
+  return () => { stopped = true; observer.disconnect(); cancelAnimationFrame(frame); };
 }

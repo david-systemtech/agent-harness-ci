@@ -353,8 +353,8 @@ const RowButton = ({ row, dim, keys, reason, onClick, showDetail = true }: { rea
   const described = showDetail && row.detail.length > 0 ? id : undefined;
   return (
     <span data-prompt-choice className="inline-flex items-baseline gap-1.5">
-      <Answer dim={dim} approves={row.kind !== "deny"} greyed={row.kind === "approve" && row.above} describedBy={described} keys={keys} hint={reason ?? row.detail} onClick={onClick}>
-        {row.label}
+      <Answer label={row.label} dim={dim} approves={row.kind !== "deny"} greyed={row.kind === "approve" && row.above} describedBy={described} keys={keys} hint={reason ?? row.detail} onClick={onClick}>
+        {!showDetail && row.kind === "approve" ? `Approve · ${row.mode ?? "acceptEdits"}` : row.label}
       </Answer>
       {described !== undefined && (
         <span id={described} className="text-xs text-ink-faint">

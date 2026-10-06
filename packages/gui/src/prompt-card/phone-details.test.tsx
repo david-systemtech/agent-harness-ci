@@ -96,7 +96,7 @@ it("offers every plan mode with its ceiling reason and leaves planning until exp
   fireEvent.click(within(screen.getByRole("region", { name: "Parked prompt" })).getByRole("button", { name: "Details" }));
   const sheet = await screen.findByRole("dialog", { name: "Plan to approve" });
   expect(within(sheet).getByRole("button", { name: "Keep planning" })).toBeDefined();
-  expect(within(sheet).getByRole("button", { name: "Approve · continue in acceptEdits" })).toBeDefined();
+  expect(within(sheet).getByRole("button", { name: "Approve · continue in acceptEdits" }).textContent).toContain("Approve · acceptEdits");
   const bypass = within(sheet).getByRole("button", { name: /bypassPermissions/ });
   expect(bypass.getAttribute("aria-disabled")).toBe("true");
   fireEvent.click(bypass);
