@@ -11,6 +11,8 @@ Use this recipe when a deliberate GUI change produces reviewed pixel differences
 
 Captures run on hosted CI. Local acceptance downloads existing captures and launches no browser. If the script reports no captures for the current head, wait for its gallery run and comment before retrying.
 
+The capture serves the built gallery at one fixed origin, `http://127.0.0.1:5180` (`packages/gui/gallery/serve.ts`), never a free port: a scene that shows the page's own origin captures the same pixels on every run (#1763). If that port is taken the capture fails rather than moving.
+
 The shell wave has landed: missing baselines, pixel differences beyond the 0.05% budget (pixelmatch threshold 0.1), and geometry failures block. Every discovered desktop scene has dark captures at 1400 × 900 and 1024 × 768; the light subset follows `look.md §16`. The scenes `LAPTOP_SCENES` names in `gallery/capture-plan.ts` (the sign-in dialog, #1690) are also mounted at 1280 × 800 and 1280 × 700 with their wide dark capture, and their geometry measured there without a screenshot, so a dialog's header and footer are checked inside a short laptop window while the published captures keep their two sizes; a failure there names the window. Scene names reserve the generated `-narrow` suffix.
 
 A scene may export a fixed geometry array or a function receiving `{ width, height }` from the capture viewport. The mount resolves that function before marking the scene ready. Keep control dimensions fixed and compute available column widths from the frame contract. A `minimumHeight` check is available for content that grows beyond its viewport floor; exact `height` checks still apply where the scene fixes its height.

@@ -14,7 +14,8 @@ import type { SceneViewport } from "../scene-registry.js";
  * squeezed at (#1739): the line takes the full width with Browser origins
  * below it, and no origin in it breaks inside its host name. The page's own
  * origin serves desk, as a real browser client's does, so the refusal is the
- * product's own.
+ * product's own; that origin is the capture's fixed one (`serve.ts`), so the
+ * line names the same port on every run (#1763).
  */
 const FURTHER = "https://second-laptop.example.test:8444/pair#K7Q2MXH4RT";
 
