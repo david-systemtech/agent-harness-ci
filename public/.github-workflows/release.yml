@@ -406,6 +406,7 @@ jobs:
           mkdir unpacked
           bsdtar -xf desktop/agent-harness-desktop-linux-x64.pacman -C unpacked
           grep -qx "pkgname = agent-harness-desktop" unpacked/.PKGINFO
+          grep -qx "depend = polkit" unpacked/.PKGINFO
           grep -q "^Exec=/opt/agent-harness/agent-harness-desktop %U$" unpacked/usr/share/applications/agent-harness-desktop.desktop
           grep -q "^MimeType=.*x-scheme-handler/agent-harness;" unpacked/usr/share/applications/agent-harness-desktop.desktop
           test -x unpacked/opt/agent-harness/agent-harness-desktop
