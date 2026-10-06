@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { STOP_WAIT_MS } from "@agent-harness/client-runtime";
 import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -87,6 +87,7 @@ const dim = (control: HTMLElement) => control.getAttribute("aria-disabled") === 
 
 /** What the control's tooltip says, once it has the focus as a person tabbing to it gives it. */
 const tooltipOf = async (control: HTMLElement) => {
+  fireEvent.keyDown(document.body, { key: "Tab" });
   act(() => control.focus());
   const tooltip = await screen.findByRole("tooltip");
   const said = tooltip.textContent;

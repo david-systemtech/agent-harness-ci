@@ -136,6 +136,41 @@ describe("window overlays", () => {
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
+  it("keeps a mouse-opened dialog's first control quiet until the keyboard moves focus", async () => {
+    const user = userEvent.setup();
+    render(<TooltipProvider><Dialog><DialogTrigger>Close Set up</DialogTrigger><DialogContent title="Leave set up?" description="Set up will be waiting in Settings.">
+      <Tooltip content="Keep setting up · Tab, Enter"><button>Keep setting up</button></Tooltip>
+      <Tooltip content="Leave for now · Tab, Enter"><button>Leave for now</button></Tooltip>
+    </DialogContent></Dialog></TooltipProvider>);
+    await user.click(screen.getByRole("button", { name: "Close Set up" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep setting up" })));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Leave for now" }));
+    expect(screen.getByRole("tooltip").textContent).toBe("Leave for now · Tab, Enter");
+  });
+
+  it("still opens a hint on hover after mouse focus kept it closed", () => {
+    vi.useFakeTimers();
+    try {
+      render(<Tooltip content="Keep setting up · Tab, Enter"><button>Keep setting up</button></Tooltip>);
+      const trigger = screen.getByRole("button", { name: "Keep setting up" });
+      const pointer = (type: string) => {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, "pointerType", { value: "mouse" });
+        fireEvent(document.body, event);
+      };
+      pointer("pointerdown");
+      act(() => trigger.focus());
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      const move = new Event("pointermove", { bubbles: true });
+      Object.defineProperty(move, "pointerType", { value: "mouse" });
+      fireEvent(trigger, move);
+      act(() => vi.advanceTimersByTime(250));
+      expect(screen.getByRole("tooltip").textContent).toBe("Keep setting up · Tab, Enter");
+    } finally { vi.useRealTimers(); }
+  });
+
   it("keeps background shortcuts from receiving keys typed inside a modal", async () => {
     const user = userEvent.setup();
     const background = vi.fn();
