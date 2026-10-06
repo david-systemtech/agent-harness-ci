@@ -1077,6 +1077,10 @@ it.each([
   ["360-short", 360, 400],
   ["430", 430, 932],
   ["430-short", 430, 360],
+  ["844", 844, 390],
+  ["740", 740, 360],
+  ["844-text-20", 844, 390],
+  ["740-text-20", 740, 360],
 ] as const)("publishes and accepts named phone-%s captures and their changed triplets", async (profile, width, height) => {
   const g = await storedGallery();
   const names = ["dark", "light"].map(ladder => `phone-frame-conversation-phone-${profile}.${ladder}`);
@@ -1115,6 +1119,12 @@ it.each([
   ["430-short", 430, 932],
   ["999", 320, 568],
   ["320-extra", 320, 568],
+  ["844", 390, 844],
+  ["740", 360, 740],
+  ["844-text-20", 740, 360],
+  ["740-text-20", 844, 390],
+  ["844-extra", 844, 390],
+  ["740-short", 740, 360],
 ] as const)("refuses to publish phone-%s whose dimensions disagree with its profile name", async (profile, width, height) => {
   const g = await storedGallery();
   await g.capture(230, 1, [`phone-gallery-conversation-phone-${profile}.dark`], { width, height });
@@ -1124,9 +1134,9 @@ it.each([
   expect(g.comments).toHaveLength(0);
 });
 
-it.each(["truncated-png", "invalid-ihdr", "wrong-size-difference", "invalid-name"])("rejects a phone-320 %s report before any publication", async mode => {
+it.each(["320", "844"].flatMap(profile => ["truncated-png", "invalid-ihdr", "wrong-size-difference", "invalid-name"].map(mode => [profile, mode] as const)))("rejects a phone-%s %s report before any publication", async (profile, mode) => {
   const g = await storedGallery();
-  await g.capture(230, 1, ["phone-frame-conversation-phone-320.dark"], { width: 320, height: 568 });
+  await g.capture(230, 1, [`phone-frame-conversation-phone-${profile}.dark`], profile === "320" ? { width: 320, height: 568 } : { width: 844, height: 390 });
   await run("python3", ["-c", `import json,struct,sys,zipfile
 with zipfile.ZipFile(sys.argv[1]) as z: files={n:z.read(n) for n in z.namelist()}
 report=json.loads(files['report.json']); scene=report['scenes'][0]; name=scene['name']+'.png'; data=files[name]
