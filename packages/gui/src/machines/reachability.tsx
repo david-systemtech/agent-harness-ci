@@ -1,7 +1,7 @@
-import { RefreshCw, Network, Radio } from "lucide-react";
+import { RefreshCw, Network, Radio, type LucideIcon } from "lucide-react";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import type { EnvironmentBinding, SettingsKey } from "@agent-harness/contracts";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { nameOf } from "../connections/words.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Button, Select, Switch } from "../ui/index.js";
@@ -125,14 +125,28 @@ const Reached = ({ binding, name, tailnetOff, recheck }: ReachedProps) => {
 };
 
 /** `network.bindTailnet`: whether the environment binds its tailnet address, when one is found. */
-const TailnetSwitch = ({ on, writable, save }: { readonly on: boolean; readonly writable: boolean; readonly save: (on: boolean) => void }) => {
+const TailnetSwitch = ({ on, writable, save }: { readonly on: boolean; readonly writable: boolean; readonly save: (on: boolean) => void }) => (
+  <SwitchRow icon={Radio} words="Bind the tailnet address" title="Bind the tailnet address (Space)" checked={on} disabled={!writable} onCheckedChange={save} />
+);
+
+interface SwitchRowProps extends Omit<ComponentProps<typeof Switch>, "id" | "aria-labelledby" | "children"> {
+  readonly icon: LucideIcon;
+  readonly words: string;
+  /** What else the row holds, after the label. */
+  readonly children?: ReactNode;
+}
+
+/** A binding switch in its wash box, its label (icon and words) right after it and toggling it too (#1728). */
+const SwitchRow = ({ icon: Icon, words, children, ...props }: SwitchRowProps) => {
+  const control = useId();
   const label = useId();
   return (
-    <span className="flex items-center justify-between gap-2 rounded-md bg-wash p-3">
-      <Switch title="Bind the tailnet address (Space)" aria-labelledby={label} checked={on} disabled={!writable} onCheckedChange={save} />
-      <span id={label} className="flex min-w-0 items-center gap-2 text-xs text-ink">
-        <Radio aria-hidden="true" className="size-4 shrink-0" />Bind the tailnet address
-      </span>
+    <span className="flex flex-wrap items-center gap-2 rounded-md bg-wash p-3">
+      <Switch id={control} aria-labelledby={label} {...props} />
+      <label id={label} htmlFor={control} className="flex min-w-0 items-center gap-2 text-xs text-ink">
+        <Icon aria-hidden="true" className="size-4 shrink-0" />{words}
+      </label>
+      {children}
     </span>
   );
 };
@@ -154,16 +168,11 @@ interface LanSwitchProps {
  */
 const LanSwitch = ({ bound, addresses, writable, save }: LanSwitchProps) => {
   const [picked, pick] = useState<string | undefined>(undefined);
-  const label = useId();
   const choices = bound === null || addresses.includes(bound) ? addresses : [bound, ...addresses];
   const address = bound ?? (picked !== undefined && addresses.includes(picked) ? picked : addresses[0]);
   return (
     <div className="flex flex-col gap-1">
-      <span className="flex flex-wrap items-center gap-2 rounded-md bg-wash p-3">
-        <Switch title="Bind a LAN address (Space)" aria-labelledby={label} checked={bound !== null} disabled={!writable || address === undefined} onCheckedChange={(on) => save(on ? (address ?? null) : null)} />
-        <span id={label} className="flex min-w-0 items-center gap-2 text-xs text-ink">
-          <Network aria-hidden="true" className="size-4 shrink-0" />{address === undefined ? "Bind a LAN address" : `Bind ${address} on the LAN`}
-        </span>
+      <SwitchRow icon={Network} words={address === undefined ? "Bind a LAN address" : `Bind ${address} on the LAN`} title="Bind a LAN address (Space)" checked={bound !== null} disabled={!writable || address === undefined} onCheckedChange={(on) => save(on ? (address ?? null) : null)}>
         {choices.length > 1 && (
           <Select title="LAN address (Arrow keys)" aria-label="LAN address" value={address} disabled={!writable} onChange={(event) => (bound === null ? pick(event.target.value) : save(event.target.value))}>
             {choices.map((choice) => (
@@ -173,7 +182,7 @@ const LanSwitch = ({ bound, addresses, writable, save }: LanSwitchProps) => {
             ))}
           </Select>
         )}
-      </span>
+      </SwitchRow>
       {address === undefined && <p className="text-ink-muted">No LAN address found on this machine.</p>}
       {address?.includes(":") && <p className="text-ink-muted">An IPv6 address may change. If it does, choose an address this machine still holds.</p>}
       <p className="text-ink-muted">{LAN_WARNING}</p>

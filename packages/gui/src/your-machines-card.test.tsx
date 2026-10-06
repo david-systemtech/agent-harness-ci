@@ -170,6 +170,23 @@ describe("the Your machines card in Set up", () => {
     expect(within(reachability()).getByText("Reachable on the tailnet at desk.tail1234.ts.net (100.101.102.103).")).toBeDefined();
   });
 
+  it("lays out the tailnet switch's row as the LAN switch's, its label right after the switch, and a click on either label toggles its switch", async () => {
+    const app = await opened();
+    const desk = app.environment("desk");
+    const reachability = () => part("desk", "Reachability");
+    const tailnet = await within(reachability()).findByRole("switch", { name: "Bind the tailnet address" });
+    const lan = within(reachability()).getByRole("switch", { name: "Bind 192.168.1.20 on the LAN" });
+    // Each switch's label (icon and words) follows it in a wash box laid out alike, never pushed to the row's far end (#1728).
+    for (const control of [tailnet, lan]) expect(control.nextElementSibling?.id).toBe(control.getAttribute("aria-labelledby"));
+    expect(tailnet.parentElement?.className).toBe(lan.parentElement?.className);
+
+    await app.user.click(within(reachability()).getByText("Bind the tailnet address"));
+    await waitFor(() => expect(desk.settings()["network.bindTailnet"]).toBe(false));
+    expect(tailnet.getAttribute("aria-checked")).toBe("false");
+    await app.user.click(within(reachability()).getByText("Bind 192.168.1.20 on the LAN"));
+    await waitFor(() => expect(desk.settings()["network.bindLan"]).toBe("192.168.1.20"));
+  });
+
   it("keeps the idle window, the deferral cap and the pin under Advanced, beside the update controls, each written through updates.settings.set", async () => {
     const app = await opened();
     const laptop = app.environment("laptop");
