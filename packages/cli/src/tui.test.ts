@@ -61,9 +61,9 @@ const answering =
   }) as typeof fetch;
 
 /** The CLI in-process on Linux with a temp home and a stubbed service manager, the terminal UI replaced by a recorder. */
-const harness = (options: { answer?: Answer; fetch?: typeof fetch; privileged?: boolean; exitCode?: number } = {}) => {
+const harness = (options: { answer?: Answer; fetch?: typeof fetch; privileged?: boolean; exitCode?: number; env?: Record<string, string> } = {}) => {
   const home = tempHome();
-  const installContext = installContextAt("linux", home);
+  const installContext = installContextAt("linux", home, options.env);
   const stub = stubRunner(options.answer);
   const launched: TuiOptions[] = [];
   let out = "";
@@ -100,6 +100,11 @@ describe("agent-harness tui", () => {
     expect(handed).toMatchObject({ dataDir: defaultDataDirectory(cli.installContext), version: HARNESS_VERSION, continueLatest: false });
     for (const flag of ["environment", "session", "cwd", "keybindings"] as const) expect(handed[flag], flag).toBeUndefined();
     expect(cli.out()).toBe("");
+  });
+
+  it("starts the terminal UI on the image's /data in a container the install declared, where serve keeps the grant, not the image user's XDG state (#1725)", async () => {
+    const cli = harness({ env: { AGENT_HARNESS_CONTAINER: "1" } });
+    expect((await cli.launch()).dataDir).toBe("/data");
   });
 
   it("hands over --environment, --session, --cwd and --keybindings, the paths made absolute", async () => {
