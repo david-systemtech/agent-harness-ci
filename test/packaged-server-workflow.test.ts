@@ -178,6 +178,25 @@ describe("the public release's packaged server smoke tests", () => {
     expect(body).toContain("$unrelated = Start-Process -FilePath $unrelatedNode");
   });
 
+  it("ends the scheduled task as Task Scheduler does, finds the launcher and the environment gone, and starts it again into one chain (#1712)", () => {
+    const body = job(hosted, "smoke-windows");
+    const ready = body.indexOf("Wait-Ready 'scheduled-task start before uninstall (#1478)'");
+    const stop = body.indexOf("Stop-ScheduledTask -TaskName agent-harness");
+    const portClosed = body.indexOf("throw 'Stop-ScheduledTask left the environment port open (#1712)'");
+    const processesGone = body.indexOf('throw "Stop-ScheduledTask left $($left.Count) launcher-entry, launcher or environment processes running (#1712)"');
+    const restart = body.indexOf("Start-ScheduledTask -TaskName agent-harness", stop);
+    const readyAgain = body.indexOf("Wait-Ready 'scheduled-task start after Stop-ScheduledTask (#1712)'");
+    const oneChain = body.indexOf("not one of each (#1712)");
+    const uninstall = body.indexOf("$uninstall = Start-Process");
+    expect(ready).toBeGreaterThan(-1);
+    expect([ready, stop, portClosed, processesGone, restart, readyAgain, oneChain, uninstall]).toEqual(
+      [ready, stop, portClosed, processesGone, restart, readyAgain, oneChain, uninstall].toSorted((a, b) => a - b),
+    );
+    expect(Math.min(stop, portClosed, processesGone, restart, readyAgain, oneChain)).toBeGreaterThan(-1);
+    expect(body).toContain("'which started the launcher entry, has ended, so the launcher stops'");
+    expect(body).toContain("$launchers[0].ParentProcessId -ne $entries[0].ProcessId");
+  });
+
   it("waits for the silent per-user Windows setup and uses its installed Node and CLI", () => {
     const body = job(hosted, "smoke-windows");
     expect(body).toContain("shell: pwsh");
