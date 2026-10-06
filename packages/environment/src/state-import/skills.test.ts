@@ -56,6 +56,7 @@ it("applies exact known names only to mapped Accounts and reports unknown and de
     { id: "work", label: "Work", providerId: "claude", configDir: work },
     { id: "personal", label: "Personal", providerId: "claude", configDir: personal },
     { id: "later", label: "Later", providerId: "codex", configDir: tempDir() },
+    { id: "refused", label: "Refused", providerId: "claude", configDir: "relative" },
   ] }));
   writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, alwaysOn: [
     { name: "check", scope: { kind: "profiles", profileIds: ["work"] } },
@@ -74,6 +75,7 @@ it("applies exact known names only to mapped Accounts and reports unknown and de
     { label: expect.stringContaining("check-more"), message: expect.stringContaining("unknown") },
     { label: 'Always-on Skill "missing" (profile "Later")', message: expect.stringContaining("mapped Account") },
     { label: 'Always-on Skill "missing" (an unnamed source profile)', message: expect.stringContaining("mapped Account") },
+    { label: 'Always-on Skill "write" (Claude profile "Refused")', message: expect.stringContaining("mapped Account") },
   ]) } });
   const answer = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(answer).toMatchObject({ result: { carried: { accounts: 2, alwaysOnSkills: 3 }, failed: expect.any(Array) } });

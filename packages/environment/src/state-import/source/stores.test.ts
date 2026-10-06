@@ -166,7 +166,7 @@ describe("the audited profile document", () => {
       { id: "escape", label: "Escape", providerId: "claude", configDirName: "../outside" },
     ] }));
     const old = (await readSourceStores(folder)).profiles;
-    expect(old).toMatchObject({ status: "read", records: { profiles: [{ sourceId: "named", directory: join(folder, "profiles", "fixture") }], failed: [{ label: "Claude profile" }] } });
+    expect(old).toMatchObject({ status: "read", records: { profiles: [{ sourceId: "named", directory: join(folder, "profiles", "fixture") }], failed: [{ label: 'Claude profile "Escape"' }], refusedProfiles: [{ sourceId: "escape", label: "Escape" }] } });
   });
 
   it("fails unsupported documents independently and refuses repeated ids and relative directory guesses", async () => {
@@ -180,6 +180,6 @@ describe("the audited profile document", () => {
       { id: "relative", label: "Relative", providerId: "claude", configDir: "relative" },
       { id: "provider", label: "Unnamed provider", providerId: "" },
     ] }));
-    expect((await readSourceStores(folder)).profiles).toMatchObject({ status: "read", records: { profiles: [{ sourceId: "repeated", directory: "/fixture/first" }], failed: [{ label: "Profile" }, { label: "Claude profile" }], later: [{ provider: "unknown" }] } });
+    expect((await readSourceStores(folder)).profiles).toMatchObject({ status: "read", records: { profiles: [{ sourceId: "repeated", directory: "/fixture/first" }], failed: [{ label: "Profile" }, { label: 'Claude profile "Relative"' }], later: [{ provider: "unknown" }] } });
   });
 });

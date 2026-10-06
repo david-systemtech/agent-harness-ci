@@ -39,6 +39,7 @@ export const profileName = (profile: { readonly label: string; readonly director
 export const profileNames = (records: SourceProfiles): ReadonlyMap<string, string> => new Map([
   ...records.profiles.map((profile) => [profile.sourceId, profileName(profile)] as const),
   ...records.deferredProfiles.map((profile) => [profile.sourceId, `profile "${profile.label}"`] as const),
+  ...records.refusedProfiles.map((profile) => [profile.sourceId, `Claude profile "${profile.label}"`] as const),
 ]);
 
 /** Every collision is checked again inside the owner's transaction, against its current labels. */
