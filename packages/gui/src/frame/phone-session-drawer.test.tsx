@@ -95,7 +95,11 @@ it("keeps a session row usable while the landscape drawer footer scrolls indepen
     expect(media?.conditionText).toBe(phoneLayoutMedia()[1]?.media);
     // Activate the shipped landscape rules: jsdom cannot evaluate layout media.
     stylesheet.textContent = Array.from(media?.cssRules ?? []).map(rule => rule.cssText).join("\n");
-    expect(getComputedStyle(drawer.querySelector("[data-sidebar-scroll]")!).minHeight).toBe("54px");
+    expect(getComputedStyle(drawer.querySelector("[data-sidebar-scroll]")!).minHeight).toBe("56px");
+    const create = within(drawer).getByRole("button", { name: /^New session/ }).parentElement!;
+    const filter = within(drawer).getByRole("searchbox", { name: "Filter the sessions" }).parentElement!.parentElement!;
+    expect(getComputedStyle(create).paddingBlock).toBe("4px");
+    expect(getComputedStyle(filter).paddingBlock).toBe("4px");
     const footer = within(drawer).getByRole("button", { name: "Restore a deleted session…" }).closest("div")!;
     expect(getComputedStyle(footer).minHeight).toBe("48px");
     expect(getComputedStyle(footer).flexShrink).toBe("1");

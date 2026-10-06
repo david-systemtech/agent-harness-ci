@@ -41,6 +41,8 @@
 
 /* A short landscape drawer keeps a session hit area even when its footer grows. */
 @media (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
-  .phone-frame-drawer [data-sidebar-scroll] { min-height: 54px; }
+  .phone-frame-drawer [data-sidebar-scroll] { min-height: max(54px, 3.5rem); }
+  .phone-frame-drawer [data-sidebar-caption] + div,
+  .phone-frame-drawer div:has(> .phone-frame-filter) { padding-block: 4px; }
   .phone-frame-drawer [data-sidebar-footer] { min-height: 48px; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; }
 }
