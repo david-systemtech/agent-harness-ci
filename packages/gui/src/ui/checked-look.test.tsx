@@ -69,10 +69,12 @@ describe("a checked control inside a tooltip", () => {
   });
 
   it("is styled from aria-checked everywhere, never from a data-state a tooltip can overwrite", () => {
+    const checkedState = /data-\[state=["']?(checked|unchecked|indeterminate)|\[data-state=["']?(checked|unchecked|indeterminate)|data-(checked|unchecked):/;
+    for (const form of ["data-[state=checked]:bg-beam", "data-[state=\"checked\"]:bg-beam", "[&[data-state=checked]]:bg-beam", "data-checked:bg-beam"]) expect(form).toMatch(checkedState);
     const source = new URL("..", import.meta.url);
     const offenders = readdirSync(source, { recursive: true, encoding: "utf8" })
       .filter((file) => /\.tsx?$/.test(file) && !file.endsWith(".test.tsx"))
-      .filter((file) => /data-\[state=(checked|unchecked|indeterminate)\]|data-(checked|unchecked):/.test(readFileSync(new URL(file, source), "utf8")));
+      .filter((file) => checkedState.test(readFileSync(new URL(file, source), "utf8")));
     expect(offenders).toEqual([]);
   });
 });
