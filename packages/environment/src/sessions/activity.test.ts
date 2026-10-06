@@ -494,7 +494,7 @@ describe("the activity fields and auto-settle", () => {
 });
 
 describe("the generated title", () => {
-  it("is set once from the first user message: its first non-empty line, white space collapsed, cut to 80, source prompt, in the message's transaction", async () => {
+  it("is set once from the first user message: its first non-empty line, white space collapsed, cut at a word with an ellipsis, source prompt, in the message's transaction", async () => {
     const t = await start();
     const client = await t.client();
     const { id } = await create(client);
@@ -506,9 +506,9 @@ describe("the generated title", () => {
 
     const events = eventsOf(t, id, head, first.sequence);
     const titled = events.at(-1) as EventEnvelope;
-    // The line as the rule leaves it, written out: its white space collapsed and its ends trimmed by hand, then cut to
-    // 80 code points and the white space left at the cut trimmed (the order `generatedTitle` applies).
-    const expected = `Fix the receipts ${"and the sweep ".repeat(8)}`.slice(0, 80).trimEnd();
+    // The line as the rule leaves it, written out: its white space collapsed and its ends trimmed, 128 characters, so
+    // cut at the last space within 79 and ended with an ellipsis, 77 characters in all.
+    const expected = `Fix the receipts ${"and the sweep ".repeat(4)}and…`;
     expect(titled).toMatchObject({ type: "session.title-generated", payload: { title: expected, source: "prompt" } });
     expect(titled.causationId).toBe(events.find((event) => event.type === "message.sent")?.eventId);
     expectOneTransaction(events);
