@@ -82,16 +82,17 @@ export const meterReadingsOf = (gauge: UsageGauge | undefined): readonly Reading
 
 /**
  * The unknown limits of a one-line summary as one item: the one with a value
- * as `Other limit 37%`, several as their most pressing (`Other limits:
- * highest 37%`), a refusal first; nothing when none says how full it is, as
- * identical labels with `—` tell a person nothing.
+ * as `Other limit 37%`, several as the fullest and how many are refused
+ * (`Other limits: highest 37%, 1 out`); nothing when none says how full it
+ * is, as identical labels with `—` tell a person nothing.
  */
 const otherLimitsWords = (readings: readonly Reading[]): string | undefined => {
-  const out = (reading: Reading) => Number(reading.pressure === "out");
   const said = readings.filter((reading) => reading.utilisation !== null || reading.pressure === "out");
-  const [top] = [...said].sort((a, b) => out(b) - out(a) || (b.utilisation ?? 0) - (a.utilisation ?? 0));
-  if (top === undefined) return undefined;
-  return said.length === 1 ? `${top.label} ${top.value}` : `Other limits: highest ${top.value}`;
+  if (said.length <= 1) return said[0] === undefined ? undefined : `${said[0].label} ${said[0].value}`;
+  const read = said.flatMap((reading) => (reading.utilisation === null ? [] : [reading.utilisation]));
+  const refused = said.filter((reading) => reading.pressure === "out").length;
+  const parts = [...(read.length === 0 ? [] : [`highest ${percent(Math.max(...read))}`]), ...(refused === 0 ? [] : [`${refused} out`])];
+  return `Other limits: ${parts.join(", ")}`;
 };
 
 /** A gauge's windows in one line: `5-hour 42% · Weekly 10%`, unknown limits folded into one item; its reason when it shows none. */

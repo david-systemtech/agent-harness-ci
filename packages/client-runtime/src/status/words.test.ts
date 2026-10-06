@@ -24,7 +24,7 @@ describe("a plan window", () => {
       "5-hour 42% · Other limits: highest 12%",
     );
     expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), window("iguana_necktie", 0.6), window("walrus_hat", 0.12, "rejected")] })).toBe(
-      "5-hour 42% · Other limits: highest 12% out",
+      "5-hour 42% · Other limits: highest 60%, 1 out",
     );
   });
 
