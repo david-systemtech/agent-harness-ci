@@ -13,7 +13,7 @@ const initial = (): SkillsView => ({ ownDirectory: "/home/test/skills/own", sour
 const accepted = (result: Record<string, unknown>) => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result } });
 const card = () => screen.getByRole("region", { name: "Skills" });
 const opened = async (value = initial(), given: Partial<ScriptedEnvironment> = {}) => {
-  const app = await renderApp({ environments: [{ name: "desk", reach: "local", ...given }] }, { firstLaunch: true });
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ id: "writer", label: "Writer" }, { id: "editor", label: "Editor" }], ...given }] }, { firstLaunch: true });
   await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const desk = app.environment("desk");
   let skills = value;
@@ -108,9 +108,9 @@ it("offers always-on per account with its size and changes only the chosen accou
     update({ ...skills, choices: [choice] });
     return accepted({ choice });
   });
-  const editor = await within(card()).findByRole("switch", { name: "Every prompt unslop on editor" });
+  const editor = await within(card()).findByRole("switch", { name: "Every prompt unslop on Editor" });
   expect(editor.getAttribute("aria-checked")).toBe("false");
-  const writer = within(card()).getByRole("switch", { name: "Every prompt unslop on writer" });
+  const writer = within(card()).getByRole("switch", { name: "Every prompt unslop on Writer" });
   expect(writer.getAttribute("aria-checked")).toBe("false");
   expect(within(card()).getByText(/5924 characters · approximately 1481 tokens/)).toBeDefined();
   await app.user.click(editor);

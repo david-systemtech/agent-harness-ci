@@ -21,6 +21,7 @@ import type { SessionListView, SessionRow } from "./projections/session-list.js"
 import type { SessionHandle } from "./streams/session-handles.js";
 import type { TerminalHandle, TerminalOutput } from "./streams/terminals.js";
 import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/accounts.js";
+import type { AccountNames } from "./projections/account-names.js";
 import type { BrowsersView } from "./projections/browsers.js";
 import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
@@ -97,6 +98,8 @@ export interface Runtime {
     readonly runs: RunsProjection;
     /** The environment's accounts, from the request cache; fetched while followed. */
     accounts(environmentId: string): Observable<AccountsAnswer>;
+    /** What a surface calls the environment's accounts: their labels, kept from the last answer for a window opened while it is not answering (#1752). */
+    accountNames(environmentId: string): Observable<AccountNames>;
     /** The models the environment's accounts can use, from the request cache; fetched while followed. */
     models(environmentId: string): Observable<ModelsAnswer>;
     /** Plan usage of every enabled environment, pooled by account identity into one gauge per login. */

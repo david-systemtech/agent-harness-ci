@@ -13,6 +13,7 @@ import { createOutbox, type Outbox } from "./outbox/outbox.js";
 import { awaitedTargets, keepingSameTargets, overlaidLists, pendingTargets } from "./outbox/overlay.js";
 import type { Platform } from "./platform.js";
 import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } from "./projections/accounts.js";
+import { createAccountNames } from "./projections/account-names.js";
 import { createAttention } from "./projections/attention.js";
 import { BROWSER_CHROME_CALL, browserChromeHandler } from "./projections/browser-chrome.js";
 import { browsersProjection, type BrowsersHost, type BrowsersView } from "./projections/browsers.js";
@@ -307,6 +308,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     session: (environmentId, sessionId) => sessionRuns(`${environmentId} ${sessionId.toLowerCase()}`),
   };
   const accountsProjections = memo((environmentId): Observable<AccountsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "accounts.list", {}), (result) => result.accounts));
+  const accountNames = createAccountNames({ documents: platform.documents, accounts: accountsProjections, report });
+  registry.seams.onForget((environmentId) => accountNames.forget(environmentId));
   const modelsProjections = memo((environmentId): Observable<ModelsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "models.list", {}), (result) => result.catalogues));
   const modesProjections = memo((environmentId): Observable<ModePicker> => modesProjection(registry.list, environmentId));
   const copyTargets = memo((environmentId): Observable<readonly CopyTarget[]> => derived([registry.list] as const, (records) => copyTargetsOf(records, environmentId)));
@@ -414,6 +417,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       documents: (environmentId, sessionId) => documentsOf(`${environmentId} ${sessionId.toLowerCase()}`),
       runs: runsProjection,
       accounts: (environmentId) => accountsProjections(environmentId),
+      accountNames: (environmentId) => accountNames.view(environmentId),
       models: (environmentId) => modelsProjections(environmentId),
       usage,
       modes: (environmentId) => modesProjections(environmentId),

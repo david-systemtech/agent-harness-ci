@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import type { SkillsView, SkillsViewMember, SkillsViewSource } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -33,7 +33,7 @@ const initial = (): SkillsView => ({
   members: [member],
 });
 const opened = async (configure?: (app: Awaited<ReturnType<typeof renderApp>>) => void, script: Partial<ScriptedEnvironment> = {}) => {
-  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Notes", accountId: "writer" }], ...script }] });
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ id: "writer", label: "Writer" }, { id: "local", label: "Local" }], sessions: [{ title: "Notes", accountId: "writer" }], ...script }] });
   const env = app.environment("desk");
   let value = initial();
   env.wire.answer("skills.get", () => ({ result: value }));
@@ -175,7 +175,7 @@ it("changes enabled and always-on choices through the runtime, explains readines
   const enabled = within(pane()).getByRole("switch", { name: "Enabled draft on this environment" });
   await app.user.click(enabled);
   await waitFor(() => expect(enabled.getAttribute("aria-checked")).toBe("false"));
-  const always = within(pane()).getByRole("switch", { name: "Every prompt draft on writer" });
+  const always = within(pane()).getByRole("switch", { name: "Every prompt draft on Writer" });
   await app.user.click(always);
   await waitFor(() => expect(always.getAttribute("aria-checked")).toBe("true"));
   expect(within(pane()).getByText(/400 characters · approximately 100 tokens on every prompt/)).toBeDefined();
@@ -243,6 +243,30 @@ it("shows the repository's trust question in its session and lists the granted d
   await waitFor(() => expect(within(pane()).queryByRole("region", { name: `Trusted: ${key}` })).toBeNull());
 });
 
+it("names each account's switches, their tooltips and accessible names by the account's label, never its id (ticket 1752)", async () => {
+  const accounts = [
+    { id: "0bcb960d-1b0b-48d8-81f6-49fe44341431", label: "Personal mail" },
+    { id: "da2d4db4-7bec-465c-b7ec-91938a15e3d2", label: "Team" },
+    { id: "175f15dd-2b8e-4c3a-9d41-6a7e0f3c2b19", label: "Second" },
+  ];
+  const first = accounts[0]!.id;
+  const { app, update } = await opened(undefined, { accounts, sessions: [{ title: "Notes", accountId: first }] });
+  update({ ...initial(), accountId: first, accounts: accounts.map(({ id }) => ({ accountId: id, channel: "system-prompt-append", reason: null })) });
+  for (const { label } of accounts) {
+    expect(await within(pane()).findByRole("switch", { name: `Enabled draft on ${label}` })).toBeDefined();
+    expect(within(pane()).getByText(`Enabled on ${label}`)).toBeDefined();
+    // A tooltip opens on a keyboard's focus; it renders outside the pane, so its words are read on their own.
+    await app.user.keyboard("{Shift}");
+    for (const [control, words] of [[`Enabled draft on ${label}`, `Enabled on ${label}`], [`Every prompt draft on ${label}`, `Every prompt on ${label}`]] as const) {
+      act(() => within(pane()).getByRole("switch", { name: control }).focus());
+      await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain(words));
+      expect(screen.getByRole("tooltip").textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    }
+  }
+  expect(pane().textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  for (const control of within(pane()).getAllByRole("switch")) expect(control.getAttribute("aria-label")).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+});
+
 it("keeps admin verbs visible and dim with their scope reason, and keeps cached skills marked stale when disconnected", async () => {
   const { app, env, update } = await opened(undefined, { scopes: ["read"] });
   await within(pane()).findByText("Draft a clear note.");
@@ -251,7 +275,7 @@ it("keeps admin verbs visible and dim with their scope reason, and keeps cached 
   expect(within(pane()).getAllByText(/admin/).length).toBeGreaterThan(0);
   update({ ...initial(), accounts: [...initial().accounts, { accountId: "local", channel: "none", reason: "This adapter cannot append instructions." }] });
   await within(pane()).findByText("This adapter cannot append instructions.");
-  expect(within(pane()).getByRole("switch", { name: "Every prompt draft on local" }).hasAttribute("disabled")).toBe(true);
+  expect(within(pane()).getByRole("switch", { name: "Every prompt draft on Local" }).hasAttribute("disabled")).toBe(true);
   env.discovery("nothing");
   env.server.drop();
   await within(pane()).findByText(/^Stale:/);

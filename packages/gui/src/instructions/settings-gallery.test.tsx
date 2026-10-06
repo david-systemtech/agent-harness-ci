@@ -13,7 +13,7 @@ it.each(["settings-skills", "settings-instructions"])("renders the real %s pane 
   close = gallery.close;
   const dialog = await screen.findByRole("dialog", { name: "Settings" });
   if (scene === "settings-skills") {
-    expect(await within(dialog).findByRole("switch", { name: "Every prompt review on personal" })).toBeDefined();
+    expect(await within(dialog).findByRole("switch", { name: "Every prompt review on Personal" })).toBeDefined();
     expect(within(dialog).getByText("Licence: MIT")).toBeDefined();
     expect(within(dialog).getByText("Repository URL")).toBeDefined();
   } else {
