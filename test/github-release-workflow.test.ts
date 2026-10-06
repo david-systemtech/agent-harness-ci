@@ -172,14 +172,24 @@ esac
     expect(job("desktop-macos").join("\n")).toContain('codesign --verify --deep --strict "$app"');
     expect(job("desktop-arch").join("\n")).toContain('grep -qx "pkgname = agent-harness-desktop"');
     expect(step("release", "The desktop jobs' builds")).toContain("merge-multiple: true");
-    expect(job("release")).toContain("    needs: [prepare, verify, image-push, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
+    expect(job("release")).toContain("    needs: [prepare, verify, suite, image-push, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
   });
 
   it("builds and smokes from the prepared run alone, beside the suite, which starts with the run", () => {
     expect(needs("verify")).toEqual([]);
     const verify = job("verify").join("\n");
-    for (const command of ["pnpm typecheck", "pnpm lint", "pnpm test --maxWorkers=4"]) expect(verify).toContain(`      - run: ${command}`);
+    for (const command of ["pnpm typecheck", "pnpm lint"]) expect(verify).toContain(`      - run: ${command}`);
+    expect(verify).not.toContain("pnpm test");
     expect(step("verify", "The JSON Schema export is current")).toContain("pnpm --filter @agent-harness/contracts export-schemas");
+    // One hosted runner no longer finishes the whole suite in 30 minutes (run 37441040959): six
+    // shards, like pull request CI, together run every test file once (#1687).
+    expect(needs("suite")).toEqual([]);
+    const suite = job("suite").join("\n");
+    expect(suite).toContain("    timeout-minutes: 25\n");
+    expect(suite).toMatch(/\n {6}fail-fast: false\n/);
+    expect(suite).toMatch(/\n {8}shard: \[1, 2, 3, 4, 5, 6\]\n/);
+    expect(step("suite", "The suite shard")).toContain("pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/6");
+    expect(workflow.match(/pnpm test/g)).toHaveLength(1);
     expect(job("prepare").join("\n")).not.toMatch(/pnpm (typecheck|lint|test)/);
     expect(needs("image")).toEqual(["prepare"]);
     for (const [smoke, build] of [["smoke-windows", "desktop-windows"], ["smoke-macos", "desktop-macos"], ["smoke-linux", "desktop-arch"]] as const) {
@@ -188,6 +198,7 @@ esac
     }
     for (const build of ["image", "desktop-macos", "desktop-windows", "desktop-arch", "smoke-windows", "smoke-macos", "smoke-linux"]) {
       expect(waitsFor(build).has("verify"), build).toBe(false);
+      expect(waitsFor(build).has("suite"), build).toBe(false);
     }
   });
 
@@ -197,8 +208,11 @@ esac
     expect(publishers.sort()).toEqual(["image-push", "release"]);
     const writers = [...jobs.keys()].filter((name) => job(name).includes("      packages: write"));
     expect(writers.sort()).toEqual(["image-push", "release"]);
-    for (const name of [...publishers, ...writers]) expect(waitsFor(name).has("verify"), name).toBe(true);
-    expect(needs("release")).toEqual(expect.arrayContaining(["verify", "image-push"]));
+    for (const name of [...publishers, ...writers]) {
+      expect(waitsFor(name).has("verify"), name).toBe(true);
+      expect(waitsFor(name).has("suite"), name).toBe(true);
+    }
+    expect(needs("release")).toEqual(expect.arrayContaining(["verify", "suite", "image-push"]));
   });
 
   it("pushes the very image the image job checked, handed on as an artifact", () => {

@@ -44,9 +44,10 @@ available without an account.
    repository. Its public tag points to the cleaned snapshot, not private history.
 4. Wait for the public tag's GitHub **release** workflow to
    finish. Its `prepare` job checks the release is unpublished; the builds then
-   run beside `verify`, the whole test suite: the versioned linux/amd64 image,
-   the macOS zip, Windows NSIS setup (cross-built with Wine) and Linux Arch
-   package, and their smokes. Only once `verify` has passed does `image-push`
+   run beside `verify` (typecheck, lint, schema export) and `suite`, the whole
+   test suite in six shards: the versioned linux/amd64 image, the macOS zip,
+   Windows NSIS setup (cross-built with Wine) and Linux Arch package, and their
+   smokes. Only once `verify` and every `suite` shard have passed does `image-push`
    push the checked image to `ghcr.io/david-systemtech/agent-harness:<version>`
    and the release job write the three server artefacts, scripts, schema
    export, manifest and sidecars and publish them.
