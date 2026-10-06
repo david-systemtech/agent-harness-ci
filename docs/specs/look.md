@@ -1111,7 +1111,11 @@ Eight-key legend in two responsive columns,2xs/faint descriptions, mono keycaps
 min 32: Enter send, Shift+Enter newline, palette shortcut, Escape dismiss/deny
 in its actual scope, New session, sidebar, Settings and Run info. Display keys
 from the effective registry. Escape must not promise stop while that binding
-is off. Narrow container changes to one column.
+is off. Narrow container changes to one column. The phone layout (the media
+test the phone frame uses) has no keyboard to press them with, so no welcome
+draws the legend there; the empty pane says "No session is open. Choose one or
+start a new one." and adds an outline Choose a session button that opens the
+session drawer and takes focus back when the drawer is dismissed.
 
 Sidebar and palette initial loading show three skeleton pairs in row geometry,
 not a blank box; transcript catching-up shows labelled status, preserving known
