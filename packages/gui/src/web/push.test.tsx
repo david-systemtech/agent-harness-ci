@@ -114,3 +114,9 @@ it.each([
 ])("labels a push registration by its browser and when it was enabled, never by its id (%#)", (userAgent, browser) => {
   expect(pushTargetLabel(userAgent, new Date(2026, 9, 6, 13, 4))).toBe(`${browser}, enabled 6 Oct, 13:04`);
 });
+
+it("names an iPad that asks for desktop sites by its touch screen, not as the Mac its user agent says", () => {
+  const desktopSafari = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15";
+  expect(pushTargetLabel(desktopSafari, new Date(2026, 9, 6, 13, 4), 5)).toBe("Safari on iPad, enabled 6 Oct, 13:04");
+  expect(pushTargetLabel(desktopSafari, new Date(2026, 9, 6, 13, 4), 0)).toBe("Safari on Mac, enabled 6 Oct, 13:04");
+});
