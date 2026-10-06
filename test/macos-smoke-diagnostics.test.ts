@@ -169,7 +169,11 @@ describe("packaged macOS timeout evidence", () => {
     expect(swiftCompileTimeout).toBeGreaterThanOrEqual(120_000);
     const native = readFileSync(join(import.meta.dirname, "..", "scripts", "macos-smoke-diagnostics-native.test.mjs"), "utf8");
     expect(native).toContain("executeSwift(");
-    expect(native).not.toMatch(/["']\/usr\/bin\/swift["']/);
+    // No call names a Swift command, in any quote style, by path or by name, outside executeSwift.
+    expect(native).not.toMatch(/\(\s*["'`](?:[^"'`]*\/)?swift["'`]\s*,/);
+    // The only direct calls: osascript, and the cold-cache wrapper passing executeSwift's options on.
+    expect(native.match(/executeDiagnostic\(/g)).toHaveLength(2);
+    expect(native).toContain('return executeDiagnostic(command, ["-module-cache-path", join(work, "swift-cache"), ...args], options);');
   });
 
   it("retains a failed command's exit status and captured stderr", async () => {
