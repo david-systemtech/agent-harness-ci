@@ -195,6 +195,8 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
       await trigger.click();
       const drawer = page.getByRole("dialog", { name: "Sessions", exact: true });
       await expect(drawer).toBeFocused();
+      // No Ctrl key on a touch phone, so the drawer's New session button shows no chord (#1715).
+      await expect(drawer.getByRole("button", { name: "New session", exact: true }).locator("kbd")).toHaveCount(0);
       await page.keyboard.press("Tab");
       await expect.poll(() => page.evaluate<boolean>("document.querySelector('.phone-frame-drawer')?.contains(document.activeElement) === true"), { timeout: 60_000, message: "Drawer traps focus after Tab." }).toBe(true);
       // A focused icon may open a tooltip whose first Escape dismisses only that tooltip.

@@ -1,5 +1,5 @@
 import { Dialog } from "radix-ui";
-import { createContext, use, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
 import { Sidebar } from "../sidebar/sidebar.js";
 import "./phone-frame.css";
 
@@ -7,9 +7,12 @@ interface PhoneFrame {
   readonly narrow: boolean;
   readonly drawerShown: boolean;
   readonly drawerTrigger: RefObject<HTMLButtonElement | null>;
-  showDrawer(shown: boolean): void;
+  /** Where focus returns when the drawer closes, if not the header's trigger. */
+  readonly drawerOpener: RefObject<HTMLElement | null>;
+  /** `opener` is a control other than the header's trigger that opened the drawer. */
+  showDrawer(shown: boolean, opener?: HTMLElement): void;
 }
-const PhoneContext = createContext<PhoneFrame>({ narrow: false, drawerShown: false, drawerTrigger: { current: null }, showDrawer: () => undefined });
+const PhoneContext = createContext<PhoneFrame>({ narrow: false, drawerShown: false, drawerTrigger: { current: null }, drawerOpener: { current: null }, showDrawer: () => undefined });
 export const usePhoneFrame = () => use(PhoneContext);
 
 /** Classify layout bounds, never keyboard/zoom-reduced VisualViewport dimensions.
@@ -23,28 +26,33 @@ export const phoneLayoutMedia = () => [
 export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode }) => {
   const [media] = useState(phoneLayoutMedia);
   const [narrow, setNarrow] = useState(() => media.some(query => query.matches));
-  const [drawerShown, showDrawer] = useState(false);
+  const [drawerShown, setDrawerShown] = useState(false);
   const drawerTrigger = useRef<HTMLButtonElement>(null);
+  const drawerOpener = useRef<HTMLElement>(null);
+  const showDrawer = useCallback((shown: boolean, opener?: HTMLElement) => {
+    if (shown) drawerOpener.current = opener ?? null;
+    setDrawerShown(shown);
+  }, []);
   useEffect(() => {
-    const changed = () => { const phone = media.some(query => query.matches); setNarrow(phone); if (!phone) showDrawer(false); };
+    const changed = () => { const phone = media.some(query => query.matches); setNarrow(phone); if (!phone) setDrawerShown(false); };
     media.forEach(query => query.addEventListener("change", changed));
     changed();
     return () => media.forEach(query => query.removeEventListener("change", changed));
   }, [media]);
-  const value = useMemo(() => ({ narrow, drawerShown, drawerTrigger, showDrawer }), [narrow, drawerShown]);
+  const value = useMemo(() => ({ narrow, drawerShown, drawerTrigger, drawerOpener, showDrawer }), [narrow, drawerShown, showDrawer]);
   return <PhoneContext value={value}><Dialog.Root open={narrow && drawerShown} onOpenChange={showDrawer}>{children}</Dialog.Root></PhoneContext>;
 };
 
 /** Radix owns modal trapping and dismissal; focus changes never scroll the document. */
 export const SessionDrawer = () => {
-  const { narrow, drawerTrigger } = usePhoneFrame();
+  const { narrow, drawerTrigger, drawerOpener } = usePhoneFrame();
   const content = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   if (!narrow) return null;
   // Portal into the viewport owner so absolute bounds follow its height and top.
   return <><span hidden ref={setAnchor} /><Dialog.Portal container={anchor?.closest<HTMLElement>("[data-web-client]") ?? undefined}>
     <Dialog.Overlay className="phone-frame-scrim fixed inset-0 z-40 bg-scrim/30" />
-    <Dialog.Content ref={content} onOpenAutoFocus={event => { event.preventDefault(); content.current?.focus({ preventScroll: true }); }} onCloseAutoFocus={event => { event.preventDefault(); drawerTrigger.current?.focus({ preventScroll: true }); }} onKeyDown={event => event.stopPropagation()} aria-describedby={undefined} className="phone-frame-drawer fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden rounded-r-xl border-r border-hairline bg-float text-ink outline-none">
+    <Dialog.Content ref={content} onOpenAutoFocus={event => { event.preventDefault(); content.current?.focus({ preventScroll: true }); }} onCloseAutoFocus={event => { event.preventDefault(); (drawerOpener.current?.isConnected ? drawerOpener.current : drawerTrigger.current)?.focus({ preventScroll: true }); }} onKeyDown={event => event.stopPropagation()} aria-describedby={undefined} className="phone-frame-drawer fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden rounded-r-xl border-r border-hairline bg-float text-ink outline-none">
       <Dialog.Title className="sr-only">Sessions</Dialog.Title>
       <Sidebar />
     </Dialog.Content>

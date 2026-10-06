@@ -10,7 +10,8 @@ import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.j
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); document.body.replaceChildren(); });
 
-it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through the browser runtime without a desktop shell", async name => {
+/** Mounts a phone-frame scene with the phone layout's media test matching. */
+const mountPhoneScene = async (name: string) => {
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
@@ -18,6 +19,11 @@ it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through th
   const gallery = await mountGallery(root, name, "light", registry, { platform: "web", textSize: 20 });
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
+  return gallery;
+};
+
+it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through the browser runtime without a desktop shell", async name => {
+  const gallery = await mountPhoneScene(name);
   expect(gallery.world.shell).toBeUndefined();
   expect(gallery.world.platform.client.kind).toBe("web");
   expect(gallery.world.world.environment("desk").requests("localGrant.read")).toEqual([]);
@@ -26,6 +32,8 @@ it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through th
     expect(drawer.contains(document.activeElement)).toBe(true);
     expect(within(drawer).getByRole("button", { name: "Receipt checks" })).toBeDefined();
     for (const shelf of ["Settled", "Snoozed", "Archive"]) expect(within(drawer).getByRole("button", { name: shelf })).toBeDefined();
+    // No Ctrl key on a touch phone: the New session button carries no chord (#1715).
+    expect(within(drawer).getByRole("button", { name: "New session" }).querySelector("kbd")).toBeNull();
     const user = userEvent.setup();
     await user.click(within(drawer).getByRole("button", { name: /desk Next receipt/ }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
@@ -39,6 +47,23 @@ it.each(["phone-frame-conversation", "phone-frame-drawer"])("draws %s through th
     act(() => screen.getByRole("button", { name: "Show sessions" }).click());
     expect(await screen.findByRole("dialog", { name: "Sessions" })).toBeDefined();
   }
+});
+
+it("shows touch guidance instead of key chords on the phone's empty session screen", async () => {
+  await mountPhoneScene("phone-frame-empty");
+  const pane = within(screen.getByRole("region", { name: "Session pane" }));
+  expect(pane.queryByRole("list", { name: "Keyboard shortcuts" })).toBeNull();
+  expect(screen.getByRole("main").querySelector("kbd")).toBeNull();
+  expect(pane.getByRole("button", { name: "Start a new session" })).toBeDefined();
+  const choose = pane.getByRole("button", { name: "Choose a session" });
+  const user = userEvent.setup();
+  await user.click(choose);
+  const drawer = await screen.findByRole("dialog", { name: "Sessions" });
+  expect(within(drawer).getByRole("button", { name: /desk Next receipt/ })).toBeDefined();
+  // Dismissing the drawer returns focus to the control that opened it, not the header's trigger.
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(choose));
 });
 
 // jsdom supplies the page; the browser measurement boundary supplies the rendered rectangle.
