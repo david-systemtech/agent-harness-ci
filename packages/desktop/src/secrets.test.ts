@@ -262,15 +262,19 @@ describe("secrets", () => {
     let entered!: () => void;
     let started = new Promise<void>((resolve) => { entered = resolve; });
     let refuse = false;
-    const unanswered = <T>(): Promise<T> => { entered(); return new Promise<T>(() => undefined); };
-    const available = (): Promise<boolean> => (refuse ? Promise.resolve(false) : unanswered());
+    // The helper process gives up its request when the signal aborts; Electron's provider has no signal and never answers.
+    const unanswered = <T>(signal?: AbortSignal): Promise<T> => {
+      entered();
+      return new Promise<T>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    };
+    const available = (signal?: AbortSignal): Promise<boolean> => (refuse ? Promise.resolve(false) : unanswered(signal));
     const helper: MacCredentials = {
       available,
-      encrypt: () => unanswered(),
-      decrypt: () => unanswered(),
+      encrypt: (_secret, signal) => unanswered(signal),
+      decrypt: (_kept, signal) => unanswered(signal),
       close: () => {},
     };
-    electron.safeStorage.isAsyncEncryptionAvailable = available;
+    electron.safeStorage.isAsyncEncryptionAvailable = () => available();
     electron.safeStorage.encryptStringAsync = () => unanswered();
     const macCredentials = through === "the helper's store" ? macCredentialStore({ dir, open: () => helper }) : undefined;
     const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, clock, ...(macCredentials && { macCredentials }) });
