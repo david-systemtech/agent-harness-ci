@@ -115,6 +115,26 @@ describe("About", () => {
     expect(within(about).queryByText(/^Waiting to update/)).toBeNull();
   });
 
+  it("keeps Update now's line while its update is pending, and drops it once the update commits and the target runs", async () => {
+    const app = await opened({ updates: { updateId: UPDATE_ID, status: { version: "0.5.0", newest: "0.6.0" } } });
+    const about = await openAbout(app);
+    const desk = app.environment("desk");
+    await app.user.click(await within(about).findByRole("button", { name: "Update now" }));
+    expect(await within(about).findByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
+
+    desk.setUpdates({ status: { pending: WAITING } });
+    desk.notice("environment.update-pending", WAITING);
+    expect(await within(about).findByText(/^Waiting to update to 0\.6\.0 until desk is idle/)).toBeDefined();
+    expect(within(about).getByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
+
+    const updated = { updateId: UPDATE_ID, fromVersion: "0.5.0", toVersion: "0.6.0" } as const;
+    desk.setUpdates({ status: { version: "0.6.0", pending: { state: "current" }, lastOutcome: { outcome: "updated", ...updated, at: "2026-09-24T00:05:00.000Z" } } });
+    desk.notice("environment.updated", updated);
+    expect(await within(about).findByText("Version 0.6.0")).toBeDefined();
+    await waitFor(() => expect(within(about).queryByText("Updating to 0.6.0 once desk is idle.")).toBeNull());
+    expect(within(about).queryByText(/^Waiting to update/)).toBeNull();
+  });
+
   it("drops Update now's line once its update is withdrawn, even when no read showed it pending", async () => {
     const app = await opened({ updates: { updateId: UPDATE_ID, status: { version: "0.5.0", newest: "0.6.0" } } });
     const about = await openAbout(app);
