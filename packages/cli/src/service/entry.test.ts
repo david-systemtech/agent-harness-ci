@@ -9,7 +9,8 @@ import { HANDOVER_FILE, HANDOVER_STARTS_FILE } from "../launch/handover.js";
 import { RELAUNCH_EXIT_CODE } from "../launch/launcher.js";
 import { LAUNCHER_VERSION_FILE } from "../launch/launcher-version.js";
 import { VERSION_SENTINEL, versionDirectory } from "../launch/versions.js";
-import { LAUNCHER_ENTRY_FILES, renderLauncherEntry } from "./entry.js";
+import { SERVICE_LOG_VARIABLE } from "../launch/verb.js";
+import { LAUNCHER_ENTRY_FILES, LOG_LINE_TRIES, renderLauncherEntry } from "./entry.js";
 
 /**
  * The launcher entry (#338): the stable script the service definition runs,
@@ -58,8 +59,31 @@ describe("the launcher entry", () => {
     // only a label scan (goto), which finds the label in whichever file is there by then.
     const lines = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
     const launch = lines.findIndex((line) => line.includes(" launch "));
-    expect(lines[launch]).toMatch(/ >>"%LOG%" 2>&1 && exit \/b 0 \|\| goto restart$/);
+    expect(lines[launch]).toMatch(/ --port 7433 && exit \/b 0 \|\| goto restart$/);
     expect(lines[launch + 1]).toBe(":restart");
+  });
+
+  it("names the service log for the launcher to write rather than redirecting the launcher into it, which cmd holds for itself alone (#1712)", () => {
+    const lines = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
+    expect(lines).toContain(`set "${SERVICE_LOG_VARIABLE}=%LOG%"`);
+    expect(lines.findIndex((line) => line.startsWith(`set "${SERVICE_LOG_VARIABLE}=`))).toBeGreaterThan(lines.findIndex((line) => line.startsWith('set "LOG=')));
+    const launch = lines.find((line) => line.includes(" launch ")) ?? "";
+    expect(launch).not.toContain(">");
+  });
+
+  it("tries its restart line again, a second apart and a bounded number of times, while another process holds the service log (#1712)", () => {
+    const lines = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
+    const restart = lines.indexOf(":restart");
+    expect(lines.slice(restart, restart + 8)).toEqual([
+      ":restart",
+      'set "CODE=%ERRORLEVEL%"',
+      'set "TRIES=0"',
+      ":restart_line",
+      'set /a "TRIES+=1"',
+      `(>>"%LOG%" echo launcher entry: the launcher exited with code %CODE%, so it starts again in 5 s.) 2>nul || (if %TRIES% LSS ${LOG_LINE_TRIES} (ping -n 2 127.0.0.1 >nul & goto restart_line))`,
+      "ping -n 6 127.0.0.1 >nul",
+      "goto start",
+    ]);
   });
 
   it("writes the launcher version file and the start counter by a rename in both kinds, so a stop mid-write leaves the old file or the new", () => {
@@ -95,7 +119,7 @@ describe("the launcher entry", () => {
     expect(lines).toContain('set "DATA_DIR=C:\\100%% & (data)"');
     const launch = lines.find((line) => line.includes(" launch "));
     expect(launch).toContain(
-      '--data-dir ^"C:\\100%% ^& ^(data^)^" --port 7433 --name ^"Say \\^"hi\\^" ^& 50%% ^<off^> ^^ ^(now^) ^| ^!^" >>"%LOG%" 2>&1',
+      '--data-dir ^"C:\\100%% ^& ^(data^)^" --port 7433 --name ^"Say \\^"hi\\^" ^& 50%% ^<off^> ^^ ^(now^) ^| ^!^" && exit /b 0',
     );
   });
 

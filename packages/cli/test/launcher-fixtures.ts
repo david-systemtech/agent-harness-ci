@@ -64,6 +64,8 @@ export interface ScriptedStart {
   readonly install?: { readonly version: string; readonly staged: string };
   /** How many of the launcher's `idle?` it answers busy with a run running before it answers idle. Preset: none. */
   readonly busyFor?: number;
+  /** A line it writes once on its standard output and once on its standard error when it starts, as `serve` writes lines the service log takes. */
+  readonly says?: string;
 }
 
 export type ChildStart = ChildBehaviour | ScriptedStart;

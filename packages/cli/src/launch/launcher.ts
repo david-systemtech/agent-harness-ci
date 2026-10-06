@@ -134,6 +134,10 @@ export interface LauncherOptions {
   readonly name?: string | undefined;
   /** Writes one line to the service log. Preset: the launcher's standard output, which the service definition sends to the service log. */
   readonly log?: (line: string) => void;
+  /** The file descriptor the child's standard output and error go to: the service log's, when the launcher writes it. Preset: the launcher's own. */
+  readonly output?: number | undefined;
+  /** The variables the child runs with. Preset: the launcher's own. */
+  readonly env?: NodeJS.ProcessEnv | undefined;
   /** Preset: the system's clock and timers. */
   readonly timer?: LauncherTimer;
   /** The bytes free on the disk holding the data directory, which a snapshot and an installed version need room on. Preset: the file system's count. */
@@ -175,6 +179,9 @@ interface Child {
 const ending = (code: number | null, signal: NodeJS.Signals | null): string =>
   code !== null ? `exited with code ${code}` : signal !== null ? `was ended by ${signal}` : "ended";
 
+/** One line of the service log the launcher writes, at `time`. */
+export const launcherLine = (time: number, text: string): string => `${new Date(time).toISOString()} launcher: ${text}`;
+
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** Starts the launcher on `options.dataDir`: it starts the active version's `serve` at once, or says in the service log why it starts nothing. */
@@ -184,7 +191,8 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   const timer = options.timer ?? systemTimer;
   const freeBytes = options.freeBytes ?? freeBytesOn;
   const write = options.log ?? ((line: string) => void process.stdout.write(`${line}\n`));
-  const log = (text: string) => write(`${new Date(timer.now()).toISOString()} launcher: ${text}`);
+  const log = (text: string) => write(launcherLine(timer.now(), text));
+  const output = options.output ?? "inherit";
   const newCandidates = new Set<string>();
   const installer = createInstaller({ dataDir, timer, freeBytes, log, onInstalled: (version) => newCandidates.add(version) });
 
@@ -684,7 +692,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     const [node, entry] = versionCommand(versionDirectory(dataDir, version));
     const serve = ["serve", "--data-dir", dataDir, ...(port === undefined ? [] : ["--port", String(port)]), ...(name === undefined ? [] : ["--name", name])];
     const started: Child = {
-      process: spawn(node, [entry, ...serve], { stdio: ["ignore", "inherit", "inherit", "ipc"] }),
+      process: spawn(node, [entry, ...serve], { stdio: ["ignore", output, output, "ipc"], env: options.env ?? process.env }),
       version,
       spawnedAt: timer.now(),
       trial,
