@@ -237,8 +237,9 @@ export async function phoneReconnectSmoke(page: Page, environment: TestEnvironme
     await page.context().setOffline(false);
   }
   await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
-  await expect(page.getByRole("button", { name: /^Allow once/ })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: /^Allow once/ })).toBeVisible();
+  const details = page.getByRole("region", { name: "Parked prompt" }).getByRole("button", { name: "Details", exact: true });
+  await expect(details).toHaveCount(1);
+  await expect(details).toBeVisible();
 }
 
 export async function phonePaneSmoke(page: Page, engine: string, environment: TestEnvironment, sessionId: string, previewRequests: () => readonly string[]): Promise<void> {

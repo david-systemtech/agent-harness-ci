@@ -144,10 +144,10 @@ try {
         originAvailable = available;
         if (!available) for (const socket of clientSockets) socket.destroy();
       });
+      await page.getByRole("region", { name: "Parked prompt" }).getByRole("button", { name: "Details", exact: true }).click();
       await page.getByRole("button", { name: /^Allow once/ }).waitFor();
       await page.setViewportSize({ width: 390, height: 460 });
-      // Waiting cards scroll in the region above the composer at keyboard height.
-      await page.getByRole("button", { name: /^Allow once/ }).scrollIntoViewIfNeeded();
+      // The request sheet keeps its decision strip above the visible keyboard.
       await reachable(page, page.getByRole("button", { name: /^Allow once/ }));
       await fallback.verify(sessionId, origin, name);
       await page.getByRole("button", { name: /^Allow once/ }).click();
@@ -157,6 +157,7 @@ try {
       await page.getByRole("button", { name: /^Send/ }).click();
       await page.getByRole("article", { name: "Reply", exact: true }).filter({ hasText: "Streaming the hosted reply: Deny this scripted reply." }).last().waitFor();
       assert(releaseStream); releaseStream();
+      await page.getByRole("region", { name: "Parked prompt" }).getByRole("button", { name: "Details", exact: true }).click();
       await page.getByRole("button", { name: /^Deny/ }).click();
       await page.getByText("Permission deny.", { exact: true }).last().waitFor();
       assert.equal(adapter.runs.slice(-2).reduce((count, run) => count + run.answers.length, 0), 2, "Each permission is answered exactly once.");

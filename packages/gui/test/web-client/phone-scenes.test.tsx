@@ -11,6 +11,8 @@ it("captures a waiting phone card with installation confined to Settings and no 
   onTestFinished(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
   const user = userEvent.setup();
   const about = async () => {
+    const request = screen.queryByRole("dialog", { name: "Permission" });
+    if (request) await user.click(within(request).getByRole("button", { name: "Close" }));
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Settings rows" }));
     const rows = await screen.findByRole("dialog", { name: "Settings rows" });

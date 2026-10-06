@@ -21,6 +21,8 @@ export interface AnswerProps {
   readonly keys?: string | undefined;
   readonly hint?: string | undefined;
   readonly describedBy?: string | undefined;
+  /** Full action name when a narrow surface uses shorter visible wording. */
+  readonly label?: string;
   readonly onClick: () => void;
   readonly children: ReactNode;
 }
@@ -35,12 +37,12 @@ const bareEnter = (event: KeyboardEvent) => event.key === "Enter" && !event.ctrl
  * approving one refuses a bare Enter, which a button would otherwise take as
  * a click, so nothing is approved by reflex (story 10).
  */
-export const Answer = ({ dim, approves = false, greyed = false, describedBy, keys, hint, onClick, children }: AnswerProps) => {
+export const Answer = ({ dim, approves = false, greyed = false, describedBy, keys, hint, label, onClick, children }: AnswerProps) => {
   const Icon = approves ? Check : X;
   return <PromptTooltip content={[children, keys ?? (approves ? "Space" : "Enter or Space"), hint].filter(Boolean).join(" · ")}>
     <Button
       size="sm"
-      aria-label={typeof children === "string" ? children : undefined}
+      aria-label={label ?? (typeof children === "string" ? children : undefined)}
       variant={approves && !greyed ? "default" : "ghost"}
       aria-disabled={dim || greyed ? true : undefined}
       aria-describedby={describedBy}

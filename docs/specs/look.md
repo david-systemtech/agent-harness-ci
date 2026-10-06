@@ -661,6 +661,13 @@ failure one sentence inside the card, retaining the request and what was typed.
 Permission cards keep the header and decision footer (note, refusal and actions)
 visible within that bound; arguments scroll and shrink below their 224px cap
 when the viewport leaves less room.
+On the phone conversation dock, replace the expanded parked card with a compact
+pending summary and a 44px Details control. Details opens the full request in a
+sheet bounded by the shared visible web frame, with Close in its header and
+an anchored answer strip. Request text, choices and notes scroll independently
+of the strip; preserve all existing verbs, ceiling and denial reasons. Close
+and Escape preserve drafts/picks, and a submitted answer restores focus without
+scrolling the page. The authoring dialog keeps its existing bounded decision layout.
 Settled cards keep the result/notes in compact form, not a second copy of a plan.
 
 | Card | Tone and actions |
@@ -1267,6 +1274,14 @@ area at 390×844 uses at most 169px (about one fifth); space freed belongs to th
 transcript, retaining three readable lines at keyboard height. Dedicated compact
 composer scenes cover 320/360/390/430px widths, tall/short heights, text 16/20,
 zero/nonzero bottom inset and tab/Home Screen startup.
+
+Pending conversation approvals use §10.3's compact summary and bounded detail
+sheet. The sheet consumes the frame's keyboard/safe-area bounds without a second
+viewport observer. Only its detail body scrolls; its 44px Close and bottom answer
+strip remain reachable at visual 390×480/text 20 while the background transcript
+retains three readable lines and Send/Stop remain within the dock. Permission,
+question and plan gallery proofs shrink only visual height, measure transcript
+and answer-strip bounds, and never scroll across ancestors to reveal actions.
 
 Phone web root and transcript use `overscroll-behavior: none` to suppress
 chaining/pull-to-refresh in supporting engines. Use explicit browser reload or
