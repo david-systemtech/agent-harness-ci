@@ -38,3 +38,9 @@
 /* The landscape conversation uses the same one-column spine as portrait. */
 [data-web-client][data-phone-frame] [data-composer-column] { max-width: 100%; }
 [data-web-client][data-phone-frame] [data-measure="transcript-spine"] { width: 32px; }
+
+/* A short landscape drawer keeps a session hit area even when its footer grows. */
+@media (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
+  .phone-frame-drawer [data-sidebar-scroll] { min-height: 54px; }
+  .phone-frame-drawer [data-sidebar-footer] { min-height: 48px; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; }
+}

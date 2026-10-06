@@ -317,7 +317,9 @@ dark/light, a conversation, long-card keyboard dock, Sessions drawer and compose
 details sheet. Keep layout bounds unchanged while the filled-keyboard visual
 height shrinks to the supported 330px rectangle (including the waiting notice,
 three normal reply lines, message/actions and safe reserve); overlay proofs use
-300px. Both use offsetTop 8 and zero insets or 44px side/21px bottom insets. Check one
+300px. The drawer keeps a 54px result well while its footer scrolls independently
+down to a 48px floor; check a result hit area and both footer actions as well as
+Close. Both use offsetTop 8 and zero insets or 44px side/21px bottom insets. Check one
 projection, no page/horizontal overflow, three readable transcript lines,
 reachable Send/Stop and long-card decisions, bounded sheet/Close and trapped
 focus, and exactly one safe-area reserve at the dock edge. Focused transition

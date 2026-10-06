@@ -136,7 +136,7 @@ const Headings = () => {
           <Matches query={query} rows={(lines) => rows(lines, null)} />
         )}
       </div>
-      <div className="flex shrink-0 flex-col border-t border-hairline">
+      <div data-sidebar-footer className="flex shrink-0 flex-col border-t border-hairline">
         <OrganiseLine />
         <Tooltip content="Restore a deleted session…">
           <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-left text-2xs whitespace-normal text-ink-muted hover:bg-wash" onClick={() => organise.open({ kind: "restore" })}><RotateCcw aria-hidden="true" className="size-3" /><span className="min-w-0">Restore a deleted session…</span></Button>

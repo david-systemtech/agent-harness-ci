@@ -1281,7 +1281,10 @@ and text 16/20 (32 captures): conversation, keyboard with a long parked card,
 Sessions drawer and composer details. Keep the landscape layout unchanged while
 filled-keyboard visual height becomes 330 with offsetTop 8; overlay proofs use 300.
 The filled-dock floor retains the waiting notice, three normal reply lines and
-the message/action row with the bottom safe reserve. Inject zero insets at 740px and
+the message/action row with the bottom safe reserve. The landscape drawer
+keeps at least a 54px result well; its footer may shrink to a 48px internal
+scrollport, with each footer action reachable and Close remaining outside it.
+Inject zero insets at 740px and
 44px left/right plus 21px bottom at 844px. Assert one conversation, three normal
 transcript lines, the dock bottom at visual bottom minus exactly one inset,
 44px Send/Stop and Close, long-card actions reachable in their bounded scroller,

@@ -18,6 +18,10 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
   readySelector: "[data-landscape-proof]",
   geometry: [{ selector: '[data-landscape-proof="passed"]' }, ...(surface === "conversation" || surface === "keyboard" ? landscapeGeometry : [
     { selector: surface === "drawer" ? ".phone-frame-drawer" : ".phone-composer-sheet", ...(surface === "drawer" && { contentFits: true }) },
+    ...(surface === "drawer" ? [
+      { selector: ".phone-frame-drawer [data-sidebar-scroll]", minimumHeight: 54 },
+      { selector: ".phone-frame-drawer [data-sidebar-row]", minimumHeight: 44, visibleWithin: ".phone-frame-drawer [data-sidebar-scroll]", hitTestable: true },
+    ] : []),
     { selector: surface === "drawer" ? '[aria-label="Close sessions"]' : '.phone-composer-sheet [aria-label="Close dialog"]', minimumWidth: 44, minimumHeight: 44, hitTestable: true },
   ])],
   activate: () => {
@@ -65,6 +69,20 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
         const selector = surface === "drawer" ? ".phone-frame-drawer" : ".phone-composer-sheet";
         const overlay = document.querySelector<HTMLElement>(selector)!;
         await Promise.all(overlay.getAnimations().map(animation => animation.finished.catch(() => undefined)));
+        if (surface === "drawer") {
+          const results = overlay.querySelector<HTMLElement>("[data-sidebar-scroll]")!;
+          results.scrollTop = results.scrollHeight;
+          const footer = overlay.querySelector<HTMLElement>("[data-sidebar-footer]")!;
+          // Both footer actions stay reachable in their own well; the result row
+          // keeps its hit area, rather than yielding all space to fixed chrome.
+          for (const button of footer.querySelectorAll<HTMLButtonElement>("button")) {
+            footer.scrollTop += Math.max(0, button.getBoundingClientRect().bottom - footer.getBoundingClientRect().bottom);
+            await settle();
+            const action = button.getBoundingClientRect(), well = footer.getBoundingClientRect();
+            if (action.top < well.top - 1 || action.bottom > well.bottom + 1) throw new Error("Landscape drawer clips a footer action");
+          }
+          await settle();
+        }
         verifyLandscapeOverlay(selector, viewport.height, viewport.offsetTop);
       } else verifyLandscape(viewport.height, viewport.offsetTop, surface === "keyboard");
       if (!stopped) frame.setAttribute("data-landscape-proof", "passed");
