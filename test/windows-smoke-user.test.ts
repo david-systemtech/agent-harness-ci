@@ -27,6 +27,8 @@ const execute = async (exitCode: number) => {
     join(scratch, "scripts/check-packaged-extension.mjs"));
   copyFileSync(join(import.meta.dirname, "../scripts/stop-windows-process-tree.ps1"),
     join(scratch, "scripts/stop-windows-process-tree.ps1"));
+  copyFileSync(join(import.meta.dirname, "../scripts/windows-smoke-diagnostics.ps1"),
+    join(scratch, "scripts/windows-smoke-diagnostics.ps1"));
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-update-disk.mjs"),
     join(scratch, "scripts/check-packaged-update-disk.mjs"));
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-provider-sign-in.mjs"),
@@ -53,6 +55,7 @@ function Add-LocalGroupMember { param($SID, [FixtureLocalPrincipal[]] $Member)
 }
 function Remove-LocalUser { param($Name) Add-Content $env:RECORD "removed:$Name" }
 function icacls.exe { $global:LASTEXITCODE = 0 }
+function wevtutil.exe { $global:LASTEXITCODE = 0 }
 function Start-Process {
   param($FilePath, $ArgumentList, $Credential, [switch] $LoadUserProfile, [switch] $UseNewEnvironment,
     $WorkingDirectory, $RedirectStandardOutput, $RedirectStandardError, [switch] $Wait, [switch] $PassThru)
@@ -64,8 +67,10 @@ function Start-Process {
   if (!(Test-Path (Join-Path $WorkingDirectory 'scripts/check-packaged-provider-sign-in.mjs'))) { throw 'The provider smoke was not staged for the ordinary user' }
   $child = Join-Path $WorkingDirectory 'smoke.ps1'
   Copy-Item $child $env:CHILD_COPY
-  Set-Content $RedirectStandardOutput 'ordinary-user child output'
+  Set-Content $RedirectStandardOutput ('ordinary-user child output password=' + $Credential.GetNetworkCredential().Password)
   Set-Content $RedirectStandardError ''
+  New-Item -ItemType Directory -Path (Join-Path $WorkingDirectory 'diagnostics') -Force | Out-Null
+  Set-Content (Join-Path $WorkingDirectory 'diagnostics/task-query.txt') ('task result: 267009 password=' + $Credential.GetNetworkCredential().Password)
   Add-Content $env:RECORD 'ordinary-user launch'
   [pscustomobject]@{ ExitCode = ${exitCode} }
 }
@@ -95,6 +100,8 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("the Windows smoke's user token"
   it("propagates a failed smoke and removes its temporary account", async () => {
     await expect(execute(7)).rejects.toMatchObject({ code: 1 });
     expect(readFileSync(join(scratch, "record"), "utf8")).toMatch(/removed:ah-smoke-/);
+    expect(readFileSync(join(scratch, "windows-smoke-diagnostics/task-query.txt"), "utf8").trim()).toBe("task result: 267009 password=[REDACTED]");
+    expect(readFileSync(join(scratch, "windows-smoke-diagnostics/stdout.log"), "utf8").trim()).toBe("ordinary-user child output password=[REDACTED]");
   });
 
   it.each([
