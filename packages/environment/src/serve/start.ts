@@ -259,6 +259,7 @@ import { createMethodTable, type MethodTable } from "./methods.js";
 import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { createTrash } from "./trash.js";
+import { clearCredentialAccess, credentialAccessReporter, watchCredentialAccess } from "./credential-access.js";
 import { chooseVault, loadKeychainBinding } from "./keychain.js";
 import { holdVault, type Vault } from "./vault.js";
 
@@ -961,9 +962,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const { record: loaded, created } = loadOrCreateRecord(dataDir, name, now);
     // The channel a new environment starts on (#846), at the start that creates it alone: a later start keeps the one set since.
     if (created && options.channel !== undefined) writeStartingChannel(log, loaded.id, options.channel);
+    // A keychain read that waits on the person, as macOS asks them once an update brings a Node the stored key's access
+    // list does not name, is said to the launcher, which pauses its trial's deadline, and to the window (#1689).
+    clearCredentialAccess(dataDir);
+    const reportCredentialAccess = credentialAccessReporter({ dataDir, version: harnessVersion, launcher, now });
+    const loadBinding = async () => watchCredentialAccess(await loadKeychainBinding(), reportCredentialAccess);
     const { vault: chosen, reason } =
       options.vault === undefined
-        ? await chooseVault({ platform: process.platform, asService: launcher.present(), dataDir, environmentId: loaded.id, loadBinding: loadKeychainBinding })
+        ? await chooseVault({ platform: process.platform, asService: launcher.present(), dataDir, environmentId: loaded.id, loadBinding })
         : { vault: options.vault, reason: undefined };
     const vault = await holdVault(chosen, scrub);
     // Logged once every entry is registered, so the scrub on standard error takes a value a keychain's error carried.
