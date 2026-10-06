@@ -2,7 +2,7 @@ import { mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
+import { CONTAINER_DATA_DIRECTORY, defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 
 const posix = process.platform !== "win32";
 
@@ -21,6 +21,19 @@ describe("the default data directory", () => {
         "/home/d/.local/state/agent-harness",
       );
     }
+  });
+
+  it("is the image's /data in a container the install declared, whatever XDG says, so a verb run through compose exec finds the environment serve runs (#1725)", () => {
+    for (const env of [{ AGENT_HARNESS_CONTAINER: "1" }, { AGENT_HARNESS_CONTAINER: "1", XDG_STATE_HOME: "/srv/state" }]) {
+      expect(defaultDataDirectory({ platform: "linux", env, homedir: "/home/agent-harness" })).toBe(CONTAINER_DATA_DIRECTORY);
+    }
+    expect(CONTAINER_DATA_DIRECTORY).toBe("/data");
+  });
+
+  it("stays under XDG state when the container marker is blank, as a container only detected is not declared", () => {
+    expect(defaultDataDirectory({ platform: "linux", env: { AGENT_HARNESS_CONTAINER: " " }, homedir: "/home/d" })).toBe(
+      "/home/d/.local/state/agent-harness",
+    );
   });
 
   it("follows XDG on the other Unix platforms too", () => {

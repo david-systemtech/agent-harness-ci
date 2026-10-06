@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { installLines } from "../packages/client-runtime/src/setup/install-lines.js";
+import { CONTAINER_DATA_DIRECTORY, defaultDataDirectory } from "../packages/environment/src/serve/data-directory.js";
 
 const root = join(import.meta.dirname, "..");
 const dockerfile = readFileSync(join(root, "Dockerfile"), "utf8");
@@ -240,14 +241,17 @@ describe("the published compose file", () => {
     expect(header).toContain("host-updater.sh");
   });
 
-  it("names, in its header, the data directory the image's serve runs on for every verb it shows in the container", () => {
+  it("runs serve on the data directory a container it declares defaults to, so the verbs its header shows need no --data-dir (#1725)", () => {
     const serveDir = /"--data-dir", "([^"]+)"/.exec(finalStage().at(-1) ?? "")?.[1];
-    expect(serveDir).toBe("/data");
+    expect(serveDir).toBe(CONTAINER_DATA_DIRECTORY);
+    expect(composeLines()).toContain(`      - data:${CONTAINER_DATA_DIRECTORY}`);
+    expect(composeLines()).toContain('      AGENT_HARNESS_CONTAINER: "1"');
+    expect(defaultDataDirectory({ platform: "linux", env: { AGENT_HARNESS_CONTAINER: "1" }, homedir: "/home/agent-harness" })).toBe(serveDir);
     const verbs = composeHeader()
       .split("\n")
       .filter((line) => /exec environment agent-harness /.test(line));
     expect(verbs.length).toBeGreaterThan(0);
-    for (const line of verbs) expect(line, line).toMatch(new RegExp(`--data-dir ${serveDir}( |$)`));
+    for (const line of verbs) expect(line, line).not.toContain("--data-dir");
   });
 
   it("passes a new environment's name and channel into the container from compose's own variables, blank when unset, which serve reads as not given (#846)", () => {
