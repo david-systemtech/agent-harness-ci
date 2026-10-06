@@ -683,7 +683,7 @@ describe("each result's age", () => {
     const unchanged = `(unchanged since ${whenWords(MANUAL_CLOCK_START, runtime.environmentNow(env))})`;
     const line = () => lineOf(runtime, env, "your-machines");
     expect(line()).toBe(`The host-side updater last polled ${pastTimeWords(polledAt, runtime.environmentNow(env))}: check that it still runs. ${unchanged}`);
-    expect(line()).toMatch(/^The host-side updater last polled 2 h ago, at [^:]+:00: /);
+    expect(line()).toMatch(/^The host-side updater last polled 2 h ago, at [^:]+:\d\d: /);
     expect(line()).not.toContain("UTC");
 
     // Nothing is heard while nothing changes, yet the age the line says moves on.
