@@ -86,6 +86,12 @@ describe("projections.accountNames", () => {
     expect(window.view.read().names).toEqual({ [PERSONAL_ID]: "Claude (milo@home.test)", [TEAM_ID]: "Claude (milo@work.test)" });
   });
 
+  it("tells apart two accounts that share a label and whose logins were never read by their places in the list", async () => {
+    const window = opened(memoryDocuments(), answer([record(PERSONAL_ID, "Claude", null), record(TEAM_ID, "Claude", null), record("solo", "Solo", null)]));
+    await flush();
+    expect(window.view.read().names).toEqual({ [PERSONAL_ID]: "Claude (1)", [TEAM_ID]: "Claude (2)", solo: "Solo" });
+  });
+
   it("names nothing for an environment never answered, and forgets the kept names with the environment", async () => {
     const documents = memoryDocuments();
     const first = opened(documents, answer([record(TEAM_ID, "Team", null)]));

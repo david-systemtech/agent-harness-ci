@@ -255,11 +255,13 @@ it("names each account's switches, their tooltips and accessible names by the ac
   for (const { label } of accounts) {
     expect(await within(pane()).findByRole("switch", { name: `Enabled draft on ${label}` })).toBeDefined();
     expect(within(pane()).getByText(`Enabled on ${label}`)).toBeDefined();
-    const always = within(pane()).getByRole("switch", { name: `Every prompt draft on ${label}` });
-    // A tooltip opens on a keyboard's focus.
+    // A tooltip opens on a keyboard's focus; it renders outside the pane, so its words are read on their own.
     await app.user.keyboard("{Shift}");
-    act(() => always.focus());
-    await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain(`Every prompt on ${label}`));
+    for (const [control, words] of [[`Enabled draft on ${label}`, `Enabled on ${label}`], [`Every prompt draft on ${label}`, `Every prompt on ${label}`]] as const) {
+      act(() => within(pane()).getByRole("switch", { name: control }).focus());
+      await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain(words));
+      expect(screen.getByRole("tooltip").textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    }
   }
   expect(pane().textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
   for (const control of within(pane()).getAllByRole("switch")) expect(control.getAttribute("aria-label")).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);

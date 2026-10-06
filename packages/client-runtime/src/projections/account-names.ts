@@ -30,13 +30,15 @@ export const accountNamesDocument = (environmentId: string): string => `accounts
 
 /**
  * Each account's label; two that share one each carry their login's address
- * as well, since an account is its environment's (ADR 0001) and the
- * environment cannot tell them apart.
+ * as well, or, for a login not read yet, their place among those sharing it,
+ * since an account is its environment's (ADR 0001) and the environment
+ * cannot tell them apart.
  */
-export const namesOf = (accounts: readonly Pick<AccountRecord, "id" | "label" | "identity">[]): Record<string, string> => {
-  const shared = (label: string) => accounts.filter((account) => account.label === label).length > 1;
-  return Object.fromEntries(accounts.map((account) => [account.id, shared(account.label) && account.identity !== null ? `${account.label} (${account.identity.email})` : account.label]));
-};
+export const namesOf = (accounts: readonly Pick<AccountRecord, "id" | "label" | "identity">[]): Record<string, string> =>
+  Object.fromEntries(accounts.map((account) => {
+    const sharing = accounts.filter((other) => other.label === account.label);
+    return [account.id, sharing.length < 2 ? account.label : `${account.label} (${account.identity?.email ?? sharing.indexOf(account) + 1})`];
+  }));
 
 const NONE: Readonly<Record<string, string>> = {};
 
