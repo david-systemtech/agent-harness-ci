@@ -40,7 +40,7 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
         for (let box = owner.parentElement; box !== null && frame.contains(box); box = box.parentElement) release(box);
       }
     };
-    const released = (event: Event) => { if (event.target instanceof Element) release(event.target); };
+    const released = (event: Event) => { if (event.target instanceof Element && media.some(query => query.matches)) release(event.target); };
     const fit = (event?: Event) => {
       const viewport = window.visualViewport;
       if (!media.some(query => query.matches)) {
