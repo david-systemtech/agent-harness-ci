@@ -127,6 +127,9 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("the watch's PowerShell, run", (
     return child;
   };
 
+  /** The line that says the watch holds `owner`, whatever name Linux gives Node's process (its main thread's, on some). */
+  const watchingLine = (owner: ChildProcess) => expect.stringMatching(new RegExp(`^watching ${owner.pid} \\S+$`));
+
   /** Runs the watch for the launcher `launcher`, whose entry (a pid nothing has) was started by `owner` at `entry` minutes after `owner` began, or is gone. */
   const runWatch = (launcher: ChildProcess, owner: ChildProcess, entry: number | "gone") => {
     expect(hasPwsh, "PowerShell is required in CI").toBe(true);
@@ -162,10 +165,10 @@ function Get-CimInstance {
     const run = runWatch(sleeper(), owner, 1);
     await until(() => run.lines.length > 0 || run.stderr() !== "");
     expect(run.stderr()).toBe("");
-    expect(run.lines).toEqual([`watching ${owner.pid} node`]);
+    expect(run.lines).toEqual([watchingLine(owner)]);
     owner.kill();
     expect(await run.exited).toBe(0);
-    expect(run.lines).toEqual([`watching ${owner.pid} node`, "ended"]);
+    expect(run.lines).toEqual([watchingLine(owner), "ended"]);
   }, 60_000);
 
   it("says at once that the entry is gone when it has ended", async () => {
@@ -188,6 +191,6 @@ function Get-CimInstance {
     await until(() => run.lines.length > 0 || run.stderr() !== "");
     launcher.kill();
     expect(await run.exited).toBe(0);
-    expect(run.lines).toEqual([`watching ${owner.pid} node`]);
+    expect(run.lines).toEqual([watchingLine(owner)]);
   }, 60_000);
 });
