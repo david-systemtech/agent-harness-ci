@@ -183,7 +183,7 @@ jobs:
           path: ${{ runner.temp }}/container-image/image.tar.gz
           if-no-files-found: error
           compression-level: 0
-          retention-days: 1
+          retention-days: 7
 
   # The desktops build from the image job's digest before any push; only their desktop leaves
   # the job, and the release writes its manifest from this job's digest, the pushed image's.
