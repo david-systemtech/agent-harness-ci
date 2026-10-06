@@ -1,6 +1,6 @@
 import type { BootstrapGrant } from "@agent-harness/contracts";
 import type { Observable } from "./observable.js";
-import type { Shell } from "./shell.js";
+import type { SecretProtection, Shell } from "./shell.js";
 
 /**
  * What the runtime cannot own and every client supplies
@@ -72,6 +72,12 @@ export interface SecretStore {
   get(name: string): Promise<string | undefined>;
   set(name: string, secret: string): Promise<void>;
   delete(name: string): Promise<void>;
+  /**
+   * How a token kept now is protected, which the Your machines card says when it is unprotected (#416). A pairing asks it
+   * before it spends its one-use code (#1693): on macOS the answer waits on the Keychain prompt, which a person answers late
+   * or not at all. Absent where a store always keeps a token.
+   */
+  readonly protection?: () => Promise<SecretProtection>;
 }
 
 /** What the runtime is told about one WebSocket. */

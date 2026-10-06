@@ -164,7 +164,10 @@ jobs:
           compose_file="$project/compose.yaml"
           cp scripts/compose.yaml "$compose_file"
           cp scripts/host-updater.sh "$project/host-updater.sh"
-          printf 'AGENT_HARNESS_IMAGE=%s\n' "$IMAGE_REFERENCE" > "$project/.env"
+          # A setting kept in .env, as the phone address is, reaches the container
+          # through the release's compose file (#1691).
+          web_origin=https://release-check.example.ts.net:8443
+          printf 'AGENT_HARNESS_IMAGE=%s\nAGENT_HARNESS_WEB_ORIGIN=%s\n' "$IMAGE_REFERENCE" "$web_origin" > "$project/.env"
           cleanup() {
             result=$?
             trap - EXIT
@@ -185,6 +188,11 @@ jobs:
           if [ "$ready" != true ]; then
             docker compose -f "$compose_file" logs environment
             echo "::error::container did not become ready for the updater inspection"
+            exit 1
+          fi
+          passed=$(docker compose -f "$compose_file" exec -T environment printenv AGENT_HARNESS_WEB_ORIGIN) || passed=""
+          if [ "$passed" != "$web_origin" ]; then
+            echo "::error::the container does not have the .env file's AGENT_HARNESS_WEB_ORIGIN ($web_origin); it has '$passed'"
             exit 1
           fi
           before=$(find "$project" -type f -exec sha256sum {} + | sort)

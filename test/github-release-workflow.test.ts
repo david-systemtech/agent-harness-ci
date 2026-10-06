@@ -117,11 +117,14 @@ esac
     expect(readFileSync(output, "utf8")).toBe(reported === "0.0.0" ? "" : "digest=sha256:fixture-digest\n");
   });
 
-  it("smokes the host updater against the built image before pushing it, without applying an update", async () => {
+  /**
+   * Runs the image job's container smoke against a fake docker that answers the
+   * container's AGENT_HARNESS_WEB_ORIGIN from the .env file beside the compose
+   * file, as compose passes it through, or not at all when `dropsWebOrigin`.
+   */
+  const containerSmoke = async (dropsWebOrigin = false) => {
     const smoke = step("image", "Inspect a container update without applying it");
-    const kept = step("image", "Keep the verified image for its push");
-    expect(job("image").join("\n").indexOf(smoke)).toBeLessThan(job("image").join("\n").indexOf(kept));
-    expect(job("image").join("\n")).not.toMatch(/docker push|login-action/);
+    if (scratch) rmSync(scratch, { recursive: true, force: true });
     scratch = mkdtempSync(join(tmpdir(), "release-updater-smoke-"));
     const bin = join(scratch, "bin");
     mkdirSync(bin);
@@ -132,6 +135,9 @@ printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
   "compose -f "*" exec -T environment agent-harness update status --json --data-dir /data")
     printf '{"version":"%s","pending":{"state":"current"},"manager":{"lastPoll": null}}\\n' "$VERSION" ;;
+  "compose -f "*" exec -T environment printenv AGENT_HARNESS_WEB_ORIGIN")
+    [ -z "$DROPS_WEB_ORIGIN" ] || exit 1
+    sed -n 's/^AGENT_HARNESS_WEB_ORIGIN=//p' "$(dirname "$3")/.env" ;;
   "compose -f "*" ps -q environment") echo container-for-tests ;;
   "inspect --format {{.Config.Image}} container-for-tests") echo "$IMAGE_REFERENCE" ;;
   "compose -f "*" up -d --pull never environment" | "compose -f "*" down --volumes --timeout 5") ;;
@@ -143,13 +149,31 @@ esac
     const commands = smoke.split("        run: |\n")[1]?.replace(/^ {10}/gm, "") ?? "";
     const result = await run("bash", ["-euc", commands], { cwd: root, env: {
       ...process.env, PATH: `${bin}:${process.env["PATH"]}`, TMPDIR: scratch, CALLS: log,
-      IMAGE_REFERENCE: "example/image:1.2.3", VERSION: "1.2.3",
-    } });
+      IMAGE_REFERENCE: "example/image:1.2.3", VERSION: "1.2.3", DROPS_WEB_ORIGIN: dropsWebOrigin ? "1" : "",
+    } }).then(({ stdout, stderr }) => ({ code: 0, stdout, stderr }), (error: { code: number; stdout: string; stderr: string }) => error);
+    return { smoke, result, calls: readFileSync(log, "utf8").trim().split("\n") };
+  };
+
+  it("smokes the host updater against the built image before pushing it, without applying an update", async () => {
+    const { smoke, result, calls } = await containerSmoke();
+    const kept = step("image", "Keep the verified image for its push");
+    expect(job("image").join("\n").indexOf(smoke)).toBeLessThan(job("image").join("\n").indexOf(kept));
+    expect(job("image").join("\n")).not.toMatch(/docker push|login-action/);
+    expect(result.code).toBe(0);
     expect(result.stdout).toContain("No pending update.");
-    const calls = readFileSync(log, "utf8").trim().split("\n");
     expect(calls.filter((call) => call.includes(" up -d "))).toHaveLength(1);
     expect(calls.at(-1)).toContain("down --volumes --timeout 5");
     expect(calls.join("\n")).not.toMatch(/--host-updater|update begin|update snapshot|update restore|^pull /m);
+  });
+
+  it("checks that the phone address the compose project's .env file names reaches the container, and fails when it does not (#1691)", async () => {
+    const passed = await containerSmoke();
+    expect(passed.result.code).toBe(0);
+    expect(passed.calls.filter((call) => call.endsWith(" exec -T environment printenv AGENT_HARNESS_WEB_ORIGIN"))).toHaveLength(1);
+    const dropped = await containerSmoke(true);
+    expect(dropped.result.code).not.toBe(0);
+    expect(dropped.result.stdout).toContain("::error::the container does not have the .env file's AGENT_HARNESS_WEB_ORIGIN");
+    expect(dropped.calls.at(-1)).toContain("down --volumes --timeout 5");
   });
 
   it("builds three desktops on hosted runners, preserves the package checks, and transfers all three before assembling the release", () => {

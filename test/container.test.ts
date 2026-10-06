@@ -8,7 +8,8 @@
  * image, the image ships ssh for the skill probe (#874), and neither sets
  * `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It passes a new environment's
  * name and channel in from compose's own variables, which Add a machine's
- * container snippet sets (#846). What only
+ * container snippet sets (#846), and the phone address an operator keeps in
+ * the `.env` file beside it, which an update leaves in place (#1691). What only
  * a real build and run can show is the Container section of
  * `docs/agents/service-install-checklist.md`.
  */
@@ -253,6 +254,15 @@ describe("the published compose file", () => {
     const lines = composeLines();
     expect(lines).toContain("      AGENT_HARNESS_NAME: ${AGENT_HARNESS_NAME:-}");
     expect(lines).toContain("      AGENT_HARNESS_CHANNEL: ${AGENT_HARNESS_CHANNEL:-}");
+  });
+
+  it("passes the phone address AGENT_HARNESS_WEB_ORIGIN from compose's own variables, blank when unset, so it lives in the .env file an update keeps (#1691)", () => {
+    // serve reads this variable when --web-origin is absent, and a blank one as not given.
+    expect(readFileSync(join(root, "packages", "cli", "src", "cli.ts"), "utf8")).toContain('given(env["AGENT_HARNESS_WEB_ORIGIN"])');
+    expect(composeService("environment")).toContain("      AGENT_HARNESS_WEB_ORIGIN: ${AGENT_HARNESS_WEB_ORIGIN:-}");
+    const header = composeHeader();
+    expect(header).toContain("#   AGENT_HARNESS_WEB_ORIGIN=https://<device>.<tailnet>.ts.net:8443");
+    expect(header).toMatch(/\.env file beside this one[^.]*replac/);
   });
 
   it("takes every variable Add a machine's container snippet sets on its up line", () => {

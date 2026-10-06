@@ -103,8 +103,6 @@ export interface ShellSecrets extends SecretStore {
   /** OS credential access underway or refused; no credential crosses this presentation event. */
   readonly access?: () => Promise<SecretAccess>;
   readonly onAccess?: (listener: (state: SecretAccess) => void) => () => void;
-  /** How a token kept now is protected, which the Your machines card says when it is unprotected (#416). */
-  readonly protection?: () => Promise<SecretProtection>;
 }
 
 export interface FileFilter {
