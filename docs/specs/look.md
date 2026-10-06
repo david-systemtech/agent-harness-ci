@@ -695,7 +695,8 @@ stale state in tooltip. Hand off 22px/Hand 12; completed state amber strip with
 24px Keep working here. Missing workspace offers Choose a workspace.
 
 Bottom inside card: Paperclip 28 left; flexible space; effective Enter send /
-Shift+Enter newline hint (hide below 640px); SendHorizontal 28 beam/beam-ink right.
+Shift+Enter newline hint (hidden on the phone layout, portrait and short
+landscape); SendHorizontal 28 beam/beam-ink right.
 Live and empty swaps to signal CircleStop; interrupt pending labelled spinner,
 no duplicate stop. Locked composer exposes capability reason; empty Send is
 50% opaque and does not accept activation. Never narrow the editor to make
