@@ -416,7 +416,9 @@ jobs:
           $credential = [PSCredential]::new("$env:COMPUTERNAME\$user", $password)
           $work = Join-Path $env:PUBLIC ('agent-harness-smoke-' + [Guid]::NewGuid())
           $created = $false
+          $batchLogon = $false
           . (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path
+          . (Resolve-Path 'scripts/windows-logon-right.ps1').Path
           $diagnostics = Join-Path (Get-Location).Path 'windows-smoke-diagnostics'
           $diagnosticSecrets = @($credential.GetNetworkCredential().Password)
           $smokeStartedAt = [datetime]::UtcNow
@@ -427,6 +429,10 @@ jobs:
             $account = New-LocalUser -Name $user -Password $password -AccountNeverExpires -PasswordNeverExpires
             $created = $true
             Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
+            # The scheduled-task check registers a Password logon, a batch logon that
+            # Users lack on Windows Server; grant only that right, never a group (#1683).
+            Grant-WindowsLogonRight -Sid $account.SID.Value -Right SeBatchLogonRight
+            $batchLogon = $true
             New-Item -ItemType Directory -Path (Join-Path $work 'desktop') -Force | Out-Null
             Copy-Item -LiteralPath (Resolve-Path 'desktop/agent-harness-desktop-win32-x64-setup.exe').Path -Destination (Join-Path $work 'desktop')
             New-Item -ItemType Directory -Path (Join-Path $work 'scripts') -Force | Out-Null
@@ -575,8 +581,8 @@ jobs:
               $ownedHandles = @()
               $unrelated = $null
               try {
-                # The fixture user has a batch logon, so change only the task principal
-                # to Password; keep the installed conhost/cmd action and limited token.
+                # The parent granted the fixture user a batch logon, so change only the task
+                # principal to Password; keep the installed conhost/cmd action and limited token.
                 $passwordFile = Join-Path $PSScriptRoot 'task-password.txt'
                 $task = Get-ScheduledTask -TaskName agent-harness
                 $task.Principal.LogonType = 'Password'
@@ -692,7 +698,11 @@ jobs:
               Write-WindowsSmokeCollectionError -Path (Join-Path $diagnostics 'runner-task-events.error.txt') -Message $_.Exception.Message -Secrets $diagnosticSecrets
             }
             try {
-              if ($created) { Remove-LocalUser -Name $user }
+              try {
+                if ($batchLogon) { Revoke-WindowsLogonRight -Sid $account.SID.Value -Right SeBatchLogonRight }
+              } finally {
+                if ($created) { Remove-LocalUser -Name $user }
+              }
             } finally {
               if (Test-Path $work) { Remove-Item -LiteralPath $work -Recurse -Force }
               $password.Dispose()
