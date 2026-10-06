@@ -28,16 +28,34 @@ describe("the generated title of a message", () => {
     expect(generatedTitle("Only\rcarriage returns")).toBe("Only");
   });
 
-  it("is cut to 80 characters, never inside a character, with no white space left at the cut", () => {
+  it("is left whole when it fits in 80 characters", () => {
     expect(GENERATED_TITLE_LENGTH).toBe(80);
-    const long = "word ".repeat(40);
-    const cut = generatedTitle(long);
-    expect(cut).toBe(long.slice(0, 80).trimEnd());
-    expect(generatedTitle("x".repeat(100))).toBe("x".repeat(80));
-    // Eighty characters, each two UTF-16 code units: none of them is split.
-    const faces = "\u{1F600}".repeat(100);
-    expect(generatedTitle(faces)).toBe("\u{1F600}".repeat(80));
-    expect(generatedTitle(`${"y".repeat(79)} z`)).toBe("y".repeat(79));
+    expect(generatedTitle("x".repeat(80))).toBe("x".repeat(80));
+    expect(generatedTitle(`  ${"word ".repeat(16)}  `)).toBe("word ".repeat(16).trimEnd());
+    expect(generatedTitle("\u{1F600}".repeat(80))).toBe("\u{1F600}".repeat(80));
+  });
+
+  it("is cut longer than 80 characters at the last word boundary that leaves room for an ellipsis, and ends with one", () => {
+    // The prompt hands-on QA sent (#1731): a cut at 80 lands inside "0.1.4".
+    const prompt = "Use the Read tool to read /etc/hostname and tell me what it says, then say QA 0.1.4 GUI complete.";
+    const title = generatedTitle(prompt);
+    expect(title).toBe("Use the Read tool to read /etc/hostname and tell me what it says, then say QA…");
+    expect(Array.from(title ?? "").length).toBeLessThanOrEqual(80);
+    expect(generatedTitle("word ".repeat(40))).toBe(`${"word ".repeat(15)}word…`);
+    // A space right after the 79th character is a boundary: all 79 are kept.
+    expect(generatedTitle(`${"y".repeat(79)} z`)).toBe(`${"y".repeat(79)}…`);
+  });
+
+  it("is cut inside a word longer than the limit when no boundary is left, never inside a character", () => {
+    expect(generatedTitle("x".repeat(100))).toBe(`${"x".repeat(79)}…`);
+    // Each face is two UTF-16 code units: none of them is split.
+    expect(generatedTitle("\u{1F600}".repeat(100))).toBe(`${"\u{1F600}".repeat(79)}…`);
+    expect(generatedTitle(`${"y".repeat(80)} z`)).toBe(`${"y".repeat(79)}…`);
+  });
+
+  it("is the same title when normalised again, so a title it made is never cut twice", () => {
+    const once = generatedTitle("Use the Read tool to read /etc/hostname and tell me what it says, then say QA 0.1.4 GUI complete.");
+    expect(generatedTitle(once ?? "")).toBe(once);
   });
 
   it("is none for a message with no non-empty line", () => {

@@ -490,11 +490,14 @@ const groupOf = (clock: ManualClock, partial: Partial<Group>, index: number): Gr
   });
 };
 
-/** A title as the environment generates one from text (`sessions/titles.ts`): its first line with words in it, collapsed, cut to 80 characters. */
+/** A title as the environment generates one from text (`sessions/titles.ts`): its first line with words in it, collapsed, and past 80 characters cut at a space to 79 or fewer and ended with an ellipsis. */
 const generatedTitle = (text: string): string | null => {
   const line = text.split(/\r\n|\r|\n/).find((candidate) => candidate.trim() !== "");
   if (line === undefined) return null;
-  return Array.from(line.replace(/\s+/g, " ").trim()).slice(0, 80).join("").trimEnd();
+  const characters = Array.from(line.replace(/\s+/g, " ").trim());
+  if (characters.length <= 80) return characters.join("");
+  const boundary = characters.lastIndexOf(" ", 79);
+  return `${characters.slice(0, boundary > 0 ? boundary : 79).join("")}…`;
 };
 
 /** The descriptor `providers.list` answers: Claude-shaped, with `changes` over it. */
