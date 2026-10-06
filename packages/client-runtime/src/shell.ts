@@ -324,11 +324,13 @@ export type ShellApplyWhen = "now" | "quit";
  * What applying a staged build came to: applied (or, at `quit`, handed over
  * for the next quit), or failed, the installed version left in place
  * (`install`), or a temporary folder not removed (`cleanup`), which is
- * never an unreachable release.
+ * never an unreachable release. `byHand`, where the install has one, is
+ * the command a person runs to install the staged build themselves, as
+ * `sudo pacman -U <path>` on Arch.
  */
 export type ShellApplyOutcome =
   | { readonly outcome: "applied" }
-  | { readonly outcome: "failed"; readonly failure: "install" | "cleanup"; readonly message: string };
+  | { readonly outcome: "failed"; readonly failure: "install" | "cleanup"; readonly message: string; readonly byHand?: string };
 
 /** The local environment's service (ADR 0001). */
 export interface ShellService {
