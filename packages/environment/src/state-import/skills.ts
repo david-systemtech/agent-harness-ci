@@ -19,6 +19,8 @@ export interface PlanSkillsOptions {
   readonly knownSkillNames: () => Promise<ReadonlySet<string>>;
   readonly accountIds?: ReadonlyMap<string, string> | undefined;
   readonly profileIds?: readonly string[];
+  /** What the report calls each source profile, by source id (#1726). */
+  readonly profileNames?: ReadonlyMap<string, string>;
   readonly forgeAccounts: () => Parameters<typeof repositoryIdentityOf>[1];
 }
 
@@ -94,6 +96,7 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
       },
     });
   }
+  const nameOf = (profile: string) => options.profileNames?.get(profile) ?? "an unnamed source profile";
   for (const choice of records.alwaysOn) {
     const label = `Always-on Skill "${choice.name}"`;
     if (choice.reach === null) {
@@ -106,7 +109,7 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
     for (const profile of [...profiles].sort()) {
       const previewAccountId = options.accountIds?.get(profile);
       if (previewAccountId === undefined) {
-        failed.push({ label: `${label} (${profile})`, message: "This profile has no live mapped Account; its choice is deferred until mapping is repaired." });
+        failed.push({ label: `${label} (${nameOf(profile)})`, message: "This profile has no live mapped Account; its choice is deferred until mapping is repaired." });
         continue;
       }
       if (targets.has(previewAccountId)) continue;
@@ -114,7 +117,7 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
       // The source profile remains stable when adoption replaces a preview id with a minted Account id.
       const key = { sourceKey, store: "skill-always-on", sourceId: JSON.stringify([choice.name, profile]) };
       if (mappedTarget(log, key) !== undefined) continue;
-      const accountLabel = `${label} (${profile})`;
+      const accountLabel = `${label} (${nameOf(profile)})`;
       const parsed = registry["skills.setAlwaysOn"].params.safeParse({ commandId: "00000000-0000-4000-8000-000000000000", name: choice.name, accountId: previewAccountId, on: true });
       if (!parsed.success) {
         failed.push({ label: accountLabel, message: "Its exact name fails the Skills owner's validation; it was not renamed." });

@@ -2,7 +2,7 @@ import { defaultAccountRepair, deferredDefaults } from "./default-account.js";
 import { planBanks, BANK_REGISTRY_LABEL, type PlanBanksOptions } from "./banks.js";
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
-import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { defaultAccountItem, planAccounts, profileNames, type PlanAccountsOptions } from "./accounts.js";
 import { planSkills, type PlanSkillsOptions } from "./skills.js";
 import { planRoutines, type PlanRoutinesOptions } from "./routines.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
@@ -78,7 +78,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
   let skillRepairs: (preview: boolean) => readonly StateImportReEnter[] = () => [];
   if (skills.status === "failed") failed.push({ label: "Skills", message: skills.diagnostic });
   else {
-    const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [] });
+    const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [], profileNames: profiles.status === "read" ? profileNames(profiles.records) : new Map() });
     skillRepairs = plan.repairs;
     planned.push({ snapshot: skills.snapshot, label: "Skills", items: plan.items });
     failed.push(...plan.failed);

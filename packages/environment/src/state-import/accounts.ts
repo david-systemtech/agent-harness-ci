@@ -30,9 +30,16 @@ export interface PlanAccountsOptions {
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
 }
 
-/** How the report names a source profile: by its label, or by its directory when the label is not an Account label (#1726). */
+/** What the reports call a source profile: its label, or its directory when the label is not an Account label (#1726). */
+export const profileLabel = (profile: { readonly label: string; readonly directory: string }): string =>
+  AccountLabel.safeParse(profile.label).success ? profile.label : profile.directory;
 export const profileName = (profile: { readonly label: string; readonly directory: string }): string =>
   AccountLabel.safeParse(profile.label).success ? `Claude profile "${profile.label}"` : `Claude profile in ${profile.directory}`;
+/** Every source profile's name for the reports, by source id: a later provider's by its label. */
+export const profileNames = (records: SourceProfiles): ReadonlyMap<string, string> => new Map([
+  ...records.profiles.map((profile) => [profile.sourceId, profileName(profile)] as const),
+  ...records.deferredProfiles.map((profile) => [profile.sourceId, `profile "${profile.label}"`] as const),
+]);
 
 /** Every collision is checked again inside the owner's transaction, against its current labels. */
 const uniqueLabel = (label: string, taken: ReadonlySet<string>): string => {

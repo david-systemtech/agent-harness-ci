@@ -72,8 +72,8 @@ it("applies exact known names only to mapped Accounts and reports unknown and de
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview).toMatchObject({ result: { carried: { accounts: 2, alwaysOnSkills: 3 }, failed: expect.arrayContaining([
     { label: expect.stringContaining("check-more"), message: expect.stringContaining("unknown") },
-    { label: expect.stringContaining("later"), message: expect.stringContaining("mapped Account") },
-    { label: expect.stringContaining("unlisted"), message: expect.stringContaining("mapped Account") },
+    { label: 'Always-on Skill "missing" (profile "Later")', message: expect.stringContaining("mapped Account") },
+    { label: 'Always-on Skill "missing" (an unnamed source profile)', message: expect.stringContaining("mapped Account") },
   ]) } });
   const answer = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(answer).toMatchObject({ result: { carried: { accounts: 2, alwaysOnSkills: 3 }, failed: expect.any(Array) } });
@@ -142,7 +142,7 @@ it("previews unresolved names and remote sources without git, sync, copies or ta
   const view = await client.request("skills.get", {});
   const own = snapshotOf(view.ownDirectory);
   expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true })).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 0 }, failed: [
-    { label: 'Always-on Skill "check" (missing)', message: expect.stringContaining("mapped Account") },
+    { label: 'Always-on Skill "check" (an unnamed source profile)', message: expect.stringContaining("mapped Account") },
     { label: 'Always-on Skill "write"', message: expect.stringContaining("unreadable") },
   ] } });
   expect(git).not.toHaveBeenCalled();
@@ -197,7 +197,7 @@ it("reuses an existing natural source and Account choice, retains disable rules,
   const sourceId = added.result!.source.id;
   // Give Account adoption its own import, leaving the Skill scope for a later retry.
   writeFileSync(join(source, "skills.json"), JSON.stringify({ ...document, alwaysOn: [{ name: "write", scope: { kind: "profiles", profileIds: ["missing"] } }] }));
-  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { accounts: 1, skillSources: 0, alwaysOnSkills: 0 }, failed: [{ label: expect.stringContaining("missing") }] } });
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { accounts: 1, skillSources: 0, alwaysOnSkills: 0 }, failed: [{ label: 'Always-on Skill "write" (an unnamed source profile)' }] } });
   const accountId = (await client.request("accounts.list", {})).accounts[0]!.id;
   await client.request("skills.setAlwaysOn", { commandId: randomUUID(), name: "write", accountId, on: false });
   await client.request("skills.setEnabled", { commandId: randomUUID(), name: "write", accountId: null, enabled: false });
@@ -232,10 +232,10 @@ it("identifies each mapped Account when an always-on name is unknown or invalid"
   for (const dryRun of [true, false]) {
     const answer = await client.request("stateImport.run", { commandId: randomUUID(), dryRun });
     expect(answer.result?.failed).toEqual([
-      { label: 'Always-on Skill "Invalid!" (personal)', message: expect.stringContaining("validation") },
-      { label: 'Always-on Skill "Invalid!" (work)', message: expect.stringContaining("validation") },
-      { label: 'Always-on Skill "missing" (personal)', message: expect.stringContaining("unknown") },
-      { label: 'Always-on Skill "missing" (work)', message: expect.stringContaining("unknown") },
+      { label: 'Always-on Skill "Invalid!" (Claude profile "Personal")', message: expect.stringContaining("validation") },
+      { label: 'Always-on Skill "Invalid!" (Claude profile "Work")', message: expect.stringContaining("validation") },
+      { label: 'Always-on Skill "missing" (Claude profile "Personal")', message: expect.stringContaining("unknown") },
+      { label: 'Always-on Skill "missing" (Claude profile "Work")', message: expect.stringContaining("unknown") },
     ]);
     expect(answer.result?.carried.alwaysOnSkills).toBe(0);
   }

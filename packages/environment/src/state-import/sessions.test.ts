@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { registry, SessionSnapshot, type SessionCreatedPayload } from "@agent-harness/contracts";
@@ -308,6 +308,19 @@ it("names the profiles sharing a projects folder by their labels in the dry run 
   expect(dry.result?.sharedProjects).toEqual([{ sourceId: work, label: "Work", ownerSourceId: personal, ownerLabel: "Personal" }]);
   const applied = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(applied.result?.sharedProjects).toEqual(dry.result?.sharedProjects);
+  // A mapped profile whose source label was cleared since is named by its directory, never by an empty label.
+  writeFileSync(join(f.source, "profiles.json"), JSON.stringify({ version: 2, profiles: [
+    { id: personal, label: "Personal", providerId: "claude", configDir: f.directories[0], publicEnv: {} },
+    { id: work, providerId: "claude", configDir: f.directories[1], publicEnv: {} },
+  ] }));
+  const preview = await client.request("carryOver.inventory", { source: "state-import" });
+  if (!("accounts" in preview)) throw new Error("Expected listed-source inventories.");
+  const directory = preview.accounts.find((entry) => entry.sourceId === work)?.label;
+  expect(directory).toBe(realpathSync(f.directories[1]!));
+  for (const dryRun of [true, false]) {
+    const again = await client.request("stateImport.run", { commandId: randomUUID(), dryRun });
+    expect(again.result?.sharedProjects).toEqual([{ sourceId: work, label: directory, ownerSourceId: personal, ownerLabel: "Personal" }]);
+  }
 });
 
 it("repairs existing triplicates on re-import, retaining pin and archive state across restart and purge", async () => {

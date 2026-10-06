@@ -2,7 +2,7 @@ import { selectSharedSources } from "./shared-sources.js";
 import { realpath } from "node:fs/promises";
 import { ContractError, type StateImportAccountInventories, type CarryOverInventory } from "@agent-harness/contracts";
 import type { DirectorySource } from "../carry-over/directory-inventory.js";
-import { planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { planAccounts, profileLabel, type PlanAccountsOptions } from "./accounts.js";
 import type { ImportCoordinator } from "./coordinator.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
 import { readSourceProfiles } from "./source/profiles.js";
@@ -34,7 +34,7 @@ export const sourceAccountInventories = (options: Omit<PlanAccountsOptions, "sou
         } catch { failure = "The listed directory's inventory could not be read; retry the preview."; }
       }
       const sharedProjectsWith = shared.sources.find((source) => source.sourceId === entry.sourceId)?.sharedProjectsWith;
-      previews.push({ ...(sharedProjectsWith !== undefined && { sharedProjectsWith }), sourceId: entry.sourceId, label: entry.label, accountId, inventory, failure });
+      previews.push({ ...(sharedProjectsWith !== undefined && { sharedProjectsWith }), sourceId: entry.sourceId, label: profileLabel(entry), accountId, inventory, failure });
     }
     return { accounts: previews, failed: [...plan.failed], later: [...profiles.records.later] };
   });
