@@ -71,6 +71,18 @@
 }
 :where(:root:has([data-phone-frame])) [data-web-client] [data-phone-composer-toolbar] [data-phone-composer-browser] { display: inline-flex; width: 44px; flex-shrink: 0; }
 :where(:root:has([data-phone-frame])) [data-web-client] [data-phone-composer-toolbar] [data-phone-composer-browser] button { width: 44px; }
+/* Wider touch layouts still use the icon control; its label remains available to readers. */
+:where(:root:has([data-phone-frame])) [data-phone-composer-browser] button > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 :where(:root:has([data-phone-frame])) [data-web-client] [data-composer-editor] { padding: 0 8px; }
 :where(:root:has([data-phone-frame])) [data-web-client] [data-composer-actions] { padding-bottom: 4px; }
 :where(:root:has([data-phone-frame])) [data-web-client] [data-composer-card] { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }

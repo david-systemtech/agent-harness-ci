@@ -59,7 +59,7 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
       if (surface === "drawer" || surface === "details") {
         // Overlay captures also use visual-only keyboard sizing, without changing media queries.
         viewport.height = 300; viewport.offsetTop = 8; fit(); await settle();
-        const trigger = surface === "drawer" ? frame.querySelector<HTMLButtonElement>('[aria-label="Show sessions"]') : Array.from(frame.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.trim() === "Run settings");
+        const trigger = surface === "drawer" ? frame.querySelector<HTMLButtonElement>('[aria-label="Show sessions"]') : frame.querySelector<HTMLButtonElement>('[aria-label="Run settings"]');
         trigger!.click(); await settle();
         const selector = surface === "drawer" ? ".phone-frame-drawer" : ".phone-composer-sheet";
         const overlay = document.querySelector<HTMLElement>(selector)!;

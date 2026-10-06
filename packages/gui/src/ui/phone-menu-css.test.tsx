@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
+import { phoneLayoutMedia } from "../frame/phone-frame.js";
 import { Menu, MenuContent, MenuItem, MenuShortcut, MenuTrigger } from "./menu.js";
 
 it("lets phone menu explanations use the row width without a keyboard shortcut column", () => {
@@ -14,13 +15,15 @@ it("lets phone menu explanations use the row width without a keyboard shortcut c
   document.head.append(stylesheet);
   try {
     expect(getComputedStyle(screen.getByText("Ctrl+J")).display).not.toBe("none");
-    const frame = document.createElement("div"); frame.dataset["phoneFrame"] = ""; document.body.append(frame);
-    try {
-      for (const keys of ["Ctrl+J", "Ctrl+Shift+Enter"]) expect(getComputedStyle(screen.getByText(keys)).display).toBe("none");
-      const row = screen.getByRole("menuitem", { name: "Terminal" });
-      expect(getComputedStyle(row).minHeight).toBe("44px");
-      expect(getComputedStyle(row).whiteSpace).toBe("normal");
-      expect(row.textContent).toContain("deliberate re-pair");
-    } finally { frame.remove(); }
+    const media = Array.from(stylesheet.sheet?.cssRules ?? []).find((rule): rule is CSSMediaRule => "cssRules" in rule);
+    expect(media?.conditionText).toBe(phoneLayoutMedia().map(query => query.media).join(", "));
+    // jsdom does not evaluate viewport media queries. Exercise the shipped phone
+    // rules without a frame: standalone dialogs and menus need touch sizing too.
+    stylesheet.textContent = Array.from(media?.cssRules ?? []).map(rule => rule.cssText).join("\n");
+    for (const keys of ["Ctrl+J", "Ctrl+Shift+Enter"]) expect(getComputedStyle(screen.getByText(keys)).display).toBe("none");
+    const row = screen.getByRole("menuitem", { name: "Terminal" });
+    expect(getComputedStyle(row).minHeight).toBe("44px");
+    expect(getComputedStyle(row).whiteSpace).toBe("normal");
+    expect(row.textContent).toContain("deliberate re-pair");
   } finally { stylesheet.remove(); }
 });

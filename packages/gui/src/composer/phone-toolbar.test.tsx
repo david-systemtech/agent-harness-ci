@@ -1,4 +1,5 @@
 // @vitest-environment jsdom-on-node
+import { readFileSync } from "node:fs";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
@@ -189,4 +190,20 @@ it("opens the environment browser choices as a sheet from its toolbar icon", asy
   fireEvent.click(browser);
   const sheet = await screen.findByRole("dialog", { name: "Environment browser" });
   expect(within(sheet).getByRole("button", { name: "Close browser" })).toBeDefined();
+});
+
+it("keeps the phone browser toolbar control icon-sized with its accessible name", async () => {
+  await openPhone();
+  const browser = await screen.findByRole("button", { name: "Environment browser" });
+  const stylesheet = document.createElement("style");
+  stylesheet.textContent = readFileSync(new URL("./phone-conversation.css", import.meta.url), "utf8");
+  document.head.append(stylesheet);
+  try {
+    const label = browser.querySelector("span")!;
+    expect(getComputedStyle(label).position).toBe("absolute");
+    expect(getComputedStyle(label).width).toBe("1px");
+    expect(getComputedStyle(label).overflow).toBe("hidden");
+    fireEvent.click(browser);
+    expect(await screen.findByRole("dialog", { name: "Environment browser" })).toBeDefined();
+  } finally { stylesheet.remove(); }
 });
