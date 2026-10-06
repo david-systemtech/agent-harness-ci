@@ -112,6 +112,9 @@ export const testLauncher = (options: TestLauncherOptions = {}): TestLauncher =>
         const { id, ...request } = message;
         return answer(id, () => scripts["versions?"](request));
       }
+      // Where a start's OS keychain read stands asks nothing of a launcher that commits at once.
+      case "credential-access":
+        return;
       default:
         replies.push(message);
     }

@@ -2,7 +2,7 @@ import { PROTOCOL_VERSION, type PendingUpdate } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { BYE_WAIT_MS } from "./connections/state-machine.js";
 import { createRuntimeWithSeams } from "./internal.js";
-import type { GrantReader } from "./platform.js";
+import type { GrantReader, LocalCredentialAccess } from "./platform.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush } from "./testing/fake-wire.js";
 import { fakeShell, inMemoryPlatform, manualClock, type FakeShell, type ShellFunctions } from "./testing/in-memory-platform.js";
@@ -384,6 +384,75 @@ describe("update-environment on a local environment blocked on an older protocol
     expect(await runtime.connections.updateEnvironment(wire.environmentId)).toMatchObject({ ok: true, toVersion: CLIENT_VERSION });
     expect(wire.credential()).toBe(exchanged);
     expect(wire.updatePosts().map((post) => post.token)).toEqual([exchanged?.token, exchanged?.token]);
+  });
+});
+
+describe("a local environment whose update waits on macOS's prompt for its stored key (#1689)", () => {
+  const since = "2026-10-06T10:34:01.000Z";
+  const waiting = { version: CLIENT_VERSION, pid: 69981, since, state: "waiting", live: true } as const;
+  const prompts = (runtime: Runtime) => runtime.projections.notices.read().filter((notice) => notice.kind === "credential-prompt" || notice.kind === "update-failed");
+  const PROMPT = `macOS is asking to let agent-harness use its stored key: answer “Always Allow” in its dialog to finish the update to ${CLIENT_VERSION}.`;
+
+  /** A desktop whose local environment does not answer, its credential-access record read through `shell` as `read` answers it. */
+  const waitingLocal = async (read: () => LocalCredentialAccess | undefined) => {
+    const shell = fakeShell();
+    shell.answer("credentialAccess.read", async () => read());
+    const local = await blockedLocal(shell);
+    await flush();
+    return { shell, ...local };
+  };
+
+  it("says macOS is asking, on the machine and in a notice, while the record's start waits, and takes both back once it is answered", async () => {
+    let held: LocalCredentialAccess | undefined = waiting;
+    const { runtime, clock } = await waitingLocal(() => held);
+    expect(record(runtime).credentialPrompt).toEqual({ toVersion: CLIENT_VERSION, since });
+    expect(runtime.projections.environments.read()[0]?.credentialPrompt).toEqual({ toVersion: CLIENT_VERSION, since });
+    expect(prompts(runtime).map(({ kind, message }) => ({ kind, message }))).toEqual([{ kind: "credential-prompt", message: PROMPT }]);
+    // The next reads find the same wait: nothing more is said.
+    clock.advance(5000);
+    await flush();
+    expect(prompts(runtime)).toHaveLength(1);
+    // The person chose Always Allow: the start took the record away.
+    held = undefined;
+    clock.advance(5000);
+    await flush();
+    expect(record(runtime).credentialPrompt).toBeUndefined();
+    expect(prompts(runtime)).toEqual([]);
+  });
+
+  it("says the update was rolled back for want of an answer once the waiting start is gone and its record left behind", async () => {
+    let held: LocalCredentialAccess | undefined = waiting;
+    const { runtime, clock } = await waitingLocal(() => held);
+    held = { ...waiting, live: false };
+    clock.advance(5000);
+    await flush();
+    expect(record(runtime).credentialPrompt).toBeUndefined();
+    expect(prompts(runtime).map(({ kind, message }) => ({ kind, message }))).toEqual([
+      {
+        kind: "update-failed",
+        message: `desk could not be updated to ${CLIENT_VERSION}: macOS asked to let agent-harness use its stored key, and the prompt was refused or not answered. Update again, and answer “Always Allow” when macOS asks.`,
+      },
+    ]);
+  });
+
+  it("says nothing of a record a start left long ago, whose process is gone", async () => {
+    const { runtime } = await waitingLocal(() => ({ ...waiting, live: false }));
+    expect(record(runtime).credentialPrompt).toBeUndefined();
+    expect(prompts(runtime)).toEqual([]);
+  });
+
+  it("stops reading the record once the environment answers", async () => {
+    const { runtime, shell, wire, clock } = await waitingLocal(() => undefined);
+    await runtime.connections.updateEnvironment(wire.environmentId);
+    wire.discovery({ protocolVersion: CLIENT_PROTOCOL, harnessVersion: CLIENT_VERSION, capabilities: ["self-update"] });
+    clock.advance(BYE_WAIT_MS);
+    await wire.server.accept({ protocolVersion: CLIENT_PROTOCOL, capabilities: ["self-update"] });
+    await flush();
+    expect(record(runtime).phase).toBe("ready");
+    const reads = shell.calls.filter(([member]) => member === "credentialAccess.read").length;
+    clock.advance(15_000);
+    await flush();
+    expect(shell.calls.filter(([member]) => member === "credentialAccess.read")).toHaveLength(reads);
   });
 });
 

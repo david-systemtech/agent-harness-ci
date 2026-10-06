@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,7 @@ import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   childReport,
+  CREDENTIAL_ANSWER_FILE,
   databaseFilesIn,
   fakeTimer,
   installVersion,
@@ -24,7 +26,7 @@ import {
   type ScriptedStart,
   type VersionLayout,
 } from "../../test/launcher-fixtures.js";
-import { DRAIN_ASK_INTERVAL_MS, RELAUNCH_EXIT_CODE, startLauncher, type Launcher, type TrialFailure } from "./launcher.js";
+import { CREDENTIAL_WAIT_MS, DRAIN_ASK_INTERVAL_MS, RELAUNCH_EXIT_CODE, startLauncher, TRIAL_DEADLINE_MS, type Launcher, type TrialFailure } from "./launcher.js";
 import { hasSnapshot, RESTORE_MARKER_FILE, snapshotDirectory, takeSnapshot } from "./snapshot.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "./state.js";
 import { completeVersions } from "./versions.js";
@@ -99,7 +101,9 @@ interface Running {
  * version the service state names the launcher's, as the launcher entry
  * starts it.
  */
-const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number; version?: string } = {}): Running => {
+const launch = (
+  options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number; version?: string; endChild?: (child: ChildProcess) => void } = {},
+): Running => {
   const dataDir = options.dataDir ?? dataDirectory();
   if (options.dataDir === undefined) {
     installVersion(dataDir, "0.5.0");
@@ -115,6 +119,7 @@ const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir
     timer,
     freeBytes: options.freeBytes ?? (() => 2 ** 40),
     ...(version === undefined ? {} : { version }),
+    endChild: options.endChild,
   });
   const stop = async (): Promise<number> => {
     const nextAsk = setInterval(() => {
@@ -446,6 +451,47 @@ describe.runIf(posix)("the launcher", () => {
   });
 });
 
+describe.runIf(posix)("the launcher's end, a stop that does not drain (#1712)", () => {
+  /** Ends a child as the launcher's preset does, and records that it was asked to. */
+  const recordingEnd = () => {
+    const ended: number[] = [];
+    return { ended, endChild: (child: ChildProcess) => void (ended.push(child.pid ?? -1), child.kill("SIGKILL")) };
+  };
+
+  it("ends a committed child at once, asking it nothing, and settles with 0, restarting nothing", async () => {
+    const end = recordingEnd();
+    const running = launch({ endChild: end.endChild });
+    await until("the child commits", () => running.log().includes("launcher: 0.5.0 committed"));
+    expect(await running.launcher.end()).toBe(0);
+    expect(end.ended).toHaveLength(1);
+    expect(running.log()).toContain("launcher: stopping: 0.5.0 is ended at once, without a drain");
+    expect(running.report().some((line) => (line["message"] as { type?: string } | undefined)?.type === "drain?")).toBe(false);
+    expect(running.report().filter((line) => line.event === "drained")).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(running.report().filter((line) => line.event === "started")).toHaveLength(1);
+    expect(running.timer.pending()).toEqual([]);
+  });
+
+  it("ends at once a child that a stop is still draining", async () => {
+    const dataDir = dataDirectory();
+    installVersion(dataDir, "0.5.0");
+    writeServiceState(dataDir, state("0.5.0"));
+    scriptChild(dataDir, ["deaf-once"]);
+    const end = recordingEnd();
+    const running = launch({ dataDir, endChild: end.endChild });
+    await until("the child commits", () => running.log().includes("launcher: 0.5.0 committed"));
+    const stopping = running.launcher.stop();
+    await until("the first drain? is heard", () => running.report().some((line) => (line["message"] as { type?: string } | undefined)?.type === "drain?"));
+    expect(await running.launcher.end()).toBe(0);
+    expect(await stopping).toBe(0);
+    expect(end.ended).toHaveLength(1);
+    expect(running.log().filter((line) => line.startsWith("launcher: stopping"))).toEqual([
+      "launcher: stopping: draining 0.5.0",
+      "launcher: stopping: 0.5.0 is ended at once, without a drain",
+    ]);
+  });
+});
+
 const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
 /** The update the tests below switch for: 0.4.0 to 0.5.0. */
 const update = { updateId, fromVersion: "0.4.0", toVersion: "0.5.0" } as const;
@@ -652,6 +698,57 @@ describe.runIf(posix)("the launcher rolling an update back", () => {
     silent.timer.runNext();
     await silent.events("started", 3);
     expect(silent.log()).toContain(`launcher: 0.5.0 fails the trial of update ${updateId}: it did not say prepared within 120 s of its spawn, so it is ended`);
+  });
+
+  describe("while a trial's OS keychain read waits on the person (#1689)", () => {
+    /** A launcher whose trial of 0.5.0 says its stored key waits on the person, once the deadline has paused for it. */
+    const waitingTrial = async (credential: "answered" | "refused") => {
+      const dataDir = beforeAnUpdate([switching(), { credential, writes: ["written by the trial"] }]);
+      const before = databaseFilesIn(dataDir);
+      const running = launch({ dataDir });
+      await running.events("credential-waiting");
+      await until("the trial's deadline pauses", () => running.log().some((line) => line.startsWith("launcher: 0.5.0 waits on the person")));
+      return { dataDir, before, running, answer: () => writeFileSync(join(dataDir, CREDENTIAL_ANSWER_FILE), "") };
+    };
+
+    it("pauses the deadline, so a read that returns long past it still commits", async () => {
+      const { dataDir, running, answer } = await waitingTrial("answered");
+      expect(running.timer.pending()).toEqual([CREDENTIAL_WAIT_MS]);
+      expect(running.log()).toContain(
+        "launcher: 0.5.0 waits on the person to let it read its stored key (the OS is asking them), so its trial's deadline pauses for up to 10 min",
+      );
+      // Long past the 120 seconds a trial had, the person answers.
+      running.timer.advance(TRIAL_DEADLINE_MS * 3);
+      answer();
+      await until("the trial commits", () => running.log().some((line) => line.startsWith("launcher: 0.5.0 committed")));
+      expect(running.log()).toContain("launcher: 0.5.0 may read its stored key, so its trial's deadline resumes with 120 s left");
+      expect(stateIn(dataDir)).toMatchObject({ activeVersion: "0.5.0", previousVersion: "0.4.0", pendingUpdate: null });
+      expect(existsSync(join(dataDir, "update-outcome.json"))).toBe(false);
+    });
+
+    it("ends the trial at reason credential when nobody answers within the wait's limit, and rolls it back", async () => {
+      const { dataDir, before, running } = await waitingTrial("answered");
+      running.timer.run(CREDENTIAL_WAIT_MS);
+      const [, , old] = await running.events("started", 3);
+      expect(old).toMatchObject({ version: "0.4.0" });
+      expect(running.log()).toContain(
+        `launcher: 0.5.0 fails the trial of update ${updateId}: the OS's prompt to let it read its stored key was not answered within 10 min, so it is ended`,
+      );
+      expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "trial", reason: "credential" });
+      expect(databaseFilesIn(dataDir)).toEqual(before);
+      expect(stateIn(dataDir)).toEqual(state("0.4.0"));
+    });
+
+    it("rolls the trial back at reason credential when the person refuses and it exits", async () => {
+      const { dataDir, before, running, answer } = await waitingTrial("refused");
+      answer();
+      const [, , old] = await running.events("started", 3);
+      expect(old).toMatchObject({ version: "0.4.0" });
+      expect(running.log()).toContain("launcher: 0.5.0 was refused its stored key");
+      expect(running.log()).toContain(`launcher: rolling update ${updateId} back to 0.4.0: its trial failed (credential)`);
+      expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "trial", reason: "credential" });
+      expect(databaseFilesIn(dataDir)).toEqual(before);
+    });
   });
 
   it("keeps the snapshot a second switch? with the same update id finds, and takes none again", async () => {

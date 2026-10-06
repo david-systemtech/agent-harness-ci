@@ -4,14 +4,19 @@ rem "agent-harness service uninstall" removes it. The logon task runs it, and it
 rem starts the launcher of the version the launcher version file names, again 5
 rem seconds after each non-zero exit (a crash, or a handover to a newer launcher),
 rem since Task Scheduler restarts a task only when it could not start it. With no
-rem such version it exits. The launcher's lines go to the service log. The line
-rem that runs the launcher ends in its own exits, since cmd reads this file by
+rem such version it exits. The launcher writes the service log itself, which
+rem AGENT_HARNESS_SERVICE_LOG names: cmd holds a file it redirects to for itself
+rem alone, so a second launcher could not start while one ran, nor say why. Its
+rem restart line it tries again for a few seconds while another holds the log,
+rem then leaves the code in AGENT_HARNESS_UNLOGGED_EXIT for the next launcher to write.
+rem The line that runs the launcher ends in its own exits, since cmd reads this file by
 rem offset and install may replace it while the launcher runs. It counts the
 rem starts of a launcher handed over to until that launcher confirms, and after
 rem 3 unconfirmed starts names the launcher that handed over again.
 setlocal EnableExtensions DisableDelayedExpansion
 set "DATA_DIR=C:\Users\david\AppData\Local\agent-harness"
 set "LOG=%DATA_DIR%\logs\service.log"
+set "AGENT_HARNESS_SERVICE_LOG=%LOG%"
 :start
 set "VERSION="
 if exist "%DATA_DIR%\launcher-version" findstr /r "[^0-9A-Za-z.+-]" "%DATA_DIR%\launcher-version" >nul && goto no_version
@@ -36,9 +41,14 @@ move /y "%DATA_DIR%\.launcher-version.tmp" "%DATA_DIR%\launcher-version" >nul
 set "VERSION=%FROM%"
 :run
 if not exist "%DATA_DIR%\versions\%VERSION%\.complete" goto not_complete
-"%DATA_DIR%\versions\%VERSION%\node\node.exe" "%DATA_DIR%\versions\%VERSION%\packages\cli\dist\main.js" launch --data-dir C:\Users\david\AppData\Local\agent-harness --port 7433 --name ^"David's desk^" >>"%LOG%" 2>&1 && exit /b 0 || goto restart
+"%DATA_DIR%\versions\%VERSION%\node\node.exe" "%DATA_DIR%\versions\%VERSION%\packages\cli\dist\main.js" launch --data-dir C:\Users\david\AppData\Local\agent-harness --port 7433 --name ^"David's desk^" && exit /b 0 || goto restart
 :restart
->>"%LOG%" echo launcher entry: the launcher exited with code %ERRORLEVEL%, so it starts again in 5 s.
+set "CODE=%ERRORLEVEL%"
+set "TRIES=0"
+set "AGENT_HARNESS_UNLOGGED_EXIT="
+:restart_line
+set /a "TRIES+=1"
+(>>"%LOG%" echo launcher entry: the launcher exited with code %CODE%, so it starts again in 5 s.) 2>nul || (if %TRIES% LSS 5 (ping -n 2 127.0.0.1 >nul & goto restart_line) else set "AGENT_HARNESS_UNLOGGED_EXIT=%CODE%")
 ping -n 6 127.0.0.1 >nul
 goto start
 :no_version

@@ -132,6 +132,27 @@ describe("the launcher channel's startup handshake", () => {
   });
 });
 
+describe("the start's word on its OS keychain read (#1689)", () => {
+  it("tells the launcher where a read waiting on the person stands, as a message the launcher reads", () => {
+    const { proc, sent } = ipcProcess();
+    const channel = processLauncherChannel(proc);
+    channel.credentialAccess?.("waiting");
+    channel.credentialAccess?.("answered");
+    expect(sent).toEqual([
+      { type: "credential-access", state: "waiting" },
+      { type: "credential-access", state: "answered" },
+    ]);
+    expect(sent.map(parseEnvironmentMessage)).toEqual(sent);
+  });
+
+  it("says nothing once the launcher's channel is gone, or with no launcher", () => {
+    const gone = ipcProcess({ connected: false });
+    processLauncherChannel(gone.proc).credentialAccess?.("waiting");
+    expect(gone.sent).toEqual([]);
+    expect(() => processLauncherChannel(foregroundProcess()).credentialAccess?.("waiting")).not.toThrow();
+  });
+});
+
 describe("the environment's requests to the launcher", () => {
   it("asks install?, switch? and versions?, each with an id, and settles each with the answer that repeats its id", async () => {
     const { proc, sent, deliver } = ipcProcess();

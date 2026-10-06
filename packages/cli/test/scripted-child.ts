@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { parseLauncherMessage, type EnvironmentMessage } from "@agent-harness/contracts/launcher";
 import { SERVICE_STATE_FILE } from "../src/launch/state.js";
 import { VERSION_SENTINEL, versionDirectory } from "../src/launch/versions.js";
-import { CHILD_REPORT_FILE, CHILD_SCRIPT_FILE, writeDatabase, type ChildEvent, type ChildStart, type ScriptedStart } from "./launcher-fixtures.js";
+import { CHILD_REPORT_FILE, CHILD_SCRIPT_FILE, CREDENTIAL_ANSWER_FILE, writeDatabase, type ChildEvent, type ChildStart, type ScriptedStart } from "./launcher-fixtures.js";
 
 const args = process.argv.slice(2);
 const dataDir = args[args.indexOf("--data-dir") + 1] ?? ".";
@@ -24,7 +24,7 @@ const start = readLines(reportPath).filter((line) => (JSON.parse(line) as ChildE
 const scriptPath = join(dataDir, CHILD_SCRIPT_FILE);
 const script = existsSync(scriptPath) ? (JSON.parse(readFileSync(scriptPath, "utf8")) as ChildStart[]) : [];
 const scripted = script[start] ?? "serve";
-const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo, install, busyFor = 0 }: ScriptedStart =
+const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo, install, busyFor = 0, says, credential }: ScriptedStart =
   typeof scripted === "string" ? { behaviour: scripted } : scripted;
 
 const report = (event: string, detail: Record<string, unknown> = {}) =>
@@ -43,7 +43,13 @@ const leave = (code: number) => {
 };
 
 if (writes !== undefined) writeDatabase(dataDir, writes, "open");
-report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort() });
+report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort(), serviceLogVariable: process.env["AGENT_HARNESS_SERVICE_LOG"] ?? null,
+  unloggedExitVariable: process.env["AGENT_HARNESS_UNLOGGED_EXIT"] ?? null,
+});
+if (says !== undefined) {
+  process.stdout.write(`${says} on standard output\n`);
+  process.stderr.write(`${says} on standard error\n`);
+}
 
 if (behaviour === "crash") process.exit(1);
 if (behaviour === "exit-0") process.exit(0);
@@ -114,4 +120,13 @@ if (spoilsState) {
   rmSync(join(dataDir, SERVICE_STATE_FILE));
   mkdirSync(join(dataDir, SERVICE_STATE_FILE, "in-the-way"), { recursive: true });
 }
-if (behaviour !== "silent") send({ type: "prepared", version: preparedAs ?? version });
+const prepare = () => send({ type: "prepared", version: preparedAs ?? version });
+if (credential !== undefined) {
+  send({ type: "credential-access", state: "waiting" }, () => report("credential-waiting"));
+  // The person's answer to the OS's prompt: the test writes it when it has seen the deadline pause.
+  const answered = setInterval(() => {
+    if (!existsSync(join(dataDir, CREDENTIAL_ANSWER_FILE))) return;
+    clearInterval(answered);
+    send({ type: "credential-access", state: credential }, () => (credential === "answered" ? prepare() : process.exit(1)));
+  }, 20);
+} else if (behaviour !== "silent") prepare();

@@ -74,7 +74,7 @@ const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
 export const AddAMachine = ({ added }: { readonly added: (environmentId: string) => void }) => {
   const runtime = useRuntime();
   const shell = useShell();
-  const { part } = useSettings();
+  const { part, open } = useSettings();
   const home = homeEnvironment(useObservable(runtime.projections.environments));
   const heading = useId();
   const camera = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.camera");
@@ -87,7 +87,7 @@ export const AddAMachine = ({ added }: { readonly added: (environmentId: string)
       </h3>
       <Part title="Pair with it">
         <p className="text-sm text-ink-muted">Paste the link or the code the other machine shows: in its own Set up, from its terminal's pair, or in the install script's last lines.</p>
-        <PairingForm onPaired={added} scanQr={scanQr} autoFocus={part === "add-a-machine"} />
+        <PairingForm onPaired={added} scanQr={scanQr} autoFocus={part === "add-a-machine"} toBrowserOrigins={(environmentId) => open("environments.machines", environmentId, "browser-origins")} />
         {camera.status === "absent" && webCameraFor(runtime) === undefined && <p className="text-xs text-ink-faint">Scan a QR: {camera.message}</p>}
       </Part>
       <Part title="Install on another machine">

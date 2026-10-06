@@ -101,7 +101,7 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
 
   return {
     kind: "task-scheduler",
-    // `/End` sends the launcher no signal, so a stop ends it at once and drains nothing.
+    // A stop ends the task's process tree at once and drains nothing: `/End` sends the launcher no signal.
     drainsOnStop: false,
     definitionPath: () => `\\${name}`,
     install: async (spec, { restartRunning }) => {
@@ -140,11 +140,14 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
       return { createdDirectories: [] };
     },
     uninstall: async () => {
-      await stopWindowsTask(commands);
+      await stopWindowsTask(commands, "uninstall");
       await schtasks("/Delete", "/TN", name, "/F");
     },
     start: async () => {
       await schtasks("/Run", "/TN", name);
+    },
+    stop: async () => {
+      await stopWindowsTask(commands, "stop");
     },
     isInstalled: async () => (await commands.probe("schtasks", ["/Query", "/TN", name])).code === 0,
     isRunning,

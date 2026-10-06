@@ -5,6 +5,7 @@ import {
   DRAIN_CAP_MS,
   LAUNCHER_PROTOCOL,
   parseEnvironmentMessage,
+  type CredentialAccessState,
   type EnvironmentRequest,
   type LauncherMessage,
   type Numbered,
@@ -74,6 +75,13 @@ export const DRAIN_ASK_INTERVAL_MS = 1_000;
 export const SWITCH_EXIT_WAIT_MS = DRAIN_CAP_MS + 60_000;
 /** How long after its spawn a trial has to say `prepared` for its version (ADR 0007). */
 export const TRIAL_DEADLINE_MS = 120_000;
+/**
+ * How long a child's deadline pauses while its OS keychain read waits on the
+ * person (#1689): macOS asks them to let a binary it does not yet trust read
+ * the environment's stored key, and an update must not be rolled back while
+ * that prompt waits. Past it, the trial fails at `credential`.
+ */
+export const CREDENTIAL_WAIT_MS = 10 * 60_000;
 /** How long after its commit a version is watched for a crash loop; the deadline goes into the service state. */
 export const WATCH_MS = 10 * 60_000;
 /** How many unexpected exits within the watch make a crash loop, which rolls the watched update back. */
@@ -98,11 +106,13 @@ export const UNCONFIRMED_EXIT_CODE = 1;
 /**
  * Why an update's trial failed, the reason its outcome record gives: its
  * target exited before saying `prepared`, missed the deadline, said
- * `prepared` for another version, or could not be committed; the snapshot
+ * `prepared` for another version, or could not be committed; the person did
+ * not let it read its stored key (refused, or left the OS's prompt
+ * unanswered past `CREDENTIAL_WAIT_MS`); the snapshot
  * could not be taken, so the target never ran; or the launcher stopped before
  * the commit, and found the update pending at its next start.
  */
-export type TrialFailure = "exit" | "deadline" | "version" | "commit" | "snapshot" | "interrupted";
+export type TrialFailure = "exit" | "deadline" | "version" | "commit" | "credential" | "snapshot" | "interrupted";
 
 /** The clock and the waits the launcher runs on; a seam for tests. */
 export interface LauncherTimer {
@@ -134,6 +144,12 @@ export interface LauncherOptions {
   readonly name?: string | undefined;
   /** Writes one line to the service log. Preset: the launcher's standard output, which the service definition sends to the service log. */
   readonly log?: (line: string) => void;
+  /** The file descriptor the child's standard output and error go to: the service log's, when the launcher writes it. Preset: the launcher's own. */
+  readonly output?: number | undefined;
+  /** The variables the child runs with. Preset: the launcher's own. */
+  readonly env?: NodeJS.ProcessEnv | undefined;
+  /** Ends the child at once, with what it started, for `end`. Preset: SIGKILL to the child alone. */
+  readonly endChild?: ((child: ChildProcess) => void) | undefined;
   /** Preset: the system's clock and timers. */
   readonly timer?: LauncherTimer;
   /** The bytes free on the disk holding the data directory, which a snapshot and an installed version need room on. Preset: the file system's count. */
@@ -145,6 +161,13 @@ export interface LauncherOptions {
 export interface Launcher {
   /** The service manager's stop: drains the child and settles once its channel has closed, with 0. The same stop however often it is asked. */
   stop(): Promise<number>;
+  /**
+   * A stop that does not drain (#1712): the child is ended at once, through
+   * `endChild`, even when a stop already drains it, and the launcher settles
+   * with 0 once its channel has closed. What the launcher does when the
+   * process that started its entry has ended.
+   */
+  end(): Promise<number>;
   /**
    * Settles once the launcher has stopped, with the code its process exits
    * with: 0 after the service manager's stop, `RELAUNCH_EXIT_CODE` after a
@@ -169,11 +192,26 @@ interface Child {
   switching?: PendingUpdate;
   /** Cancels the wait on it: its trial's deadline, or the end of its time to exit after switching. */
   cancelWait?: () => void;
+  /** The deadline it has to say `prepared` by, while one runs: what it does when missed, and the time it has left, which a credential wait pauses. */
+  deadline?: Deadline;
+  /** Where its OS keychain read stands, once it said its read waits on the person. */
+  credential?: CredentialAccessState;
+}
+
+/** A child's deadline to say `prepared` (ADR 0007): `left` from `armedAt`, or paused at `left` while it waits on the person. */
+interface Deadline {
+  readonly miss: (reason: TrialFailure, why: string) => void;
+  left: number;
+  armedAt: number;
+  paused: boolean;
 }
 
 /** How a child ended, as the service log says it. */
 const ending = (code: number | null, signal: NodeJS.Signals | null): string =>
   code !== null ? `exited with code ${code}` : signal !== null ? `was ended by ${signal}` : "ended";
+
+/** One line of the service log the launcher writes, at `time`. */
+export const launcherLine = (time: number, text: string): string => `${new Date(time).toISOString()} launcher: ${text}`;
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -184,7 +222,9 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   const timer = options.timer ?? systemTimer;
   const freeBytes = options.freeBytes ?? freeBytesOn;
   const write = options.log ?? ((line: string) => void process.stdout.write(`${line}\n`));
-  const log = (text: string) => write(`${new Date(timer.now()).toISOString()} launcher: ${text}`);
+  const log = (text: string) => write(launcherLine(timer.now(), text));
+  const output = options.output ?? "inherit";
+  const endChild = options.endChild ?? ((ended: ChildProcess) => void ended.kill("SIGKILL"));
   const newCandidates = new Set<string>();
   const installer = createInstaller({ dataDir, timer, freeBytes, log, onInstalled: (version) => newCandidates.add(version) });
 
@@ -546,6 +586,47 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     }
   };
 
+  /** Waits for `started` to say `prepared` within `TRIAL_DEADLINE_MS` of its spawn, calling `miss` when it does not. */
+  const awaitPrepared = (started: Child, miss: Deadline["miss"]) => {
+    started.deadline = { miss, left: TRIAL_DEADLINE_MS, armedAt: timer.now(), paused: false };
+    armDeadline(started, started.deadline);
+  };
+
+  const armDeadline = (which: Child, deadline: Deadline) => {
+    const paused = deadline.left < TRIAL_DEADLINE_MS ? ", its wait on its stored key aside" : "";
+    which.cancelWait = timer.after(deadline.left, () => deadline.miss("deadline", `it did not say prepared within ${TRIAL_DEADLINE_MS / 1000} s of its spawn${paused}`));
+  };
+
+  /**
+   * Hears where `from`'s OS keychain read stands (#1689): while it waits on
+   * the person, the deadline to say `prepared` pauses for up to
+   * `CREDENTIAL_WAIT_MS`, and resumes with the time it had left once the
+   * read returned. A refusal is remembered, so the exit it leads to fails
+   * the trial at `credential`.
+   */
+  const credentialAccess = (from: Child, state: CredentialAccessState) => {
+    const { deadline } = from;
+    if (from.committed || from.failed !== undefined || from.ended || deadline === undefined) return;
+    from.credential = state;
+    if (state === "waiting") {
+      if (deadline.paused) return;
+      from.cancelWait?.();
+      deadline.left = Math.max(0, deadline.left - (timer.now() - deadline.armedAt));
+      deadline.paused = true;
+      from.cancelWait = timer.after(CREDENTIAL_WAIT_MS, () =>
+        deadline.miss("credential", `the OS's prompt to let it read its stored key was not answered within ${CREDENTIAL_WAIT_MS / 60_000} min`),
+      );
+      return log(`${from.version} waits on the person to let it read its stored key (the OS is asking them), so its trial's deadline pauses for up to ${CREDENTIAL_WAIT_MS / 60_000} min`);
+    }
+    if (state === "refused") return log(`${from.version} was refused its stored key`);
+    if (!deadline.paused) return;
+    from.cancelWait?.();
+    deadline.paused = false;
+    deadline.armedAt = timer.now();
+    armDeadline(from, deadline);
+    log(`${from.version} may read its stored key, so its trial's deadline resumes with ${Math.ceil(deadline.left / 1000)} s left`);
+  };
+
   const hear = (from: Child, raw: unknown) => {
     const message = parseEnvironmentMessage(raw);
     switch (message?.type) {
@@ -559,6 +640,8 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
         if (handedOverFrom !== undefined) confirmHandover(from.version);
         askIdle();
         return;
+      case "credential-access":
+        return credentialAccess(from, message.state);
       case "switch?":
         return switchFor(from, message);
       case "versions?": {
@@ -660,7 +743,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     log(`${which.version} ${how}`);
     if (stopping) return finish();
     if (which.switching !== undefined) return beginTrial(which.switching);
-    if (which.trial !== undefined && !which.committed) return rollBack(which.trial, which.failed ?? "exit", true);
+    if (which.trial !== undefined && !which.committed) return rollBack(which.trial, which.failed ?? (which.credential === "waiting" || which.credential === "refused" ? "credential" : "exit"), true);
     if (handedOverFrom !== undefined && !which.committed) return notConfirmed(`${which.version} ${how} before it passed the gate`);
     if (clean) {
       exitsInARow = 0;
@@ -684,7 +767,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     const [node, entry] = versionCommand(versionDirectory(dataDir, version));
     const serve = ["serve", "--data-dir", dataDir, ...(port === undefined ? [] : ["--port", String(port)]), ...(name === undefined ? [] : ["--name", name])];
     const started: Child = {
-      process: spawn(node, [entry, ...serve], { stdio: ["ignore", "inherit", "inherit", "ipc"] }),
+      process: spawn(node, [entry, ...serve], { stdio: ["ignore", output, output, "ipc"], env: options.env ?? process.env }),
       version,
       spawnedAt: timer.now(),
       trial,
@@ -705,10 +788,10 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
       else log(`${version}: ${error.message}`);
     });
     if (trial !== undefined) {
-      started.cancelWait = timer.after(TRIAL_DEADLINE_MS, () => fail(started, "deadline", `it did not say prepared within ${TRIAL_DEADLINE_MS / 1000} s of its spawn`));
+      awaitPrepared(started, (reason, why) => fail(started, reason, why));
     } else if (handedOverFrom !== undefined) {
       // Under a launcher handed over to, the child's gate is the trial of that launcher.
-      started.cancelWait = timer.after(TRIAL_DEADLINE_MS, () => notConfirmed(`${version} did not say prepared within ${TRIAL_DEADLINE_MS / 1000} s of its spawn`));
+      awaitPrepared(started, (reason, why) => notConfirmed(reason === "deadline" ? `${version} ${why.replace(/^it /, "")}` : `${version} waited on its stored key: ${why}`));
     }
     if (spawned.pid !== undefined) log(`spawned ${version} as pid ${spawned.pid}${trial === undefined ? "" : `, the trial of update ${trial.updateId}`}`);
   };
@@ -749,14 +832,25 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
 
   begin();
 
+  /** Ends the running child at once, with what it started, rather than waiting for its drain. */
+  const endAtOnce = (current: Child) => {
+    if (current.ended) return;
+    log(`stopping: ${current.version} is ended at once, without a drain`);
+    endChild(current.process);
+  };
+
   /**
    * Stops the launcher, to exit with `code`: the installer and every wait
    * are stopped, and the child is drained (or ended, when it has not
-   * committed); `stopped` settles once it has gone. The same stop however
-   * often it is asked.
+   * committed, or when `drain` is false); `stopped` settles once it has gone.
+   * The same stop however often it is asked, except that a stop that does
+   * not drain ends a child a stop before it is draining.
    */
-  function halt(code: number): Promise<number> {
-    if (stopping) return stopped;
+  function halt(code: number, drain = true): Promise<number> {
+    if (stopping) {
+      if (!drain && child !== undefined) endAtOnce(child);
+      return stopped;
+    }
     stopping = true;
     exitCode = code;
     installer.stop();
@@ -765,6 +859,8 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     if (current === undefined) {
       log("stopping: no child is running");
       finish();
+    } else if (!drain) {
+      endAtOnce(current);
     } else if (!current.process.connected) {
       // It closed its channel as it drained by itself, and its exit settles the stop.
       log(`stopping: ${current.version} is already going`);
@@ -785,6 +881,10 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
       // The service manager's stop exits 0, even in the middle of a handover, whose files are written: the next start is the new launcher's.
       exitCode = 0;
       return halt(0);
+    },
+    end: () => {
+      exitCode = 0;
+      return halt(0, false);
     },
     stopped,
   };

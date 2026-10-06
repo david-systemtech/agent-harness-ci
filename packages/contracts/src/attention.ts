@@ -10,6 +10,7 @@ export type AttentionPayload = z.infer<typeof AttentionPayload>;
 /** Transport-specific data stays in the environment and is never returned in status. */
 export const AttentionTargetInput = z.strictObject({
   id: z.string().min(1).max(100),
+  label: z.string().min(1).max(200).optional().meta({ description: "A name for people, shown in place of the id; a push registration names its browser and when it was enabled." }),
   transport: z.enum(["webhook", "push"]).meta({ description: "Closed-client delivery transport: signed webhook or Web Push." }),
   enabled: z.boolean(),
   completion: z.boolean(),

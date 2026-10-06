@@ -23,6 +23,8 @@ export interface SettingsWindow {
   readonly picked: string | undefined;
   /** The part of the row's pane the last opening asked to go to; undefined when it asked for none. */
   readonly part: SettingsPart | undefined;
+  /** How many times Settings was opened, so a part an opening asks for again is gone to again. */
+  readonly openings: number;
   /** Opens Settings on `row` (the last row opened when none is named), on `environmentId` where its pane picks one, at `part` of its pane. */
   open(row?: SettingsRowId | null, environmentId?: string, part?: SettingsPart): void;
   close(): void;
@@ -30,8 +32,8 @@ export interface SettingsWindow {
   pick(environmentId: string): void;
 }
 
-/** A part of a pane an opening may go to, which takes the focus: Your machines' Add a machine (#577), About's Managed tools (#426). */
-export type SettingsPart = "add-a-machine" | "managed-tools";
+/** A part of a pane an opening may go to, which takes the focus: Your machines' Add a machine (#577) and the picked environment's Browser origins (#1713), About's Managed tools (#426). */
+export type SettingsPart = "add-a-machine" | "browser-origins" | "managed-tools";
 
 const SettingsContext = createContext<SettingsWindow | null>(null);
 const NoticeHostContext = createContext<{ host: HTMLDivElement | null; setHost: (host: HTMLDivElement | null) => void } | null>(null);
@@ -61,12 +63,14 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
   const noticeHost = useMemo(() => ({ host, setHost }), [host]);
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const [part, setPart] = useState<SettingsPart | undefined>(undefined);
+  const [openings, setOpenings] = useState(0);
 
   const open = useCallback(
     (row?: SettingsRowId | null, environmentId?: string, at?: SettingsPart) => {
       if (row !== undefined && row !== null) keepRow(row);
       if (environmentId !== undefined) setPicked(environmentId);
       setPart(at);
+      setOpenings((count) => count + 1);
       setShown(true);
     },
     [keepRow],
@@ -83,7 +87,7 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
     });
   }, [runtime, shell, open]);
 
-  const settings = useMemo<SettingsWindow>(() => ({ shown, row: readStoredRow(stored), picked, part, open, close, pick: setPicked }), [shown, stored, picked, part, open, close]);
+  const settings = useMemo<SettingsWindow>(() => ({ shown, row: readStoredRow(stored), picked, part, openings, open, close, pick: setPicked }), [shown, stored, picked, part, openings, open, close]);
   return <SettingsContext value={settings}><NoticeHostContext value={noticeHost}>{children}</NoticeHostContext></SettingsContext>;
 };
 

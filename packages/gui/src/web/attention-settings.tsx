@@ -16,6 +16,8 @@ export interface AttentionSettingsProps {
   readonly onRemove: (id: string, global: boolean) => void;
   readonly onRefresh: () => void;
 }
+/** A target is named by its label; a push registration's id is an opaque client session id that means nothing to a person. */
+export const attentionTargetLabel = (target: AttentionTargetStatus): string => target.label ?? (target.transport === "push" ? "Web Push registration" : target.id);
 /** Status and preference controls never receive transport endpoints, keys or secrets. */
 export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRemove, onRefresh }: AttentionSettingsProps) => (
   <section data-attention-settings className="flex min-w-0 flex-col gap-3 break-words text-base">
@@ -26,17 +28,18 @@ export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRem
     {targets.length === 0 && <p role="status">No delivery targets are registered. Enable Web Push or choose a configured fallback when that transport is available.</p>}
     {targets.map(target => {
       const locked = busy || (target.global && !admin);
+      const label = attentionTargetLabel(target);
       return <article key={target.id} className="flex min-w-0 flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
-        <h3 className="break-all font-semibold">{target.id}</h3>
+        <h3 className="font-semibold">{label}</h3>
         <p>{target.transport === "push" ? "Web Push" : "Signed webhook"} · {target.global ? "Global route" : "This client"} · <span role="status">{target.state}</span></p>
         {target.state === "unavailable" && <p className="text-ink-muted">The delivery transport or canonical HTTPS origin is unavailable. In-app attention cannot alert a closed browser.</p>}
         {target.failure && <p role="alert" className="text-signal">{target.failure}</p>}
         <div className="flex flex-wrap gap-2">
-          <Button className="h-11" title={`${target.enabled ? "Disable" : "Enable"} ${target.id}`} aria-label={`${target.enabled ? "Disable" : "Enable"} ${target.id}`} disabled={locked} onClick={() => onConfigure(target.id, !target.enabled, target.completion, target.global)}>{target.enabled ? "Disable" : "Enable"}</Button>
-          <Button className="h-11" title={`Remove ${target.id}`} aria-label={`Remove ${target.id}`} disabled={locked} onClick={() => onRemove(target.id, target.global)}>Remove</Button>
+          <Button className="h-11" title={`${target.enabled ? "Disable" : "Enable"} ${label}`} aria-label={`${target.enabled ? "Disable" : "Enable"} ${label}`} disabled={locked} onClick={() => onConfigure(target.id, !target.enabled, target.completion, target.global)}>{target.enabled ? "Disable" : "Enable"}</Button>
+          <Button className="h-11" title={`Remove ${label}`} aria-label={`Remove ${label}`} disabled={locked} onClick={() => onRemove(target.id, target.global)}>Remove</Button>
         </div>
         <label className="flex min-h-11 cursor-pointer items-center gap-3">
-          <input type="checkbox" className="size-5 shrink-0" aria-label={`Routine completions for ${target.id}`} checked={target.completion} disabled={locked} onChange={event => onConfigure(target.id, target.enabled, event.target.checked, target.global)} />
+          <input type="checkbox" className="size-5 shrink-0" aria-label={`Routine completions for ${label}`} checked={target.completion} disabled={locked} onChange={event => onConfigure(target.id, target.enabled, event.target.checked, target.global)} />
           <span>Also deliver routine completions (silent outcomes stay quiet)</span>
         </label>
       </article>;

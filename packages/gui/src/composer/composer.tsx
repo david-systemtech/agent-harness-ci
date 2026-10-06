@@ -313,7 +313,7 @@ export const Composer = ({ environmentId, sessionId, authoring = false }: Compos
                   <Paperclip aria-hidden="true" />
                 </IconButton>
                 <AttachmentPicker attachments={attachments} />
-                <span className="ml-auto hidden text-2xs text-ink-faint min-[640px]:inline">{sendKey === undefined ? "Send" : `${sendKey} send`} · {newlineKey === undefined ? "New line" : `${newlineKey} newline`}</span>
+                {!narrow && <span className="ml-auto text-2xs text-ink-faint">{sendKey === undefined ? "Send" : `${sendKey} send`} · {newlineKey === undefined ? "New line" : `${newlineKey} newline`}</span>}
                 <SendOrStop
                   stops={live && box.text.trim().length === 0 && attachments.list.length === 0}
                   sends={!lock.locked && box.text.trim().length > 0}
