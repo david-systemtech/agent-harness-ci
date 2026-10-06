@@ -258,9 +258,16 @@ jobs:
       - name: Push the verified image on a tag
         id: publish
         if: needs.prepare.outputs.publish == 'true'
+        # ghcr can refuse the manifest with `unknown blob` right after accepting every layer (#1735).
+        # The same push again skips the uploaded layers, so a refused push is tried up to three times.
         run: |
           set -euo pipefail
-          docker push "$IMAGE_REFERENCE"
+          for attempt in 1 2 3; do
+            docker push "$IMAGE_REFERENCE" && break
+            [ "$attempt" -lt 3 ] || exit 1
+            echo "::warning::ghcr refused push $attempt of 3; pushing again"
+            sleep $((attempt * 20))
+          done
           reference_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REFERENCE")
           echo "digest=${reference_digest#*@}" >> "$GITHUB_OUTPUT"
 
