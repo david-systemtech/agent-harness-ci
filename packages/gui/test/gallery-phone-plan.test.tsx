@@ -134,6 +134,14 @@ it("plans normal and small desktop and every phone profile for the long authorin
   expect(plan.captures.some(capture => capture.scene === "phone-bank-authoring" && capture.viewport.height === 480)).toBe(true);
 });
 
+it("starts the layout-resizing keyboard proof at 390x844 once per ladder; the scene resizes the page itself", () => {
+  const plan = capturePlan(["phone-layout-keyboard"]);
+  expect(plan.captures.map(capture => [capture.name, capture.viewport])).toEqual([
+    ["phone-layout-keyboard-phone-390.light", { width: 390, height: 844 }],
+    ["phone-layout-keyboard-phone-390.dark", { width: 390, height: 844 }],
+  ]);
+});
+
 it("keeps the keyboard dock proof at layout 390x844 instead of reducing the whole window", () => {
   const plan = capturePlan(["phone-keyboard-dock"]);
   expect(plan.captures.map(capture => [capture.name, capture.viewport])).toEqual([

@@ -148,7 +148,7 @@ it.each(["focus then shrink", "shrink then focus"] as const)("keeps clipped boxe
   const app = render(<PhoneFrameProvider><ClippedConversation /></PhoneFrameProvider>);
   const frame = app.container.firstElementChild as HTMLElement;
   const field = screen.getByRole("textbox", { name: "Message" });
-  const [main, card, transcript, column] = ["main", "card", "transcript", "column"].map(id => screen.getByTestId(id));
+  const [main, card, transcript, column] = (["main", "card", "transcript", "column"] as const).map(id => screen.getByTestId(id)) as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
   // The browser reveals the field against the bounds it had before the shell refits.
   const shrink = () => { viewport.height = 480; frame.scrollTop = 40; main.scrollTop = 60; card.scrollTop = 298; resize(390, 480); };
   if (order === "focus then shrink") { act(() => field.focus()); shrink(); }
