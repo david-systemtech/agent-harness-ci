@@ -1,5 +1,6 @@
 import { EnvironmentNotice, type AutoDecider, type EventEnvelope, type WorkspaceKeptReason } from "@agent-harness/contracts";
 import type { Notice, NoticeInput, Notices } from "../notices.js";
+import { credentialUpdateFailedWords } from "../updates/words.js";
 
 /**
  * The notices `environment.subscribe` raises (docs/specs/client-runtime.md,
@@ -145,6 +146,13 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         case "environment.update-failed": {
           const { fromVersion, toVersion, stage, reason } = notice.payload;
+          if (reason === "credential") {
+            // The desktop may have said it already, from the record the ended start left (#1689): this, which knows the version running, replaces it.
+            const said = credentialUpdateFailedWords(name, toVersion);
+            notices.retire((each) => each.environmentId === environmentId && each.kind === "update-failed" && each.message === said);
+            raise({ kind: "update-failed", message: credentialUpdateFailedWords(name, toVersion, fromVersion), action: null });
+            return;
+          }
           raise({ kind: "update-failed", message: `${name} could not be updated to ${toVersion} (${stage}: ${reason}). It is running ${fromVersion}.`, action: null });
           return;
         }

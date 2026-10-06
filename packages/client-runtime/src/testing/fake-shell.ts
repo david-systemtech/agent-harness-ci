@@ -1,5 +1,5 @@
 import { PRODUCT_NAME } from "@agent-harness/contracts";
-import type { GrantReader, HttpFetch, SecretStore } from "../platform.js";
+import type { CredentialAccessReader, GrantReader, HttpFetch, SecretStore } from "../platform.js";
 import type {
   Shell,
   ShellCamera,
@@ -87,6 +87,7 @@ export interface ShellFunctions {
   "clipboard.readImage": ShellClipboard["readImage"];
   openExternal: NonNullable<Shell["openExternal"]>;
   "localGrant.read": GrantReader["read"];
+  "credentialAccess.read": CredentialAccessReader["read"];
   "secrets.get": SecretStore["get"];
   "secrets.set": SecretStore["set"];
   "secrets.delete": SecretStore["delete"];
@@ -219,6 +220,7 @@ export const fakeShell = (): FakeShell => {
     "clipboard.readImage": async () => undefined,
     openExternal: async () => undefined,
     "localGrant.read": async () => undefined,
+    "credentialAccess.read": async () => undefined,
     "secrets.get": async (name) => secrets.get(name),
     "secrets.set": async (name, secret) => void secrets.set(name, secret),
     "secrets.delete": async (name) => void secrets.delete(name),
@@ -299,6 +301,7 @@ export const fakeShell = (): FakeShell => {
     clipboard: { readText: recorded("clipboard.readText"), writeText: recorded("clipboard.writeText"), readImage: recorded("clipboard.readImage") },
     openExternal: recorded("openExternal"),
     localGrant: { read: recorded("localGrant.read") },
+    credentialAccess: { read: recorded("credentialAccess.read") },
     secrets: { access: recorded("secrets.access"), onAccess: recorded("secrets.onAccess"), get: recorded("secrets.get"), set: recorded("secrets.set"), delete: recorded("secrets.delete"), protection: recorded("secrets.protection") },
     http: recorded("http"),
     network: { allow: recorded("network.allow") },

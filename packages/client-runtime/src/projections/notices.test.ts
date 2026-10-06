@@ -201,6 +201,19 @@ describe("the notices from the environment's stream", () => {
     ]);
   });
 
+  it("say a trial that failed on its stored key needs the macOS prompt answered with Always Allow, not a reason code (#1689)", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    desk.notices.event(noticeEvent(1, env, "environment.update-failed", { updateId: randomUUID(), fromVersion: "0.1.1", toVersion: "0.1.3", stage: "trial", reason: "credential", rolledBack: true }));
+    await flush();
+    expect(runtime.projections.notices.read().map(({ kind, message }) => ({ kind, message }))).toEqual([
+      {
+        kind: "update-failed",
+        message:
+          "desk could not be updated to 0.1.3: macOS asked to let agent-harness use its stored key, and the prompt was refused or not answered. It is running 0.1.1. Update again, and answer “Always Allow” when macOS asks.",
+      },
+    ]);
+  });
+
   it("take a parked prompt's notice back once it is resolved, and say so when nobody answered it", async () => {
     const { runtime, desk, env } = await oneEnvironment();
     const parked = (promptId: string, sequence: number) =>

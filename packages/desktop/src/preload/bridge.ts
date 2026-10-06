@@ -1,4 +1,5 @@
 import type {
+  CredentialAccessReader,
   GrantReader,
   HttpFetch,
   Shell,
@@ -42,6 +43,7 @@ export interface DesktopShell extends Shell {
   readonly notifications: Required<ShellNotifications>;
   readonly secrets: Required<ShellSecrets>;
   readonly localGrant: GrantReader;
+  readonly credentialAccess: CredentialAccessReader;
   readonly service: ShellService;
   readonly preview: ShellPreview;
   readonly update: ShellUpdate;
@@ -184,6 +186,7 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
       protection: () => ask("secrets.protection"),
     },
     localGrant: { read: () => ask("localGrant.read") },
+    credentialAccess: { read: () => ask("credentialAccess.read") },
     service: { pendingUpdate: () => ask("service.pendingUpdate"), applyUpdateNow: () => ask("service.applyUpdateNow"), install: () => ask("service.install"), start: () => ask("service.start"), status: () => ask("service.status") },
     preview: { grant: (content) => ask("preview.grant", content) },
     update: { current: () => ask("update.current"), apply: (staged, when) => ask("update.apply", staged, when) },

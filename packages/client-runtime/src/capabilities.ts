@@ -75,6 +75,7 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.clipboard": "use the clipboard",
   "shell.openExternal": "open links in the system browser",
   "shell.localGrant.read": "read the local environment's grant",
+  "shell.credentialAccess.read": "tell when the local environment waits on the OS keychain",
   "shell.secrets": "keep secrets in the system keychain",
   "shell.secrets.protection": "tell whether the system keychain protects the tokens it keeps",
   "shell.http": "reach an environment over HTTP from outside the page",
