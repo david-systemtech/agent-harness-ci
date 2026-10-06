@@ -2,6 +2,7 @@ import { standardWebSocketFactory, writable, type Clock, type DocumentStore, typ
 
 import { indexedDocuments } from "./indexed-documents.js";
 import { indexedSecrets } from "./indexed-secrets.js";
+import { runsInstalled, webClientLabel } from "./browser-name.js";
 
 /** Browser storage has no OS secret protection; credentials stay in a separate origin-local database. */
 export interface BrowserPlatform extends Platform {
@@ -91,7 +92,7 @@ export const browserPlatform = (view: Window & typeof globalThis, version: strin
     webSocket: standardWebSocketFactory(view.WebSocket),
     fetch: (url, request) => view.fetch(url, request),
     clock: systemClock(), network: browserNetwork(view),
-    client: { kind: "web", label: "Browser tab", version },
+    client: { kind: "web", label: webClientLabel(view.navigator.userAgent, runsInstalled(view)), version },
     // Raw errors can contain pairing URLs or connection credentials; keep them out of the console.
     reportError: () => view.console.error("The browser client could not complete an operation."),
   };

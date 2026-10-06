@@ -8,6 +8,7 @@ import { useClock, useObservable, usePresentation, useRuntime } from "../window-
 import { attentionTargetLabel } from "./attention-settings.js";
 import type { WebModule } from "../platform/web-registrations.js";
 import { servingConnection } from "../connections/browser-reach.js";
+import { browserName } from "../platform/browser-name.js";
 
 export interface PushSubscriptionData { readonly endpoint: string; readonly keys: { readonly auth: string; readonly p256dh: string } }
 export interface PushBrowser {
@@ -21,16 +22,9 @@ export interface PushFeatures { readonly secure: boolean; readonly supported: bo
 interface PushActions { key(): Promise<string>; registered(): Promise<boolean>; set(subscription: PushSubscriptionData): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
 export type PushState = "disabled" | "ready" | "denied" | "unavailable" | "install";
 
-const BROWSERS: readonly (readonly [RegExp, string])[] = [[/Edg(?:A|iOS)?\//, "Edge"], [/OPR\//, "Opera"], [/SamsungBrowser\//, "Samsung Internet"], [/Firefox\/|FxiOS\//, "Firefox"], [/Chrome\/|CriOS\//, "Chrome"], [/Version\/.*Safari\//, "Safari"]];
-const SYSTEMS: readonly (readonly [RegExp, string])[] = [[/Android/, "Android"], [/iPhone|iPod/, "iPhone"], [/iPad/, "iPad"], [/CrOS/, "ChromeOS"], [/Windows/, "Windows"], [/Macintosh/, "Mac"], [/Linux/, "Linux"]];
 const ENABLED_AT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 /** A person tells their push registrations apart by browser, system and when each was enabled; the id is an opaque client session id. */
-export const pushTargetLabel = (userAgent: string, enabledAt: Date): string => {
-  const browser = BROWSERS.find(([pattern]) => pattern.test(userAgent))?.[1];
-  const system = SYSTEMS.find(([pattern]) => pattern.test(userAgent))?.[1];
-  const named = browser && system ? `${browser} on ${system}` : browser ?? (system ? `A browser on ${system}` : "A browser");
-  return `${named}, enabled ${ENABLED_AT.format(enabledAt)}`;
-};
+export const pushTargetLabel = (userAgent: string, enabledAt: Date): string => `${browserName(userAgent)}, enabled ${ENABLED_AT.format(enabledAt)}`;
 /** Browser permission and subscription are browser-owned; registration status remains environment-owned. */
 export class PushController {
   private readonly state;
