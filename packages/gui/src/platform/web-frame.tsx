@@ -101,7 +101,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     </header>}
     {persistence === "visit-only" && <p role="status" className="shrink-0 border-b border-hairline bg-panel px-3 py-2 text-sm">Storage is unavailable. Pair for this visit; this connection will be forgotten when you close or reload.</p>}
     {selected && <LimitedAccess view={selected} />}
-    {selected?.phase === "blocked" && <p role="status" className="shrink-0 px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
+    {selected?.phase === "blocked" && <p role="status" data-connection-blocked className="shrink-0 px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
     {line && <p role="status" className="shrink-0 px-3 py-2 text-sm">{line}</p>}
     <WebRegisteredSurfaces />
     {(paired.length === 0 || pairing) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} onPaired={() => { setPairing(false); setHandedLink(undefined); setLine(undefined); }} toBrowserOrigins={(environmentId) => settings.open("environments.machines", environmentId, "browser-origins")} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

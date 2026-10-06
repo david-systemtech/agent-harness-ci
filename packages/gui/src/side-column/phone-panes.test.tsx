@@ -1,11 +1,11 @@
 import { screen, within, waitFor } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.js";
 
 const registry = discoverScenes(import.meta.glob<SceneModule>("../../gallery/scenes/phone-pane-*.tsx", { eager: true }));
 let close: (() => Promise<void>) | undefined;
-afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); });
+afterEach(async () => { await close?.(); close = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
 
 it.each(["files", "file", "diff", "documents", "tasks", "agent", "preview", "markdown", "scope"])("shows phone pane %s through the browser runtime without a shell", async pane => {
   const root = document.createElement("div"); document.body.append(root);
@@ -44,4 +44,25 @@ it.each(["files", "file", "diff", "documents", "tasks", "agent", "preview", "mar
     expect(within(screen.getByRole("region", { name: "Files" })).getByRole("button", { name: "Give this phone full access" })).toBeDefined();
     expect(gallery.world.world.environment("desk").requests("files.list")).toHaveLength(0);
   }
+});
+
+it("restores the Documents sheet on a revoked connection's reload with no hint over the needs-pairing notice above it (#1741)", async () => {
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+  const Observer = globalThis.ResizeObserver;
+  vi.stubGlobal("ResizeObserver", class extends Observer {
+    constructor(callback: ResizeObserverCallback) {
+      super((entries, observer) => callback(entries.map(entry => ({ ...entry, borderBoxSize: [{ inlineSize: 390, blockSize: 844 }] })), observer));
+    }
+  });
+  const root = document.createElement("div"); document.body.append(root);
+  const gallery = await mountGallery(root, "phone-pane-reload-revoked", "dark", registry, { platform: "web", textSize: 20 });
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const notice = screen.getByText("This connection needs pairing again. Make a new code on a trusted client, then choose Pair.");
+  const sheet = screen.getByRole("dialog", { name: "Side column" });
+  expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Close side sheet" }));
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  expect(sheet.contains(notice)).toBe(false);
+  expect(notice.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
