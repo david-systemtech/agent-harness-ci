@@ -125,7 +125,7 @@ const PickerButton = ({ name, value, offer, children, items, command, warning, c
   }
   return (
     <Menu open={open} onOpenChange={setOpen} modal={!columns || narrow}>
-      <Tooltip content={`${label} · /${command} · Enter to open${warning === undefined ? "" : ` · ${warning}`}`}>
+      <Tooltip content={`${label} · /${command}${warning === undefined ? "" : ` · ${warning}`}`} keys="Enter to open">
         <RunPickerTrigger sheet={sheet} openSheet={() => setOpen(true)}>
           <Button aria-label={label} className={classes(TRIGGER, name === "Account" ? "shrink" : "shrink-0")}>
             {content}

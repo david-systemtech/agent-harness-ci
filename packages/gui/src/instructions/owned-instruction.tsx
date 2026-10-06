@@ -49,7 +49,7 @@ export const OwnedInstructionCard = ({
         <h4 className="flex items-center gap-2 text-xs font-medium"><Bot aria-hidden="true" className="size-4" />{row.title}</h4>
         <label className="flex items-center gap-2 text-2xs">
           <Power aria-hidden="true" className="size-3.5" />Enabled
-          <Tooltip content="Enabled · Space"><Switch aria-label="Enabled" checked={row.enabled} disabled={sending || enabled.status === "absent"} onCheckedChange={(on) => void send("instructions.setEnabled", { instructionId: row.id, enabled: on })} /></Tooltip>
+          <Tooltip content="Enabled" keys="Space"><Switch aria-label="Enabled" checked={row.enabled} disabled={sending || enabled.status === "absent"} onCheckedChange={(on) => void send("instructions.setEnabled", { instructionId: row.id, enabled: on })} /></Tooltip>
         </label>
       </header>
       <div className="grid gap-3 p-3 min-[900px]:grid-cols-[minmax(180px,1fr)_minmax(0,2fr)]">
@@ -72,7 +72,7 @@ export const OwnedInstructionCard = ({
       <fieldset disabled={scopeDisabled} className="flex flex-col gap-2 text-xs text-ink">
         <legend className="flex items-center gap-1 text-xs font-medium"><Users aria-hidden="true" className="size-3.5" />Accounts reached</legend>
         <label>
-          <Tooltip content="All accounts · Space"><input
+          <Tooltip content="All accounts" keys="Space"><input
             type="checkbox"
             checked={row.scope === "all"}
             onChange={(event) => setAll(event.target.checked)}
@@ -82,7 +82,7 @@ export const OwnedInstructionCard = ({
         </label>
         {row.accounts.map((account) => (
           <label key={account.accountId} className={account.channel.kind === "none" ? "text-ink-faint" : "text-ink"}>
-            <Tooltip content={`${account.label} · Space`}><input
+            <Tooltip content={account.label} keys="Space"><input
               type="checkbox"
               checked={row.scope === "all" || row.scope.includes(account.accountId)}
               disabled={scopeDisabled || account.channel.kind === "none" || (row.scope === "all" ? supported.length === 1 : row.scope.length === 1 && row.scope.includes(account.accountId))}
@@ -128,7 +128,7 @@ export const OwnedInstructionCard = ({
             description={row.origin === null ? "This instruction will no longer be appended to runs." : "Removing the last copy dismisses its suggestion. Restore offers it again."}
           >
             <div className="flex justify-end gap-2">
-              <Tooltip content="Cancel · Escape"><Button onClick={() => remove(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
+              <Tooltip content="Cancel" keys="Escape"><Button onClick={() => remove(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
               <InstructionButton
                 environmentId={environmentId}
                 method="instructions.remove"

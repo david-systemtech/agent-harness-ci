@@ -97,17 +97,17 @@ export const ToolRow = ({ environmentId, name, row, writable, readable, finished
       </dl>
       <div className="flex flex-wrap gap-2">
         {action !== null && (
-          <Tooltip content={`${runWords(row, action)} · Enter / Space`}><Button variant="secondary" disabled={!writable} onClick={() => void run(action)}>
+          <Tooltip content={runWords(row, action)} keys="Enter / Space"><Button variant="secondary" disabled={!writable} onClick={() => void run(action)}>
             <ArrowDownToLine aria-hidden="true" />{runWords(row, action)}
           </Button></Tooltip>
         )}
         {verifiable.success && (
-          <Tooltip content="Verify tool · Enter / Space"><Button disabled={!writable} onClick={() => void verify(verifiable.data)}>
+          <Tooltip content="Verify tool" keys="Enter / Space"><Button disabled={!writable} onClick={() => void verify(verifiable.data)}>
             <CircleCheck aria-hidden="true" />Verify
           </Button></Tooltip>
         )}
         {row.tool === "claude" && (
-          <Tooltip content="Tool details · Enter / Space"><Button disabled={!readable} onClick={() => void details()}>
+          <Tooltip content="Tool details" keys="Enter / Space"><Button disabled={!readable} onClick={() => void details()}>
             <Info aria-hidden="true" />Details
           </Button></Tooltip>
         )}

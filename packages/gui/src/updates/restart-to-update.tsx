@@ -73,7 +73,7 @@ export const RestartToUpdate = () => {
   if (applyFailed(build)) {
     return (
       <Popover open={details} onOpenChange={setDetails}>
-        <Tooltip content="Update failed · Enter for the details">
+        <Tooltip content="Update failed" keys="Enter for the details">
           <PopoverTrigger asChild>
             <Button aria-label="Update failed" size="xs" className="h-[22px] max-w-36 gap-1.5 border border-signal/30 font-mono text-signal">
               <CircleAlert aria-hidden="true" /><span className="truncate">Update failed</span>

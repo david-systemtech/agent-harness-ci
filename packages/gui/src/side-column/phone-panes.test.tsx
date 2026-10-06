@@ -46,7 +46,7 @@ it.each(["files", "file", "diff", "documents", "tasks", "agent", "preview", "mar
   }
 });
 
-it("restores the Documents sheet on a revoked connection's reload with no hint over the needs-pairing notice above it (#1741)", async () => {
+it("restores the Documents sheet on a revoked connection's reload with no hint over the needs-pairing notice above it", async () => {
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
   const Observer = globalThis.ResizeObserver;

@@ -41,7 +41,7 @@ export const ConfirmRemove = ({ environmentId, environment, account, close, say 
       <DialogContent title={`Remove ${account.label} from ${environment}?`} description={removalWords(account)}>
         {account.directory.kind === "owned" && (
           <label htmlFor={deleteId} className="flex items-center gap-2 text-sm text-ink">
-            <Tooltip content="Also delete its sign-in and history · Space"><Checkbox id={deleteId} checked={deleting} onCheckedChange={(checked) => setDeleting(checked === true)} /></Tooltip>
+            <Tooltip content="Also delete its sign-in and history" keys="Space"><Checkbox id={deleteId} checked={deleting} onCheckedChange={(checked) => setDeleting(checked === true)} /></Tooltip>
             Also delete its sign-in and history
           </label>
         )}

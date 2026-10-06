@@ -118,7 +118,7 @@ export const ToolTerminal = ({ environmentId, run, label, close }: { readonly en
         <h4 id={heading} className="min-w-0 flex-1 text-sm font-semibold text-ink">
           {run.action === "install" ? "Installing" : "Updating"} {label}
         </h4>
-        <Tooltip content="Close tool terminal · Enter / Space"><Button size="xs" onClick={closeIt}><X aria-hidden="true" />Close</Button></Tooltip>
+        <Tooltip content="Close tool terminal" keys="Enter / Space"><Button size="xs" onClick={closeIt}><X aria-hidden="true" />Close</Button></Tooltip>
       </header>
       <p title={run.command} className="break-words font-mono text-xs text-ink-muted">
         {run.command}

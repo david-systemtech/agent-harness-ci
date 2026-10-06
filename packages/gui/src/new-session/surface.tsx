@@ -179,7 +179,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
             <AlertTitle>Not ready to run</AlertTitle>
             <AlertDescription>
               <p>{notReady}</p>
-              {environment !== undefined && missingAccount && <Tooltip content="Sign in · Enter to open Accounts">
+              {environment !== undefined && missingAccount && <Tooltip content="Sign in" keys="Enter to open Accounts">
                 <Button variant="link" size="xs" onClick={() => settings.open("accounts.accounts", environment.environmentId)}><KeyRound aria-hidden="true" />Sign in</Button>
               </Tooltip>}
             </AlertDescription>

@@ -110,12 +110,12 @@ export const HeaderNewSessionItems = ({ select, onDragStart, onDragEnd }: { read
   const paneKeys = useFirstKey("app.session.newInPane");
   const absent = grid.adding.status === "absent" ? grid.adding.message : undefined;
   return <>
-    <Tooltip content={["New session", hereKeys].filter(Boolean).join(" · ")}>
+    <Tooltip content="New session" keys={hereKeys}>
       <MenuItem aria-label="New session" onSelect={() => select(() => start.here(HEADER_CONTROL))} {...drag} onDragStart={(event) => { onDragStart(); drag.onDragStart(event); }} onDragEnd={() => { drag.onDragEnd(); onDragEnd(); }}>
         <Plus aria-hidden="true" />New session<MenuShortcut>{hereKeys}</MenuShortcut>
       </MenuItem>
     </Tooltip>
-    <Tooltip content={["New session in a new pane", paneKeys, absent].filter(Boolean).join(" · ")}>
+    <Tooltip content={["New session in a new pane", absent].filter(Boolean).join(" · ")} keys={paneKeys}>
       <MenuItem aria-label="New session in a new pane" disabled={absent !== undefined} onSelect={() => select(() => start.beside(grid.focused.id, "right", HEADER_CONTROL))}>
         <SquarePlus aria-hidden="true" /><span>New session in a new pane{absent !== undefined && <span className="block text-xs text-ink-faint">{absent}</span>}</span><MenuShortcut>{paneKeys}</MenuShortcut>
       </MenuItem>

@@ -37,13 +37,13 @@ export const MessageVerbs = ({ entry, children }: { readonly entry: UserMessageE
     <div className="flex flex-col items-end gap-0.5" onPointerEnter={() => setPointer(true)} onPointerLeave={() => setPointer(false)} onFocus={() => setFocused(true)} onBlur={left}>
       {children}
       <div data-message-verbs role="group" aria-label={`Fork or rewind: ${messageWords(entry.text)}`} className="flex max-w-full flex-wrap justify-end gap-1" style={{ visibility: shown ? "visible" : "hidden" }}>
-        <VerbButton does={`${FORK_DOES} (Enter or Space)`} availability={forkRewind.fork} run={() => forkRewind.forkAt(anchor)}>
+        <VerbButton does={FORK_DOES} keys="Enter or Space" availability={forkRewind.fork} run={() => forkRewind.forkAt(anchor)}>
           <GitFork aria-hidden="true" className="size-3" />Fork
         </VerbButton>
-        <VerbButton does={`${FORK_ONTO_DOES} (Enter or Space)`} availability={forkRewind.fork} run={() => forkRewind.forkOntoAccount(anchor)}>
+        <VerbButton does={FORK_ONTO_DOES} keys="Enter or Space" availability={forkRewind.fork} run={() => forkRewind.forkOntoAccount(anchor)}>
           <KeyRound aria-hidden="true" className="size-3" />Fork onto another account
         </VerbButton>
-        <VerbButton does={`${forkRewind.stops ? STOP_AND_REWIND_DOES : REWIND_DOES} (Enter or Space)`} availability={forkRewind.rewind} run={() => forkRewind.rewindTo(anchor)}>
+        <VerbButton does={forkRewind.stops ? STOP_AND_REWIND_DOES : REWIND_DOES} keys="Enter or Space" availability={forkRewind.rewind} run={() => forkRewind.rewindTo(anchor)}>
           <Undo2 aria-hidden="true" className="size-3" />{forkRewind.stops ? "Stop and rewind here" : "Rewind"}
         </VerbButton>
       </div>

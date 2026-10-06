@@ -38,10 +38,10 @@ export const QueuedRow = ({ message }: { readonly message: QueuedMessage }) => {
       </p>
       <div data-queued-actions className="flex items-center justify-end gap-1 text-xs">
         <span className={steering ? "mr-auto text-cyan" : "mr-auto text-amber"}>{steering ? "Steering" : "Queued"}</span>
-        <VerbButton does={`${READ_NOW_DOES} (Enter or Space)`} availability={queue.runs.verbs.readNow} run={queue.readNow}>
+        <VerbButton does={READ_NOW_DOES} keys="Enter or Space" availability={queue.runs.verbs.readNow} run={queue.readNow}>
           <CircleStop aria-hidden="true" className="size-3" />Read now
         </VerbButton>
-        <VerbButton does="Takes this message back into the composer to edit. (Enter or Space)" availability={message.withdraw} run={() => queue.withdraw(message.messageId)}>
+        <VerbButton does="Takes this message back into the composer to edit." keys="Enter or Space" availability={message.withdraw} run={() => queue.withdraw(message.messageId)}>
           <Pencil aria-hidden="true" className="size-3" />Edit
         </VerbButton>
       </div>
@@ -62,10 +62,10 @@ export const QueueStrip = () => {
   return (
     <section aria-label="Queued messages" className="flex shrink-0 items-center gap-2 border-t border-hairline px-4 py-1 text-xs text-ink-muted">
       <span className="mr-auto">{`${queued.length} ${queued.length === 1 ? "message" : "messages"} queued`}</span>
-      <VerbButton does={`${READ_NOW_DOES} (Enter or Space)`} availability={verbs.readNow} run={queue.readNow}>
+      <VerbButton does={READ_NOW_DOES} keys="Enter or Space" availability={verbs.readNow} run={queue.readNow}>
         <CircleStop aria-hidden="true" className="size-3" />Read now
       </VerbButton>
-      <VerbButton does="Takes the newest queued message back into the composer to edit. (Enter or Space)" availability={verbs.withdraw} run={queue.withdrawNewest}>
+      <VerbButton does="Takes the newest queued message back into the composer to edit." keys="Enter or Space" availability={verbs.withdraw} run={queue.withdrawNewest}>
         <Pencil aria-hidden="true" className="size-3" />Edit newest
       </VerbButton>
     </section>

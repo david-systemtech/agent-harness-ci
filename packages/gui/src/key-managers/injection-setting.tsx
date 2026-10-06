@@ -98,7 +98,7 @@ export const InjectionSwitch = ({ view }: { readonly view: EnvironmentView }) =>
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-3 text-sm text-ink">
-        <Tooltip content="Give runs credentials · Space to toggle">
+        <Tooltip content="Give runs credentials" keys="Space to toggle">
           <Switch aria-labelledby={label} checked={on} disabled={!writable} onCheckedChange={(next) => save("credentials.injection", next ? "allow" : "deny")} />
         </Tooltip>
         <KeyRound aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
@@ -123,7 +123,7 @@ const Choice = <V extends AccountChoice>({
   readonly change: (next: V) => void;
   readonly children: ReactNode;
 }) => (
-  <Tooltip content={`${label} · Arrow keys to choose`}>
+  <Tooltip content={label} keys="Arrow keys to choose">
     <label className="flex min-w-0 flex-col gap-2 text-xs text-ink">
       <span className="inline-flex items-center gap-2"><KeyRound aria-hidden="true" className="size-3.5" />{label}</span>
       <Select value={value} disabled={disabled} onChange={(event) => change(event.target.value as V)}>

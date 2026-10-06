@@ -260,7 +260,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
             {(prompt.kind === "permission" || prompt.kind === "denylist") && prompt.toolName !== null && ` · ${prompt.toolName}`}
           </h2>
           {facts.length > 0 && <span>{facts}</span>}
-          <PromptTooltip content={`${collapsed ? "Show request" : "Hide request"} · Enter or Space`}>
+          <PromptTooltip content={collapsed ? "Show request" : "Hide request"} keys="Enter or Space">
             <Button size="sm" className="ml-auto" aria-label={collapsed ? "Show request" : "Hide request"} aria-controls={bodyId} aria-expanded={!collapsed} onClick={() => {
               setCollapsed(!collapsed);
               if (collapsed) self.current?.focus({ preventScroll: true });

@@ -85,7 +85,7 @@ export const LightOrDarkPreference = () => {
         <div role="radiogroup" aria-labelledby={label} className="flex flex-wrap gap-0.5 rounded-md border border-hairline bg-inset p-0.5 text-xs text-ink">
           {LIGHT_OR_DARK_CHOICES.map(([value, words]) => {
             const Icon = MODE_ICONS[value];
-            return <Tooltip key={value} content={`${words} · Arrow keys`}>
+            return <Tooltip key={value} content={words} keys="Arrow keys">
               <label className={`flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 has-focus-visible:outline-2 has-focus-visible:outline-beam ${lightOrDark === value ? "bg-raised" : "hover:bg-wash"}`}>
                 <input type="radio" name={choice} checked={lightOrDark === value} onChange={() => setLightOrDark(value)} className="sr-only" />
                 <Icon aria-hidden="true" className="size-3.5" />{words}
@@ -114,7 +114,7 @@ const ClientPreferences = () => {
         control={(label) => (
           <div className="flex flex-wrap items-center gap-1.5">
             <IconButton label="Decrease text size" keys="Enter / Space" size="icon-xs" disabled={textSize <= TEXT_SIZE_LEAST} onClick={() => setTextSize(textSize - 1)}><Minus aria-hidden="true" /></IconButton>
-            <Tooltip content="Text size · Arrow keys; Enter to apply">
+            <Tooltip content="Text size" keys="Arrow keys; Enter to apply">
               <Input key={textSize} type="number" aria-labelledby={label} min={TEXT_SIZE_LEAST} max={TEXT_SIZE_MOST} step={1} defaultValue={textSize}
                 onBlur={(event) => {
                   const size = normalizeTextSize(event.currentTarget.valueAsNumber);
@@ -124,7 +124,7 @@ const ClientPreferences = () => {
                 onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} className="w-16 text-center font-mono tabular-nums" />
             </Tooltip>
             <IconButton label="Increase text size" keys="Enter / Space" size="icon-xs" disabled={textSize >= TEXT_SIZE_MOST} onClick={() => setTextSize(textSize + 1)}><Plus aria-hidden="true" /></IconButton>
-            <Tooltip content="Reset text size · Enter / Space"><Button size="xs" aria-label="Reset text size" onClick={() => setTextSize(14)}><RotateCcw aria-hidden="true" />Reset</Button></Tooltip>
+            <Tooltip content="Reset text size" keys="Enter / Space"><Button size="xs" aria-label="Reset text size" onClick={() => setTextSize(14)}><RotateCcw aria-hidden="true" />Reset</Button></Tooltip>
           </div>
         )}
       />
@@ -140,13 +140,13 @@ const ClientPreferences = () => {
         name="Reasoning shown"
         icon={Brain}
         detail="A run's reasoning is drawn unfolded."
-        control={(label) => <Tooltip content="Reasoning shown · Space"><Switch aria-labelledby={label} checked={reasoningShown} onCheckedChange={setReasoningShown} /></Tooltip>}
+        control={(label) => <Tooltip content="Reasoning shown" keys="Space"><Switch aria-labelledby={label} checked={reasoningShown} onCheckedChange={setReasoningShown} /></Tooltip>}
       />
       <Preference
         name="Streaming fade"
         icon={Sparkles}
         detail="Text still streaming fades in word by word."
-        control={(label) => <Tooltip content="Streaming fade · Space"><Switch aria-labelledby={label} checked={streamingFade} onCheckedChange={setStreamingFade} /></Tooltip>}
+        control={(label) => <Tooltip content="Streaming fade" keys="Space"><Switch aria-labelledby={label} checked={streamingFade} onCheckedChange={setStreamingFade} /></Tooltip>}
       />
     </Part>
   );

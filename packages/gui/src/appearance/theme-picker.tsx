@@ -146,16 +146,16 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
           <SettingsGroup title="Theme seeds"><Seeds theme={shown} disabled={!writable} change={(seed, value) => edit({ ...shown, seeds: { ...shown.seeds, [seed]: value } })} /></SettingsGroup>
           <SettingsGroup title="Preview and contrast"><Derived theme={shown} /></SettingsGroup>
           <div className="flex flex-wrap gap-2">
-            <Tooltip content="Save theme · Enter / Space"><Button variant="default" disabled={!writable || !changed || !named || saving} onClick={save}>
+            <Tooltip content="Save theme" keys="Enter / Space"><Button variant="default" disabled={!writable || !changed || !named || saving} onClick={save}>
               <Save aria-hidden="true" />Save
             </Button></Tooltip>
-            <Tooltip content="Cancel theme · Enter / Space"><Button disabled={!changed} onClick={cancel}>
+            <Tooltip content="Cancel theme" keys="Enter / Space"><Button disabled={!changed} onClick={cancel}>
               <X aria-hidden="true" />Cancel
             </Button></Tooltip>
-            <Tooltip content="Import theme · Enter / Space"><Button disabled={!writable} onClick={importFile}>
+            <Tooltip content="Import theme" keys="Enter / Space"><Button disabled={!writable} onClick={importFile}>
               <Upload aria-hidden="true" />Import
             </Button></Tooltip>
-            <Tooltip content="Export theme · Enter / Space"><Button disabled={!named} onClick={() => setExporting(true)}>
+            <Tooltip content="Export theme" keys="Enter / Space"><Button disabled={!named} onClick={() => setExporting(true)}>
               <Download aria-hidden="true" />Export
             </Button></Tooltip>
           </div>
@@ -179,7 +179,7 @@ const ShippedThemes = ({ shown, disabled, choose }: { readonly shown: Theme; rea
       </span>
       <div role="radiogroup" aria-labelledby={label} className="flex flex-wrap gap-2 text-xs text-ink">
         {SHIPPED_THEMES.map((theme) => (
-          <Tooltip key={theme.name} content={`${theme.name} · Arrow keys`}><label className="flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-2 has-checked:bg-wash-strong">
+          <Tooltip key={theme.name} content={theme.name} keys="Arrow keys"><label className="flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-2 has-checked:bg-wash-strong">
             <input type="radio" name={group} checked={sameTheme(theme, shown)} disabled={disabled} onChange={() => choose(theme)} className="accent-beam" />
             <Palette aria-hidden="true" className="size-3.5" />{theme.name}
           </label></Tooltip>
@@ -208,7 +208,7 @@ const Seeds = ({ theme, disabled, change }: { readonly theme: Theme; readonly di
             {seed}: hue {hue}, chroma {chroma}
           </span>
           <div className="flex gap-3">
-            <Tooltip content={`${seed} hue · Arrow keys`}><input
+            <Tooltip content={`${seed} hue`} keys="Arrow keys"><input
               type="range"
               aria-label={`${seed} hue`}
               {...HUE}
@@ -217,7 +217,7 @@ const Seeds = ({ theme, disabled, change }: { readonly theme: Theme; readonly di
               onChange={(event) => change(seed, { hue: Math.round(Number(event.target.value)), chroma })}
               className="min-w-0 flex-1 accent-beam"
             /></Tooltip>
-            <Tooltip content={`${seed} chroma · Arrow keys`}><input
+            <Tooltip content={`${seed} chroma`} keys="Arrow keys"><input
               type="range"
               aria-label={`${seed} chroma`}
               {...CHROMA}
@@ -296,7 +296,7 @@ const Exported = ({ theme }: { readonly theme: Theme }) => {
         {fileName}
       </h4>
       <CopyLine label="The theme file: the name and the seven seeds" text={text} />
-      <Tooltip content="Download theme · Enter"><a href={`data:application/json;charset=utf-8,${encodeURIComponent(text)}`} download={fileName} className="flex items-center gap-1.5 text-sm text-beam-text underline">
+      <Tooltip content="Download theme" keys="Enter"><a href={`data:application/json;charset=utf-8,${encodeURIComponent(text)}`} download={fileName} className="flex items-center gap-1.5 text-sm text-beam-text underline">
         <Download aria-hidden="true" className="size-4" />
         Download {fileName}
       </a></Tooltip>

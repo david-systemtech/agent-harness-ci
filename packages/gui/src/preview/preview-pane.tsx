@@ -96,8 +96,8 @@ const Opened = ({ environmentId, sessionId, previewed, source }: PreviewPaneProp
       {shown.state === "static" && <div className="shrink-0 border-b border-hairline px-3 py-2 text-xs text-ink-muted">
         <p>Static preview. Preview scripts require the desktop client; forms and network are disabled here.</p>
         <div className="mt-2 flex flex-wrap gap-2">
-          <Tooltip content="Open the document's source · Enter / Space"><Button size="xs" onClick={() => source(path)}><FileCode aria-hidden="true" />Source</Button></Tooltip>
-          <Tooltip content="Download this snapshot's source · Enter / Space"><a className="inline-flex min-h-[44px] min-w-[44px] items-center gap-1 rounded-md px-2 text-xs text-ink-muted hover:bg-raised focus-visible:outline-2 focus-visible:outline-beam" href={`data:text/plain;charset=utf-8,${encodeURIComponent(shown.text)}`} download={path.split("/").at(-1)}><Download aria-hidden="true" className="size-3" />Download</a></Tooltip>
+          <Tooltip content="Open the document's source" keys="Enter / Space"><Button size="xs" onClick={() => source(path)}><FileCode aria-hidden="true" />Source</Button></Tooltip>
+          <Tooltip content="Download this snapshot's source" keys="Enter / Space"><a className="inline-flex min-h-[44px] min-w-[44px] items-center gap-1 rounded-md px-2 text-xs text-ink-muted hover:bg-raised focus-visible:outline-2 focus-visible:outline-beam" href={`data:text/plain;charset=utf-8,${encodeURIComponent(shown.text)}`} download={path.split("/").at(-1)}><Download aria-hidden="true" className="size-3" />Download</a></Tooltip>
         </div>
       </div>}
       {shown.state === "markdown" ? (

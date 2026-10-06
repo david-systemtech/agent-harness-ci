@@ -42,7 +42,7 @@ export const ClientBuild = () => {
       {build.state === "unsupported" && (
         <>
           <p className="break-all font-mono text-xs text-beam-text">{build.releasePage}</p>
-          <Tooltip content="Open the release page · Enter / Space"><Button variant="default" disabled={shell?.openExternal === undefined} onClick={() => void shell?.openExternal?.(build.releasePage)}>
+          <Tooltip content="Open the release page" keys="Enter / Space"><Button variant="default" disabled={shell?.openExternal === undefined} onClick={() => void shell?.openExternal?.(build.releasePage)}>
             <ExternalLink aria-hidden="true" />Open the release page
           </Button></Tooltip>
         </>

@@ -64,7 +64,7 @@ export const DiffPane = ({ environmentId, sessionId, onScreen }: DiffPaneProps) 
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-2 py-1">
         {reading && <span className="text-xs text-ink-faint">Reading…</span>}
-        <Tooltip content="Read both diffs again (Enter or Space)">
+        <Tooltip content="Read both diffs again" keys="Enter or Space">
           <Button size="icon-xs" aria-label="Read again" className="ml-auto" onClick={readAgain}><RefreshCw aria-hidden="true" /></Button>
         </Tooltip>
       </div>
