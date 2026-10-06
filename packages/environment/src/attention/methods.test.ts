@@ -9,7 +9,7 @@ import { attentionStream } from "./store.js";
 import { registerAttentionTransport } from "../web/attention.js";
 
 const { onCleanup, tempDir } = useCleanups();
-const target = { id: "phone-target", transport: "push", enabled: true, completion: false, configuration: { endpoint: "opaque-test-endpoint" } } as const;
+const target = { id: "phone-target", label: "Chrome on Android, enabled 6 Oct, 13:04", transport: "push", enabled: true, completion: false, configuration: { endpoint: "opaque-test-endpoint" } } as const;
 
 it("a disconnected read client owns its target, cannot change another's or a global route, and revocation erases it", async () => {
   const delivered: string[] = [];
@@ -42,7 +42,7 @@ it("a disconnected read client owns its target, cannot change another's or a glo
   await delivery;
   expect(delivered).toHaveLength(1);
   const fresh = await t.client({ token: phone.token });
-  expect((await fresh.request("attention.targets.list", {})).targets).toEqual([{ id: target.id, transport: "push", enabled: true, completion: false, global: false, state: "ready", failure: null }]);
+  expect((await fresh.request("attention.targets.list", {})).targets).toEqual([{ id: target.id, label: target.label, transport: "push", enabled: true, completion: false, global: false, state: "ready", failure: null }]);
   t.env.clientSessions.revoke(phone.clientSessionId);
   const operator = await t.client();
   expect((await operator.request("attention.targets.list", {})).targets).toEqual([]);
@@ -80,4 +80,15 @@ it("retries the same pending delivery after a real environment restart and cance
   again.clock.advance(5 * 60_000);
   await answerer.request("permissions.prompts.list", {});
   expect(attempts).toHaveLength(2);
+});
+
+it("a target's readable label is listed and survives a preference change", async () => {
+  onCleanup(registerAttentionTransport("push", () => ({ validate: () => undefined, send: async () => ({ status: "sent" }) })));
+  const t = await startTestEnvironment({ webOrigin: "https://example.test:8443" });
+  onCleanup(() => t.close());
+  const phone = await t.client({ token: (await t.pair({ kind: "web", scopes: ["read"] })).token });
+  onCleanup(() => phone.close());
+  await phone.apply("attention.targets.set", { commandId: randomUUID(), target });
+  await phone.apply("attention.targets.configure", { commandId: randomUUID(), id: target.id, enabled: true, completion: true });
+  expect((await phone.request("attention.targets.list", {})).targets).toEqual([expect.objectContaining({ id: target.id, label: target.label, completion: true })]);
 });

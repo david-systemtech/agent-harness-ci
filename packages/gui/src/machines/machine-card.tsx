@@ -4,7 +4,7 @@ import { WebOrigins } from "./web-origins.js";
 import { KeyRound } from "lucide-react";
 import { clockTime, rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
 import { NETWORK_SETTINGS_KEYS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode, type Ref } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { Remedy } from "../connections/remedy.js";
 import { UpdateProgress } from "../connections/update-progress.js";
@@ -46,10 +46,10 @@ const serviceDownWords = (view: EnvironmentView): string | undefined => {
 };
 
 /** A part of a card, under its heading. */
-export const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
+export const Part = ({ title, children, ref }: { readonly title: string; readonly children: ReactNode; readonly ref?: Ref<HTMLElement> }) => {
   const heading = useId();
   return (
-    <section aria-labelledby={heading} className="overflow-hidden rounded-lg border border-hairline">
+    <section ref={ref} tabIndex={ref === undefined ? undefined : -1} aria-labelledby={heading} className="overflow-hidden rounded-lg border border-hairline outline-none">
       <h4 id={heading} className="border-b border-hairline px-3 py-2 text-xs font-medium text-ink">
         {title}
       </h4>

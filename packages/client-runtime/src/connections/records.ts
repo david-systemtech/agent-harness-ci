@@ -122,9 +122,17 @@ export interface ConnectionUpdate {
   readonly canUpdateNow: boolean;
 }
 
+/** The update a local environment's start waits on macOS for (#1689): its version, and since when the prompt for its stored key has waited. */
+export interface CredentialPrompt {
+  readonly toVersion: string;
+  readonly since: string;
+}
+
 /** A connection as `connections.list` shows it. */
 export interface ConnectionRecord extends SavedConnection {
   readonly update?: ConnectionUpdate;
+  /** Present while the local environment's start waits on the person to let it read its stored key. */
+  readonly credentialPrompt?: CredentialPrompt;
   readonly environmentId: string;
   readonly enabled: boolean;
   readonly phase: ConnectionPhase;

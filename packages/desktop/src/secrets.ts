@@ -74,12 +74,16 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
   const recovery = async () => {
     if (mac.recovery) { denied = await mac.recovery(); publish(); }
   };
-  const macKeychain = async <T>(operation: (signal: AbortSignal) => Promise<T>, presents = true): Promise<T> => {
+  /**
+   * Only a failed read of kept ciphertext is `denied`: a write or an availability check that
+   * fails leaves the state as it was, since a fresh install has no earlier item to warn of.
+   * A read or a write that succeeds settles the state from the recovery metadata.
+   */
+  const macKeychain = async <T>(kind: "read" | "write" | "availability", operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
     if (closed) throw new Error("Desktop credential access was cancelled at shutdown.");
     const request = new AbortController();
     requests.add(request);
     pending++;
-    if (presents) denied = false;
     publish();
     const cancelled = new Promise<never>((_resolve, reject) => {
       request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true });
@@ -88,10 +92,10 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
     try {
       // Race only observes the result. A late native answer cannot publish or write a token.
       const answer = await Promise.race([operation(request.signal), cancelled]);
-      if (presents) denied = mac.recovery ? await mac.recovery() : false;
+      if (kind !== "availability") denied = mac.recovery ? await mac.recovery() : false;
       return answer;
     } catch (error) {
-      denied = true;
+      if (kind === "read") denied = true;
       throw error;
     } finally {
       timer.cancel();
@@ -128,7 +132,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
       try {
         const bytes = await readFile(file);
         kept = bytes;
-        if (os === "darwin") return await macKeychain((signal) => mac.decrypt(bytes, signal));
+        if (os === "darwin") return await macKeychain("read", (signal) => mac.decrypt(bytes, signal));
         if (!encrypts()) throw new Error("the OS keeps no key for this app now");
         return safeStorage.decryptString(kept);
       } catch (error) {
@@ -152,7 +156,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
       if (os !== "darwin" && !encrypts()) {
         throw new Error("This desktop cannot keep a client session token: the OS keeps no key for it (safeStorage cannot encrypt). Unlock or set up the system keychain, then pair again.");
       }
-      const encrypted = os === "darwin" ? await macKeychain(async (signal) => {
+      const encrypted = os === "darwin" ? await macKeychain("write", async (signal) => {
         if (!(await mac.available(signal))) throw new Error("This desktop cannot keep a client session token: unlock or set up the system keychain, then pair again.");
         return mac.encrypt(secret, signal);
       }) : safeStorage.encryptString(secret);
@@ -187,7 +191,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
       return () => void listeners.delete(listener);
     },
     async protection() {
-      if (os === "darwin") return await macKeychain((signal) => mac.available(signal), false) ? "os" : "none";
+      if (os === "darwin") return await macKeychain("availability", (signal) => mac.available(signal)) ? "os" : "none";
       if (!encrypts()) return "none";
       return unprotected ? "unprotected" : "os";
     },

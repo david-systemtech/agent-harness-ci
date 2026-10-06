@@ -8,6 +8,7 @@ import { allowAppCamera } from "./camera-permission.js";
 import { ANSWERED, channelOf, TOLD, WINDOW_CHANNEL, SECRET_ACCESS_CHANNEL, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
 import { computerGh, NODE_GH_PROCESS, type GhProcess } from "./gh.js";
+import { credentialAccessFile } from "./credential-access.js";
 import { grantFile } from "./local-grant.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronIpcMain, IpcCaller, WindowOptions } from "./electron.js";
 import { lockNavigation, lockNetwork } from "./lockdown.js";
@@ -179,6 +180,7 @@ export const startDesktop = async (
   const stopAccess = secrets.onAccess((state) => window.webContents.send(SECRET_ACCESS_CHANNEL, state));
   window.on("closed", stopAccess);
   const localGrant = grantFile(platform.paths.environment, reportError);
+  const credentialAccess = credentialAccessFile(platform.paths.environment);
   const service = bundledService({ os: platform.os, environmentDir: platform.paths.environment, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
   const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
   const installer = bundledInstaller(platform.paths.server, platform.paths.environment);
@@ -186,7 +188,7 @@ export const startDesktop = async (
   const notifications = desktopNotifications({ notification: electron.notification, window });
   serveShell(
     electron.ipcMain,
-    shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh, webView }),
+    shellMembers({ electron, secrets, localGrant, credentialAccess, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh, webView }),
     reportError,
   );
   await window.loadURL(APP_URL).catch(reportError);

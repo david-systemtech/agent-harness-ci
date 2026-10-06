@@ -1,4 +1,5 @@
 import {
+  credentialPromptWords,
   drainAndUpdateDescription,
   drainAndUpdateQuestion,
   drainableUpdate,
@@ -111,7 +112,12 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
         </div>
       )}
       {typeof pinned === "string" && <p className="text-ink-muted">{pinnedWords(pinned)}</p>}
-      {pending !== null && <p className="text-ink-muted">{pending}</p>}
+      {/* The start of the version it updates to waits on macOS's prompt for its stored key (#1689): what it read before is stale. */}
+      {view.credentialPrompt !== undefined ? (
+        <p role="status" className="text-signal">{credentialPromptWords(view.credentialPrompt.toVersion)}</p>
+      ) : (
+        pending !== null && <p className="text-ink-muted">{pending}</p>
+      )}
       <div className="flex flex-wrap gap-2">
         <Tooltip content="Update now · Enter / Space"><Button variant="default" disabled={!admits("updates.apply")} onClick={() => update("idle")}>
           <ArrowDownToLine aria-hidden="true" />Update now

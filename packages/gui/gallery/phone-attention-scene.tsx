@@ -10,7 +10,8 @@ export const phoneAttentionScene = (width: number, height: number, failed: boole
     if (height <= 420 && scroll.current && card) scroll.current.scrollTop += card.getBoundingClientRect().top - scroll.current.getBoundingClientRect().top;
   }, []);
   const [targets, setTargets] = useState<readonly AttentionTargetStatus[]>([
-    { id: "phone-push", transport: "push", enabled: true, completion: false, global: false, state: failed ? "failed" : "pending", failure: failed ? "Delivery failed. Check the configured transport." : null },
+    { id: "push-00000000-0000-4000-8000-000000000001", label: "Chrome on Android, enabled 6 Oct, 13:04", transport: "push", enabled: true, completion: false, global: false, state: failed ? "failed" : "pending", failure: failed ? "Delivery failed. Check the configured transport." : null },
+    { id: "push-00000000-0000-4000-8000-000000000002", label: "Chrome on Android, enabled 2 Oct, 09:15", transport: "push", enabled: true, completion: true, global: false, state: "ready", failure: null },
     { id: "configured-fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "unavailable", failure: null },
   ]);
   return <main data-phone-attention style={{ width: `min(${width}px,100vw)`, maxWidth: 390, height: `min(${height}px,100dvh)`, margin: "auto" }} className="flex min-w-0 flex-col overflow-hidden bg-abyss p-4 text-ink">
@@ -25,6 +26,7 @@ export const phoneAttentionScene = (width: number, height: number, failed: boole
 export const phoneAttentionGeometry = [
   { selector: "[data-phone-attention]", maxWidth: 390 },
   { selector: "[data-attention-settings]", contentFits: true },
+  { selector: "[data-attention-settings] article", wordsIntact: true },
   { selector: "[data-attention-settings] button", minimumHeight: 44 },
   { selector: "[data-attention-settings] label", minimumHeight: 44 },
 ];

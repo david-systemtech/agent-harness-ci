@@ -1,6 +1,14 @@
 import type { CapabilityFlags, Ceiling, EnvironmentColour, EnvironmentIcon, Scope } from "@agent-harness/contracts";
 import { derived, type Observable } from "../observable.js";
-import { LOCAL_PLACEHOLDER_ID, type BlockedReason, type ConnectionKind, type ConnectionPhase, type ConnectionRecord, type ConnectionUpdate } from "../connections/records.js";
+import {
+  LOCAL_PLACEHOLDER_ID,
+  type BlockedReason,
+  type ConnectionKind,
+  type ConnectionPhase,
+  type ConnectionRecord,
+  type ConnectionUpdate,
+  type CredentialPrompt,
+} from "../connections/records.js";
 import type { ConnectionAction } from "../connections/state-machine.js";
 import type { OutboxView } from "../outbox/overlay.js";
 
@@ -12,6 +20,8 @@ import type { OutboxView } from "../outbox/overlay.js";
  */
 export interface EnvironmentView {
   readonly update?: ConnectionUpdate;
+  /** Present while the local environment's start waits on macOS's prompt for its stored key (#1689). */
+  readonly credentialPrompt?: CredentialPrompt;
   readonly environmentId: string;
   readonly kind: ConnectionKind;
   /** The first environment in the sequence: the one whose group order merged groups follow. */
@@ -49,6 +59,7 @@ export const environmentsProjection = (records: Observable<readonly ConnectionRe
       (record, index): EnvironmentView => ({
         environmentId: record.environmentId,
         ...(record.update !== undefined && { update: record.update }),
+        ...(record.credentialPrompt !== undefined && { credentialPrompt: record.credentialPrompt }),
         kind: record.kind,
         primary: index === 0,
         name: record.environmentId === LOCAL_PLACEHOLDER_ID ? null : record.descriptor.name,

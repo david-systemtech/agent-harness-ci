@@ -217,6 +217,7 @@ describe("the shell interface", () => {
       | "clipboard"
       | "openExternal"
       | "localGrant"
+      | "credentialAccess"
       | "secrets"
       | "preview"
       | "http"

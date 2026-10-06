@@ -1,6 +1,7 @@
 import {
   answersRequest,
   parseLauncherMessage,
+  type CredentialAccessState,
   type EnvironmentMessage,
   type EnvironmentRequest,
   type LauncherQuery,
@@ -46,6 +47,8 @@ export interface LauncherChannel {
    * present. Rejects when the launcher goes before committing.
    */
   prepared(version: string): void | Promise<void>;
+  /** Says where the start's OS keychain read stands while it waits on the person, so a launcher pauses its deadline (#1689); nothing with no launcher. */
+  credentialAccess?(state: CredentialAccessState): void;
   /** Answers the launcher's queries with `answer` from now until `close`; the environment calls it once, when it is ready. */
   onQuery(answer: (query: LauncherQuery) => LauncherReply): void;
   /**
@@ -177,6 +180,9 @@ export const processLauncherChannel = (proc: IpcProcess = ipcOf(process)): Launc
           reject(error);
         });
       });
+    },
+    credentialAccess: (state) => {
+      if (proc.connected) post({ type: "credential-access", state }, () => undefined);
     },
     onQuery: (answer) => {
       answerQuery = answer;
