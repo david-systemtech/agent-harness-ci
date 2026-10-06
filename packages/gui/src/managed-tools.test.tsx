@@ -434,4 +434,33 @@ describe("About's Managed tools", () => {
     await waitFor(() => expect(document.activeElement).toBe(section()));
     expect(await row("OpenBao CLI")).toBeDefined();
   });
+
+  it("is not where Mod+, goes when it reopens About after an opening at Managed tools: the focus stays out of the section", async () => {
+    const app = await opened({
+      setup: {
+        "key-manager": {
+          state: "needs-attention",
+          reason: "A tool this build does not know needs installing.",
+          failing: ["key-manager.cli"],
+          actions: ["install"],
+          targets: [{ action: "install", kind: "tool", id: "future-tool", label: "future-tool" }],
+        },
+      },
+    });
+    await app.user.keyboard("{Control>},{/Control}");
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
+    const checklist = screen.getByRole("region", { name: "Set up" });
+    await app.user.click(within(within(checklist).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
+    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool" }));
+    await waitFor(() => expect(document.activeElement).toBe(section()));
+
+    await app.user.keyboard("{Control>},{/Control}");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Settings" })).toBeNull());
+    await app.user.keyboard("{Control>},{/Control}");
+    expect(await row("OpenBao CLI")).toBeDefined();
+    await settle();
+
+    expect(document.activeElement).not.toBe(section());
+  });
 });

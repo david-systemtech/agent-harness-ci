@@ -76,7 +76,8 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
     [keepRow],
   );
   const close = useCallback(() => setShown(false), []);
-  useKeyAction("app.settings.toggle", () => setShown((now) => !now));
+  // Mod+, reopens Settings as an opening that names nothing: on the last row, at no part of its pane.
+  useKeyAction("app.settings.toggle", () => (shown ? close() : open()));
   useEscapeStep("settings", close, shown);
 
   useEffect(() => {
