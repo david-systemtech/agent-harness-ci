@@ -6,6 +6,7 @@ import { makeTempDir } from "../../test/service-helpers.js";
 import { HANDOVER_FILE, HANDOVER_STARTS_FILE, writeHandover } from "../launch/handover.js";
 import { LAUNCHER_VERSION_FILE } from "../launch/launcher-version.js";
 import { VERSION_CLI_ENTRY, VERSION_SENTINEL, versionDirectory, versionNode } from "../launch/versions.js";
+import { SERVICE_LOG_VARIABLE } from "../launch/verb.js";
 import { LAUNCHER_ENTRY_FILES, renderLauncherEntry } from "./entry.js";
 import { nameVersion } from "./layout.js";
 
@@ -28,7 +29,11 @@ const harness = () => {
     mkdirSync(dirname(node), { recursive: true });
     mkdirSync(dirname(cli), { recursive: true });
     copyFileSync(process.execPath, node);
-    writeFileSync(cli, `console.log(JSON.stringify({ version: "${version}", args: process.argv.slice(2) }));\n`);
+    // The launcher writes the service log the entry names in its variable (#1712).
+    writeFileSync(
+      cli,
+      `require("node:fs").appendFileSync(process.env.${SERVICE_LOG_VARIABLE}, JSON.stringify({ version: "${version}", args: process.argv.slice(2) }) + "\\n");\n`,
+    );
     writeFileSync(join(folder, VERSION_SENTINEL), "");
   }
   writeFileSync(join(dataDir, LAUNCHER_ENTRY_FILES.cmd), renderLauncherEntry("cmd", { dataDir, port: 7433 }));

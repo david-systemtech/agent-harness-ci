@@ -203,7 +203,7 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   user, so a test that splits on the uid reads it that way. To run that side
   on the agent box, copy the worktree, `chown -R` the copy to an unprivileged
   user and run vitest there as that user (`runuser -u nobody`).
-- `agent-harness service install|uninstall|status|start` (`packages/cli/src/service/`)
+- `agent-harness service install|uninstall|status|start|stop` (`packages/cli/src/service/`)
   is tested with the service manager stubbed; `scripts/install.sh` is the
   headless installer, tested by `test/install-script.test.ts` against a fake
   `curl`, and `scripts/install.ps1` its Windows twin, tested by

@@ -105,6 +105,10 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
       if ((await printed()) === undefined) await launchctl("bootstrap", domain, path);
       else await launchctl("kickstart", target);
     },
+    // Booted out, as install and uninstall stop it: start bootstraps it again, and so does the next login.
+    stop: async () => {
+      if ((await printed()) !== undefined) await bootout();
+    },
     isInstalled: async () => existsSync(path),
     isRunning: async () => running(await printed()),
     notes: async () => [],
