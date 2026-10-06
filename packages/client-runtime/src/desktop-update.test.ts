@@ -219,6 +219,31 @@ describe("the desktop's own update", () => {
     });
   });
 
+  it("keeps an install that failed through the hourly checks that find the same build, and gives way to a newer build staged later", async () => {
+    const message = "Installing 0.6.0 needs pkexec, which polkit provides, and it is not installed, so 0.5.0 stays installed.";
+    const { clock, desk, runtime, until, build } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) => shell.answer("update.apply", async (_staged, when) => (when === "now" ? { outcome: "failed", failure: "install", message, byHand: `sudo pacman -U ${STAGED.path}` } : { outcome: "applied" })),
+    });
+    await until(() => build().state === "ready", "reported the build ready");
+    const failed = await runtime.desktopUpdate.restart();
+    const shown: string[] = [];
+    runtime.desktopUpdate.view.subscribe(({ build: { state } }) => shown.push(state));
+
+    clock.advance(HOUR);
+    await until(() => desk.requests("updates.desktop.stage").length === 2, "staged the same build again");
+    await flush();
+    // Never "checking", "staging" or "ready" between: that would offer the restart that failed.
+    expect(shown.every((state) => state === "failed")).toBe(true);
+    expect(build()).toEqual(failed);
+
+    const NEWER: ShellStagedBuild = { path: "/home/milo/.local/state/agent-harness/desktop/0.7.0/agent-harness-0.7.0.pacman", version: "0.7.0", sha256: "b".repeat(64) };
+    desk.setUpdates({ status: { newest: "0.7.0" }, desktopBuild: NEWER });
+    clock.advance(HOUR);
+    await until(() => build().state === "ready", "staged the newer build");
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: NEWER });
+  });
+
   it("says which step failed: the check when the local environment's own check could not read the channel, the stage when it refused the build, the install when the shell could not apply it", async () => {
     const unread = await launch({ updates: { status: { lastCheck: { at: "2026-09-24T00:00:00.000Z", result: "failed", reason: "no_release_access", message: "No forge account covers the release origin." } } } });
     await unread.until(() => unread.build().state === "failed", "failed the check");

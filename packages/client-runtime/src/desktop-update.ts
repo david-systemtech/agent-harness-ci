@@ -146,11 +146,16 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
    * Where a check has got to, or what it found. A build ready, or being
    * applied, stays as it is until a newer one is staged or it is applied:
    * it was handed over for the next quit, and a check that finds nothing
-   * newer, or fails, changes nothing about it.
+   * newer, or fails, changes nothing about it. A build whose install
+   * failed stays failed until another build is staged: the same build
+   * ready again would offer the restart that failed (#1692).
    */
   const showCheck = (build: DesktopBuildView): void => {
-    const held = view.read().build.state;
-    if ((held === "ready" || held === "applying") && build.state !== "ready" && !(build.state === "failed" && (build.failure === "install" || build.failure === "cleanup"))) return;
+    const held = view.read().build;
+    const applyFailure = build.state === "failed" && (build.failure === "install" || build.failure === "cleanup");
+    if (held.state === "failed" && held.staged !== null && (held.failure === "install" || held.failure === "cleanup")) {
+      if (!applyFailure && !(build.state === "ready" && build.staged.sha256 !== held.staged.sha256)) return;
+    } else if ((held.state === "ready" || held.state === "applying") && build.state !== "ready" && !applyFailure) return;
     setBuild(build);
   };
   const setBundled = (bundledServer: BundledServerView) => view.update((held) => ({ ...held, bundledServer }));
