@@ -450,7 +450,7 @@ describe.runIf(posix)("the launcher", () => {
   });
 });
 
-describe("the launcher's end, a stop that does not drain (#1712)", () => {
+describe.runIf(posix)("the launcher's end, a stop that does not drain (#1712)", () => {
   /** Ends a child as the launcher's preset does, and records that it was asked to. */
   const recordingEnd = () => {
     const ended: number[] = [];
