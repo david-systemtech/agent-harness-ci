@@ -143,6 +143,18 @@ describe("a step's result", () => {
     });
   });
 
+  it("carries the times the failing checks' reasons name, in the entry's order, and none when no failure names one (#1742)", async () => {
+    const polled = { text: "more than an hour ago, at 2026-09-25 06:00 UTC", at: "2026-09-25T06:00:00.000Z" };
+    const result = await check(stepOf("your-machines"), presetSettings(), {
+      ...holding,
+      "your-machines.not-root": () => ({ reason: "Root." }),
+      "your-machines.host-updater": () => ({ reason: `The host-side updater last polled ${polled.text}.`, times: [polled] }),
+    });
+    expect(result).toMatchObject({ state: "needs-attention", reason: `Root. The host-side updater last polled ${polled.text}.`, times: [polled] });
+    const without = await check(stepOf("your-machines"), presetSettings(), { ...holding, "your-machines.not-root": () => ({ reason: "Root." }) });
+    expect(without).not.toHaveProperty("times");
+  });
+
   it("needs attention when a state check throws, saying it could not check", async () => {
     const result = await check(stepOf("your-machines"), presetSettings(), {
       ...holding,

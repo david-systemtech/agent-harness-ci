@@ -1,4 +1,4 @@
-import { FIRST_ROW, REGISTERED_STEP_IDS, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepState } from "@agent-harness/contracts";
+import { FIRST_ROW, REGISTERED_STEP_IDS, agoWords, pastTimeWords, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepResult, type StepState } from "@agent-harness/contracts";
 import type { SetupCounts, SetupReach, SetupStepView, SetupView } from "../projections/setup.js";
 import { clockTime, whenWords } from "../transcript/format.js";
 
@@ -57,17 +57,20 @@ export const rowHealth = (view: SetupView, row: SettingsRowId): StepState | null
  * (`checked 30 h ago`, which a day would round to half its size), else whole
  * days (`checked 2 d ago`).
  */
-export const checkedAgoWords = (ageMs: number): string => {
-  const minutes = Math.floor(ageMs / 60_000);
-  if (minutes < 1) return "checked just now";
-  if (minutes < 60) return `checked ${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 48 ? `checked ${hours} h ago` : `checked ${Math.floor(hours / 24)} d ago`;
-};
+export const checkedAgoWords = (ageMs: number): string => `checked ${agoWords(ageMs)}`;
+
+/**
+ * A result's reason with each past time it names worded as this client
+ * words one, "2 h ago, at 16:24" where it is, in place of the environment's
+ * words for it (#1742); as it is when it names none.
+ */
+const reasonWords = ({ reason, times }: StepResult, now: Date): string =>
+  (times ?? []).reduce((words, { text, at }) => words.replace(text, () => pastTimeWords(at, now)), reason);
 
 /**
  * A step's line: "Checking…" while this client's own check of it is pending
- * (ADR 0031's half second), else its result's reason, dated. A result this
+ * (ADR 0031's half second), else its result's reason, the times it names
+ * worded where this client is, dated. A result this
  * client follows says since when it is unchanged, "(unchanged since 09:14)",
  * for a re-check that finds nothing new is never heard (#671); one it asked
  * for says its age once older than its step's cadence, "(checked 3 h ago)".
@@ -81,9 +84,10 @@ export const stepLine = (step: SetupStepView, now: Date): string => {
   if (step.pending) return "Checking…";
   const { result } = step;
   if (result === null) return "Not checked yet.";
-  if (result.asked && !result.olderThanCadence && !result.stale) return result.reason;
+  const reason = reasonWords(result, now);
+  if (result.asked && !result.olderThanCadence && !result.stale) return reason;
   const when = result.asked ? checkedAgoWords(result.ageMs) : `unchanged since ${whenWords(result.checkedAt, now)}`;
-  return `${result.reason} (${result.stale ? "stale, " : ""}${when})`;
+  return `${reason} (${result.stale ? "stale, " : ""}${when})`;
 };
 
 /**

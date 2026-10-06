@@ -1,4 +1,4 @@
-import { STEP_ORDER, type EnvironmentStatus, type StepResult } from "@agent-harness/contracts";
+import { STEP_ORDER, pastTimeWords, type EnvironmentStatus, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { after } from "../test/environments.js";
 import { noticeEvent } from "../test/events.js";
@@ -666,5 +666,29 @@ describe("each result's age", () => {
     await flush();
     expect(resultOf(runtime, env, "forges")).toMatchObject({ asked: false, olderThanCadence: false, stale: false });
     expect(lineOf(runtime, env, "forges")).toBe(`forges holds. (unchanged since ${whenWords(after(MINUTE), runtime.environmentNow(env))})`);
+  });
+
+  it("words a time its reason names as this client words a past time, in place of the environment's words for it, counted again a minute at a time while the result is followed (#1742)", async () => {
+    const { runtime, clock, env, environment, adding } = await paired();
+    const polledAt = "2026-09-23T22:00:00.000Z";
+    const polled = attentionResult("your-machines", "your-machines.host-updater", ["check-again"], {
+      reason: "The host-side updater last polled more than an hour ago, at 2026-09-23 22:00 UTC: check that it still runs.",
+      times: [{ text: "more than an hour ago, at 2026-09-23 22:00 UTC", at: polledAt }],
+    });
+    environment.snapshot(3, { status: STATUS, setup: [polled] });
+    environment.synchronized(3);
+    await adding;
+    onTestFinished(runtime.projections.setup(env).subscribe(() => undefined));
+    await flush();
+    const unchanged = `(unchanged since ${whenWords(MANUAL_CLOCK_START, runtime.environmentNow(env))})`;
+    const line = () => lineOf(runtime, env, "your-machines");
+    expect(line()).toBe(`The host-side updater last polled ${pastTimeWords(polledAt, runtime.environmentNow(env))}: check that it still runs. ${unchanged}`);
+    expect(line()).toMatch(/^The host-side updater last polled 2 h ago, at [^:]+:00: /);
+    expect(line()).not.toContain("UTC");
+
+    // Nothing is heard while nothing changes, yet the age the line says moves on.
+    clock.advance(60 * MINUTE);
+    await flush();
+    expect(line()).toMatch(/^The host-side updater last polled 3 h ago, at /);
   });
 });

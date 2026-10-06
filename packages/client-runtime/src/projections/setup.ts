@@ -147,15 +147,17 @@ const cadenceOf = (step: StepId): number => CADENCES_MS.get(step) ?? DEFAULT_CAD
 
 /**
  * When the view is next due to be computed again for its ages alone: an
- * asked result passing its cadence, or the tick past it; null with none. A
- * followed result's line names its checked-at, which time does not change.
+ * asked result passing its cadence, or the tick past it; the tick for a
+ * result whose reason names a past time, whose age its line says (#1742);
+ * null with none. A followed result's line names its checked-at, which time
+ * does not change.
  */
 const nextAgeChange = (view: SetupView): number | null => {
   let soonest: number | null = null;
   for (const { result } of view.steps) {
-    if (result === null || !result.asked) continue;
-    const due = result.olderThanCadence ? SETUP_AGE_TICK_MS : cadenceOf(result.step) - result.ageMs + 1;
-    if (soonest === null || due < soonest) soonest = due;
+    if (result === null) continue;
+    const due = result.times !== undefined ? SETUP_AGE_TICK_MS : !result.asked ? null : result.olderThanCadence ? SETUP_AGE_TICK_MS : cadenceOf(result.step) - result.ageMs + 1;
+    if (due !== null && (soonest === null || due < soonest)) soonest = due;
   }
   return soonest;
 };

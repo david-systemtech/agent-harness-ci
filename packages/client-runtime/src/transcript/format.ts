@@ -1,5 +1,8 @@
 import type { ModelUsage, RunSummary } from "@agent-harness/contracts";
 
+/** A turn's time and a time where the client is, as every client says them (#1742). */
+export { clockTime, whenWords } from "@agent-harness/contracts";
+
 /**
  * What a tool call was, in words, and the numbers a transcript prints
  * (docs/specs/tui.md, "Testing Decisions": the fold's pure helpers), in the
@@ -165,23 +168,6 @@ export const outputText = (output: unknown): string => {
   } catch {
     return String(output);
   }
-};
-
-/** Hours and minutes on this machine's clock, for a turn's time. */
-export const clockTime = (iso: string): string => {
-  const at = new Date(iso);
-  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-};
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
-
-/** A time where the client is: its clock time on the day it is `now`, else its day and clock time, the year too when it is not this one. */
-export const whenWords = (iso: string, now: Date): string => {
-  const at = new Date(iso);
-  const time = clockTime(iso);
-  if (at.toDateString() === now.toDateString()) return time;
-  const day = `${String(at.getDate())} ${MONTHS[at.getMonth()] ?? ""}`;
-  return at.getFullYear() === now.getFullYear() ? `${day} ${time}` : `${day} ${String(at.getFullYear())} ${time}`;
 };
 
 /** All the tokens a run spent, and its dollars when the provider said. */

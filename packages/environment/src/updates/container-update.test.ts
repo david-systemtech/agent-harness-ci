@@ -567,7 +567,7 @@ describe("the host-side updater's poll", () => {
     const { t, client } = await container();
     const hostUpdaterCheck = async () => {
       const [result] = (await client.request("setup.check", { step: "your-machines" })).results;
-      return { failing: result?.failing.includes("your-machines.host-updater"), actions: result?.actions, reason: result?.reason };
+      return { failing: result?.failing.includes("your-machines.host-updater"), actions: result?.actions, reason: result?.reason, times: result?.times };
     };
     expect(await hostUpdaterCheck()).toMatchObject({ failing: true, actions: expect.arrayContaining(["check-again"]), reason: expect.stringContaining("The host-side updater has not polled") });
 
@@ -576,6 +576,11 @@ describe("the host-side updater's poll", () => {
     t.clock.advance(HOUR);
     expect(await hostUpdaterCheck()).toMatchObject({ failing: false });
     t.clock.advance(1);
-    expect(await hostUpdaterCheck()).toMatchObject({ failing: true, reason: expect.stringContaining(`The host-side updater last polled at ${at(0)}`) });
+    // The poll's time is data a client words its own way; the reason says it to the minute, in UTC, for a reader that does not (#1742).
+    expect(await hostUpdaterCheck()).toMatchObject({
+      failing: true,
+      reason: expect.stringContaining("The host-side updater last polled more than an hour ago, at 2026-09-24 00:00 UTC: check that it still runs on the Docker host, every five minutes, so the container is updated."),
+      times: [{ text: "more than an hour ago, at 2026-09-24 00:00 UTC", at: at(0) }],
+    });
   });
 });
