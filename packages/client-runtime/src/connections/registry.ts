@@ -9,7 +9,7 @@ import {
   type ResponseFrame,
 } from "@agent-harness/contracts";
 import { exchangeGrant, readsGrant, type GrantExchange, type LocalStatus } from "../bootstrap.js";
-import { isStoredCredentialUnavailable } from "../credential-unavailable.js";
+import { isStoredCredentialUnavailable, PairingCodeSpentError } from "../credential-unavailable.js";
 import { admitHello, checkDiscovery, readDiscovery } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
 import type { Notices } from "../notices.js";
@@ -1085,7 +1085,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           held?.close();
         }
 
-        await platform.secrets.set(id, credential.token);
+        // The code is spent now: a store that fails here (an OS prompt it re-raised and nobody answered, say) needs a new code.
+        await platform.secrets.set(id, credential.token).catch((error: unknown) => {
+          throw new PairingCodeSpentError(error);
+        });
         const saved: SavedConnection = {
           address: origin,
           kind: "paired",

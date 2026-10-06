@@ -23,3 +23,11 @@ export class CredentialAccessUnansweredError extends Error {
 
 /** Read from the message, which Electron IPC keeps when it replaces the error class. */
 export const isCredentialAccessUnanswered = (error: unknown): boolean => error instanceof Error && error.message.includes(UNANSWERED);
+
+/** Keeping a pairing's token failed after the exchange spent its one-use code: pairing again takes a new code. */
+export class PairingCodeSpentError extends Error {
+  constructor(cause: unknown) {
+    super(`${cause instanceof Error ? cause.message : String(cause)} The pairing code was used; make a new one to pair again.`, { cause });
+    this.name = "PairingCodeSpentError";
+  }
+}

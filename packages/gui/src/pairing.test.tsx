@@ -114,6 +114,23 @@ describe("pairing", () => {
     expect(within(sidebar()).getByRole("heading", { name: "laptop", hidden: true })).toBeDefined();
   });
 
+  it("asks for a new code, not Try again, when the Keychain prompt went unanswered after the code was spent", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
+    app.shell.answer("secrets.set", () => Promise.reject(new Error(new CredentialAccessUnansweredError(30).message)));
+    await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
+    const form = within(dialog).getByRole("form", { name: "Pair by address and code" });
+    await typeInto(app, within(form).getByRole("textbox", { name: "Address" }), app.environment("laptop").wire.origin);
+    await typeInto(app, within(form).getByRole("textbox", { name: "Pairing code" }), "k7q2m xh4rt");
+    await app.user.click(within(form).getByRole("button", { name: "Pair with the code" }));
+
+    const status = within(dialog).getByRole("status");
+    await waitFor(() => expect(status.textContent).toBe(
+      "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then pair with a new code: this one was used.",
+    ));
+    expect(within(status).queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("pairs from an agent-harness:// deep link the desktop is handed", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
     await within(sidebar()).findByRole("heading", { name: "desk" });

@@ -1,6 +1,7 @@
 import {
   isCredentialAccessUnanswered,
   LOCAL_PLACEHOLDER_ID,
+  PairingCodeSpentError,
   parsePairingInput,
   type EnvironmentView,
   type PairingInput,
@@ -32,9 +33,10 @@ import { nameOf } from "./words.js";
  * which pairs with the same code: the runtime asks before it spends it (#1693).
  */
 
-/** What the form says while the token's OS store waits on macOS's Keychain prompt, and once that prompt went unanswered. */
+/** What the form says while the token's OS store waits on macOS's Keychain prompt, and once that prompt went unanswered, before or after the code was spent. */
 const KEYCHAIN_ASKING = "macOS is asking to let agent-harness use its saved key. Look for the system dialog and choose Always Allow (it may ask for your Mac password).";
 const KEYCHAIN_UNANSWERED = "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then Try again.";
+const KEYCHAIN_UNANSWERED_SPENT = "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then pair with a new code: this one was used.";
 
 /** What the form says after a pairing: under way, done, failed, or the offer to pair again in place. */
 type Said =
@@ -58,6 +60,12 @@ const saidOf = (outcome: PairingOutcome, input: PairingInput, views: readonly En
     case "failed":
       return { kind: "line", line: `Not paired: ${outcome.failure.message}` };
   }
+};
+
+/** A pairing that threw: Try again only while the code is unspent, the runtime having asked the store before the exchange. */
+const saidOfFailure = (error: unknown, input: PairingInput, options: PairingOptions | undefined): Said => {
+  if (!isCredentialAccessUnanswered(error)) return { kind: "line", line: `Not paired: ${messageOf(error)}` };
+  return error instanceof PairingCodeSpentError ? { kind: "line", line: KEYCHAIN_UNANSWERED_SPENT } : { kind: "unanswered", input, options };
 };
 
 export interface PairingFormProps {
@@ -121,7 +129,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
           setSaid(saidOf(outcome, input, runtime.projections.environments.read()));
           if (outcome.status === "paired") onPaired?.(outcome.environmentId);
         },
-        (error: unknown) => setSaid(isCredentialAccessUnanswered(error) ? { kind: "unanswered", input, options } : { kind: "line", line: `Not paired: ${messageOf(error)}` }),
+        (error: unknown) => setSaid(saidOfFailure(error, input, options)),
       );
     },
     [runtime, rePair, onPaired, shell, fullAccess],

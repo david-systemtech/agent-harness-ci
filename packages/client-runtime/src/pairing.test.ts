@@ -6,7 +6,7 @@ import { startTestEnvironment } from "../../environment/test/helper.js";
 import { notJsonAt, originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
 import { pairingDeepLink, parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
-import { CredentialAccessUnansweredError, StoredCredentialUnavailableError } from "./credential-unavailable.js";
+import { CredentialAccessUnansweredError, isCredentialAccessUnanswered, PairingCodeSpentError, StoredCredentialUnavailableError } from "./credential-unavailable.js";
 
 const harness = useHarness();
 
@@ -151,6 +151,21 @@ describe("pairing with an environment", () => {
     answer = async () => "os";
     expect(await runtime.connections.add({ link })).toEqual({ status: "paired", environmentId: t.env.id });
     expect(await platform.secrets.get(t.env.id)).toEqual(expect.any(String));
+  });
+
+  it("says a token the store could not keep after the exchange spent the code, so the same code is not offered again", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const platform = inMemoryPlatform();
+    const secrets = { ...platform.secrets, protection: async () => "os" as const, set: () => Promise.reject(new CredentialAccessUnansweredError(30)) };
+    const runtime = harness.runtime(inMemoryPlatform({ secrets }));
+    await runtime.start();
+    const { link } = await t.createPairing();
+
+    const failure = await runtime.connections.add({ link }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(PairingCodeSpentError);
+    expect(isCredentialAccessUnanswered(failure)).toBe(true);
+    expect(runtime.connections.list.read()).toEqual([]);
+    expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "used-code" } });
   });
 
   it("re-pairs with a code without admin: the replaced client session is revoked with the old token", async () => {
