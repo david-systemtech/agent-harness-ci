@@ -136,7 +136,13 @@ the environment runs on the host.
    `docker compose up -d` in that folder. The public image is
    `ghcr.io/david-systemtech/agent-harness:<version>`; no registry login is
    required. Obtain the compose file and updater from the same release at
-   <https://github.com/david-systemtech/agent-harness/releases>.
+   <https://github.com/david-systemtech/agent-harness/releases>. Put the
+   environment's settings, such as the phone address
+   `AGENT_HARNESS_WEB_ORIGIN` ([phone guide](phone.md)), in the `.env` file
+   beside `compose.yaml`, never in edits to `compose.yaml`: replacing the
+   compose file with a newer release's drops such an edit, while `.env` stays
+   and the updater rewrites only its `AGENT_HARNESS_IMAGE` and
+   `AGENT_HARNESS_PREVIOUS_IMAGE` lines.
 3. Run the updater every five minutes, with cron or with a systemd timer.
 
 The environment reads the public GitHub releases anonymously, or with its
