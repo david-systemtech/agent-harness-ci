@@ -1,4 +1,5 @@
 import {
+  isCredentialAccessUnanswered,
   LOCAL_PLACEHOLDER_ID,
   parsePairingInput,
   type EnvironmentView,
@@ -8,7 +9,8 @@ import {
 } from "@agent-harness/client-runtime";
 import { createContext, use, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Dialog, DialogClose, DialogContent, Input } from "../ui/index.js";
-import { useObservable, useRuntime, useShell } from "../window-context.js";
+import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
+import { KEYCHAIN_NOTICE_DELAY_MS } from "../notices/credential-notice.js";
 import { DialogFooter } from "../ui/dialog.js";
 import { DialogAction as Button } from "../ui/dialog-action.js";
 import { KeyRound, Link, QrCode, X } from "lucide-react";
@@ -24,14 +26,22 @@ import { nameOf } from "./words.js";
  * runtime's words; a link for an environment paired already offers to pair
  * it again in place, and a revoked or expired connection is paired again in
  * place from its heading. The form is the window's first view with "Run an
- * environment on this machine" off, and a dialog anywhere else.
+ * environment on this machine" off, and a dialog anywhere else. While macOS
+ * asks the person to let the app use its key, the form says where to answer;
+ * a prompt left unanswered is said again in the past tense, with Try again,
+ * which pairs with the same code: the runtime asks before it spends it (#1693).
  */
+
+/** What the form says while the token's OS store waits on macOS's Keychain prompt, and once that prompt went unanswered. */
+const KEYCHAIN_ASKING = "macOS is asking to let agent-harness use its saved key. Look for the system dialog and choose Always Allow (it may ask for your Mac password).";
+const KEYCHAIN_UNANSWERED = "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then Try again.";
 
 /** What the form says after a pairing: under way, done, failed, or the offer to pair again in place. */
 type Said =
   | { readonly kind: "pairing" }
   | { readonly kind: "line"; readonly line: string }
-  | { readonly kind: "offer"; readonly line: string; readonly input: PairingInput; readonly environmentId: string };
+  | { readonly kind: "offer"; readonly line: string; readonly input: PairingInput; readonly environmentId: string }
+  | { readonly kind: "unanswered"; readonly input: PairingInput; readonly options: PairingOptions | undefined };
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -69,6 +79,7 @@ export interface PairingFormProps {
 export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus = false, fullAccess = false }: PairingFormProps) => {
   const runtime = useRuntime();
   const shell = useShell();
+  const clock = useClock();
   const camera = webCameraFor(runtime);
   const scanner = scanQr ?? (camera ? () => camera.scanQr() : undefined);
   useEffect(() => () => camera?.cancel(), [camera]);
@@ -77,6 +88,22 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
   const [code, setCode] = useState("");
   const [said, setSaid] = useState<Said | undefined>(undefined);
   const pairing = said?.kind === "pairing";
+  // Whether the pairing under way waits on the OS's credential prompt, said after the same delay as the window's notice.
+  const [asking, setAsking] = useState(false);
+  useEffect(() => {
+    if (!pairing) return undefined;
+    let timer: ReturnType<typeof clock.setTimeout> | undefined;
+    const stop = shell?.secrets?.onAccess?.((state) => {
+      timer?.cancel();
+      setAsking(false);
+      if (state === "waiting") timer = clock.setTimeout(() => setAsking(true), KEYCHAIN_NOTICE_DELAY_MS);
+    });
+    return () => {
+      timer?.cancel();
+      stop?.();
+      setAsking(false);
+    };
+  }, [pairing, shell, clock]);
   const linkField = useId();
   const addressField = useId();
   const codeField = useId();
@@ -94,7 +121,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
           setSaid(saidOf(outcome, input, runtime.projections.environments.read()));
           if (outcome.status === "paired") onPaired?.(outcome.environmentId);
         },
-        (error: unknown) => setSaid({ kind: "line", line: `Not paired: ${messageOf(error)}` }),
+        (error: unknown) => setSaid(isCredentialAccessUnanswered(error) ? { kind: "unanswered", input, options } : { kind: "line", line: `Not paired: ${messageOf(error)}` }),
       );
     },
     [runtime, rePair, onPaired, shell, fullAccess],
@@ -149,8 +176,16 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         <Button icon={Link} keys="Enter" type="submit" disabled={pairing} className="self-start mt-2">Pair with the code</Button>
       </form>
       <div role="status" className="flex min-h-8 items-center gap-2 text-sm text-ink">
-        {said?.kind === "pairing" && <span>Pairing…</span>}
+        {said?.kind === "pairing" && <span>{asking ? KEYCHAIN_ASKING : "Pairing…"}</span>}
         {said?.kind === "line" && <span>{said.line}</span>}
+        {said?.kind === "unanswered" && (
+          <>
+            <span>{KEYCHAIN_UNANSWERED}</span>
+            <Button variant="default" onClick={() => pair(said.input, said.options)}>
+              Try again
+            </Button>
+          </>
+        )}
         {said?.kind === "offer" && (
           <>
             <span>{said.line}</span>
