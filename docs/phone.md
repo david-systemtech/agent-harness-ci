@@ -51,13 +51,15 @@ certificate is valid and `/ws` is forwarded. See
 [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and
 [its CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
-For an installed service or container, put
+For an installed service, put
 `AGENT_HARNESS_WEB_ORIGIN=https://<device>.<tailnet>.ts.net:8443` in the
-service manager's environment or the Compose service's `environment` map and
-restart that environment safely. Exporting it in an unrelated terminal does
-not update an already-running service. `serve` reads this variable when
-`--web-origin` is absent; `service install` does not take `--web-origin`.
-Keep the same data directory and listener port. The foreground command above
+service manager's environment and restart that environment safely. For a
+container, put that line in the `.env` file beside `compose.yaml` and run
+`docker compose up -d`; do not edit `compose.yaml`, since an update replaces
+it with the next release's file while `.env` stays. Exporting it in an
+unrelated terminal does not update an already-running service. `serve` reads
+this variable when `--web-origin` is absent; `service install` does not take
+`--web-origin`. Keep the same data directory and listener port. The foreground command above
 is an alternative to a running service, not a second environment on its port.
 
 Install Tailscale on the phone, join the same tailnet and connect. Open
@@ -254,7 +256,7 @@ Use **Refresh status** in Attention to inspect failed/unavailable routes;
 | Symptom | Check or recovery |
 | --- | --- |
 | Cannot open the client | Tailscale connected on phone and environment, tailnet policy for HTTPS port, correct MagicDNS name/port, valid certificate and Serve proxy. Do not bypass certificate errors. |
-| Link points to HTTP or the wrong port | Configure `--web-origin`/`AGENT_HARNESS_WEB_ORIGIN` in the running environment, restart safely and mint a fresh code. Forwarded headers are not configuration. |
+| Link points to HTTP or the wrong port | Configure `--web-origin`/`AGENT_HARNESS_WEB_ORIGIN` in the running environment (for a container, in the `.env` file beside `compose.yaml`, then `docker compose up -d`), restart safely and mint a fresh code. Forwarded headers are not configuration. |
 | Code expired/used | Mint a new one; each lasts ten minutes and works once. Use the address plus code if scanning fails. |
 | Pairing forgotten | Same origin? Storage cleared, denied or evicted? Check **pair for this visit**; use a new code in the installed client if it has separate storage. |
 | Settings, sign-in, Files or terminal unavailable | Check actual scopes. Use a trusted client or deliberately re-pair with the required `admin`/`terminal` grant. |

@@ -97,11 +97,18 @@ export const start = async ({
   return { electron, platform, shell: (from = APP_URL) => rendererShell(electron, from) };
 };
 
-/** The preload's shell over an `ipcRenderer` that reaches `electron`'s `ipcMain` from a frame at `from`, and hears its window's page. */
+/**
+ * The preload's shell over an `ipcRenderer` that reaches `electron`'s `ipcMain` from a frame at `from`, and hears its window's page.
+ * A handler's rejection reaches the preload as Electron's `ipcRenderer.invoke` hands it over: a new `Error` whose message wraps the
+ * handler's error as text, behind `Error invoking remote method '<channel>': `.
+ */
 export const rendererShell = (electron: FakeElectron, from: string | null = APP_URL): DesktopShell => {
   const contents = electron.window().webContents;
   const ipc: PreloadIpc = {
-    invoke: (channel, ...args) => electron.ipcMain.invoke(channel, args, from),
+    invoke: (channel, ...args) =>
+      electron.ipcMain.invoke(channel, args, from).catch((error: unknown) => {
+        throw new Error(`Error invoking remote method '${channel}': ${String(error)}`);
+      }),
     send: (channel, ...args) => electron.ipcMain.send(channel, args, from),
     on(channel, listener) {
       contents.listen(channel, (...args) => listener({}, ...args));

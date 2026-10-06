@@ -28,6 +28,15 @@ export const PHONE_PROFILES = [
   { suffix: "phone-390-keyboard", viewport: { width: 390, height: 480 }, textSize: 14 },
 ] as const;
 
+/**
+ * Laptop windows shorter than the standard captures, where a dialog's header and footer must stay in the
+ * window (look.md §11.1; #1690 measured the sign-in dialog off-screen at 1280 × 800 and 1280 × 700). The
+ * scene is mounted again in each and its geometry measured without a screenshot, so the published captures
+ * keep their two sizes; the probes run once per scene, with its wide dark capture.
+ */
+export const LAPTOP_PROBES = [{ width: 1280, height: 800 }, { width: 1280, height: 700 }] as const;
+const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in"]);
+
 export interface CaptureCase {
   readonly scene: string;
   readonly ladder: "light" | "dark";
@@ -35,6 +44,8 @@ export interface CaptureCase {
   readonly viewport: { readonly width: number; readonly height: number };
   readonly textSize: number;
   readonly platform: "desktop" | "web";
+  /** Further windows in which the scene's geometry is measured, without a capture. */
+  readonly probes?: readonly { readonly width: number; readonly height: number }[];
 }
 
 /** Phone owners opt in with phone-* scene files; existing desktop names and ladders stay intact. */
@@ -42,6 +53,7 @@ export function capturePlan(scenes: readonly string[]) {
   const desktop: CaptureCase[] = ([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
     captureCases(scenes).map(({ scene, ladder }) => ({
       scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
+      ...(LAPTOP_SCENES.has(scene) && ladder === "dark" && viewport.width === 1400 && { probes: LAPTOP_PROBES }),
     })),
   );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>

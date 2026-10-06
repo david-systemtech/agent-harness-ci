@@ -581,11 +581,12 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
     expect(logged(await tick(f))).toEqual([]);
   });
 
-  it("keeps the .env file's other lines, and the image the updater's own environment names does not override the file's", async () => {
-    const f = fixture({ envFile: `COMPOSE_PROFILES=tools\nAGENT_HARNESS_IMAGE=${OLD}\nAGENT_HARNESS_PREVIOUS_IMAGE=${OLDER}\n` });
+  it("keeps the .env file's other lines, the phone address among them (#1691), and the image the updater's own environment names does not override the file's", async () => {
+    const settings = "COMPOSE_PROFILES=tools\nAGENT_HARNESS_WEB_ORIGIN=https://build-box.example.ts.net:8443\n";
+    const f = fixture({ envFile: `${settings}AGENT_HARNESS_IMAGE=${OLD}\nAGENT_HARNESS_PREVIOUS_IMAGE=${OLDER}\n` });
     expect((await tick(f, { AGENT_HARNESS_IMAGE: "someone/else:1.0.0" })).code).toBe(0);
     expect(f.calls()).toContain(snapshotOn(OLD));
-    expect(f.envFile()).toBe(`COMPOSE_PROFILES=tools\nAGENT_HARNESS_IMAGE=${NEW}\nAGENT_HARNESS_PREVIOUS_IMAGE=${OLD}\n`);
+    expect(f.envFile()).toBe(`${settings}AGENT_HARNESS_IMAGE=${NEW}\nAGENT_HARNESS_PREVIOUS_IMAGE=${OLD}\n`);
     expect(f.images().sort()).toEqual([OLD, NEW]);
   });
 

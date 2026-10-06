@@ -298,13 +298,47 @@ describe("apply on Arch", () => {
     }
   });
 
-  it("says why pacman did not install the package", async () => {
+  it("says why pacman did not install the package, and the command that installs it by hand", async () => {
     const { shell } = await onArch({ code: 1, stderr: "loading packages...\nerror: failed to init transaction (unable to lock database)" });
-    expect(await shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst"), "now")).toEqual({
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    expect(await shell().update.apply(staged, "now")).toEqual({
       outcome: "failed",
       failure: "install",
       message: "pacman could not install 0.6.0 (error: failed to init transaction (unable to lock database)), so 0.5.0 stays installed.",
+      byHand: `sudo pacman -U ${staged.path}`,
     });
+  });
+
+  it("says pkexec is missing, as on an install without polkit, and the command that installs the package by hand", async () => {
+    const system = fakeSystem();
+    pacmanOwns(system, EXECUTABLE);
+    const { shell, electron } = await installed("linux", EXECUTABLE, system);
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+
+    expect(await shell().update.apply(staged, "now")).toEqual({
+      outcome: "failed",
+      failure: "install",
+      message: "Installing 0.6.0 needs pkexec, which polkit provides, and it is not installed, so 0.5.0 stays installed.",
+      byHand: `sudo pacman -U ${staged.path}`,
+    });
+    expect(electron.app.calls.map(([method]) => method)).not.toContain("quit");
+  });
+
+  it("says no polkit authentication agent is running when pkexec finds none to ask", async () => {
+    const { shell } = await onArch({ code: 127, stderr: "Error executing command as another user: No authentication agent found." });
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    expect(await shell().update.apply(staged, "now")).toEqual({
+      outcome: "failed",
+      failure: "install",
+      message: "Installing 0.6.0 needs an administrator, and no polkit authentication agent is running to ask for one, so 0.5.0 stays installed.",
+      byHand: `sudo pacman -U ${staged.path}`,
+    });
+  });
+
+  it("quotes a staged path the shell would split in the command that installs it by hand", async () => {
+    const { shell } = await onArch({ code: 126, stderr: "" });
+    const staged = stagedBuild("0.6.0", "agent harness's build.pkg.tar.zst");
+    expect(await shell().update.apply(staged, "now")).toHaveProperty("byHand", `sudo pacman -U '${staged.path.replaceAll("'", "'\\''")}'`);
   });
 
   it("keeps a build handed over for the quit when installing it now was refused", async () => {
