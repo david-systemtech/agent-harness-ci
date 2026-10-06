@@ -244,7 +244,7 @@ describe("the Your machines card in Set up", () => {
     expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1);
   });
 
-  it("says on this machine's card that macOS asks for its stored key while an update's start waits on it (#1689)", async () => {
+  it("says on this machine's card that macOS asks for its stored key while an update's start waits on it", async () => {
     const app = await opened();
     const desk = app.environment("desk");
     expect(await within(part("desk", "Reachability")).findByText("Reachable on the tailnet at desk.tail1234.ts.net (100.101.102.103).")).toBeDefined();
