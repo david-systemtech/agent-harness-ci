@@ -122,10 +122,20 @@ describe("the desktop's own update", () => {
     expect(build()).toEqual({ state: "waiting", version: RUNNING });
     expect(desktopBuildWords(build())).not.toBe("This client's build is the newest.");
 
-    // The environment reads its channel two minutes after its start: the desktop looks again within a minute of that, not an hour later.
-    clock.advance(2 * MINUTE);
+    // The environment reads its channel two minutes after its start: until then each look again finds it unread.
+    for (let looked = 2; looked * DESKTOP_UNREAD_RECHECK_MS <= 2 * MINUTE + DESKTOP_UNREAD_RECHECK_MS; looked++) {
+      clock.advance(DESKTOP_UNREAD_RECHECK_MS);
+      await until(() => desk.requests("updates.status").length === looked, "looked again");
+      for (let i = 0; i < 5; i++) await flush();
+      expect(build()).toEqual({ state: "waiting", version: RUNNING });
+    }
+
+    // The read lands between two looks: the next one, within DESKTOP_UNREAD_RECHECK_MS, stages what it found, not an hour later.
     desk.setUpdates({ status: { newest: "0.6.0", lastCheck: { at: "2026-10-03T21:21:26.000Z", result: "ok" } }, desktopBuild: STAGED });
-    clock.advance(DESKTOP_UNREAD_RECHECK_MS);
+    clock.advance(DESKTOP_UNREAD_RECHECK_MS - 1);
+    for (let i = 0; i < 5; i++) await flush();
+    expect(params(desk, "updates.desktop.stage")).toEqual([]);
+    clock.advance(1);
     await until(() => build().state === "ready", "staged the build the first read found");
     expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
   });
@@ -144,13 +154,15 @@ describe("the desktop's own update", () => {
     expect(build()).toEqual({ state: "waiting", version: RUNNING });
   });
 
-  it("never reports a build older than the local environment's own version as the newest, before or after a channel read that found less (#1753)", async () => {
+  it("never reports a build older than the local environment's own version as the newest before the channel is read, and follows the newest once it is (#1753)", async () => {
     const unread = await launch({ updates: { status: { version: "0.6.0" }, desktopBuild: STAGED } });
     await unread.until(() => unread.build().state === "ready", "staged the environment's version");
     expect(params(unread.desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
 
-    const stale = await launch({ updates: { status: { version: "0.6.0", newest: RUNNING, lastCheck: { at: "2026-10-03T21:00:00.000Z", result: "ok" } }, desktopBuild: STAGED } });
-    await stale.until(() => stale.build().state === "ready", "staged the environment's version past a stale newest");
+    // The channel's newest below the version the environment runs (a beta it left, a release withdrawn) is what a stage would stage: nothing newer.
+    const below = await launch({ updates: { status: { version: "0.6.0", newest: RUNNING, lastCheck: { at: "2026-10-03T21:00:00.000Z", result: "ok" } }, desktopBuild: STAGED } });
+    await below.until(() => below.build().state === "current", "followed the channel's newest");
+    expect(params(below.desk, "updates.desktop.stage")).toEqual([]);
   });
 
   it("follows the local environment's pin, whatever its channel's newest", async () => {

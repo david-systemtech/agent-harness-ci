@@ -18,8 +18,8 @@ import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } f
  *   its build is the newest, and looks again every 30 seconds (#1753). The
  *   release the desktop follows is the environment's pin, else its
  *   channel's newest as the environment's own check last found it
- *   (`updates.status`), or the environment's own version where that is
- *   newer than both the newest and the desktop's build; when that is newer than the
+ *   (`updates.status`), or, before a check found that, the environment's
+ *   own version where newer than the desktop's build; when that is newer than the
  *   build the shell runs, `updates.desktop.stage` has the environment stage
  *   the build for the shell's platform and format in the background, and
  *   the runtime reports it ready: the renderer's "Restart to update" applies
@@ -235,8 +235,9 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${settings.error.message}`, stagedNow());
     const pinned = settings.result.values["updates.pinnedVersion"] ?? null;
     const { newest, lastCheck, version: environmentVersion } = status.result;
-    // The environment runs a release, so a build older than it is behind before its first read of the channel, and past a newest read before it updated (#1753).
-    const ahead = newerVersion(environmentVersion, version) && (newest === null || newerVersion(environmentVersion, newest));
+    // The environment runs a release, so a build older than it is behind before its first read of the channel (#1753). Once read,
+    // the newest is what a stage stages, even below the version the environment runs (a beta it left, a release withdrawn).
+    const ahead = newest === null && newerVersion(environmentVersion, version);
     const followed = pinned ?? (ahead ? environmentVersion : newest);
     if (followed === null) {
       if (lastCheck === null) return { state: "waiting", version };
