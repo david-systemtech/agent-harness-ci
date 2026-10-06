@@ -5,15 +5,15 @@ import { SettingsGroup } from "../settings/part.js";
 import { Button, Tooltip } from "../ui/index.js";
 import { useClientVersion, useObservable, useRuntime, useShell } from "../window-context.js";
 import { WebRegisteredSurfaces } from "../platform/web-registrations.js";
-import { RestartButton } from "./restart-to-update.js";
+import { ApplyFailureActions, applyFailed, RestartButton } from "./restart-to-update.js";
 
 /**
  * This client's version, which About pins above its picker as the one line
  * that belongs to no environment (ADR 0027), with the desktop's own update
  * as the runtime has it (launcher-update spec, "The desktop moves with its
  * local environment"; #424): where it is, "Restart to update" once a build
- * is staged, and for an install that cannot update itself, the release
- * page to download one from.
+ * is staged, for an install that cannot update itself, the release page
+ * to download one from, and once an install failed, what to do about it.
  */
 export const ClientBuild = () => {
   const runtime = useRuntime();
@@ -47,6 +47,7 @@ export const ClientBuild = () => {
           </Button></Tooltip>
         </>
       )}
+      {applyFailed(build) && <ApplyFailureActions build={build} />}
       <RestartButton />
       <WebRegisteredSurfaces location="settings-client" />
       </div>

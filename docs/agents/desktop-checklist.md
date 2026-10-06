@@ -573,7 +573,13 @@ applies it from the console. The environment stages the build in
    `pacman -Qo <the desktop's executable>` names the newer version.
 2. **Refused.** Cancel the dialog: `apply` answers `failed`, `install`, saying
    the authentication was refused and the installed version stays; `pacman
-   -Q` names the old version, and the desktop keeps running.
+   -Q` names the old version, and the desktop keeps running. The header
+   reads "Update failed" and its details opened at once, with the
+   `sudo pacman -U <path>` command for the staged package (#1692).
+2a. **No polkit agent.** Under a bare window manager with no polkit
+   authentication agent running, step 3 fails the same way, the details
+   saying no authentication agent is running; the command they give
+   installs the update.
 3. **Not a package.** Run an unpacked copy of the app outside pacman's files:
    `current()` answers the format null.
 

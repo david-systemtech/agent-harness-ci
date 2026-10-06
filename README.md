@@ -71,6 +71,14 @@ Open agent-harness from your application menu, or run
 Linux distribution, use the Docker option below and connect from a desktop
 on a supported machine.
 
+The desktop updates itself: when a newer build is ready, **Restart to
+update** installs it with `pacman -U` through `pkexec`, which needs polkit
+(the package depends on it) and a running polkit authentication agent, as
+desktop environments start. Without one, the desktop says the update failed
+and gives the command that installs the build it downloaded,
+`sudo pacman -U <path>`; installing a newer release's package with
+`sudo pacman -U` as above works too.
+
 ### Docker (Linux x64 host)
 
 The public image is `ghcr.io/david-systemtech/agent-harness`. Each release
