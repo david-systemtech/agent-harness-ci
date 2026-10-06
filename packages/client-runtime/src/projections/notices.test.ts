@@ -6,7 +6,7 @@ import { recorded } from "../../test/transcript.js";
 import { subscription } from "../../test/scripted.js";
 import { createRuntimeWithSeams } from "../internal.js";
 import { createNotices, NOTICE_LIMIT, type Notices } from "../notices.js";
-import { desktopSawUnanswered } from "../updates/credential-notice.js";
+import { desktopSawUnanswered, PAIRING_MS } from "../updates/credential-notice.js";
 import { fakeWire, flush } from "../testing/fake-wire.js";
 import { inMemoryPlatform, manualClock } from "../testing/in-memory-platform.js";
 import type { AttentionEvent } from "./attention.js";
@@ -261,6 +261,17 @@ describe("the notices from the environment's stream", () => {
       expect(shown(notices)).toEqual([
         { kind: "update-failed", message: CREDENTIAL },
         { kind: "update-failed", message: "desk could not be updated to 0.1.3 (trial: snapshot). It is running 0.1.1." },
+        { kind: "update-failed", message: "desk could not be updated to 0.1.3 (trial: deadline). It is running 0.1.1." },
+      ]);
+    });
+
+    it("keeps a deadline's own words when it occurred more than the pairing time after the desktop's report", () => {
+      const { clock, notices, heard } = window();
+      desktopSawUnanswered(notices, env, "desk", "0.1.3", clock.now());
+      const late = new Date(clock.now().getTime() + PAIRING_MS + 1_000).toISOString();
+      heard({ ...failed(1, "deadline"), occurredAt: late });
+      expect(shown(notices)).toEqual([
+        { kind: "update-failed", message: UNANSWERED },
         { kind: "update-failed", message: "desk could not be updated to 0.1.3 (trial: deadline). It is running 0.1.1." },
       ]);
     });
