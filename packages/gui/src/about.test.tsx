@@ -197,10 +197,17 @@ describe("Restart to update", () => {
   });
 
   it("shows nothing while no newer build is staged", async () => {
-    const app = await opened();
+    const app = await opened({ updates: { status: { lastCheck: { at: "2026-10-03T21:21:26.000Z", result: "ok" } } } });
     const about = await openAbout(app);
     await waitFor(() => expect(within(about).getByText("This client's build is the newest.")).toBeDefined());
     expect(screen.queryByRole("button", { name: "Restart to update" })).toBeNull();
+  });
+
+  it("says it waits for the local environment's first read of its release channel, never that the build is the newest", async () => {
+    const app = await opened();
+    const about = await openAbout(app);
+    expect(await within(about).findByText("Waiting for this machine's environment to read its release channel, then checking for a newer build…")).toBeDefined();
+    expect(within(about).queryByText("This client's build is the newest.")).toBeNull();
   });
 
   it("says an install that cannot update itself, with the release page", async () => {

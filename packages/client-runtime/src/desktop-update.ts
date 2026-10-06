@@ -13,9 +13,13 @@ import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } f
  *
  * - **Its own build**, on a shell with `update`: checked at launch, once the
  *   local environment is ready, and hourly after, through that environment
- *   and never the forge. The release the desktop follows is the
- *   environment's pin, else its channel's newest as the environment's own
- *   check last found it (`updates.status`); when that is newer than the
+ *   and never the forge; while that environment has not read its channel
+ *   since it started, the desktop says it waits for that read, never that
+ *   its build is the newest, and looks again every 30 seconds (#1753). The
+ *   release the desktop follows is the environment's pin, else its
+ *   channel's newest as the environment's own check last found it
+ *   (`updates.status`), or the environment's own version where that is
+ *   newer than both the newest and the desktop's build; when that is newer than the
  *   build the shell runs, `updates.desktop.stage` has the environment stage
  *   the build for the shell's platform and format in the background, and
  *   the runtime reports it ready: the renderer's "Restart to update" applies
@@ -36,6 +40,13 @@ import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } f
 /** How often the desktop's build is checked after the check at launch. */
 export const DESKTOP_CHECK_INTERVAL_MS = 60 * 60_000;
 
+/**
+ * How soon the desktop's build is checked again while the local environment
+ * has not read its release channel yet: it reads it two minutes after its
+ * start, and a desktop started inside them would otherwise wait an hour (#1753).
+ */
+export const DESKTOP_UNREAD_RECHECK_MS = 30_000;
+
 /** How long a stage may take: the environment's download of a build may take its 15 minutes, and the release's reads around it. */
 export const DESKTOP_DOWNLOAD_TIMEOUT_MS = 20 * 60_000;
 
@@ -47,6 +58,8 @@ export type DesktopBuildView =
   /** Not checked yet, or the shell has no `update`. */
   | { readonly state: "unchecked" }
   | { readonly state: "checking"; readonly version: string }
+  /** The local environment has not read its release channel since it started, so what is newest is not known yet; checked again shortly. */
+  | { readonly state: "waiting"; readonly version: string }
   /** Nothing newer is published, or pinned, than the build the desktop runs. */
   | { readonly state: "current"; readonly version: string }
   /** The install cannot update itself: a new version is downloaded from the release page. */
@@ -212,7 +225,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       return failed(null, "check", `The desktop could not tell which build it runs: ${error instanceof Error ? error.message : String(error)}`);
     }
     const { version } = running;
-    showCheck({ state: "checking", version });
+    // A look again while waiting for the environment's first read stays waiting until it finds something.
+    if (view.read().build.state !== "waiting") showCheck({ state: "checking", version });
     const status = await host.call(environmentId, "updates.status", {});
     if (!status.ok) return failed(version, "check", `Could not ask the local environment for updates: ${status.error.message}`, stagedNow());
     releasePage = releasePageOf(status.result.releaseSource);
@@ -220,10 +234,13 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     const settings = await host.call(environmentId, "settings.get", { keys: ["updates.pinnedVersion"] });
     if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${settings.error.message}`, stagedNow());
     const pinned = settings.result.values["updates.pinnedVersion"] ?? null;
-    const followed = pinned ?? status.result.newest;
+    const { newest, lastCheck, version: environmentVersion } = status.result;
+    // The environment runs a release, so a build older than it is behind before its first read of the channel, and past a newest read before it updated (#1753).
+    const ahead = newerVersion(environmentVersion, version) && (newest === null || newerVersion(environmentVersion, newest));
+    const followed = pinned ?? (ahead ? environmentVersion : newest);
     if (followed === null) {
-      const last = status.result.lastCheck;
-      return last?.result === "failed" ? failed(version, "check", last.message, stagedNow()) : { state: "current", version };
+      if (lastCheck === null) return { state: "waiting", version };
+      return lastCheck.result === "failed" ? failed(version, "check", lastCheck.message, stagedNow()) : { state: "current", version };
     }
     if (!newerVersion(followed, version)) return { state: "current", version };
     showCheck({ state: "staging", version, toVersion: followed });
@@ -321,21 +338,28 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     return { state: "failed", version, reason, message };
   };
 
-  /** Runs the check now, when one is due and the local environment is ready; the next is due an hour after it ends. */
+  /** Runs the check now, when one is due and the local environment is ready; the next is due an hour after it ends, or shortly while the environment has not read its channel. */
   const checkIfDue = (): void => {
     const environmentId = readyLocal();
     if (closed || checking || !due || environmentId === undefined || update === undefined) return;
     due = false;
     checking = true;
+    let next = DESKTOP_CHECK_INTERVAL_MS;
     void checkBuild(environmentId)
-      .then(showCheck, (error: unknown) => host.report(error))
+      .then(
+        (build) => {
+          if (build.state === "waiting") next = DESKTOP_UNREAD_RECHECK_MS;
+          showCheck(build);
+        },
+        (error: unknown) => host.report(error),
+      )
       .finally(() => {
         checking = false;
         if (closed) return;
         timer = host.clock.setTimeout(() => {
           due = true;
           checkIfDue();
-        }, DESKTOP_CHECK_INTERVAL_MS);
+        }, next);
       });
   };
 
