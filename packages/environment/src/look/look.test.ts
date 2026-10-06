@@ -134,11 +134,11 @@ describe("an environment's look before anyone sets it", () => {
     const t = await start();
     const client = await t.client();
     expect((await client.request("setup.check", { step: "your-machines" })).results[0]?.failing).not.toContain("your-machines.named");
-    // With auto-update off the release channel's check holds unread, so the step is done and its line names every check.
+    // With auto-update off the release channel's check holds unread, so the step is done, its line what was found (#1698).
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
     const [result] = (await client.request("setup.check", { step: "your-machines" })).results;
     expect(result).toMatchObject({ state: "done", failing: [] });
-    expect(result?.reason).toContain("The environment has a name, an icon and a colour.");
+    expect(result?.reason).toMatch(/^Ready on .+, updates off, reachable from this machine only\.$/);
   });
 });
 

@@ -418,9 +418,9 @@ describe("the Your machines step's release channel check", () => {
     const { fake, client } = await withChannel("0.5.0");
     fake.publish({ version: "0.4.2" });
     await setUpdates(client, { "updates.autoUpdate": false });
-    expect(await result(client)).toMatchObject({ state: "done", reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind. No host-side updater manages this environment's updates, or it polled in the last hour. The environment has a name, an icon and a colour. The environment is ready, and not draining past its cap. LAN binding is off, or the LAN address it names is one this machine holds." });
+    expect(await result(client)).toMatchObject({ state: "done", reason: "Ready on 0.5.0, updates off, reachable from this machine only." });
     await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": "0.4.2" });
-    expect(await result(client)).toMatchObject({ state: "done" });
+    expect(await result(client)).toMatchObject({ state: "done", reason: "Ready on 0.5.0, updates pinned to 0.4.2, reachable from this machine only." });
   });
 
   it("holds for 24 hours after a check succeeded, across a restart, and then needs attention with the last failure", async () => {

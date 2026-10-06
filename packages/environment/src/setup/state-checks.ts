@@ -1,11 +1,11 @@
-import { DRAIN_CAP_MS, denylistPresets, type AccountRecord, type ContainmentReport, type EnvironmentLook, type EnvironmentStatus, type StateImportDetection } from "@agent-harness/contracts";
+import { DRAIN_CAP_MS, denylistPresets, type AccountRecord, type ContainmentReport, type EnvironmentLook, type EnvironmentStatus, type SettingsValues, type StateImportDetection } from "@agent-harness/contracts";
 import { accountStateChecks } from "../accounts/step-checks.js";
 import type { AdapterRegistry } from "../adapter/registry.js";
 import { themeMeetsRules } from "../appearance/contrast.js";
 import type { BankRecords } from "../banks/records.js";
 import { memoryBankStateChecks } from "../banks/step-checks.js";
 import type { BrowserService } from "../browser/service.js";
-import { carryOverStateChecks, type CarryOverStateChecksOptions } from "../carry-over/step-checks.js";
+import { carryOverDoneLine, carryOverStateChecks, type CarryOverStateChecksOptions } from "../carry-over/step-checks.js";
 import { instructionsStateChecks } from "../instructions/step-checks.js";
 import type { OrientationAnswer } from "../instructions/composer.js";
 import type { EventLog } from "../event-log/event-log.js";
@@ -23,7 +23,7 @@ import { lanAddressHeld } from "../serve/interfaces.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
 import { skillsStateChecks, type SkillsStateChecksOptions } from "../skills/step-checks.js";
-import type { StateCheckers } from "./check.js";
+import type { DoneLines, StateCheckers } from "./check.js";
 
 /**
  * How this environment answers every state check the step registry names
@@ -104,6 +104,8 @@ export interface StateChecksOptions {
   readonly browser: Pick<BrowserService, "stateChecks">;
   /** The environment's clock: a forge token's expiry is read against it. */
   readonly clock: Clock;
+  /** The version the environment runs: Your machines' line when done names it. */
+  readonly version: string;
 }
 
 /**
@@ -119,6 +121,34 @@ const readyWithinCap = ({ readiness, activity }: EnvironmentStatus, now: Date): 
     };
   }
   return readiness === "ready" || { reason: "The environment is still starting: Check again once it is ready." };
+};
+
+/**
+ * Your machines' line when done (#1698): ready, or draining within its cap,
+ * on the version it runs; whether updates are on, off, pinned or the host's;
+ * and where it can be reached beside this machine.
+ */
+export const yourMachinesLine = (version: string, { activity, updatesManagedOutside, binding }: EnvironmentStatus, values: SettingsValues): string => {
+  const pinned = values["updates.pinnedVersion"];
+  const updates = updatesManagedOutside
+    ? "updates by the host"
+    : !values["updates.autoUpdate"]
+      ? "updates off"
+      : pinned !== null
+        ? `updates pinned to ${pinned}`
+        : "updates on";
+  const networks = [...(binding?.tailnet ? ["the tailnet"] : []), ...(binding?.lan ? ["the LAN"] : [])];
+  const reach = networks.length === 0 ? "reachable from this machine only" : `reachable on ${networks.join(" and ")}`;
+  return `${activity.state === "draining" ? "Restarting" : "Ready"} on ${version}, ${updates}, ${reach}.`;
+};
+
+/** The environment's lines for the steps it says more of when done than the registry's sentence (#1698), each read when the step is done. */
+export const environmentDoneLines = (options: StateChecksOptions): DoneLines => {
+  const reader: Reader = { all: (sql, ...params) => options.log.read(sql, ...params) };
+  return {
+    "carry-over": carryOverDoneLine({ reader, detect: options.detectStateImport, stateImport: options.stateImport }),
+    "your-machines": () => yourMachinesLine(options.version, options.status(), readSettings(reader)),
+  };
 };
 
 export const environmentStateChecks = (options: StateChecksOptions): StateCheckers => {
