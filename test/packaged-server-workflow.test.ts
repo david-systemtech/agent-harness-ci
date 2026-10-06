@@ -94,10 +94,10 @@ describe("the public release's packaged server smoke tests", () => {
   ] as const)("gates publishing on %s using the existing desktop artifact", (name, runner, build, artifact) => {
     const body = job(hosted, name);
     expect(body).toContain(`runs-on: ${runner}`);
-    expect(body).toContain(`needs: [check, ${build}]`);
+    expect(body).toContain(`needs: [prepare, ${build}]`);
     expect(body).toMatch(/uses: actions\/download-artifact@[a-f0-9]{40}/);
     expect(body).toContain(`name: ${artifact}`);
-    expect(body).toContain("VERSION: ${{ needs.check.outputs.version }}");
+    expect(body).toContain("VERSION: ${{ needs.prepare.outputs.version }}");
     expect(body).toContain("--version");
     expect(body).toContain("service status");
     expect(body).toContain("No service is installed");

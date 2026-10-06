@@ -43,11 +43,13 @@ available without an account.
    Use the snapshot publisher to publish that ref and version tag to the public
    repository. Its public tag points to the cleaned snapshot, not private history.
 4. Wait for the public tag's GitHub **release** workflow to
-   finish. It checks the release is unpublished before building; builds the
-   versioned linux/amd64 image and pushes it to
-   `ghcr.io/david-systemtech/agent-harness:<version>`; builds the macOS zip,
-   Windows NSIS setup (cross-built with Wine) and Linux Arch package; then writes
-   the three server artefacts, scripts, schema export, manifest and sidecars.
+   finish. Its `prepare` job checks the release is unpublished; the builds then
+   run beside `verify`, the whole test suite: the versioned linux/amd64 image,
+   the macOS zip, Windows NSIS setup (cross-built with Wine) and Linux Arch
+   package, and their smokes. Only once `verify` has passed does `image-push`
+   push the checked image to `ghcr.io/david-systemtech/agent-harness:<version>`
+   and the release job write the three server artefacts, scripts, schema
+   export, manifest and sidecars and publish them.
 5. Verify the single GitHub release holds every manifest asset and sidecar, plus
    `release.json` and its sidecar. Prerelease tags must show **Pre-release**.
    Confirm the manifest's image reference and digest can be pulled publicly.
