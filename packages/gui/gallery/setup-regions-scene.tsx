@@ -20,14 +20,21 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in";
+
+/** A provider's authorize link at its real length, which once printed over eight lines (#1690); every value is invented. */
+export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=true&client_id=client-for-gallery&response_type=code"
+  + "&redirect_uri=https%3A%2F%2Fprovider.example.test%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions"
+  + "&code_challenge=challenge-for-the-gallery-sign-in-dialog-only&code_challenge_method=S256&state=state-for-the-gallery-sign-in-dialog-only";
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" ? "account" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
-    accounts: kind === "account" || kind === "close-confirmation" ? [] : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
+    accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
+      ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
+      : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
@@ -77,13 +84,23 @@ export function setupRegionScene(kind: SetupRegion) {
     }, [ladder]);
     useEffect(() => {
       if (scene === undefined) return;
-      let began = false, finished = false;
+      let began = false, finished = false, signed = false;
       const advance = () => {
         const begin = document.querySelector<HTMLButtonElement>("[data-setup-begin]");
         if (!began && begin !== null && !begin.disabled) { began = true; begin.click(); }
         if (kind === "close-confirmation" && !finished) {
           const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close Set up"]');
           if (close !== null) { finished = true; close.click(); }
+        }
+        if (kind === "sign-in") {
+          // Set up's Account step opens the sign-in dialog; the provider answers once the card follows the started sign-in.
+          const again = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "Sign in again");
+          if (!finished && again !== undefined) { finished = true; again.click(); }
+          if (!signed && document.querySelector('[role="dialog"] section[aria-label="Terminal fallback"]') !== null) {
+            signed = true;
+            scene.prepared.world.environment("desk").signIn("awaiting-code", { url: SIGN_IN_URL });
+          }
+          return;
         }
         if (kind !== "browser" || finished) return;
         const done = document.querySelector<HTMLButtonElement>('section[aria-label="Done"] button');

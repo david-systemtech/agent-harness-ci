@@ -8,7 +8,8 @@ import { Button, IconButton } from "../ui/index.js";
 import { useClock, useShell } from "../window-context.js";
 
 const CredentialHostContext = createContext<{ host: HTMLDivElement | null; setHost: (host: HTMLDivElement | null) => void } | null>(null);
-const KEYCHAIN_NOTICE_DELAY_MS = 500;
+/** How long an OS credential request waits before the window says macOS is asking: a request answered at once says nothing. */
+export const KEYCHAIN_NOTICE_DELAY_MS = 500;
 
 /** The active view supplies a place for the window's one persistent credential notice. */
 export const CredentialNoticeHost = () => {
