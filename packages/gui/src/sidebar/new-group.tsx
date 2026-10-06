@@ -26,8 +26,8 @@ export const SidebarNewGroup = ({ environmentId }: { readonly environmentId: str
           }}>
             <Input aria-label="The group's name" maxLength={80} value={typed} onChange={(event) => setTyped(event.target.value)} />
             <div className="flex justify-end gap-2">
-              <Tooltip content="Cancel · Esc"><DialogClose asChild><Button><X aria-hidden="true" />Cancel</Button></DialogClose></Tooltip>
-              <Tooltip content="Create group · Enter"><Button type="submit" variant="default" disabled={name === "" || offer.status === "absent"}><Check aria-hidden="true" />Create group</Button></Tooltip>
+              <Tooltip content="Cancel" keys="Esc"><DialogClose asChild><Button><X aria-hidden="true" />Cancel</Button></DialogClose></Tooltip>
+              <Tooltip content="Create group" keys="Enter"><Button type="submit" variant="default" disabled={name === "" || offer.status === "absent"}><Check aria-hidden="true" />Create group</Button></Tooltip>
             </div>
           </form>
         </DialogContent>

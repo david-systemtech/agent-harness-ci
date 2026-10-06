@@ -99,12 +99,12 @@ export const TasksPane = ({ environmentId, sessionId }: TasksPaneProps) => {
             </span>
             <span aria-label="Elapsed time" className="shrink-0 font-mono text-2xs text-ink-muted">{elapsedClock(elapsed)}</span>
             {row.agentId !== null && (
-              <VerbButton does="Shows what this agent did: its own transcript. (Enter or Space)" availability={openOffer} run={() => open(row)}>
+              <VerbButton does="Shows what this agent did: its own transcript." keys="Enter or Space" availability={openOffer} run={() => open(row)}>
                 <Bot aria-hidden="true" />Open
               </VerbButton>
             )}
             {going && (
-              <VerbButton does="Stops this task; the run goes on. (Enter or Space)" availability={stopOffer(row)} run={() => stop(row)}>
+              <VerbButton does="Stops this task; the run goes on." keys="Enter or Space" availability={stopOffer(row)} run={() => stop(row)}>
                 <Square aria-hidden="true" />{stopAsked.has(row.task.taskId) ? "Stopping…" : "Stop"}
               </VerbButton>
             )}
@@ -172,10 +172,10 @@ const AgentTranscript = ({ environmentId, sessionId, row, back }: AgentTranscrip
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-1 border-b border-hairline px-2 py-1">
-        <Tooltip content="Back to the tasks (Enter or Space)">
+        <Tooltip content="Back to the tasks" keys="Enter or Space">
           <Button size="xs" onClick={back}><ArrowLeft aria-hidden="true" />Back to the tasks</Button>
         </Tooltip>
-        <Tooltip content="Read the agent transcript again (Enter or Space)">
+        <Tooltip content="Read the agent transcript again" keys="Enter or Space">
           <Button size="icon-xs" aria-label="Read again" disabled={answer === null} onClick={() => { setAnswer(null); readAgain(); }}><RefreshCw aria-hidden="true" /></Button>
         </Tooltip>
       </div>

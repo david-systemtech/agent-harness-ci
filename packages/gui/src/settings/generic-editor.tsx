@@ -163,7 +163,7 @@ const FormControl = ({ name, label, value, writable, save }: Omit<SettingFieldPr
   const form = settingForm(name);
   switch (form.kind) {
     case "switch":
-      return <Tooltip content={`${SETTINGS[name].label} (Space to toggle)`}><Switch aria-labelledby={label} checked={value === true} disabled={!writable} onCheckedChange={(on) => save(on)} /></Tooltip>;
+      return <Tooltip content={SETTINGS[name].label} keys="Space to toggle"><Switch aria-labelledby={label} checked={value === true} disabled={!writable} onCheckedChange={(on) => save(on)} /></Tooltip>;
     case "choice": {
       const at = form.options.findIndex((option) => option === value);
       return (

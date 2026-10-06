@@ -159,7 +159,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
       {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, now)}</p>}
       <div className="flex flex-wrap gap-2">
         {offered.map((action) => (
-          <Tooltip key={action.key} content={`${action.words} · Tab, Enter`}>
+          <Tooltip key={action.key} content={action.words} keys="Tab, Enter">
             <Button
               variant="outline"
               disabled={sending || (actions?.[action.action]?.disabled ?? capabilityOf(action.plan)?.status === "absent")}
@@ -174,8 +174,8 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
             </Button>
           </Tooltip>
         ))}
-        {!result?.actions.includes("check-again") && <Tooltip content="Check now · Tab, Enter"><Button variant="outline" onClick={() => void act(planSetupAction(step, "check-again"))}><RefreshCw aria-hidden="true" />Check now</Button></Tooltip>}
-        <Tooltip content={`Open ${settingsRow(step.home).label} · Tab, Enter`}><Button variant="outline" onClick={() => leave(step.home, environmentId)}><ExternalLink aria-hidden="true" />Open {settingsRow(step.home).label}</Button></Tooltip>
+        {!result?.actions.includes("check-again") && <Tooltip content="Check now" keys="Tab, Enter"><Button variant="outline" onClick={() => void act(planSetupAction(step, "check-again"))}><RefreshCw aria-hidden="true" />Check now</Button></Tooltip>}
+        <Tooltip content={`Open ${settingsRow(step.home).label}`} keys="Tab, Enter"><Button variant="outline" onClick={() => leave(step.home, environmentId)}><ExternalLink aria-hidden="true" />Open {settingsRow(step.home).label}</Button></Tooltip>
       </div>
       {reasons.map((reason) => <p key={reason} className="text-sm text-ink-faint">{reason}</p>)}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}

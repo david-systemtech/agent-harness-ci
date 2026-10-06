@@ -163,7 +163,7 @@ export const AttachmentChips = ({ attachments }: { readonly attachments: Attachm
         <li key={`${String(index)} ${attachment.name}`} data-attachment-chip className={classes("relative flex h-14 max-w-56 items-center gap-2 rounded-md border border-hairline-strong bg-raised text-xs text-ink", attachment.kind === "image" ? "w-14" : "pr-7 pl-2.5")}>
           <span className={attachment.kind === "image" ? "sr-only" : "min-w-0 truncate"} title={attachment.name}>{attachment.name}</span>
           {attachment.kind === "image" ? <img alt={attachment.name} src={`data:${attachment.mediaType};base64,${attachment.data}`} className="size-full rounded-md object-cover" /> : <File aria-hidden="true" className="order-first size-4 shrink-0 text-ink-muted" />}
-          <Tooltip content={`Remove ${attachment.name} · Enter or Space`}>
+          <Tooltip content={`Remove ${attachment.name}`} keys="Enter or Space">
             <Button
               aria-label={`Remove ${attachment.name}`}
               onClick={() => attachments.set(attachments.current().filter((_, other) => other !== index))}

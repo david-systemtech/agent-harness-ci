@@ -39,7 +39,7 @@ const bareEnter = (event: KeyboardEvent) => event.key === "Enter" && !event.ctrl
  */
 export const Answer = ({ dim, approves = false, greyed = false, describedBy, keys, hint, label, onClick, children }: AnswerProps) => {
   const Icon = approves ? Check : X;
-  return <PromptTooltip content={[children, keys ?? (approves ? "Space" : "Enter or Space"), hint].filter(Boolean).join(" · ")}>
+  return <PromptTooltip content={[children, hint].filter(Boolean).join(" · ")} keys={keys ?? (approves ? "Space" : "Enter or Space")}>
     <Button
       size="sm"
       aria-label={label ?? (typeof children === "string" ? children : undefined)}

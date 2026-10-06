@@ -34,7 +34,7 @@ export const DockRail = ({ dockId, column, capability, show, close, newTerminal 
         const { label, icon: Icon } = PANES[pane];
         const answer = capability(pane);
         return <div key={pane} className="group relative size-[28px] shrink-0">
-          <Tooltip content={`${label} · ↑/↓, Home/End; Enter to show; middle-click to close${answer.status === "absent" ? ` · ${answer.message}` : ""}`}>
+          <Tooltip content={`${label}${answer.status === "absent" ? ` · ${answer.message}` : ""}`} keys="↑/↓, Home/End; Enter to show; middle-click to close">
             <Button role="tab" aria-label={label} aria-selected={pane === column.shown} aria-controls={`${dockId}-${pane}`} aria-disabled={answer.status === "absent" ? true : undefined} tabIndex={pane === stop ? 0 : -1}
               ref={(element) => { if (element) tabs.current.set(pane, element); else tabs.current.delete(pane); }}
               className={classes("size-[28px] rounded-md p-0 text-ink-faint hover:bg-wash [&_svg]:size-[24px]", pane === column.shown && "bg-wash-strong text-ink", answer.status === "absent" && "opacity-50")}
@@ -57,7 +57,7 @@ export const DockRail = ({ dockId, column, capability, show, close, newTerminal 
       })}
     </div>
     <Menu>
-      <Tooltip content="Open a side pane · Enter / Space; arrows to choose">
+      <Tooltip content="Open a side pane" keys="Enter / Space; arrows to choose">
         <MenuTrigger asChild><Button aria-label="Open a side pane" className="size-[28px] rounded-md p-0"><CirclePlus aria-hidden="true" /></Button></MenuTrigger>
       </Tooltip>
       <MenuContent side="left">

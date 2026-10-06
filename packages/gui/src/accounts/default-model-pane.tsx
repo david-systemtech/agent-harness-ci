@@ -128,7 +128,7 @@ const DefaultTrigger = ({ name, stage, words, machine, note, icon: Icon, writabl
 }) => <div className="flex flex-wrap items-center gap-3 text-xs text-ink">
   <div className="flex min-w-0 flex-1 basis-[224px] items-start gap-2"><Icon aria-hidden="true" className="mt-0.5 size-4 text-ink-muted" /><div><p>{name}</p><p className="mt-0.5 text-2xs text-ink-faint">{note}</p></div></div>
   <Menu modal={false}>
-    <Tooltip content={`${name} · Enter to open · Escape to close`}><MenuTrigger asChild>
+    <Tooltip content={name} keys="Enter to open · Escape to close"><MenuTrigger asChild>
       <Button variant="outline" aria-label={`${name}: ${words}`} disabled={!writable} data-default-choice={name} className="h-auto min-h-8 max-w-full justify-start px-2.5 py-1.5 text-left text-xs">
         <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]"><span className="block">{words}</span>{machine !== undefined && <span className="block font-mono text-2xs text-ink-muted">{machine}</span>}</span>
         <ChevronDown aria-hidden="true" className="size-3" />

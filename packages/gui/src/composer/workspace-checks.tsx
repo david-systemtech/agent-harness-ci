@@ -51,7 +51,7 @@ export const WorkspaceCheck = ({ view, sendFailure, sending, compact = false }: 
           {view.value.command === null ? <p>Check is off.</p> : <pre className="overflow-x-auto rounded-none bg-abyss p-2 text-sm">{`$ ${view.value.command}`}</pre>}
           <p className="text-sm text-ink-muted">Use /check &lt;command&gt; to configure, /check now to run, or /check off to clear.</p>
         </>}
-        {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check; Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" />Send failure</VerbButton>}
+        {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check" keys="Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" />Send failure</VerbButton>}
       </PhoneComposerSheet>
     </Dialog>;
   }
@@ -62,7 +62,7 @@ export const WorkspaceCheck = ({ view, sendFailure, sending, compact = false }: 
         {view.value.command === null ? <p>Check is off.</p> : <pre className="flex min-w-0 items-center gap-1.5 truncate" title={view.value.command}><Terminal aria-hidden="true" className="size-3 shrink-0" />{`$ ${view.value.command}`}</pre>}
       </>
     )}
-    {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check; Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" className="size-3" />Send failure</VerbButton>}
+    {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check" keys="Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" className="size-3" />Send failure</VerbButton>}
   </section>;
 };
 
@@ -99,7 +99,7 @@ export const WorkspaceRow = ({ environmentId, sessionId, compact = false }: { re
   </>;
   return <div className="flex shrink-0 items-center gap-2 px-3 py-1.5">
     <Menu>
-      <Tooltip content={`${workspace?.path ?? "Reading workspace…"} · Recent folders · Enter opens; arrows choose`}>
+      <Tooltip content={`${workspace?.path ?? "Reading workspace…"} · Recent folders`} keys="Enter opens; arrows choose">
         <MenuTrigger asChild><Button aria-label="Recent folders" data-workspace-chip className="h-[22px] min-w-0 max-w-60 gap-1 rounded-md bg-wash px-1.5 font-mono text-2xs hover:bg-wash-strong">
           <Folder aria-hidden="true" className="size-3!" /><span className="truncate">{label ?? "Workspace"}</span>
           {workspace?.kind === "worktree" && <><GitBranch aria-hidden="true" className="size-3!" /><span className="truncate">{workspace.branch}</span></>}

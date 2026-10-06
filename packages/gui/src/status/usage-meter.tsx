@@ -17,7 +17,7 @@ export const UsageMeter = ({ environmentId, accountId }: { readonly environmentI
   };
   return <span role="group" aria-label="Plan usage" className="ml-auto flex shrink-0 items-center">
     <Popover open={open} onOpenChange={(shown) => { setOpen(shown); if (shown) refresh(); }}>
-      <Tooltip content={`${readings.map((reading) => `${reading.label} ${reading.value}`).join(" · ") || "Usage details"} · Enter to open`}>
+      <Tooltip content={readings.map((reading) => `${reading.label} ${reading.value}`).join(" · ") || "Usage details"} keys="Enter to open">
         <PopoverTrigger asChild>
           <Button aria-label="Usage details" className="h-auto gap-2 rounded-md px-0 py-0 text-2xs [&_svg]:size-6">
             {readings.length === 0 ? <Gauge aria-hidden="true" /> : readings.map((reading) => <span key={reading.window} className="flex items-center gap-1">{reading.label} <UsageRing reading={reading} /></span>)}
@@ -54,6 +54,6 @@ const UsageDetails = ({ environmentId, gauge, usage, refresh }: { readonly envir
     {age !== null && <p aria-label="Reading age" className="text-ink-faint">Read {elapsedClock(age)} ago{age >= 360_000 ? " · stale" : ""} · <time dateTime={gauge?.readAt}>{gauge?.readAt}</time></p>}
     {sources.filter((answer) => answer.error !== null).map((answer) => <p key={answer.environmentId} className="text-amber">{answer.error?.message}</p>)}
     <p className="text-ink-faint">Current request context appears in the Ctx meter when supported.</p>
-    <Tooltip content="Refresh usage · Enter to refresh"><Button aria-label="Refresh usage" className="h-6 gap-1 self-start px-2 text-xs [&_svg]:size-3" onClick={refresh}><RefreshCw aria-hidden="true" />Refresh</Button></Tooltip>
+    <Tooltip content="Refresh usage" keys="Enter to refresh"><Button aria-label="Refresh usage" className="h-6 gap-1 self-start px-2 text-xs [&_svg]:size-3" onClick={refresh}><RefreshCw aria-hidden="true" />Refresh</Button></Tooltip>
   </section>;
 };

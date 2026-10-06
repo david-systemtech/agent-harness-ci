@@ -68,16 +68,16 @@ export const Introduction = ({ home, onBegin, onLater }: {
             {service.installing && <p className="text-xs text-ink-muted">Installing the environment (first start only)…</p>}
             {!runHere && <RunHereSwitch />}
             {service.available.status !== "present" && <p className="text-xs text-ink-muted">{service.available.reason}</p>}
-            {failed && <Tooltip content="Start details · Tab, Enter"><div><Fold summary="Start details" open={details} onOpenChange={showDetails}><p className="break-words text-xs text-ink-muted">{service.failure}</p></Fold></div></Tooltip>}
-            {(failed || stopped) && runHere && service.available.status === "present" && <Tooltip content="Try again · Tab, Enter"><Button variant="outline" className="self-start" disabled={service.starting || service.available.status !== "present"} onClick={() => service.start(local?.environmentId ?? LOCAL_PLACEHOLDER_ID)}><RotateCw aria-hidden="true" />Try again</Button></Tooltip>}
+            {failed && <Tooltip content="Start details" keys="Tab, Enter"><div><Fold summary="Start details" open={details} onOpenChange={showDetails}><p className="break-words text-xs text-ink-muted">{service.failure}</p></Fold></div></Tooltip>}
+            {(failed || stopped) && runHere && service.available.status === "present" && <Tooltip content="Try again" keys="Tab, Enter"><Button variant="outline" className="self-start" disabled={service.starting || service.available.status !== "present"} onClick={() => service.start(local?.environmentId ?? LOCAL_PLACEHOLDER_ID)}><RotateCw aria-hidden="true" />Try again</Button></Tooltip>}
             {ready && !localReady && <p className="text-sm text-mint">Your home environment is ready. You can begin set up.</p>}
           </div>
         </div>
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Tooltip content={ready ? "Begin set up · Tab, Enter" : "Waiting for this machine · Tab · Begin set up becomes available when an environment is ready"}><span tabIndex={ready ? undefined : 0}><Button data-setup-begin variant="default" disabled={!ready} onClick={onBegin}>{ready ? <ArrowRight aria-hidden="true" /> : <Monitor aria-hidden="true" />}{ready ? "Begin set up" : "Waiting for this machine…"}</Button></span></Tooltip>
-            <Tooltip content="I’ll set up later · Tab, Enter"><Button variant="outline" onClick={onLater}><LogOut aria-hidden="true" />I’ll set up later</Button></Tooltip>
-            <Tooltip content="Pair instead · Tab, Enter"><Button onClick={() => openPairing()}><Link aria-hidden="true" />Pair instead</Button></Tooltip>
+            <Tooltip content={ready ? "Begin set up" : "Waiting for this machine · Begin set up becomes available when an environment is ready"} keys={ready ? "Tab, Enter" : "Tab"}><span tabIndex={ready ? undefined : 0}><Button data-setup-begin variant="default" disabled={!ready} onClick={onBegin}>{ready ? <ArrowRight aria-hidden="true" /> : <Monitor aria-hidden="true" />}{ready ? "Begin set up" : "Waiting for this machine…"}</Button></span></Tooltip>
+            <Tooltip content="I’ll set up later" keys="Tab, Enter"><Button variant="outline" onClick={onLater}><LogOut aria-hidden="true" />I’ll set up later</Button></Tooltip>
+            <Tooltip content="Pair instead" keys="Tab, Enter"><Button onClick={() => openPairing()}><Link aria-hidden="true" />Pair instead</Button></Tooltip>
           </div>
           <p className="text-xs text-ink-muted">Only Account is required. The rest can wait until you need it.</p>
         </div>

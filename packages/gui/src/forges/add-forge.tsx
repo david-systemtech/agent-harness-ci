@@ -108,7 +108,7 @@ export const AddForge = ({ environmentId, environmentName, close, say, gh: paths
         <form aria-label="Add a forge" className="flex flex-col gap-3" onSubmit={submit}>
           <RadioGroup aria-label="Provider" value={provider} onValueChange={(next) => { setProvider(next); setFound(undefined); }} className="grid grid-cols-3 gap-2">
             {(["github", "forgejo", "gitea"] as const).map((kind) => (
-              <Tooltip key={kind} content={`${FORGE_KIND_WORDS[kind]} · Arrow keys to choose`}>
+              <Tooltip key={kind} content={FORGE_KIND_WORDS[kind]} keys="Arrow keys to choose">
                 <ProviderRadio.Item autoFocus={kind === "github"} value={kind} className="flex min-h-9 items-center gap-2 rounded-lg border border-hairline px-3 py-2 text-xs text-ink-muted aria-checked:border-beam aria-checked:bg-wash-strong aria-checked:text-ink focus-visible:outline-2 focus-visible:outline-beam">
                   <GitPullRequest aria-hidden="true" className="size-4 shrink-0" />
                   {FORGE_KIND_WORDS[kind]}

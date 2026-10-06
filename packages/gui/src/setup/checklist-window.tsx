@@ -111,8 +111,8 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
       <Dialog open={confirmClose} onOpenChange={setConfirmClose}>
         <DialogContent onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); setConfirmClose(false); } }} title="Leave set up without an account?" description="You can look around, but you will need to sign in before starting a session. Set up will be waiting in Settings.">
           <div className="flex flex-wrap justify-end gap-2">
-            <Tooltip content="Keep setting up · Tab, Enter"><Button variant="outline" onClick={() => setConfirmClose(false)}><ArrowLeft aria-hidden="true" />Keep setting up</Button></Tooltip>
-            <Tooltip content="Leave for now · Tab, Enter"><Button variant="default" onClick={finish}><LogOut aria-hidden="true" />Leave for now</Button></Tooltip>
+            <Tooltip content="Keep setting up" keys="Tab, Enter"><Button variant="outline" onClick={() => setConfirmClose(false)}><ArrowLeft aria-hidden="true" />Keep setting up</Button></Tooltip>
+            <Tooltip content="Leave for now" keys="Tab, Enter"><Button variant="default" onClick={finish}><LogOut aria-hidden="true" />Leave for now</Button></Tooltip>
           </div>
         </DialogContent>
       </Dialog>

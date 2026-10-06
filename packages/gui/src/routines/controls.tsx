@@ -30,7 +30,7 @@ export const RoutineAction = ({ label, icon, environmentId, method, disabled = f
   const runtime = useRuntime();
   const capability = environmentId !== undefined && method !== undefined ? runtime.capability(environmentId, method) : undefined;
   const reason = capability?.status === "absent" ? capability.message : undefined;
-  return <Tooltip content={[label, "Enter / Space", reason].filter(Boolean).join(" · ")}><span className="inline-flex" tabIndex={reason === undefined ? undefined : 0}>
+  return <Tooltip content={[label, reason].filter(Boolean).join(" · ")} keys="Enter / Space"><span className="inline-flex" tabIndex={reason === undefined ? undefined : 0}>
     <Button size="sm" variant={danger ? "destructive" : "outline"} disabled={disabled || reason !== undefined} onClick={onClick}>{icon}{label}</Button>
   </span></Tooltip>;
 };

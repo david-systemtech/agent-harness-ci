@@ -44,7 +44,7 @@ export const ChoiceList = ({ label, value, choices, onValueChange }: { readonly 
   const id = useId();
   return <RadioGroup aria-label={label} value={value} onValueChange={onValueChange} className="gap-0.5 p-1.5">
     {choices.map((choice, index) => <label key={choice.value} className={classes("flex items-start gap-2.5 rounded-md px-2.5 py-2", choice.value === value && "bg-wash-strong", choice.disabledReason === undefined ? "hover:bg-wash" : "opacity-50")}>
-      <Tooltip content={`${choice.label} · Arrow keys${choice.disabledReason === undefined ? "" : ` · ${choice.disabledReason}`}`}><RadioGroupItem value={choice.value} aria-label={choice.label} aria-describedby={`${id}-${index}`} disabled={choice.disabledReason !== undefined} className="mt-[3px]" /></Tooltip>
+      <Tooltip content={choice.disabledReason === undefined ? choice.label : `${choice.label} · ${choice.disabledReason}`} keys="Arrow keys"><RadioGroupItem value={choice.value} aria-label={choice.label} aria-describedby={`${id}-${index}`} disabled={choice.disabledReason !== undefined} className="mt-[3px]" /></Tooltip>
       <span className="flex min-w-0 flex-col"><span className="text-xs text-ink">{choice.label}</span><span id={`${id}-${index}`} className="text-2xs text-ink-faint">{choice.note}{choice.disabledReason !== undefined && <span className="block">{choice.disabledReason}</span>}</span></span>
     </label>)}
   </RadioGroup>;

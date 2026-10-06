@@ -24,7 +24,7 @@ export const SetupLine = () => {
   if (attention.length === 0) return null;
   const label = `Set up: ${attention.length} ${attention.length === 1 ? "needs" : "need"} attention`;
   const detail = `Set up on ${nameOf(home)}: ${attention.length} ${attention.length === 1 ? "step needs" : "steps need"} attention (${attention.map((step) => STEP_LABELS[step]).join(", ")})`;
-  return <Tooltip content={[detail, keys].filter(Boolean).join(" · ")}>
+  return <Tooltip content={detail} keys={keys}>
     <Button aria-label={label} size="xs" variant="ghost" className="h-[22px] max-w-40 text-amber border border-amber/45 bg-amber/10 hover:bg-amber/20" onClick={() => open(FIRST_ROW, home.environmentId)}>
       <ListChecks aria-hidden="true" /><span className="truncate">{label}</span>
     </Button>

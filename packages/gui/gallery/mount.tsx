@@ -46,7 +46,8 @@ export const mountGallery = async (container: HTMLElement, scene: string, ladder
       let waitingForFonts = false;
       const views = world.runtime.projections.environments;
       const mark = () => {
-        const connected = Component !== undefined || views.read().every((view) => view.phase === "ready");
+        // A blocked connection is settled too: it waits for a person to pair again, as a revoked scene draws it.
+        const connected = Component !== undefined || views.read().every((view) => view.phase === "ready" || view.phase === "blocked");
         const drawn = definition.readySelector === undefined || container.ownerDocument.querySelector(definition.readySelector) !== null;
         if (!connected || !drawn || waitingForFonts) return;
         waitingForFonts = true;

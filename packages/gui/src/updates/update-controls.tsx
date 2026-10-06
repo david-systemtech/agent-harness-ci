@@ -85,7 +85,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
             <span id={channelLabel} className="text-ink-muted">
               <Radio aria-hidden="true" className="mr-1 inline size-4" />Channel
             </span>
-            <Tooltip content="Channel · Arrow keys"><Select
+            <Tooltip content="Channel" keys="Arrow keys"><Select
               aria-labelledby={channelLabel}
               value={String(values["updates.channel"])}
               disabled={!admits("updates.settings.set")}
@@ -102,7 +102,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
             <span id={autoUpdateLabel} className="text-ink-muted">
               <RefreshCw aria-hidden="true" className="mr-1 inline size-4" />Auto-update
             </span>
-            <Tooltip content="Auto-update · Space"><Switch
+            <Tooltip content="Auto-update" keys="Space"><Switch
               aria-labelledby={autoUpdateLabel}
               checked={values["updates.autoUpdate"] === true}
               disabled={!admits("updates.settings.set")}
@@ -119,11 +119,11 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
         pending !== null && <p className="text-ink-muted">{pending}</p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Tooltip content="Update now · Enter / Space"><Button variant="default" disabled={!admits("updates.apply")} onClick={() => update("idle")}>
+        <Tooltip content="Update now" keys="Enter / Space"><Button variant="default" disabled={!admits("updates.apply")} onClick={() => update("idle")}>
           <ArrowDownToLine aria-hidden="true" />Update now
         </Button></Tooltip>
         {drainable !== null && (
-          <Tooltip content="Drain and update now · Enter / Space"><Button
+          <Tooltip content="Drain and update now" keys="Enter / Space"><Button
             disabled={!admits("updates.apply")}
             onClick={() => {
               setSaid(undefined);
@@ -139,10 +139,10 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
         {drainable !== null && (
           <DialogContent showClose={false} title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
             <DialogFooter>
-              <Tooltip content="Cancel · Enter / Space / Escape"><DialogClose asChild>
+              <Tooltip content="Cancel" keys="Enter / Space / Escape"><DialogClose asChild>
                 <Button><X aria-hidden="true" />Cancel</Button>
               </DialogClose></Tooltip>
-              <Tooltip content="Drain and update · Enter / Space"><Button variant="destructive" onClick={() => update("now")}>
+              <Tooltip content="Drain and update" keys="Enter / Space"><Button variant="destructive" onClick={() => update("now")}>
                 <CircleStop aria-hidden="true" />
                 Drain and update
               </Button></Tooltip>

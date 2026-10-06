@@ -31,7 +31,7 @@ export const Orientation = ({ view, row }: { readonly view: EnvironmentView; rea
   return (
     <Part title="Orientation">
       <label className="flex items-center gap-2 text-sm text-ink">
-        <Tooltip content="Orientation enabled · Space"><Switch
+        <Tooltip content="Orientation enabled" keys="Space"><Switch
           aria-label="Orientation enabled"
           checked={typeof on === "boolean" ? on : row.enabled}
           disabled={sending || offer.status === "absent" || settings.values === null}

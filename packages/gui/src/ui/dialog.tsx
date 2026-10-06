@@ -39,7 +39,7 @@ export const DialogContent = ({ title, description, showClose = true, className,
         {description !== undefined && <RadixDialog.Description className="text-sm text-ink-muted">{description}</RadixDialog.Description>}
       </div>
       {children}
-      {showClose && <Tooltip content="Close dialog · Escape"><RadixDialog.Close asChild><Button aria-label="Close dialog" size="icon-xs" className="absolute top-2 right-2"><X aria-hidden="true" /></Button></RadixDialog.Close></Tooltip>}
+      {showClose && <Tooltip content="Close dialog" keys="Escape"><RadixDialog.Close asChild><Button aria-label="Close dialog" size="icon-xs" className="absolute top-2 right-2"><X aria-hidden="true" /></Button></RadixDialog.Close></Tooltip>}
     </RadixDialog.Content>
   </RadixDialog.Portal>
 );

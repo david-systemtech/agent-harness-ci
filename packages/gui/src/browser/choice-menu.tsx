@@ -27,7 +27,7 @@ export const BrowserChoiceMenu = ({ rows, choose, className, detail, offer = { s
   </MenuTrigger>;
   return (
     <Menu open={open} onOpenChange={setOpen}>
-      <Tooltip content={[`Browser: ${chosen}`, keys ?? "Enter to open", detail, rows.find((row) => row.selected)?.unavailable?.message, offer.status === "absent" ? offer.message : undefined].filter(Boolean).join(" · ")}>
+      <Tooltip keys={keys ?? "Enter to open"} content={[`Browser: ${chosen}`, detail, rows.find((row) => row.selected)?.unavailable?.message, offer.status === "absent" ? offer.message : undefined].filter(Boolean).join(" · ")}>
         {disabled ? <span tabIndex={0} className="inline-flex" aria-label={offer.status === "absent" ? offer.message : "Browser choices are loading."}>{trigger}</span> : trigger}
       </Tooltip>
       <MenuContent side="top" align="start" className="w-72 max-h-[320px] overflow-y-auto">

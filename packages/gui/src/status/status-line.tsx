@@ -151,7 +151,7 @@ const HandoffOffer = ({ offer }: { readonly offer: string }) => {
   return (
     <p className="flex min-w-0 flex-1 items-center gap-2 text-amber">
       <span className="min-w-0 truncate">{offer}</span>
-      <Tooltip content="Hand off · /handoff · Enter to open"><Button className="h-[22px] max-w-[240px] shrink-0 gap-1 rounded-md bg-wash px-1.5 text-2xs [&_svg]:size-3" onClick={() => openHandoff()}><ArrowRightLeft aria-hidden="true" />Hand off…</Button></Tooltip>
+      <Tooltip content="Hand off · /handoff" keys="Enter to open"><Button className="h-[22px] max-w-[240px] shrink-0 gap-1 rounded-md bg-wash px-1.5 text-2xs [&_svg]:size-3" onClick={() => openHandoff()}><ArrowRightLeft aria-hidden="true" />Hand off…</Button></Tooltip>
     </p>
   );
 };

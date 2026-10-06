@@ -92,7 +92,7 @@ const ProbeFolders = ({
       {folders.map((folder) => (
         <div key={folder.folder} className="flex flex-col gap-1">
           <label className="flex items-center gap-2">
-            <Tooltip content={`Track ${folder.folder} · Space`}><input
+            <Tooltip content={`Track ${folder.folder}`} keys="Space"><input
               type="checkbox"
               className="accent-beam focus-visible:outline-beam"
               disabled={folder.count === 0 || sending}
@@ -110,7 +110,7 @@ const ProbeFolders = ({
         </div>
       ))}
       <label className="flex items-center gap-2">
-        <Tooltip content="Pin at this commit · Space"><input
+        <Tooltip content="Pin at this commit" keys="Space"><input
           type="checkbox"
           className="accent-beam focus-visible:outline-beam"
           checked={followKind === "pinned"}
@@ -266,7 +266,7 @@ export const SourceCard = ({
           >
             Confirm remove source
           </SkillButton>
-          <Tooltip content="Cancel · Escape"><Button onClick={() => setRemoving(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
+          <Tooltip content="Cancel" keys="Escape"><Button onClick={() => setRemoving(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
         </DialogContent>
       </Dialog>
     </section>

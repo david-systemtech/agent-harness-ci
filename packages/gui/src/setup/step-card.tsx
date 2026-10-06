@@ -49,17 +49,17 @@ export const StepCard = ({ environmentId, step }: StepCardProps) => {
         </div>
       </div>
       <footer role="navigation" aria-label="Step navigation" className="relative flex min-h-[67px] shrink-0 flex-wrap items-center justify-between gap-3.5 border-t border-hairline bg-panel px-6 py-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-gradient-to-t before:from-panel before:to-transparent">
-        <Tooltip content="Back · Tab, Enter">
+        <Tooltip content="Back" keys="Tab, Enter">
           <Button variant="outline" disabled={previous === undefined} onClick={() => { if (previous !== undefined) choose(previous); }}><ArrowLeft aria-hidden="true" />Back</Button>
         </Tooltip>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {held !== undefined && <p className="max-w-[32ch] text-xs text-ink-muted">{held}</p>}
-          <Tooltip content={step.id === "account" ? "Skip for now · Account is required to start a session" : "Skip for now · Tab, Enter"}>
+          <Tooltip content={step.id === "account" ? "Skip for now · Account is required to start a session" : "Skip for now"} keys={step.id === "account" ? undefined : "Tab, Enter"}>
             <span tabIndex={step.id === "account" ? 0 : undefined}>
               <Button variant="outline" disabled={step.id === "account"} onClick={() => next === undefined ? close() : choose(next)}><SkipForward aria-hidden="true" />Skip for now</Button>
             </span>
           </Tooltip>
-          <Tooltip content={`${next === undefined ? "Finish" : "Continue"} · Tab, Enter${held === undefined ? "" : ` · ${held}`}`}>
+          <Tooltip content={`${next === undefined ? "Finish" : "Continue"}${held === undefined ? "" : ` · ${held}`}`} keys="Tab, Enter">
             <span tabIndex={held === undefined ? undefined : 0}>
               <Button variant="default" disabled={held !== undefined} onClick={() => next === undefined ? close() : choose(next)}>
                 {next === undefined ? <Check aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}{next === undefined ? "Finish" : "Continue"}

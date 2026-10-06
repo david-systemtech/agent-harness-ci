@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import { cn } from "./classes.js";
-import { Tooltip } from "./tooltip.js";
+import { Tooltip, useKeyLegend } from "./tooltip.js";
 import "./phone-overlays.css";
 
 export type ButtonVariant = "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
@@ -50,7 +50,8 @@ export type IconButtonProps = Omit<ButtonProps, "aria-label"> & {
 /** The disabled action's focusable wrapper keeps its explanation reachable by keyboard. */
 export const IconButton = ({ label, keys, disabledReason, disabled, size = "icon-sm", className, ...props }: IconButtonProps) => {
   const off = disabled === true || disabledReason !== undefined;
-  const description = [label, keys, disabledReason].filter(Boolean).join(" · ");
+  const legend = useKeyLegend(keys);
+  const description = [label, legend, disabledReason].filter(Boolean).join(" · ");
   const action = <Button {...props} size={size} aria-label={label} disabled={off} className={cn(size === "icon-sm" && "[&_svg]:size-4", className)} />;
   return <Tooltip content={description}>{disabledReason !== undefined ? <span role="group" tabIndex={0} aria-label={description} className="inline-flex rounded-lg focus-visible:outline-2 focus-visible:outline-beam">{action}</span> : action}</Tooltip>;
 };

@@ -62,7 +62,7 @@ const ChipMenu = ({ name, value, children, items, columns = false }: { readonly 
   const [open, setOpen] = useState(false);
   return (
     <Menu open={open} onOpenChange={setOpen} modal={!columns || narrow}>
-      <Tooltip content={`${name}: ${value} · Enter to open · ↑ ↓ to choose · Escape to close`}>
+      <Tooltip content={`${name}: ${value}`} keys="Enter to open · ↑ ↓ to choose · Escape to close">
         <RunPickerTrigger sheet={columns && narrow} openSheet={() => setOpen(true)}>
           <Button data-new-session-chip aria-label={`${name}: ${value}`} className={classes(CHIP, name === "Account" && "shrink")}>
             <Face>{children}</Face>
@@ -202,7 +202,7 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
 
   return (
     <Popover modal={phone} open={open} onOpenChange={setOpen}>
-      <Tooltip content={[`Workspace: ${words.label}`, words.path, "Enter to open · Escape to close", environment === undefined ? "Choose an environment first." : undefined].filter(Boolean).join(" · ")}>
+      <Tooltip content={[`Workspace: ${words.label}`, words.path, environment === undefined ? "Choose an environment first." : undefined].filter(Boolean).join(" · ")} keys="Enter to open · Escape to close">
         <PopoverTrigger asChild>
           <Button ref={trigger} data-new-session-chip aria-label={`Workspace: ${words.label}`} title={words.path} disabled={environment === undefined} className={classes(CHIP, "font-mono")}>
             <Folder aria-hidden="true" />{value?.kind === "worktree" && <GitBranch aria-hidden="true" />}<span className="truncate">{words.label}</span>

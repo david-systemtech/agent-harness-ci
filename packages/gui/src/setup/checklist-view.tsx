@@ -38,7 +38,7 @@ export const ChecklistView = () => {
               const Icon = STEP_ICONS[candidate.id];
               return (
                 <li key={candidate.id}>
-                  <Tooltip content={`${candidate.label} · Tab, Enter`}>
+                  <Tooltip content={candidate.label} keys="Tab, Enter">
                     <button
                       type="button"
                       aria-label={candidate.label}
@@ -73,10 +73,10 @@ export const ChecklistView = () => {
         <h1 id={heading} className="text-base font-semibold text-ink">
           Set up
         </h1>
-        <Tooltip content="Choose an environment · Tab, arrow keys">
+        <Tooltip content="Choose an environment" keys="Tab, arrow keys">
           <span className="inline-flex items-center gap-2"><ListChecks aria-hidden="true" className="size-4 text-ink-muted" /><EnvironmentPicker /></span>
         </Tooltip>
-        <Tooltip content="Close Set up · Tab, Enter">
+        <Tooltip content="Close Set up" keys="Tab, Enter">
           <Button aria-label="Close Set up" className="ml-auto" onClick={close}><X aria-hidden="true" />Close</Button>
         </Tooltip>
       </header>

@@ -13,7 +13,7 @@ export const Entry = (props: { readonly name: string; readonly detail?: string |
     <Folder aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
     <span className="min-w-0 break-words font-mono">{props.name}{props.detail !== undefined && <span className="text-xs text-ink-faint"> {props.detail}</span>}{props.absent !== undefined && <span className="block text-xs text-ink-faint">{props.absent}</span>}</span>
   </button>;
-  return <li><Tooltip content={`${label} · Enter / Space`}>{off ? <span role="group" tabIndex={0} aria-label={label} className="block">{action}</span> : action}</Tooltip></li>;
+  return <li><Tooltip content={label} keys="Enter / Space">{off ? <span role="group" tabIndex={0} aria-label={label} className="block">{action}</span> : action}</Tooltip></li>;
 };
 
 export const PickerLine = ({ line }: { readonly line: string | undefined }) => line === undefined ? null : <p role="status" className="text-xs text-ink-muted">{line}</p>;

@@ -67,7 +67,7 @@ export const QuestionForm = ({ prompt, picks, setPicks }: QuestionFormProps) => 
               return (
                 <div data-question-option key={place} className={classes("flex items-start gap-2 rounded-md px-2 py-1.5", options.includes(place) && "bg-wash")}>
                   <span className="relative mt-0.5 size-4 shrink-0">
-                    <PromptTooltip content={`${option.label} · ${question.multiSelect ? "Space" : "Arrow keys or Space"}`}>
+                    <PromptTooltip content={option.label} keys={question.multiSelect ? "Space" : "Arrow keys or Space"}>
                     <input
                       id={control}
                       aria-label={option.label}
@@ -93,7 +93,7 @@ export const QuestionForm = ({ prompt, picks, setPicks }: QuestionFormProps) => 
               );
             })}
             <label htmlFor={`${id}-${at}-words`} className="flex items-center gap-2 text-xs text-ink-muted"><TextCursorInput aria-hidden="true" className="size-3.5" />Your own answer</label>
-            <PromptTooltip content={["Your own answer", sendKey].filter(Boolean).join(" · ")}>
+            <PromptTooltip content="Your own answer" keys={sendKey}>
               <Input
                 id={`${id}-${at}-words`}
                 aria-label="Your own answer"

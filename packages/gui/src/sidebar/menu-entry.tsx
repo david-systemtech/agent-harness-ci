@@ -33,7 +33,7 @@ export const SubEntry = ({ offer, name, icon: Icon = Folder, children }: { reado
     <Entry offer={offer} icon={Icon} onSelect={() => undefined}>{name}</Entry>
   ) : (
     <ContextMenuSub>
-      <Tooltip content={`${name} · Right arrow`}><ContextMenuSubTrigger><Icon aria-hidden="true" /><span data-menu-label>{name}</span></ContextMenuSubTrigger></Tooltip>
+      <Tooltip content={name} keys="Right arrow"><ContextMenuSubTrigger><Icon aria-hidden="true" /><span data-menu-label>{name}</span></ContextMenuSubTrigger></Tooltip>
       <ContextMenuSubContent className={narrow ? "phone-frame-menu w-72" : "w-[176px]"}>{children}</ContextMenuSubContent>
     </ContextMenuSub>
   );
