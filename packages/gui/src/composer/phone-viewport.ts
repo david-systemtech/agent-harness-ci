@@ -27,6 +27,7 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     // cannot scroll those back, so the shell and every clipped axis enclosing a
     // dock stay at their origin; the reader's own scrollers keep their place.
     const release = (box: Element) => {
+      if (box.scrollTop === 0 && box.scrollLeft === 0) return;
       const style = getComputedStyle(box), shell = box === frame;
       const top = box.scrollTop !== 0 && (shell || clipped(style.overflowY));
       const left = box.scrollLeft !== 0 && (shell || clipped(style.overflowX));
