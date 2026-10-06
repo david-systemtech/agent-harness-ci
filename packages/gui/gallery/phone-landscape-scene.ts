@@ -53,13 +53,32 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
         const column = document.querySelector<HTMLElement>("[data-composer-column]")!;
         column.scrollTop = 0;
         const above = document.querySelector<HTMLElement>("[data-composer-above]")!;
-        const allow = Array.from(above.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Allow once"))!;
-        above.scrollTop += Math.max(0, allow.getBoundingClientRect().bottom - above.getBoundingClientRect().bottom);
+        const details = Array.from(above.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Details");
+        if (!details) throw new Error("Landscape request is missing Details");
+        above.scrollTop += Math.max(0, details.getBoundingClientRect().bottom - above.getBoundingClientRect().bottom);
         await settle();
-        const action = allow.getBoundingClientRect(), well = above.getBoundingClientRect();
-        if (action.top < well.top - 1 || action.bottom > well.bottom + 1 || action.top < viewport.offsetTop || action.bottom > viewport.offsetTop + viewport.height) throw new Error("Landscape long card clips its decision");
-        // At the shortest keyboard height the dock itself scrolls. Prove both ends
-        // independently: the card action above, then the message/Stop row below.
+        const trigger = details.getBoundingClientRect(), well = above.getBoundingClientRect();
+        if (trigger.height < 44 || trigger.top < well.top - 1 || trigger.bottom > well.bottom + 1) throw new Error("Landscape request clips Details");
+        details.click(); await settle();
+        const sheet = document.querySelector<HTMLElement>(".phone-prompt-sheet")!;
+        await Promise.all(sheet.getAnimations().map(animation => animation.finished.catch(() => undefined)));
+        verifyLandscapeOverlay(".phone-prompt-sheet", viewport.height, viewport.offsetTop);
+        const body = sheet.querySelector<HTMLElement>("[data-phone-prompt-body]")!;
+        const answers = sheet.querySelector<HTMLElement>("[data-phone-prompt-answer]")!;
+        if (body.clientHeight < 44 || body.scrollHeight <= body.clientHeight) throw new Error("Landscape long request lacks a readable scrolling body");
+        const before = answers.getBoundingClientRect();
+        body.scrollTop = body.scrollHeight; await settle();
+        const after = answers.getBoundingClientRect(), bounds = sheet.getBoundingClientRect();
+        if (Math.abs(before.top - after.top) > 1) throw new Error("Landscape request scrolling moved its decisions");
+        for (const button of sheet.querySelectorAll<HTMLButtonElement>("header button, [data-phone-prompt-answer] button")) {
+          const action = button.getBoundingClientRect();
+          const hit = document.elementFromPoint(action.left + action.width / 2, action.top + action.height / 2);
+          if (action.height < 44 || action.width < 44 || action.top < bounds.top || action.bottom > bounds.bottom || action.left < bounds.left || action.right > bounds.right || !button.contains(hit)) throw new Error("Landscape long request clips its decision");
+        }
+        sheet.querySelector<HTMLButtonElement>("header button")!.click(); await settle();
+        await Promise.all(sheet.getAnimations().map(animation => animation.finished.catch(() => undefined)));
+        field.focus({ preventScroll: true });
+        // Close the full request before proving the latest reply and Message/Stop.
         column.scrollTop = column.scrollHeight;
         await settle();
       }

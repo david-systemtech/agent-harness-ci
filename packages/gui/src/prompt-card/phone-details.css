@@ -1,4 +1,4 @@
-@media (max-width: 639px) {
+@media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
   .phone-prompt-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 8px; padding: 2px 8px; }
   .phone-prompt-summary > span { flex: 1; }
   .phone-prompt-summary button { min-width: 44px; min-height: 44px; font-size: max(16px, 1rem); }

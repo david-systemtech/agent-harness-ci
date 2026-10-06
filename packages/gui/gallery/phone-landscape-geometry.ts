@@ -29,7 +29,7 @@ export function verifyLandscapeOverlay(selector: string, height: number, offset:
   const frame = document.querySelector<HTMLElement>("[data-web-client]")!;
   const padding = getComputedStyle(frame);
   if (bounds.left < 0 || bounds.right > innerWidth) throw new Error("Landscape overlay exceeds page width");
-  const close = overlay.querySelector<HTMLButtonElement>('[aria-label="Close dialog"], [aria-label="Close sessions"]')!;
+  const close = overlay.querySelector<HTMLButtonElement>('[aria-label="Close dialog"], [aria-label="Close sessions"], .phone-prompt-sheet header button')!;
   const rect = close.getBoundingClientRect();
   if (rect.left < parseFloat(padding.paddingLeft) - 1 || rect.right > innerWidth - parseFloat(padding.paddingRight) + 1) throw new Error("Landscape Close overlaps side safe areas");
   if (rect.top < offset || rect.bottom > offset + height - parseFloat(padding.paddingBottom) || rect.width < 44 || rect.height < 44) throw new Error("Landscape overlay clips Close");
