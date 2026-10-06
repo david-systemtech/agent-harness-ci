@@ -295,6 +295,27 @@ describe("the desktop build", () => {
     expect(Object.keys(config ?? {}).filter((key) => ["mac", "win", "nsis", "linux", "pacman"].includes(key))).toEqual(["mac"]);
   });
 
+  // An environment's keychain item names the Node that wrote it, so both install paths carry one Node (ticket 1724).
+  it("leaves the bundled server's Node signed as the release tarball's, re-signing every other file of the bundle", async () => {
+    const build = fixture("darwin-arm64");
+    await buildDesktop(build.options(), build.seams);
+    // electron-builder skips signing a file whose absolute path one of `signIgnore`'s patterns matches.
+    const patterns = [build.packed[0]?.request.config.mac?.signIgnore ?? []].flat().map((pattern) => new RegExp(pattern));
+    const skipped = (file: string) => patterns.some((pattern) => pattern.test(file));
+    const contents = "/private/var/folders/x/agent-harness-desktop-build-a/dist/mac-arm64/agent-harness.app/Contents";
+    expect(skipped(`${contents}/Resources/server/node/bin/node`)).toBe(true);
+    for (const signed of [
+      `${contents}/MacOS/agent-harness`,
+      `${contents}/Frameworks/agent-harness Helper.app/Contents/MacOS/agent-harness Helper`,
+      `${contents}/Resources/server/node/bin/node-gyp`,
+      `${contents}/Resources/server/node/bin/node.bak`,
+      `${contents}/Resources/server/node_modules/node-pty/build/Release/pty.node`,
+      `${contents}/Resources/server/node_modules/@agent-harness/x/node/bin/node`,
+    ]) {
+      expect(skipped(signed), signed).toBe(false);
+    }
+  });
+
   it("builds the Windows setup on win32-x64: NSIS, one click, per user, and registering the agent-harness scheme for the user, kept when an update uninstalls the old version", async () => {
     const build = fixture("win32-x64");
     await buildDesktop(build.options(), build.seams);
