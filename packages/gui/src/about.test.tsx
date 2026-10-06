@@ -157,6 +157,45 @@ describe("Restart to update", () => {
     await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"], [STAGED, "now"]]));
   });
 
+  it("says where it was clicked why an install failed and the command that installs the staged build by hand, and no longer offers the same restart", async () => {
+    const message = "Installing 0.6.0 needs pkexec, which polkit provides, and it is not installed, so 0.0.0-fake stays installed.";
+    const byHand = `sudo pacman -U ${STAGED.path}`;
+    const shell = fakeShell();
+    shell.answer("update.apply", async (_staged, when) => (when === "now" ? { outcome: "failed", failure: "install", message, byHand } : { outcome: "applied" }));
+    const app = await opened({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED } }, { shell });
+
+    await app.user.click(await within(header()).findByRole("button", { name: "Restart to update" }));
+
+    // Shown at once, without hovering: the reason and the command, in the details the header's control opened.
+    const details = within(await screen.findByRole("dialog", { name: "Update failed" }));
+    expect(details.getByText(message)).toBeDefined();
+    expect(details.getByText(byHand)).toBeDefined();
+    expect(within(header()).queryByRole("button", { name: "Restart to update" })).toBeNull();
+    expect(within(header()).getByRole("button", { name: "Update failed" })).toBeDefined();
+
+    await app.user.click(details.getByRole("button", { name: "Open the release page" }));
+    expect(shell.calls.filter(([member]) => member === "openExternal")).toEqual([["openExternal", "https://git.example.test/david/agent-harness/releases"]]);
+    await app.user.click(details.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(shell.calls.filter(([member]) => member === "update.apply").map(([, ...args]) => args)).toEqual([[STAGED, "quit"], [STAGED, "now"], [STAGED, "now"]]));
+  });
+
+  it("shows a failed install on About with the command that installs the staged build by hand, and tries again from there", async () => {
+    const message = "pacman could not install 0.6.0 (error: failed to init transaction (unable to lock database)), so 0.0.0-fake stays installed.";
+    const byHand = `sudo pacman -U ${STAGED.path}`;
+    const shell = fakeShell();
+    shell.answer("update.apply", async (_staged, when) => (when === "now" ? { outcome: "failed", failure: "install", message, byHand } : { outcome: "applied" }));
+    const app = await opened({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED } }, { shell });
+    await within(header()).findByRole("button", { name: "Restart to update" });
+    await app.runtime.desktopUpdate.restart();
+
+    const about = within(await openAbout(app));
+    expect(about.getByText(message)).toBeDefined();
+    expect(about.getByText(byHand)).toBeDefined();
+    expect(about.queryByRole("button", { name: "Restart to update" })).toBeNull();
+    await app.user.click(about.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(shell.calls.filter(([member]) => member === "update.apply")).toHaveLength(3));
+  });
+
   it("shows nothing while no newer build is staged", async () => {
     const app = await opened();
     const about = await openAbout(app);

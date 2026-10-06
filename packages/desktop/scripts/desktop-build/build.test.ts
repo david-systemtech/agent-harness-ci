@@ -354,4 +354,10 @@ describe("the desktop build", () => {
     expect(depends).not.toContain("http-parser");
     expect(depends).not.toContain("libappindicator-gtk3");
   });
+
+  it("makes the Arch package depend on polkit, whose pkexec the desktop installs its own update through", async () => {
+    const build = fixture("linux-x64");
+    await buildDesktop(build.options(), build.seams);
+    expect(build.packed[0]?.request.config.pacman?.depends).toContain("polkit");
+  });
 });
