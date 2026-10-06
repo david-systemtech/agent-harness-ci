@@ -13,10 +13,16 @@ import { FindQuery, findMarks, Marked } from "./find.js";
  * image is drawn from the text itself (a `data:` URL of a picture); one
  * elsewhere is a link to it, never fetched on its own, or inside a link its
  * words alone. The find bar's query is marked where it matches (`find.tsx`).
+ * Text still streaming is drawn by the same parse, so a reply reads the same
+ * while it arrives and once it has settled; the streaming fade adds a plugin
+ * of its own and the elements it makes (`streaming-text.tsx`).
  */
 
 const REMARK_PLUGINS: Options["remarkPlugins"] = [remarkGfm];
-const HIGHLIGHT: NonNullable<Options["rehypePlugins"]>[number] = [rehypeHighlight, { detect: false }];
+/** A plugin over the tree markdown is drawn from (hast). */
+export type RehypePlugin = NonNullable<Options["rehypePlugins"]>[number];
+
+const HIGHLIGHT: RehypePlugin = [rehypeHighlight, { detect: false }];
 
 /** The pictures the window draws from the text itself: the image types a provider takes. */
 const DATA_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i;
@@ -47,18 +53,29 @@ const Link = ({ href, children }: ComponentPropsWithoutRef<"a"> & ExtraProps) =>
 
 const COMPONENTS: Components = { img: Image, a: Link };
 
-/** Markdown with what the find bar looks for marked, parsed again only when its text or the query changes. */
-export const Markdown = ({ text }: { readonly text: string }) => {
+export interface MarkdownProps {
+  readonly text: string;
+  /** A rehype plugin run after the others, and the components drawing the elements it makes. */
+  readonly plugin?: RehypePlugin | undefined;
+  readonly components?: Components | undefined;
+}
+
+/** Markdown with what the find bar looks for marked, parsed again only when its text, the query or the plugin changes. */
+export const Markdown = ({ text, plugin, components }: MarkdownProps) => {
   const query = use(FindQuery);
   // Bound Markdown parsing for very long provider output without dropping its searchable text.
-  return text.length > 80_000 ? <div className="whitespace-pre-wrap break-words"><Marked text={text} /></div> : <Parsed text={text} query={query} />;
+  return text.length > 80_000 ? <div className="whitespace-pre-wrap break-words"><Marked text={text} /></div> : <Parsed text={text} query={query} plugin={plugin} components={components} />;
 };
 
-const Parsed = memo(({ text, query }: { readonly text: string; readonly query: string }) => {
-  const rehypePlugins = useMemo<Options["rehypePlugins"]>(() => (query === "" ? [HIGHLIGHT] : [HIGHLIGHT, findMarks(query)]), [query]);
+const Parsed = memo(({ text, query, plugin, components }: MarkdownProps & { readonly query: string }) => {
+  const rehypePlugins = useMemo<Options["rehypePlugins"]>(
+    () => [HIGHLIGHT, ...(query === "" ? [] : [findMarks(query)]), ...(plugin === undefined ? [] : [plugin])],
+    [query, plugin],
+  );
+  const drawn = useMemo(() => (components === undefined ? COMPONENTS : { ...COMPONENTS, ...components }), [components]);
   return (
     <div className="markdown">
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={rehypePlugins} components={COMPONENTS} urlTransform={urlTransform}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={rehypePlugins} components={drawn} urlTransform={urlTransform}>
         {text}
       </ReactMarkdown>
     </div>
