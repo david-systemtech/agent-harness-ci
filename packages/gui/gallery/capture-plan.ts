@@ -29,14 +29,12 @@ export const PHONE_PROFILES = [
 ] as const;
 
 /**
- * Laptop windows shorter than the standard captures, for dialogs whose header and footer must stay in
- * the window (look.md §11.1; #1690 measured the sign-in dialog off-screen at 1280 × 800 and 1280 × 700).
- * Geometry does not depend on the ladder, so these take the dark ladder only.
+ * Laptop windows shorter than the standard captures, where a dialog's header and footer must stay in the
+ * window (look.md §11.1; #1690 measured the sign-in dialog off-screen at 1280 × 800 and 1280 × 700). The
+ * scene is mounted again in each and its geometry measured without a screenshot, so the published captures
+ * keep their two sizes; the probes run once per scene, with its wide dark capture.
  */
-export const LAPTOP_PROFILES = [
-  { suffix: "laptop-800", viewport: { width: 1280, height: 800 } },
-  { suffix: "laptop-700", viewport: { width: 1280, height: 700 } },
-] as const;
+export const LAPTOP_PROBES = [{ width: 1280, height: 800 }, { width: 1280, height: 700 }] as const;
 const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in"]);
 
 export interface CaptureCase {
@@ -46,20 +44,18 @@ export interface CaptureCase {
   readonly viewport: { readonly width: number; readonly height: number };
   readonly textSize: number;
   readonly platform: "desktop" | "web";
+  /** Further windows in which the scene's geometry is measured, without a capture. */
+  readonly probes?: readonly { readonly width: number; readonly height: number }[];
 }
 
 /** Phone owners opt in with phone-* scene files; existing desktop names and ladders stay intact. */
 export function capturePlan(scenes: readonly string[]) {
-  const desktop: CaptureCase[] = [
-    ...([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
-      captureCases(scenes).map(({ scene, ladder }): CaptureCase => ({
-        scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
-      })),
-    ),
-    ...scenes.filter(scene => LAPTOP_SCENES.has(scene)).flatMap(scene => LAPTOP_PROFILES.map(({ suffix, viewport }): CaptureCase => ({
-      scene, ladder: "dark", viewport, name: `${scene}-${suffix}.dark`, textSize: 14, platform: "desktop",
-    }))),
-  ];
+  const desktop: CaptureCase[] = ([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
+    captureCases(scenes).map(({ scene, ladder }) => ({
+      scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
+      ...(LAPTOP_SCENES.has(scene) && ladder === "dark" && viewport.width === 1400 && { probes: LAPTOP_PROBES }),
+    })),
+  );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
     // Surface scenes carry the full matrix; scaffold and duplicate keyboard scenes keep one proof.
     (scene.startsWith("phone-landscape-") ? LANDSCAPE_PHONE_PROFILES : scene.startsWith("phone-compact-composer-") ? COMPACT_COMPOSER_PROFILES : PHONE_PROFILES).filter(profile => {
