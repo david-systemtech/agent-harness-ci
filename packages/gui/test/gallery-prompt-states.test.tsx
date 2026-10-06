@@ -42,16 +42,18 @@ it("does not open a permission request arriving after the scene was disposed", a
   expect(click).not.toHaveBeenCalled();
 });
 
-it("reveals the legacy desktop-hosted permission fixture within its own request scroller", async () => {
+it("reveals the desktop-hosted permission fixture in its dock when the request wrapper cannot scroll", async () => {
   const root = document.createElement("div"); root.id = "root";
-  root.innerHTML = '<div data-composer-above><button aria-label="Allow once">Allow once</button></div>'; document.body.append(root);
-  const well = root.querySelector<HTMLElement>("[data-composer-above]")!, action = well.querySelector<HTMLElement>("button")!;
-  well.getBoundingClientRect = () => new DOMRect(0, 0, 300, 180);
-  action.getBoundingClientRect = () => new DOMRect(10, 300 - well.scrollTop, 150, 44);
+  root.innerHTML = '<div data-composer-column><div data-composer-above><button aria-label="Allow once">Allow once</button></div></div>'; document.body.append(root);
+  const dock = root.querySelector<HTMLElement>("[data-composer-column]")!, well = root.querySelector<HTMLElement>("[data-composer-above]")!, action = well.querySelector<HTMLElement>("button")!;
+  dock.getBoundingClientRect = () => new DOMRect(0, 0, 300, 180);
+  well.getBoundingClientRect = () => new DOMRect(0, 0, 300, 600);
+  action.getBoundingClientRect = () => new DOMRect(10, 300 - dock.scrollTop, 150, 44);
   const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
   const stop = revealPermission();
   onTestFinished(() => { stop(); root.remove(); vi.restoreAllMocks(); });
   await waitFor(() => expect(action.matches("[data-permission-revealed]")).toBe(true));
   expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(180);
+  expect(well.scrollTop).toBe(0);
   expect(scroll).not.toHaveBeenCalled();
 });

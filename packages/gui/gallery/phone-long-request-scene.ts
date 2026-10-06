@@ -25,8 +25,9 @@ export function longRequestScene(kind: "permission" | "question" | "plan"): Scen
         const field = document.querySelector<HTMLTextAreaElement>('[aria-label="Message"]')!;
         field.focus({ preventScroll: true });
         (actual ?? window).dispatchEvent(new Event("resize")); await settle();
-        const transcript = document.querySelector<HTMLElement>('[aria-label="Transcript"]')!.getBoundingClientRect();
-        if (transcript.height < 84) throw new Error("Long request collapsed the transcript");
+        const transcript = document.querySelector<HTMLElement>('[aria-label="Transcript"]')!;
+        const readableHeight = 3 * parseFloat(getComputedStyle(transcript).lineHeight);
+        if (transcript.getBoundingClientRect().height < readableHeight) throw new Error("Long request collapsed the transcript");
         const details = document.querySelector<HTMLButtonElement>(".phone-prompt-summary button")!;
         const button = details.getBoundingClientRect();
         if (button.height < 44 || button.bottom > viewport.height + viewport.offsetTop) throw new Error("Long request clipped Details");
@@ -62,7 +63,7 @@ export function longRequestScene(kind: "permission" | "question" | "plan"): Scen
       { selector: "[data-phone-prompt-body]", minimumHeight: 44 },
       { selector: "[data-phone-prompt-answer]", visibleWithin: ".phone-prompt-sheet" },
       { selector: "[data-phone-prompt-answer] button, .phone-prompt-sheet header button", minimumWidth: 44, minimumHeight: 44, visibleWithin: ".phone-prompt-sheet", hitTestable: true },
-      { selector: '[aria-label="Transcript"]', minimumHeight: 84, visibleWithin: "[data-web-client]" },
+      { selector: '[aria-label="Transcript"]', minimumHeight: 60, visibleWithin: "[data-web-client]" },
       { selector: '[aria-label="Message"], [aria-label="Stop"]', minimumHeight: 44, visibleWithin: "[data-web-client]" },
     ],
   };

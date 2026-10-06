@@ -37,7 +37,7 @@ export const phoneFirstScene = async (kind: "pairing" | "conversation" | "permis
 };
 
 
-/** Phone requests open Details; legacy desktop fixtures reveal only their own request scroller. */
+/** Phone requests open Details; desktop fixtures reveal only their own dock scroller. */
 export function revealPermissionDecision(): () => void {
   let stopped = false, started = false, frame = 0;
   const reveal = () => {
@@ -50,7 +50,7 @@ export function revealPermissionDecision(): () => void {
       let previous = "", stable = 0;
       const settle = () => {
         if (stopped) return;
-        const well = decision.closest<HTMLElement>("[data-composer-above]");
+        const well = decision.closest<HTMLElement>("[data-composer-column]");
         if (well) {
           const action = decision.getBoundingClientRect(), bounds = well.getBoundingClientRect();
           const bottom = bounds.bottom - Math.min(4, Math.max(0, bounds.height - action.height));
