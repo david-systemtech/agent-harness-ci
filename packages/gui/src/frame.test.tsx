@@ -39,6 +39,16 @@ describe("the frame", () => {
     expect(within(pane).getByRole("heading", { name: PRODUCT_NAME })).toBeDefined();
   });
 
+  it("keeps the key chords on a wide window's empty pane and New session button, where the phone layout drops them", async () => {
+    await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    const legend = within(within(screen.getByRole("main")).getByRole("list", { name: "Keyboard shortcuts" }));
+    expect(legend.getByText("Ctrl+K")).toBeDefined();
+    expect(legend.getByText("Ctrl+N")).toBeDefined();
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: "Choose a session" })).toBeNull();
+    const sidebar = within(screen.getByRole("navigation", { name: "Sessions" }));
+    expect(sidebar.getByRole("button", { name: "New session" }).querySelector("kbd")?.textContent).toBe("Ctrl+N");
+  });
+
   it("resizes the sidebar by its divider, and keeps where the divider was left when the window opens again", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
     const divider = await screen.findByRole("separator", { name: "Resize the sidebar" });

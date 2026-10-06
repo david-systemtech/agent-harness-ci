@@ -1,7 +1,8 @@
 import { actionById, PRODUCT_NAME } from "@agent-harness/contracts";
-import { FolderOpen, KeyRound, Link, Plus, SquareTerminal, TriangleAlert } from "lucide-react";
+import { FolderOpen, KeyRound, Link, PanelLeft, Plus, SquareTerminal, TriangleAlert } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { useOpenPairing } from "../connections/pairing.js";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { keyLabel } from "../keys/chords.js";
 import { useFirstKey, useKeyMap, useMacOS } from "../keys/key-dispatch.js";
 import { DEFAULT_KEY_MAP, keysInForce, type KeyMap } from "../keys/key-map.js";
@@ -17,14 +18,16 @@ const LEGEND = [
   ["app.settings.toggle", "Settings"], ["app.runInfo.toggle", "Run details"],
 ] as const;
 
-/** The welcome geometry and key legend are shared by ready, local-start and pairing states. */
+/** The welcome geometry and key legend are shared by ready, local-start and pairing states.
+ * The phone layout has no keyboard to press them with, so it draws no legend (#1715). */
 export const Welcome = ({ children, sentence = "A place to work with coding agents.", keyMap = DEFAULT_KEY_MAP, macOS = false }: {
   readonly children?: ReactNode;
   readonly sentence?: string;
   readonly keyMap?: KeyMap;
   readonly macOS?: boolean;
-}) => (
-  <div data-welcome className="@container flex min-h-[60vh] min-w-0 flex-1 flex-col items-center justify-center gap-6 px-8 py-12">
+}) => {
+  const { narrow } = usePhoneFrame();
+  return <div data-welcome className="@container flex min-h-[60vh] min-w-0 flex-1 flex-col items-center justify-center gap-6 px-8 py-12">
     <div className="flex w-full max-w-[512px] flex-col items-center gap-6">
       <div data-welcome-tile className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-beam text-beam-ink">
         <SquareTerminal aria-hidden="true" className="size-[22px]" />
@@ -34,7 +37,7 @@ export const Welcome = ({ children, sentence = "A place to work with coding agen
         <p className="mt-2 text-xs text-ink-muted">{sentence}</p>
       </div>
       {children}
-      <ul aria-label="Keyboard shortcuts" className="grid w-full grid-cols-1 gap-x-5 gap-y-2 @[440px]:grid-cols-2">
+      {!narrow && <ul aria-label="Keyboard shortcuts" className="grid w-full grid-cols-1 gap-x-5 gap-y-2 @[440px]:grid-cols-2">
         {LEGEND.map(([id, description]) => {
           const action = actionById(id);
           const key = action === undefined ? undefined : keysInForce(action, keyMap)[0];
@@ -43,10 +46,10 @@ export const Welcome = ({ children, sentence = "A place to work with coding agen
             <span>{id === "permission.deny" && key !== "Esc" ? "Deny a prompt" : description}</span>
           </li>;
         })}
-      </ul>
+      </ul>}
     </div>
-  </div>
-);
+  </div>;
+};
 
 export const EmptyState = () => {
   const runtime = useRuntime();
@@ -55,11 +58,12 @@ export const EmptyState = () => {
   const settings = useSettings();
   const openPairing = useOpenPairing();
   const start = useStartNewSession();
+  const phone = usePhoneFrame();
   const sessionKey = useFirstKey("app.session.new");
   const settingsKey = useFirstKey("app.settings.toggle");
   const view = useObservable(useMemo(() => runtime.projections.newSession({ focus: { kind: "none" } }), [runtime]));
   const environmentId = view.environment.value;
-  return <Welcome keyMap={keyMap} macOS={macOS} sentence="No session is open. Choose one from the sidebar.">
+  return <Welcome keyMap={keyMap} macOS={macOS} sentence={phone.narrow ? "No session is open. Choose one or start a new one." : "No session is open. Choose one from the sidebar."}>
     <Alert className="w-full text-left">
       <TriangleAlert aria-hidden="true" className="text-amber" />
       <AlertTitle>Not ready to run</AlertTitle>
@@ -76,5 +80,6 @@ export const EmptyState = () => {
     <Tooltip content={["New session", sessionKey].filter(Boolean).join(" · ")}>
       <Button variant="default" onClick={() => start.here({ environmentId })}><Plus aria-hidden="true" />Start a new session</Button>
     </Tooltip>
+    {phone.narrow && <Button variant="outline" onClick={() => phone.showDrawer(true)}><PanelLeft aria-hidden="true" />Choose a session</Button>}
   </Welcome>;
 };
