@@ -3,7 +3,7 @@
 function Protect-WindowsSmokeText {
   param([AllowEmptyString()][string] $Text, [string[]] $Secrets = @())
   $values = @($Secrets) + @(Get-ChildItem Env: | Where-Object { $_.Name -match 'TOKEN|PASSWORD|SECRET|CREDENTIAL|API_KEY' } | ForEach-Object { $_.Value })
-  foreach ($value in ($values | Where-Object { $_ } | Sort-Object { $_.Length } -Descending -Unique)) {
+  foreach ($value in ($values | Where-Object { $_ } | Select-Object -Unique | Sort-Object { $_.Length } -Descending)) {
     $Text = $Text.Replace($value, '[REDACTED]')
   }
   $Text = $Text -replace '(?im)(Authorization\s*:\s*)[^\r\n]+', '$1[REDACTED]'

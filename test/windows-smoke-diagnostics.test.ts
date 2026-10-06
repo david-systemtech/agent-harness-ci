@@ -17,7 +17,7 @@ async function capture(failCollector = false, timeout = false) {
   scratch = mkdtempSync(join(tmpdir(), "windows-smoke-diagnostics-"));
   mkdirSync(join(scratch, "data/logs"), { recursive: true });
   writeFileSync(join(scratch, "data/logs/service.log"), 'Authorization: Bearer service-test-secret\nAuthorization: Basic basic-test-secret\n{"token":"json-test-secret","api_key":"key with spaces"}\npassword=password-for-tests\n');
-  writeFileSync(join(scratch, "data/entry-error.log"), "launcher error: token-for-tests");
+  writeFileSync(join(scratch, "data/entry-error.log"), "launcher error: token-for-tests alpha-secret-for-tests bravo-secret-for-tests");
   const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
   const windows = workflow.split("  smoke-windows:\n")[1]?.split("  smoke-macos:\n")[0] ?? "";
   const wait = windows.match(/ {10}function Wait-Ready\([\s\S]*?\n {10}}/)?.[0] ?? "";
@@ -29,7 +29,7 @@ $ErrorActionPreference = 'Stop'
 . $env:DIAGNOSTICS_SCRIPT
 $dataDir = Join-Path $env:FIXTURE_ROOT 'data'
 $diagnostics = Join-Path $env:FIXTURE_ROOT 'diagnostics'
-$diagnosticSecrets = @('password-for-tests', 'token-for-tests')
+$diagnosticSecrets = @('password-for-tests', 'token-for-tests', 'alpha-secret-for-tests', 'bravo-secret-for-tests')
 $smokeStartedAt = [datetime]::UtcNow.AddMinutes(-5)
 $serviceLog = Join-Path $dataDir 'logs/service.log'
 $process = $null
@@ -70,7 +70,7 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("Windows smoke failure diagnosti
     expect(output).toContain("launcher error: [REDACTED]");
     expect(output).toContain("fixture-node");
     expect(output).toContain("Listen");
-    for (const secret of ["password-for-tests", "token-for-tests", "service-test-secret", "basic-test-secret", "with spaces", "json-test-secret", "unrelated-process-secret", "unrelated-task-event"]) expect(output).not.toContain(secret);
+    for (const secret of ["password-for-tests", "token-for-tests", "alpha-secret-for-tests", "bravo-secret-for-tests", "service-test-secret", "basic-test-secret", "with spaces", "json-test-secret", "unrelated-process-secret", "unrelated-task-event"]) expect(output).not.toContain(secret);
     const predicate = JSON.parse(files.find(([name]) => name === "predicate.json")?.[1] ?? "{}");
     expect(predicate).toMatchObject({ stage: "scheduled-task start before uninstall (#1478)", endpoint: "http://127.0.0.1:43210/.well-known/agent-harness/environment", expectedVersion: "0.1.3", expectedReadiness: "ready", lastDiscovery: { harnessVersion: "0.1.2", readiness: "starting" }, lastRequestError: "connection refused" });
     expect(predicate.predicate).toContain("harnessVersion");
