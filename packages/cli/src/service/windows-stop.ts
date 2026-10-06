@@ -8,6 +8,8 @@ import type { ServiceCommands } from "./runner.js";
  * stop. Retained handles and creation/exit times establish ownership, which is
  * saved before Stop and on failure so retry can check surviving descendants.
  * Windows PowerShell is part of Windows, so this ships inside the CLI bundle.
+ * Uninstall disables the task first, so nothing starts it while it goes; a
+ * stop leaves it enabled, to start at the next logon (`$disableTask`).
  */
 export const WINDOWS_STOP_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -82,7 +84,7 @@ try {
   $scheduler = New-Object -ComObject 'Schedule.Service'
   $scheduler.Connect()
   $task = $scheduler.GetFolder('\').GetTask('${SERVICE_LABEL}')
-  $task.Enabled = $false
+  if ($disableTask) { $task.Enabled = $false }
   $actions = $task.Definition.Actions
   if ($actions.Count -ne 1) { throw 'The scheduled task must have one registered action' }
   $action = $actions.Item(1)
@@ -156,14 +158,20 @@ try {
 if ($failed) { exit 1 }
 `;
 
-export const windowsStopArguments = (): string[] => [
-  "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(WINDOWS_STOP_SCRIPT, "utf16le").toString("base64"),
+/** Why the task's process tree is stopped: to uninstall the task, which disables it first, or to stop it until it next starts. */
+export type WindowsStopPurpose = "uninstall" | "stop";
+
+export const windowsStopArguments = (purpose: WindowsStopPurpose): string[] => [
+  "-NoProfile",
+  "-NonInteractive",
+  "-EncodedCommand",
+  Buffer.from(`$disableTask = $${purpose === "uninstall" ? "true" : "false"}\n${WINDOWS_STOP_SCRIPT}`, "utf16le").toString("base64"),
 ];
 
 /** Report the failure without dumping the encoded script into the user's error. */
-export const stopWindowsTask = async (commands: ServiceCommands): Promise<void> => {
+export const stopWindowsTask = async (commands: ServiceCommands, purpose: WindowsStopPurpose): Promise<void> => {
   const message = "Could not stop the scheduled task's process tree";
-  const result = await commands.query("powershell.exe", windowsStopArguments()).catch((cause: unknown) => {
+  const result = await commands.query("powershell.exe", windowsStopArguments(purpose)).catch((cause: unknown) => {
     throw new ServiceError(`${message}: Windows PowerShell could not run or did not finish within 30 seconds.`, { cause });
   });
   if (result.code !== 0) {

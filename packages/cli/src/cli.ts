@@ -72,6 +72,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
   `       ${PRODUCT_NAME} service start`,
+  `       ${PRODUCT_NAME} service stop`,
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   `       ${PAIR_USAGE}`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),

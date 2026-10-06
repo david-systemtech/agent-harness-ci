@@ -122,6 +122,9 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
     start: async () => {
       await systemctl("start", unit);
     },
+    stop: async () => {
+      await systemctlStopping("stop", unit);
+    },
     isInstalled: async () => existsSync(path),
     isRunning: async () => (await commands.probe("systemctl", ["--user", "is-active", unit])).code === 0,
     notes: async () => {

@@ -312,6 +312,44 @@ describe("agent-harness service start", () => {
   });
 });
 
+describe("agent-harness service stop (#1712)", () => {
+  const active: Answer = (_, args) => (args.includes("is-active") ? { stdout: "active\n" } : undefined);
+
+  it("stops the installed service, saying it waits for running runs where the stop drains them, and leaves it installed", async () => {
+    const home = tempHome();
+    expect(await harness("linux", { home, answer: stopped }).run("service", "install")).toBe(0);
+    const cli = harness("linux", { home, answer: active });
+    expect(await cli.run("service", "stop")).toBe(0);
+    expect(cli.calls).toEqual(["systemctl --user is-active agent-harness.service", "systemctl --user stop agent-harness.service"]);
+    expect(cli.out()).toBe(`${DRAIN_NOTICE}Stopped. It starts again at your next logon; \`agent-harness service start\` starts it now.\n`);
+    expect(existsSync(unitPath(home))).toBe(true);
+  });
+
+  it("stops the logon task's whole process tree on Windows, where End alone leaves the launcher running, without a word of a wait", async () => {
+    const cli = harness("win32", { answer: (_, args) => (args.includes("CSV") ? { stdout: '"\\agent-harness","N/A","Running"\r\n' } : undefined) });
+    expect(await cli.run("service", "stop")).toBe(0);
+    const stops = cli.calls.filter((call) => call.startsWith("powershell.exe "));
+    expect(stops).toHaveLength(1);
+    expect(Buffer.from(stops[0]?.split(" ").at(-1) ?? "", "base64").toString("utf16le")).toMatch(/^\$disableTask = \$false\n/);
+    expect(cli.calls.some((call) => call.includes("/Delete") || call.includes("/End"))).toBe(false);
+    expect(cli.out()).toBe("Stopped. It starts again at your next logon; `agent-harness service start` starts it now.\n");
+  });
+
+  it("refuses with a sentence and exits 1 when no service is installed", async () => {
+    const cli = harness("linux");
+    expect(await cli.run("service", "stop")).toBe(1);
+    expect(cli.err()).toBe("No service is installed. `agent-harness service install` installs it.\n");
+    expect(cli.calls).toEqual([]);
+  });
+
+  it("refuses a privileged user", async () => {
+    const cli = harness("linux", { privileged: true });
+    expect(await cli.run("service", "stop")).toBe(1);
+    expect(cli.err()).toBe(`${ROOT_REFUSAL}\n`);
+    expect(cli.calls).toEqual([]);
+  });
+});
+
 describe("agent-harness service status", () => {
   const active: Answer = (command, args) =>
     args.includes("is-active") ? { stdout: "active\n" } : command === "loginctl" ? { stdout: "yes\n" } : undefined;

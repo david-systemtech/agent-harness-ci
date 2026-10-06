@@ -258,6 +258,13 @@ describe("the systemd user unit", () => {
     expect(calls).toEqual(["systemctl --user start agent-harness.service"]);
   });
 
+  it("stop stops the unit and leaves it enabled, giving the stop its wait and a minute", async () => {
+    const { service, calls, timeouts } = platformFor("linux", tempHome());
+    await service.stop();
+    expect(calls).toEqual(["systemctl --user stop agent-harness.service"]);
+    expect(timeouts.get("systemctl --user stop agent-harness.service")).toBe(STOP_COMMAND_TIMEOUT_MS);
+  });
+
   it("is installed when the unit file exists, and running when systemd says it is active", async () => {
     const home = tempHome();
     let active = false;
@@ -383,6 +390,21 @@ describe("the launchd agent", () => {
     const second = platformFor("darwin", tempHome(), loaded("not running"));
     await second.service.start();
     expect(second.calls).toEqual(["launchctl print gui/501/agent-harness", "launchctl kickstart gui/501/agent-harness"]);
+  });
+
+  it("stop boots out a loaded agent and keeps its file, for start or the next login to load it; one not loaded is left alone", async () => {
+    const home = tempHome();
+    const first = platformFor("darwin", home, loaded("running"));
+    await first.service.install(specIn(home), RESTART);
+    first.calls.length = 0;
+    await first.service.stop();
+    expect(first.calls).toEqual(["launchctl print gui/501/agent-harness", "launchctl bootout gui/501/agent-harness"]);
+    expect(first.timeouts.get("launchctl bootout gui/501/agent-harness")).toBe(STOP_COMMAND_TIMEOUT_MS);
+    expect(existsSync(plistPath(home))).toBe(true);
+
+    const second = platformFor("darwin", tempHome(), notLoaded);
+    await second.service.stop();
+    expect(second.calls).toEqual(["launchctl print gui/501/agent-harness"]);
   });
 
   it("uninstall boots out a loaded agent and removes the file", async () => {
@@ -568,9 +590,19 @@ describe("the Task Scheduler logon task", () => {
     calls.length = 0;
     await service.uninstall();
     expect(calls).toEqual([
-      ["powershell.exe", ...windowsStopArguments()].join(" "),
+      ["powershell.exe", ...windowsStopArguments("uninstall")].join(" "),
       "schtasks /Delete /TN agent-harness /F",
     ]);
+  });
+
+  it("stop stops the task's process tree and leaves the task enabled and registered (#1712)", async () => {
+    const { service, calls } = platformFor("win32", tempHome(), running);
+    await service.stop();
+    expect(calls).toEqual([["powershell.exe", ...windowsStopArguments("stop")].join(" ")]);
+    const script = (purpose: "stop" | "uninstall") => Buffer.from(windowsStopArguments(purpose).at(-1) ?? "", "base64").toString("utf16le");
+    expect(script("stop").split("\n")[0]).toBe("$disableTask = $false");
+    expect(script("uninstall").split("\n")[0]).toBe("$disableTask = $true");
+    expect(script("stop")).toContain("if ($disableTask) { $task.Enabled = $false }");
   });
 
   it("keeps registration when process-tree shutdown fails", async () => {

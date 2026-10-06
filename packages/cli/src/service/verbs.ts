@@ -228,6 +228,26 @@ const start = async (args: readonly string[], context: ServiceContext): Promise<
 };
 
 /**
+ * `service stop`: stops the installed service now; it stays installed, and
+ * starts again at the next logon or with `service start`. On Windows it
+ * stops the logon task's whole process tree, as uninstall does (#1712):
+ * Task Scheduler's End alone ends only the task's console host.
+ */
+const stop = async (args: readonly string[], context: ServiceContext): Promise<number> => {
+  refusePrivilegedUser(context.user);
+  parseOptions(args, {});
+  const { platform } = resolveService(context, undefined);
+  if (!(await platform.isInstalled())) {
+    context.stderr(`No service is installed. \`${PRODUCT_NAME} service install\` installs it.\n`);
+    return 1;
+  }
+  if (platform.drainsOnStop && (await platform.isRunning())) context.stdout(DRAIN_NOTICE);
+  await platform.stop();
+  context.stdout(`Stopped. It starts again at your next logon; \`${PRODUCT_NAME} service start\` starts it now.\n`);
+  return 0;
+};
+
+/**
  * `service status`: installed and running from the service manager, ready
  * from the discovery URL on the port the service was installed on (from the
  * record; `--port` overrides, `DEFAULT_PORT` when there is no record), and
@@ -321,10 +341,11 @@ const VERBS = new Map<string, (args: readonly string[], context: ServiceContext)
   ["install", install],
   ["uninstall", uninstall],
   ["start", start],
+  ["stop", stop],
   ["status", serviceStatus],
 ]);
 
-/** `service <install|uninstall|status|start>`. A refusal or a service manager failure prints one sentence and exits 1. */
+/** `service <install|uninstall|status|start|stop>`. A refusal or a service manager failure prints one sentence and exits 1. */
 export const service = async (args: readonly string[], context: ServiceContext): Promise<number> => {
   const [verb, ...rest] = args;
   const run = verb === undefined ? undefined : VERBS.get(verb);

@@ -24,6 +24,18 @@ export function measureSceneGeometry(): string[] {
         || element.scrollHeight > element.clientHeight + (check.tolerance ?? 0.5))) {
         visibility.push(`${check.selector}[${index}]: content overflows its bounds`);
       }
+      if (check.wordsIntact === true) {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+          for (const word of (text.textContent ?? "").matchAll(/[^\s\-\u2010-\u2014]+/g)) {
+            const range = document.createRange();
+            range.setStart(text, word.index);
+            range.setEnd(text, word.index + word[0].length);
+            const [first, ...rest] = Array.from(range.getClientRects());
+            if (first && rest.some(line => Math.abs(line.top - first.top) > first.height / 2)) visibility.push(`${check.selector}[${index}]: "${word[0]}" breaks mid-word across lines`);
+          }
+        }
+      }
       if (check.minimumTop !== undefined && rect.top < check.minimumTop - (check.tolerance ?? 0.5)) {
         visibility.push(`${check.selector}[${index}].top: got ${rect.top}, expected at least ${check.minimumTop}`);
       }

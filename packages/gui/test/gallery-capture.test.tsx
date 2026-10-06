@@ -2,7 +2,7 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
 import { accessSettingsDetails, detailGeometry } from "../gallery/access-settings-details.js";
 import { measureSceneGeometry } from "../gallery/geometry.js";
@@ -87,6 +87,22 @@ it.each([[1400, 920], [1024, 777]])("checks responsive scene geometry at viewpor
   expect(measureSceneGeometry()).toEqual([]);
   button.remove();
   expect(measureSceneGeometry()).toEqual(["button: no matching elements", "button: no matching elements"]);
+});
+
+it("fails a word that wraps mid-word onto another line and accepts wraps between words or at hyphens", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "article", wordsIntact: true }]);
+  root.innerHTML = "<article><h3>push-cf5fe456-a941-d86cfaf95cf2</h3><p>Web Push · This client</p></article>";
+  document.body.append(root);
+  let broken = "d86cfaf95cf2";
+  Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value(this: Range) {
+    return this.toString() === broken ? [new DOMRect(0, 0, 300, 20), new DOMRect(0, 20, 20, 20)] : [new DOMRect(0, 0, 40, 20)];
+  } });
+  onTestFinished(() => { delete (Range.prototype as Partial<Range>).getClientRects; });
+  expect(measureSceneGeometry()).toEqual(['article[0]: "d86cfaf95cf2" breaks mid-word across lines']);
+  broken = "";
+  expect(measureSceneGeometry()).toEqual([]);
 });
 
 

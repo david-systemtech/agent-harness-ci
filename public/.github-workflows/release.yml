@@ -627,6 +627,32 @@ jobs:
                 } finally { Remove-Item -LiteralPath $passwordFile -Force }
                 Start-ScheduledTask -TaskName agent-harness
                 Wait-Ready 'scheduled-task start before uninstall (#1478)'
+                # Task Scheduler's End ends conhost alone: the launcher watches it and stops with it, and the
+                # next start runs exactly one launcher-entry chain, not a second one beside the first (#1712).
+                Stop-ScheduledTask -TaskName agent-harness
+                $stopTimer = [Diagnostics.Stopwatch]::StartNew()
+                do {
+                  Start-Sleep -Milliseconds 500
+                  $left = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" -or ($_.Name -eq 'cmd.exe' -and $_.CommandLine -like '*launcher-entry.cmd*') })
+                  $probe = [Net.Sockets.TcpClient]::new()
+                  try {
+                    try { $probe.Connect('127.0.0.1', $port) } catch [Net.Sockets.SocketException] { }
+                    $answering = $probe.Connected
+                  } finally { $probe.Dispose() }
+                } while (($left.Count -gt 0 -or $answering) -and $stopTimer.Elapsed.TotalSeconds -lt 60)
+                if ($answering) { throw 'Stop-ScheduledTask left the environment port open (#1712)' }
+                if ($left.Count -gt 0) { throw "Stop-ScheduledTask left $($left.Count) launcher-entry, launcher or environment processes running (#1712)" }
+                if (!(Select-String -LiteralPath $serviceLog -SimpleMatch 'which started the launcher entry, has ended, so the launcher stops' -Quiet)) {
+                  throw 'The service log does not say the launcher stopped with its task (#1712)'
+                }
+                Write-Output "Stop-ScheduledTask stopped the launcher and the environment within $($stopTimer.Elapsed.TotalSeconds) seconds"
+                Start-ScheduledTask -TaskName agent-harness
+                Wait-Ready 'scheduled-task start after Stop-ScheduledTask (#1712)'
+                $entries = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" | Where-Object { $_.CommandLine -like '*launcher-entry.cmd*' })
+                $launchers = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" -and $_.CommandLine -like '* launch *' })
+                if ($entries.Count -ne 1 -or $launchers.Count -ne 1 -or $launchers[0].ParentProcessId -ne $entries[0].ProcessId) {
+                  throw "After Stop-ScheduledTask and Start-ScheduledTask: $($entries.Count) launcher-entry chains and $($launchers.Count) launchers, not one of each (#1712)"
+                }
                 # Keep native handles so PID reuse cannot make the exit checks lie.
                 $rows = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" })
                 if ($rows.Count -lt 2) { throw 'The scheduled task did not start its launcher and server' }

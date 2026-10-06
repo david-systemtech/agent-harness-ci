@@ -1,6 +1,7 @@
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { HANDOVER_FILE, HANDOVER_STARTS_FILE, UNCONFIRMED_STARTS } from "../launch/handover.js";
 import { LAUNCHER_VERSION_FILE } from "../launch/launcher-version.js";
+import { SERVICE_LOG_VARIABLE, UNLOGGED_EXIT_VARIABLE } from "../launch/verb.js";
 import { VERSION_CLI_ENTRY, VERSION_SENTINEL, versionNode, VERSIONS_DIRECTORY } from "../launch/versions.js";
 import { batchArgument, batchSetValue, oneLine, shellWord } from "./quoting.js";
 import { LOG_DIRECTORY, LOG_FILE } from "./spec.js";
@@ -39,6 +40,9 @@ export interface EntrySpec {
 
 /** The command that writes the entry, quoted as the scripts' messages name it. */
 const installCommand = `"${PRODUCT_NAME} service install"`;
+
+/** How often the cmd entry tries to write its restart line, a second apart, while another process holds the service log, before it leaves the line to the next launcher. */
+export const LOG_LINE_TRIES = 5;
 
 /** A batch file's lines end with CRLF: cmd misreads labels in a file with bare line feeds. */
 const batchFile = (lines: readonly string[]): string => `${lines.join("\r\n")}\r\n`;
@@ -112,14 +116,19 @@ const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
     "rem starts the launcher of the version the launcher version file names, again 5",
     "rem seconds after each non-zero exit (a crash, or a handover to a newer launcher),",
     "rem since Task Scheduler restarts a task only when it could not start it. With no",
-    "rem such version it exits. The launcher's lines go to the service log. The line",
-    "rem that runs the launcher ends in its own exits, since cmd reads this file by",
+    "rem such version it exits. The launcher writes the service log itself, which",
+    `rem ${SERVICE_LOG_VARIABLE} names: cmd holds a file it redirects to for itself`,
+    "rem alone, so a second launcher could not start while one ran, nor say why. Its",
+    "rem restart line it tries again for a few seconds while another holds the log,",
+    `rem then leaves the code in ${UNLOGGED_EXIT_VARIABLE} for the next launcher to write.`,
+    "rem The line that runs the launcher ends in its own exits, since cmd reads this file by",
     "rem offset and install may replace it while the launcher runs. It counts the",
     "rem starts of a launcher handed over to until that launcher confirms, and after",
     `rem ${UNCONFIRMED_STARTS} unconfirmed starts names the launcher that handed over again.`,
     "setlocal EnableExtensions DisableDelayedExpansion",
     `set "DATA_DIR=${batchSetValue(dataDir)}"`,
     `set "LOG=%DATA_DIR%\\${LOG_DIRECTORY}\\${LOG_FILE}"`,
+    `set "${SERVICE_LOG_VARIABLE}=%LOG%"`,
     ":start",
     'set "VERSION="',
     // Search for forbidden characters before cmd expands a value. Avoid /x and $, which reject LF-only files.
@@ -144,9 +153,14 @@ const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
     'set "VERSION=%FROM%"',
     ":run",
     `if not exist "${version}\\${VERSION_SENTINEL}" goto not_complete`,
-    `"${version}\\${node}" "${version}\\${cli}" ${launch.join(" ")} >>"%LOG%" 2>&1 && exit /b 0 || goto restart`,
+    `"${version}\\${node}" "${version}\\${cli}" ${launch.join(" ")} && exit /b 0 || goto restart`,
     ":restart",
-    '>>"%LOG%" echo launcher entry: the launcher exited with code %ERRORLEVEL%, so it starts again in 5 s.',
+    'set "CODE=%ERRORLEVEL%"',
+    'set "TRIES=0"',
+    `set "${UNLOGGED_EXIT_VARIABLE}="`,
+    ":restart_line",
+    'set /a "TRIES+=1"',
+    `(>>"%LOG%" echo launcher entry: the launcher exited with code %CODE%, so it starts again in 5 s.) 2>nul || (if %TRIES% LSS ${LOG_LINE_TRIES} (ping -n 2 127.0.0.1 >nul & goto restart_line) else set "${UNLOGGED_EXIT_VARIABLE}=%CODE%")`,
     "ping -n 6 127.0.0.1 >nul",
     "goto start",
     ":no_version",

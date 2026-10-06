@@ -24,7 +24,7 @@ const start = readLines(reportPath).filter((line) => (JSON.parse(line) as ChildE
 const scriptPath = join(dataDir, CHILD_SCRIPT_FILE);
 const script = existsSync(scriptPath) ? (JSON.parse(readFileSync(scriptPath, "utf8")) as ChildStart[]) : [];
 const scripted = script[start] ?? "serve";
-const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo, install, busyFor = 0, credential }: ScriptedStart =
+const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo, install, busyFor = 0, says, credential }: ScriptedStart =
   typeof scripted === "string" ? { behaviour: scripted } : scripted;
 
 const report = (event: string, detail: Record<string, unknown> = {}) =>
@@ -43,7 +43,13 @@ const leave = (code: number) => {
 };
 
 if (writes !== undefined) writeDatabase(dataDir, writes, "open");
-report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort() });
+report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort(), serviceLogVariable: process.env["AGENT_HARNESS_SERVICE_LOG"] ?? null,
+  unloggedExitVariable: process.env["AGENT_HARNESS_UNLOGGED_EXIT"] ?? null,
+});
+if (says !== undefined) {
+  process.stdout.write(`${says} on standard output\n`);
+  process.stderr.write(`${says} on standard error\n`);
+}
 
 if (behaviour === "crash") process.exit(1);
 if (behaviour === "exit-0") process.exit(0);

@@ -17,7 +17,7 @@ it("read clients learn only the public key, own separate registrations, and cann
   expect(Object.keys(answer)).toEqual(["publicKey"]);
   expect(Buffer.from(answer.publicKey, "base64url")).toHaveLength(65);
   const browser = createECDH("prime256v1"); browser.generateKeys();
-  const target = { id: `push-${phone.clientSessionId}`, transport: "push", enabled: true, completion: false, configuration: { endpoint: "https://fcm.googleapis.com/fcm/send/test-registration", p256dh: browser.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } } as const;
+  const target = { id: `push-${phone.clientSessionId}`, label: "Chrome on Android, enabled 6 Oct, 13:04", transport: "push", enabled: true, completion: false, configuration: { endpoint: "https://fcm.googleapis.com/fcm/send/test-registration", p256dh: browser.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } } as const;
   await a.apply("attention.targets.set", { commandId: randomUUID(), target });
   expect((await b.request("attention.targets.list", {})).targets).toEqual([]);
   expect(await b.call("attention.push.test", { id: target.id, sessionId })).toMatchObject({ error: { code: "forbidden" } });

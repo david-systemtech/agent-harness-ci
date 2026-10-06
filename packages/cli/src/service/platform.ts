@@ -34,6 +34,8 @@ export interface ServicePlatform {
   uninstall(): Promise<void>;
   /** Starts the installed service now. */
   start(): Promise<void>;
+  /** Stops the installed service now, leaving it installed to start at the next logon. */
+  stop(): Promise<void>;
   isInstalled(): Promise<boolean>;
   /** Whether the service manager reports the service's process running. */
   isRunning(): Promise<boolean>;
