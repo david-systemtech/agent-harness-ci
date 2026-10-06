@@ -1,3 +1,4 @@
+import { routineFixture } from "./routine-fixtures.js";
 import type { SceneModule } from "./scene-registry.js";
 import { platform, script, route, arrangeWeb } from "./phone-compact-composer-scene.js";
 import { filledKeyboardPrompt } from "./scenes/phone-keyboard-dock.js";
@@ -8,6 +9,7 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
   platform, script, route,
   arrangeWeb: world => {
     arrangeWeb(world);
+    if (surface === "drawer") world.environment("desk").wire.answer("routines.list", () => ({ result: { routines: Array.from({ length: 4 }, (_, index) => routineFixture(`Receipt check ${index + 1}`, index + 1)) } }));
     if (surface === "keyboard") {
       const env = world.environment("desk");
       const { runId } = env.startRun(env.sessionId(), "Continue checking the receipts.");
@@ -71,6 +73,18 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
         await Promise.all(overlay.getAnimations().map(animation => animation.finished.catch(() => undefined)));
         if (surface === "drawer") {
           const results = overlay.querySelector<HTMLElement>("[data-sidebar-scroll]")!;
+          // Routines share this bounded well with results, never fixed chrome.
+          // Prove all four touch controls before scrolling to the session row.
+          for (let attempt = 0; attempt < 60 && results.querySelectorAll("[data-scheduled-strip] button").length !== 4; attempt++) await settle();
+          const routines = results.querySelectorAll<HTMLButtonElement>("[data-scheduled-strip] button");
+          if (routines.length !== 4) throw new Error("Landscape drawer is missing its four scheduled routines");
+          for (const button of routines) {
+            results.scrollTop += Math.max(0, button.getBoundingClientRect().bottom - results.getBoundingClientRect().bottom);
+            await settle();
+            const action = button.getBoundingClientRect(), well = results.getBoundingClientRect();
+            const hit = document.elementFromPoint(action.left + action.width / 2, action.top + action.height / 2);
+            if (action.height < 44 || action.top < well.top - 1 || action.bottom > well.bottom + 1 || !button.contains(hit)) throw new Error("Landscape drawer clips a scheduled action");
+          }
           results.scrollTop = results.scrollHeight;
           const footer = overlay.querySelector<HTMLElement>("[data-sidebar-footer]")!;
           // Both footer actions stay reachable in their own well; the result row

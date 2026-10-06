@@ -5,6 +5,7 @@ import { userEvent } from "@testing-library/user-event";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { renderApp } from "../../test/harness.js";
 import { mountGallery } from "../../gallery/mount.js";
+import { routineFixture } from "../../gallery/routine-fixtures.js";
 import { phoneLayoutMedia } from "./phone-frame.js";
 import { route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
@@ -81,12 +82,17 @@ it("keeps a session row usable while the landscape drawer footer scrolls indepen
   onTestFinished(() => { vi.unstubAllGlobals(); });
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const gallery = await mountGallery(root, "landscape-drawer-controls", "light", {
-    "landscape-drawer-controls": { platform: "web", route, script: { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], sessions: [{ title: "Receipt review" }] }] } },
+    "landscape-drawer-controls": { platform: "web", route, script: { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], sessions: [{ title: "Receipt review" }] }] },
+      arrangeWeb: world => world.environment("desk").wire.answer("routines.list", () => ({ result: { routines: Array.from({ length: 4 }, (_, index) => routineFixture(`Receipt check ${index + 1}`, index + 1)) } })),
+    },
   });
   onTestFinished(async () => { await gallery.close(); root.remove(); });
   await gallery.ready;
   fireEvent.click(screen.getByRole("button", { name: "Show sessions" }));
   const drawer = screen.getByRole("dialog", { name: "Sessions" });
+  const scheduled = await within(drawer).findByRole("region", { name: "Scheduled" });
+  expect(await within(scheduled).findByRole("button", { name: /Receipt check 4/ })).toBeDefined();
+  expect(scheduled.closest("[data-sidebar-scroll]")).toBe(drawer.querySelector("[data-sidebar-scroll]"));
   const stylesheet = document.createElement("style");
   stylesheet.textContent = readFileSync(new URL("./phone-frame.css", import.meta.url), "utf8");
   document.head.append(stylesheet);

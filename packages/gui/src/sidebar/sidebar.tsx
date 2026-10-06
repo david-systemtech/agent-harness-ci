@@ -107,7 +107,7 @@ const Headings = () => {
           </NewSessionButton>
         </Tooltip>
       </div>
-      <ScheduledStrip />
+      {!phone.narrow && <ScheduledStrip />}
       <div className="flex shrink-0 items-center gap-1 px-1.5 pt-2 pb-1.5">
         {(phone.narrow || list.rows.length > 8 || searchShown || filter !== "") && (
           <div className="phone-frame-filter relative min-w-0 flex-1">
@@ -121,6 +121,7 @@ const Headings = () => {
         </IconButton>
       </div>
       <div data-sidebar-scroll className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2">
+        {phone.narrow && <ScheduledStrip />}
         {query === "" ? (
           <>
             {dragged !== null && !headings.some((heading) => heading.kind === "pinned") && <EmptyPinned />}

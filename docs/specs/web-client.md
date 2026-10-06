@@ -319,13 +319,18 @@ height shrinks to the supported 330px rectangle (including the waiting notice,
 three normal reply lines, message/actions and safe reserve); overlay proofs use
 300px. The drawer result well grows with text size (at least 54px); compact
 vertical chrome leaves room while its footer scrolls independently down to a
-48px floor. Check a result hit area and both footer actions as well as
+48px floor. Scheduled routines share the result scrollport so their four
+touch actions cannot consume fixed drawer height. Check a result hit area and
+both footer actions as well as
 Close. Both use offsetTop 8 and zero insets or 44px side/21px bottom insets. Check one
 projection, no page/horizontal overflow, three readable transcript lines,
 reachable Send/Stop and long-card decisions, bounded sheet/Close and trapped
 focus, and exactly one safe-area reserve at the dock edge. Focused transition
 tests prove portrait/landscape/portrait retains state, returning wide restores
 saved panes, and non-touch/zoom/keyboard-only changes never select phone layout.
+An open layout-resizing keyboard keeps the transcript reserve across rotation;
+the previous orientation supplies the closing-height reference until the new
+unoccluded bounds return.
 
 Surface owners supply separate scene/baseline modules and inspect hosted PR
 captures before landing; gallery evidence does not replace the real-client CI.

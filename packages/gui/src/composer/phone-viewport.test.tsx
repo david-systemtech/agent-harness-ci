@@ -81,3 +81,42 @@ it.each([
   expect(frame.style.height).toBe("");
   expect(document.documentElement.hasAttribute("data-phone-viewport")).toBe(false);
 });
+
+
+it("retains the keyboard reserve through layout-resizing rotation, gradual close and another rotation", () => {
+  const resize = layout(390, 844);
+  const viewport = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, scale: 1 });
+  vi.stubGlobal("visualViewport", viewport);
+  const app = render(<PhoneFrameProvider><Conversation /></PhoneFrameProvider>);
+  const frame = app.container.firstElementChild as HTMLElement;
+  const field = screen.getByRole("textbox", { name: "Message" });
+  act(() => field.focus());
+  viewport.height = 480;
+  resize(390, 480);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  viewport.width = 844; viewport.height = 330;
+  resize(844, 330);
+  expect(frame.hasAttribute("data-phone-frame")).toBe(true);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  act(() => viewport.dispatchEvent(new Event("resize")));
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  expect(frame.style.height).toBe("330px");
+  expect(field).toHaveProperty("value", "Keep the landscape draft");
+  expect(document.activeElement).toBe(field);
+  viewport.height = 360;
+  resize(844, 360);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  viewport.height = 390;
+  resize(844, 390);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(false);
+  viewport.height = 280;
+  resize(844, 280);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  viewport.width = 390; viewport.height = 480;
+  resize(390, 480);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  viewport.height = 844;
+  resize(390, 844);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(false);
+  expect(document.activeElement).toBe(field);
+});
