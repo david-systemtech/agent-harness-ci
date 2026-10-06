@@ -53,6 +53,21 @@ describe("the public GitHub release workflow", () => {
     expect(upload).not.toContain("continue-on-error");
   });
 
+  it("updates an environment the macOS desktop installed from the desktop job's own server artefact, before the replacement smoke (#1724)", () => {
+    const kept = step("desktop-macos", "Keep the server artefact the macOS smoke updates to");
+    expect(kept).toContain("uses: actions/upload-artifact@");
+    expect(kept).toContain("name: server-darwin-arm64");
+    expect(kept).toContain("path: server/agent-harness-darwin-arm64.tar.gz");
+    expect(kept).toContain("if-no-files-found: error");
+    // The release job collects the desktops by their prefix; the artefact is not one of its assets.
+    expect(step("release", "The desktop jobs' builds")).toContain("pattern: desktop-*");
+    const smoke = job("smoke-macos").join("\n");
+    expect(smoke).toMatch(/download-artifact@[a-f0-9]{40} # v7\n {8}with:\n {10}name: server-darwin-arm64\n {10}path: artefact\n/);
+    const update = step("smoke-macos", "Update an environment the desktop installed from the server artefact with no keychain prompt");
+    expect(update).toContain('"$server/node/bin/node" scripts/macos-tarball-update-smoke.mjs unzipped/agent-harness.app artefact/agent-harness-darwin-arm64.tar.gz');
+    expect(smoke.indexOf(update)).toBeLessThan(smoke.indexOf("Replace the packaged desktop with an existing client credential"));
+  });
+
   it("checks the actual native screenshot collectors before the packaged macOS smoke", () => {
     const native = step("smoke-macos", "Verify native screenshot diagnostics");
     expect(native).toContain('"$server/node/bin/node" --test scripts/macos-smoke-diagnostics-native.test.mjs');

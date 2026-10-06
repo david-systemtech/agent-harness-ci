@@ -31,6 +31,16 @@ describe.each(workflows)("the %s release's packed servers", (_name, workflow) =>
       expect(body.indexOf("server/node_modules/@agent-harness/contracts/package.json")).toBeLessThan(body.search(/- name: (Keep the desktop build|Hand the desktop to the release job)/));
     }
   });
+
+  it("fails the macOS desktop when its bundled server's Node is signed otherwise than the server artefact's, before handing it on (#1724)", () => {
+    const mac = job(workflow, "desktop-macos");
+    expect(mac).toContain("tar -xzf server/agent-harness-darwin-arm64.tar.gz -C tarball");
+    expect(mac).toContain("bundled=$(codesign -d -r- unzipped/agent-harness.app/Contents/Resources/server/node/bin/node 2>&1 | grep '^designated => ')");
+    expect(mac).toContain("artefact=$(codesign -d -r- tarball/node/bin/node 2>&1 | grep '^designated => ')");
+    expect(mac).toContain('test "$bundled" = "$artefact"');
+    expect(mac).toContain("rm -rf server desktop unzipped tarball");
+    expect(mac.indexOf('test "$bundled" = "$artefact"')).toBeLessThan(mac.search(/- name: (Keep the desktop build|Hand the desktop to the release job)/));
+  });
 });
 
 describe("the public release's packaged server smoke tests", () => {

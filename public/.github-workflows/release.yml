@@ -284,7 +284,7 @@ jobs:
       - name: The darwin-arm64 server artefact
         run: |
           set -euo pipefail
-          rm -rf server desktop unzipped
+          rm -rf server desktop unzipped tarball
           pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform darwin-arm64 \
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
 
@@ -306,11 +306,31 @@ jobs:
           test -f "$app/Contents/Resources/server/node_modules/@agent-harness/contracts/package.json"
           grep -q "\"version\": *\"${TAG#v}\"" "$app/Contents/Resources/server/packages/cli/package.json"
 
+      # An environment's stored key names the Node that wrote it, so the desktop's Node is the tarball's, signed alike (#1724).
+      - name: The bundled server's Node is signed as the server artefact's
+        run: |
+          set -euo pipefail
+          mkdir tarball
+          tar -xzf server/agent-harness-darwin-arm64.tar.gz -C tarball
+          bundled=$(codesign -d -r- unzipped/agent-harness.app/Contents/Resources/server/node/bin/node 2>&1 | grep '^designated => ')
+          artefact=$(codesign -d -r- tarball/node/bin/node 2>&1 | grep '^designated => ')
+          printf 'desktop:  %s\nartefact: %s\n' "$bundled" "$artefact"
+          test "$bundled" = "$artefact"
+
       - name: Keep the desktop build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: desktop-darwin-arm64
           path: desktop/agent-harness-desktop-darwin-arm64.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      # smoke-macos updates an environment the desktop installs from this artefact, as Update now does (#1724).
+      - name: Keep the server artefact the macOS smoke updates to
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: server-darwin-arm64
+          path: server/agent-harness-darwin-arm64.tar.gz
           if-no-files-found: error
           retention-days: 7
 
@@ -788,7 +808,7 @@ jobs:
   smoke-macos:
     needs: [prepare, desktop-macos]
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
@@ -797,6 +817,10 @@ jobs:
         with:
           name: desktop-darwin-arm64
           path: desktop
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: server-darwin-arm64
+          path: artefact
       - name: Resolve a public headless install without credentials
         run: |
           set -euo pipefail
@@ -910,6 +934,12 @@ jobs:
             "$node" scripts/check-packaged-extension.mjs "$server" "$data_dir" "$VERSION"
             stop_environment
           done
+
+      - name: Update an environment the desktop installed from the server artefact with no keychain prompt
+        run: |
+          set -euo pipefail
+          server=unzipped/agent-harness.app/Contents/Resources/server
+          "$server/node/bin/node" scripts/macos-tarball-update-smoke.mjs unzipped/agent-harness.app artefact/agent-harness-darwin-arm64.tar.gz
 
       - name: Replace the packaged desktop with an existing client credential
         env:
