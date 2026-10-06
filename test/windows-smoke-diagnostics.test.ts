@@ -16,7 +16,7 @@ afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true })
 async function capture(failCollector = false, timeout = false) {
   scratch = mkdtempSync(join(tmpdir(), "windows-smoke-diagnostics-"));
   mkdirSync(join(scratch, "data/logs"), { recursive: true });
-  writeFileSync(join(scratch, "data/logs/service.log"), 'Authorization: Bearer service-test-secret\nAuthorization: Basic basic-test-secret\n{"token":"json-test-secret","api_key":"key with spaces"}\npassword=password-for-tests\n');
+  writeFileSync(join(scratch, "data/logs/service.log"), 'Authorization: Bearer service-test-secret\nAuthorization: Basic basic-test-secret\n{"token":"json-test-secret","api_key":"key with spaces","authorization":"Basic json-basic-test-secret"}\npassword=password-for-tests\n');
   writeFileSync(join(scratch, "data/entry-error.log"), "launcher error: token-for-tests alpha-secret-for-tests bravo-secret-for-tests");
   const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
   const windows = workflow.split("  smoke-windows:\n")[1]?.split("  smoke-macos:\n")[0] ?? "";
@@ -42,7 +42,7 @@ function Get-ScheduledTask { [pscustomobject]@{ TaskName = 'agent-harness'; Stat
 function Get-ScheduledTaskInfo { [pscustomobject]@{ LastTaskResult = 267009 } }
 function Export-ScheduledTask { '<Task><WorkingDirectory>fixture-data</WorkingDirectory><Password>password-for-tests</Password></Task>' }
 function Get-WinEvent {
-  [pscustomobject]@{ Id = 101; TimeCreated = [datetime]::UtcNow; Message = 'task failed token-for-tests'; ToXml = $null } | Add-Member -MemberType ScriptMethod -Name ToXml -Value { '<Event><EventData><Data Name="TaskName">\\agent-harness</Data></EventData></Event>' } -PassThru -Force
+  [pscustomobject]@{ Id = 101; TimeCreated = [datetime]::UtcNow; Message = 'task failed token-for-tests Authorization: Basic event-test-secret'; ToXml = $null } | Add-Member -MemberType ScriptMethod -Name ToXml -Value { '<Event><EventData><Data Name="TaskName">\\agent-harness</Data></EventData></Event>' } -PassThru -Force
   [pscustomobject]@{ Id = 102; TimeCreated = [datetime]::UtcNow; Message = 'unrelated-task-event'; ToXml = $null } | Add-Member -MemberType ScriptMethod -Name ToXml -Value { '<Event><EventData><Data Name="TaskName">\\another-task</Data></EventData></Event>' } -PassThru -Force
 }
 function Get-CimInstance { ${failCollector ? "throw 'access denied token-for-tests'" : "[pscustomobject]@{ ProcessId = 23; ParentProcessId = 17; Name = 'node.exe'; ExecutablePath = 'fixture-node'; CreationDate = [datetime]::UtcNow; CommandLine = 'unrelated-process-secret' }"} }
@@ -70,7 +70,8 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("Windows smoke failure diagnosti
     expect(output).toContain("launcher error: [REDACTED]");
     expect(output).toContain("fixture-node");
     expect(output).toContain("Listen");
-    for (const secret of ["password-for-tests", "token-for-tests", "alpha-secret-for-tests", "bravo-secret-for-tests", "service-test-secret", "basic-test-secret", "with spaces", "json-test-secret", "unrelated-process-secret", "unrelated-task-event"]) expect(output).not.toContain(secret);
+    for (const secret of ["password-for-tests", "token-for-tests", "alpha-secret-for-tests", "bravo-secret-for-tests", "service-test-secret", "basic-test-secret", "json-basic-test-secret", "event-test-secret", "with spaces", "json-test-secret", "unrelated-process-secret", "unrelated-task-event"]) expect(output).not.toContain(secret);
+    expect(JSON.parse(files.find(([name]) => name === "task-events.json")?.[1] ?? "[]")).toHaveLength(1);
     const predicate = JSON.parse(files.find(([name]) => name === "predicate.json")?.[1] ?? "{}");
     expect(predicate).toMatchObject({ stage: "scheduled-task start before uninstall (#1478)", endpoint: "http://127.0.0.1:43210/.well-known/agent-harness/environment", expectedVersion: "0.1.3", expectedReadiness: "ready", lastDiscovery: { harnessVersion: "0.1.2", readiness: "starting" }, lastRequestError: "connection refused" });
     expect(predicate.predicate).toContain("harnessVersion");

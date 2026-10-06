@@ -6,9 +6,9 @@ function Protect-WindowsSmokeText {
   foreach ($value in ($values | Where-Object { $_ } | Select-Object -Unique | Sort-Object { $_.Length } -Descending)) {
     $Text = $Text.Replace($value, '[REDACTED]')
   }
-  $Text = $Text -replace '(?im)(Authorization\s*:\s*)[^\r\n]+', '$1[REDACTED]'
+  $Text = $Text -replace '(?im)(Authorization\s*:\s*)[^\r\n"'']+', '$1[REDACTED]'
   $Text = $Text -replace '(?i)(Bearer\s+)[^\s"''<>]+', '$1[REDACTED]'
-  $Text = $Text -replace '(?i)("[\w.-]*(?:token|password|secret|credential|api[_-]?key)[\w.-]*"\s*:\s*")[^"]*', '$1[REDACTED]'
+  $Text = $Text -replace '(?i)("[\w.-]*(?:token|password|secret|credential|api[_-]?key|authorization)[\w.-]*"\s*:\s*")[^"]*', '$1[REDACTED]'
   $Text = $Text -replace '(?i)((?:[\w.-]*(?:token|password|secret|credential|api[_-]?key)[\w.-]*)["'']?\s*[:=]\s*["'']?)[^\s"'',;<>]+', '$1[REDACTED]'
   $Text = $Text -replace '(?i)(<Password>)[^<]*(</Password>)', '$1[REDACTED]$2'
   $Text = $Text -replace '(?i)(https?://)[^\s/@]+:[^\s/@]+@', '$1[REDACTED]@'
