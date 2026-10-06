@@ -278,8 +278,11 @@ def rehearse(repo, commit, checkout):
 
 
 def publish(args):
-    if args.dry_run and args.no_rehearsal:
-        raise ValueError('--no-rehearsal is refused on a dry run: the dry run is the rehearsal a publish may skip')
+    if args.rehearsed_tree is not None:
+        if args.dry_run:
+            raise ValueError('--rehearsed-tree is refused on a dry run: the dry run is the rehearsal a publish may skip')
+        if not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', args.rehearsed_tree):
+            raise ValueError('--rehearsed-tree must be the full tree ID a passing dry run printed')
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', args.version):
         raise ValueError('Version must be a semantic version')
     if args.tag and args.tag != 'v' + args.version:
@@ -347,12 +350,17 @@ def publish(args):
         for path in git(repo, 'ls-tree', '-r', '--name-only', commit).decode().splitlines():
             print(path)
         print(f'Commit: {commit}\nParent: {parent or "(root)"}\nMessage: Publish {args.version}')
-        if args.no_rehearsal:
-            print('Public checkout rehearsal: skipped (--no-rehearsal)')
-        else:
+        if args.rehearsed_tree is None:
             rehearse(repo, commit, scratch / 'rehearsal')
+        elif args.rehearsed_tree == oid:
+            # The rehearsal reads only the snapshot tree, so a passing dry run of
+            # this exact tree stands for it; a moved ref yields another tree.
+            print(f'Public checkout rehearsal: skipped, tree {oid} passed a dry run')
+        else:
+            raise ValueError(f'The snapshot tree is not the rehearsed tree {args.rehearsed_tree}; '
+                             'publication blocked. Dry-run this ref again')
         if args.dry_run:
-            print('Dry run: no refs pushed')
+            print(f'Dry run: no refs pushed; rehearsed tree {oid}')
             return
         refs = [f'{commit}:refs/heads/main'] + ([f'{commit}:{tag_ref}'] if tag_ref else [])
         # Both refs move together, without force. Concurrent publishers fail safely.
@@ -368,9 +376,9 @@ def main():
     parser.add_argument('--version', required=True)
     parser.add_argument('--tag')
     parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--no-rehearsal', action='store_true',
-                        help='Publish without the public checkout rehearsal: only after a passing dry run '
-                             'of the same ref and version (refused with --dry-run)')
+    parser.add_argument('--rehearsed-tree', metavar='TREE',
+                        help='Publish without repeating the public checkout rehearsal when the snapshot is '
+                             'exactly this tree: the tree ID a passing dry run printed (refused with --dry-run)')
     parser.add_argument('--gitleaks', help='Path to pinned gitleaks (also the test seam)')
     try:
         publish(parser.parse_args())

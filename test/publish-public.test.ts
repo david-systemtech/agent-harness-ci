@@ -118,32 +118,51 @@ it("runs no test step in the rehearsal, by any name", () => {
   for (const step of f.rehearsal()) expect(step.args.join(" ")).not.toMatch(/test|vitest/);
 });
 
-it("publishes without a second rehearsal when told a dry run of the same ref and version passed", () => {
+const rehearsedTree = (output: string) => /Dry run: no refs pushed; rehearsed tree ([0-9a-f]{40})\n/.exec(output)?.[1] ?? "";
+
+it("publishes without a second rehearsal when the snapshot is the tree a passing dry run rehearsed", () => {
   const f = fixture();
-  f.publish("--dry-run", "--tag", "v1.2.3");
+  const tree = rehearsedTree(f.publish("--dry-run", "--tag", "v1.2.3"));
   expect(f.rehearsal()).toHaveLength(rehearsalSteps.length);
-  const output = f.publish("--tag", "v1.2.3", "--no-rehearsal");
+  const output = f.publish("--tag", "v1.2.3", "--rehearsed-tree", tree);
   expect(f.rehearsal()).toHaveLength(rehearsalSteps.length);
-  expect(output).toContain("Public checkout rehearsal: skipped (--no-rehearsal)");
+  expect(output).toContain(`Public checkout rehearsal: skipped, tree ${tree} passed a dry run`);
   expect(output).not.toContain("Public checkout rehearsal: pass");
   expect(output).toContain("gitleaks: pass");
+  expect(git(f.remote, "rev-parse", "main^{tree}")).toBe(tree);
   expect(git(f.remote, "rev-parse", "v1.2.3")).toBe(git(f.remote, "rev-parse", "main"));
 });
 
-it("refuses to skip the rehearsal on a dry run", () => {
+it("blocks a publish whose snapshot is not the tree the dry run rehearsed", () => {
   const f = fixture();
+  // The ref moved between the dry run and the publish, as origin/main does after a fetch.
+  const tree = rehearsedTree(f.publish("--dry-run", "--tag", "v1.2.3"));
+  f.write("README.md", "Unrehearsed public README\n"); f.commit();
   const result = spawnSync("python3", [script, "--source", f.source, "--ref", "HEAD", "--remote", f.remote,
-    "--version", "1.2.3", "--gitleaks", f.scanner, "--dry-run", "--no-rehearsal"], { encoding: "utf8" });
+    "--version", "1.2.3", "--tag", "v1.2.3", "--gitleaks", f.scanner, "--rehearsed-tree", tree], { encoding: "utf8" });
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain("--no-rehearsal is refused on a dry run: the dry run is the rehearsal a publish may skip");
-  expect(result.stdout).not.toContain("Dry run: no refs pushed");
+  expect(result.stderr).toContain(`The snapshot tree is not the rehearsed tree ${tree}; publication blocked. Dry-run this ref again`);
+  expect(f.rehearsal()).toHaveLength(rehearsalSteps.length);
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
-it("documents the rehearsal opt-out as safe only after a passing dry run", () => {
+it.each([
+  { args: ["--dry-run", "--rehearsed-tree", "a".repeat(40)], refusal: "--rehearsed-tree is refused on a dry run: the dry run is the rehearsal a publish may skip" },
+  { args: ["--rehearsed-tree", "main"], refusal: "--rehearsed-tree must be the full tree ID a passing dry run printed" },
+])("refuses to skip the rehearsal: $refusal", ({ args, refusal }) => {
+  const f = fixture();
+  const result = spawnSync("python3", [script, "--source", f.source, "--ref", "HEAD", "--remote", f.remote,
+    "--version", "1.2.3", "--gitleaks", f.scanner, ...args], { encoding: "utf8" });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(refusal);
+  expect(result.stdout).not.toContain("Public checkout rehearsal");
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it("documents the rehearsal opt-out as the tree a passing dry run printed", () => {
   const help = execFileSync("python3", [script, "--help"], { encoding: "utf8" }).replace(/\s+/g, " ");
-  expect(help).toContain("--no-rehearsal");
-  expect(help).toContain("only after a passing dry run of the same ref and version");
+  expect(help).toContain("--rehearsed-tree TREE");
+  expect(help).toContain("the tree ID a passing dry run printed");
 });
 
 it.each(["posix", "nt"])("stops the whole timed-out rehearsal on %s before blocking publication", (platform) => {
