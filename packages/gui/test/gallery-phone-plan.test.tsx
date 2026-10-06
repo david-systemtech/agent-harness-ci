@@ -14,6 +14,18 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
   ]);
 });
 
+it("measures the sign-in dialog's geometry in 1280 × 800 and 1280 × 700 windows once, beside its usual captures (ticket 1690)", () => {
+  const plan = capturePlan(["dialog-restore", "dialog-sign-in"]);
+  expect(plan.captures.filter(c => c.scene === "dialog-sign-in").map(c => [c.name, c.viewport, c.probes])).toEqual([
+    ["dialog-sign-in.light", { width: 1400, height: 900 }, undefined],
+    ["dialog-sign-in.dark", { width: 1400, height: 900 }, [{ width: 1280, height: 800 }, { width: 1280, height: 700 }]],
+    ["dialog-sign-in-narrow.light", { width: 1024, height: 768 }, undefined],
+    ["dialog-sign-in-narrow.dark", { width: 1024, height: 768 }, undefined],
+  ]);
+  expect(plan.captures.filter(c => c.scene === "dialog-restore").every(c => !("probes" in c))).toBe(true);
+  expect(plan.budget.desktop).toBe(8);
+});
+
 it("retains desktop and bounded phone profiles while allowing surface-owned growth", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
   expect(plan.budget.desktop).toBeGreaterThanOrEqual(354);

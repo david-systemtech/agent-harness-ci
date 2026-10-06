@@ -41,13 +41,14 @@ try {
   console.log(`Capture budget: ${plan.budget.desktop} desktop + ${plan.budget.phone} phone = ${plan.budget.total}/${plan.budget.limit}; ${plan.budget.remaining} reserved.`);
   const selected = captureShard(plan, process.env["GALLERY_SHARD"]);
   const { shard } = selected;
-  for (const { scene, ladder, viewport, name, platform, textSize } of selected.captures) {
+  for (const { scene, ladder, viewport, name, platform, textSize, probes } of selected.captures) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
     const previewRequests = scene === "phone-pane-preview" ? await observePreviewRequests(context) : undefined;
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(`http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}&platform=${platform}${platform === "web" ? `&textSize=${textSize}` : ""}`);
+    const sceneUrl = `http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}&platform=${platform}${platform === "web" ? `&textSize=${textSize}` : ""}`;
+    await page.goto(sceneUrl);
     await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
     await page.evaluate(waitForFloatingLayout);
     if (errors.length > 0) throw new Error(errors.join("\n"));
@@ -77,6 +78,20 @@ try {
         return Math.abs(actual - 16 * size / 14) <= 0.5 ? [] : [`html.fontSize: got ${actual}, expected ${16 * size / 14}`];
       }, textSize) : []),
     ];
+    // The same scene in each shorter window, measured without a screenshot; a failure names the window.
+    for (const probe of probes ?? []) {
+      const probeContext = await browser.newContext({ viewport: probe, deviceScaleFactor: 1, colorScheme: ladder, reducedMotion: "reduce" });
+      const probePage = await probeContext.newPage();
+      const probeErrors: string[] = [];
+      probePage.on("pageerror", (error) => probeErrors.push(error.message));
+      await probePage.goto(sceneUrl);
+      await probePage.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
+      await probePage.evaluate(waitForFloatingLayout);
+      const overflow = await probePage.evaluate(() => Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth));
+      failures.push(...[...probeErrors, ...await probePage.evaluate(measureSceneGeometry), ...(overflow > 0 ? [`$window.overflow: got ${overflow}, expected 0`] : [])]
+        .map((failure) => `${probe.width}×${probe.height}: ${failure}`));
+      await probeContext.close();
+    }
     if (previewRequests !== undefined) {
       try { await verifyPhonePreviewIsolation(page, previewRequests); }
       catch (error) { failures.push(`Preview isolation: ${error instanceof Error ? error.message : String(error)}`); }

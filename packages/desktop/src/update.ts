@@ -114,10 +114,16 @@ const sha256Of = async (path: string): Promise<string> => {
 };
 
 const APPLIED: ShellApplyOutcome = { outcome: "applied" };
-const failed = (failure: "install" | "cleanup", message: string): ShellApplyOutcome => ({ outcome: "failed", failure, message });
+const failed = (failure: "install" | "cleanup", message: string, byHand?: string): ShellApplyOutcome => ({ outcome: "failed", failure, message, ...(byHand !== undefined && { byHand }) });
 
 /** `pkexec`'s exit codes when it runs nothing: the authentication was dismissed (126), or refused or never asked (127). */
 const PKEXEC_REFUSED: ReadonlySet<number> = new Set([126, 127]);
+
+/** What `pkexec` says when no polkit authentication agent runs to ask the person, as under a bare window manager. */
+const NO_AGENT = /No authentication agent found/i;
+
+/** `text` as one word of a POSIX shell command: as it is when the shell would not split or expand it, else single-quoted. */
+const shellWord = (text: string): string => (/^[\w@%+=:,./-]+$/.test(text) ? text : `'${text.replaceAll("'", `'\\''`)}'`);
 
 /**
  * How this install takes a build: the format a release's build of it is,
@@ -216,18 +222,25 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
     }
   };
 
-  /** Installs the staged Arch package with `pacman -U`, as root through `pkexec`, which asks the person to authenticate. */
+  /**
+   * Installs the staged Arch package with `pacman -U`, as root through
+   * `pkexec`, which asks the person to authenticate. A failure says why and
+   * gives the command that installs the same package by hand.
+   */
   const pacmanInstall = async (staged: ShellStagedBuild): Promise<ShellApplyOutcome> => {
+    const notInstalled = (why: string): ShellApplyOutcome => failed("install", `${why}, so ${stays()}.`, `sudo pacman -U ${shellWord(staged.path)}`);
     let ran: CommandResult;
     try {
       ran = await system.run("pkexec", ["pacman", "-U", "--noconfirm", staged.path]);
     } catch (error) {
-      return failed("install", `pkexec could not be run to install ${staged.version} (${messageOf(error)}), so ${stays()}.`);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return notInstalled(`Installing ${staged.version} needs pkexec, which polkit provides, and it is not installed`);
+      return notInstalled(`pkexec could not be run to install ${staged.version} (${messageOf(error)})`);
     }
     if (ran.code === 0) return APPLIED;
     const said = lastLine(ran.stderr);
-    if (PKEXEC_REFUSED.has(ran.code)) return failed("install", `Installing ${staged.version} needs an administrator, and the authentication was refused${said === undefined ? "" : ` (${said})`}, so ${stays()}.`);
-    return failed("install", `pacman could not install ${staged.version} (${said ?? `it exited with ${ran.code}`}), so ${stays()}.`);
+    if (PKEXEC_REFUSED.has(ran.code) && NO_AGENT.test(ran.stderr)) return notInstalled(`Installing ${staged.version} needs an administrator, and no polkit authentication agent is running to ask for one`);
+    if (PKEXEC_REFUSED.has(ran.code)) return notInstalled(`Installing ${staged.version} needs an administrator, and the authentication was refused${said === undefined ? "" : ` (${said})`}`);
+    return notInstalled(`pacman could not install ${staged.version} (${said ?? `it exited with ${ran.code}`})`);
   };
 
   const installation = async (): Promise<Installation> => {

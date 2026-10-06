@@ -9,7 +9,7 @@ import {
   type ResponseFrame,
 } from "@agent-harness/contracts";
 import { exchangeGrant, readsGrant, type GrantExchange, type LocalStatus } from "../bootstrap.js";
-import { isStoredCredentialUnavailable } from "../credential-unavailable.js";
+import { isStoredCredentialUnavailable, PairingCodeSpentError } from "../credential-unavailable.js";
 import { admitHello, checkDiscovery, readDiscovery } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
 import type { Notices } from "../notices.js";
@@ -1093,6 +1093,11 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         return { status: "re-pair-offered", environmentId: id, name: existing.saved.descriptor.name };
       }
 
+      // The exchange spends the one-use code, so the store is asked first whether it can keep the token: a store that keeps none, or
+      // an OS prompt answered late or not at all (macOS's Keychain), leaves the code to pair with again (#1693).
+      if ((await platform.secrets.protection?.()) === "none") {
+        return pairingFailed("refused", "This device cannot keep a client session token: the OS keeps no key for it now. Unlock or set up the system keychain, then pair again.");
+      }
       const exchanged = await exchangeCode(platform.fetch, origin, code, platform.client, protocolVersion);
       if (!exchanged.ok) return { status: "failed", failure: exchanged.failure };
       const { credential } = exchanged;
@@ -1146,7 +1151,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           held?.close();
         }
 
-        await platform.secrets.set(id, credential.token);
+        // The code is spent now: a store that fails here (an OS prompt it re-raised and nobody answered, say) needs a new code.
+        await platform.secrets.set(id, credential.token).catch((error: unknown) => {
+          throw new PairingCodeSpentError(error);
+        });
         const saved: SavedConnection = {
           address: origin,
           kind: "paired",

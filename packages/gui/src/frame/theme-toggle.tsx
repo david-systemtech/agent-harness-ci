@@ -18,7 +18,7 @@ export const ThemeToggle = () => {
     if (choice !== undefined) setValue(choice);
   }} className="flex shrink-0 gap-0.5 rounded-md border border-hairline bg-inset p-0.5">
     {CHOICES.map(({ value, label, Icon }) => <Tooltip key={value} content={`${label} theme · ←/→`}>
-      <Radio.Item value={value} aria-label={label} className="flex size-6 items-center justify-center rounded-sm border border-transparent text-ink-faint outline-none hover:bg-raised hover:text-ink-muted focus-visible:ring-2 focus-visible:ring-beam/50 data-[state=checked]:border-beam/30 data-[state=checked]:bg-beam/10 data-[state=checked]:text-beam-text">
+      <Radio.Item value={value} aria-label={label} className="flex size-6 items-center justify-center rounded-sm border border-transparent text-ink-faint outline-none hover:bg-raised hover:text-ink-muted focus-visible:ring-2 focus-visible:ring-beam/50 aria-checked:border-beam/30 aria-checked:bg-beam/10 aria-checked:text-beam-text">
         <Icon aria-hidden="true" className="size-3.5" />
       </Radio.Item>
     </Tooltip>)}

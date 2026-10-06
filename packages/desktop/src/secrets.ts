@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { StoredCredentialUnavailableError, type Clock, type SecretAccess, type ShellPlatform, type ShellSecrets } from "@agent-harness/client-runtime";
+import { CredentialAccessUnansweredError, StoredCredentialUnavailableError, type Clock, type SecretAccess, type ShellPlatform, type ShellSecrets } from "@agent-harness/client-runtime";
 import type { MacCredentials } from "./mac-credentials.js";
 import type { ElectronSafeStorage } from "./electron.js";
 
@@ -84,7 +84,7 @@ export const keychainSecrets = ({ safeStorage, os, dir, report, clock = SYSTEM_C
     const cancelled = new Promise<never>((_resolve, reject) => {
       request.signal.addEventListener("abort", () => reject(request.signal.reason), { once: true });
     });
-    const timer = clock.setTimeout(() => request.abort(new Error("Keychain access did not complete within 30 seconds. The saved credential is kept.")), KEYCHAIN_TIMEOUT_MS);
+    const timer = clock.setTimeout(() => request.abort(new CredentialAccessUnansweredError(KEYCHAIN_TIMEOUT_MS / 1000)), KEYCHAIN_TIMEOUT_MS);
     try {
       // Race only observes the result. A late native answer cannot publish or write a token.
       const answer = await Promise.race([operation(request.signal), cancelled]);
