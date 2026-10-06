@@ -9,6 +9,8 @@ const root = join(import.meta.dirname, "..");
 const script = join(root, "scripts/publish-public.py");
 const folders: string[] = [];
 afterEach(() => { for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+// The hosted release workflow's check job owns the test suite (#1679).
+const rehearsalSteps = [["install", "--frozen-lockfile"], ["typecheck"], ["lint"]];
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "public-snapshot-"));
@@ -82,9 +84,7 @@ it("rehearses the proposed public commit before publishing it", () => {
   const f = fixture();
   const output = f.publish("--tag", "v1.2.3");
   const steps = f.rehearsal();
-  expect(steps.map((step) => step.args)).toEqual([
-    ["install", "--frozen-lockfile"], ["typecheck"], ["lint"], ["test", "--maxWorkers=4"],
-  ]);
+  expect(steps.map((step) => step.args)).toEqual(rehearsalSteps);
   for (const step of steps) {
     expect(step.head).toBe(git(f.remote, "rev-parse", "main"));
     expect(step.files).toEqual([".github/workflows/release.yml", "README.md"]);
@@ -93,7 +93,7 @@ it("rehearses the proposed public commit before publishing it", () => {
   expect(output).toContain("Public checkout rehearsal: pass");
 });
 
-it.each(["install", "typecheck", "lint", "test"])("blocks both public refs when the rehearsal's %s fails", (step) => {
+it.each(["install", "typecheck", "lint"])("blocks both public refs when the rehearsal's %s fails", (step) => {
   const f = fixture();
   f.publish("--tag", "v1.2.3");
   const previous = git(f.remote, "for-each-ref");
@@ -106,9 +106,63 @@ it.each(["install", "typecheck", "lint", "test"])("blocks both public refs when 
   expect(stderr).toContain("failed (exit 17); publication blocked");
   expect(stderr).not.toContain("fake-secret-for-tests");
   expect(git(f.remote, "for-each-ref")).toBe(previous);
-  expect(f.rehearsal().slice(4).map((entry) => entry.args[0])).toEqual(
-    ["install", "typecheck", "lint", "test"].slice(0, ["install", "typecheck", "lint", "test"].indexOf(step) + 1),
+  const names = rehearsalSteps.map((args) => args[0]);
+  expect(f.rehearsal().slice(rehearsalSteps.length).map((entry) => entry.args[0])).toEqual(
+    names.slice(0, names.indexOf(step) + 1),
   );
+});
+
+it("runs no test step in the rehearsal, by any name", () => {
+  const f = fixture();
+  f.publish("--dry-run");
+  for (const step of f.rehearsal()) expect(step.args.join(" ")).not.toMatch(/test|vitest/);
+});
+
+const rehearsedTree = (output: string) => /Dry run: no refs pushed; rehearsed tree ([0-9a-f]{40})\n/.exec(output)?.[1] ?? "";
+
+it("publishes without a second rehearsal when the snapshot is the tree a passing dry run rehearsed", () => {
+  const f = fixture();
+  const tree = rehearsedTree(f.publish("--dry-run", "--tag", "v1.2.3"));
+  expect(f.rehearsal()).toHaveLength(rehearsalSteps.length);
+  const output = f.publish("--tag", "v1.2.3", "--rehearsed-tree", tree);
+  expect(f.rehearsal()).toHaveLength(rehearsalSteps.length);
+  expect(output).toContain(`Public checkout rehearsal: skipped, tree ${tree} passed a dry run`);
+  expect(output).not.toContain("Public checkout rehearsal: pass");
+  expect(output).toContain("gitleaks: pass");
+  expect(git(f.remote, "rev-parse", "main^{tree}")).toBe(tree);
+  expect(git(f.remote, "rev-parse", "v1.2.3")).toBe(git(f.remote, "rev-parse", "main"));
+});
+
+it("blocks a publish whose snapshot is not the tree the dry run rehearsed", () => {
+  const f = fixture();
+  // The ref moved between the dry run and the publish, as origin/main does after a fetch.
+  const tree = rehearsedTree(f.publish("--dry-run", "--tag", "v1.2.3"));
+  f.write("README.md", "Unrehearsed public README\n"); f.commit();
+  const result = spawnSync("python3", [script, "--source", f.source, "--ref", "HEAD", "--remote", f.remote,
+    "--version", "1.2.3", "--tag", "v1.2.3", "--gitleaks", f.scanner, "--rehearsed-tree", tree], { encoding: "utf8" });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(`The snapshot tree is not the rehearsed tree ${tree}; publication blocked. Dry-run this ref again`);
+  expect(f.rehearsal()).toHaveLength(rehearsalSteps.length);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it.each([
+  { args: ["--dry-run", "--rehearsed-tree", "a".repeat(40)], refusal: "--rehearsed-tree is refused on a dry run: the dry run is the rehearsal a publish may skip" },
+  { args: ["--rehearsed-tree", "main"], refusal: "--rehearsed-tree must be the full tree ID a passing dry run printed" },
+])("refuses to skip the rehearsal: $refusal", ({ args, refusal }) => {
+  const f = fixture();
+  const result = spawnSync("python3", [script, "--source", f.source, "--ref", "HEAD", "--remote", f.remote,
+    "--version", "1.2.3", "--gitleaks", f.scanner, ...args], { encoding: "utf8" });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(refusal);
+  expect(result.stdout).not.toContain("Public checkout rehearsal");
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it("documents the rehearsal opt-out as the tree a passing dry run printed", () => {
+  const help = execFileSync("python3", [script, "--help"], { encoding: "utf8" }).replace(/\s+/g, " ");
+  expect(help).toContain("--rehearsed-tree TREE");
+  expect(help).toContain("the tree ID a passing dry run printed");
 });
 
 it.each(["posix", "nt"])("stops the whole timed-out rehearsal on %s before blocking publication", (platform) => {
@@ -217,7 +271,7 @@ print(json.dumps(calls))
   expect(result.status).toBe(0);
   expect(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "null")).toEqual(status
     ? [["install", "--frozen-lockfile"]]
-    : [["install", "--frozen-lockfile"], ["typecheck"], ["lint"], ["test", "--maxWorkers=4"]]);
+    : rehearsalSteps);
   expect(result.stderr).not.toContain("C:/test-tools");
   if (status) {
     expect(result.stderr).toContain("pnpm install --frozen-lockfile failed (exit 17); publication blocked");
@@ -331,9 +385,7 @@ it("dry-runs the full checks and commit without moving public refs", () => {
   expect(output).toContain("Privacy deny-list: pass");
   expect(output).toContain("gitleaks: pass");
   expect(output).toContain("Public checkout rehearsal: pass");
-  expect(f.rehearsal().map((step) => step.args)).toEqual([
-    ["install", "--frozen-lockfile"], ["typecheck"], ["lint"], ["test", "--maxWorkers=4"],
-  ]);
+  expect(f.rehearsal().map((step) => step.args)).toEqual(rehearsalSteps);
   for (const step of f.rehearsal()) {
     expect(output).toContain(`Commit: ${step.head}\n`);
     expect(step.remoteRefs).toBe("");

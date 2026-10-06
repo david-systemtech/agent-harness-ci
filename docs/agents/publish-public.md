@@ -39,22 +39,35 @@ python3 scripts/publish-public.py \
 
 The preview prints the included file list, privacy check results, proposed commit
 ID, parent and message, then rehearses that exact proposed public commit in a
-separate temporary checkout: `pnpm install --frozen-lockfile`, `pnpm typecheck`,
-`pnpm lint` and `pnpm test --maxWorkers=4`. Those commands share a 30-minute
-budget and print progress; a failure or timeout blocks publication. Command
+separate temporary checkout: `pnpm install --frozen-lockfile`, `pnpm typecheck`
+and `pnpm lint`, which prove the snapshot is a complete, consistent checkout.
+The rehearsal runs no tests. For a release, the hosted release workflow's
+`check` job runs the whole suite on the published tree, and every build and the
+release wait for it, so a failing suite publishes no release and leaves the tag
+reusable. That workflow runs on `v*` tags and manual dispatch only, so a
+code-only snapshot (no `--tag`) relies on the private CI of the selected commit:
+publish only a commit whose CI is green. Those
+commands share a 30-minute budget and print progress; a failure or timeout
+blocks publication. Command
 output is withheld to protect credentials; failure diagnostics report the
 failed command and exit status. It writes temporary objects, dependency
 caches and rehearsal build output and may download the pinned scanner; it never
-pushes refs. Rehearsal changes cannot enter the scanned snapshot. A later run may
+pushes refs. A passing dry run ends with `Dry run: no refs pushed; rehearsed tree
+<tree ID>`. Rehearsal changes cannot enter the scanned snapshot. A later run may
 have a different commit ID because the commit time or public parent changed.
 A failed check prints a rule and file/line, or a scanner failure, and exits
 nonzero without pushing.
 Git failures identify the operation and exit status; remote URLs and raw stderr
 are omitted to keep credentials and private connection details out of diagnostics.
 
-Review the list and remove `--dry-run` to publish. Publication repeats the full
-rehearsal before the atomic push; a previous dry run is never treated as proof
-for a later ref or public parent. Omit `--tag` for a code-only
+Review the list and remove `--dry-run` to publish. Publication repeats the
+rehearsal before the atomic push; the publisher never treats a previous dry run
+as proof by itself. To skip it after a passing dry run, pass the tree ID that
+dry run printed as `--rehearsed-tree <tree ID>`: the rehearsal reads only the
+snapshot tree, so the publisher skips it when the snapshot it builds is exactly
+that tree, and blocks publication when it is not (a ref such as `origin/main`
+moved, or the policies changed the export). The publisher refuses
+`--rehearsed-tree` with `--dry-run`, so a dry run always rehearses. Omit `--tag` for a code-only
 snapshot. For a release, the tag must be `v` plus `--version`, including any
 prerelease suffix (for example `0.1.0-beta.1`). The script atomically pushes
 `main` and the optional lightweight version tag, without force. An existing tag
@@ -81,9 +94,11 @@ not replace running the hosted release's typecheck, lint and full test suite
 in CI; paths computed without literal names still need ordinary test coverage.
 The publisher itself rehearses the proposed public commit after the selected
 ref's complete privacy and mapping policies have passed, before either a dry run
-succeeds or any public ref is pushed. This keeps the full rehearsal outside the
-sharded unit suite and enforces it even for a code-only snapshot. The hosted
-release workflow still checks the published tree before building release assets.
+succeeds or any public ref is pushed (unless `--rehearsed-tree` names the tree a
+passing dry run rehearsed). This keeps the rehearsal outside the sharded unit
+suite and enforces it even for a code-only snapshot. For a `v*` tag, the hosted
+release workflow's `check` job runs typecheck, lint and the full test suite on
+the published tree before building release assets.
 
 `.public-privacy.json` in the selected ref defines case-insensitive deny patterns
 for private terms and addresses. The check scans both filenames and all blob
@@ -107,7 +122,8 @@ publication. Other platforms need the pinned scanner installed beforehand.
 Verification: `test/publish-public.test.ts` runs the command against local bare
 remotes, a stub scanner and a recording pnpm executable; it never pushes to
 GitHub or installs/runs a nested suite. It checks rehearsal ordering, the exact
-proposed commit, failure blocking and isolation of generated files. Run the real
-cleaned tree's privacy scan and full rehearsal as a maintainer dry-run before
+proposed commit, failure blocking, the `--rehearsed-tree` opt-out, its block on
+a different tree and its refusal on a dry run, and isolation of generated files. Run the real
+cleaned tree's privacy scan and rehearsal as a maintainer dry-run before
 publication. The fast tests demonstrate deny-list failures, synthetic allowances
 and scanner failures; the maintainer run verifies the selected real snapshot.
