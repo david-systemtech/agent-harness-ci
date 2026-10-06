@@ -203,6 +203,44 @@ describe("secrets", () => {
     secrets.close();
   });
 
+  it.each(["the helper's store", "Electron's provider"])("leaves the earlier-build warning off when a fresh install's availability check or write goes unanswered or refused, through %s", async (through) => {
+    const electron = fakeElectron({ os: "darwin" });
+    const dir = join(platformOn("darwin").paths.data, "secrets");
+    const clock = manualClock();
+    let entered!: () => void;
+    let started = new Promise<void>((resolve) => { entered = resolve; });
+    let refuse = false;
+    const unanswered = <T>(): Promise<T> => { entered(); return new Promise<T>(() => undefined); };
+    const helper: MacCredentials = {
+      available: () => (refuse ? Promise.resolve(false) : unanswered()),
+      encrypt: () => unanswered(),
+      decrypt: () => unanswered(),
+      close: () => {},
+    };
+    electron.safeStorage.isAsyncEncryptionAvailable = () => helper.available();
+    electron.safeStorage.encryptStringAsync = () => unanswered();
+    const macCredentials = through === "the helper's store" ? macCredentialStore({ dir, open: () => helper }) : undefined;
+    const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, clock, ...(macCredentials && { macCredentials }) });
+    const published: unknown[] = [];
+    secrets.onAccess((state) => published.push(state));
+    const expire = async (request: Promise<unknown>) => {
+      const settled = request.catch((error: unknown) => error);
+      await started;
+      started = new Promise<void>((resolve) => { entered = resolve; });
+      clock.advance(30_000);
+      return settled;
+    };
+    expect(await expire(secrets.protection())).toBeInstanceOf(CredentialAccessUnansweredError);
+    expect(await expire(secrets.set(DESK, "token-for-tests-desk"))).toBeInstanceOf(CredentialAccessUnansweredError);
+    refuse = true;
+    await expect(secrets.set(DESK, "token-for-tests-desk")).rejects.toThrow(/unlock or set up the system keychain/);
+    await flush();
+    expect(published).toContain("waiting");
+    expect(published).not.toContain("denied");
+    expect(await secrets.access()).toBeNull();
+    secrets.close();
+  });
+
   it("bounds protection queries during provider initialization and cancels pending calls at desktop shutdown", async () => {
     const electron = fakeElectron({ os: "darwin" });
     const clock = manualClock();

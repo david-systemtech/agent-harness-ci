@@ -95,7 +95,7 @@ export const hasShellMember = (shell: Shell | undefined, member: ShellMember): b
  */
 export type SecretProtection = "os" | "unprotected" | "none";
 
-/** The macOS credential operation awaiting OS approval, refused, or settled. */
+/** A macOS credential operation awaiting OS approval, a kept credential that could not be read, or settled. */
 export type SecretAccess = "waiting" | "denied" | null;
 
 /** The OS keychain as the shell gives it: the platform's `SecretStore`, and how what it keeps is protected. */
