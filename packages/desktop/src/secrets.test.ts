@@ -211,13 +211,14 @@ describe("secrets", () => {
     let started = new Promise<void>((resolve) => { entered = resolve; });
     let refuse = false;
     const unanswered = <T>(): Promise<T> => { entered(); return new Promise<T>(() => undefined); };
+    const available = (): Promise<boolean> => (refuse ? Promise.resolve(false) : unanswered());
     const helper: MacCredentials = {
-      available: () => (refuse ? Promise.resolve(false) : unanswered()),
+      available,
       encrypt: () => unanswered(),
       decrypt: () => unanswered(),
       close: () => {},
     };
-    electron.safeStorage.isAsyncEncryptionAvailable = () => helper.available();
+    electron.safeStorage.isAsyncEncryptionAvailable = available;
     electron.safeStorage.encryptStringAsync = () => unanswered();
     const macCredentials = through === "the helper's store" ? macCredentialStore({ dir, open: () => helper }) : undefined;
     const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, clock, ...(macCredentials && { macCredentials }) });
