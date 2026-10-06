@@ -150,6 +150,25 @@ describe("window overlays", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("Leave for now · Tab, Enter");
   });
 
+  it("keeps a mouse-focused hint closed through a window switch's modifier keys", () => {
+    render(<Tooltip content="Keep setting up · Tab, Enter"><button>Keep setting up</button></Tooltip>);
+    const trigger = screen.getByRole("button", { name: "Keep setting up" });
+    const press = new Event("pointerdown", { bubbles: true });
+    Object.defineProperty(press, "pointerType", { value: "mouse" });
+    fireEvent(document.body, press);
+    act(() => trigger.focus());
+    for (const chord of [{ key: "Alt", altKey: true }, { key: "Meta", metaKey: true }, { key: "Tab", altKey: true }, { key: "Control", ctrlKey: true }]) {
+      fireEvent.keyDown(trigger, chord);
+      fireEvent.blur(trigger);
+      fireEvent.focus(trigger);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    }
+    fireEvent.keyDown(trigger, { key: "Tab" });
+    fireEvent.blur(trigger);
+    fireEvent.focus(trigger);
+    expect(screen.getByRole("tooltip").textContent).toBe("Keep setting up · Tab, Enter");
+  });
+
   it("still opens a hint on hover after mouse focus kept it closed", () => {
     vi.useFakeTimers();
     try {

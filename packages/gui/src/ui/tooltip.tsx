@@ -11,7 +11,7 @@ const HasTooltipProvider = createContext(false);
 // Like `:focus-visible`, only focus that follows the keyboard (or no input yet) reveals a hint:
 // a dialog opened by a click focuses its first control, and its hint would cover the dialog's text.
 type Modality = "keyboard" | "pointer" | "touch";
-interface TooltipInput { by: Modality; users: number; pointer: (event: PointerEvent) => void; keyboard: () => void }
+interface TooltipInput { by: Modality; users: number; pointer: (event: PointerEvent) => void; keyboard: (event: KeyboardEvent) => void }
 const pointerModality = (event: PointerEvent): Modality => event.pointerType === "touch" ? "touch" : "pointer";
 const inputs = new WeakMap<Document, TooltipInput>();
 const inputFor = (page: Document): TooltipInput => {
@@ -19,7 +19,8 @@ const inputFor = (page: Document): TooltipInput => {
   if (!input) {
     const next: TooltipInput = { by: "keyboard", users: 0,
       pointer: event => { next.by = pointerModality(event); },
-      keyboard: () => { next.by = "keyboard"; },
+      // A chord or a window switch (Alt+Tab, Cmd+Tab) is not focus navigation, as for `:focus-visible`.
+      keyboard: event => { if (!event.altKey && !event.ctrlKey && !event.metaKey) next.by = "keyboard"; },
     };
     inputs.set(page, next);
     input = next;
