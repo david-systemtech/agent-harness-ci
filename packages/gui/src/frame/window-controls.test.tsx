@@ -81,14 +81,14 @@ it.each(["win32", "linux"] as const)("draws and operates the %s window buttons o
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [] }] }, { firstLaunch: true, shell });
   await setupHeaders(app, async (header) => {
     const controls = await within(header).findByRole("group", { name: "Window controls" });
+    const from = shell.calls.length;
     expect(controls.className).toContain("opacity-60");
     expect(header.matches(regions.drag)).toBe(true);
     for (const button of within(controls).getAllByRole("button")) expect(button.matches(regions.noDrag)).toBe(true);
     await app.user.click(within(controls).getByRole("button", { name: "Minimize" }));
     await app.user.click(within(controls).getByRole("button", { name: "Maximize" }));
     await app.user.click(within(controls).getByRole("button", { name: "Close window" }));
-    expect(shell.calls.filter(([member]) => member === "window.minimize" || member === "window.toggleMaximize" || member === "window.close")).toEqual([["window.minimize"], ["window.toggleMaximize"], ["window.close"]]);
-    shell.calls.length = 0;
+    expect(shell.calls.slice(from).filter(([member]) => member === "window.minimize" || member === "window.toggleMaximize" || member === "window.close")).toEqual([["window.minimize"], ["window.toggleMaximize"], ["window.close"]]);
   });
 });
 
