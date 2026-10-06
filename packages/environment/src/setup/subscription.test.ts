@@ -106,7 +106,7 @@ describe("setup.result-changed", () => {
     const t = await start({ setupSteps });
     const client = await t.client();
     const first = await watch(client, 0);
-    const done = { step: "account", state: "done", reason: "Every account is signed in.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
+    const done = { step: "account", state: "done", reason: "Set up here.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
     // In the order the checks answered.
     expect(noticed(client, first).map((result) => result.step).sort()).toEqual(["account", "appearance", "permissions"]);
     expect(noticed(client, first).find((result) => result.step === "account")).toEqual(done);
@@ -213,7 +213,7 @@ describe("environment.subscribe's snapshot", () => {
 
     (await late.call(1)).answer(true);
     await t.env.setup.startPass;
-    const account = { step: "account", state: "done", reason: "The late check holds.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
+    const account = { step: "account", state: "done", reason: "Set up here.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
     expect(await snapshot(t, client)).toEqual({ status: freshStatus(0), environment: lookOf(t), setup: [account, permissions, appearance] });
   });
 

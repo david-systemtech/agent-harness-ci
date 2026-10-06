@@ -30,7 +30,8 @@ it("reports a signed-out default as Re-enter, links Accounts, and follows sign-i
   signedIn = true;
   await client.request("accounts.refresh", { accountId: id });
   expect(await client.request("settings.get", { keys: ["accounts.defaultAccount"] })).toEqual({ values: { "accounts.defaultAccount": id } });
-  expect(await client.request("setup.check", { step: "carry-over" })).toMatchObject({ results: [{ state: "done" }] });
+  // The state import finished: the line says when, not that the data folder is still there to bring over (#1698).
+  expect(await client.request("setup.check", { step: "carry-over" })).toMatchObject({ results: [{ state: "done", reason: `Brought over on ${t.clock.now().toISOString().slice(0, 10)} ${t.clock.now().toISOString().slice(11, 16)} UTC.` }] });
   await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultAccount": null } });
   await client.request("accounts.refresh", { accountId: id });
   await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });

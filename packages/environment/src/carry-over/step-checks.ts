@@ -11,14 +11,16 @@ import {
   type SetupTarget,
   type StateCheckId,
   type StateImportDetection,
+  type StateImportHoldings,
 } from "@agent-harness/contracts";
 import type { AccountRef } from "../adapter/contract.js";
 import { holdsMemory } from "../adapters/claude/adopted-directory.js";
 import type { AdapterRegistry } from "../adapter/registry.js";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
-import type { StateChecker } from "../setup/check.js";
+import type { DoneLine, StateChecker } from "../setup/check.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { holdsSkillOriginals } from "../skills/carry-over.js";
+import { readableMinute } from "../forge/verification.js";
 import { listAccountSessions } from "./sessions.js";
 
 /**
@@ -208,4 +210,53 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
   };
 
   return { "carry-over.default-account": defaultAccount, "carry-over.present": present, "carry-over.readable": readable, "carry-over.last-import": lastImport };
+};
+
+/** How the Carry over line names each kind a source data folder holds, as the card's Source holdings do: singular, plural. */
+const HOLDING_WORDS: { readonly [Kind in keyof StateImportHoldings]: readonly [string, string] } = {
+  profiles: ["profile", "profiles"],
+  banks: ["bank", "banks"],
+  routines: ["routine", "routines"],
+  instructions: ["instruction", "instructions"],
+  skillSources: ["skill source", "skill sources"],
+  connections: ["connection", "connections"],
+};
+
+/** What a source data folder holds, as words: each kind it holds any of, counted; empty when it holds none it could read. */
+const holdingsWords = (holds: StateImportHoldings): string =>
+  (Object.keys(HOLDING_WORDS) as (keyof StateImportHoldings)[])
+    .flatMap((kind) => {
+      const count = holds[kind];
+      if (count === null || count === 0) return [];
+      const [one, many] = HOLDING_WORDS[kind];
+      return [`${count} ${count === 1 ? one : many}`];
+    })
+    .join(", ");
+
+/**
+ * The Carry over step's line when done (#1698): what is there to bring over
+ * and whether it was. A source data folder or terminal-client state folder no
+ * state import has brought over yet is named first, with what the data folder
+ * holds, since that is what a person acts on; else the day of the last import
+ * that finished, of an adopted account's directory or of the state import; or
+ * that the state import is bringing it over now.
+ */
+export const carryOverDoneLine = (options: Pick<CarryOverStateChecksOptions, "reader" | "detect" | "stateImport">): DoneLine => async () => {
+  if (options.stateImport.underWay() !== null) return "Bringing past work over now.";
+  const lastOf = (...types: readonly string[]) =>
+    options.reader.all<{ occurred_at: string }>(
+      `SELECT occurred_at FROM events WHERE stream_kind = ? AND type IN (${types.map(() => "?").join(", ")}) ORDER BY sequence DESC LIMIT 1`,
+      ENVIRONMENT_STREAM_KIND,
+      ...types,
+    )[0];
+  if (lastOf("state-import.finished") === undefined) {
+    const { dataFolder, terminalFolder } = await options.detect();
+    const found = dataFolder ?? terminalFolder;
+    if (found !== null) {
+      const holds = dataFolder === null ? "" : holdingsWords(dataFolder.holds);
+      return `Past work found in ${found.path}${holds === "" ? "" : `: ${holds}`}. Not brought over yet.`;
+    }
+  }
+  const last = lastOf("carry-over.imported", "state-import.finished");
+  return last === undefined ? undefined : `Brought over on ${readableMinute(last.occurred_at)}.`;
 };

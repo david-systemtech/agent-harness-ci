@@ -22,9 +22,10 @@ import type { StoppedRun } from "./minted.js";
  * derived from state this way on every check and never recorded: nothing a
  * person does skips a step. Otherwise the value check of every key the step
  * writes runs, and its other state checks all at once, each answering at
- * once or with a promise. Done when every one holds, with the entry's own
- * line (its state checks' sentences, or that its settings hold valid
- * values); otherwise needs attention, the line naming every check that
+ * once or with a promise. Done when every one holds, with one sentence of
+ * what was found (#1698): the environment's line for the step, else the
+ * entry's `done`, never its state checks' conditions, followed by what a
+ * check that holds says it found; otherwise needs attention, the line naming every check that
  * failed, with the failing checks' actions, each once, and the items those
  * checks named for their actions, each once. A check that throws or rejects
  * could not check, which needs attention too. Past the seconds of the
@@ -62,6 +63,16 @@ export interface StateCheckRequest {
 /** How the environment answers one state check: at once, or with a promise the check awaits within its step's budget. */
 export type StateChecker = (request: StateCheckRequest) => StateCheckAnswer | Promise<StateCheckAnswer>;
 
+/**
+ * The environment's line for a step that is done, from what it finds when
+ * asked (#1698): Carry over's source folder and its last import, Your
+ * machines' version, updates and reach. Undefined leaves the entry's `done`.
+ */
+export type DoneLine = (request: StateCheckRequest) => string | undefined | Promise<string | undefined>;
+
+/** The steps the environment says more of when done than the entry's `done`, by id. */
+export type DoneLines = { readonly [Id in RegisteredStepId]?: DoneLine };
+
 /** How the environment answers each state check the registry names: the type makes a missing one a compile error. */
 export type StateCheckers = { readonly [Id in StateCheckId]: StateChecker };
 
@@ -81,6 +92,8 @@ export interface CheckContext {
   readonly values: SettingsValues;
   /** How the environment answers each of the step's state checks, by id. */
   readonly stateChecks: { readonly [id: string]: StateChecker };
+  /** The environment's line for the step when it is done; absent, the entry's `done`. */
+  readonly doneLine?: DoneLine;
   /** The clock the budget runs on. */
   readonly clock: Clock;
   readonly checkedAt: string;
@@ -97,9 +110,6 @@ const STOPPED_RUN_ACTIONS: readonly SetupAction[] = ["try-again", "write-it-myse
 
 /** The line a stopped minted session's run opens a result with: its error, or that it was stopped. */
 const stoppedLine = ({ error }: StoppedRun): string => (error === null ? "The session's run was stopped." : `The session's run failed: ${error.replace(/\.$/, "")}.`);
-
-/** The line of a done step with no state checks. */
-const VALUES_HOLD = "Every setting it writes holds a valid value.";
 
 /** A check that did not hold, or that could not check because it threw or rejected. */
 interface Failure {
@@ -120,6 +130,15 @@ const uniqueTargets = (targets: readonly SetupTarget[]): SetupTarget[] => {
     if (!seen.has(key)) seen.set(key, target);
   }
   return [...seen.values()];
+};
+
+/** A done step's line from what the environment found, else the entry's `done`, which stands too when what was found cannot be read. */
+const foundLine = async (step: CheckedStep, doneLine: DoneLine, request: StateCheckRequest): Promise<string> => {
+  try {
+    return (await doneLine(request)) ?? step.done;
+  } catch {
+    return step.done;
+  }
 };
 
 const TIMED_OUT = Symbol("timed out");
@@ -201,7 +220,9 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
       return failed(failedChecks, llm === undefined || couldNotCheck ? [] : llm.stopped());
     }
     if (pending.length > 0) return { step: step.id, state: "pending", reason: pending.map((check) => check.reason).join(" "), failing: [], actions: [], checkedAt };
-    const reason = step.stateChecks.length === 0 ? VALUES_HOLD : step.stateChecks.map((stateCheck) => holdingLines.get(stateCheck.id) ?? stateCheck.holds).join(" ");
+    // Awaited only when the environment says more, so a step it does not answers as soon as its checks have.
+    const line = context.doneLine === undefined ? step.done : await foundLine(step, context.doneLine, request);
+    const reason = [line, ...step.stateChecks.flatMap((stateCheck) => holdingLines.get(stateCheck.id) ?? [])].join(" ");
     if (llm === undefined) return { step: step.id, state: "done", reason, failing: [], actions: [], checkedAt };
     const targets = llm.subjects().map((subject): SetupTarget => ({ action: "revise", ...subject }));
     return { step: step.id, state: "done", reason, failing: [], actions: ["revise"], ...(targets.length > 0 && { targets }), checkedAt };

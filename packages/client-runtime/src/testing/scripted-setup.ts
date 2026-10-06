@@ -45,10 +45,10 @@ export interface SetupHost {
   notice(type: string, payload: Record<string, unknown>): void;
 }
 
-/** The environment's line for a step done: what its state checks hold, or its settings' (`environment/src/setup/check.ts`). */
+/** The environment's line for a step done: its entry's one sentence of what was found (`environment/src/setup/check.ts`), or a plain one for a step no entry registers. */
 const doneReason = (id: StepId): string => {
   const entry: Step | undefined = STEP_REGISTRY.find((step) => step.id === id);
-  return entry === undefined || entry.stateChecks.length === 0 ? "Every setting it writes holds a valid value." : entry.stateChecks.map((check) => check.holds).join(" ");
+  return entry?.done ?? "Set up here.";
 };
 
 /** Two results alike but for when they were checked, as the cache judges a change. */

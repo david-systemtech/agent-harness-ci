@@ -65,8 +65,9 @@ export const SetupPane = () => {
             <Button icon={STEP_ICONS[step.id]} size="sm" className={classes("w-36 shrink-0 justify-start", !step.registered && "text-ink-faint")} onClick={() => openRow(step.home, environmentId)}>
               {step.label}
             </Button>
+            {/* Cut short at a narrow width: the whole line on hover, and on keyboard focus (#1698). */}
             <Tooltip content={stepLine(step, now)}>
-              <span className="min-w-0 truncate text-xs text-ink-muted">{stepLine(step, now)}</span>
+              <span tabIndex={0} className="min-w-0 truncate rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-beam">{stepLine(step, now)}</span>
             </Tooltip>
           </li>
         ))}

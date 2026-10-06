@@ -130,7 +130,7 @@ export interface Confirmation {
 export interface StateCheck {
   /** `<step id>.<what it checks>`. */
   readonly id: string;
-  /** What holds when it passes, as one sentence: the result's line when the step is done. */
+  /** What holds when it passes, as one sentence: the rule it checks, which the step's line when done does not repeat (#1698). */
   readonly holds: string;
   /** The actions a result offers when it fails, from ADR 0031's vocabulary. */
   readonly actions: readonly SetupAction[];
@@ -188,6 +188,13 @@ export interface Step {
   readonly checks: readonly { readonly key: SettingsKey; readonly check: HealthCheck }[];
   /** The checks of the environment's state its health check runs beside them. */
   readonly stateChecks: readonly StateCheck[];
+  /**
+   * The step's line when every check holds, as one short sentence of what
+   * was found, unless the environment says more of what it found (#1698):
+   * never its state checks' conditions joined, whose alternatives say what
+   * would pass rather than what is there.
+   */
+  readonly done: string;
   /** The rows beside its home the step links to (every row its keys sit on is its home or one of these), and the other steps. */
   readonly links: readonly (RowLink | StepLink)[];
   /** Whether it may be skipped (ADR 0031: a skipped step passes a re-run); a preference step never is. */
@@ -267,6 +274,7 @@ export const STEP_REGISTRY = [
       { id: "account.present", holds: "At least one account is on this environment.", actions: [] },
       { id: "account.signed-in", holds: "Every account on this environment is signed in.", actions: ["sign-in-again"] },
     ],
+    done: "Every account is signed in.",
     links: [{ row: "accounts.default-model" }],
     skippable: false,
     budget: "local",
@@ -307,6 +315,7 @@ export const STEP_REGISTRY = [
       },
       { id: "carry-over.default-account", holds: "No imported default Account is waiting for sign-in.", actions: ["sign-in-again"] },
     ],
+    done: "Nothing is waiting to be brought over.",
     links: [{ row: "knowledge.skills" }, { row: "knowledge.banks" }],
     skippable: true,
     skip: "carry-over.present",
@@ -383,6 +392,7 @@ export const STEP_REGISTRY = [
       { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
       { id: "your-machines.lan", holds: "LAN binding is off, or the LAN address it names is one this machine holds.", actions: ["check-again"] },
     ],
+    done: "This machine is ready.",
     links: [{ row: "environments.service" }],
     skippable: false,
     budget: "network",
@@ -422,6 +432,7 @@ export const STEP_REGISTRY = [
       { id: "forges.expiry", holds: "No forge account's token expires within thirty days.", actions: ["sign-in-again"] },
       { id: "forges.coverage", holds: "No origin a harness operation was refused on for want of a forge account counts as missing.", actions: [] },
     ],
+    done: "Every forge account is signed in and answering.",
     links: [{ step: "key-manager" }],
     skippable: true,
     skip: "forges.present",
@@ -472,6 +483,7 @@ export const STEP_REGISTRY = [
         actions: ["install", "update"],
       },
     ],
+    done: "Every key-manager connection is signed in and reachable.",
     links: [{ step: "forges" }, { step: "memory-bank" }, { row: "about.about" }],
     skippable: true,
     skip: "key-manager.present",
@@ -514,6 +526,7 @@ export const STEP_REGISTRY = [
       { id: "memory-bank.owners", holds: "Each enabled team bank's owners resolve on its forge.", actions: [] },
       { id: "memory-bank.landing", holds: "No landing on an enabled bank has failed.", actions: ["check-again"] },
     ],
+    done: "Every bank is reachable.",
     links: [{ step: "key-manager" }, { step: "forges" }],
     skippable: true,
     skip: "memory-bank.present",
@@ -545,6 +558,7 @@ export const STEP_REGISTRY = [
       { id: "skills.source-limit", holds: "At most twenty skill sources are tracked.", actions: [] },
       { id: "skills.own-directory", holds: "The own skills directory is readable.", actions: [] },
     ],
+    done: "Every skill source is in sync.",
     links: [],
     skippable: true,
     skip: "skills.present",
@@ -574,6 +588,7 @@ export const STEP_REGISTRY = [
     ],
     checks: [{ key: "instructions.orientation", check: anyValidValue("instructions.orientation") }],
     stateChecks: [{ id: "instructions.orientation-renders", holds: "The orientation block renders with no failed registry read.", actions: [] }],
+    done: "The orientation block renders.",
     links: [],
     skippable: false,
     budget: "local",
@@ -619,6 +634,7 @@ export const STEP_REGISTRY = [
       { id: "browser.chrome-connected", holds: "A paired Chrome is connected.", actions: ["check-again", "unpair", "pair-another"] },
       { id: "browser.extension-current", holds: "Every paired Chrome last reported the shipped extension version.", actions: ["reload", "check-again"] },
     ],
+    done: "Chrome is paired, connected and current.",
     links: [],
     skippable: true,
     skip: "browser.present",
@@ -663,6 +679,7 @@ export const STEP_REGISTRY = [
       { id: "permissions.denylist", holds: "Each denylist section holds its presets, or was emptied on purpose.", actions: ["restore"] },
       { id: "permissions.not-root", holds: "The environment runs as a non-root user.", actions: [] },
     ],
+    done: "Containment and the denylist are set.",
     links: [{ step: "your-machines" }],
     skippable: false,
     budget: "local",
@@ -686,6 +703,7 @@ export const STEP_REGISTRY = [
         actions: ["restore"],
       },
     ],
+    done: "The theme meets the contrast rules.",
     links: [],
     skippable: false,
     budget: "local",

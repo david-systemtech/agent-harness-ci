@@ -100,7 +100,7 @@ describe("the start pass", () => {
 
     const client = await t.client();
     const expected = [
-      { step: "account", state: "done", reason: "It holds.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START },
+      { step: "account", state: "done", reason: "Set up here.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START },
       {
         step: "permissions",
         state: "needs-attention",
@@ -272,7 +272,7 @@ describe("what a pass the environment starts appends", () => {
     expect(holds.calls()).toBe(3);
     const client = await t.client();
     expect(resultsOf(await environmentStream(client))).toEqual([
-      { step: "account", state: "done", reason: "Every account is signed in.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START },
+      { step: "account", state: "done", reason: "Set up here.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START },
       { step: "account", state: "needs-attention", reason: "Work is signed out.", failing: ["account.signed-in"], actions: ["sign-in-again"], checkedAt: after(2 * HOUR) },
     ]);
   });
@@ -447,7 +447,7 @@ describe("a trigger that arrives while the step's check runs", () => {
     expect(late.calls()).toBe(3);
     (await late.call(3)).answer(true);
     await checksSettled();
-    const done = { step: "your-machines", state: "done", reason: "The late check holds.", failing: [], actions: [], checkedAt: after(6_000) };
+    const done = { step: "your-machines", state: "done", reason: "Set up here.", failing: [], actions: [], checkedAt: after(6_000) };
     expect((await snapshot(t, client)).setup).toEqual([done]);
     expect(resultsOf(await environmentStream(client)).at(-1)).toEqual(done);
   });
@@ -498,7 +498,7 @@ describe("the last good result", () => {
     await first.env.setup.startPass;
     await first.close();
 
-    const lastGood = { state: "done", reason: "The late check holds.", checkedAt: MANUAL_CLOCK_START };
+    const lastGood = { state: "done", reason: "Set up here.", checkedAt: MANUAL_CLOCK_START };
     const second = await start({ dataDir, setupSteps, clock: manualClock(after(2 * HOUR)) });
     await check.call(2);
     second.clock.advance(5_000);

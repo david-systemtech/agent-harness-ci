@@ -33,11 +33,8 @@ import { describeRepositoryAt } from "./describe-repository.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-/** The step's line when every check holds. */
-const ALL_HOLD =
-  "At least one memory bank is registered on this environment. Each enabled bank's remote answers, or its local repository exists. " +
-  "Each enabled bank's BANK.md on main passes the validator, or waits for review in an open pull request on a bank whose merges are reviewed. " +
-  "Every orientation memory each enabled bank names exists. Each enabled team bank's owners resolve on its forge. No landing on an enabled bank has failed.";
+/** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
+const ALL_HOLD = "Every bank is reachable.";
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
@@ -169,7 +166,8 @@ describe("the Memory bank step's checks", () => {
       failing: [],
       actions: ["revise"],
       targets: [target("revise", bank)],
-      reason: expect.stringContaining(`${bank.name} is landed and awaiting your review: ${forge.origin}/acme/bank/pulls/7.`),
+      // The pull request is named once: the landing's line names it, so the manifest's does not again (#1698).
+      reason: `${ALL_HOLD} ${bank.name} is landed and awaiting your review: ${forge.origin}/acme/bank/pulls/7.`,
     });
     expect(existsSync(join(checkout, "BANK.md"))).toBe(false);
   });
@@ -297,7 +295,7 @@ describe("the Memory bank step's checks", () => {
       failing: [],
       actions: ["revise"],
       targets: [target("revise", bank)],
-      reason: ALL_HOLD.replace("No landing on an enabled bank has failed.", `maya-memory is landed and awaiting your review: ${pullRequest}.`),
+      reason: `${ALL_HOLD} maya-memory is landed and awaiting your review: ${pullRequest}.`,
     });
     appendBankEvent(t, "bank.landed", { bankId: bank.id, sessionId: null, pullRequest, files: [] });
     expect(await checkMemoryBank(client)).toMatchObject({ state: "done", failing: [], reason: ALL_HOLD });

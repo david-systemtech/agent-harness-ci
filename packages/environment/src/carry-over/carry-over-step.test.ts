@@ -25,11 +25,8 @@ const { onCleanup, tempDir } = useCleanups();
 const ACCOUNT = "claude-max";
 const TARGET = { kind: "account", id: ACCOUNT, label: ACCOUNT } as const;
 
-/** The step's line when every check holds. */
-const ALL_HOLD =
-  "An adopted account's directory holds something to carry, or a source data folder or terminal-client state folder is on this machine. " +
-  "Every adopted account's directory can be read. Every adopted account with something to carry has been imported, and its last import finished. " +
-  "No imported default Account is waiting for sign-in.";
+/** The step's line when every check holds after an import: what was found, never its checks' conditions (#1698). */
+const BROUGHT_OVER = "Brought over on 2026-09-24 00:00 UTC.";
 
 /** The step's line when it is skipped. */
 const NOTHING =
@@ -158,9 +155,9 @@ describe("the Carry over step with an adopted directory to carry", () => {
     const sessions = [listed()];
     const client = await start({ sessions: () => sessions });
     await importNow(client);
-    expect(await checkCarryOver(client)).toEqual({ step: "carry-over", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    expect(await checkCarryOver(client)).toEqual({ step: "carry-over", state: "done", reason: BROUGHT_OVER, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
     sessions.push(listed());
-    expect((await checkCarryOver(client)).state).toBe("done");
+    expect(await checkCarryOver(client)).toMatchObject({ state: "done", reason: BROUGHT_OVER });
   });
 
   it("is not done by a dry run", async () => {
@@ -226,14 +223,22 @@ describe("the state import's detection", () => {
       dataFolder: { path: dataFolder, holds: { profiles: 6, banks: 2, routines: 2, instructions: 2, skillSources: 1, connections: 0 } },
       terminalFolder: { path: terminalFolder },
     });
-    expect(await checkCarryOver(client)).toEqual({ step: "carry-over", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    // Nothing is brought over yet: the line says what was found and that it waits (#1698), not the checks' "X, or Y".
+    expect(await checkCarryOver(client)).toEqual({
+      step: "carry-over",
+      state: "done",
+      reason: `Past work found in ${dataFolder}: 6 profiles, 2 banks, 2 routines, 2 instructions, 1 skill source. Not brought over yet.`,
+      failing: [],
+      actions: [],
+      checkedAt: MANUAL_CLOCK_START,
+    });
   });
 
   it("finds the terminal client's state folder alone, and says a data folder file it cannot read holds an unknown count", async () => {
     const terminalFolder = sourceTerminalFolder();
     const client = await start({ accounts: [], stateImportSource: machinePointedAt({ terminalFolder, home: tempDir() }) });
     expect(await client.request("stateImport.detect", {})).toEqual({ dataFolder: null, terminalFolder: { path: terminalFolder } });
-    expect((await checkCarryOver(client)).state).toBe("done");
+    expect(await checkCarryOver(client)).toMatchObject({ state: "done", reason: `Past work found in ${terminalFolder}. Not brought over yet.` });
 
     const dataFolder = sourceDataFolder();
     writeFileSync(join(dataFolder, "memory-banks.json"), "{ not json");

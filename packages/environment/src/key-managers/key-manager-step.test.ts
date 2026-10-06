@@ -68,11 +68,8 @@ const labelOn = (bao: FakeOpenBao, label = "OpenBao"): string => `${label} at ${
 /** The target of `action` on `connection`, labelled as on `bao`. */
 const targetOf = (action: string, connection: KeyManagerConnectionRecord, bao: FakeOpenBao) => ({ action, kind: "key-manager-connection", id: connection.id, label: labelOn(bao, connection.label) });
 
-/** The Key manager step's line when every check holds. */
-const ALL_HOLD =
-  "At least one key-manager connection is on this environment. Every key-manager connection is signed in. " +
-  "Every key-manager connection is reachable, unsealed, and presents a certificate that verifies. Every injecting OpenBao connection's login can mint run tokens. " +
-  "Each injecting key-manager connection's CLI is installed at its minimum or later, bao or vault for OpenBao.";
+/** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
+const ALL_HOLD = "Every key-manager connection is signed in and reachable.";
 
 /** The manual clock's time `ms` after its start. */
 const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();

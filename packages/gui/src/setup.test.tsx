@@ -246,23 +246,35 @@ const dimSteps = (list: HTMLElement) =>
     .map((button) => button.getAttribute("aria-label") ?? button.textContent);
 
 describe("the Set up pane", () => {
+  it("shows a step's whole line on keyboard focus as well as on hover, for a line the list cuts short at a narrow width", async () => {
+    const app = await twoEnvironments();
+    const pane = await setupPane(app);
+    await within(pane).findByText("4 done, 1 needs attention, 1 skipped");
+    const permissions = within(within(pane).getByRole("list", { name: "Steps" })).getAllByRole("listitem").find((item) => within(item).getByRole("button").textContent === "Permissions");
+    const line = permissions?.lastElementChild as HTMLElement;
+    expect(line.className.split(" ")).toContain("truncate");
+    expect(line.tabIndex).toBe(0);
+    act(() => line.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toBe("The denylist lost 2 presets.");
+  });
+
   it("names the environment it checks with a picker, and lists each step with its dot and line, linking to its home row, and the counts", async () => {
     const app = await twoEnvironments();
     const pane = await setupPane(app);
     expect(pickedIn(pane)).toBe("desk");
     expect(await within(pane).findByText("4 done, 1 needs attention, 1 skipped")).toBeDefined();
     expect(paneSteps(pane)).toEqual([
-      ["Account", "done", "At least one account is on this environment. Every account on this environment is signed in."],
+      ["Account", "done", "Every account is signed in."],
       ["Carry over", null, "Not checked yet."],
-      ["Your machines", "done", expect.stringMatching(/^The environment runs as a non-root user\. /)],
-      ["Forges", "done", expect.stringMatching(/^At least one forge account is on this environment\. /)],
+      ["Your machines", "done", "This machine is ready."],
+      ["Forges", "done", "Every forge account is signed in and answering."],
       ["Key manager", null, "Not checked yet."],
       ["Memory bank", null, "Not checked yet."],
       ["Skills", null, "Not checked yet."],
       ["Instructions", null, "Not checked yet."],
       ["Browser", "skipped", "No Chrome is paired."],
       ["Permissions", "needs attention", "The denylist lost 2 presets."],
-      ["Appearance", "done", expect.stringMatching(/^Both ladders of the theme meet /)],
+      ["Appearance", "done", "The theme meets the contrast rules."],
     ]);
 
     // The steps desk gives no result for are ones it does not register: their names dim, with no dot, and uncounted.
@@ -384,7 +396,7 @@ describe("a step's named actions", () => {
     await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets the denylist lost?" })).getByRole("button", { name: "Restore" }));
     expect(await within(permissions).findByText("Restored the denylist's presets: 2 put back.")).toBeDefined();
     expect(await within(steps()).findByRole("img", { name: "Permissions: done" })).toBeDefined();
-    expect(within(permissions).getByText(/^The containment default can be enforced here\./)).toBeDefined();
+    expect(within(permissions).getByText(/^Containment and the denylist are set\./)).toBeDefined();
     expect(desk.requests("permissions.denylist.restorePresets")).toHaveLength(1);
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "permissions" });
 
@@ -663,7 +675,7 @@ describe("a card registered for a step", () => {
     await screen.findByText(NO_SESSION);
     const permissions = await cardOf(app, "Permissions");
     const desk = app.environment("desk").environmentId;
-    expect(await within(permissions).findByText(new RegExp(`^The Permissions card on ${desk}: The containment default can be enforced here\\.`))).toBeDefined();
+    expect(await within(permissions).findByText(new RegExp(`^The Permissions card on ${desk}: Containment and the denylist are set\\.`))).toBeDefined();
     expect(within(permissions).queryByRole("button", { name: "Check now" })).toBeNull();
     expect(within(permissions).getByRole("img", { name: "Permissions: done" })).toBeDefined();
     expect(within(permissions).getByRole("button", { name: "Continue" })).toBeDefined();
@@ -704,9 +716,9 @@ describe("a check's time", () => {
     expect(await within(pane).findAllByText("Checking…")).toHaveLength(11);
 
     release();
-    expect(await within(pane).findByText("At least one account is on this environment. Every account on this environment is signed in. (checked 3 h ago)")).toBeDefined();
+    expect(await within(pane).findByText("Every account is signed in. (checked 3 h ago)")).toBeDefined();
     expect(within(pane).queryByText("Checking…")).toBeNull();
-    expect(within(pane).getByText("The containment default can be enforced here. Each denylist section holds its presets, or was emptied on purpose. The environment runs as a non-root user.")).toBeDefined();
+    expect(within(pane).getByText("Containment and the denylist are set.")).toBeDefined();
   });
 });
 
@@ -781,7 +793,7 @@ describe("a result this window did not ask for", () => {
     await screen.findByText(NO_SESSION);
     const desk = app.environment("desk");
     const permissions = await cardOf(app, "Permissions");
-    expect(await within(permissions).findByText(/^The containment default can be enforced here\./)).toBeDefined();
+    expect(await within(permissions).findByText(/^Containment and the denylist are set\./)).toBeDefined();
     const release = desk.holdSetupChecks();
 
     await app.user.click(within(permissions).getByRole("button", { name: "Check now" }));
@@ -791,12 +803,12 @@ describe("a result this window did not ask for", () => {
     act(() => app.clock.advance(1));
     expect(await within(permissions).findByText("Checking…")).toBeDefined();
     await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
-    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText(/^Both ladders of the theme meet /)).toBeDefined();
+    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText(/^The theme meets the contrast rules\./)).toBeDefined();
 
     await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
     release();
     const again = within(checklist() as HTMLElement).getByRole("region", { name: "Permissions" });
-    expect(await within(again).findByText(/^The containment default can be enforced here\./)).toBeDefined();
+    expect(await within(again).findByText(/^Containment and the denylist are set\./)).toBeDefined();
     expect(within(again).queryByText("Checking…")).toBeNull();
   });
 });
@@ -850,8 +862,8 @@ describe("an environment the checklist cannot reach", () => {
     expect(await within(pane).findByText(/^laptop has not been reached since \d\d:\d\d: its results are from before\.$/)).toBeDefined();
     expect(within(pane).getByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
     expect(paneSteps(pane).filter(([, state]) => state !== null)).toEqual([
-      ["Account", "done", "At least one account is on this environment. Every account on this environment is signed in. (stale, checked just now)"],
-      ["Your machines", "done", expect.stringMatching(/^The environment runs as a non-root user\. .* \(stale, checked just now\)$/)],
+      ["Account", "done", "Every account is signed in. (stale, checked just now)"],
+      ["Your machines", "done", "This machine is ready. (stale, checked just now)"],
       ["Forges", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
       ["Browser", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
       ["Permissions", "needs attention", "The denylist lost 2 presets. (stale, checked 10 min ago)"],

@@ -693,7 +693,7 @@ describe("the Your machines step's updates check", () => {
     const result = results[0];
     return { failing: result?.failing.filter((id) => id !== "your-machines.release-channel"), actions: result?.actions, reason: result?.reason };
   };
-  const holds = { failing: [], actions: [], reason: expect.stringContaining("Auto-update is on or the channel's newest runs") as unknown as string };
+  const holds = { failing: [], actions: [], reason: expect.stringMatching(new RegExp(`^Ready on ${RUNNING.replaceAll(".", "\\.")}, updates `)) as unknown as string };
 
   it("holds with auto-update on, behind as the machine may be, and with it off while the channel's newest runs", async () => {
     const { fake, client } = await withReleases();

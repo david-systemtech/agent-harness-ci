@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { DEFAULT_THEME, registry, type ParamsOf, type RegisteredStepId, type ResponseOf, type StepResult, type Theme } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
@@ -8,6 +10,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { refusal } from "../../test/sessions.js";
 import { lateCheck, scriptedStep, type LateCheck } from "../../test/setup-steps.js";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
+import { machinePointedAt } from "../state-import/source/folders.js";
 import type { StateChecker } from "./check.js";
 import type { WireClient } from "../../test/wire-client.js";
 
@@ -64,9 +67,8 @@ describe("setup.check", () => {
     ]);
     for (const result of results) expect(result.checkedAt, result.step).toBe(MANUAL_CLOCK_START);
     const permissions = results.find((result) => result.step === "permissions");
-    expect(permissions?.reason).toBe(
-      "The containment default can be enforced here. Each denylist section holds its presets, or was emptied on purpose. The environment runs as a non-root user.",
-    );
+    // The default is off on a machine whose probe cannot enforce workspace: the line says so, never "enforced" (#1698).
+    expect(permissions?.reason).toBe("Containment is off, and the denylist holds its presets.");
   });
 
   it("checks one step when asked for it, at the time it runs", async () => {
@@ -88,17 +90,38 @@ describe("setup.check", () => {
 });
 
 describe("the Your machines step's health line", () => {
-  it("reports not-root from what permissions.settings.get answers as isRoot, and that the environment is ready", async () => {
-    const t = await start();
+  it("reports not-root from what permissions.settings.get answers as isRoot, and when done says the version it is ready on, its updates and its reach (#1698)", async () => {
+    const t = await start({ harnessVersion: "0.1.3" });
     const client = await t.client();
     expect((await client.request("permissions.settings.get", {})).isRoot).toBe(false);
     // With auto-update off, the release channel's check holds without a check (#346).
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
     expect(await check(client, "your-machines")).toMatchObject({
       state: "done",
-      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind. No host-side updater manages this environment's updates, or it polled in the last hour. The environment has a name, an icon and a colour. The environment is ready, and not draining past its cap. LAN binding is off, or the LAN address it names is one this machine holds.",
+      reason: "Ready on 0.1.3, updates off, reachable from this machine only.",
       failing: [],
     });
+  });
+});
+
+describe("each step's line when done (#1698)", () => {
+  it("says what was found in one sentence, never the checks' conditions joined, Carry over naming a source data folder nothing was brought over from", async () => {
+    const dataFolder = tempDir();
+    writeFileSync(join(dataFolder, "profiles.json"), JSON.stringify({ version: 1, profiles: ["a", "b", "c"].map((id) => ({ id, providerId: "claude", configDir: join(dataFolder, id) })) }));
+    writeFileSync(join(dataFolder, "memory-banks.json"), JSON.stringify({ version: 1, banks: [{ slug: "notebook" }], default: "notebook" }));
+    const t = await start({ harnessVersion: "0.1.3", stateImportSource: machinePointedAt({ dataFolder, home: tempDir() }) });
+    const client = await t.client();
+    await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
+    const { results } = await client.request("setup.check", {});
+    expect(Object.fromEntries(results.filter((result) => result.state === "done").map((result) => [result.step, result.reason]))).toEqual({
+      account: "Every account is signed in.",
+      "carry-over": `Past work found in ${dataFolder}: 3 profiles, 1 bank. Not brought over yet.`,
+      "your-machines": "Ready on 0.1.3, updates off, reachable from this machine only.",
+      instructions: "The orientation block renders.",
+      permissions: "Containment is off, and the denylist holds its presets.",
+      appearance: "The theme meets the contrast rules.",
+    });
+    for (const result of results.filter((each) => each.state === "done")) expect(result.reason, result.step).not.toMatch(/\bor\b/);
   });
 });
 
@@ -107,7 +130,7 @@ describe("the Permissions step's check", () => {
     const t = await start();
     const client = await t.client();
     expect((await client.request("permissions.settings.get", {})).values["permissions.containment.default"]).toBe("off");
-    expect((await check(client, "permissions")).state).toBe("done");
+    expect(await check(client, "permissions")).toMatchObject({ state: "done", reason: "Containment is off, and the denylist holds its presets." });
   });
 
   it("needs attention when the default is workspace and the probe finds no mechanism, naming containment with the Linux package hint", async () => {
@@ -115,7 +138,7 @@ describe("the Permissions step's check", () => {
     const first = await startTestEnvironment({ dataDir, containment: bubblewrapProbe() });
     const admin = await first.client();
     expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } })).receipt).toMatchObject({ status: "accepted" });
-    expect((await check(admin, "permissions")).state).toBe("done");
+    expect(await check(admin, "permissions")).toMatchObject({ state: "done", reason: "Sessions are contained to their workspace, and the denylist holds its presets." });
     await first.close();
 
     // The same environment started again on a machine where bubblewrap is gone: the stored default no longer holds.
@@ -172,7 +195,8 @@ describe("the Permissions step's check", () => {
       },
     });
     expect((await admin.request("permissions.denylist.get", {})).denylist.browserDomains).toEqual([]);
-    expect(await check(admin, "permissions")).toMatchObject({ state: "done", failing: [] });
+    // Its line names the section the person emptied rather than saying the denylist is whole (#1698).
+    expect(await check(admin, "permissions")).toMatchObject({ state: "done", failing: [], reason: "Containment is off, and the denylist's browser domains section is emptied." });
   });
 
   it("is never skipped, even on a fresh environment where Forges, with no forge account, is", async () => {
@@ -198,7 +222,7 @@ describe("the Appearance step's check (ADR 0023; #391)", () => {
     expect((await client.request("settings.get", { keys: ["appearance.theme"] })).values["appearance.theme"]).toEqual(DEFAULT_THEME);
     expect(await check(client, "appearance")).toMatchObject({
       state: "done",
-      reason: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.",
+      reason: "The theme meets the contrast rules.",
       failing: [],
       actions: [],
     });
@@ -274,7 +298,7 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     });
     const second = check(client, "account");
     (await late.call(3)).answer(true);
-    expect(await second).toEqual({ step: "account", state: "done", reason: "The late check holds.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    expect(await second).toEqual({ step: "account", state: "done", reason: "Set up here.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
   });
 
   it("answers needs attention with check-again past the step's budget, whatever the check answers later, and never before it", async () => {
@@ -306,7 +330,7 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
       failing: ["account.late"],
       actions: ["check-again"],
       checkedAt: after(4_999),
-      lastGood: { state: "done", reason: "The late check holds.", checkedAt: MANUAL_CLOCK_START },
+      lastGood: { state: "done", reason: "Set up here.", checkedAt: MANUAL_CLOCK_START },
     });
   });
 
@@ -397,7 +421,7 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     const timedOut = check(client, "account");
     await present.call(5);
     t.clock.advance(5_000);
-    expect((await timedOut).lastGood).toEqual({ state: "done", reason: "An account is added.", checkedAt: after(120_000) });
+    expect((await timedOut).lastGood).toEqual({ state: "done", reason: "Set up here.", checkedAt: after(120_000) });
   });
 
   it("checks every step at once when asked for none, each within its own budget, and answers in the registry's order", async () => {
@@ -421,9 +445,9 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     t.clock.advance(5_000);
     slowCall.answer(true);
     expect((await first).results.map((result) => [result.step, result.state, result.reason])).toEqual([
-      ["account", "done", "The slow check holds."],
+      ["account", "done", "Set up here."],
       ["your-machines", "needs-attention", "could not check: timed out after 5 s"],
-      ["appearance", "done", "Every setting it writes holds a valid value."],
+      ["appearance", "done", "Set up here."],
     ]);
 
     const second = client.request("setup.check", {});
@@ -433,8 +457,8 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     t.clock.advance(10_000);
     expect((await second).results.map((result) => [result.step, result.state, result.reason])).toEqual([
       ["account", "needs-attention", "could not check: timed out after 10 s"],
-      ["your-machines", "done", "The quick check holds."],
-      ["appearance", "done", "Every setting it writes holds a valid value."],
+      ["your-machines", "done", "Set up here."],
+      ["appearance", "done", "Set up here."],
     ]);
   });
 
@@ -511,7 +535,7 @@ describe("a skippable step's skip check (#308)", () => {
     const done = check(client, "your-machines");
     (await present.call(2)).answer(true);
     (await other.call(1)).answer(true);
-    expect(await done).toMatchObject({ state: "done", reason: "A machine is set up here. The other check holds." });
+    expect(await done).toMatchObject({ state: "done", reason: "Set up here." });
 
     const failing = check(client, "your-machines");
     (await present.call(3)).answer(true);

@@ -404,6 +404,27 @@ describe("the step registry", () => {
     expect(Object.keys(STEP_LABELS)).toEqual([...STEP_ORDER]);
   });
 
+  it("gives every step one short sentence for its line when done, saying what was found rather than joining its checks' conditions (#1698)", () => {
+    expect(Object.fromEntries(STEP_REGISTRY.map((step) => [step.id, step.done]))).toEqual({
+      account: "Every account is signed in.",
+      "carry-over": "Nothing is waiting to be brought over.",
+      "your-machines": "This machine is ready.",
+      forges: "Every forge account is signed in and answering.",
+      "key-manager": "Every key-manager connection is signed in and reachable.",
+      "memory-bank": "Every bank is reachable.",
+      skills: "Every skill source is in sync.",
+      instructions: "The orientation block renders.",
+      browser: "Chrome is paired, connected and current.",
+      permissions: "Containment and the denylist are set.",
+      appearance: "The theme meets the contrast rules.",
+    });
+    for (const step of STEP_REGISTRY) {
+      expect(step.done, step.id).toMatch(/^[A-Z][^.]*\.$/);
+      expect(step.done.length, step.id).toBeLessThanOrEqual(80);
+      expect(step.done, step.id).not.toMatch(/\bor\b/);
+    }
+  });
+
   it("puts both auto-settle keys and the transcript compaction window under the Your machines entry, still on environments.service, which it links", () => {
     expect(machines.writes.filter((key) => key.startsWith("sessions."))).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
     expect(machines.links).toEqual([{ row: "environments.service" }]);

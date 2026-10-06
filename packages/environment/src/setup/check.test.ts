@@ -1,7 +1,7 @@
 import { STEP_REGISTRY, presetSettings, type RegisteredStep, type SettingsValues } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { manualClock } from "../../test/clock.js";
-import { checkStep, type StateCheckers } from "./check.js";
+import { checkStep, type DoneLine, type StateCheckers } from "./check.js";
 
 /**
  * How one step's result is put together (ADR 0031; #141): its keys' value
@@ -13,9 +13,9 @@ import { checkStep, type StateCheckers } from "./check.js";
 const AT = "2026-09-25T08:00:00.000Z";
 const stepOf = (id: RegisteredStep["id"]): RegisteredStep => STEP_REGISTRY.find((step) => step.id === id) as RegisteredStep;
 
-/** The step's check at `AT`, its state checks answering as `stateChecks` says, with no last good result. */
-const check = (step: RegisteredStep, values: SettingsValues, stateChecks: StateCheckers) =>
-  checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, askedBy: "client", lastGood: undefined });
+/** The step's check at `AT`, its state checks answering as `stateChecks` says, with no last good result, and the environment's line for it done when one is given. */
+const check = (step: RegisteredStep, values: SettingsValues, stateChecks: StateCheckers, doneLine?: DoneLine) =>
+  checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, askedBy: "client", lastGood: undefined, ...(doneLine !== undefined && { doneLine }) });
 
 const holding: StateCheckers = {
   "account.present": () => true,
@@ -65,23 +65,43 @@ const holding: StateCheckers = {
 };
 
 describe("a step's result", () => {
-  it("is done when every check holds, its line what they found", async () => {
+  it("is done when every check holds, its line the entry's one sentence of what was found", async () => {
     expect(await check(stepOf("permissions"), presetSettings(), holding)).toEqual({
       step: "permissions",
       state: "done",
-      reason: "The containment default can be enforced here. Each denylist section holds its presets, or was emptied on purpose. The environment runs as a non-root user.",
+      reason: "Containment and the denylist are set.",
       failing: [],
       actions: [],
       checkedAt: AT,
     });
-    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "A Chrome is paired with this environment. A paired Chrome is connected. Every paired Chrome last reported the shipped extension version." });
+    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Chrome is paired, connected and current." });
   });
 
-  it("keeps a passing check's own line in registry order and leaves failure actions out", async () => {
+  it("never makes a done step's line of its checks' conditions, whose alternatives say what would pass rather than what is there, on any registered step (#1698)", async () => {
+    for (const step of STEP_REGISTRY) {
+      const { state, reason } = await check(step, presetSettings(), holding);
+      expect({ step: step.id, state, reason }).toEqual({ step: step.id, state: "done", reason: step.done });
+      expect(reason, step.id).not.toMatch(/\bor\b/);
+      for (const stateCheck of step.stateChecks) expect(reason, stateCheck.id).not.toContain(stateCheck.holds);
+    }
+  });
+
+  it("says what the environment found when it gives a line for the step, the entry's sentence when it gives none or cannot read it", async () => {
+    const found = "Past work found in /srv/source-data: 7 profiles. Not brought over yet.";
+    expect(await check(stepOf("carry-over"), presetSettings(), holding, () => found)).toMatchObject({ state: "done", reason: found });
+    expect(await check(stepOf("carry-over"), presetSettings(), holding, async () => undefined)).toMatchObject({ state: "done", reason: "Nothing is waiting to be brought over." });
+    expect(await check(stepOf("carry-over"), presetSettings(), holding, async () => Promise.reject(new Error("EACCES")))).toMatchObject({ state: "done", reason: "Nothing is waiting to be brought over." });
+    // A step that does not pass never asks for it.
+    let asked = false;
+    const failing = await check(stepOf("carry-over"), presetSettings(), { ...holding, "carry-over.readable": () => ({ reason: "A directory cannot be read." }) }, () => ((asked = true), found));
+    expect([failing.state, asked]).toEqual(["needs-attention", false]);
+  });
+
+  it("adds what a passing check says it found after the step's line and leaves failure actions out", async () => {
     const stateChecks: StateCheckers = { ...holding, "permissions.denylist": async () => ({ holds: true, reason: "The denylist was deliberately emptied." }) };
     expect(await check(stepOf("permissions"), presetSettings(), stateChecks)).toMatchObject({
       state: "done",
-      reason: "The containment default can be enforced here. The denylist was deliberately emptied. The environment runs as a non-root user.",
+      reason: "Containment and the denylist are set. The denylist was deliberately emptied.",
       failing: [],
       actions: [],
     });
