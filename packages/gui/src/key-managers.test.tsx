@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import type { KeyManagerStatus, KeyManagerStatusKind } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
@@ -56,7 +56,8 @@ describe("a connection's card", () => {
     expect(within(connection).getByText("Verified")).toBeDefined();
     const verify = within(connection).getByRole("button", { name: "Verify now" });
     expect(verify.querySelector("svg")).not.toBeNull();
-    verify.focus();
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => verify.focus());
     expect(await screen.findByRole("tooltip", { name: "Verify now · Enter / Space" })).toBeDefined();
   });
 
