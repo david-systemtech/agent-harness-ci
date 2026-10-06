@@ -45,6 +45,12 @@ const UNSHARE_EPERM = { code: 1, output: "unshare: unshare failed: Operation not
 
 const both = (probe: ContainmentProbe) => [probe.levels.workspace, probe.levels["workspace-no-network"]];
 
+/** The level's reason, in the harness's words, and the detail beside it: what the tool printed, verbatim, kept out of the reason. */
+const told = (level: ContainmentProbe["levels"]["workspace"]) => {
+  if (level.available) throw new Error("the level is available");
+  return { reason: level.reason, detail: level.detail };
+};
+
 describe("the containment probe on Linux and WSL2", () => {
   it("offers both workspace levels through bubblewrap when bwrap runs a trivial command in an unshared user namespace with a read-only root, and socat is there", async () => {
     const { system, ran } = machine({ path: LINUX_TOOLS });
@@ -86,6 +92,7 @@ describe("the containment probe on Linux and WSL2", () => {
     expect(probe.levels.workspace.reason).toMatch(/not be enough/);
     expect(probe.levels.workspace.reason).toMatch(/seccomp/);
     expect(probe.levels.workspace.reason).toMatch(/socat/);
+    expect(told(probe.levels.workspace)).toEqual({ reason: expect.not.stringMatching(/unshare failed/), detail: "unshare: unshare failed: Operation not permitted" });
     expect(probe.container).toEqual({ declared: false, detected: true });
   });
 
@@ -96,7 +103,7 @@ describe("the containment probe on Linux and WSL2", () => {
       expect(probe.mechanism, JSON.stringify(files)).toBeNull();
       for (const level of both(probe)) expect(level, JSON.stringify(files)).toMatchObject({ available: false, cause: "userns_blocked" });
       expect(probe.levels.workspace.reason).toMatch(/kernel/);
-      expect(probe.levels.workspace.reason).toMatch(/setting up uid map/);
+      expect(told(probe.levels.workspace)).toEqual({ reason: expect.not.stringMatching(/uid map/), detail: "bwrap: setting up uid map: Permission denied" });
     }
   });
 
@@ -118,6 +125,13 @@ describe("the containment probe on Linux and WSL2", () => {
     for (const level of both(probe)) expect(level).toMatchObject({ available: false, cause: "seccomp" });
     expect(probe.levels.workspace.reason).toMatch(/container's seccomp profile/);
     expect(probe.levels.workspace.reason).toMatch(/outer boundary/);
+    // What bwrap printed, with its links and a file path on this machine, is the detail, not the reason (#1756).
+    for (const level of both(probe)) {
+      expect(told(level)).toEqual({
+        reason: expect.not.stringMatching(/bwrap:|deb\.li|file:/),
+        detail: "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.",
+      });
+    }
     expect(probe.container).toEqual({ declared: true, detected: true });
   });
 
@@ -125,14 +139,23 @@ describe("the containment probe on Linux and WSL2", () => {
     const { system } = machine({ path: LINUX_TOOLS, answers: { bwrap: () => ({ code: 1, output: "bwrap: Can't mount proc on /newroot/proc: Operation not permitted\n" }) } });
     const probe = await probeContainment(system);
     for (const level of both(probe)) expect(level).toMatchObject({ available: false, cause: "failed" });
-    expect(probe.levels.workspace.reason).toMatch(/Can't mount proc/);
+    expect(told(probe.levels.workspace)).toEqual({
+      reason: "bubblewrap could not run a command in an unshared user namespace with a read-only root.",
+      detail: "bwrap: Can't mount proc on /newroot/proc: Operation not permitted",
+    });
   });
 
   it("records a bwrap that cannot be started at all as a failure", async () => {
     const { system } = machine({ path: LINUX_TOOLS, answers: { bwrap: () => ({ code: null, output: "spawn /usr/bin/bwrap EACCES" }) } });
     const probe = await probeContainment(system);
     expect(probe.levels.workspace).toMatchObject({ available: false, cause: "failed" });
-    expect(probe.levels.workspace.reason).toMatch(/EACCES/);
+    expect(told(probe.levels.workspace).detail).toBe("spawn /usr/bin/bwrap EACCES");
+  });
+
+  it("says a bwrap that failed printing nothing exited with its code, as the detail", async () => {
+    const { system } = machine({ path: LINUX_TOOLS, answers: { bwrap: () => ({ code: 1, output: "\n" }) } });
+    const probe = await probeContainment(system);
+    expect(told(probe.levels.workspace).detail).toBe("It exited with code 1 and printed nothing.");
   });
 
   it("records socat missing, which Claude's sandbox needs on Linux beside bubblewrap, and offers neither level", async () => {
@@ -165,7 +188,7 @@ describe("the containment probe on Linux and WSL2", () => {
     for (const level of both(probe)) {
       expect(level).toMatchObject({ available: false, cause: "failed" });
       expect(level.reason).toMatch(/network namespace/);
-      expect(level.reason).toMatch(/RTM_NEWADDR/);
+      expect(told(level)).toEqual({ reason: expect.not.stringMatching(/RTM_NEWADDR/), detail: "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted" });
     }
   });
 
@@ -208,7 +231,7 @@ describe("the containment probe on macOS", () => {
     for (const level of both(missing)) expect(level).toMatchObject({ available: false, cause: "binary_missing" });
     const failing = await probeContainment(machine({ platform: "darwin", path: ["sandbox-exec"], answers: { "sandbox-exec": () => ({ code: 71, output: "sandbox-exec: sandbox_apply: Operation not permitted\n" }) } }).system);
     for (const level of both(failing)) expect(level).toMatchObject({ available: false, cause: "failed" });
-    expect(failing.levels.workspace.reason).toMatch(/sandbox_apply/);
+    expect(told(failing.levels.workspace)).toEqual({ reason: expect.not.stringMatching(/sandbox_apply/), detail: "sandbox-exec: sandbox_apply: Operation not permitted" });
   });
 });
 
@@ -219,6 +242,7 @@ describe("the containment probe elsewhere", () => {
     expect(probe.mechanism).toBeNull();
     for (const level of both(probe)) expect(level).toMatchObject({ available: false, cause: "platform" });
     expect(probe.levels.workspace.reason).toMatch(/WSL2/);
+    expect(told(probe.levels.workspace).detail).toBeNull();
     expect(ran).toEqual([]);
   });
 

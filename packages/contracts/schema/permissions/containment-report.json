@@ -58,7 +58,7 @@
               "reason": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Why the level cannot be enforced here, for people."
+                "description": "Why the level cannot be enforced here, for people, in the harness's words."
               },
               "cause": {
                 "type": "string",
@@ -75,6 +75,11 @@
                   "not_probed"
                 ],
                 "description": "Why a containment level cannot be enforced. First the seven the probe finds: binary_missing (bwrap or sandbox-exec), userns_blocked (the kernel), apparmor, seccomp, socat_missing, failed (the mechanism failed otherwise), platform (none on it). Then adapter (the adapter does not enforce containment), probe_failed (the probe itself failed), not_probed (the probe not run)."
+              },
+              "detail": {
+                "description": "What the mechanism's own command printed when it failed, verbatim, for whoever debugs it (#1756); kept out of the reason, which a client shows first. Absent when no command was run or the environment predates it.",
+                "type": "string",
+                "minLength": 1
               }
             },
             "required": [

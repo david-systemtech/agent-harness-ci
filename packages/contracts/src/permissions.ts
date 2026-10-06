@@ -109,7 +109,7 @@ export const ContainmentCause = z.enum(CONTAINMENT_CAUSES).meta({
 });
 export type ContainmentCause = z.infer<typeof ContainmentCause>;
 
-/** Whether this environment can enforce a containment level, and, when it cannot, why: for people and as a cause. */
+/** Whether this environment can enforce a containment level, and, when it cannot, why: for people and as a cause, with what the mechanism printed beside it. */
 export const ContainmentAvailability = z
   .discriminatedUnion("available", [
     z.object({
@@ -121,8 +121,12 @@ export const ContainmentAvailability = z
     z.object({
       level: ContainmentLevel,
       available: z.literal(false),
-      reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here, for people." }),
+      reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here, for people, in the harness's words." }),
       cause: ContainmentCause,
+      detail: z.string().min(1).optional().meta({
+        description:
+          "What the mechanism's own command printed when it failed, verbatim, for whoever debugs it (#1756); kept out of the reason, which a client shows first. Absent when no command was run or the environment predates it.",
+      }),
     }),
   ])
   .meta({ description: "Whether this environment can enforce a containment level and, when it cannot, why, for people and as a cause." });

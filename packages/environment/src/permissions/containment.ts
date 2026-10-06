@@ -30,11 +30,12 @@ const OFF: ContainmentAvailability = { level: "off", available: true, reason: nu
 const levelsOf = (workspace: (level: Exclude<ContainmentLevel, "off">) => ContainmentAvailability): ContainmentAvailability[] =>
   CONTAINMENT_LEVELS.map((level) => (level === "off" ? OFF : workspace(level)));
 
-/** The report of what the probe found: every level, off first, with the reason and cause one cannot be enforced; the mechanism; the container. */
+/** The report of what the probe found: every level, off first, with the reason, cause and detail one cannot be enforced; the mechanism; the container. */
 export const containmentReport = (probe: ContainmentProbe): ContainmentReport => ({
   levels: levelsOf((level) => {
     const found = probe.levels[level];
-    return found.available ? { level, available: true, reason: null, cause: null } : { level, available: false, reason: found.reason, cause: found.cause };
+    if (found.available) return { level, available: true, reason: null, cause: null };
+    return { level, available: false, reason: found.reason, cause: found.cause, ...(found.detail === null ? {} : { detail: found.detail }) };
   }),
   mechanism: probe.mechanism,
   container: probe.container,
