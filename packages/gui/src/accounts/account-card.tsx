@@ -74,7 +74,7 @@ export const AccountCard = ({ environmentId, account, gauges, writable, signIn, 
       {/* Keyed by the label, so a label set anywhere, here or by another client, is the field's again. */}
       <LabelField key={account.label} label={account.label} writable={writable} relabel={relabel} />
       <div className="flex flex-wrap gap-2">
-        <AccountAction icon={KeyRound} size="sm" variant="outline" disabled={!writable || signInHeld !== undefined} aria-describedby={signInHeld === undefined ? undefined : held} onClick={signIn}>
+        <AccountAction icon={KeyRound} size="sm" variant="outline" disabled={!writable || signInHeld !== undefined} {...(signInHeld === undefined ? {} : { "aria-describedby": held })} onClick={signIn}>
           Sign in again
         </AccountAction>
         <AccountAction icon={Trash2} size="sm" variant="ghost" disabled={!writable} onClick={remove}>

@@ -3,7 +3,7 @@ import { AccessUnavailable } from "../connections/limited-access.js";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountIdentity, type AccountRecord } from "@agent-harness/contracts";
 import { Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { StepLinks } from "../settings/step-links.js";
@@ -22,8 +22,11 @@ const CARRY_OVER = ["carry-over"] as const;
 /** Why an account's Sign in again waits while a sign-in card is open: the environment runs one sign-in at a time (ADR 0018). */
 const SIGN_IN_HELD = "Finish or cancel the open sign-in first.";
 
-/** The sign-in card the pane has open: on an account, or adding one (`null`). */
-type Signing = { readonly account: Pick<AccountRecord, "id" | "label"> | null; readonly suggestion?: { readonly label: string; readonly email: string } };
+/** A sign-in card to open: on an account, or adding one (`null`). */
+type Opening = { readonly account: Pick<AccountRecord, "id" | "label"> | null; readonly suggestion?: { readonly label: string; readonly email: string } };
+
+/** The sign-in card the pane has open, keyed so another replaces it whole; `succeeded`, the line its Done will say once its sign-in has. */
+type Signing = Opening & { readonly key: number; readonly succeeded?: string };
 
 /**
  * The Accounts row, `accounts.accounts` (docs/specs/gui.md, "Settings";
@@ -80,7 +83,14 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
   const { values } = useSettingsValues(environmentId);
   const { gauges } = useObservable(runtime.projections.usage);
   const [line, say] = useState<string | undefined>(undefined);
-  const [signing, signIn] = useState<Signing | undefined>(undefined);
+  const [signing, setSigning] = useState<Signing | undefined>(undefined);
+  const opened = useRef(0);
+  // A card whose sign-in succeeded holds nothing on the environment: opening another says its end, as its Done would.
+  const held = signing !== undefined && signing.succeeded === undefined;
+  const signIn = (opening: Opening) => {
+    if (signing?.succeeded !== undefined) say(signing.succeeded);
+    setSigning({ ...opening, key: ++opened.current });
+  };
   const [removing, remove] = useState<AccountRecord | undefined>(undefined);
   const ready = view.phase === "ready";
   const admin = runtime.capability(environmentId, "accounts.adopt");
@@ -102,22 +112,23 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
       {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">Read-only: {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p></AccessUnavailable>}
       {ready && <AdoptOffer environmentId={environmentId} environment={nameOf(view)} writable={writable} say={say} />}
       <div className="flex flex-wrap gap-2">
-        <AccountAction icon={Plus} variant="default" disabled={!writable || signing !== undefined} onClick={() => signIn({ account: null })}>
+        <AccountAction icon={Plus} variant="default" disabled={!writable || held} onClick={() => signIn({ account: null })}>
           {add}
         </AccountAction>
       </div>
       {accounts !== null && environments.filter(source => source.environmentId !== environmentId && source.enabled).map(source => (
-        <AccountsElsewhere key={source.environmentId} source={source} here={accounts} disabled={!writable || signing !== undefined}
+        <AccountsElsewhere key={source.environmentId} source={source} here={accounts} disabled={!writable || held}
           suggest={(suggestion) => signIn({ account: null, suggestion })} />
       ))}
-      {signing !== undefined && <SignInCard {...(signing.suggestion === undefined ? {} : { suggestion: signing.suggestion })} inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => signIn(undefined)} say={say} />}
+      {signing !== undefined && <SignInCard key={signing.key} {...(signing.suggestion === undefined ? {} : { suggestion: signing.suggestion })} inline={inlineSignIn} environmentId={environmentId} account={signing.account} close={() => setSigning(undefined)}
+        succeeded={(line) => setSigning((open) => open?.key === signing.key ? { ...open, succeeded: line } : open)} say={say} />}
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {accounts === null
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the accounts…" : `The accounts could not be read: ${listed.error.message}`}</p>
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No account is held here.</p>
           : <SettingsCardGrid>{accounts.map((account) => (
-              <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signIn({ account })} {...(signing === undefined ? {} : { signInHeld: SIGN_IN_HELD })} remove={() => remove(account)} say={say} />
+              <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signIn({ account })} {...(held ? { signInHeld: SIGN_IN_HELD } : {})} remove={() => remove(account)} say={say} />
             ))}</SettingsCardGrid>}
       {removing !== undefined && <ConfirmRemove environmentId={environmentId} environment={nameOf(view)} account={removing} close={() => remove(undefined)} say={say} />}
     </>

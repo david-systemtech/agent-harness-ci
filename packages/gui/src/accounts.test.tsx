@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { AccountIdentity, AccountUsage } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -227,7 +227,12 @@ describe("Accounts", () => {
     const app = await opened({ desk: { accounts: [{ label: "work", status: { state: "expired", checkedAt: null, detail: null } }, { label: "personal" }] } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
-    await within(accounts).findByRole("region", { name: "work" });
+    const offered = within(await within(accounts).findByRole("region", { name: "work" })).getByRole("button", { name: "Sign in again" });
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => offered.focus());
+    await screen.findByRole("tooltip", { name: "Sign in again · Enter / Space" });
+    expect(within(accounts).getByRole("button", { name: "Sign in again", description: "Sign in again · Enter / Space" })).toBe(offered);
+    act(() => offered.blur());
     await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
     const adding = await screen.findByRole("region", { name: "Add an account on desk" });
     for (const label of ["work", "personal"]) {
@@ -244,6 +249,31 @@ describe("Accounts", () => {
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
     await screen.findByRole("region", { name: "Sign in: work on desk" });
     await waitFor(() => expect(desk.requests("accounts.signin.start").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-1" })]));
+  });
+
+  it("holds Sign in again no longer once an inline sign-in has succeeded: pressing it says that end and opens its own sign-in", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "work", status: { state: "expired", checkedAt: null, detail: null } }] } });
+    const desk = app.environment("desk");
+    const accounts = await openRow(app, "Accounts");
+    await within(accounts).findByRole("region", { name: "work" });
+    await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
+    await app.user.type(within(await screen.findByRole("region", { name: "Add an account on desk" })).getByRole("textbox", { name: "Label for the new account" }), "personal{Enter}");
+    const signing = await screen.findByRole("region", { name: "Sign in: personal on desk" });
+    desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
+    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
+    await waitFor(() => expect(desk.requests("accounts.signin.code")).toHaveLength(1));
+    desk.signIn("done");
+    await within(signing).findByRole("button", { name: "Done" });
+
+    const work = within(accounts).getByRole("region", { name: "work" });
+    expect(within(work).queryByText("Finish or cancel the open sign-in first.")).toBeNull();
+    expect(within(accounts).getByRole("button", { name: "Add an account…" }).hasAttribute("disabled")).toBe(false);
+    await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
+    await screen.findByRole("region", { name: "Sign in: work on desk" });
+    expect(screen.queryByRole("region", { name: "Sign in: personal on desk" })).toBeNull();
+    expect(within(accounts).getByText("personal is signed in on desk.")).toBeDefined();
+    await waitFor(() => expect(desk.requests("accounts.signin.start").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-1" })]));
+    expect(desk.requests("accounts.signin.cancel")).toHaveLength(0);
   });
 
   it("relabels one with accounts.relabel, says a refusal in one line, and shows at once a relabel another client made", async () => {
