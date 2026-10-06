@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,7 +100,9 @@ interface Running {
  * version the service state names the launcher's, as the launcher entry
  * starts it.
  */
-const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number; version?: string } = {}): Running => {
+const launch = (
+  options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number; version?: string; endChild?: (child: ChildProcess) => void } = {},
+): Running => {
   const dataDir = options.dataDir ?? dataDirectory();
   if (options.dataDir === undefined) {
     installVersion(dataDir, "0.5.0");
@@ -115,6 +118,7 @@ const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir
     timer,
     freeBytes: options.freeBytes ?? (() => 2 ** 40),
     ...(version === undefined ? {} : { version }),
+    endChild: options.endChild,
   });
   const stop = async (): Promise<number> => {
     const nextAsk = setInterval(() => {
@@ -443,6 +447,47 @@ describe.runIf(posix)("the launcher", () => {
       await Promise.all([running.launcher.stop(), running.launcher.stop()]);
       expect(running.log().filter((line) => line.startsWith("launcher: stopping"))).toEqual(["launcher: stopping: draining 0.5.0"]);
     });
+  });
+});
+
+describe("the launcher's end, a stop that does not drain (#1712)", () => {
+  /** Ends a child as the launcher's preset does, and records that it was asked to. */
+  const recordingEnd = () => {
+    const ended: number[] = [];
+    return { ended, endChild: (child: ChildProcess) => void (ended.push(child.pid ?? -1), child.kill("SIGKILL")) };
+  };
+
+  it("ends a committed child at once, asking it nothing, and settles with 0, restarting nothing", async () => {
+    const end = recordingEnd();
+    const running = launch({ endChild: end.endChild });
+    await until("the child commits", () => running.log().includes("launcher: 0.5.0 committed"));
+    expect(await running.launcher.end()).toBe(0);
+    expect(end.ended).toHaveLength(1);
+    expect(running.log()).toContain("launcher: stopping: 0.5.0 is ended at once, without a drain");
+    expect(running.report().some((line) => (line["message"] as { type?: string } | undefined)?.type === "drain?")).toBe(false);
+    expect(running.report().filter((line) => line.event === "drained")).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(running.report().filter((line) => line.event === "started")).toHaveLength(1);
+    expect(running.timer.pending()).toEqual([]);
+  });
+
+  it("ends at once a child that a stop is still draining", async () => {
+    const dataDir = dataDirectory();
+    installVersion(dataDir, "0.5.0");
+    writeServiceState(dataDir, state("0.5.0"));
+    scriptChild(dataDir, ["deaf-once"]);
+    const end = recordingEnd();
+    const running = launch({ dataDir, endChild: end.endChild });
+    await until("the child commits", () => running.log().includes("launcher: 0.5.0 committed"));
+    const stopping = running.launcher.stop();
+    await until("the first drain? is heard", () => running.report().some((line) => (line["message"] as { type?: string } | undefined)?.type === "drain?"));
+    expect(await running.launcher.end()).toBe(0);
+    expect(await stopping).toBe(0);
+    expect(end.ended).toHaveLength(1);
+    expect(running.log().filter((line) => line.startsWith("launcher: stopping"))).toEqual([
+      "launcher: stopping: draining 0.5.0",
+      "launcher: stopping: 0.5.0 is ended at once, without a drain",
+    ]);
   });
 });
 

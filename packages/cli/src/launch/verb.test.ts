@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,7 +9,7 @@ import { runCli } from "../cli.js";
 import { claimLauncher, type LauncherClaim } from "./launcher-claim.js";
 import { LAUNCHER_VERSION, RELAUNCH_EXIT_CODE, systemTimer } from "./launcher.js";
 import { writeServiceState } from "./state.js";
-import { CLAIM_RETRY_MS, launch, SERVICE_LOG_VARIABLE, type LaunchSeams } from "./verb.js";
+import { CLAIM_RETRY_MS, launch, SERVICE_LOG_VARIABLE, UNLOGGED_EXIT_VARIABLE, type LaunchSeams } from "./verb.js";
 
 /**
  * The `launch` verb (#337): the launcher as the service runs it, on Node's
@@ -251,21 +251,39 @@ describe.runIf(posix)("agent-harness launch on Windows, where Task Scheduler's E
     expect(await run.exit).toBe(0);
   });
 
-  it("stops as the service manager's stop does once the process that started its entry has ended, and lets go of the data directory", async () => {
+  it("stops at once, its child ended without a drain, once the process that started its entry has ended, and lets go of the data directory", async () => {
     const dataDir = dataDirectory();
-    const run = launching(dataDir, { entryOwnerWatch: standInWatch(dataDir) });
+    const ended: number[] = [];
+    const run = launching(dataDir, {
+      entryOwnerWatch: standInWatch(dataDir),
+      endChild: (child) => void (ended.push(child.pid ?? -1), child.kill("SIGKILL")),
+    });
     await until("the child is committed", () => childReport(dataDir).some((line) => line.event === "committed"));
     expect(run.stdout()).toContain("launcher: watching conhost (pid 4242), which started the launcher entry");
     writeFileSync(join(dataDir, "..", "owner-ended"), "");
     expect(await run.exit).toBe(0);
-    expect(childReport(dataDir).filter((line) => line.event === "drained")).toMatchObject([{ trigger: "launcher" }]);
+    expect(ended).toHaveLength(1);
+    expect(childReport(dataDir).filter((line) => line.event === "drained")).toEqual([]);
     const lines = run.stdout().split("\n").map((line) => line.replace(/^\S+ /, ""));
     expect(lines).toContain("launcher: conhost (pid 4242), which started the launcher entry, has ended, so the launcher stops");
-    expect(lines).toContain(`launcher: stopping: draining ${LAUNCHER_VERSION}`);
+    expect(lines).toContain(`launcher: stopping: ${LAUNCHER_VERSION} is ended at once, without a drain`);
     const next = await claimLauncher(join(dataDir, "..", "launcher.sock"));
     expect("claimed" in next).toBe(true);
     if ("claimed" in next) await next.claimed.release();
-    expect(existsSync(join(dataDir, "..", "owner-ended"))).toBe(true);
+  });
+
+  it("writes the restart line the entry could not, while another process held the service log, and leaves its variable out of what the child sees", async () => {
+    const dataDir = dataDirectory();
+    const log = join(dataDir, "service.log");
+    const run = launching(dataDir, { env: { ...process.env, [SERVICE_LOG_VARIABLE]: log, [UNLOGGED_EXIT_VARIABLE]: "1" } });
+    await until("the child is committed", () => childReport(dataDir).some((line) => line.event === "committed"));
+    run.stop();
+    expect(await run.exit).toBe(0);
+    expect(readFileSync(log, "utf8").split("\n")[0]).toBe(
+      "launcher entry: the launcher exited with code 1, so it started again 5 s later; " +
+        "the entry could not write this while another process held the service log, so this launcher writes it",
+    );
+    expect(childReport(dataDir)[0]).toMatchObject({ event: "started", unloggedExitVariable: null });
   });
 });
 

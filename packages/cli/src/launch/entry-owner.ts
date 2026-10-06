@@ -7,8 +7,9 @@ import { createInterface } from "node:readline";
  * .\launcher-entry.cmd`, and cmd runs the launcher. Task Scheduler's End,
  * and `Stop-ScheduledTask`, end conhost alone: cmd, the launcher and its child
  * run on, and the task reads Ready. So the launcher watches the process that
- * started its entry, and stops when that one ends; its exit with 0 ends the
- * entry too. A launcher whose entry has lost that process already, as an
+ * started its entry, and when that one ends stops at once, ending its child's
+ * process tree without a drain, as End means; its exit with 0 ends the entry
+ * too. A launcher whose entry has lost that process already, as an
  * entry left running by an End before this watch did, stops at once.
  *
  * Node cannot wait on a process it did not start, and a pid polled for can

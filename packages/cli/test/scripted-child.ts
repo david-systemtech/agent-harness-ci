@@ -43,7 +43,9 @@ const leave = (code: number) => {
 };
 
 if (writes !== undefined) writeDatabase(dataDir, writes, "open");
-report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort(), serviceLogVariable: process.env["AGENT_HARNESS_SERVICE_LOG"] ?? null });
+report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort(), serviceLogVariable: process.env["AGENT_HARNESS_SERVICE_LOG"] ?? null,
+  unloggedExitVariable: process.env["AGENT_HARNESS_UNLOGGED_EXIT"] ?? null,
+});
 if (says !== undefined) {
   process.stdout.write(`${says} on standard output\n`);
   process.stderr.write(`${says} on standard error\n`);

@@ -138,6 +138,8 @@ export interface LauncherOptions {
   readonly output?: number | undefined;
   /** The variables the child runs with. Preset: the launcher's own. */
   readonly env?: NodeJS.ProcessEnv | undefined;
+  /** Ends the child at once, with what it started, for `end`. Preset: SIGKILL to the child alone. */
+  readonly endChild?: ((child: ChildProcess) => void) | undefined;
   /** Preset: the system's clock and timers. */
   readonly timer?: LauncherTimer;
   /** The bytes free on the disk holding the data directory, which a snapshot and an installed version need room on. Preset: the file system's count. */
@@ -149,6 +151,13 @@ export interface LauncherOptions {
 export interface Launcher {
   /** The service manager's stop: drains the child and settles once its channel has closed, with 0. The same stop however often it is asked. */
   stop(): Promise<number>;
+  /**
+   * A stop that does not drain (#1712): the child is ended at once, through
+   * `endChild`, even when a stop already drains it, and the launcher settles
+   * with 0 once its channel has closed. What the launcher does when the
+   * process that started its entry has ended.
+   */
+  end(): Promise<number>;
   /**
    * Settles once the launcher has stopped, with the code its process exits
    * with: 0 after the service manager's stop, `RELAUNCH_EXIT_CODE` after a
@@ -193,6 +202,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   const write = options.log ?? ((line: string) => void process.stdout.write(`${line}\n`));
   const log = (text: string) => write(launcherLine(timer.now(), text));
   const output = options.output ?? "inherit";
+  const endChild = options.endChild ?? ((ended: ChildProcess) => void ended.kill("SIGKILL"));
   const newCandidates = new Set<string>();
   const installer = createInstaller({ dataDir, timer, freeBytes, log, onInstalled: (version) => newCandidates.add(version) });
 
@@ -757,14 +767,25 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
 
   begin();
 
+  /** Ends the running child at once, with what it started, rather than waiting for its drain. */
+  const endAtOnce = (current: Child) => {
+    if (current.ended) return;
+    log(`stopping: ${current.version} is ended at once, without a drain`);
+    endChild(current.process);
+  };
+
   /**
    * Stops the launcher, to exit with `code`: the installer and every wait
    * are stopped, and the child is drained (or ended, when it has not
-   * committed); `stopped` settles once it has gone. The same stop however
-   * often it is asked.
+   * committed, or when `drain` is false); `stopped` settles once it has gone.
+   * The same stop however often it is asked, except that a stop that does
+   * not drain ends a child a stop before it is draining.
    */
-  function halt(code: number): Promise<number> {
-    if (stopping) return stopped;
+  function halt(code: number, drain = true): Promise<number> {
+    if (stopping) {
+      if (!drain && child !== undefined) endAtOnce(child);
+      return stopped;
+    }
     stopping = true;
     exitCode = code;
     installer.stop();
@@ -773,6 +794,8 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     if (current === undefined) {
       log("stopping: no child is running");
       finish();
+    } else if (!drain) {
+      endAtOnce(current);
     } else if (!current.process.connected) {
       // It closed its channel as it drained by itself, and its exit settles the stop.
       log(`stopping: ${current.version} is already going`);
@@ -793,6 +816,10 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
       // The service manager's stop exits 0, even in the middle of a handover, whose files are written: the next start is the new launcher's.
       exitCode = 0;
       return halt(0);
+    },
+    end: () => {
+      exitCode = 0;
+      return halt(0, false);
     },
     stopped,
   };

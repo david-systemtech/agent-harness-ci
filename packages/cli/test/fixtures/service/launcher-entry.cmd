@@ -7,7 +7,8 @@ rem since Task Scheduler restarts a task only when it could not start it. With n
 rem such version it exits. The launcher writes the service log itself, which
 rem AGENT_HARNESS_SERVICE_LOG names: cmd holds a file it redirects to for itself
 rem alone, so a second launcher could not start while one ran, nor say why. Its
-rem restart line it tries again for a few seconds while another holds the log.
+rem restart line it tries again for a few seconds while another holds the log,
+rem then leaves the code in AGENT_HARNESS_UNLOGGED_EXIT for the next launcher to write.
 rem The line that runs the launcher ends in its own exits, since cmd reads this file by
 rem offset and install may replace it while the launcher runs. It counts the
 rem starts of a launcher handed over to until that launcher confirms, and after
@@ -44,9 +45,10 @@ if not exist "%DATA_DIR%\versions\%VERSION%\.complete" goto not_complete
 :restart
 set "CODE=%ERRORLEVEL%"
 set "TRIES=0"
+set "AGENT_HARNESS_UNLOGGED_EXIT="
 :restart_line
 set /a "TRIES+=1"
-(>>"%LOG%" echo launcher entry: the launcher exited with code %CODE%, so it starts again in 5 s.) 2>nul || (if %TRIES% LSS 5 (ping -n 2 127.0.0.1 >nul & goto restart_line))
+(>>"%LOG%" echo launcher entry: the launcher exited with code %CODE%, so it starts again in 5 s.) 2>nul || (if %TRIES% LSS 5 (ping -n 2 127.0.0.1 >nul & goto restart_line) else set "AGENT_HARNESS_UNLOGGED_EXIT=%CODE%")
 ping -n 6 127.0.0.1 >nul
 goto start
 :no_version

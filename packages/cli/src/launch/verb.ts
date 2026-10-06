@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { openSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
 import { DRAIN_CAP_MS } from "@agent-harness/contracts/launcher";
@@ -21,6 +21,15 @@ export const LAUNCH_USAGE = "launch --data-dir <path> [--port <n>] [--name <name
  */
 export const SERVICE_LOG_VARIABLE = "AGENT_HARNESS_SERVICE_LOG";
 
+/**
+ * The variable the Windows launcher entry sets to a launcher's exit code
+ * when it could not write its restart line, which says that code, to the
+ * service log: another process held the log, as a child that outlived its
+ * launcher does through its output. The next launcher, which shares the log
+ * where cmd cannot, writes the line in its place (#1712).
+ */
+export const UNLOGGED_EXIT_VARIABLE = "AGENT_HARNESS_UNLOGGED_EXIT";
+
 /** How long a launcher waits for one that holds the data directory and is stopping: that one's drain, at its cap, and a minute to close. */
 export const STOPPING_LAUNCHER_WAIT_MS = DRAIN_CAP_MS + 60_000;
 /** How often a launcher waiting for a stopping one tries the claim again. */
@@ -35,13 +44,29 @@ export interface LaunchSeams {
   readonly claimAddress?: ((dataDir: string) => string) | undefined;
   /** Starts the watch on the process that started the launcher entry (`entry-owner.ts`); none where the service manager stops the whole service. */
   readonly entryOwnerWatch?: (() => ChildProcess) | undefined;
+  /** Ends the launcher's child at once, with what it started, once that process has ended. Preset: the launcher's own (`endChild`). */
+  readonly endChild?: ((child: ChildProcess) => void) | undefined;
 }
+
+/**
+ * Ends `child` and every process it started, as `taskkill /T /F` does:
+ * Windows ends no child with its parent, and the environment's runs start
+ * processes of their own. Where taskkill cannot, the child alone is ended.
+ */
+const endWindowsProcessTree = (child: ChildProcess): void => {
+  if (child.pid === undefined) return void child.kill();
+  const taskkill = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+  taskkill.on("error", () => void child.kill());
+  taskkill.on("close", (code) => {
+    if (code !== 0) child.kill();
+  });
+};
 
 /** On Windows, Task Scheduler's End leaves the launcher running: the launcher claims its data directory and watches its task. */
 const platformSeams = (): LaunchSeams => ({
   env: process.env,
   timer: systemTimer,
-  ...(process.platform === "win32" ? { claimAddress: launcherClaimAddress, entryOwnerWatch: spawnEntryOwnerWatch } : {}),
+  ...(process.platform === "win32" ? { claimAddress: launcherClaimAddress, entryOwnerWatch: spawnEntryOwnerWatch, endChild: endWindowsProcessTree } : {}),
 });
 
 /**
@@ -114,8 +139,9 @@ const claimDataDirectory = async (
  * new environment is created with, which `service install --name` gives.
  *
  * On Windows it first claims the data directory, and exits 0 at once when
- * another launcher runs on it; and it stops as the service manager's stop
- * does once the process that started its launcher entry has ended.
+ * another launcher runs on it; and it stops at once, its child's process
+ * tree ended without a drain, once the process that started its launcher
+ * entry has ended.
  */
 export const launch = async (args: readonly string[], context: ProcessContext, seams: LaunchSeams = platformSeams()): Promise<number> => {
   let dataDir: string;
@@ -134,7 +160,9 @@ export const launch = async (args: readonly string[], context: ProcessContext, s
   }
 
   const logFile = seams.env[SERVICE_LOG_VARIABLE];
+  const unloggedExit = seams.env[UNLOGGED_EXIT_VARIABLE];
   delete seams.env[SERVICE_LOG_VARIABLE];
+  delete seams.env[UNLOGGED_EXIT_VARIABLE];
   let logFd: number | undefined;
   try {
     // Left open: the launcher writes its child's exit after it has stopped, and the process's exit closes it.
@@ -146,19 +174,28 @@ export const launch = async (args: readonly string[], context: ProcessContext, s
   const output = logFd;
   const write = output === undefined ? context.stdout : (text: string) => void writeSync(output, text);
   const log = (text: string) => write(`${launcherLine(seams.timer.now(), text)}\n`);
+  if (unloggedExit !== undefined && /^-?\d+$/.test(unloggedExit)) {
+    write(
+      `launcher entry: the launcher exited with code ${unloggedExit}, so it started again 5 s later; ` +
+        "the entry could not write this while another process held the service log, so this launcher writes it\n",
+    );
+  }
 
   const stopRequested = context.stopRequested();
   const claim =
     seams.claimAddress === undefined ? undefined : await claimDataDirectory(seams.claimAddress(dataDir), { log, timer: seams.timer, stopRequested });
   if (seams.claimAddress !== undefined && claim === undefined) return 0;
-  const launcher = startLauncher({ dataDir, port, name, log: (line) => write(`${line}\n`), output, env: seams.env });
+  const launcher = startLauncher({ dataDir, port, name, log: (line) => write(`${line}\n`), output, env: seams.env, endChild: seams.endChild });
   const watch = seams.entryOwnerWatch === undefined ? undefined : watchEntryOwner(seams.entryOwnerWatch, log);
-  const stop = () => {
+  void stopRequested.then(() => {
     claim?.markStopping();
     return launcher.stop();
-  };
-  void stopRequested.then(stop);
-  void watch?.ended.then(stop);
+  });
+  // Ending the task is a stop now, as Task Scheduler's End means: the child is not drained (#1712).
+  void watch?.ended.then(() => {
+    claim?.markStopping();
+    return launcher.end();
+  });
   const code = await launcher.stopped;
   watch?.close();
   await claim?.release();

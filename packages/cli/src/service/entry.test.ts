@@ -9,7 +9,7 @@ import { HANDOVER_FILE, HANDOVER_STARTS_FILE } from "../launch/handover.js";
 import { RELAUNCH_EXIT_CODE } from "../launch/launcher.js";
 import { LAUNCHER_VERSION_FILE } from "../launch/launcher-version.js";
 import { VERSION_SENTINEL, versionDirectory } from "../launch/versions.js";
-import { SERVICE_LOG_VARIABLE } from "../launch/verb.js";
+import { SERVICE_LOG_VARIABLE, UNLOGGED_EXIT_VARIABLE } from "../launch/verb.js";
 import { LAUNCHER_ENTRY_FILES, LOG_LINE_TRIES, renderLauncherEntry } from "./entry.js";
 
 /**
@@ -71,16 +71,17 @@ describe("the launcher entry", () => {
     expect(launch).not.toContain(">");
   });
 
-  it("tries its restart line again, a second apart and a bounded number of times, while another process holds the service log (#1712)", () => {
+  it("tries its restart line again, a second apart and a bounded number of times, then leaves its code for the next launcher to write (#1712)", () => {
     const lines = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
     const restart = lines.indexOf(":restart");
-    expect(lines.slice(restart, restart + 8)).toEqual([
+    expect(lines.slice(restart, restart + 9)).toEqual([
       ":restart",
       'set "CODE=%ERRORLEVEL%"',
       'set "TRIES=0"',
+      `set "${UNLOGGED_EXIT_VARIABLE}="`,
       ":restart_line",
       'set /a "TRIES+=1"',
-      `(>>"%LOG%" echo launcher entry: the launcher exited with code %CODE%, so it starts again in 5 s.) 2>nul || (if %TRIES% LSS ${LOG_LINE_TRIES} (ping -n 2 127.0.0.1 >nul & goto restart_line))`,
+      `(>>"%LOG%" echo launcher entry: the launcher exited with code %CODE%, so it starts again in 5 s.) 2>nul || (if %TRIES% LSS ${LOG_LINE_TRIES} (ping -n 2 127.0.0.1 >nul & goto restart_line) else set "${UNLOGGED_EXIT_VARIABLE}=%CODE%")`,
       "ping -n 6 127.0.0.1 >nul",
       "goto start",
     ]);
