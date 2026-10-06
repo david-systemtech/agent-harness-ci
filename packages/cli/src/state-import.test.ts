@@ -11,9 +11,11 @@ import { runCli } from "./cli.js";
 import type { Net } from "./local-session.js";
 
 const { onCleanup, tempDir } = useCleanups();
+const PERSONAL = "00000000-0000-4000-8000-000000000001";
+const WORK = "00000000-0000-4000-8000-000000000002";
 const report: StateImportReport = {
   carried: { accounts: 1, archived: 2, pins: 3, groups: 1, forgeAccounts: 1, keyManagerConnections: 1, banks: 1, routines: 1, instructions: 2, skillSources: 1, alwaysOnSkills: 2, drafts: 1, devSites: 1 },
-  sharedProjects: [{ sourceId: "secondary", ownerSourceId: "work" }],
+  sharedProjects: [{ sourceId: WORK, label: "Work", ownerSourceId: PERSONAL, ownerLabel: "Personal" }],
   reEnter: [{ label: "Forge sign-in", step: "forges" }, { label: "Vault sign-in", step: "key-manager" }],
   later: [{ label: "Local profile", provider: "local" }],
   notCarried: [{ label: "Saved connections", count: 2, step: "your-machines" }, { label: "Model choices", count: 3, step: null }],
@@ -67,7 +69,7 @@ it("prints unadopted Account inventories beside all four groups, repair Steps an
   t.env.methods.register<"carryOver.inventory">(registry["carryOver.inventory"], (params) => {
     expect(params).toEqual({ source: "state-import" });
     return {
-      accounts: [{ sharedProjectsWith: "primary", sourceId: "work", label: "Work", accountId: "claude-work", failure: null, inventory: {
+      accounts: [{ sourceId: PERSONAL, label: "Personal", accountId: "claude-personal", failure: null, inventory: null }, { sharedProjectsWith: PERSONAL, sourceId: WORK, label: "Work", accountId: "claude-work", failure: null, inventory: {
         accountId: "claude-work", sessions: { total: 42, archived: 7, missingDirectory: 3, new: 5 },
         memory: { folders: 3, repositories: 2, unmappable: [{ folder: "lost", path: "/fixture/lost/memory" }], new: 1 },
         skills: { skills: 4, commands: 2, new: 3, offered: [], invalid: 1 },
@@ -78,7 +80,9 @@ it("prints unadopted Account inventories beside all four groups, repair Steps an
   const answer = await cli(t.dataDir, ["--dry-run"]);
   expect(answer.code).toBe(0);
   expect(answer.err).toBe("");
-  for (const line of ["State import preview", "Work (claude-work)", "Shared projects folder with primary", "secondary shares a projects folder with work", "Sessions: 42", "Memory: 3 folders", "Skills: 4", "Carried", "accounts: 1", "Re-enter", "Forge sign-in", "Step: forges", "Vault sign-in", "Step: key-manager", "Later", "Local profile (local)", "Not carried", "Saved connections: 2", "Step: your-machines", "Model choices: 3", "reviewer", "unmappable: lost", "Client-local values (unapplied)", "mode: dark", "fontSize: 14", "conversationWidth: wide", "showThinking: false", "settingsRow: knowledge.banks"]) expect(answer.out).toContain(line);
+  for (const line of ["State import preview", "Work (claude-work)", "Shared projects folder with Personal", "Work shares a projects folder with Personal: its sessions and memory carry once, with Personal, and not again with Work.", "Sessions: 42", "Memory: 3 folders", "Skills: 4", "Carried", "accounts: 1", "Re-enter", "Forge sign-in", "Step: forges", "Vault sign-in", "Step: key-manager", "Later", "Local profile (local)", "Not carried", "Saved connections: 2", "Step: your-machines", "Model choices: 3", "reviewer", "unmappable: lost", "Client-local values (unapplied)", "mode: dark", "fontSize: 14", "conversationWidth: wide", "showThinking: false", "settingsRow: knowledge.banks"]) expect(answer.out).toContain(line);
+  // Profiles are named by their labels, never by their source ids alone (#1726).
+  expect(answer.out).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|source-id order/);
 });
 
 it.each(["no_source", "import_in_progress"])("reports %s as a refusal on stderr, leaves JSON stdout empty and cleans up", async (reason) => {

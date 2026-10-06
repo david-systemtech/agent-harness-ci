@@ -28,7 +28,7 @@ interface PlannedStore {
   readonly dependencies?: readonly StoreSnapshot[];
   readonly label: string;
   readonly items: readonly ImportItem[];
-  readonly directories?: readonly { readonly sourceId: string; readonly directory: string }[];
+  readonly directories?: readonly { readonly sourceId: string; readonly label: string; readonly directory: string }[];
   readonly notCarried?: readonly StateImportNotCarried[];
   readonly later?: readonly StateImportLater[];
 }
@@ -65,7 +65,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
   const planned: PlannedStore[] = [];
   const accounts = profiles.status === "read" ? await planAccounts(profiles.records, { ...options, sourceKey }) : undefined;
   if (accounts !== undefined && profiles.status === "read") {
-    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items, directories: accounts.listed.filter((entry) => entry.failure === null && accounts.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, directory: entry.observation?.directory ?? entry.directory })) });
+    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items, directories: accounts.listed.filter((entry) => entry.failure === null && accounts.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, label: entry.label, directory: entry.observation?.directory ?? entry.directory })) });
     failed.push(...accounts.failed);
   } else if (profiles.status === "failed") failed.push({ label: "Accounts", message: profiles.diagnostic });
   if (instructions.status === "failed") failed.push({ label: INSTRUCTIONS, message: instructions.diagnostic });

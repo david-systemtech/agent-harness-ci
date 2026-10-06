@@ -187,7 +187,7 @@ it("refuses a scope whose mapped Account disappears after preview planning", asy
   store(source, "memory-banks.json", { version: 2, banks: [scoped] });
   expect((await run(client, true)).result?.carried.banks).toBe(1);
   remove = async () => { await client.request("accounts.remove", { commandId: randomUUID(), accountId: account.id }); };
-  expect((await run(client)).result).toMatchObject({ carried: { banks: 0 }, failed: [{ label: 'Bank "scoped"' }, { label: "Sessions for work" }] });
+  expect((await run(client)).result).toMatchObject({ carried: { banks: 0 }, failed: [{ label: 'Bank "scoped"' }, { label: 'Sessions for Claude profile "Work"' }] });
   expect(await client.request("banks.list", {})).toEqual({ banks: [] });
 });
 
