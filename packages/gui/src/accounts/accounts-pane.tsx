@@ -19,6 +19,9 @@ import { SignInCard } from "./sign-in-card.js";
 /** The step homed on this row beside Account whose card is not drawn here: its link opens it in Set up. */
 const CARRY_OVER = ["carry-over"] as const;
 
+/** Why an account's Sign in again waits while a sign-in card is open: the environment runs one sign-in at a time (ADR 0018). */
+const SIGN_IN_HELD = "Finish or cancel the open sign-in first.";
+
 /** The sign-in card the pane has open: on an account, or adding one (`null`). */
 type Signing = { readonly account: Pick<AccountRecord, "id" | "label"> | null; readonly suggestion?: { readonly label: string; readonly email: string } };
 
@@ -114,7 +117,7 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No account is held here.</p>
           : <SettingsCardGrid>{accounts.map((account) => (
-              <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signing === undefined && signIn({ account })} remove={() => remove(account)} say={say} />
+              <AccountCard selected={values !== null && account.id === (values["accounts.defaultAccount"] ?? accounts[0]?.id)} key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signIn({ account })} {...(signing === undefined ? {} : { signInHeld: SIGN_IN_HELD })} remove={() => remove(account)} say={say} />
             ))}</SettingsCardGrid>}
       {removing !== undefined && <ConfirmRemove environmentId={environmentId} environment={nameOf(view)} account={removing} close={() => remove(undefined)} say={say} />}
     </>

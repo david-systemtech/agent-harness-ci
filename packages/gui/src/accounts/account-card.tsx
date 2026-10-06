@@ -27,6 +27,8 @@ export interface AccountCardProps {
   readonly writable: boolean;
   /** Opens the sign-in card on it. */
   readonly signIn: () => void;
+  /** Why Sign in again waits, while another sign-in card is open in the pane: the button is disabled, with this line under it. */
+  readonly signInHeld?: string;
   /** Asks to remove it. */
   readonly remove: () => void;
   /** Says one line in the pane: what a command did, or why it did not. */
@@ -39,12 +41,14 @@ export interface AccountCardProps {
  * its label, who it signs in as, its status, the plan reading of its
  * identity pooled across environments, and its directory; its label typed,
  * then Relabel (`accounts.relabel`); Sign in again, which opens the sign-in
- * card on it, as for an account whose sign-in lapsed; and Remove….
+ * card on it, as for an account whose sign-in lapsed, disabled with why while
+ * another sign-in card is open (#1738); and Remove….
  */
-export const AccountCard = ({ environmentId, account, gauges, writable, signIn, remove, say, selected = false }: AccountCardProps) => {
+export const AccountCard = ({ environmentId, account, gauges, writable, signIn, signInHeld, remove, say, selected = false }: AccountCardProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const heading = useId();
+  const held = useId();
   const relabel = (label: string) => void relabelAccount(runtime, environmentId, account, label, uuidv7(clock.now())).then((relabelled) => say(relabelled.line));
   const gauge = gaugeOf(gauges, environmentId, account.id);
   const readings = gauge === undefined ? [] : meterReadingsOf(gauge);
@@ -70,13 +74,14 @@ export const AccountCard = ({ environmentId, account, gauges, writable, signIn, 
       {/* Keyed by the label, so a label set anywhere, here or by another client, is the field's again. */}
       <LabelField key={account.label} label={account.label} writable={writable} relabel={relabel} />
       <div className="flex flex-wrap gap-2">
-        <AccountAction icon={KeyRound} size="sm" variant="outline" disabled={!writable} onClick={signIn}>
+        <AccountAction icon={KeyRound} size="sm" variant="outline" disabled={!writable || signInHeld !== undefined} aria-describedby={signInHeld === undefined ? undefined : held} onClick={signIn}>
           Sign in again
         </AccountAction>
         <AccountAction icon={Trash2} size="sm" variant="ghost" disabled={!writable} onClick={remove}>
           Remove…
         </AccountAction>
       </div>
+      {signInHeld !== undefined && <p id={held} className="text-2xs text-ink-muted">{signInHeld}</p>}
     </section>
   );
 };

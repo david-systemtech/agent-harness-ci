@@ -223,6 +223,29 @@ describe("Accounts", () => {
     await waitFor(() => expect(desk.requests("accounts.signin.cancel")).toHaveLength(1));
   });
 
+  it("disables every account's Sign in again, with why, while the Add card is open, and offers it again once that card is cancelled", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "work", status: { state: "expired", checkedAt: null, detail: null } }, { label: "personal" }] } });
+    const desk = app.environment("desk");
+    const accounts = await openRow(app, "Accounts");
+    await within(accounts).findByRole("region", { name: "work" });
+    await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
+    const adding = await screen.findByRole("region", { name: "Add an account on desk" });
+    for (const label of ["work", "personal"]) {
+      const card = within(accounts).getByRole("region", { name: label });
+      const again = within(card).getByRole("button", { name: "Sign in again", description: "Finish or cancel the open sign-in first." });
+      expect(again.hasAttribute("disabled"), label).toBe(true);
+      expect(within(card).getByText("Finish or cancel the open sign-in first.")).toBeDefined();
+    }
+    expect(desk.requests("accounts.signin.start")).toHaveLength(0);
+
+    await app.user.click(within(adding).getByRole("button", { name: "Cancel" }));
+    const work = within(accounts).getByRole("region", { name: "work" });
+    expect(within(work).queryByText("Finish or cancel the open sign-in first.")).toBeNull();
+    await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
+    await screen.findByRole("region", { name: "Sign in: work on desk" });
+    await waitFor(() => expect(desk.requests("accounts.signin.start").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-1" })]));
+  });
+
   it("relabels one with accounts.relabel, says a refusal in one line, and shows at once a relabel another client made", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }, { label: "work" }] } });
     const desk = app.environment("desk");
