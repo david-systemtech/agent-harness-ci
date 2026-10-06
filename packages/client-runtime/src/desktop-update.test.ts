@@ -163,6 +163,11 @@ describe("the desktop's own update", () => {
     const below = await launch({ updates: { status: { version: "0.6.0", newest: RUNNING, lastCheck: { at: "2026-10-03T21:00:00.000Z", result: "ok" } }, desktopBuild: STAGED } });
     await below.until(() => below.build().state === "current", "followed the channel's newest");
     expect(params(below.desk, "updates.desktop.stage")).toEqual([]);
+
+    // A read that found no release on the channel (a beta left for a stable channel with none yet): a stage would find nothing either.
+    const empty = await launch({ updates: { status: { version: "0.6.0", lastCheck: { at: "2026-10-03T21:00:00.000Z", result: "ok" } }, desktopBuild: STAGED } });
+    await empty.until(() => empty.build().state === "current", "found nothing on the channel");
+    expect(params(empty.desk, "updates.desktop.stage")).toEqual([]);
   });
 
   it("follows the local environment's pin, whatever its channel's newest", async () => {
