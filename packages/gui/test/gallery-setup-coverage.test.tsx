@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { StepId } from "@agent-harness/contracts";
 import { expect, it } from "vitest";
@@ -34,6 +34,8 @@ it("captures the one-time close confirmation without completing set up", async (
   const view = render(<Scene ladder="dark" />);
   try {
     const dialog = await screen.findByRole("dialog", { name: "Leave set up without an account?" });
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Keep setting up" })));
+    expect(screen.queryByRole("tooltip")).toBeNull();
     await userEvent.setup().click(within(dialog).getByRole("button", { name: "Keep setting up" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("heading", { name: "Account", level: 2 })).toBeTruthy();
