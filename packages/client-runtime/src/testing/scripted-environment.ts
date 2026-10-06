@@ -169,6 +169,8 @@ export interface ScriptedEnvironment {
   readonly containment?: Partial<ContainmentReport>;
   /** The settings' values `settings.get` and `permissions.settings.get` answer, over the presets. */
   readonly settings?: Partial<SettingsValues>;
+  /** The browser origins `web.origins.get` answers at first: preset none of either. */
+  readonly webOrigins?: { readonly clientOrigins?: readonly string[]; readonly connectOrigins?: readonly string[] };
   /**
    * The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back, of the sections it
    * names: preset none. The denylist is otherwise the presets, which `permissions.denylist.set` changes (`scripted-permissions.ts`).
@@ -1651,7 +1653,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (keys.length > 0) notice("settings.changed", { keys });
   };
   // Browser-origin controls share the same scripted settings seam as their neighbours.
-  let webOrigins = { clientOrigins: [] as string[], connectOrigins: [] as string[] };
+  let webOrigins = { clientOrigins: [...(spec.webOrigins?.clientOrigins ?? [])], connectOrigins: [...(spec.webOrigins?.connectOrigins ?? [])] };
   wire.answer("web.origins.get", () => ({ result: webOrigins }));
   wire.answer("web.origins.set", params => {
     const refused = rejection("web.origins.set");

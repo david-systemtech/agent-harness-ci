@@ -8,6 +8,7 @@ import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   childReport,
+  CREDENTIAL_ANSWER_FILE,
   databaseFilesIn,
   fakeTimer,
   installVersion,
@@ -25,7 +26,7 @@ import {
   type ScriptedStart,
   type VersionLayout,
 } from "../../test/launcher-fixtures.js";
-import { DRAIN_ASK_INTERVAL_MS, RELAUNCH_EXIT_CODE, startLauncher, type Launcher, type TrialFailure } from "./launcher.js";
+import { CREDENTIAL_WAIT_MS, DRAIN_ASK_INTERVAL_MS, RELAUNCH_EXIT_CODE, startLauncher, TRIAL_DEADLINE_MS, type Launcher, type TrialFailure } from "./launcher.js";
 import { hasSnapshot, RESTORE_MARKER_FILE, snapshotDirectory, takeSnapshot } from "./snapshot.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "./state.js";
 import { completeVersions } from "./versions.js";
@@ -697,6 +698,57 @@ describe.runIf(posix)("the launcher rolling an update back", () => {
     silent.timer.runNext();
     await silent.events("started", 3);
     expect(silent.log()).toContain(`launcher: 0.5.0 fails the trial of update ${updateId}: it did not say prepared within 120 s of its spawn, so it is ended`);
+  });
+
+  describe("while a trial's OS keychain read waits on the person (#1689)", () => {
+    /** A launcher whose trial of 0.5.0 says its stored key waits on the person, once the deadline has paused for it. */
+    const waitingTrial = async (credential: "answered" | "refused") => {
+      const dataDir = beforeAnUpdate([switching(), { credential, writes: ["written by the trial"] }]);
+      const before = databaseFilesIn(dataDir);
+      const running = launch({ dataDir });
+      await running.events("credential-waiting");
+      await until("the trial's deadline pauses", () => running.log().some((line) => line.startsWith("launcher: 0.5.0 waits on the person")));
+      return { dataDir, before, running, answer: () => writeFileSync(join(dataDir, CREDENTIAL_ANSWER_FILE), "") };
+    };
+
+    it("pauses the deadline, so a read that returns long past it still commits", async () => {
+      const { dataDir, running, answer } = await waitingTrial("answered");
+      expect(running.timer.pending()).toEqual([CREDENTIAL_WAIT_MS]);
+      expect(running.log()).toContain(
+        "launcher: 0.5.0 waits on the person to let it read its stored key (the OS is asking them), so its trial's deadline pauses for up to 10 min",
+      );
+      // Long past the 120 seconds a trial had, the person answers.
+      running.timer.advance(TRIAL_DEADLINE_MS * 3);
+      answer();
+      await until("the trial commits", () => running.log().some((line) => line.startsWith("launcher: 0.5.0 committed")));
+      expect(running.log()).toContain("launcher: 0.5.0 may read its stored key, so its trial's deadline resumes with 120 s left");
+      expect(stateIn(dataDir)).toMatchObject({ activeVersion: "0.5.0", previousVersion: "0.4.0", pendingUpdate: null });
+      expect(existsSync(join(dataDir, "update-outcome.json"))).toBe(false);
+    });
+
+    it("ends the trial at reason credential when nobody answers within the wait's limit, and rolls it back", async () => {
+      const { dataDir, before, running } = await waitingTrial("answered");
+      running.timer.run(CREDENTIAL_WAIT_MS);
+      const [, , old] = await running.events("started", 3);
+      expect(old).toMatchObject({ version: "0.4.0" });
+      expect(running.log()).toContain(
+        `launcher: 0.5.0 fails the trial of update ${updateId}: the OS's prompt to let it read its stored key was not answered within 10 min, so it is ended`,
+      );
+      expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "trial", reason: "credential" });
+      expect(databaseFilesIn(dataDir)).toEqual(before);
+      expect(stateIn(dataDir)).toEqual(state("0.4.0"));
+    });
+
+    it("rolls the trial back at reason credential when the person refuses and it exits", async () => {
+      const { dataDir, before, running, answer } = await waitingTrial("refused");
+      answer();
+      const [, , old] = await running.events("started", 3);
+      expect(old).toMatchObject({ version: "0.4.0" });
+      expect(running.log()).toContain("launcher: 0.5.0 was refused its stored key");
+      expect(running.log()).toContain(`launcher: rolling update ${updateId} back to 0.4.0: its trial failed (credential)`);
+      expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "trial", reason: "credential" });
+      expect(databaseFilesIn(dataDir)).toEqual(before);
+    });
   });
 
   it("keeps the snapshot a second switch? with the same update id finds, and takes none again", async () => {

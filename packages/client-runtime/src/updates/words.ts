@@ -1,4 +1,4 @@
-import { DRAIN_CAP_MS, type PendingUpdate } from "@agent-harness/contracts";
+import { DRAIN_CAP_MS, PRODUCT_NAME, type PendingUpdate } from "@agent-harness/contracts";
 import type { UpdateEnvironmentOutcome } from "../connections/environment-update.js";
 import { newerVersion, type BundledServerView, type DesktopBuildView } from "../desktop-update.js";
 import { BUSY_WORDS } from "../service/words.js";
@@ -14,6 +14,27 @@ import { whenWords } from "../transcript/format.js";
  * asks (#825). The window draws an environment's on About and Your
  * machines' cards, the terminal UI on its card in `/environment` (#827).
  */
+
+/**
+ * What the window says of an update whose new version waits on macOS to let
+ * it read the environment's stored key (#1689): the OS asks the person, the
+ * first time a version signed otherwise than the one that wrote the key
+ * reads it, and the update finishes only once they choose Always Allow.
+ */
+export const credentialPromptWords = (toVersion: string): string =>
+  `macOS is asking to let ${PRODUCT_NAME} use its stored key: answer “Always Allow” in its dialog to finish the update to ${toVersion}.`;
+/** What the window says of an update rolled back because the person refused macOS's prompt for the stored key, or left it unanswered. */
+export const CREDENTIAL_PROMPT_UNANSWERED = `macOS asked to let ${PRODUCT_NAME} use its stored key, and the prompt was refused or not answered.`;
+/** What to do about it. */
+export const CREDENTIAL_PROMPT_AGAIN = "Update again, and answer “Always Allow” when macOS asks.";
+
+/**
+ * The notice of an update rolled back for want of the stored key, by
+ * environment name (null for the local one before it has answered), the
+ * version it went to and, where known, the one it runs.
+ */
+export const credentialUpdateFailedWords = (name: string | null, toVersion: string, fromVersion?: string): string =>
+  `${name ?? "This machine"} could not be updated to ${toVersion}: ${CREDENTIAL_PROMPT_UNANSWERED}${fromVersion === undefined ? "" : ` It is running ${fromVersion}.`} ${CREDENTIAL_PROMPT_AGAIN}`;
 
 /** The version an environment runs, which heads its update controls (`updates.status`'s, else the descriptor's). */
 export const environmentVersionWords = (version: string): string => `Version ${version}`;

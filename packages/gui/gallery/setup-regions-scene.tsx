@@ -90,7 +90,8 @@ export function setupRegionScene(kind: SetupRegion) {
         if (!began && begin !== null && !begin.disabled) { began = true; begin.click(); }
         if (kind === "close-confirmation" && !finished) {
           const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close Set up"]');
-          if (close !== null) { finished = true; close.click(); }
+          // By mouse, as #1694 saw it: the dialog then opens with no hint over its description.
+          if (close !== null) { finished = true; close.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" })); close.click(); }
         }
         if (kind === "sign-in") {
           // Set up's Account step opens the sign-in dialog; the provider answers once the card follows the started sign-in.

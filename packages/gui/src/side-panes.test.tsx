@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { DelegatedWorkRow, SessionDiffFile } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -341,6 +341,7 @@ describe("the Tasks pane", () => {
     expect(within(card).getByText("3s")).toBeDefined();
     await app.user.click(stop);
     act(() => stop.blur());
+    fireEvent.keyDown(document.body, { key: "Tab" });
     act(() => within(card).getByRole("button", { name: "Stopping…" }).focus());
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toContain("The task is stopping.");
@@ -409,6 +410,7 @@ describe("the Tasks pane", () => {
     expect(within(pane("Tasks")).queryByRole("textbox", { name: "Message" })).toBeNull();
     const back = within(pane("Tasks")).getByRole("button", { name: "Back to the tasks" });
     expect(back.querySelector("svg")).not.toBeNull();
+    fireEvent.keyDown(document.body, { key: "Tab" });
     act(() => back.focus());
     expect((await screen.findByRole("tooltip")).textContent).toContain("Enter or Space");
     env.wire.answer("sessions.subagentTranscript", () => ({ error: { code: "conflict", message: "The stored transcript is unavailable.", data: {} } }));

@@ -10,7 +10,8 @@ import { buildRelease } from "../packages/cli/scripts/release/build.js";
 import { fixtureBuild } from "../packages/cli/test/release-fixtures.js";
 
 const script = pathToFileURL(join(import.meta.dirname, "..", "scripts", "macos-desktop-update-smoke.mjs")).href;
-const { checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+const { checkQuietPackagedNavigation, checkPackagedCredentialRepair, checkReplacedPackagedCredential, waitForCredentialHelpersExit, quitWithPendingPackagedCredential, startUnavailablePackagedCredential, credentialHelperPids, checkUnavailablePackagedCredential, checkFreshPackagedCredential, askForPackagedUpdate, packagedSettingsOpen, clickPackagedSettings, openPackagedSettings, stampPriorPackagedServer, copyPackagedDesktop, prepareCredentialFixture } = await import(script) as {
+  checkQuietPackagedNavigation: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<void>;
   checkPackagedCredentialRepair: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<void>;
   checkReplacedPackagedCredential: (evaluate: (expression: string, stage?: string, milliseconds?: number) => Promise<unknown>) => Promise<"retained" | "unavailable">;
   waitForCredentialHelpersExit: (helpers: number[], running?: (pid: number) => boolean) => Promise<void>;
@@ -266,6 +267,37 @@ describe("the packaged macOS update smoke", () => {
     protection = "os";
     window.desktopShell.secrets.get = async () => "credential-for-tests-wrong";
     await expect(checkFreshPackagedCredential(evaluate)).rejects.toThrow(/read back correctly/);
+  });
+
+  it("requires navigation to answer protection inside the product's access deadline, with nothing left waiting", async () => {
+    const settings = (rows: string[]) => {
+      const dom = new JSDOM("");
+      const show = (open: string) => {
+        dom.window.document.body.innerHTML = `<section aria-label="Settings"><nav aria-label="Settings rows">${rows.map(row => `<button aria-label="${row}">${row}</button>`).join("")}</nav><section aria-label="${open}"></section></section>`;
+        for (const row of rows) dom.window.document.querySelector(`[aria-label="${row}"]`)?.addEventListener("click", () => show(row));
+      };
+      show("Credential access");
+      return dom.window.document;
+    };
+    const navigate = (protection: string, access: string | null, rows = ["About", "Your machines"]) => {
+      const document = settings(rows);
+      const window = { desktopShell: { secrets: { protection: async () => protection, access: async () => access } } };
+      const budgets: number[] = [];
+      const evaluate = async (expression: string, _stage?: string, milliseconds?: number) => {
+        if (milliseconds !== undefined) budgets.push(milliseconds);
+        return await runInNewContext(expression, { window, document }) as unknown;
+      };
+      return { run: () => checkQuietPackagedNavigation(evaluate), budgets, document };
+    };
+    const quiet = navigate("os", "denied");
+    await quiet.run();
+    expect(quiet.document.querySelector('section[aria-label="Your machines"]')).not.toBeNull();
+    // A probe that raised a prompt would wait out the product's 30-second deadline.
+    expect(Math.max(...quiet.budgets)).toBeLessThan(30_000);
+    await navigate("os", null).run();
+    await expect(navigate("none", "denied").run()).rejects.toThrow(/fresh OS-protected storage/);
+    await expect(navigate("os", "waiting").run()).rejects.toThrow(/no Keychain access waiting/);
+    await expect(navigate("os", "denied", ["About"]).run()).rejects.toThrow(/offer Your machines/);
   });
 
   it("keeps the combined update request within its existing two-minute deadline", async () => {

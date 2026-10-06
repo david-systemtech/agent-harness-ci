@@ -70,6 +70,58 @@ describe("secrets", () => {
     await electron.app.quitted;
   });
 
+  it("pairs through this data folder's own OS item, and after a refused write asks no more for the refused item", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const dir = join(platform.paths.data, "secrets");
+    // The app-wide item belongs to an earlier, differently signed build, so every access to it
+    // waits on a macOS prompt nobody answers. So does the first item of this data folder.
+    const opened: string[] = [];
+    const prompting = (name: string) => name === "agent-harness" || name === opened.find((each) => each !== "agent-harness");
+    const services = new Map<string, ReturnType<typeof fakeElectron>["safeStorage"]>();
+    let refuseFirst = false;
+    const open = (name: string): MacCredentials => {
+      opened.push(name);
+      const storage = services.get(name) ?? fakeElectron({ os: "darwin" }).safeStorage;
+      services.set(name, storage);
+      const asks = () => refuseFirst ? prompting(name) : name === "agent-harness";
+      // Like the helper, an unanswered prompt ends only when the deadline aborts the call.
+      const approval = <T>(signal: AbortSignal, answer: () => Promise<T>) => (asks()
+        ? new Promise<T>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason as Error), { once: true }))
+        : answer());
+      return {
+        available: (signal) => approval(signal, () => storage.isAsyncEncryptionAvailable()),
+        encrypt: (value, signal) => approval(signal, () => storage.encryptStringAsync(value)),
+        decrypt: (value, signal) => approval(signal, async () => (await storage.decryptStringAsync(value)).result),
+        close: () => {},
+      };
+    };
+    const clock = manualClock();
+    const { shell } = await start({ electron, platform, credentialClock: clock, macCredentials: macCredentialStore({ dir, open }), reportError: () => {} });
+    const secrets = shell().secrets;
+    // An access that asked macOS would wait here until the held clock passes the deadline.
+    expect(await secrets.protection()).toBe("os");
+    await secrets.set(DESK, "token-for-tests-desk");
+    expect(await secrets.get(DESK)).toBe("token-for-tests-desk");
+    expect(opened).not.toContain("agent-harness");
+    // Now this folder's item waits on approval too, as after a second unsigned replacement.
+    refuseFirst = true;
+    let outcome = "pending";
+    const refused = secrets.set(LAPTOP, "token-for-tests-laptop").catch((error: unknown) => { outcome = "refused"; throw error; });
+    await flush();
+    expect(outcome).toBe("pending");
+    clock.advance(30_000);
+    await expect(refused).rejects.toThrow(/30 seconds/);
+    const asked = opened.filter(prompting).length;
+    await secrets.set(LAPTOP, "token-for-tests-laptop");
+    expect(await secrets.get(LAPTOP)).toBe("token-for-tests-laptop");
+    expect(await secrets.protection()).toBe("os");
+    expect(opened.filter(prompting)).toHaveLength(asked);
+    expect(opened).not.toContain("agent-harness");
+    electron.app.quit();
+    await electron.app.quitted;
+  });
+
   it("keeps a lone malformed envelope repairable across fresh writes and relaunch without prior recovery metadata", async () => {
     const electron = fakeElectron({ os: "darwin" });
     const dir = join(platformOn("darwin").paths.data, "secrets");
@@ -200,6 +252,49 @@ describe("secrets", () => {
     await flush();
     expect(readFileSync(file)).toEqual(kept);
     expect(readdirSync(dir)).toEqual([`${DESK}.secret`]);
+    secrets.close();
+  });
+
+  it.each(["the helper's store", "Electron's provider"])("leaves the earlier-build warning off when a fresh install's availability check or write goes unanswered or refused, through %s", async (through) => {
+    const electron = fakeElectron({ os: "darwin" });
+    const dir = join(platformOn("darwin").paths.data, "secrets");
+    const clock = manualClock();
+    let entered!: () => void;
+    let started = new Promise<void>((resolve) => { entered = resolve; });
+    let refuse = false;
+    // The helper process gives up its request when the signal aborts; Electron's provider has no signal and never answers.
+    const unanswered = <T>(signal?: AbortSignal): Promise<T> => {
+      entered();
+      return new Promise<T>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    };
+    const available = (signal?: AbortSignal): Promise<boolean> => (refuse ? Promise.resolve(false) : unanswered(signal));
+    const helper: MacCredentials = {
+      available,
+      encrypt: (_secret, signal) => unanswered(signal),
+      decrypt: (_kept, signal) => unanswered(signal),
+      close: () => {},
+    };
+    electron.safeStorage.isAsyncEncryptionAvailable = () => available();
+    electron.safeStorage.encryptStringAsync = () => unanswered();
+    const macCredentials = through === "the helper's store" ? macCredentialStore({ dir, open: () => helper }) : undefined;
+    const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: "darwin", dir, report: () => {}, clock, ...(macCredentials && { macCredentials }) });
+    const published: unknown[] = [];
+    secrets.onAccess((state) => published.push(state));
+    const expire = async (request: Promise<unknown>) => {
+      const settled = request.catch((error: unknown) => error);
+      await started;
+      started = new Promise<void>((resolve) => { entered = resolve; });
+      clock.advance(30_000);
+      return settled;
+    };
+    expect(await expire(secrets.protection())).toBeInstanceOf(CredentialAccessUnansweredError);
+    expect(await expire(secrets.set(DESK, "token-for-tests-desk"))).toBeInstanceOf(CredentialAccessUnansweredError);
+    refuse = true;
+    await expect(secrets.set(DESK, "token-for-tests-desk")).rejects.toThrow(/unlock or set up the system keychain/);
+    await flush();
+    expect(published).toContain("waiting");
+    expect(published).not.toContain("denied");
+    expect(await secrets.access()).toBeNull();
     secrets.close();
   });
 

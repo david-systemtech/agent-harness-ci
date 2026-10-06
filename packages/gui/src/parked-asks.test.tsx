@@ -1,5 +1,5 @@
 import { openHeaderMenu } from "../test/header-actions.js";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp } from "../test/harness.js";
@@ -103,6 +103,8 @@ describe("the view", () => {
     const view = await openView(app);
     for (const button of within(view).getAllByRole("button")) expect(button.querySelector("svg")).not.toBeNull();
     const allow = within(view).getByRole("button", { name: "Allow" });
+    act(() => allow.blur());
+    fireEvent.keyDown(document.body, { key: "Tab" });
     act(() => allow.focus());
     expect((await screen.findByRole("tooltip")).textContent).toContain("Space");
     await app.user.keyboard("{Enter}");

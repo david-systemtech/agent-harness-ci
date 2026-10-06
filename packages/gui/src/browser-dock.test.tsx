@@ -1,5 +1,5 @@
 import { chooseHeaderAction, openHeaderMenu } from "../test/header-actions.js";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { fakeShell, type FakeShell } from "@agent-harness/client-runtime/testing";
 import { describe, expect, it, vi } from "vitest";
 import { renderApp } from "../test/harness.js";
@@ -103,6 +103,7 @@ describe("the browser dock", () => {
     const stop = dock.getByRole("button", { name: "Stop" });
     expect(stop.querySelector("svg")).not.toBeNull();
     // Keyboard focus opens the tooltip without a wall-clock hover delay.
+    fireEvent.keyDown(document.body, { key: "Tab" });
     act(() => stop.focus());
     expect((await screen.findByRole("tooltip")).textContent).toBe("Stop · Enter / Space");
     await app.user.click(stop);

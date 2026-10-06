@@ -23,7 +23,9 @@ export const NOTICE_LIMIT = 100;
  * `environment.subscribe`, `updated` (the environment now runs another
  * harness version), `update-failed` (an update did not take, and the
  * version it went from runs), `update-refused` (the environment or the desktop's
- * disk check refused `update-environment`), `draining` (it takes no new runs until it
+ * disk check refused `update-environment`), `credential-prompt` (the local
+ * environment's start waits on macOS's prompt for its stored key, #1689),
+ * `draining` (it takes no new runs until it
  * restarts), `account` (an account changed in a way worth saying: the
  * environment's warning, or its sign-in status), `prompt-parked` (a run
  * waits for a person's answer) and `prompt-resolved` (a prompt this client
@@ -45,6 +47,7 @@ export type NoticeKind =
   | "updated"
   | "update-failed"
   | "update-refused"
+  | "credential-prompt"
   | "draining"
   | "account"
   | "prompt-parked"
