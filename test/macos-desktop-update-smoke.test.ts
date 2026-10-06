@@ -269,7 +269,7 @@ describe("the packaged macOS update smoke", () => {
     await expect(checkFreshPackagedCredential(evaluate)).rejects.toThrow(/read back correctly/);
   });
 
-  it("requires navigation after recovery to answer protection inside the product's access deadline, with nothing left waiting", async () => {
+  it("requires navigation to answer protection inside the product's access deadline, with nothing left waiting", async () => {
     const settings = (rows: string[]) => {
       const dom = new JSDOM("");
       const show = (open: string) => {

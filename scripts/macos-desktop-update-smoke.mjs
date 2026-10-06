@@ -190,24 +190,24 @@ export async function checkFreshPackagedCredential(evaluate) {
 }
 
 /**
- * Ordinary navigation must not ask macOS again: Your machines probes protection on every mount, and an
- * answer inside the product's 30-second access deadline proves that probe raised no Keychain prompt.
+ * Ordinary navigation must not ask macOS for the prior build's item: Your machines probes protection on
+ * every mount, and an answer inside the product's 30-second access deadline proves no Keychain prompt.
  */
 export async function checkQuietPackagedNavigation(evaluate) {
   for (const row of ["About", "Your machines"]) {
     assert.equal(await evaluate(`(() => {
       const row = document.querySelector('nav[aria-label="Settings rows"] button[aria-label=${JSON.stringify(row)}]');
       row?.click(); return !!row;
-    })()`, `open ${row} after credential recovery`, 5000), true, `Settings must offer ${row}`);
-    await until(() => evaluate(`!!document.querySelector(${JSON.stringify(`section[aria-label="${row}"]`)})`, `${row} readiness after credential recovery`, 5000), `${row} did not open after credential recovery`, 5000);
+    })()`, `open ${row} beside the prior credential item`, 5000), true, `Settings must offer ${row}`);
+    await until(() => evaluate(`!!document.querySelector(${JSON.stringify(`section[aria-label="${row}"]`)})`, `${row} readiness beside the prior credential item`, 5000), `${row} did not open beside the prior credential item`, 5000);
   }
   const state = await evaluate(`(async () => {
     const secrets = window.desktopShell.secrets;
     const protection = await secrets.protection();
     return { protection, access: await secrets.access() };
-  })()`, "Keychain-free navigation after credential recovery", 25_000);
-  assert.equal(state.protection, "os", "Navigation after recovery must find fresh OS-protected storage without a prompt");
-  assert.notEqual(state.access, "waiting", "Navigation after recovery must leave no Keychain access waiting");
+  })()`, "Keychain-free navigation beside the prior credential item", 25_000);
+  assert.equal(state.protection, "os", "Navigation must find fresh OS-protected storage without a prompt");
+  assert.notEqual(state.access, "waiting", "Navigation must leave no Keychain access waiting");
 }
 
 /** Start elsewhere so a visible but inert repair button cannot pass. */
@@ -564,11 +564,12 @@ async function runSmoke(source, version, { diagnostics, secretsToRedact }) {
     // an unsigned identity must prove bounded recovery without pre-authorising it.
     execute("security", ["unlock-keychain", "-p", "password-for-tests", keychain]);
     await launchDesktop();
-    // The keychain holds the prior build's app-wide item, as on a person's Mac: a new pairing must not touch it.
+    // The keychain holds the prior build's app-wide item, as on a person's Mac: neither navigation
+    // nor a new pairing may touch it. Both waited on its prompt before #1572 was reopened.
+    await checkQuietPackagedNavigation(cdp.evaluate);
     await checkFreshPackagedCredential(cdp.evaluate);
     const outcome = await checkReplacedPackagedCredential(cdp.evaluate);
     await checkFreshPackagedCredential(cdp.evaluate);
-    await checkQuietPackagedNavigation(cdp.evaluate);
     await askForPackagedUpdate(cdp.evaluate, version, outcome);
     assert.deepEqual(readFileSync(join(secrets, `${credentialName}.secret`)), kept, "Recovery must preserve earlier ciphertext");
     const after = await until(async () => {

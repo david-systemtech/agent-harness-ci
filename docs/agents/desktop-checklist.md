@@ -488,10 +488,10 @@ status`, from a release's shim, says `Installed: no`, or the user is new).
    The hosted release smoke replaces a differently signed fixture app,
    exercises pending-read shutdown with a locked test Keychain, then unlocks
    before a normal read and accepts retained access or explained bounded
-   recovery. A fresh write/readback before that read must not touch the prior
-   build's app-wide Keychain item. Both branches require fresh OS-protected
-   storage/readback, a Your machines visit that raises no Keychain wait, and a
-   real launcher upgrade from a lower-stamped server to local readiness. It
+   recovery. Before that read, a Your machines visit and a fresh
+   write/readback must not touch the prior build's app-wide Keychain item.
+   Both branches require fresh OS-protected storage/readback and a real
+   launcher upgrade from a lower-stamped server to local readiness. It
    never pre-authorises the replacement or clicks an OS approval control.
    It does not prove earlier-release data migrations. Run native checks on
    hosted runners, never a person's Mac. Signing/notarisation is tracked in
