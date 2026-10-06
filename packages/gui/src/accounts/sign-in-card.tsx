@@ -4,7 +4,8 @@ import { SignInCode, type AccountRecord } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { useEnvironmentCountdown } from "../environment-countdown.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
-import { Dialog, DialogContent, Input } from "../ui/index.js";
+import { DialogFooter } from "../ui/dialog.js";
+import { CopyButton, Dialog, DialogContent, Input } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
 
 import { SignInQr } from "./sign-in-qr.js";
@@ -48,6 +49,10 @@ type Sending = "add" | "start" | "code" | null;
  *   for a terminal on the environment's machine under it, and the time the
  *   sign-in has left, counted down on the environment's clock from its
  *   `expiresAt` (ten minutes, ADR 0018; #575).
+ * - The dialog stops at the window less its margin (look.md §11.1, #1690): its
+ *   title and close X above and Send the code and Cancel the sign-in below
+ *   stay in the window while the middle (QR, link, code, command) scrolls,
+ *   and the page link folds to two lines beside Copy and Open.
  * - Inline success stays until Done; other ends close the card, said in one line
  *   where the card was opened; so is a refusal of the start. Closing the
  *   card cancels the sign-in it started (`accounts.signin.cancel`), since
@@ -55,6 +60,7 @@ type Sending = "add" | "start" | "code" | null;
  */
 export const SignInCard = ({ environmentId, account, close, say, inline = false, suggestion }: SignInCardProps) => {
   const heading = useId();
+  const codeForm = useId();
   const runtime = useRuntime();
   const shell = useShell();
   const environments = useObservable(runtime.projections.environments);
@@ -215,6 +221,10 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false,
   const title = account === null && accountId === null ? `Add an account on ${environment}` : `Sign in: ${label} on ${environment}`;
   const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
   const canReadClipboard = clipboard !== undefined || typeof navigator.clipboard?.readText === "function";
+  const copyText = (text: string) => clipboard?.writeText(text) ?? navigator.clipboard.writeText(text);
+  // The inline card keeps its actions in its flow; the dialog holds them in its footer, under the scrolling middle.
+  const sendButton = <AccountAction icon={Send} variant="default" type="submit" form={codeForm} className={inline ? "self-end" : undefined} disabled={typed.trim() === ""}>Send the code</AccountAction>;
+  const cancelButton = <AccountAction icon={X} className={inline ? "self-end" : undefined} onClick={leave}>Cancel the sign-in</AccountAction>;
   const content = completed !== null ? <div className="flex flex-col gap-3">
     <p role="status" className="flex items-center gap-2 text-sm text-mint"><Check aria-hidden="true" className="size-4" />{completed}</p>
     <AccountAction icon={Check} variant="default" className="self-end" onClick={() => { say(completed); close(); }}>Done</AccountAction>
@@ -242,7 +252,10 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false,
               <>
                 <p>{localBrowser ? "Finish signing in in the browser on this machine. This dialog completes automatically. If no browser opened, use the page below and paste its code." : `Sign in on ${environment}. Open this page on any device already signed in to the provider:`}</p>
                 <SignInQr url={url} />
-                <p className="break-all font-mono text-xs text-beam-text">{url}</p>
+                <div className="flex items-start gap-2">
+                  <p title={url} className="line-clamp-2 min-w-0 flex-1 break-all font-mono text-xs text-beam-text">{url}</p>
+                  <CopyButton text={url} copy={copyText} label="Copy the sign-in page link" />
+                </div>
                 {shell === undefined ? <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm text-beam-text underline"><ExternalLink aria-hidden="true" className="size-4" />Open the sign-in page</a> : <AccountAction icon={ExternalLink}
                   className="self-start"
                   aria-disabled={openExternal.status === "absent" ? true : undefined}
@@ -256,15 +269,13 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false,
             {sending === "add" && <p className="text-ink-faint">Adding {label}…</p>}
             {sending !== "add" && (checking ? <p role="status" className="flex items-center gap-2 text-ink-faint"><LoaderCircle aria-hidden="true" className="size-4 animate-spin" />Checking the code…</p> : (!followed || followed.state === "starting" || sending === "start") && <p className="text-ink-faint">Starting the sign-in…</p>)}
             {takesCode && (
-              <form aria-label="Send the code" className="flex flex-col gap-1.5" onSubmit={sendCode}>
+              <form id={codeForm} aria-label="Send the code" className="flex flex-col gap-1.5" onSubmit={sendCode}>
                 <label className="flex flex-col gap-1">
                   Then paste the code it shows
                   <Input value={typed} onChange={(event) => setTyped(event.target.value)} autoFocus />
                 </label>
                 {canReadClipboard && <AccountAction icon={Copy} type="button" onClick={() => void pasteCode()}>Paste code from clipboard</AccountAction>}
-                <AccountAction icon={Send} variant="default" type="submit" className="self-end" disabled={typed.trim() === ""}>
-                  Send the code
-                </AccountAction>
+                {inline && sendButton}
               </form>
             )}
             {error !== null && <p role="alert" className="text-xs text-signal">{error}</p>}
@@ -283,9 +294,7 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false,
                 {copied && <p role="status" className="text-2xs text-ink-muted">Terminal command copied.</p>}
               </>
             )}
-            <AccountAction icon={X} className="self-end" onClick={leave}>
-              Cancel the sign-in
-            </AccountAction>
+            {inline && cancelButton}
           </div>
         )}
     </>
@@ -293,5 +302,10 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false,
   return inline ? <section data-account-sign-in aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
     <h3 id={heading} className="flex items-center gap-2 text-sm font-medium"><KeyRound aria-hidden="true" className="size-4" />{title}</h3>
     {content}
-  </section> : <Dialog open onOpenChange={(open) => !open && leave()}><DialogContent title={title} className="max-w-lg">{content}</DialogContent></Dialog>;
+  </section> : <Dialog open onOpenChange={(open) => !open && leave()}>
+    <DialogContent title={title} className="max-w-lg max-h-[calc(100dvh-4rem)]">
+      <div data-sign-in-body className="-m-1 min-h-0 overflow-y-auto p-1">{content}</div>
+      {completed === null && !labelling && <DialogFooter data-sign-in-footer>{cancelButton}{takesCode && sendButton}</DialogFooter>}
+    </DialogContent>
+  </Dialog>;
 };

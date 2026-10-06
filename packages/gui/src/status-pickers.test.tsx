@@ -413,6 +413,39 @@ describe("sign-in", () => {
     await waitFor(() => expect(paneLine()).toBe("The sign-in of personal was cancelled."));
   });
 
+  it("caps the sign-in dialog at the window, keeps its title and actions out of the scrolling middle, and folds the long page link (ticket 1690)", async () => {
+    const { app, env } = await opened([desk({ accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+    await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
+    const card = await screen.findByRole("dialog", { name: "Sign in: personal on desk" });
+    const url = `https://claude.test/oauth/authorize?code=true&scope=${"profile ".repeat(24).trim()}&state=for-tests`;
+    env.signIn("awaiting-code", { url });
+    await within(card).findByRole("textbox", { name: "Then paste the code it shows" });
+
+    // look.md §11.1: the dialog stops at the window less its margin and only its middle scrolls.
+    expect(card.className).toContain("max-h-[calc(100dvh-4rem)]");
+    const middle = card.querySelector<HTMLElement>("[data-sign-in-body]");
+    expect(middle?.className).toContain("overflow-y-auto");
+    expect(middle?.className).toContain("min-h-0");
+    expect(middle?.contains(within(card).getByRole("img", { name: "QR code of the provider sign-in page" }))).toBe(true);
+    expect(middle?.contains(within(card).getByRole("region", { name: "Terminal fallback" }))).toBe(true);
+    for (const outside of [card.querySelector("h2"), within(card).getByRole("button", { name: "Close dialog" }), within(card).getByRole("button", { name: "Send the code" }), within(card).getByRole("button", { name: "Cancel the sign-in" })]) {
+      expect(outside).not.toBeNull();
+      expect(middle?.contains(outside)).toBe(false);
+    }
+
+    // The page link takes at most two lines; copying and opening it carry the whole link.
+    const link = within(card).getByText(url);
+    expect(link.className).toContain("line-clamp-2");
+    expect(link.getAttribute("title")).toBe(url);
+    await app.user.click(within(card).getByRole("button", { name: "Copy the sign-in page link" }));
+    expect(app.shell.calls.filter(([member]) => member === "clipboard.writeText").at(-1)?.slice(1)).toEqual([url]);
+
+    // Send the code, outside the code's form, still sends what the form holds.
+    await app.user.type(within(card).getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests");
+    await app.user.click(within(card).getByRole("button", { name: "Send the code" }));
+    await waitFor(() => expect(sent(env, "accounts.signin.code")).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests#for-tests" })]));
+  });
+
   it("says that a connection without admin cannot add or sign in an account", async () => {
     const { app, env } = await opened([desk({ scopes: ["read", "sessions:write", "runs:drive"] })]);
     const menu = await openPicker(app, "Account");
