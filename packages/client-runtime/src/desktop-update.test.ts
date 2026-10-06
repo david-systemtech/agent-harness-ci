@@ -244,6 +244,52 @@ describe("the desktop's own update", () => {
     expect(build()).toEqual({ state: "ready", version: RUNNING, staged: NEWER });
   });
 
+  it("reports the build ready once a later check hands the same build over for the quit after an earlier hand-over failed", async () => {
+    const message = "The staged build did not match its SHA-256.";
+    let quitFails = true;
+    const { clock, desk, until, build, shellCalls } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) => shell.answer("update.apply", async () => (quitFails ? { outcome: "failed", failure: "install", message } : { outcome: "applied" })),
+    });
+    await until(() => build().state === "failed", "failed the hand-over for the quit");
+    expect(build()).toMatchObject({ failure: "install", message, staged: STAGED });
+
+    quitFails = false;
+    clock.advance(HOUR);
+    await until(() => build().state === "ready", "reported the build handed over");
+
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(shellCalls("update.apply")).toEqual([
+      [STAGED, "quit"],
+      [STAGED, "quit"],
+    ]);
+    expect(desk.requests("updates.desktop.stage")).toHaveLength(2);
+  });
+
+  it("keeps a restart that failed after a failed hand-over for the quit, though a later check hands the same build over", async () => {
+    const restartMessage = "Installing 0.6.0 needs pkexec, which polkit provides, and it is not installed, so 0.5.0 stays installed.";
+    let quitFails = true;
+    const { clock, desk, runtime, until, build, shellCalls } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) =>
+        shell.answer("update.apply", async (_staged, when) =>
+          when === "now" ? { outcome: "failed", failure: "install", message: restartMessage } : quitFails ? { outcome: "failed", failure: "install", message: "The staged build could not be read." } : { outcome: "applied" },
+        ),
+    });
+    await until(() => build().state === "failed", "failed the hand-over for the quit");
+    const failed = await runtime.desktopUpdate.restart();
+    expect(failed).toMatchObject({ failure: "install", message: restartMessage });
+
+    quitFails = false;
+    clock.advance(HOUR);
+    await until(() => desk.requests("updates.desktop.stage").length === 2, "staged the same build again");
+    await until(() => shellCalls("update.apply").length === 3, "handed the build over for the quit");
+    await flush();
+
+    // Ready again would offer the restart that failed (#1692).
+    expect(build()).toEqual(failed);
+  });
+
   it("says which step failed: the check when the local environment's own check could not read the channel, the stage when it refused the build, the install when the shell could not apply it", async () => {
     const unread = await launch({ updates: { status: { lastCheck: { at: "2026-09-24T00:00:00.000Z", result: "failed", reason: "no_release_access", message: "No forge account covers the release origin." } } } });
     await unread.until(() => unread.build().state === "failed", "failed the check");
