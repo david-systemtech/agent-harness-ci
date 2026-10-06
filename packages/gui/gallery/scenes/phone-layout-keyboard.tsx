@@ -15,7 +15,7 @@ export const geometry = [
 
 /**
  * A keyboard that resizes the layout (Firefox on Android, `interactive-widget=resizes-content`; #1737):
- * Message focused then 844 → 480, back to 844 with focus kept, and the reverse order.
+ * Message focused then 844 → 480, back to 844 with focus kept, and the reverse order, ending at 844.
  */
 export const activate = () => {
   const stopInsets = safeAreas()();
@@ -40,6 +40,8 @@ export const activate = () => {
     field.blur(); await settle();
     await resize(480);
     field.focus(); await settle(); verifyKeyboardDock(480, 0);
+    // The capture keeps its planned 390x844 dimensions.
+    await resize(844); verifyKeyboardDock(844, 0);
     if (!stopped) document.querySelector("[data-web-client]")!.setAttribute("data-layout-keyboard-proof", "passed");
   };
   const start = () => {
