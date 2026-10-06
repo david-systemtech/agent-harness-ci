@@ -195,6 +195,12 @@ jobs:
             echo "::error::the container does not have the .env file's AGENT_HARNESS_WEB_ORIGIN ($web_origin); it has '$passed'"
             exit 1
           fi
+          # Every verb run through compose exec defaults to the image's /data, where serve keeps
+          # the grant, so it finds the environment without --data-dir (#1725).
+          if ! docker compose -f "$compose_file" exec -T environment agent-harness update status --json | grep -q '"lastPoll": null'; then
+            echo "::error::agent-harness in the container does not find its environment without --data-dir"
+            exit 1
+          fi
           before=$(find "$project" -type f -exec sha256sum {} + | sort)
           docker compose -f "$compose_file" exec -T environment agent-harness update status --json --data-dir /data | grep -q '"lastPoll": null'
           output=$(AGENT_HARNESS_COMPOSE_FILE="$compose_file" sh "$project/host-updater.sh" --dry-run)
