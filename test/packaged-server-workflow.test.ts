@@ -34,6 +34,16 @@ describe.each(workflows)("the %s release's packed servers", (_name, workflow) =>
 });
 
 describe("the public release's packaged server smoke tests", () => {
+  it("uploads Windows failure evidence retained before the ordinary user's fixture is removed", () => {
+    const body = job(hosted, "smoke-windows");
+    expect(body).toContain("Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path");
+    expect(body).toContain("wevtutil.exe sl Microsoft-Windows-TaskScheduler/Operational /e:true");
+    expect(body.indexOf("$childDiagnostics = Join-Path $work 'diagnostics'")).toBeLessThan(body.indexOf("if ($created) { Remove-LocalUser"));
+    expect(body).toMatch(/name: Keep Windows smoke failure diagnostics\n\s+if: \$\{\{ failure\(\) \}\}\n\s+uses: actions\/upload-artifact@[a-f0-9]{40}/);
+    expect(body).toContain("path: windows-smoke-diagnostics");
+    expect(body).toContain("if-no-files-found: error");
+  });
+
   it.each(["smoke-windows", "smoke-macos", "smoke-linux"])("checks replay handling in the packaged provider listener with its own Node in %s", name => {
     const body = job(hosted, name);
     expect(body).toContain(name === "smoke-windows"

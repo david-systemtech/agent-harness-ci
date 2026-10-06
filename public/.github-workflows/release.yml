@@ -360,7 +360,14 @@ jobs:
           $credential = [PSCredential]::new("$env:COMPUTERNAME\$user", $password)
           $work = Join-Path $env:PUBLIC ('agent-harness-smoke-' + [Guid]::NewGuid())
           $created = $false
+          . (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path
+          $diagnostics = Join-Path (Get-Location).Path 'windows-smoke-diagnostics'
+          $diagnosticSecrets = @($credential.GetNetworkCredential().Password)
+          $smokeStartedAt = [datetime]::UtcNow
+          New-Item -ItemType Directory -Path $diagnostics -Force | Out-Null
           try {
+            & wevtutil.exe sl Microsoft-Windows-TaskScheduler/Operational /e:true
+            if ($LASTEXITCODE -ne 0) { throw 'Could not enable Task Scheduler smoke diagnostics' }
             $account = New-LocalUser -Name $user -Password $password -AccountNeverExpires -PasswordNeverExpires
             $created = $true
             Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
@@ -371,11 +378,18 @@ jobs:
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-update-disk.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/check-packaged-provider-sign-in.mjs').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/stop-windows-process-tree.ps1').Path -Destination (Join-Path $work 'scripts')
+            Copy-Item -LiteralPath (Resolve-Path 'scripts/windows-smoke-diagnostics.ps1').Path -Destination (Join-Path $work 'scripts')
             Copy-Item -LiteralPath (Resolve-Path 'scripts/install.ps1').Path -Destination (Join-Path $work 'install.ps1')
             $smoke = @'
           param([Parameter(Mandatory)][string] $Version)
           $ErrorActionPreference = 'Stop'
           $env:VERSION = $Version
+          . (Join-Path $PSScriptRoot 'scripts/windows-smoke-diagnostics.ps1')
+          $diagnostics = Join-Path $PSScriptRoot 'diagnostics'
+          $smokeStartedAt = [datetime]::UtcNow
+          $diagnosticSecrets = @([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'task-password.txt')))
+          $lastDiscovery = $null
+          $lastRequestError = ''
           $env:USERPROFILE = [Environment]::GetFolderPath('UserProfile')
           $env:LOCALAPPDATA = [Environment]::GetFolderPath('LocalApplicationData')
           $env:APPDATA = [Environment]::GetFolderPath('ApplicationData')
@@ -432,27 +446,39 @@ jobs:
           function Show-Logs {
             Get-ChildItem -LiteralPath $dataDir -Recurse -Filter '*.log' | ForEach-Object {
               Write-Output $_.FullName
-              Get-Content -LiteralPath $_.FullName
+              Protect-WindowsSmokeText -Text ([IO.File]::ReadAllText($_.FullName)) -Secrets $diagnosticSecrets
             }
           }
           function Wait-Ready([string] $defect) {
+            $ready = $false
             $timer = [Diagnostics.Stopwatch]::StartNew()
-            while ($timer.Elapsed.TotalSeconds -lt 120) {
-              if ((Test-Path $serviceLog) -and (Select-String -LiteralPath $serviceLog -SimpleMatch 'names no version' -Quiet)) {
-                throw 'launcher-entry version check (#1382): service log holds "names no version"'
+            try {
+              while ($timer.Elapsed.TotalSeconds -lt 120) {
+                if ((Test-Path $serviceLog) -and (Select-String -LiteralPath $serviceLog -SimpleMatch 'names no version' -Quiet)) {
+                  throw "${defect}: launcher-entry version check (#1382): service log holds names no version"
+                }
+                if ($null -ne $process -and $process.HasExited) { throw "$defect exited with $($process.ExitCode) before readiness" }
+                $discovery = $null
+                try {
+                  $discovery = Invoke-RestMethod -Uri "http://127.0.0.1:$port/.well-known/agent-harness/environment" -TimeoutSec 2
+                  $lastDiscovery = $discovery
+                  $lastRequestError = ''
+                } catch { $lastRequestError = $_.Exception.Message }
+                if ($discovery.harnessVersion -eq $env:VERSION -and $discovery.readiness -eq "ready") {
+                  $ready = $true
+                  Write-Output "$defect ready with release version $env:VERSION"
+                  return
+                }
+                Start-Sleep -Milliseconds 500
               }
-              if ($null -ne $process -and $process.HasExited) { throw "$defect exited with $($process.ExitCode) before readiness" }
-              $discovery = $null
-              try {
-                $discovery = Invoke-RestMethod -Uri "http://127.0.0.1:$port/.well-known/agent-harness/environment" -TimeoutSec 2
-              } catch { }
-              if ($discovery.harnessVersion -eq $env:VERSION -and $discovery.readiness -eq "ready") {
-                Write-Output "$defect ready with release version $env:VERSION"
-                return
+              throw "$defect failed to become ready with release version $env:VERSION within 120 seconds"
+            } finally {
+              if (!$ready) {
+                # Capture while the task, process tree, port and data still exist.
+                $evidence = Join-Path $diagnostics ($defect -replace '[^a-zA-Z0-9_-]', '-')
+                Save-WindowsSmokeDiagnostics -OutputDirectory $evidence -DataDirectory $dataDir -Stage $defect -Port $port -Version $env:VERSION -StartedAt $smokeStartedAt -LastDiscovery $lastDiscovery -LastRequestError $lastRequestError -Secrets $diagnosticSecrets
               }
-              Start-Sleep -Milliseconds 500
             }
-            throw "$defect failed to become ready with release version $env:VERSION within 120 seconds"
           }
           try {
             foreach ($attempt in 1, 2) {
@@ -484,6 +510,7 @@ jobs:
               throw 'launcher-entry version check (#1382): service log holds "names no version"'
             }
           } catch {
+            Save-WindowsSmokeDiagnostics -OutputDirectory (Join-Path $diagnostics 'startup-failure') -DataDirectory $dataDir -Stage 'direct startup or staging' -Port $port -Version $env:VERSION -StartedAt $smokeStartedAt -LastDiscovery $lastDiscovery -LastRequestError $_.Exception.Message -Secrets $diagnosticSecrets
             Show-Logs
             throw
           } finally {
@@ -542,6 +569,9 @@ jobs:
                 if (Test-Path $server) { throw 'Desktop uninstall left app resources behind' }
                 # _?= deliberately leaves the running uninstaller itself; the fixture removes it.
                 if (Test-Path $appDir) { Remove-Item -LiteralPath $appDir -Recurse -Force }
+              } catch {
+                Save-WindowsSmokeDiagnostics -OutputDirectory (Join-Path $diagnostics 'scheduled-task-or-uninstall-failure') -DataDirectory $dataDir -Stage 'scheduled-task start or uninstall' -Port $port -Version $env:VERSION -StartedAt $smokeStartedAt -LastDiscovery $lastDiscovery -LastRequestError $_.Exception.Message -Secrets $diagnosticSecrets
+                throw
               } finally {
                 # Failure cleanup runs after the assertions, preserving their evidence.
                 foreach ($handle in $ownedHandles) {
@@ -574,10 +604,37 @@ jobs:
             $stderr = Join-Path $work 'stderr.log'
             $arguments = '-NoProfile -NonInteractive -File "{0}" -Version "{1}"' -f $script, $env:VERSION
             $child = Start-Process -FilePath (Join-Path $PSHOME 'pwsh.exe') -ArgumentList $arguments -Credential $credential -LoadUserProfile -UseNewEnvironment -WorkingDirectory $work -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
-            Get-Content -LiteralPath $stdout | Out-Host
-            Get-Content -LiteralPath $stderr | Out-Host
+            Protect-WindowsSmokeText -Text ([IO.File]::ReadAllText($stdout)) -Secrets $diagnosticSecrets | Out-Host
+            Protect-WindowsSmokeText -Text ([IO.File]::ReadAllText($stderr)) -Secrets $diagnosticSecrets | Out-Host
             if ($child.ExitCode -ne 0) { throw "Ordinary-user smoke exited with $($child.ExitCode)" }
           } finally {
+            # Retain only sanitized evidence before deleting the user and fixture.
+            $childDiagnostics = Join-Path $work 'diagnostics'
+            try {
+              if (Test-Path $childDiagnostics) {
+                foreach ($file in (Get-ChildItem -LiteralPath $childDiagnostics -Recurse -File)) {
+                  try {
+                    $relative = [IO.Path]::GetRelativePath($childDiagnostics, $file.FullName)
+                    Copy-WindowsSmokeEvidenceFile -Source $file.FullName -Destination (Join-Path $diagnostics $relative) -Secrets $diagnosticSecrets
+                  } catch {
+                    Write-WindowsSmokeCollectionError -Path (Join-Path $diagnostics 'diagnostic-copy.error.txt') -Message $_.Exception.Message -Secrets $diagnosticSecrets
+                  }
+                }
+              }
+            } catch {
+              Write-WindowsSmokeCollectionError -Path (Join-Path $diagnostics 'diagnostic-list.error.txt') -Message $_.Exception.Message -Secrets $diagnosticSecrets
+            }
+            foreach ($name in 'stdout.log', 'stderr.log') {
+              Copy-WindowsSmokeEvidenceFile -Source (Join-Path $work $name) -Destination (Join-Path $diagnostics $name) -Secrets $diagnosticSecrets
+            }
+            # The ordinary user may not read Operational; collect the task-scoped
+            # events with the runner account as well, without elevating the smoke.
+            try {
+              $events = ConvertTo-Json -InputObject @(Get-WindowsSmokeTaskEvents -StartedAt $smokeStartedAt) -Depth 12
+              Write-WindowsSmokeText -Path (Join-Path $diagnostics 'runner-task-events.json') -Text $events -Secrets $diagnosticSecrets
+            } catch {
+              Write-WindowsSmokeCollectionError -Path (Join-Path $diagnostics 'runner-task-events.error.txt') -Message $_.Exception.Message -Secrets $diagnosticSecrets
+            }
             try {
               if ($created) { Remove-LocalUser -Name $user }
             } finally {
@@ -585,6 +642,14 @@ jobs:
               $password.Dispose()
             }
           }
+
+      - name: Keep Windows smoke failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-smoke-diagnostics
+          path: windows-smoke-diagnostics
+          if-no-files-found: error
 
   smoke-macos:
     needs: [check, desktop-macos]
