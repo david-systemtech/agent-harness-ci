@@ -39,8 +39,8 @@ const tempDir = (): string => {
 const NO_BUBBLEWRAP: ContainmentProbe = {
   mechanism: null,
   levels: {
-    workspace: { available: false, reason: "bubblewrap is not installed.", cause: "binary_missing" },
-    "workspace-no-network": { available: false, reason: "bubblewrap is not installed.", cause: "binary_missing" },
+    workspace: { available: false, reason: "bubblewrap is not installed.", cause: "binary_missing", detail: null },
+    "workspace-no-network": { available: false, reason: "bubblewrap is not installed.", cause: "binary_missing", detail: null },
   },
   container: { declared: false, detected: false },
 };

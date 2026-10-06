@@ -23,7 +23,9 @@ import { CONTAINER_MARKER_VARIABLE, isDeclaredContainer, isDetectedContainer } f
  * When bubblewrap cannot work, the probe says why, for people and as a
  * cause: the binary missing, user namespaces blocked by the kernel,
  * AppArmor's restriction (Ubuntu 24.04), a seccomp profile (Docker's default
- * one), `socat` missing, or bwrap's own message. A container is reported as
+ * one), `socat` missing, or bwrap failing otherwise. What the failing command
+ * printed is the detail beside the reason, never in it (#1756): its links and
+ * paths on this machine are the tool's words, not the harness's. A container is reported as
  * the operator's outer boundary and enforces no level: inside one the
  * workspace levels need bubblewrap to work there, like anywhere else.
  *
@@ -39,7 +41,7 @@ export type ProbeCause = Exclude<ContainmentCause, "adapter" | "probe_failed" | 
 /** One workspace level as the probe found it. */
 export type LevelProbe =
   | { readonly available: true; readonly reason: null; readonly cause: null }
-  | { readonly available: false; readonly reason: string; readonly cause: ProbeCause };
+  | { readonly available: false; readonly reason: string; readonly cause: ProbeCause; readonly detail: string | null };
 
 /** What the probe found: each workspace level, the mechanism that enforces them (null when neither can be), the container. */
 export interface ContainmentProbe {
@@ -72,19 +74,19 @@ export const PROBE_COMMAND_TIMEOUT_MS = 5_000;
 
 const AVAILABLE: LevelProbe = { available: true, reason: null, cause: null };
 
-const unavailable = (cause: ProbeCause, reason: string): LevelProbe => ({ available: false, reason, cause });
+const unavailable = (cause: ProbeCause, reason: string, detail: string | null = null): LevelProbe => ({ available: false, reason, cause, detail });
 
-/** A problem the probe found, with its cause. */
+/** A problem the probe found, with its cause, and what the command that found it printed (null when none ran). */
 interface Problem {
   readonly cause: ProbeCause;
   readonly reason: string;
+  readonly detail: string | null;
 }
 
-/** The first line a command printed, for a reason. */
-const said = (answer: CommandAnswer): string => {
-  const line = answer.output.split("\n").find((text) => text.trim() !== "")?.trim();
-  return line === undefined ? `it exited with ${answer.code === null ? "no code" : `code ${answer.code}`}` : `it said: ${line}`;
-};
+/** The first line a failed command printed, for the detail; when it printed nothing, how it exited. */
+const printed = (answer: CommandAnswer): string =>
+  answer.output.split("\n").find((text) => text.trim() !== "")?.trim() ??
+  `It exited with ${answer.code === null ? "no code" : `code ${answer.code}`} and printed nothing.`;
 
 /** The preset: the running process's machine, each command given `timeoutMs` (preset `PROBE_COMMAND_TIMEOUT_MS`). */
 export const processProbeSystem = ({ timeoutMs = PROBE_COMMAND_TIMEOUT_MS }: { readonly timeoutMs?: number } = {}): ProbeSystem => ({
@@ -138,24 +140,26 @@ const inContainer = (container: ContainmentContainer): boolean => container.decl
  */
 const namespaceProblem = (system: ProbeSystem, container: ContainmentContainer, answer: CommandAnswer, what: string): Problem => {
   const setting = (path: string): string | undefined => system.read(path)?.trim();
-  const detail = ` (${said(answer)})`;
+  const detail = printed(answer);
   if (setting("/proc/sys/kernel/unprivileged_userns_clone") === "0" || setting("/proc/sys/user/max_user_namespaces") === "0") {
     return {
       cause: "userns_blocked",
-      reason: `${what}: the kernel does not allow unprivileged user namespaces (kernel.unprivileged_userns_clone or user.max_user_namespaces is 0)${detail}.`,
+      reason: `${what}: the kernel does not allow unprivileged user namespaces (kernel.unprivileged_userns_clone or user.max_user_namespaces is 0).`,
+      detail,
     };
   }
   if (setting("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") === "1") {
     return {
       cause: "apparmor",
-      reason: `${what}: AppArmor restricts unprivileged user namespaces here (kernel.apparmor_restrict_unprivileged_userns is 1, as on Ubuntu 24.04), so bwrap needs an AppArmor profile that allows them${detail}.`,
+      reason: `${what}: AppArmor restricts unprivileged user namespaces here (kernel.apparmor_restrict_unprivileged_userns is 1, as on Ubuntu 24.04), so bwrap needs an AppArmor profile that allows them.`,
+      detail,
     };
   }
   if (/^Seccomp:\s*2\s*$/m.test(system.read("/proc/self/status") ?? "")) {
     const whose = inContainer(container) ? "the container's seccomp profile (Docker's default one does)" : "a seccomp filter on this process";
-    return { cause: "seccomp", reason: `${what}: ${whose} refuses to create user namespaces${detail}.` };
+    return { cause: "seccomp", reason: `${what}: ${whose} refuses to create user namespaces.`, detail };
   }
-  return { cause: "failed", reason: `${what}: ${said(answer)}.` };
+  return { cause: "failed", reason: `${what}.`, detail };
 };
 
 const BWRAP_TRIVIAL = ["--unshare-user", "--ro-bind", "/", "/", "--", "true"] as const;
@@ -164,20 +168,24 @@ const BWRAP_NO_NETWORK = ["--unshare-user", "--unshare-net", "--ro-bind", "/", "
 const SOCAT_MISSING: Problem = {
   cause: "socat_missing",
   reason: "socat is not installed: Claude's sandbox needs it beside bubblewrap on Linux for its network proxy, at either workspace level. Install the socat package.",
+  detail: null,
 };
 
 const probeLinux = async (system: ProbeSystem, container: ContainmentContainer): Promise<Omit<ContainmentProbe, "container">> => {
   const problems: Problem[] = [];
   const bwrap = system.which("bwrap");
   if (bwrap === null) {
-    let reason = "bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.";
+    let missing: Problem = { cause: "binary_missing", reason: "bubblewrap is not installed: bwrap is not on the PATH. Install the bubblewrap package.", detail: null };
     // Whether installing it would be enough: `unshare` makes the same user namespace bwrap would.
     const unshare = system.which("unshare");
     if (unshare !== null) {
       const answer = await system.run(unshare, ["--user", "--map-root-user", "true"]);
-      if (answer.code !== 0) reason += ` Installing it would not be enough here: ${namespaceProblem(system, container, answer, "user namespaces are refused").reason}`;
+      if (answer.code !== 0) {
+        const refused = namespaceProblem(system, container, answer, "user namespaces are refused");
+        missing = { ...missing, reason: `${missing.reason} Installing it would not be enough here: ${refused.reason}`, detail: refused.detail };
+      }
     }
-    problems.push({ cause: "binary_missing", reason });
+    problems.push(missing);
   } else {
     const answer = await system.run(bwrap, BWRAP_TRIVIAL);
     if (answer.code !== 0) problems.push(namespaceProblem(system, container, answer, "bubblewrap could not run a command in an unshared user namespace with a read-only root"));
@@ -188,14 +196,16 @@ const probeLinux = async (system: ProbeSystem, container: ContainmentContainer):
     const outer = inContainer(container)
       ? " This environment runs in a container, the operator's outer boundary, which enforces no containment level by itself: the workspace levels need bubblewrap to work inside it."
       : "";
-    const level = unavailable(first?.cause ?? "binary_missing", `${problems.map((problem) => problem.reason).join(" ")}${outer}`);
+    const details = problems.flatMap((problem) => (problem.detail === null ? [] : [problem.detail]));
+    const level = unavailable(first?.cause ?? "binary_missing", `${problems.map((problem) => problem.reason).join(" ")}${outer}`, details.length === 0 ? null : details.join("\n"));
     return { mechanism: null, levels: { workspace: level, "workspace-no-network": level } };
   }
   const network = await system.run(bwrap, BWRAP_NO_NETWORK);
   if (network.code !== 0) {
     const level = unavailable(
       "failed",
-      `bubblewrap cannot give a run a network namespace of its own here, which the provider's sandbox uses to restrict or close a run's network, so neither workspace level is offered: ${said(network)}.`,
+      "bubblewrap cannot give a run a network namespace of its own here, which the provider's sandbox uses to restrict or close a run's network, so neither workspace level is offered.",
+      printed(network),
     );
     return { mechanism: null, levels: { workspace: level, "workspace-no-network": level } };
   }
@@ -212,7 +222,7 @@ const probeMac = async (system: ProbeSystem): Promise<Omit<ContainmentProbe, "co
   }
   const answer = await system.run(executable, ["-p", SEATBELT_PROFILE, "/usr/bin/true"]);
   if (answer.code !== 0) {
-    const level = unavailable("failed", `Seatbelt could not run a command under a profile that denies the network: ${said(answer)}.`);
+    const level = unavailable("failed", "Seatbelt could not run a command under a profile that denies the network.", printed(answer));
     return { mechanism: null, levels: { workspace: level, "workspace-no-network": level } };
   }
   return { mechanism: "seatbelt", levels: { workspace: AVAILABLE, "workspace-no-network": AVAILABLE } };

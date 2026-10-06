@@ -143,6 +143,9 @@ describe("what this environment can enforce", () => {
       expect(level, level.level).toMatchObject({ available: false, cause: "seccomp" });
       expect(level.reason, level.level).toMatch(/seccomp/);
       expect(level.reason, level.level).toMatch(/outer boundary/);
+      // What bwrap printed rides beside the reason, not in it (#1756).
+      expect(level.reason, level.level).not.toMatch(/bwrap:/);
+      expect(level, level.level).toMatchObject({ detail: expect.stringMatching(/^bwrap: No permissions to create new namespace/) });
     }
   });
 

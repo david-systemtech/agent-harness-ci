@@ -120,6 +120,7 @@ const reviewRun = {
 const levels = [
   { level: "off", available: true, reason: null, cause: null },
   { level: "workspace", available: false, reason: "bubblewrap (bwrap) is not on the PATH.", cause: "binary_missing" },
+  { level: "workspace-no-network", available: false, reason: "bubblewrap could not run a command.", cause: "failed", detail: "bwrap: Can't mount proc on /newroot/proc: Operation not permitted" },
 ];
 const report = { levels, mechanism: null, container: { declared: false, detected: true } };
 const bubblewrap = {
@@ -166,6 +167,7 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
       { level: "workspace", available: false, reason: null, cause: "seccomp" },
       { level: "workspace", available: false, reason: "No bwrap.", cause: null },
       { level: "workspace", available: false, reason: "No bwrap.", cause: "missing" },
+      { level: "workspace", available: false, reason: "No bwrap.", cause: "failed", detail: "" },
       { level: "workspace", available: true, reason: null },
     ],
   },

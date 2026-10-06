@@ -1,10 +1,12 @@
 import type { SettingsValues } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
+import { DESKTOP_UNREAD_RECHECK_MS } from "./desktop-update.js";
 import { createRuntime } from "./runtime.js";
 import type { Shell, ShellStagedBuild } from "./shell.js";
 import { flush } from "./testing/fake-wire.js";
 import { fakeShell, inMemoryPlatform, manualClock, type FakeShell } from "./testing/in-memory-platform.js";
 import { scriptedWorld, type EnvironmentHandle, type ScriptedEnvironment, type ScriptedUpdates } from "./testing/scripted-environment.js";
+import { desktopBuildWords } from "./updates/words.js";
 
 /**
  * The desktop's update flow in the client runtime (launcher-update spec,
@@ -112,6 +114,60 @@ describe("the desktop's own update", () => {
     // The desktop reached the forge by no route of its own: the shell made no HTTP request.
     expect(shellCalls("http")).toEqual([]);
     expect(shell.calls.map(([member]) => member)).not.toContain("http");
+  });
+
+  it("waits for the local environment's first read of its channel, never reporting the build newest, and stages the newer build as soon as that read lands (#1753)", async () => {
+    const { clock, desk, until, build } = await launch();
+    await until(() => build().state === "waiting", "waited for the environment's first check");
+    expect(build()).toEqual({ state: "waiting", version: RUNNING });
+    expect(desktopBuildWords(build())).not.toBe("This client's build is the newest.");
+
+    // The environment reads its channel two minutes after its start: until then each look again finds it unread.
+    for (let looked = 2; looked * DESKTOP_UNREAD_RECHECK_MS <= 2 * MINUTE + DESKTOP_UNREAD_RECHECK_MS; looked++) {
+      clock.advance(DESKTOP_UNREAD_RECHECK_MS);
+      await until(() => desk.requests("updates.status").length === looked, "looked again");
+      for (let i = 0; i < 5; i++) await flush();
+      expect(build()).toEqual({ state: "waiting", version: RUNNING });
+    }
+
+    // The read lands between two looks: the next one, within DESKTOP_UNREAD_RECHECK_MS, stages what it found, not an hour later.
+    desk.setUpdates({ status: { newest: "0.6.0", lastCheck: { at: "2026-10-03T21:21:26.000Z", result: "ok" } }, desktopBuild: STAGED });
+    clock.advance(DESKTOP_UNREAD_RECHECK_MS - 1);
+    for (let i = 0; i < 5; i++) await flush();
+    expect(params(desk, "updates.desktop.stage")).toEqual([]);
+    clock.advance(1);
+    await until(() => build().state === "ready", "staged the build the first read found");
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+  });
+
+  it("does not show checking again while it waits for the local environment's first read", async () => {
+    const { clock, desk, runtime, until, build } = await launch();
+    await until(() => build().state === "waiting", "waited for the environment's first check");
+    const seen: string[] = [];
+    const stop = runtime.desktopUpdate.view.subscribe((view) => seen.push(view.build.state));
+    onTestFinished(stop);
+
+    clock.advance(DESKTOP_UNREAD_RECHECK_MS);
+    await until(() => desk.requests("updates.status").length === 2, "looked again");
+    await flush();
+    expect(seen).not.toContain("checking");
+    expect(build()).toEqual({ state: "waiting", version: RUNNING });
+  });
+
+  it("never reports a build older than the local environment's own version as the newest before the channel is read, and follows the newest once it is (#1753)", async () => {
+    const unread = await launch({ updates: { status: { version: "0.6.0" }, desktopBuild: STAGED } });
+    await unread.until(() => unread.build().state === "ready", "staged the environment's version");
+    expect(params(unread.desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
+
+    // The channel's newest below the version the environment runs (a beta it left, a release withdrawn) is what a stage would stage: nothing newer.
+    const below = await launch({ updates: { status: { version: "0.6.0", newest: RUNNING, lastCheck: { at: "2026-10-03T21:00:00.000Z", result: "ok" } }, desktopBuild: STAGED } });
+    await below.until(() => below.build().state === "current", "followed the channel's newest");
+    expect(params(below.desk, "updates.desktop.stage")).toEqual([]);
+
+    // A read that found no release on the channel (a beta left for a stable channel with none yet): a stage would find nothing either.
+    const empty = await launch({ updates: { status: { version: "0.6.0", lastCheck: { at: "2026-10-03T21:00:00.000Z", result: "ok" } }, desktopBuild: STAGED } });
+    await empty.until(() => empty.build().state === "current", "found nothing on the channel");
+    expect(params(empty.desk, "updates.desktop.stage")).toEqual([]);
   });
 
   it("follows the local environment's pin, whatever its channel's newest", async () => {
