@@ -24,7 +24,7 @@ export type PushState = "disabled" | "ready" | "denied" | "unavailable" | "insta
 
 const ENABLED_AT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 /** A person tells their push registrations apart by browser, system and when each was enabled; the id is an opaque client session id. */
-export const pushTargetLabel = (userAgent: string, enabledAt: Date): string => `${browserName(userAgent)}, enabled ${ENABLED_AT.format(enabledAt)}`;
+export const pushTargetLabel = (userAgent: string, enabledAt: Date, touchPoints = 0): string => `${browserName(userAgent, touchPoints)}, enabled ${ENABLED_AT.format(enabledAt)}`;
 /** Browser permission and subscription are browser-owned; registration status remains environment-owned. */
 export class PushController {
   private readonly state;
@@ -163,7 +163,7 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
         if (!result.ok) throw new Error("Registration unavailable.");
         return result.result.targets.some(target => target.id === id && !target.global && target.transport === "push" && target.enabled);
       },
-      set: subscription => accepted({ id, label: pushTargetLabel(navigator.userAgent, clock.now()), transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
+      set: subscription => accepted({ id, label: pushTargetLabel(navigator.userAgent, clock.now(), navigator.maxTouchPoints), transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
       remove: () => accepted(),
       test: async () => { if (!sessionId) throw new Error("Open a session first."); const result = await runtime.requests.call(environmentId, "attention.push.test", { id, sessionId }); if (!result.ok) throw new Error("Test failed."); return result.result.status; },
     });

@@ -92,7 +92,7 @@ export const browserPlatform = (view: Window & typeof globalThis, version: strin
     webSocket: standardWebSocketFactory(view.WebSocket),
     fetch: (url, request) => view.fetch(url, request),
     clock: systemClock(), network: browserNetwork(view),
-    client: { kind: "web", label: webClientLabel(view.navigator.userAgent, runsInstalled(view)), version },
+    client: { kind: "web", label: webClientLabel(view.navigator.userAgent, view.navigator.maxTouchPoints, runsInstalled(view)), version },
     // Raw errors can contain pairing URLs or connection credentials; keep them out of the console.
     reportError: () => view.console.error("The browser client could not complete an operation."),
   };
