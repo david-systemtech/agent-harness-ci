@@ -40,19 +40,24 @@ export default function PhonePairingUnlistedOrigin({ ladder }: { readonly ladder
   return <div data-web-gallery style={{ width: "100vw", height: "100dvh" }}><App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform: browser, route: {} }} /></div>;
 }
 
-/** Opens the pairing screen from the phone header and sends the further environment's link, as a person pasting it would. */
+/** Opens the pairing screen from the phone header's More menu and sends the further environment's link, as a person pasting it would. */
 export const activate = () => {
-  let opened = false, sent = false;
+  let menu = false, opened = false, sent = false;
   const advance = () => {
-    const open = document.querySelector<HTMLButtonElement>('[aria-label="Pair with an environment"]');
-    if (!opened && open) { opened = true; open.click(); return; }
     const form = document.querySelector<HTMLFormElement>('[aria-label="Pair by link"]');
     const field = form?.querySelector("input");
-    if (sent || !form || !field) return;
-    sent = true;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, FURTHER);
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    requestAnimationFrame(() => form.requestSubmit());
+    if (form && field) {
+      if (sent) return;
+      sent = true;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, FURTHER);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      requestAnimationFrame(() => form.requestSubmit());
+      return;
+    }
+    const pair = document.querySelector<HTMLElement>('[role="menuitem"][aria-label="Pair with an environment"]');
+    if (pair && !opened) { opened = true; pair.click(); return; }
+    const more = document.querySelector<HTMLButtonElement>('[aria-label="More"]');
+    if (more && !menu) { menu = true; more.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "touch" })); }
   };
   const observer = new MutationObserver(advance);
   observer.observe(document.body, { childList: true, subtree: true });
