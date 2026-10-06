@@ -28,6 +28,17 @@ export const PHONE_PROFILES = [
   { suffix: "phone-390-keyboard", viewport: { width: 390, height: 480 }, textSize: 14 },
 ] as const;
 
+/**
+ * Laptop windows shorter than the standard captures, for dialogs whose header and footer must stay in
+ * the window (look.md §11.1; #1690 measured the sign-in dialog off-screen at 1280 × 800 and 1280 × 700).
+ * Geometry does not depend on the ladder, so these take the dark ladder only.
+ */
+export const LAPTOP_PROFILES = [
+  { suffix: "laptop-800", viewport: { width: 1280, height: 800 } },
+  { suffix: "laptop-700", viewport: { width: 1280, height: 700 } },
+] as const;
+const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in"]);
+
 export interface CaptureCase {
   readonly scene: string;
   readonly ladder: "light" | "dark";
@@ -39,11 +50,16 @@ export interface CaptureCase {
 
 /** Phone owners opt in with phone-* scene files; existing desktop names and ladders stay intact. */
 export function capturePlan(scenes: readonly string[]) {
-  const desktop: CaptureCase[] = ([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
-    captureCases(scenes).map(({ scene, ladder }) => ({
-      scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
-    })),
-  );
+  const desktop: CaptureCase[] = [
+    ...([{ width: 1400, height: 900 }, { width: 1024, height: 768 }] as const).flatMap(viewport =>
+      captureCases(scenes).map(({ scene, ladder }): CaptureCase => ({
+        scene, ladder, viewport, name: captureName(scene, viewport.width, ladder), textSize: 14, platform: "desktop",
+      })),
+    ),
+    ...scenes.filter(scene => LAPTOP_SCENES.has(scene)).flatMap(scene => LAPTOP_PROFILES.map(({ suffix, viewport }): CaptureCase => ({
+      scene, ladder: "dark", viewport, name: `${scene}-${suffix}.dark`, textSize: 14, platform: "desktop",
+    }))),
+  ];
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
     // Surface scenes carry the full matrix; scaffold and duplicate keyboard scenes keep one proof.
     (scene.startsWith("phone-landscape-") ? LANDSCAPE_PHONE_PROFILES : scene.startsWith("phone-compact-composer-") ? COMPACT_COMPOSER_PROFILES : PHONE_PROFILES).filter(profile => {

@@ -14,6 +14,17 @@ it("preserves desktop captures and names the bounded phone profiles distinctly",
   ]);
 });
 
+it("adds 1280 × 800 and 1280 × 700 laptop captures for the sign-in dialog only (ticket 1690)", () => {
+  const plan = capturePlan(["dialog-restore", "dialog-sign-in"]);
+  expect(plan.captures.filter(c => c.scene === "dialog-sign-in").map(c => [c.name, c.viewport])).toEqual([
+    ["dialog-sign-in.light", { width: 1400, height: 900 }], ["dialog-sign-in.dark", { width: 1400, height: 900 }],
+    ["dialog-sign-in-narrow.light", { width: 1024, height: 768 }], ["dialog-sign-in-narrow.dark", { width: 1024, height: 768 }],
+    ["dialog-sign-in-laptop-800.dark", { width: 1280, height: 800 }], ["dialog-sign-in-laptop-700.dark", { width: 1280, height: 700 }],
+  ]);
+  expect(plan.captures.filter(c => c.scene === "dialog-restore")).toHaveLength(4);
+  expect(plan.captures.every(c => c.platform === "desktop")).toBe(true);
+});
+
 it("retains desktop and bounded phone profiles while allowing surface-owned growth", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
   expect(plan.budget.desktop).toBeGreaterThanOrEqual(354);

@@ -11,7 +11,7 @@ Use this recipe when a deliberate GUI change produces reviewed pixel differences
 
 Captures run on hosted CI. Local acceptance downloads existing captures and launches no browser. If the script reports no captures for the current head, wait for its gallery run and comment before retrying.
 
-The shell wave has landed: missing baselines, pixel differences beyond the 0.05% budget (pixelmatch threshold 0.1), and geometry failures block. Every discovered desktop scene has dark captures at 1400 × 900 and 1024 × 768; the light subset follows `look.md §16`. Scene names reserve the generated `-narrow` suffix.
+The shell wave has landed: missing baselines, pixel differences beyond the 0.05% budget (pixelmatch threshold 0.1), and geometry failures block. Every discovered desktop scene has dark captures at 1400 × 900 and 1024 × 768; the light subset follows `look.md §16`. The scenes `LAPTOP_SCENES` names in `gallery/capture-plan.ts` (the sign-in dialog, #1690) also take dark captures at 1280 × 800 and 1280 × 700, named `<scene>-laptop-800` and `<scene>-laptop-700`, so a dialog's header and footer are measured inside a short laptop window. Scene names reserve the generated `-narrow` and `-laptop-*` suffixes.
 
 A scene may export a fixed geometry array or a function receiving `{ width, height }` from the capture viewport. The mount resolves that function before marking the scene ready. Keep control dimensions fixed and compute available column widths from the frame contract. A `minimumHeight` check is available for content that grows beyond its viewport floor; exact `height` checks still apply where the scene fixes its height.
 
