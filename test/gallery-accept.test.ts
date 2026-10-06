@@ -281,6 +281,10 @@ it.each([
   ["phone-gallery-conversation-phone-360-short.dark.png", 360, 400],
   ["phone-gallery-conversation-phone-430.light.png", 430, 932],
   ["phone-gallery-conversation-phone-430-short.dark.png", 430, 360],
+  ["phone-gallery-conversation-phone-844.dark.png", 844, 390],
+  ["phone-gallery-conversation-phone-740.light.png", 740, 360],
+  ["phone-gallery-conversation-phone-844-text-20.dark.png", 844, 390],
+  ["phone-gallery-conversation-phone-740-text-20.light.png", 740, 360],
   ["phone-settings-phone-mode-phone-390.dark.png", 390, 844],
 ] as const)("accepts a reviewed %s capture through the same authenticated manifest", async (name, width, height) => {
   const f = await fixture("versioned", 1, { name, width, height });
@@ -299,6 +303,12 @@ it.each([
   ["phone-gallery-conversation-phone-430-short.dark.png", 430, 932],
   ["phone-gallery-conversation-phone-320-extra.dark.png", 320, 568],
   ["phone-gallery-conversation.dark.png", 320, 568],
+  ["phone-gallery-conversation-phone-844.dark.png", 390, 844],
+  ["phone-gallery-conversation-phone-740.light.png", 360, 740],
+  ["phone-gallery-conversation-phone-844-text-20.dark.png", 740, 360],
+  ["phone-gallery-conversation-phone-740-text-20.light.png", 844, 390],
+  ["phone-gallery-conversation-phone-844-extra.dark.png", 844, 390],
+  ["phone-gallery-conversation-phone-740-short.light.png", 740, 360],
 ] as const)("rejects %s with incorrect dimensions before writing baselines", async (name, width, height) => {
   const f = await fixture("versioned", 1, { name, width, height });
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Unexpected phone gallery dimensions") });
@@ -313,8 +323,8 @@ it("accepts 472 captures across a complete independently bounded report set", as
   expect(readFileSync(join(f.folder, "packages/gui/gallery/baselines/window-scene-471.dark.png"))).toEqual(png);
 });
 
-it.each(["truncated-png", "invalid-ihdr"])("rejects a %s phone-320 attachment even when its manifest hash matches", async mode => {
-  const f = await fixture(mode, 1, { name: "phone-frame-conversation-phone-320.dark.png", width: 320, height: 568 });
+it.each(["320", "844"].flatMap(profile => ["truncated-png", "invalid-ihdr"].map(mode => [profile, mode] as const)))("rejects a phone-%s %s attachment even when its manifest hash matches", async (profile, mode) => {
+  const f = await fixture(mode, 1, { name: `phone-frame-conversation-phone-${profile}.dark.png`, ...(profile === "320" ? { width: 320, height: 568 } : { width: 844, height: 390 }) });
   await expect(run("bash", [script, "42"], { env: f.env })).rejects.toMatchObject({ stderr: expect.stringContaining("Gallery attachment is not a PNG") });
   expect(existsSync(join(f.folder, "packages/gui/gallery/baselines"))).toBe(false);
 });
