@@ -92,6 +92,12 @@ describe("the release workflow's desktop jobs", () => {
     }
   });
 
+  it("checks the built Arch package depends on polkit, which the desktop's own update runs pkexec from", () => {
+    for (const workflow of [lines, release]) {
+      expect(desktopJobs(workflow).get("linux-x64")).toContain('          grep -qx "depend = polkit" unpacked/.PKGINFO');
+    }
+  });
+
   it("list each desktop in the release with the platform and format its shell's update installs", () => {
     const listed = release.filter((line) => line.includes("--asset desktop:")).map((line) => line.trim().replace(/ \\$/, ""));
     expect(listed).toEqual(DESKTOP_TARGETS.map(({ platform, format, name }) => `--asset desktop:${platform}:${format}=desktop/${name}`));

@@ -29,10 +29,14 @@ const unpack = (kept: Buffer): { name: string; encrypted: Buffer } => {
 };
 
 /**
- * Selects OS items independently of ciphertext. An unavailable earlier item is
- * kept intact; new writes use a new helper name, hence a new Keychain item.
- * The envelope records its item, and private metadata remembers recovery
- * across launches so no background retry repeatedly asks for the earlier key.
+ * Selects OS items independently of ciphertext. Writes and availability use an
+ * item of this data folder's own, never the app-wide original: an earlier,
+ * differently signed build may own that one even when this folder is new.
+ * The original only reads raw earlier ciphertext. An item whose access fails
+ * or is refused is kept intact but retired, and new writes use a new helper
+ * name, hence a new Keychain item. The envelope records its item, and private
+ * metadata remembers retired items across launches so no background retry or
+ * availability probe asks for one again.
  */
 export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacCredentials & {
   recover(kept: Buffer): Promise<void>;
@@ -41,7 +45,7 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
   const file = join(dir, "mac-credential-store.json");
   const providers = new Map<string, MacCredentials>();
   const unavailable = new Set<string>();
-  let active = ORIGINAL_NAME;
+  let active: string | undefined;
   let closed = false;
   const usable = () => { if (closed) throw new Error("Desktop credential access was cancelled at shutdown."); };
   const load = (async () => {
@@ -68,13 +72,63 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
     return current;
   };
   const ready = async () => { await saved; usable(); };
+  /** Metadata from before #1572's reopening may still name the original as active. */
+  const choose = (): boolean => {
+    if (active !== undefined && active !== ORIGINAL_NAME && !unavailable.has(active)) return false;
+    active = `agent-harness credentials ${randomUUID()}`;
+    return true;
+  };
+  const persist = () => {
+    const text = JSON.stringify({ active, unavailable: [...unavailable] });
+    saved = saved.then(async () => {
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await chmod(dir, 0o700);
+      const next = `${file}.${randomUUID()}.next`;
+      try {
+        await writeFile(next, text, { mode: 0o600 });
+        usable();
+        await rename(next, file);
+      } catch (error) { await rm(next, { force: true }); throw error; }
+    });
+  };
+  /** This folder's item, recorded before its first use. */
+  const own = async (): Promise<string> => {
+    await ready();
+    if (choose()) persist();
+    const name = active as string;
+    await ready();
+    return name;
+  };
+  /** Callers have loaded the metadata; marking before any await keeps a concurrent write off the item. */
+  const retire = async (name: string) => {
+    usable();
+    if (!unavailable.has(name)) {
+      unavailable.add(name);
+      providers.get(name)?.close();
+      providers.delete(name);
+      choose();
+      persist();
+    }
+    await saved;
+  };
+  /** A failure other than shutdown retires the item, so later writes do not ask for it again. */
+  const attempt = async <T>(name: string, operation: (item: MacCredentials) => Promise<T>, refused: (answer: T) => boolean = () => false): Promise<T> => {
+    let answer: T;
+    try { answer = await operation(provider(name)); }
+    catch (error) {
+      // The operation's reason is the one to report; a metadata fault surfaces at the next call.
+      if (!closed) await retire(name).catch(() => {});
+      throw error;
+    }
+    if (refused(answer) && !closed) await retire(name);
+    return answer;
+  };
   return {
-    async available(signal) { await ready(); return provider(active).available(signal); },
+    async available(signal) { return attempt(await own(), (item) => item.available(signal), (answer) => !answer); },
     async encrypt(secret, signal) {
-      await ready();
-      const name = active;
-      const encrypted = await provider(name).encrypt(secret, signal);
-      return name === ORIGINAL_NAME ? encrypted : Buffer.concat([Buffer.from(HEADER + name + "\n"), encrypted]);
+      const name = await own();
+      const encrypted = await attempt(name, (item) => item.encrypt(secret, signal));
+      return Buffer.concat([Buffer.from(HEADER + name + "\n"), encrypted]);
     },
     async decrypt(kept, signal) {
       await ready();
@@ -90,23 +144,7 @@ export const macCredentialStore = ({ dir, open }: MacCredentialStoreParts): MacC
         // recovery() keeps the warning until that file is replaced or removed.
         return;
       }
-      if (unavailable.has(name)) { await saved; return; }
-      unavailable.add(name);
-      providers.get(name)?.close();
-      providers.delete(name);
-      if (active === name) active = `agent-harness credentials ${randomUUID()}`;
-      const text = JSON.stringify({ active, unavailable: [...unavailable] });
-      saved = saved.then(async () => {
-        await mkdir(dir, { recursive: true, mode: 0o700 });
-        await chmod(dir, 0o700);
-        const next = `${file}.${randomUUID()}.next`;
-        try {
-          await writeFile(next, text, { mode: 0o600 });
-          usable();
-          await rename(next, file);
-        } catch (error) { await rm(next, { force: true }); throw error; }
-      });
-      await saved;
+      await retire(name);
     },
     async recovery() {
       await ready();

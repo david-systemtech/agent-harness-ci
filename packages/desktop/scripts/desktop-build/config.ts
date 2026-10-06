@@ -31,6 +31,7 @@ const DESCRIPTION = "The agent-harness desktop: the window, and the environment 
  * sound and GBM added. electron-builder's own pacman list names the libraries
  * Arch's system Electron links (`http-parser`, `libappindicator-gtk3`, ...),
  * some no longer in Arch's repositories, which `pacman -U` would then refuse.
+ * And polkit, for `pkexec`, which the desktop's own update installs through.
  */
 const PACMAN_DEPENDS: readonly string[] = [
   "gtk3",
@@ -44,6 +45,7 @@ const PACMAN_DEPENDS: readonly string[] = [
   "at-spi2-core",
   "util-linux-libs",
   "xdg-utils",
+  "polkit",
 ];
 
 /**

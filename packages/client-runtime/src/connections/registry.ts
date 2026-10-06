@@ -1038,12 +1038,15 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
 
       // The new client session is tried before anything is kept: a `hello` from another environment, or another protocol, keeps nothing.
       const answer = await authenticate({ webSocket: platform.webSocket, origin, token: credential.token, client: platform.client, protocolVersion });
+      // Gives up the new client session over its socket, which only a session holding `admin` may do, best effort as removal is.
+      const revokeNew = async (socket: LiveSocket) => {
+        if (!socket.hello.scopes.includes("admin")) return;
+        await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket });
+      };
       if (answer.ok) {
         const refusal = admitHello(answer.socket.hello, id, protocolVersion);
         if (refusal) {
-          if (answer.socket.hello.scopes.includes("admin")) {
-            await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket: answer.socket });
-          }
+          await revokeNew(answer.socket);
           answer.socket.close();
           return pairingFailed(refusal.reason, refusal.message);
         }
@@ -1055,9 +1058,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         answer.socket.hello.ceiling !== "bypassPermissions" || SCOPES.some(scope => !answer.socket.hello.scopes.includes(scope))
       )) {
         if (answer.ok) {
-          if (answer.socket.hello.scopes.includes("admin")) {
-            await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket: answer.socket });
-          }
+          await revokeNew(answer.socket);
           answer.socket.close();
         }
         return pairingFailed("refused", "Full access could not be confirmed. Use a full-access code made with My own client. This phone's pairing has not changed.");
@@ -1085,8 +1086,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           held?.close();
         }
 
-        // The code is spent now: a store that fails here (an OS prompt it re-raised and nobody answered, say) needs a new code.
-        await platform.secrets.set(id, credential.token).catch((error: unknown) => {
+        // The code is spent now: a store that fails here (an OS prompt it re-raised and nobody answered, say) needs a new code. No
+        // client keeps the new token, so its client session is given up too (#1706).
+        await platform.secrets.set(id, credential.token).catch(async (error: unknown) => {
+          if (answer.ok) await revokeNew(answer.socket);
           throw new PairingCodeSpentError(error);
         });
         const saved: SavedConnection = {

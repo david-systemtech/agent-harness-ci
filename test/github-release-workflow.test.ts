@@ -195,6 +195,8 @@ esac
     expect(step("desktop-windows", "The Windows setup")).toMatch(/\n {8}env:\n {10}HOME: \/root\n/);
     expect(job("desktop-macos").join("\n")).toContain('codesign --verify --deep --strict "$app"');
     expect(job("desktop-arch").join("\n")).toContain('grep -qx "pkgname = agent-harness-desktop"');
+    // The desktop's own update runs pkexec, which polkit provides (#1692).
+    expect(job("desktop-arch").join("\n")).toContain('grep -qx "depend = polkit" unpacked/.PKGINFO');
     expect(step("release", "The desktop jobs' builds")).toContain("merge-multiple: true");
     expect(job("release")).toContain("    needs: [prepare, verify, suite, image-push, desktop-macos, desktop-windows, desktop-arch, smoke-windows, smoke-macos, smoke-linux]");
   });

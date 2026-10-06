@@ -109,7 +109,7 @@ export const AddForge = ({ environmentId, environmentName, close, say, gh: paths
           <RadioGroup aria-label="Provider" value={provider} onValueChange={(next) => { setProvider(next); setFound(undefined); }} className="grid grid-cols-3 gap-2">
             {(["github", "forgejo", "gitea"] as const).map((kind) => (
               <Tooltip key={kind} content={`${FORGE_KIND_WORDS[kind]} · Arrow keys to choose`}>
-                <ProviderRadio.Item autoFocus={kind === "github"} value={kind} className="flex min-h-9 items-center gap-2 rounded-lg border border-hairline px-3 py-2 text-xs text-ink-muted data-[state=checked]:border-beam data-[state=checked]:bg-wash-strong data-[state=checked]:text-ink focus-visible:outline-2 focus-visible:outline-beam">
+                <ProviderRadio.Item autoFocus={kind === "github"} value={kind} className="flex min-h-9 items-center gap-2 rounded-lg border border-hairline px-3 py-2 text-xs text-ink-muted aria-checked:border-beam aria-checked:bg-wash-strong aria-checked:text-ink focus-visible:outline-2 focus-visible:outline-beam">
                   <GitPullRequest aria-hidden="true" className="size-4 shrink-0" />
                   {FORGE_KIND_WORDS[kind]}
                 </ProviderRadio.Item>
