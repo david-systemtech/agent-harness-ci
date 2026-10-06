@@ -387,7 +387,6 @@ describe("update-environment on a local environment blocked on an older protocol
   });
 });
 
-/** Where an installed desktop carries its server: the folder the artefact is unpacked in (#355), which the environment copies to its staging area (#789). */
 describe("a local environment whose update waits on macOS's prompt for its stored key (#1689)", () => {
   const since = "2026-10-06T10:34:01.000Z";
   const waiting = { version: CLIENT_VERSION, pid: 69981, since, state: "waiting", live: true } as const;
@@ -457,6 +456,7 @@ describe("a local environment whose update waits on macOS's prompt for its store
   });
 });
 
+/** Where an installed desktop carries its server: the folder the artefact is unpacked in (#355), which the environment copies to its staging area (#789). */
 const BUNDLED_PATH = "/opt/agent-harness/resources/server";
 
 /** A desktop's shell whose `installer.bundledServer` answers as `carried` does. */

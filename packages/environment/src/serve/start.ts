@@ -963,10 +963,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The channel a new environment starts on (#846), at the start that creates it alone: a later start keeps the one set since.
     if (created && options.channel !== undefined) writeStartingChannel(log, loaded.id, options.channel);
     // A keychain read that waits on the person, as macOS asks them once an update brings a Node the stored key's access
-    // list does not name, is said to the launcher, which pauses its trial's deadline, and to the window (#1689).
+    // list does not name, is said to the launcher, which pauses its trial's deadline, and to the window (#1689). Only
+    // macOS asks: a slow Windows Credential Manager call is no prompt, and is not watched.
     clearCredentialAccess(dataDir);
     const reportCredentialAccess = credentialAccessReporter({ dataDir, version: harnessVersion, launcher, now });
-    const loadBinding = async () => watchCredentialAccess(await loadKeychainBinding(), reportCredentialAccess);
+    const loadBinding =
+      process.platform === "darwin" ? async () => watchCredentialAccess(await loadKeychainBinding(), reportCredentialAccess) : loadKeychainBinding;
     const { vault: chosen, reason } =
       options.vault === undefined
         ? await chooseVault({ platform: process.platform, asService: launcher.present(), dataDir, environmentId: loaded.id, loadBinding })

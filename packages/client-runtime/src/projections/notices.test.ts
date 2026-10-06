@@ -5,10 +5,12 @@ import { noticeEvent } from "../../test/events.js";
 import { recorded } from "../../test/transcript.js";
 import { subscription } from "../../test/scripted.js";
 import { createRuntimeWithSeams } from "../internal.js";
-import { NOTICE_LIMIT } from "../notices.js";
+import { createNotices, NOTICE_LIMIT, type Notices } from "../notices.js";
+import { raiseCredentialFailure } from "../updates/credential-notice.js";
 import { fakeWire, flush } from "../testing/fake-wire.js";
 import { inMemoryPlatform, manualClock } from "../testing/in-memory-platform.js";
 import type { AttentionEvent } from "./attention.js";
+import { createEnvironmentNotices, type EnvironmentNoticeContext } from "./notices.js";
 
 /**
  * `projections.notices` (docs/specs/client-runtime.md, "Projections"): one
@@ -212,6 +214,30 @@ describe("the notices from the environment's stream", () => {
           "desk could not be updated to 0.1.3: macOS asked to let agent-harness use its stored key, and the prompt was refused or not answered. It is running 0.1.1. Update again, and answer “Always Allow” when macOS asks.",
       },
     ]);
+  });
+
+  describe("under a launcher older than the stored-key wait, whose trial fails at deadline (#1689)", () => {
+    const env = randomUUID();
+    const context: EnvironmentNoticeContext = { name: "desk", accountLabel: () => null, title: () => null };
+    const deadline = noticeEvent(1, env, "environment.update-failed", { updateId: randomUUID(), fromVersion: "0.1.1", toVersion: "0.1.3", stage: "trial", reason: "deadline", rolledBack: true });
+    const CREDENTIAL =
+      "desk could not be updated to 0.1.3: macOS asked to let agent-harness use its stored key, and the prompt was refused or not answered. It is running 0.1.1. Update again, and answer “Always Allow” when macOS asks.";
+    const shown = (notices: Notices) => notices.list.read().map(({ kind, message }) => ({ kind, message }));
+
+    it("words the environment's trial failure as the stored key's once the desktop said that prompt went unanswered", () => {
+      const notices = createNotices(manualClock());
+      raiseCredentialFailure(notices, env, "desk", "0.1.3");
+      createEnvironmentNotices(notices).heard(env, deadline, context);
+      expect(shown(notices)).toEqual([{ kind: "update-failed", message: CREDENTIAL }]);
+    });
+
+    it("rewords the environment's trial failure already shown once the desktop says the prompt went unanswered", () => {
+      const notices = createNotices(manualClock());
+      createEnvironmentNotices(notices).heard(env, deadline, context);
+      expect(shown(notices)).toEqual([{ kind: "update-failed", message: "desk could not be updated to 0.1.3 (trial: deadline). It is running 0.1.1." }]);
+      raiseCredentialFailure(notices, env, "desk", "0.1.3");
+      expect(shown(notices)).toEqual([{ kind: "update-failed", message: CREDENTIAL }]);
+    });
   });
 
   it("take a parked prompt's notice back once it is resolved, and say so when nobody answered it", async () => {

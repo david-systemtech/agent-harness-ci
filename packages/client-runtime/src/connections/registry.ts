@@ -55,7 +55,8 @@ import {
   type RemoveResult,
   type SavedConnection,
 } from "./records.js";
-import { credentialPromptWords, credentialUpdateFailedWords } from "../updates/words.js";
+import { raiseCredentialFailure } from "../updates/credential-notice.js";
+import { credentialPromptWords } from "../updates/words.js";
 import { createRunner, type Runner, type RunnerHost } from "./runner.js";
 import { actionOf, initialMachine, type DiscoveryAnswer, type RefreshOutcome } from "./state-machine.js";
 
@@ -393,9 +394,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     if (waiting !== null) entry.credentialSeen = waiting.toVersion;
     else if (seen !== undefined && (read === undefined || !read.live)) {
       entry.credentialSeen = undefined;
-      if (read?.version === seen && read.state !== "answered") {
-        notices.raise(environmentId, { kind: "update-failed", message: credentialUpdateFailedWords(entry.saved.descriptor.name, seen), action: null });
-      }
+      if (read?.version === seen && read.state !== "answered") raiseCredentialFailure(notices, environmentId, entry.saved.descriptor.name, seen);
     }
     const shown = entry.credentialPrompt ?? null;
     if (shown?.toVersion === waiting?.toVersion && shown?.since === waiting?.since) return;
