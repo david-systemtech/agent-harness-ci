@@ -2,6 +2,7 @@ import { settingsScene, settingsGeometry } from "../settings-scene.js";
 
 export default await settingsScene(false, "environments.access", { environments: [
   { name: "desk", reach: "local", icon: "desktop", colour: "teal", clientSessions: [
+    { label: "Chrome on Android (Home Screen)", kind: "web", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" },
     { label: "Travel window", kind: "desktop", ceiling: "acceptEdits" },
     { label: "Build helper", kind: "program", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "plan" },
   ] },
