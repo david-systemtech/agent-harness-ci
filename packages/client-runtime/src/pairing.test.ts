@@ -168,6 +168,46 @@ describe("pairing with an environment", () => {
     expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "used-code" } });
   });
 
+  it("revokes the new client session over its socket when the store cannot keep its token, so no session is left live that no client holds (#1706)", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    const secrets = { ...platform.secrets, set: () => Promise.reject(new Error("The keychain refused the write.")) };
+    const runtime = harness.runtime(inMemoryPlatform({ label: "Milo's laptop", secrets }));
+    await runtime.start();
+
+    await expect(runtime.connections.add({ link: (await t.createPairing()).link })).rejects.toThrow(PairingCodeSpentError);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.filter(session => session.label === "Milo's laptop")).toEqual([expect.objectContaining({ revokedAt: expect.any(String) })]);
+  });
+
+  it("re-pairs in place with a store that cannot keep the new token: both client sessions are given up and the connection is blocked, to pair again with a new code (#1706)", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    let refuse = false;
+    const secrets = {
+      ...platform.secrets,
+      set: async (id: string, token: string) => {
+        if (refuse) throw new Error("The keychain refused the write.");
+        await platform.secrets.set(id, token);
+      },
+    };
+    const runtime = harness.runtime(inMemoryPlatform({ label: "Milo's laptop", secrets }));
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const before = runtime.connections.list.read()[0]?.clientSessionId;
+    refuse = true;
+
+    await expect(runtime.connections.add({ link: (await t.createPairing()).link }, { rePair: t.env.id })).rejects.toThrow(PairingCodeSpentError);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    const paired = sessions.filter(session => session.label === "Milo's laptop");
+    expect(paired).toHaveLength(2);
+    expect(paired.map(session => session.revokedAt)).toEqual([expect.any(String), expect.any(String)]);
+    await until(() => runtime.connections.list.read()[0]?.phase === "blocked", "the connection blocked");
+    expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ clientSessionId: before, blocked: "revoked" })]);
+  });
+
   it("re-pairs with a code without admin: the replaced client session is revoked with the old token", async () => {
     const t = await harness.environment();
     const runtime = harness.runtime(inMemoryPlatform());
