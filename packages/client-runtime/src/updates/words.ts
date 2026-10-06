@@ -105,6 +105,8 @@ export const desktopBuildWords = (build: DesktopBuildView): string | null => {
       return null;
     case "checking":
       return "Checking for a newer build…";
+    case "waiting":
+      return "Waiting for this machine's environment to read its release channel, then checking for a newer build…";
     case "current":
       return "This client's build is the newest.";
     case "unsupported":
