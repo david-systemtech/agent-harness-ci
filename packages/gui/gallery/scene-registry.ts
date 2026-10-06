@@ -22,6 +22,8 @@ export interface SceneGeometry {
   readonly minimumTop?: number;
   /** The control must receive a pointer at its centre, including through clipping ancestors. */
   readonly hitTestable?: boolean;
+  /** No word in the element's text may wrap mid-word onto another line; wraps between words and at hyphens are fine. */
+  readonly wordsIntact?: boolean;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;
