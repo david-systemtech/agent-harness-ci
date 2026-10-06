@@ -20,6 +20,7 @@ import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { DoneLine, StateChecker } from "../setup/check.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { holdsSkillOriginals } from "../skills/carry-over.js";
+import { readableMinute } from "../forge/verification.js";
 import { listAccountSessions } from "./sessions.js";
 
 /**
@@ -257,5 +258,5 @@ export const carryOverDoneLine = (options: Pick<CarryOverStateChecksOptions, "re
     }
   }
   const last = lastOf("carry-over.imported", "state-import.finished");
-  return last === undefined ? undefined : `Brought over on ${last.occurred_at.slice(0, 10)}.`;
+  return last === undefined ? undefined : `Brought over on ${readableMinute(last.occurred_at)}.`;
 };

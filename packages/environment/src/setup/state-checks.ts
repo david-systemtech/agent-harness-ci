@@ -17,7 +17,7 @@ import { keyManagerStateChecks } from "../key-managers/step-checks.js";
 import type { ManagedTools } from "../managed-tools/registry.js";
 import { readDenylist, readDenylistChangedBy } from "../permissions/denylist-store.js";
 import { readPermissionsReport } from "../permissions/methods.js";
-import { containmentDefaultHolds, denylistHoldsPresets, runsAsNonRoot, type StateCheckAnswer } from "../permissions/step-checks.js";
+import { containmentDefaultHolds, denylistHoldsPresets, permissionsLine, runsAsNonRoot, type StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock } from "../serve/clock.js";
 import { lanAddressHeld } from "../serve/interfaces.js";
 import type { Reader } from "../sessions/session-reads.js";
@@ -145,9 +145,16 @@ export const yourMachinesLine = (version: string, { activity, updatesManagedOuts
 /** The environment's lines for the steps it says more of when done than the registry's sentence (#1698), each read when the step is done. */
 export const environmentDoneLines = (options: StateChecksOptions): DoneLines => {
   const reader: Reader = { all: (sql, ...params) => options.log.read(sql, ...params) };
+  const presets = denylistPresets(options.dataDir);
   return {
     "carry-over": carryOverDoneLine({ reader, detect: options.detectStateImport, stateImport: options.stateImport }),
     "your-machines": () => yourMachinesLine(options.version, options.status(), readSettings(reader)),
+    permissions: () =>
+      permissionsLine(
+        readPermissionsReport(reader, options.containment, options.isRoot).values["permissions.containment.default"],
+        { denylist: readDenylist(reader), changedBy: readDenylistChangedBy(reader) },
+        presets,
+      ),
   };
 };
 

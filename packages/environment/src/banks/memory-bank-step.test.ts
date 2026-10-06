@@ -166,7 +166,8 @@ describe("the Memory bank step's checks", () => {
       failing: [],
       actions: ["revise"],
       targets: [target("revise", bank)],
-      reason: expect.stringContaining(`${bank.name} is landed and awaiting your review: ${forge.origin}/acme/bank/pulls/7.`),
+      // The pull request is named once: the landing's line names it, so the manifest's does not again (#1698).
+      reason: `${ALL_HOLD} ${bank.name} is landed and awaiting your review: ${forge.origin}/acme/bank/pulls/7.`,
     });
     expect(existsSync(join(checkout, "BANK.md"))).toBe(false);
   });

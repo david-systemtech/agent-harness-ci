@@ -26,7 +26,7 @@ const ACCOUNT = "claude-max";
 const TARGET = { kind: "account", id: ACCOUNT, label: ACCOUNT } as const;
 
 /** The step's line when every check holds after an import: what was found, never its checks' conditions (#1698). */
-const BROUGHT_OVER = `Brought over on ${MANUAL_CLOCK_START.slice(0, 10)}.`;
+const BROUGHT_OVER = "Brought over on 2026-09-24 00:00 UTC.";
 
 /** The step's line when it is skipped. */
 const NOTHING =

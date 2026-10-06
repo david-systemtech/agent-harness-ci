@@ -408,14 +408,14 @@ describe("the step registry", () => {
     expect(Object.fromEntries(STEP_REGISTRY.map((step) => [step.id, step.done]))).toEqual({
       account: "Every account is signed in.",
       "carry-over": "Nothing is waiting to be brought over.",
-      "your-machines": "This machine is ready and up to date.",
+      "your-machines": "This machine is ready.",
       forges: "Every forge account is signed in and answering.",
       "key-manager": "Every key-manager connection is signed in and reachable.",
       "memory-bank": "Every bank is reachable and passes the validator.",
       skills: "Every skill source is in sync.",
       instructions: "The orientation block renders.",
       browser: "Chrome is paired, connected and current.",
-      permissions: "Containment is enforced here, and the denylist is in place.",
+      permissions: "Containment and the denylist are set.",
       appearance: "The theme meets the contrast rules.",
     });
     for (const step of STEP_REGISTRY) {

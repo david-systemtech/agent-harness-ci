@@ -67,7 +67,8 @@ describe("setup.check", () => {
     ]);
     for (const result of results) expect(result.checkedAt, result.step).toBe(MANUAL_CLOCK_START);
     const permissions = results.find((result) => result.step === "permissions");
-    expect(permissions?.reason).toBe("Containment is enforced here, and the denylist is in place.");
+    // The default is off on a machine whose probe cannot enforce workspace: the line says so, never "enforced" (#1698).
+    expect(permissions?.reason).toBe("Containment is off, and the denylist holds its presets.");
   });
 
   it("checks one step when asked for it, at the time it runs", async () => {
@@ -117,7 +118,7 @@ describe("each step's line when done (#1698)", () => {
       "carry-over": `Past work found in ${dataFolder}: 3 profiles, 1 bank. Not brought over yet.`,
       "your-machines": "Ready on 0.1.3, updates off, reachable from this machine only.",
       instructions: "The orientation block renders.",
-      permissions: "Containment is enforced here, and the denylist is in place.",
+      permissions: "Containment is off, and the denylist holds its presets.",
       appearance: "The theme meets the contrast rules.",
     });
     for (const result of results.filter((each) => each.state === "done")) expect(result.reason, result.step).not.toMatch(/\bor\b/);
@@ -129,7 +130,7 @@ describe("the Permissions step's check", () => {
     const t = await start();
     const client = await t.client();
     expect((await client.request("permissions.settings.get", {})).values["permissions.containment.default"]).toBe("off");
-    expect((await check(client, "permissions")).state).toBe("done");
+    expect(await check(client, "permissions")).toMatchObject({ state: "done", reason: "Containment is off, and the denylist holds its presets." });
   });
 
   it("needs attention when the default is workspace and the probe finds no mechanism, naming containment with the Linux package hint", async () => {
@@ -137,7 +138,7 @@ describe("the Permissions step's check", () => {
     const first = await startTestEnvironment({ dataDir, containment: bubblewrapProbe() });
     const admin = await first.client();
     expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } })).receipt).toMatchObject({ status: "accepted" });
-    expect((await check(admin, "permissions")).state).toBe("done");
+    expect(await check(admin, "permissions")).toMatchObject({ state: "done", reason: "Sessions are contained to their workspace, and the denylist holds its presets." });
     await first.close();
 
     // The same environment started again on a machine where bubblewrap is gone: the stored default no longer holds.
@@ -194,7 +195,8 @@ describe("the Permissions step's check", () => {
       },
     });
     expect((await admin.request("permissions.denylist.get", {})).denylist.browserDomains).toEqual([]);
-    expect(await check(admin, "permissions")).toMatchObject({ state: "done", failing: [] });
+    // Its line names the section the person emptied rather than saying the denylist is whole (#1698).
+    expect(await check(admin, "permissions")).toMatchObject({ state: "done", failing: [], reason: "Containment is off, and the denylist's browser domains section is emptied." });
   });
 
   it("is never skipped, even on a fresh environment where Forges, with no forge account, is", async () => {

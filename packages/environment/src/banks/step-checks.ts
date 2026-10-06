@@ -51,7 +51,7 @@ const reachable = perEnabledBank("check-again", ({ name, status }) =>
 );
 
 /** Its `BANK.md` on main passes the validator, or an open pull request holds it on a reviewed bank (ADR 0019); else the rule it fails (`revise`). */
-const manifest = perEnabledBank("revise", ({ name, status }) => {
+const manifestOnMain = perEnabledBank("revise", ({ name, status }) => {
   switch (status.manifest.state) {
     case "valid":
     case "awaiting-review":
@@ -62,6 +62,23 @@ const manifest = perEnabledBank("revise", ({ name, status }) => {
       return `The BANK.md of ${name} on main fails the validator's rule ${status.manifest.rule}: ${sentence(status.manifest.message)} Revise it.`;
   }
 });
+
+/**
+ * The manifest check, which holds for a `BANK.md` awaiting review but says
+ * which pull request holds it (#1698): the review is what the person does
+ * next. A landing awaiting review in that same pull request leaves it to
+ * `memory-bank.landing`'s line, which names it already.
+ */
+const manifest = (banks: readonly BankRecord[]): StateCheckAnswer => {
+  const answer = manifestOnMain(banks);
+  if (answer !== true) return answer;
+  const reviews = banks.filter((bank) => bank.enabled).flatMap(({ name, status: { manifest: held, landing } }) =>
+    held.state === "awaiting-review" && !(landing.state === "awaiting-review" && landing.pullRequest === held.pullRequest)
+      ? [`The BANK.md of ${name} waits for your review: ${held.pullRequest}.`]
+      : [],
+  );
+  return reviews.length === 0 ? true : { holds: true, reason: reviews.join(" ") };
+};
 
 /** Every orientation name it lists names a memory in it. */
 const orientation = perEnabledBank(null, ({ name, status: { orientation: { missing } } }) =>

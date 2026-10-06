@@ -124,6 +124,27 @@ export const denylistHoldsPresets = (state: DenylistState, presets: Denylist): S
   };
 };
 
+/** What sessions get at each containment default, as the Permissions step's line says it. */
+const CONTAINMENT_WORDS: Readonly<Record<ContainmentLevel, string>> = {
+  off: "Containment is off",
+  workspace: "Sessions are contained to their workspace",
+  "workspace-no-network": "Sessions are contained to their workspace with no network",
+};
+
+/**
+ * The Permissions step's line when done (#1698): the containment default as
+ * it is, which holds at `off` too since nothing has to be enforced, so the
+ * line never says containment is enforced when nothing is contained; and
+ * each denylist section with presets that a person emptied, which holds as
+ * well.
+ */
+export const permissionsLine = (level: ContainmentLevel, state: DenylistState, presets: Denylist): string => {
+  const emptied = DENYLIST_SECTIONS.filter((section) => presets[section].length > 0 && state.denylist[section].length === 0).map((section) => SECTION_NAMES[section]);
+  const names = emptied.length <= 1 ? emptied.join("") : `${emptied.slice(0, -1).join(", ")} and ${emptied.at(-1) as string}`;
+  const denylist = emptied.length === 0 ? "the denylist holds its presets" : `the denylist's ${names} ${emptied.length === 1 ? "section is" : "sections are"} emptied`;
+  return `${CONTAINMENT_WORDS[level]}, and ${denylist}.`;
+};
+
 /**
  * Not root, from what `permissions.settings.get` answers as `isRoot`: always
  * false while the environment answers, since `serve` refuses root before it

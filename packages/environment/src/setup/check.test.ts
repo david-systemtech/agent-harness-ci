@@ -69,7 +69,7 @@ describe("a step's result", () => {
     expect(await check(stepOf("permissions"), presetSettings(), holding)).toEqual({
       step: "permissions",
       state: "done",
-      reason: "Containment is enforced here, and the denylist is in place.",
+      reason: "Containment and the denylist are set.",
       failing: [],
       actions: [],
       checkedAt: AT,
@@ -101,7 +101,7 @@ describe("a step's result", () => {
     const stateChecks: StateCheckers = { ...holding, "permissions.denylist": async () => ({ holds: true, reason: "The denylist was deliberately emptied." }) };
     expect(await check(stepOf("permissions"), presetSettings(), stateChecks)).toMatchObject({
       state: "done",
-      reason: "Containment is enforced here, and the denylist is in place. The denylist was deliberately emptied.",
+      reason: "Containment and the denylist are set. The denylist was deliberately emptied.",
       failing: [],
       actions: [],
     });
