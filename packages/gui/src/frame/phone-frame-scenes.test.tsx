@@ -55,9 +55,15 @@ it("shows touch guidance instead of key chords on the phone's empty session scre
   expect(pane.queryByRole("list", { name: "Keyboard shortcuts" })).toBeNull();
   expect(screen.getByRole("main").querySelector("kbd")).toBeNull();
   expect(pane.getByRole("button", { name: "Start a new session" })).toBeDefined();
-  act(() => pane.getByRole("button", { name: "Choose a session" }).click());
+  const choose = pane.getByRole("button", { name: "Choose a session" });
+  const user = userEvent.setup();
+  await user.click(choose);
   const drawer = await screen.findByRole("dialog", { name: "Sessions" });
   expect(within(drawer).getByRole("button", { name: /desk Next receipt/ })).toBeDefined();
+  // Dismissing the drawer returns focus to the control that opened it, not the header's trigger.
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(choose));
 });
 
 // jsdom supplies the page; the browser measurement boundary supplies the rendered rectangle.
