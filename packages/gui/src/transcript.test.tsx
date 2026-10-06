@@ -166,6 +166,30 @@ describe("streaming", () => {
     expect(lastReply(transcript)?.textContent).toBe("One two three four");
   });
 
+  it("keeps each later word's own element, its fade not replayed, when a batch before it folds, in its text and beside emphasis", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    for (const [text, words] of [
+      ["One ", ["One"]],
+      ["two ", ["One ", "two"]],
+      ["**three** ", ["One ", "two ", "three"]],
+      ["four ", ["One ", "two ", "three", " ", "four"]],
+    ] as const) {
+      env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text }] });
+      await waitFor(() => expect(fading(lastReply(transcript))).toEqual(words));
+    }
+    const word = (text: string) => [...(lastReply(transcript)?.querySelectorAll(".word-in") ?? [])].find((span) => span.textContent === text) as HTMLElement;
+    const later = [word("two "), word("three"), word("four")];
+
+    // The last delta's fade ends first and waits; the first's ends and folds it, the second still fading.
+    fadeEnds(word("four"));
+    fadeEnds(word("One "));
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["two ", "three", " ", "four"]));
+    expect(later.map((element) => element.isConnected)).toEqual([true, true, true]);
+    expect([word("two "), word("three"), word("four")]).toEqual(later);
+    expect(lastReply(transcript)?.textContent).toBe("One two three four");
+  });
+
   it("keeps the words before a burst in their place when the burst lands at once", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");

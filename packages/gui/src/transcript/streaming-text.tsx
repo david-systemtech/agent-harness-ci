@@ -121,6 +121,9 @@ interface TreeNode {
   children?: TreeNode[];
 }
 
+/** A text node of the drawn markdown, its words cut apart: drawn by `Span`, which keys each piece itself. */
+const textOf = (pieces: TreeNode[]): TreeNode => ({ type: "element", tagName: "span", properties: { dataText: true }, children: pieces });
+
 /** A word, or the part of one a text node holds, fading: `start` is where it stands in the text, and keys it. */
 const fadingPiece = (value: string, start: number, delay: number): TreeNode => ({
   type: "element",
@@ -132,7 +135,12 @@ const fadingPiece = (value: string, start: number, delay: number): TreeNode => (
 /**
  * A rehype plugin cutting each text node of the drawn markdown where the
  * words of `batches` start and wrapping each word's part in a fading span;
- * what stands before `settled` is left as it is. A text node that does not
+ * what stands before `settled` is left as it is. Every text node drawn from
+ * the text, faded or not, becomes one element (`textOf`), so a fold, which
+ * only turns pieces of a node back into its text, never moves the elements
+ * after it among their siblings: the markdown's renderer keys an element by
+ * its tag's count among them, and a moved one would be drawn anew, its
+ * words' fade replayed. A text node that does not
  * hold its source letter for letter (an entity, a code span's ticks) fades
  * whole as the word it starts in, or not at all if it starts in what has
  * settled. The
@@ -150,14 +158,15 @@ const fadeWords = (settled: number, batches: readonly Batch[], drawn: Set<number
     const from = node.position?.start.offset;
     const to = node.position?.end.offset;
     const value = node.value ?? "";
-    if (from === undefined || to === undefined || to <= settled) return [node];
+    if (from === undefined || to === undefined) return [node];
+    if (to <= settled) return [textOf([node])];
     if (to - from !== value.length) {
-      if (from < settled) return [node];
+      if (from < settled) return [textOf([node])];
       for (const batch of batches) {
         const index = batch.words.findLastIndex((start) => start <= from);
-        if (index !== -1 && from < batch.end) return [piece(batch, index, value, from)];
+        if (index !== -1 && from < batch.end) return [textOf([piece(batch, index, value, from)])];
       }
-      return [node];
+      return [textOf([node])];
     }
     const pieces: TreeNode[] = from < settled ? [{ type: "text", value: value.slice(0, settled - from) }] : [];
     for (const batch of batches) {
@@ -167,7 +176,7 @@ const fadeWords = (settled: number, batches: readonly Batch[], drawn: Set<number
         if (begin < end) pieces.push(piece(batch, index, value.slice(begin - from, end - from), begin));
       });
     }
-    return pieces;
+    return [textOf(pieces)];
   };
   const walk = (node: TreeNode): void => {
     if (node.children === undefined) return;
@@ -190,25 +199,28 @@ const fadeWords = (settled: number, batches: readonly Batch[], drawn: Set<number
 const FadeDone = createContext<(key: number) => void>(() => undefined);
 
 /**
- * A span of the drawn markdown: a fading word's is keyed by where the word
- * stands, so a span given another word (one before it folded away) is a new
- * span whose fade starts, never one whose fade has ended.
+ * A span of the drawn markdown. A text node's (`textOf`) is no element of
+ * its own: its text, and each fading piece keyed by where its word stands, so
+ * a piece keeps its element, and its fade, while the pieces before it fold.
  */
 const Span = ({ node, ...props }: ComponentPropsWithoutRef<"span"> & ExtraProps) => {
   const done = use(FadeDone);
-  const word = node?.properties["dataWord"];
-  if (typeof word !== "number") return <span {...props} />;
-  const batch = node?.properties["dataDone"];
-  return (
-    <span
-      key={word}
-      className="word-in"
-      style={fadeStyle(Number(node?.properties["dataDelay"]))}
-      onAnimationEnd={typeof batch === "number" ? () => done(batch) : undefined}
-    >
-      {props.children}
-    </span>
-  );
+  if (node?.properties["dataText"] !== true) return <span {...props} />;
+  return (node.children as TreeNode[]).map((child) => {
+    const word = child.properties?.["dataWord"];
+    if (typeof word !== "number") return child.value;
+    const batch = child.properties?.["dataDone"];
+    return (
+      <span
+        key={word}
+        className="word-in"
+        style={fadeStyle(Number(child.properties?.["dataDelay"]))}
+        onAnimationEnd={typeof batch === "number" ? () => done(batch) : undefined}
+      >
+        {child.children?.[0]?.value}
+      </span>
+    );
+  });
 };
 
 const FADE_COMPONENTS: Components = { span: Span };
