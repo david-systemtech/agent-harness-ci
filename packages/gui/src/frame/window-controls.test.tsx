@@ -65,7 +65,7 @@ it("keeps the native event that arrives while the initial state read is held and
 const regions = (() => {
   const css = readFileSync(new URL("./window-controls.css", import.meta.url), "utf8");
   const selector = (region: string) => new RegExp(`([^{}]+)\\{\\s*-webkit-app-region: ${region};`).exec(css)![1]!.trim();
-  return { drag: selector("drag"), noDrag: selector("no-drag") };
+  return { drag: selector("drag"), noDrag: selector("no-drag"), size: /([^{}/]+)\{\s*min-width: 28px;/.exec(css)![1]!.trim() };
 })();
 
 /** The welcome's header, then Begin set up's checklist header: the two full-window Set up surfaces. */
@@ -84,7 +84,8 @@ it.each(["win32", "linux"] as const)("draws and operates the %s window buttons o
     const from = shell.calls.length;
     expect(controls.className).toContain("opacity-60");
     expect(header.matches(regions.drag)).toBe(true);
-    for (const button of within(controls).getAllByRole("button")) expect(button.matches(regions.noDrag)).toBe(true);
+    for (const button of within(controls).getAllByRole("button")) expect(button.matches(regions.noDrag) && button.matches(regions.size)).toBe(true);
+    for (const label of header.querySelectorAll("label")) expect(label.matches(regions.noDrag)).toBe(true);
     await app.user.click(within(controls).getByRole("button", { name: "Minimize" }));
     await app.user.click(within(controls).getByRole("button", { name: "Maximize" }));
     await app.user.click(within(controls).getByRole("button", { name: "Close window" }));

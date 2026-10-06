@@ -3,7 +3,13 @@ header[data-native-frame] {
   app-region: drag;
 }
 
-header[data-native-frame] :is(button, input, select, textarea, a, [role="button"], [role="radio"], [role="group"]) {
+header[data-native-frame] :is(button, input, select, textarea, a, label, [role="button"], [role="radio"], [role="group"]) {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+/* look §9.1's 28px controls hold in a narrow window, where the phone Set up rules size buttons for touch. */
+[role="group"][aria-label="Window controls"] button {
+  min-width: 28px;
+  min-height: 28px;
 }
