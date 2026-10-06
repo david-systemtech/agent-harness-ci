@@ -212,7 +212,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
       <Answer dim={dim} approves keys={allowKey} hint={dim ? capability.message : undefined} onClick={allow}>
         {questionsOf(prompt).length > 1 ? "Send answers" : "Send answer"}
       </Answer>
-    </> : rows.map((row) => <RowButton key={row.label} row={row} dim={dim} reason={dim ? capability.message : undefined} keys={row.kind === "deny" ? denyKey : row.kind === "allow" || (row.kind === "approve" && row.mode === null) ? allowKey : undefined} onClick={() => choose(row)} />)}
+    </> : rows.map((row) => <RowButton key={row.label} row={row} showDetail={!phone} dim={dim} reason={dim ? capability.message : undefined} keys={row.kind === "deny" ? denyKey : row.kind === "allow" || (row.kind === "approve" && row.mode === null) ? allowKey : undefined} onClick={() => choose(row)} />)}
   </div>;
 
   if (phone) return <KeyContext context="permission">
@@ -227,6 +227,9 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
       </>}>
         <div {...{ onCompositionStart, onCompositionEnd, onKeyDownCapture }} className="flex min-h-0 flex-col gap-2">
           {request}
+          {!question && <ul aria-label="Answer details" className="flex flex-col gap-2 text-sm text-ink-muted">
+            {rows.filter(row => row.detail.length > 0).map(row => <li key={row.label}>{row.label}: {row.detail}</li>)}
+          </ul>}
           <div className="flex flex-col gap-2">{note}</div>
         </div>
       </PhonePromptDetails>
@@ -345,9 +348,9 @@ const inputText = (input: PromptOpenedPayload["input"]): string | undefined => {
 };
 
 /** An approval's or a plan's row as a button, with what it does beside it: a greyed mode's reason. */
-const RowButton = ({ row, dim, keys, reason, onClick }: { readonly row: ChoiceRow; readonly dim: boolean; readonly keys: string | undefined; readonly reason: string | undefined; readonly onClick: () => void }) => {
+const RowButton = ({ row, dim, keys, reason, onClick, showDetail = true }: { readonly showDetail?: boolean; readonly row: ChoiceRow; readonly dim: boolean; readonly keys: string | undefined; readonly reason: string | undefined; readonly onClick: () => void }) => {
   const id = useId();
-  const described = row.detail.length > 0 ? id : undefined;
+  const described = showDetail && row.detail.length > 0 ? id : undefined;
   return (
     <span data-prompt-choice className="inline-flex items-baseline gap-1.5">
       <Answer dim={dim} approves={row.kind !== "deny"} greyed={row.kind === "approve" && row.above} describedBy={described} keys={keys} hint={reason ?? row.detail} onClick={onClick}>

@@ -4,7 +4,7 @@ import { platform, script, route, safeAreas } from "./phone-frame-scene.js";
 /** Visual-only keyboard bounds, full requests, and pinned decisions without ancestor scrolling. */
 export function longRequestScene(kind: "permission" | "question" | "plan"): SceneModule {
   return {
-    platform, script, route,
+    platform, ...(script && { script }), route,
     arrangeWeb: world => {
       const env = world.environment("desk"), sessionId = env.sessionId();
       const { runId } = env.startRun(sessionId, "Review receipts before continuing.");
@@ -37,7 +37,7 @@ export function longRequestScene(kind: "permission" | "question" | "plan"): Scen
         const body = sheet.querySelector<HTMLElement>("[data-phone-prompt-body]")!;
         const strip = sheet.querySelector<HTMLElement>("[data-phone-prompt-answer]")!;
         const before = strip.getBoundingClientRect();
-        if (body.clientHeight < 44 || body.scrollHeight <= body.clientHeight) throw new Error("Long request lacks a readable scrolling body");
+        if (body.clientHeight < 44 || body.scrollHeight <= body.clientHeight) throw new Error(`Long ${kind} request lacks a readable scrolling body: height=${body.clientHeight}, scroll=${body.scrollHeight}, sheet=${sheet.clientHeight}, strip=${strip.clientHeight}`);
         body.scrollTop = body.scrollHeight; await settle();
         const after = strip.getBoundingClientRect();
         if (Math.abs(before.top - after.top) > 1 || after.bottom > viewport.height + viewport.offsetTop) throw new Error("Request scrolling moved the answer strip");

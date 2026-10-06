@@ -12,7 +12,7 @@ async function phone(kind: "permission" | "question" | "plan" = "permission") {
   vi.stubGlobal("innerWidth", 390);
   vi.stubGlobal("visualViewport", Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 120 }));
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
-  const scene: SceneModule = { platform, script, route, readySelector: '[aria-label="Parked prompt"]', arrangeWeb: world => {
+  const scene: SceneModule = { platform, ...(script && { script }), route, readySelector: '[aria-label="Parked prompt"]', arrangeWeb: world => {
     const env = world.environment("desk"), sessionId = env.sessionId();
     env.startRun(sessionId, "Check receipts");
     env.openPrompt(sessionId, { promptId: "long-request", kind, ceiling: "acceptEdits", mode: "plan", summary: "Review receipts", toolName: "Bash", reason: "Explain the full reason. ".repeat(50), input: { command: "printf receipts\n".repeat(80) }, plan: "Check every receipt.\n\n".repeat(80), questions: [{ header: "Checks", question: "Which checks?", multiSelect: true, options: [{ label: "Totals", description: "Compare every receipt total. ".repeat(50) }] }] });

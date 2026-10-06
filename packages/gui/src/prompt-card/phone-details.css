@@ -24,7 +24,7 @@
   .phone-prompt-sheet [data-prompt-choice] { display: flex; min-width: 0; flex-direction: column; gap: 0; }
   .phone-prompt-sheet [data-prompt-choice] button { width: 100%; }
   .phone-prompt-sheet [data-prompt-choice] > span { font-size: 0.6rem; }
-  .phone-prompt-sheet kbd { display: none; }
+  .phone-prompt-sheet kbd, .phone-prompt-sheet [data-phone-prompt-answer] button svg { display: none; }
   .phone-prompt-sheet [data-phone-prompt-body] [aria-label="Arguments"] { max-height: none; min-width: 0; flex-shrink: 0; }
   .phone-prompt-sheet [aria-label="Plan body"] { max-height: none; overflow: visible; mask-image: none; }
   .phone-prompt-sheet [data-question-option] > span,
