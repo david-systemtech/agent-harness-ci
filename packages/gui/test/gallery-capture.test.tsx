@@ -105,6 +105,20 @@ it("fails a word that wraps mid-word onto another line and accepts wraps between
   expect(measureSceneGeometry()).toEqual([]);
 });
 
+it("fails a run that must wrap whole when it breaks inside, even at a hyphen, and accepts it moved whole to the next line (ticket 1739)", () => {
+  const root = document.createElement("div");
+  root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify([{ selector: "code", unbroken: true }]);
+  root.innerHTML = "<p>Not paired: may not contact <code>https://second-laptop.example.test:8444</code>.</p>";
+  document.body.append(root);
+  let lines = [new DOMRect(0, 0, 60, 20), new DOMRect(0, 20, 200, 20)];
+  Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: () => lines });
+  onTestFinished(() => { delete (Range.prototype as Partial<Range>).getClientRects; });
+  expect(measureSceneGeometry()).toEqual(["code[0]: breaks across lines; it must wrap whole"]);
+  lines = [new DOMRect(0, 20, 260, 20)];
+  expect(measureSceneGeometry()).toEqual([]);
+});
+
 
 it("captures every scene in dark and the specified light subset without exceeding the report budget", () => {
   expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "setup-account", "setup-appearance", "settings-banks", "dock-files"])).toEqual([

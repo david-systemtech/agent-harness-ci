@@ -1,10 +1,10 @@
 import { screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
 import { discoverScenes, type SceneModule } from "../gallery/scene-registry.js";
 
 let close: (() => Promise<void>) | undefined;
-afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); });
+afterEach(async () => { await close?.(); close = undefined; document.body.replaceChildren(); vi.restoreAllMocks(); });
 
 it("mounts a scripted phone scene on the browser platform with no desktop grant or shell", async () => {
   const root = document.createElement("div"); document.body.append(root);
@@ -53,4 +53,19 @@ it.each(["phone-attention-failure", "phone-attention-keyboard", "phone-attention
   expect(gallery.world.shell).toBeUndefined();
   expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(String(20 / 14));
   expect(screen.getByRole("heading", { name: "Attention" })).toBeDefined();
+});
+
+it("draws the phone pairing screen's refusal of a further origin, served at the page's own origin, before marking the scene ready (ticket 1739)", async () => {
+  // The capture's phone layout, where Pair with an environment sits under More.
+  const matchMedia = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation((query) => Object.assign(matchMedia(query), { matches: query === "(width < 640px)" }));
+  const registry = discoverScenes(import.meta.glob<SceneModule>("../gallery/scenes/phone-pairing-unlisted-origin.tsx", { eager: true }));
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "phone-pairing-unlisted-origin", "dark", registry, { platform: "web", textSize: 14 });
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const status = document.querySelector('[data-phone-pairing] [role="status"]')!;
+  expect(screen.getByRole("button", { name: "More" })).toBeDefined();
+  expect(Array.from(status.querySelectorAll("[data-pairing-origin]"), (origin) => origin.textContent)).toEqual(["https://second-laptop.example.test:8444", "https://second-laptop.example.test:8444", location.origin]);
+  expect(screen.getByRole("button", { name: "Browser origins" })).toBeDefined();
 });

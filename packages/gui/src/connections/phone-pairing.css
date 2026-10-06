@@ -6,6 +6,8 @@
 }
 .web-camera video { width: 100%; max-height: 55dvh; object-fit: contain; }
 .web-camera button { min-width: 44px; min-height: 44px; }
+/* An origin in the pairing form's line wraps whole, never at a hyphen inside its host name (#1739). */
+[data-pairing-origin] { display: inline-block; max-width: 100%; }
 @media (max-width: 639px) {
   [data-phone-pairing] { overflow-wrap: anywhere; }
   [data-phone-pairing] input { min-height: 44px; font-size: 16px; }
@@ -13,4 +15,9 @@
   [data-pairing-scopes] label { min-width: 0; max-width: 100%; }
   /* Phone checkboxes already have a 44px target; their desktop hit slop must fit it. */
   [data-pairing-scopes] [role="checkbox"]::after { inset: 0; }
+}
+/* In the phone layout (phoneLayoutMedia, a phone held landscape too) the line takes the full width, its actions below it, never squeezed beside them (#1739). */
+@media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
+  [data-phone-pairing] [role="status"] { flex-wrap: wrap; }
+  [data-phone-pairing] [role="status"] > span { flex-basis: 100%; }
 }
