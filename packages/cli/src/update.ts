@@ -7,6 +7,7 @@ import {
   ReleaseVersion,
   UPDATE_SETTINGS,
   UpdateId,
+  pastTimeWords,
   type ForgeAccountRecord,
   type PendingUpdate,
   type UpdateCheck,
@@ -121,12 +122,13 @@ export const renderUpdateSettings = (values: UpdateSettingsValues): string =>
     "",
   ].join("\n");
 
-const managerLine = (manager: UpdateManager): string => {
+/** How the environment's updates are managed; a host-side updater's last poll worded where the CLI runs, "2 h ago, at 16:24", as the clients word it (#1742). */
+const managerLine = (manager: UpdateManager, now: Date): string => {
   switch (manager.kind) {
     case "launcher":
       return `managed by its launcher, version ${manager.launcherVersion}`;
     case "outside":
-      return `managed outside, by a host-side updater; ${manager.lastPoll === null ? "it has not polled yet" : `last polled at ${manager.lastPoll}`}`;
+      return `managed outside, by a host-side updater; ${manager.lastPoll === null ? "it has not polled yet" : `last polled ${pastTimeWords(manager.lastPoll, now)}`}`;
     case "none":
       return `not managed: ${manager.reason}`;
   }
@@ -166,12 +168,12 @@ const outcomeLine = (outcome: UpdateOutcome | null): string => {
   return `${move}, failed at ${outcome.at} (${outcome.stage}: ${outcome.reason})${outcome.rolledBack ? ", rolled back" : ""}`;
 };
 
-/** The `updates.status` document, one line per part, as `update status` prints it; a list that is empty is left out. */
-export const renderUpdatesStatus = (status: UpdatesStatus): string =>
+/** The `updates.status` document, one line per part, as `update status` prints it at `now`; a list that is empty is left out. */
+export const renderUpdatesStatus = (status: UpdatesStatus, now: Date): string =>
   [
     `Version: ${PRODUCT_NAME} ${status.version}, protocol ${status.protocolVersion}`,
     `Claude Code (bundled): ${status.bundledClaudeCodeVersion ?? "unknown"}`,
-    `Updates: ${managerLine(status.manager)}`,
+    `Updates: ${managerLine(status.manager, now)}`,
     ...(status.installed.length > 0 ? [`Installed: ${status.installed.join(", ")}`] : []),
     `Releases: ${status.releaseSource.origin}/${status.releaseSource.repository}`,
     `Channel's newest: ${status.newest ?? "not read yet"}`,
@@ -189,7 +191,7 @@ const status = async (args: readonly string[], context: UpdateContext): Promise<
   const values = parseOptions(args, { ...TARGET_OPTIONS, json: { type: "boolean" }, "host-updater": { type: "boolean" } });
   const params = values["host-updater"] === true ? { hostUpdater: true as const } : {};
   const document = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update status`, (call) => call("updates.status", params));
-  context.stdout(values.json ? `${JSON.stringify(document, null, 2)}\n` : renderUpdatesStatus(document));
+  context.stdout(values.json ? `${JSON.stringify(document, null, 2)}\n` : renderUpdatesStatus(document, new Date()));
   return 0;
 };
 
