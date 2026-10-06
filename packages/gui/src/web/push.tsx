@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { writable } from "@agent-harness/client-runtime";
 import type { AttentionTargetInput, AttentionTargetStatus } from "@agent-harness/contracts";
 import { Button } from "../ui/button.js";
-import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { attentionTargetLabel } from "./attention-settings.js";
 import type { WebModule } from "../platform/web-registrations.js";
 
 export interface PushSubscriptionData { readonly endpoint: string; readonly keys: { readonly auth: string; readonly p256dh: string } }
@@ -18,6 +19,17 @@ export interface PushBrowser {
 export interface PushFeatures { readonly secure: boolean; readonly supported: boolean; readonly ios: boolean; readonly standalone: boolean }
 interface PushActions { key(): Promise<string>; registered(): Promise<boolean>; set(subscription: PushSubscriptionData): Promise<void>; remove(): Promise<void>; test(): Promise<"sent" | "retry" | "retire"> }
 export type PushState = "disabled" | "ready" | "denied" | "unavailable" | "install";
+
+const BROWSERS: readonly (readonly [RegExp, string])[] = [[/Edg(?:A|iOS)?\//, "Edge"], [/OPR\//, "Opera"], [/SamsungBrowser\//, "Samsung Internet"], [/Firefox\/|FxiOS\//, "Firefox"], [/Chrome\/|CriOS\//, "Chrome"], [/Version\/.*Safari\//, "Safari"]];
+const SYSTEMS: readonly (readonly [RegExp, string])[] = [[/Android/, "Android"], [/iPhone|iPod/, "iPhone"], [/iPad/, "iPad"], [/CrOS/, "ChromeOS"], [/Windows/, "Windows"], [/Macintosh/, "Mac"], [/Linux/, "Linux"]];
+const ENABLED_AT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+/** A person tells their push registrations apart by browser, system and when each was enabled; the id is an opaque client session id. */
+export const pushTargetLabel = (userAgent: string, enabledAt: Date): string => {
+  const browser = BROWSERS.find(([pattern]) => pattern.test(userAgent))?.[1];
+  const system = SYSTEMS.find(([pattern]) => pattern.test(userAgent))?.[1];
+  const named = browser && system ? `${browser} on ${system}` : browser ?? (system ? `A browser on ${system}` : "A browser");
+  return `${named}, enabled ${ENABLED_AT.format(enabledAt)}`;
+};
 /** Browser permission and subscription are browser-owned; registration status remains environment-owned. */
 export class PushController {
   private readonly state;
@@ -103,7 +115,7 @@ export const PushControls = ({ controller, fallback, onFallback }: { readonly co
       {state.status === "ready" && <><Button className="h-11" title="Test push" disabled={state.busy} onClick={() => { void controller.test(); }}>Test push</Button><Button className="h-11" title="Disable push" disabled={state.busy} onClick={() => { void controller.disable(); }}>Disable push</Button></>}
     </div>
     <h3 className="font-semibold">Fallback and in-app attention</h3>
-    {fallback.length ? fallback.map(target => <div key={target.id}><p>{target.id} · {target.state}{target.failure ? ` · ${target.failure}` : ""}</p>{onFallback && (!target.global || target.enabled) && <Button className="mt-2 h-11" title={`Use fallback ${target.id}`} disabled={state.busy} onClick={() => onFallback(target.id)}>Use fallback</Button>}</div>) : <p>No webhook fallback is configured. Ask an environment admin to configure and test a named attention endpoint in Attention settings.</p>}
+    {fallback.length ? fallback.map(target => <div key={target.id}><p>{attentionTargetLabel(target)} · {target.state}{target.failure ? ` · ${target.failure}` : ""}</p>{onFallback && (!target.global || target.enabled) && <Button className="mt-2 h-11" title={`Use fallback ${attentionTargetLabel(target)}`} disabled={state.busy} onClick={() => onFallback(target.id)}>Use fallback</Button>}</div>) : <p>No webhook fallback is configured. Ask an environment admin to configure and test a named attention endpoint in Attention settings.</p>}
     <p className="text-ink-muted">In-app Parked asks remain available while connected. In-app attention alone cannot alert a closed browser.</p>
   </section>;
 };
@@ -137,6 +149,7 @@ const browserPush = (): PushBrowser => {
 };
 const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: string; readonly sessionId: string | undefined }) => {
   const runtime = useRuntime();
+  const clock = useClock();
   const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "attention.targets.list", {}), [runtime, environmentId]));
   const clientId = useObservable(runtime.connections.list).find(record => record.environmentId === environmentId)?.clientSessionId;
   const id = `push-${clientId ?? "unpaired"}`;
@@ -155,11 +168,11 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
         if (!result.ok) throw new Error("Registration unavailable.");
         return result.result.targets.some(target => target.id === id && !target.global && target.transport === "push" && target.enabled);
       },
-      set: subscription => accepted({ id, transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
+      set: subscription => accepted({ id, label: pushTargetLabel(navigator.userAgent, clock.now()), transport: "push", enabled: true, completion: false, configuration: { endpoint: subscription.endpoint, ...subscription.keys } }),
       remove: () => accepted(),
       test: async () => { if (!sessionId) throw new Error("Open a session first."); const result = await runtime.requests.call(environmentId, "attention.push.test", { id, sessionId }); if (!result.ok) throw new Error("Test failed."); return result.result.status; },
     });
-  }, [runtime, environmentId, sessionId, id]);
+  }, [runtime, clock, environmentId, sessionId, id]);
   useEffect(() => { void controller.restore(answer.result?.targets.some(target => target.id === id && target.enabled) ?? false).catch(() => undefined); }, [controller, answer.result, id]);
   const fallback = answer.result?.targets.filter(target => target.transport === "webhook") ?? [];
   return <PushControls controller={controller} fallback={answer.result?.targets.filter(target => target.transport === "webhook") ?? []} onFallback={fallbackId => {
