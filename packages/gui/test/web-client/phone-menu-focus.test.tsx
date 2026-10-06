@@ -35,9 +35,6 @@ it("keeps focus in each phone sheet after its More menu closes", async () => {
     await user.click(within(sheet).getByRole("button", { name: "Close side sheet" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Side column" })).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Show the side column" })));
-    expect((await screen.findByRole("tooltip")).textContent).toContain("Show the side column");
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Show the side column" }));
+    expect(screen.queryByRole("tooltip")).toBeNull();
   }
 });

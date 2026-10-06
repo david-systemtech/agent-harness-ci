@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { LOCAL_PLACEHOLDER_ID, pairingDeepLink } from "@agent-harness/client-runtime";
+import { CredentialAccessUnansweredError, LOCAL_PLACEHOLDER_ID, pairingDeepLink } from "@agent-harness/client-runtime";
 import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -75,6 +75,60 @@ describe("pairing", () => {
     await app.user.click(within(form).getByRole("button", { name: "Pair with the code" }));
     expect(await within(dialog).findByText("Paired with laptop.")).toBeDefined();
     expect(within(sidebar()).getByRole("heading", { name: "laptop", hidden: true })).toBeDefined();
+  });
+
+  it("says where macOS's Keychain prompt waits while pairing, and once it went unanswered offers Try again with the same code", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
+    let unanswered!: (error: Error) => void;
+    app.shell.answer("secrets.protection", () => new Promise((_resolve, reject) => { unanswered = reject; }));
+    await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
+    const form = within(dialog).getByRole("form", { name: "Pair by address and code" });
+    await typeInto(app, within(form).getByRole("textbox", { name: "Address" }), app.environment("laptop").wire.origin);
+    await typeInto(app, within(form).getByRole("textbox", { name: "Pairing code" }), "k7q2m xh4rt");
+    await app.user.click(within(form).getByRole("button", { name: "Pair with the code" }));
+    await waitFor(() => expect(app.shell.calls).toContainEqual(["secrets.protection"]));
+
+    await act(async () => app.shell.changeSecretAccess("waiting"));
+    expect(within(dialog).getByText("Pairing…")).toBeDefined();
+    await act(async () => app.clock.advance(500));
+    expect(within(dialog).getByRole("status").textContent).toBe(
+      "macOS is asking to let agent-harness use its saved key. Look for the system dialog and choose Always Allow (it may ask for your Mac password).",
+    );
+
+    // The rejection as Electron's IPC hands it to a renderer that does not unwrap it: the form says its own words regardless.
+    await act(async () => {
+      unanswered(new Error(`Error invoking remote method 'shell:secrets.protection': Error: ${new CredentialAccessUnansweredError(30).message}`));
+      app.shell.changeSecretAccess("denied");
+    });
+    const status = within(dialog).getByRole("status");
+    expect(status.textContent).toContain(
+      "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then Try again.",
+    );
+    expect(status.textContent).not.toMatch(/Error invoking remote method|shell:secrets/);
+
+    app.shell.answer("secrets.protection", async () => "os");
+    await act(async () => app.shell.changeSecretAccess(null));
+    await app.user.click(within(status).getByRole("button", { name: "Try again" }));
+    expect(await within(dialog).findByText("Paired with laptop.")).toBeDefined();
+    expect(within(sidebar()).getByRole("heading", { name: "laptop", hidden: true })).toBeDefined();
+  });
+
+  it("asks for a new code, not Try again, when the Keychain prompt went unanswered after the code was spent", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "unpaired" }] });
+    app.shell.answer("secrets.set", () => Promise.reject(new Error(new CredentialAccessUnansweredError(30).message)));
+    await app.user.click(within(sidebar()).getByRole("button", { name: "Pair with an environment…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Pair with an environment" });
+    const form = within(dialog).getByRole("form", { name: "Pair by address and code" });
+    await typeInto(app, within(form).getByRole("textbox", { name: "Address" }), app.environment("laptop").wire.origin);
+    await typeInto(app, within(form).getByRole("textbox", { name: "Pairing code" }), "k7q2m xh4rt");
+    await app.user.click(within(form).getByRole("button", { name: "Pair with the code" }));
+
+    const status = within(dialog).getByRole("status");
+    await waitFor(() => expect(status.textContent).toBe(
+      "Not paired: macOS asked to let agent-harness use its saved key and had no answer. Look for the system dialog and choose Always Allow (it may ask for your Mac password), then pair with a new code: this one was used.",
+    ));
+    expect(within(status).queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("pairs from an agent-harness:// deep link the desktop is handed", async () => {

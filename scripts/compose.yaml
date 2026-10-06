@@ -24,6 +24,17 @@
 #
 #   docker compose exec environment agent-harness pair --preset own-client --data-dir /data
 #
+# Settings that every start reads go in the .env file beside this one, never
+# in edits to this file: an update replaces this file with the next
+# release's, while the .env file stays, and the host-side updater rewrites
+# only its two image lines. The phone address the pairing links and the web
+# client use, an HTTPS origin Tailscale Serve proxies to port 7433
+# (docs/phone.md), is one:
+#
+#   AGENT_HARNESS_WEB_ORIGIN=https://<device>.<tailnet>.ts.net:8443
+#
+# then docker compose up -d, and mint a fresh pairing link.
+#
 # Remote pairing on Linux: install Tailscale on the host, sign it in, and
 # keep it running in kernel TUN mode (the default), with an interface whose
 # name starts with tailscale (tailscale0, tailscale1, ...). This service
@@ -100,6 +111,10 @@ services:
       # here, as not given.
       AGENT_HARNESS_NAME: ${AGENT_HARNESS_NAME:-}
       AGENT_HARNESS_CHANNEL: ${AGENT_HARNESS_CHANNEL:-}
+      # The HTTPS origin a phone reaches this environment at, which every
+      # start reads (#1691): set it in the .env file beside this one, which an
+      # update keeps. Blank, as unset, leaves pairing links on the bound address.
+      AGENT_HARNESS_WEB_ORIGIN: ${AGENT_HARNESS_WEB_ORIGIN:-}
     volumes:
       - data:/data
       - work:/work

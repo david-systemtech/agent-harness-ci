@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createRuntime, StoredCredentialUnavailableError } from "@agent-harness/client-runtime";
+import { createRuntime, CredentialAccessUnansweredError, isCredentialAccessUnanswered, StoredCredentialUnavailableError, type HttpFetch } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock } from "@agent-harness/client-runtime/testing";
 import { fakeWire, flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { keychainSecrets } from "./secrets.js";
@@ -66,6 +66,58 @@ describe("secrets", () => {
     await secrets.set(DESK, "token-for-tests-paired-again");
     expect(await secrets.get(DESK)).toBe("token-for-tests-paired-again");
     expect(await secrets.access()).toBeNull();
+    electron.app.quit();
+    await electron.app.quitted;
+  });
+
+  it("pairs through this data folder's own OS item, and after a refused write asks no more for the refused item", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const platform = platformOn("darwin");
+    const dir = join(platform.paths.data, "secrets");
+    // The app-wide item belongs to an earlier, differently signed build, so every access to it
+    // waits on a macOS prompt nobody answers. So does the first item of this data folder.
+    const opened: string[] = [];
+    const prompting = (name: string) => name === "agent-harness" || name === opened.find((each) => each !== "agent-harness");
+    const services = new Map<string, ReturnType<typeof fakeElectron>["safeStorage"]>();
+    let refuseFirst = false;
+    const open = (name: string): MacCredentials => {
+      opened.push(name);
+      const storage = services.get(name) ?? fakeElectron({ os: "darwin" }).safeStorage;
+      services.set(name, storage);
+      const asks = () => refuseFirst ? prompting(name) : name === "agent-harness";
+      // Like the helper, an unanswered prompt ends only when the deadline aborts the call.
+      const approval = <T>(signal: AbortSignal, answer: () => Promise<T>) => (asks()
+        ? new Promise<T>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason as Error), { once: true }))
+        : answer());
+      return {
+        available: (signal) => approval(signal, () => storage.isAsyncEncryptionAvailable()),
+        encrypt: (value, signal) => approval(signal, () => storage.encryptStringAsync(value)),
+        decrypt: (value, signal) => approval(signal, async () => (await storage.decryptStringAsync(value)).result),
+        close: () => {},
+      };
+    };
+    const clock = manualClock();
+    const { shell } = await start({ electron, platform, credentialClock: clock, macCredentials: macCredentialStore({ dir, open }), reportError: () => {} });
+    const secrets = shell().secrets;
+    // An access that asked macOS would wait here until the held clock passes the deadline.
+    expect(await secrets.protection()).toBe("os");
+    await secrets.set(DESK, "token-for-tests-desk");
+    expect(await secrets.get(DESK)).toBe("token-for-tests-desk");
+    expect(opened).not.toContain("agent-harness");
+    // Now this folder's item waits on approval too, as after a second unsigned replacement.
+    refuseFirst = true;
+    let outcome = "pending";
+    const refused = secrets.set(LAPTOP, "token-for-tests-laptop").catch((error: unknown) => { outcome = "refused"; throw error; });
+    await flush();
+    expect(outcome).toBe("pending");
+    clock.advance(30_000);
+    await expect(refused).rejects.toThrow(/30 seconds/);
+    const asked = opened.filter(prompting).length;
+    await secrets.set(LAPTOP, "token-for-tests-laptop");
+    expect(await secrets.get(LAPTOP)).toBe("token-for-tests-laptop");
+    expect(await secrets.protection()).toBe("os");
+    expect(opened.filter(prompting)).toHaveLength(asked);
+    expect(opened).not.toContain("agent-harness");
     electron.app.quit();
     await electron.app.quitted;
   });
@@ -347,6 +399,54 @@ describe("secrets", () => {
       await retrying;
       expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ phase: "ready", blocked: null })]);
       expect(readFileSync(file)).toEqual(kept);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("asks macOS before a one-use code is spent, so an unanswered Keychain prompt leaves the code to try again, said in the desktop's own words", async () => {
+    const electron = fakeElectron({ os: "darwin" });
+    const credentialClock = manualClock();
+    // A helper whose OS request no one answers, until the test lets it.
+    let answering = false;
+    const silent = <T>(answer: () => Promise<T>): Promise<T> => (answering ? answer() : new Promise<T>(() => undefined));
+    const macCredentials: MacCredentials = {
+      available: () => silent(async () => true),
+      encrypt: (value) => silent(() => electron.safeStorage.encryptStringAsync(value)),
+      decrypt: (kept) => silent(async () => (await electron.safeStorage.decryptStringAsync(kept)).result),
+      close: () => {},
+    };
+    const { shell } = await start({ electron, platform: platformOn("darwin"), credentialClock, macCredentials, reportError: () => {} });
+    const secrets = shell().secrets;
+    const waitingFor = <T>(started: () => Promise<T>): Promise<unknown> => {
+      const waiting = new Promise<void>((resolve) => { const stop = secrets.onAccess((state) => { if (state === "waiting") { resolve(); queueMicrotask(stop); } }); });
+      const settled = started().catch((error: unknown) => error);
+      return waiting.then(() => { credentialClock.advance(30_000); return settled; });
+    };
+
+    const write = await waitingFor(() => secrets.set(DESK, "token-for-tests-desk"));
+    expect(write).toBeInstanceOf(Error);
+    expect((write as Error).message).toBe(new CredentialAccessUnansweredError(30).message);
+
+    const clock = manualClock();
+    const wire = fakeWire({ clock });
+    // The environment's one-use code: a second exchange is refused, as an environment refuses it.
+    let exchanges = 0;
+    const fetch: HttpFetch = async (url, request) =>
+      url.endsWith("/api/pair") && request?.method === "POST" && ++exchanges > 1 ? { status: 410, json: async () => ({ code: "pairing_used" }) } : wire.fetch(url, request);
+    const runtime = createRuntime(inMemoryPlatform({ clock, fetch, webSocket: wire.webSocket, secrets }));
+    try {
+      await runtime.start();
+      const unanswered = await waitingFor(() => runtime.connections.add({ link: wire.link }));
+      expect(isCredentialAccessUnanswered(unanswered)).toBe(true);
+      expect((unanswered as Error).message).not.toMatch(/Error invoking remote method/);
+      expect(exchanges).toBe(0);
+
+      answering = true;
+      const retried = runtime.connections.add({ link: wire.link });
+      await wire.server.accept();
+      expect(await retried).toMatchObject({ status: "paired", environmentId: wire.environmentId });
+      expect(exchanges).toBe(1);
     } finally {
       await runtime.close();
     }

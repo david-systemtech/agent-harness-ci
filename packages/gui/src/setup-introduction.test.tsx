@@ -48,6 +48,8 @@ it("asks before leaving without an account and keeps setup available after relau
   await app.user.click(screen.getByRole("button", { name: "I’ll set up later" }));
   const confirmation = screen.getByRole("dialog", { name: "Leave set up without an account?" });
   expect(confirmation.textContent).toContain("Set up will be waiting in Settings.");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep setting up" }));
+  expect(screen.queryByRole("tooltip")).toBeNull();
   await app.user.click(screen.getByRole("button", { name: "Keep setting up" }));
   expect(screen.getByRole("heading", { name: "Welcome to agent-harness" })).toBeDefined();
   await app.user.click(screen.getByRole("button", { name: "Begin set up" }));

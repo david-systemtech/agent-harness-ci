@@ -71,6 +71,14 @@ Open agent-harness from your application menu, or run
 Linux distribution, use the Docker option below and connect from a desktop
 on a supported machine.
 
+The desktop updates itself: when a newer build is ready, **Restart to
+update** installs it with `pacman -U` through `pkexec`, which needs polkit
+(the package depends on it) and a running polkit authentication agent, as
+desktop environments start. Without one, the desktop says the update failed
+and gives the command that installs the build it downloaded,
+`sudo pacman -U <path>`; installing a newer release's package with
+`sudo pacman -U` as above works too.
+
 ### Docker (Linux x64 host)
 
 The public image is `ghcr.io/david-systemtech/agent-harness`. Each release
@@ -123,7 +131,11 @@ A container never updates itself. Make `host-updater.sh` executable and
 schedule it on the Docker host every five minutes, as described in the
 [host-side updater instructions](docs/host-updater.md). It follows the
 environment's update settings, checks the replacement, and rolls back if
-it cannot start. Keep the compose file and updater together.
+it cannot start. Keep the compose file and updater together. Put settings
+such as the phone address (`AGENT_HARNESS_WEB_ORIGIN`, see
+[Connect from a phone](#connect-from-a-phone)) in the `.env` file beside
+`compose.yaml`, never in edits to `compose.yaml`: taking a newer release's
+compose file replaces it, while `.env` stays.
 
 ## Connect from a phone
 

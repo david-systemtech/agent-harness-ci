@@ -9,7 +9,7 @@ import {
   type ResponseFrame,
 } from "@agent-harness/contracts";
 import { exchangeGrant, readsGrant, type GrantExchange, type LocalStatus } from "../bootstrap.js";
-import { isStoredCredentialUnavailable } from "../credential-unavailable.js";
+import { isStoredCredentialUnavailable, PairingCodeSpentError } from "../credential-unavailable.js";
 import { admitHello, checkDiscovery, readDiscovery } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
 import type { Notices } from "../notices.js";
@@ -1027,18 +1027,26 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         return { status: "re-pair-offered", environmentId: id, name: existing.saved.descriptor.name };
       }
 
+      // The exchange spends the one-use code, so the store is asked first whether it can keep the token: a store that keeps none, or
+      // an OS prompt answered late or not at all (macOS's Keychain), leaves the code to pair with again (#1693).
+      if ((await platform.secrets.protection?.()) === "none") {
+        return pairingFailed("refused", "This device cannot keep a client session token: the OS keeps no key for it now. Unlock or set up the system keychain, then pair again.");
+      }
       const exchanged = await exchangeCode(platform.fetch, origin, code, platform.client, protocolVersion);
       if (!exchanged.ok) return { status: "failed", failure: exchanged.failure };
       const { credential } = exchanged;
 
       // The new client session is tried before anything is kept: a `hello` from another environment, or another protocol, keeps nothing.
       const answer = await authenticate({ webSocket: platform.webSocket, origin, token: credential.token, client: platform.client, protocolVersion });
+      // Gives up the new client session over its socket, which only a session holding `admin` may do, best effort as removal is.
+      const revokeNew = async (socket: LiveSocket) => {
+        if (!socket.hello.scopes.includes("admin")) return;
+        await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket });
+      };
       if (answer.ok) {
         const refusal = admitHello(answer.socket.hello, id, protocolVersion);
         if (refusal) {
-          if (answer.socket.hello.scopes.includes("admin")) {
-            await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket: answer.socket });
-          }
+          await revokeNew(answer.socket);
           answer.socket.close();
           return pairingFailed(refusal.reason, refusal.message);
         }
@@ -1050,9 +1058,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         answer.socket.hello.ceiling !== "bypassPermissions" || SCOPES.some(scope => !answer.socket.hello.scopes.includes(scope))
       )) {
         if (answer.ok) {
-          if (answer.socket.hello.scopes.includes("admin")) {
-            await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket: answer.socket });
-          }
+          await revokeNew(answer.socket);
           answer.socket.close();
         }
         return pairingFailed("refused", "Full access could not be confirmed. Use a full-access code made with My own client. This phone's pairing has not changed.");
@@ -1080,7 +1086,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           held?.close();
         }
 
-        await platform.secrets.set(id, credential.token);
+        // The code is spent now: a store that fails here (an OS prompt it re-raised and nobody answered, say) needs a new code. No
+        // client keeps the new token, so its client session is given up too (#1706).
+        await platform.secrets.set(id, credential.token).catch(async (error: unknown) => {
+          if (answer.ok) await revokeNew(answer.socket);
+          throw new PairingCodeSpentError(error);
+        });
         const saved: SavedConnection = {
           address: origin,
           kind: "paired",

@@ -6,7 +6,7 @@ import { startTestEnvironment } from "../../environment/test/helper.js";
 import { notJsonAt, originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
 import { pairingDeepLink, parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
-import { StoredCredentialUnavailableError } from "./credential-unavailable.js";
+import { CredentialAccessUnansweredError, isCredentialAccessUnanswered, PairingCodeSpentError, StoredCredentialUnavailableError } from "./credential-unavailable.js";
 
 const harness = useHarness();
 
@@ -133,6 +133,79 @@ describe("pairing with an environment", () => {
     const { sessions } = await admin.apply("access.sessions.list", {});
     expect(sessions.find((s) => s.id === before?.clientSessionId)?.revokedAt).toEqual(expect.any(String));
     expect(sessions.find((s) => s.id === after[0]?.clientSessionId)?.revokedAt).toBeNull();
+  });
+
+  it("asks the store whether it can keep a token before spending the code, so a store that keeps none or an unanswered OS prompt leaves the code to pair with", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const platform = inMemoryPlatform();
+    let answer: () => Promise<"os" | "none"> = async () => "none";
+    const runtime = harness.runtime(inMemoryPlatform({ secrets: { ...platform.secrets, protection: () => answer() } }));
+    await runtime.start();
+    const { link } = await t.createPairing();
+
+    expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "refused", message: expect.stringContaining("cannot keep a client session token") } });
+    answer = () => Promise.reject(new CredentialAccessUnansweredError(30));
+    await expect(runtime.connections.add({ link })).rejects.toThrow(CredentialAccessUnansweredError);
+    expect(runtime.connections.list.read()).toEqual([]);
+
+    answer = async () => "os";
+    expect(await runtime.connections.add({ link })).toEqual({ status: "paired", environmentId: t.env.id });
+    expect(await platform.secrets.get(t.env.id)).toEqual(expect.any(String));
+  });
+
+  it("says a token the store could not keep after the exchange spent the code, so the same code is not offered again", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const platform = inMemoryPlatform();
+    const secrets = { ...platform.secrets, protection: async () => "os" as const, set: () => Promise.reject(new CredentialAccessUnansweredError(30)) };
+    const runtime = harness.runtime(inMemoryPlatform({ secrets }));
+    await runtime.start();
+    const { link } = await t.createPairing();
+
+    const failure = await runtime.connections.add({ link }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(PairingCodeSpentError);
+    expect(isCredentialAccessUnanswered(failure)).toBe(true);
+    expect(runtime.connections.list.read()).toEqual([]);
+    expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "used-code" } });
+  });
+
+  it("revokes the new client session over its socket when the store cannot keep its token, so no session is left live that no client holds (#1706)", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    const secrets = { ...platform.secrets, set: () => Promise.reject(new Error("The keychain refused the write.")) };
+    const runtime = harness.runtime(inMemoryPlatform({ label: "Milo's laptop", secrets }));
+    await runtime.start();
+
+    await expect(runtime.connections.add({ link: (await t.createPairing()).link })).rejects.toThrow(PairingCodeSpentError);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.filter(session => session.label === "Milo's laptop")).toEqual([expect.objectContaining({ revokedAt: expect.any(String) })]);
+  });
+
+  it("re-pairs in place with a store that cannot keep the new token: both client sessions are given up and the connection is blocked, to pair again with a new code (#1706)", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    let refuse = false;
+    const secrets = {
+      ...platform.secrets,
+      set: async (id: string, token: string) => {
+        if (refuse) throw new Error("The keychain refused the write.");
+        await platform.secrets.set(id, token);
+      },
+    };
+    const runtime = harness.runtime(inMemoryPlatform({ label: "Milo's laptop", secrets }));
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const before = runtime.connections.list.read()[0]?.clientSessionId;
+    refuse = true;
+
+    await expect(runtime.connections.add({ link: (await t.createPairing()).link }, { rePair: t.env.id })).rejects.toThrow(PairingCodeSpentError);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    const paired = sessions.filter(session => session.label === "Milo's laptop");
+    expect(paired).toHaveLength(2);
+    expect(paired.map(session => session.revokedAt)).toEqual([expect.any(String), expect.any(String)]);
+    await until(() => runtime.connections.list.read()[0]?.phase === "blocked", "the connection blocked");
+    expect(runtime.connections.list.read()).toEqual([expect.objectContaining({ clientSessionId: before, blocked: "revoked" })]);
   });
 
   it("re-pairs with a code without admin: the replaced client session is revoked with the old token", async () => {

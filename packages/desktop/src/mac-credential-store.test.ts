@@ -12,11 +12,16 @@ afterEach(cleanUp);
 const keychains = (refuseOriginal = true) => {
   const items = new Map<string, ReturnType<typeof fakeElectron>["safeStorage"]>();
   const opened: string[] = [];
+  /** Every OS operation by item, since the store reuses an opened item. */
+  const asked: string[] = [];
   const open = (name: string): MacCredentials => {
     opened.push(name);
     const storage = items.get(name) ?? fakeElectron({ os: "darwin" }).safeStorage;
     items.set(name, storage);
-    const access = () => { if (refuseOriginal && name === "agent-harness") throw new Error("The earlier OS item needs approval"); };
+    const access = () => {
+      asked.push(name);
+      if (refuseOriginal && name === "agent-harness") throw new Error("The earlier OS item needs approval");
+    };
     return {
       available: async () => { access(); return storage.isAsyncEncryptionAvailable(); },
       encrypt: async (value) => { access(); return storage.encryptStringAsync(value); },
@@ -24,7 +29,7 @@ const keychains = (refuseOriginal = true) => {
       close: () => {},
     };
   };
-  return { open, opened };
+  return { open, opened, asked };
 };
 
 it("recovers from the earlier OS item into fresh protected storage that a relaunch can read", async () => {
@@ -105,16 +110,79 @@ it("persists concurrent failures in different earlier items without losing eithe
   restarted.close();
 });
 
-it("keeps the original ciphertext format when retained access still works", async () => {
+it("reads retained original ciphertext, but writes and probes only this data folder's own item", async () => {
   const dir = join(scratch(), "secrets");
   const os = keychains(false);
   const store = macCredentialStore({ dir, open: os.open });
   const signal = new AbortController().signal;
   const legacy = fakeElectron({ os: "darwin" }).safeStorage.encryptString("credential-for-tests-kept");
   expect(await store.decrypt(legacy, signal)).toBe("credential-for-tests-kept");
-  const kept = await store.encrypt("credential-for-tests-fresh", signal);
-  // An earlier build's OS provider can still consume an ordinary retained-item write.
-  expect(await os.open("agent-harness").decrypt(kept, signal)).toBe("credential-for-tests-fresh");
+  const asked = os.asked.length;
+  expect(await store.available(signal)).toBe(true);
+  const fresh = await store.encrypt("credential-for-tests-fresh", signal);
+  // The app-wide item may belong to an earlier, differently signed build even in a new data folder.
+  expect(os.asked.slice(asked)).not.toContain("agent-harness");
+  expect(await store.decrypt(fresh, signal)).toBe("credential-for-tests-fresh");
   expect(await store.recovery()).toBe(false);
   store.close();
+  const relaunched = macCredentialStore({ dir, open: os.open });
+  expect(await relaunched.decrypt(fresh, signal)).toBe("credential-for-tests-fresh");
+  expect(await relaunched.encrypt("credential-for-tests-next", signal)).toEqual(expect.any(Buffer));
+  expect(new Set(os.asked.slice(asked))).toHaveLength(1);
+  relaunched.close();
+});
+
+it.each([
+  ["a write fails", (store: ReturnType<typeof macCredentialStore>, signal: AbortSignal) => store.encrypt("credential-for-tests-refused", signal)],
+  ["availability is refused", async (store: ReturnType<typeof macCredentialStore>, signal: AbortSignal) => {
+    if (!(await store.available(signal))) throw new Error("refused");
+  }],
+])("retires this folder's item when %s, so later writes, probes and relaunches never ask for it again", async (_case, fail) => {
+  const dir = join(scratch(), "secrets");
+  const os = keychains();
+  let refusing: string | undefined;
+  const open = (name: string): MacCredentials => {
+    refusing ??= name;
+    const item = os.open(name);
+    if (name !== refusing) return item;
+    return { ...item, available: async () => false, encrypt: () => Promise.reject(new Error("The OS item needs approval")) };
+  };
+  const signal = new AbortController().signal;
+  const store = macCredentialStore({ dir, open });
+  await expect(fail(store, signal)).rejects.toThrow();
+  const fresh = await store.encrypt("credential-for-tests-fresh", signal);
+  expect(await store.available(signal)).toBe(true);
+  expect(await store.decrypt(fresh, signal)).toBe("credential-for-tests-fresh");
+  // Nothing was kept under the retired item, so there is nothing to pair again.
+  expect(await store.recovery()).toBe(false);
+  store.close();
+  const relaunched = macCredentialStore({ dir, open });
+  expect(await relaunched.available(signal)).toBe(true);
+  expect(await relaunched.decrypt(fresh, signal)).toBe("credential-for-tests-fresh");
+  relaunched.close();
+  expect(os.opened.filter(name => name === refusing)).toHaveLength(1);
+  expect(os.opened).not.toContain("agent-harness");
+});
+
+it("keeps an item a shutdown cancelled", async () => {
+  const dir = join(scratch(), "secrets");
+  const os = keychains();
+  let entered!: (release: () => void) => void;
+  const pending = new Promise<() => void>(resolve => { entered = resolve; });
+  const open = (name: string): MacCredentials => ({
+    ...os.open(name),
+    encrypt: () => new Promise((_resolve, reject) => entered(() => reject(new Error("Desktop credential access was cancelled at shutdown.")))),
+  });
+  const signal = new AbortController().signal;
+  const store = macCredentialStore({ dir, open });
+  const writing = store.encrypt("credential-for-tests-cancelled", signal);
+  const release = await pending;
+  store.close();
+  release();
+  await expect(writing).rejects.toThrow(/shutdown/);
+  const relaunched = macCredentialStore({ dir, open: os.open });
+  const fresh = await relaunched.encrypt("credential-for-tests-fresh", signal);
+  expect(await relaunched.decrypt(fresh, signal)).toBe("credential-for-tests-fresh");
+  relaunched.close();
+  expect(new Set(os.opened)).toHaveLength(1);
 });
