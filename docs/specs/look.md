@@ -1282,8 +1282,9 @@ Sessions drawer and composer details. Keep the landscape layout unchanged while
 filled-keyboard visual height becomes 330 with offsetTop 8; overlay proofs use 300.
 The filled-dock floor retains the waiting notice, three normal reply lines and
 the message/action row with the bottom safe reserve. The landscape drawer
-keeps at least a 54px result well; its footer may shrink to a 48px internal
-scrollport, with each footer action reachable and Close remaining outside it.
+keeps a result well that grows with text size (at least 54px), with compact
+vertical padding around New session and Filter. Its footer may shrink to a
+48px internal scrollport, with each footer action reachable and Close outside it.
 Inject zero insets at 740px and
 44px left/right plus 21px bottom at 844px. Assert one conversation, three normal
 transcript lines, the dock bottom at visual bottom minus exactly one inset,
