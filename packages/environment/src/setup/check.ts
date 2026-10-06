@@ -1,6 +1,7 @@
 import {
   CHECK_BUDGET_SECONDS,
   type LastGood,
+  type ReasonTime,
   type RegisteredStepId,
   type SettingsValues,
   type SetupAction,
@@ -118,6 +119,8 @@ interface Failure {
   readonly actions: readonly SetupAction[];
   /** The items its actions apply to, as it named them. */
   readonly targets: readonly SetupTarget[];
+  /** The past times its reason names. */
+  readonly times?: readonly ReasonTime[];
   readonly couldNotCheck: boolean;
   readonly pending?: true;
 }
@@ -160,7 +163,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
         return true;
       }
       const targets = (answer.targets ?? []).filter((target) => actions.includes(target.action));
-      return { id, reason: answer.reason, actions, targets, couldNotCheck: false, ...(answer.pending && { pending: true }) };
+      return { id, reason: answer.reason, actions, targets, ...(answer.times !== undefined && { times: answer.times }), couldNotCheck: false, ...(answer.pending && { pending: true }) };
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
       return { id, reason: `Could not check ${id}: ${message}.`, actions, targets: [], couldNotCheck: true };
@@ -183,6 +186,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
       ]),
     ]);
     const targets = uniqueTargets([...mintedTargets, ...failures.flatMap((failure) => failure.targets)]);
+    const times = failures.flatMap((failure) => failure.times ?? []);
     return {
       step: step.id,
       state: "needs-attention",
@@ -190,6 +194,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
       failing: failures.map((failure) => failure.id),
       actions: [...new Set([...(stopped.length === 0 ? [] : STOPPED_RUN_ACTIONS), ...failures.flatMap((failure) => failure.actions)])],
       ...(targets.length > 0 && { targets }),
+      ...(times.length > 0 && { times }),
       checkedAt,
       ...(failures.some((failure) => failure.couldNotCheck) && lastGood !== undefined && { lastGood }),
     };

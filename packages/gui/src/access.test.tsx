@@ -59,15 +59,15 @@ const labels = async (region: HTMLElement, list: string) =>
 const item = (region: HTMLElement, label: string) => within(region).getByRole("listitem", { name: label });
 
 describe("the client sessions", () => {
-  it("lists each with its kind, label, scopes, ceiling and when it was last seen, this client's own marked, and programs beside them", async () => {
+  it("lists each with its kind, label, scopes, ceiling, when it paired and when it was last seen, this client's own marked, and programs beside them", async () => {
     const app = await opened();
     const access = await openAccess(app);
 
     const sessions = part(access, "Client sessions");
     expect(await labels(sessions, "Client sessions")).toEqual(["laptop window", "milo@laptop:pts/1", "milo@desk:pts/3"]);
-    expect(within(item(sessions, "laptop window")).getByText(/^Desktop window · every scope · last seen 1 Mar 2025 \d\d:\d\d$/)).toBeDefined();
-    expect(within(item(sessions, "milo@laptop:pts/1")).getByText("Terminal UI · read, sessions:write · never seen")).toBeDefined();
-    expect(within(item(sessions, "milo@desk:pts/3")).getByText(/^Terminal UI · every scope · last seen \d\d:\d\d$/)).toBeDefined();
+    expect(within(item(sessions, "laptop window")).getByText(/^Desktop window · every scope · paired \d\d:\d\d · last seen 1 Mar 2025 \d\d:\d\d$/)).toBeDefined();
+    expect(within(item(sessions, "milo@laptop:pts/1")).getByText(/^Terminal UI · read, sessions:write · paired \d\d:\d\d · never seen$/)).toBeDefined();
+    expect(within(item(sessions, "milo@desk:pts/3")).getByText(/^Terminal UI · every scope · paired \d\d:\d\d · last seen \d\d:\d\d$/)).toBeDefined();
     expect(within(item(sessions, "milo@desk:pts/3")).getByText("This client")).toBeDefined();
     expect(within(item(sessions, "laptop window")).queryByText("This client")).toBeNull();
     expect((within(item(sessions, "laptop window")).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement).value).toBe("acceptEdits");
@@ -75,8 +75,44 @@ describe("the client sessions", () => {
 
     const programs = part(access, "Program pairings");
     expect(await labels(programs, "Programs")).toEqual(["hermes"]);
-    expect(within(item(programs, "hermes")).getByText(/^Program · read, sessions:write, runs:drive · last seen \d\d:\d\d$/)).toBeDefined();
+    expect(within(item(programs, "hermes")).getByText(/^Program · read, sessions:write, runs:drive · paired \d\d:\d\d · last seen \d\d:\d\d$/)).toBeDefined();
     expect(app.environment("desk").requests("access.sessions.list")[0]?.params).toEqual({ live: true });
+  });
+});
+
+describe("web clients", () => {
+  /** Two phones and a tab: one paired before labels were built from the browser, two after. */
+  const WEB: ScriptedEnvironment["clientSessions"] = [
+    { label: "Browser tab", kind: "web", createdAt: "2025-03-01T12:00:00.000Z" },
+    { label: "Chrome on Android (Home Screen)", kind: "web", createdAt: "2025-03-02T09:30:00.000Z" },
+    { label: "Chrome on Android (tab)", kind: "web", lastSeenAt: null },
+  ];
+
+  it("are each named by the label they paired with, an older one keeping its stored label, and say when they paired", async () => {
+    const app = await opened({ desk: { clientSessions: WEB } });
+    const sessions = part(await openAccess(app), "Client sessions");
+
+    expect(await labels(sessions, "Client sessions")).toEqual(["Browser tab", "Chrome on Android (Home Screen)", "Chrome on Android (tab)", "milo@desk:pts/3"]);
+    expect(within(item(sessions, "Browser tab")).getByText(/^Browser · every scope · paired 1 Mar 2025 \d\d:\d\d · last seen \d\d:\d\d$/)).toBeDefined();
+    expect(within(item(sessions, "Chrome on Android (Home Screen)")).getByText(/^Browser · every scope · paired 2 Mar 2025 \d\d:\d\d · last seen \d\d:\d\d$/)).toBeDefined();
+    expect(within(item(sessions, "Chrome on Android (tab)")).getByText(/^Browser · every scope · paired \d\d:\d\d · never seen$/)).toBeDefined();
+  });
+
+  it("are confirmed by their label and when they paired before one is revoked, this client's own still marked", async () => {
+    const app = await opened({ desk: { clientSessions: WEB } });
+    const sessions = part(await openAccess(app), "Client sessions");
+    await labels(sessions, "Client sessions");
+
+    await app.user.click(within(item(sessions, "Chrome on Android (Home Screen)")).getByRole("button", { name: "Revoke…" }));
+    const asked = await screen.findByRole("dialog", { name: "Revoke Chrome on Android (Home Screen) on desk?" });
+    expect(within(asked).getByText(/^Browser · every scope · paired 2 Mar 2025 \d\d:\d\d · last seen \d\d:\d\d$/)).toBeDefined();
+    expect(within(asked).queryByText("This client")).toBeNull();
+    await app.user.click(within(asked).getByRole("button", { name: "Cancel" }));
+
+    await app.user.click(within(item(sessions, "milo@desk:pts/3")).getByRole("button", { name: "Revoke…" }));
+    const own = await screen.findByRole("dialog", { name: "Revoke milo@desk:pts/3 on desk?" });
+    expect(within(own).getByText(/^Terminal UI · every scope · paired \d\d:\d\d · last seen \d\d:\d\d$/)).toBeDefined();
+    expect(within(own).getByText("This client")).toBeDefined();
   });
 });
 

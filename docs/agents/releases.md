@@ -49,6 +49,7 @@ available without an account.
    Windows NSIS setup (cross-built with Wine) and Linux Arch package, and their
    smokes. Only once `verify` and every `suite` shard have passed does `image-push`
    push the checked image to `ghcr.io/david-systemtech/agent-harness:<version>`
+   (up to three attempts, since ghcr can refuse a manifest after accepting its layers)
    and the release job write the three server artefacts, scripts, schema
    export, manifest and sidecars and publish them.
 5. Verify the single GitHub release holds every manifest asset and sidecar, plus

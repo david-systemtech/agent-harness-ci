@@ -33,8 +33,10 @@ import { unlistedBy } from "./browser-reach.js";
  * a prompt left unanswered is said again in the past tense, with Try again,
  * which pairs with the same code: the runtime asks before it spends it (#1693).
  * In a browser tab, a link whose origin the page may not contact is refused
- * before any fetch, with how to allow it (#1713); whatever the form says is
- * scrolled into view, below the fold on a phone as it may be.
+ * before any fetch, with how to allow it (#1713), each origin a run that
+ * wraps whole; whatever the form says is scrolled into view, below the fold
+ * on a phone as it may be, and there takes the full width above its
+ * actions (#1739).
  */
 
 /** What the form says while the token's OS store waits on macOS's Keychain prompt, and once that prompt went unanswered, before or after the code was spent. */
@@ -48,13 +50,26 @@ type Said =
   | { readonly kind: "line"; readonly line: string }
   | { readonly kind: "offer"; readonly line: string; readonly input: PairingInput; readonly environmentId: string }
   | { readonly kind: "unanswered"; readonly input: PairingInput; readonly options: PairingOptions | undefined }
-  | { readonly kind: "unlisted"; readonly line: string; readonly environmentId: string };
+  | { readonly kind: "unlisted"; readonly refused: Unlisted; readonly environmentId: string };
+
+/** An origin the serving environment's Allowed connection origins leave out: the origin, the serving environment's name, and this page's origin. */
+interface Unlisted {
+  readonly origin: string;
+  readonly serving: string;
+  readonly pageOrigin: string;
+}
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** An origin in the form's line: a code run that wraps whole, never at a hyphen inside its host name (#1739). */
+const Origin = ({ children }: { readonly children: string }) => <code data-pairing-origin className="font-mono">{children}</code>;
+
 /** What the form says of an origin the serving environment's Allowed connection origins leave out: both lists to change, and the reload. */
-const unlistedLine = (origin: string, serving: string, pageOrigin: string): string =>
-  `Not paired: This browser client may not contact ${origin}. To allow it, add ${origin} to ${serving}'s Allowed connection origins under Your machines, Browser origins, then reload this page; and ask that environment's admin to add this client's origin, ${pageOrigin}, to its Allowed client origins.`;
+const UnlistedLine = ({ refused: { origin, serving, pageOrigin } }: { readonly refused: Unlisted }) => (
+  <span>
+    Not paired: This browser client may not contact <Origin>{origin}</Origin>. To allow it, add <Origin>{origin}</Origin> to {serving}'s Allowed connection origins under Your machines, Browser origins, then reload this page; and ask that environment's admin to add this client's origin, <Origin>{pageOrigin}</Origin>, to its Allowed client origins.
+  </span>
+);
 
 /** A pairing's outcome as the form says it, the environment named as the window names it. */
 const saidOf = (outcome: PairingOutcome, input: PairingInput, views: readonly EnvironmentView[]): Said => {
@@ -144,7 +159,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         const unlisted = await unlistedBy(runtime, parsed.origin, pageOrigin);
         if (unlisted !== undefined) {
           const serving = runtime.projections.environments.read().find((view) => view.environmentId === unlisted);
-          setSaid({ kind: "unlisted", line: unlistedLine(parsed.origin, serving ? nameOf(serving) : "this environment", pageOrigin), environmentId: unlisted });
+          setSaid({ kind: "unlisted", refused: { origin: parsed.origin, serving: serving ? nameOf(serving) : "this environment", pageOrigin }, environmentId: unlisted });
           return;
         }
       }
@@ -229,7 +244,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
         )}
         {said?.kind === "unlisted" && (
           <>
-            <span>{said.line}</span>
+            <UnlistedLine refused={said.refused} />
             {toBrowserOrigins !== undefined && (
               <Button icon={Globe} onClick={() => toBrowserOrigins(said.environmentId)}>
                 Browser origins

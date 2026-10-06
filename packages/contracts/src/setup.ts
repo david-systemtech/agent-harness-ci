@@ -176,6 +176,20 @@ const LastGood = z
   });
 export type LastGood = z.infer<typeof LastGood>;
 
+/**
+ * A time a result's reason names (#1742): the words of the reason that say
+ * when, in the environment's own terms (to the minute, in UTC), and the
+ * instant, which a client words as it words every past time, where it is,
+ * in place of those words.
+ */
+const ReasonTime = z
+  .object({
+    text: z.string().min(1).meta({ description: "The words of the reason that say when, which a client replaces with its own words for the time." }),
+    at: Timestamp.meta({ description: "The instant those words name." }),
+  })
+  .meta({ description: "A past time the reason names: the words that say it and the instant, which a client words where it is, its age and its clock time, in place of those words." });
+export type ReasonTime = z.infer<typeof ReasonTime>;
+
 export const RegisteredStepId = z.enum(REGISTERED_STEP_IDS).meta({ description: `A step with an entry in the step registry: ${REGISTERED_STEP_IDS.join(", ")}.` });
 export type RegisteredStepId = z.infer<typeof RegisteredStepId>;
 
@@ -213,6 +227,13 @@ const GivenResult = z.object({
     .meta({
       description:
         "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once, after the session try-again continues when an LLM step's minted session stopped; on a done LLM step, each of its subjects for revise; absent when none is named. The reader leaves out one of a verb or a kind it does not know.",
+    }),
+  times: z
+    .array(ReasonTime)
+    .optional()
+    .meta({
+      description:
+        "The past times the reason names, each with the words that say it, which a client replaces with its own words for that time; absent when it names none. A client that reads none shows the reason as it is.",
     }),
   checkedAt: Timestamp.meta({ description: "When the check ran, on the environment's clock." }),
   lastGood: LastGood.optional(),

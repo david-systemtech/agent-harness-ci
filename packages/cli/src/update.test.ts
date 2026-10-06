@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative as relativePath } from "node:path";
-import { ContractError, PROTOCOL_VERSION, UpdatesStatus, registry } from "@agent-harness/contracts";
+import { ContractError, PROTOCOL_VERSION, UpdatesStatus, pastTimeWords, registry } from "@agent-harness/contracts";
 import { HARNESS_VERSION, PRESET_IDLE_WINDOW_MS } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
@@ -436,6 +436,8 @@ describe("the status as update status prints it", () => {
   const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
   const at = "2026-09-28T10:00:00.000Z";
   const later = "2026-09-29T10:00:00.000Z";
+  /** When the CLI prints it: two hours and five minutes after the host-side updater's last poll. */
+  const now = new Date(Date.parse(at) + (2 * 60 + 5) * 60_000);
   const base: UpdatesStatus = {
     version: "0.4.2",
     protocolVersion: 1,
@@ -454,10 +456,10 @@ describe("the status as update status prints it", () => {
   const pending = { updateId, toVersion: "0.5.1", source: "channel", since: at, deferUntil: later, image: null } as const;
 
   it("says each part the document can carry, the channel, pending and outcome parts later tickets fill included", () => {
-    expect(renderUpdatesStatus(base).split("\n")).toEqual([
+    expect(renderUpdatesStatus(base, now).split("\n")).toEqual([
       "Version: agent-harness 0.4.2, protocol 1",
       "Claude Code (bundled): unknown",
-      `Updates: managed outside, by a host-side updater; last polled at ${at}`,
+      `Updates: managed outside, by a host-side updater; last polled ${pastTimeWords(at, now)}`,
       "Releases: https://github.com/david-systemtech/agent-harness",
       "Channel's newest: 0.5.0",
       `Last check: ${at}, failed (unreachable): The forge did not answer.`,
@@ -467,6 +469,9 @@ describe("the status as update status prints it", () => {
       "Failed versions: 0.5.0",
       "",
     ]);
+    // The poll's time where the CLI runs, its age and its clock time, as the clients word it (#1742).
+    expect(renderUpdatesStatus(base, now)).toMatch(/\nUpdates: managed outside, by a host-side updater; last polled 2 h ago, at [^\n]*\d\d:\d\d\n/);
+    expect(renderUpdatesStatus(base, now)).not.toContain(`last polled at ${at}`);
     const lines: [UpdatesStatus["pending"], string][] = [
       [{ state: "staging", updateId, toVersion: "0.5.1", source: "request" }, "0.5.1 (request), staging"],
       [{ state: "waiting", ...pending, waitsOn: { reason: "parked-prompt", until: later } }, `0.5.1 (channel), waiting since ${at}, forced at ${later}; busy: parked-prompt until ${later}`],
@@ -478,14 +483,14 @@ describe("the status as update status prints it", () => {
         "0.9.0, blocked (launcher): Run agent-harness service install from the 0.9.0 release.",
       ],
     ];
-    for (const [state, line] of lines) expect(renderUpdatesStatus({ ...base, pending: state })).toContain(`Pending update: ${line}\n`);
-    expect(renderUpdatesStatus({ ...base, lastOutcome: { outcome: "updated", updateId: null, fromVersion: "0.4.1", toVersion: "0.4.2", at } })).toContain(
+    for (const [state, line] of lines) expect(renderUpdatesStatus({ ...base, pending: state }, now)).toContain(`Pending update: ${line}\n`);
+    expect(renderUpdatesStatus({ ...base, lastOutcome: { outcome: "updated", updateId: null, fromVersion: "0.4.1", toVersion: "0.4.2", at } }, now)).toContain(
       `Last update: 0.4.1 to 0.4.2, updated at ${at}\n`,
     );
-    expect(renderUpdatesStatus({ ...base, manager: { kind: "outside", lastPoll: null }, lastCheck: null, newest: null, target: null })).toMatch(
+    expect(renderUpdatesStatus({ ...base, manager: { kind: "outside", lastPoll: null }, lastCheck: null, newest: null, target: null }, now)).toMatch(
       /Updates: managed outside, by a host-side updater; it has not polled yet\nReleases: .*\nChannel's newest: not read yet\nLast check: never\nTarget: none\n/,
     );
-    expect(renderUpdatesStatus({ ...base, target: null, passedOver: { version: "0.3.0", source: "pin", reason: "schema", message: "Its schema is below the database's." } })).toContain(
+    expect(renderUpdatesStatus({ ...base, target: null, passedOver: { version: "0.3.0", source: "pin", reason: "schema", message: "Its schema is below the database's." } }, now)).toContain(
       "Target: none\nPassed over: 0.3.0 (pin, schema): Its schema is below the database's.\nPending update: none\n",
     );
   });

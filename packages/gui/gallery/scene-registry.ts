@@ -24,6 +24,8 @@ export interface SceneGeometry {
   readonly hitTestable?: boolean;
   /** No word in the element's text may wrap mid-word onto another line; wraps between words and at hyphens are fine. */
   readonly wordsIntact?: boolean;
+  /** The element's text sits on one line: it may move to the next line whole, but never wraps inside, not even at a hyphen. */
+  readonly unbroken?: boolean;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;

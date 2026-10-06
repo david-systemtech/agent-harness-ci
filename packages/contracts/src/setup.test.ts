@@ -65,6 +65,22 @@ describe("the Set up result vocabulary", () => {
     expect(StepResult.safeParse({ ...result, targets: [{ kind: "account", id: "account-work", label: "Work" }] }).success).toBe(false);
   });
 
+  it("carries each time its reason names as data, the words that say it and the instant, and leaves the times out when it names none (#1742)", () => {
+    const result = {
+      step: "your-machines",
+      state: "needs-attention",
+      reason: "The host-side updater last polled more than an hour ago, at 2026-10-06 16:24 UTC.",
+      failing: ["your-machines.host-updater"],
+      actions: ["check-again"],
+      checkedAt: "2026-10-06T18:30:00.000Z",
+    };
+    expect(StepResult.parse(result)).not.toHaveProperty("times");
+    const times = [{ text: "more than an hour ago, at 2026-10-06 16:24 UTC", at: "2026-10-06T16:24:10.496Z" }];
+    expect(StepResult.parse({ ...result, times }).times).toEqual(times);
+    expect(StepResult.safeParse({ ...result, times: [{ text: "more than an hour ago, at 2026-10-06 16:24 UTC", at: "16:24" }] }).success).toBe(false);
+    expect(StepResult.safeParse({ ...result, times: [{ text: "", at: "2026-10-06T16:24:10.496Z" }] }).success).toBe(false);
+  });
+
   it("carries pending scheduled reads through results, snapshots and notices without failure actions", () => {
     const pending = { step: "your-machines", state: "pending", reason: "Waiting for the first release channel read.", failing: [], actions: [], checkedAt: "2026-09-25T08:00:00.000Z" };
     expect(StepResult.parse(pending)).toEqual(pending);

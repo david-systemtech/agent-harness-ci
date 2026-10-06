@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore } from "react";
 import { writable } from "@agent-harness/client-runtime";
 import { Button } from "../ui/button.js";
 import type { WebModule } from "../platform/web-registrations.js";
+import { runsInstalled } from "../platform/browser-name.js";
 
 export interface InstallFeatures { readonly secure: boolean; readonly standalone: boolean; readonly ios: boolean; readonly worker: boolean }
 interface InstallOffer extends Event { prompt(): Promise<void>; readonly userChoice: Promise<{ readonly outcome: string }> }
@@ -72,7 +73,7 @@ export const webModule = { slot: "install", registration: {
 
 /** Shared browser lifecycle used by startup and scenes that include its real disclosure. */
 export const startInstallSurface = (): (() => void) => {
-  const standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { readonly standalone?: boolean }).standalone === true;
+  const standalone = runsInstalled(window);
   const controller = new InstallController(window, { secure: window.isSecureContext, standalone, ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1), worker: "serviceWorker" in navigator });
   active.set(controller);
   return () => { controller.dispose(); active.set(undefined); };

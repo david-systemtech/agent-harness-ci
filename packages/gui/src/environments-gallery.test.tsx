@@ -25,10 +25,11 @@ it("draws the Your machines scene with named cards, pairing QR and measured cont
   for (const rule of geometry({ width: 1400, height: 900 })) expect(document.querySelector(rule.selector), rule.selector).not.toBeNull();
 });
 
-it("draws the Access scene with client scopes, a program and revoke confirmation", async () => {
+it("draws the Access scene with client scopes, a program and a phone's revoke confirmation naming its browser and when it paired", async () => {
   const { geometry } = await import("../gallery/scenes/settings-access.js");
   await mount("settings-access", "light");
-  expect(await screen.findByRole("dialog", { name: "Revoke Travel window on desk?" })).toBeTruthy();
+  const asked = await screen.findByRole("dialog", { name: "Revoke Chrome on Android (Home Screen) on desk?" });
+  expect(within(asked).getByText(/^Browser · read, sessions:write, runs:drive · paired \d\d:\d\d · last seen \d\d:\d\d$/)).toBeTruthy();
   expect(screen.getByText("This client")).toBeTruthy();
   expect(screen.getByText("Build helper")).toBeTruthy();
   for (const rule of geometry({ width: 1400, height: 900 })) expect(document.querySelector(rule.selector), rule.selector).not.toBeNull();

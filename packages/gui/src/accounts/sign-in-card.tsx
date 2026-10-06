@@ -22,6 +22,8 @@ export interface SignInCardProps {
   readonly suggestion?: { readonly label: string; readonly email: string };
   /** Closes the card. */
   readonly close: () => void;
+  /** Told, inline, as the sign-in succeeds, with the line Done will say: the card waits only on Done from then on. */
+  readonly succeeded?: (line: string) => void;
   /** Says one line where the card was opened from: how the sign-in ended, or why it could not go on. */
   readonly say: (line: string) => void;
 }
@@ -58,7 +60,7 @@ type Sending = "add" | "start" | "code" | null;
  *   card cancels the sign-in it started (`accounts.signin.cancel`), since
  *   the card is its attendant.
  */
-export const SignInCard = ({ environmentId, account, close, say, inline = false, suggestion }: SignInCardProps) => {
+export const SignInCard = ({ environmentId, account, close, say, succeeded, inline = false, suggestion }: SignInCardProps) => {
   const heading = useId();
   const codeForm = useId();
   const runtime = useRuntime();
@@ -123,7 +125,7 @@ export const SignInCard = ({ environmentId, account, close, say, inline = false,
   useEffect(() => {
     if (end === undefined || ended.current) return;
     ended.current = true;
-    if (inline && followed?.state === "done") setCompleted(end);
+    if (inline && followed?.state === "done") { setCompleted(end); succeeded?.(end); }
     else { close(); say(end); }
   }, [end]);
 

@@ -22,9 +22,9 @@ export interface SessionListProps {
 /**
  * Client sessions (env spec, "Pairing and access"; permissions spec,
  * "Ceilings"; #417): each by its label, this client's own marked, with its
- * kind, scopes and when it was last seen, its ceiling picked from the four
- * modes (this client's own shown, not changed: another admin session
- * changes it), and Revoke….
+ * kind, scopes, when it paired (#1740) and when it was last seen, its
+ * ceiling picked from the four modes (this client's own shown, not changed:
+ * another admin session changes it), and Revoke….
  */
 export const SessionList = ({ name, sessions, own, writable, setCeiling, revoke, changeAccess }: SessionListProps) => (
   <ul aria-label={name} data-settings-card-grid>

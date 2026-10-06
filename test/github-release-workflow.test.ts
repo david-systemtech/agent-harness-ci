@@ -132,6 +132,41 @@ esac
     expect(readFileSync(output, "utf8")).toBe(reported === "0.0.0" ? "" : "digest=sha256:fixture-digest\n");
   });
 
+  // ghcr once refused the manifest with `unknown blob` after accepting every layer (run 37513514128, #1735).
+  it.each([
+    { failures: 2, pushes: 3, passes: true },
+    { failures: 3, pushes: 3, passes: false },
+  ])("pushes the verified image again after a refused push, at most three times ($failures refused)", async ({ failures, pushes, passes }) => {
+    const publish = step("image-push", "Push the verified image on a tag");
+    scratch = mkdtempSync(join(tmpdir(), "release-image-push-"));
+    const bin = join(scratch, "bin");
+    mkdirSync(bin);
+    const log = join(scratch, "calls");
+    const output = join(scratch, "outputs");
+    writeFileSync(log, "");
+    writeFileSync(output, "");
+    writeFileSync(join(bin, "docker"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$CALLS"
+case "$1" in
+  push) [ "$(grep -c '^push ' "$CALLS")" -gt "$FAILURES" ] || { echo "unknown blob" >&2; exit 1; } ;;
+  image) echo "$IMAGE_REFERENCE@sha256:fixture-digest" ;;
+esac
+`);
+    writeFileSync(join(bin, "sleep"), `#!/bin/sh
+printf 'sleep %s\\n' "$*" >> "$CALLS"
+`);
+    chmodSync(join(bin, "docker"), 0o755);
+    chmodSync(join(bin, "sleep"), 0o755);
+    const commands = publish.split("        run: |\n")[1]?.replace(/^ {10}/gm, "") ?? "";
+    const result = await run("bash", ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", commands], { env: { ...process.env, PATH: `${bin}:${process.env["PATH"]}`, CALLS: log, FAILURES: String(failures), IMAGE_REFERENCE: "example/image:1.2.3", GITHUB_OUTPUT: output } }).then(() => true, () => false);
+    expect(result).toBe(passes);
+    const calls = readFileSync(log, "utf8").split("\n").filter(Boolean);
+    expect(calls.filter((call) => call === "push example/image:1.2.3")).toHaveLength(pushes);
+    // A pause between attempts, none after the last.
+    expect(calls.filter((call) => call.startsWith("sleep "))).toHaveLength(pushes - 1);
+    expect(readFileSync(output, "utf8")).toBe(passes ? "digest=sha256:fixture-digest\n" : "");
+  });
+
   /**
    * Runs the image job's container smoke against a fake docker that answers the
    * container's AGENT_HARNESS_WEB_ORIGIN from the .env file beside the compose

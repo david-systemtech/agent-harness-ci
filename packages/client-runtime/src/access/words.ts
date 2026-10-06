@@ -16,8 +16,8 @@ import { whenWords } from "../transcript/format.js";
 /**
  * What the Access row says (env spec, "Pairing and access"; permissions
  * spec, "Ceilings"; docs/specs/gui.md, "Settings"; #417), as any renderer
- * says it: a client session's kind, scopes and when it was last seen, what
- * a pairing grants, and each access log event in one line.
+ * says it: a client session's kind, scopes, when it paired and when it was
+ * last seen, what a pairing grants, and each access log event in one line.
  */
 
 /** A client session as `access.sessions.list` lists it. */
@@ -27,7 +27,7 @@ export type ClientSessionSummary = ResultOf<"access.sessions.list">["sessions"][
 export const CLIENT_KIND_NAMES: Readonly<Record<ClientKind, string>> = {
   desktop: "Desktop window",
   tui: "Terminal UI",
-  web: "Browser tab",
+  web: "Browser",
   program: "Program",
 };
 
@@ -35,9 +35,9 @@ export const CLIENT_KIND_NAMES: Readonly<Record<ClientKind, string>> = {
 export const scopesWords = (scopes: readonly Scope[]): string =>
   SCOPES.every((scope) => scopes.includes(scope)) ? "every scope" : SCOPES.filter((scope) => scopes.includes(scope)).join(", ");
 
-/** What a client session is, in one line: `Desktop window · every scope · last seen 14:02`. */
+/** What a client session is, in one line: `Desktop window · every scope · paired 3 Oct 09:12 · last seen 14:02`. */
 export const clientSessionWords = (session: ClientSessionSummary, now: Date): string =>
-  `${CLIENT_KIND_NAMES[session.kind]} · ${scopesWords(session.scopes)} · ${session.lastSeenAt === null ? "never seen" : `last seen ${whenWords(session.lastSeenAt, now)}`}`;
+  `${CLIENT_KIND_NAMES[session.kind]} · ${scopesWords(session.scopes)} · paired ${whenWords(session.createdAt, now)} · ${session.lastSeenAt === null ? "never seen" : `last seen ${whenWords(session.lastSeenAt, now)}`}`;
 
 /** Why this client cannot change its own ceiling, in the environment's words: another client session with `admin` can. */
 export const OWN_CEILING = "A client session cannot change its own ceiling; another admin session can.";

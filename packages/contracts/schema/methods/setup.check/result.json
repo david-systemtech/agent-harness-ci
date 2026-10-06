@@ -171,6 +171,31 @@
                   "description": "One item a result's action applies to: the action it serves, and the item's kind, id and label. One serving a verb, or of a kind, the reader does not know is a newer environment's, which the reader leaves out."
                 }
               },
+              "times": {
+                "description": "The past times the reason names, each with the words that say it, which a client replaces with its own words for that time; absent when it names none. A client that reads none shows the reason as it is.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The words of the reason that say when, which a client replaces with its own words for the time."
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "The instant those words name."
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "at"
+                  ],
+                  "description": "A past time the reason names: the words that say it and the instant, which a client words where it is, its age and its clock time, in place of those words."
+                }
+              },
               "checkedAt": {
                 "type": "string",
                 "format": "date-time",

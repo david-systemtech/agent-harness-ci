@@ -5,6 +5,7 @@ import {
   type ContainmentReport,
   type Denylist,
   type DenylistSection,
+  type ReasonTime,
   type SetupTarget,
 } from "@agent-harness/contracts";
 import { parseActor } from "../event-log/event-log.js";
@@ -24,12 +25,13 @@ import { unenforceable } from "./containment.js";
  * and, where its actions apply to particular items, those items, each with
  * the action it serves (#568): the accounts Sign in again opens, the
  * sources Pull now pulls. A target for an action the check does not offer
- * is not carried.
+ * is not carried. A past time the sentence names is given beside it too,
+ * with the words that say it, for a client to word its own way (#1742).
  */
 export type StateCheckAnswer =
   | true
-  | { readonly holds: true; readonly reason: string; readonly pending?: never; readonly targets?: never }
-  | { readonly holds?: false; readonly reason: string; readonly pending?: true; readonly targets?: readonly SetupTarget[] };
+  | { readonly holds: true; readonly reason: string; readonly pending?: never; readonly targets?: never; readonly times?: never }
+  | { readonly holds?: false; readonly reason: string; readonly pending?: true; readonly targets?: readonly SetupTarget[]; readonly times?: readonly ReasonTime[] };
 
 /**
  * What a person can do on Linux about a containment level the probe refused:

@@ -92,6 +92,8 @@ describe.each(PHONES)("pairing another HTTPS environment from the browser client
     expect(status.textContent).not.toContain("Nothing answered");
     expect(fetched.filter((url) => url.startsWith(OTHER))).toEqual([]);
     expect(scrolled).toContain(status);
+    // Each origin is its own code run, which wraps whole rather than at its hyphens on a phone (#1739).
+    expect(Array.from(status.querySelectorAll("code[data-pairing-origin]"), (origin) => origin.textContent)).toEqual([OTHER, OTHER, location.origin]);
     await user.click(within(status).getByRole("button", { name: "Browser origins" }));
     await goneToOrigins();
   });

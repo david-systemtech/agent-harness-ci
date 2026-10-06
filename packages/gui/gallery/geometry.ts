@@ -36,6 +36,12 @@ export function measureSceneGeometry(): string[] {
           }
         }
       }
+      if (check.unbroken === true) {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const [first, ...rest] = Array.from(range.getClientRects());
+        if (first && rest.some(line => Math.abs(line.top - first.top) > first.height / 2)) visibility.push(`${check.selector}[${index}]: breaks across lines; it must wrap whole`);
+      }
       if (check.minimumTop !== undefined && rect.top < check.minimumTop - (check.tolerance ?? 0.5)) {
         visibility.push(`${check.selector}[${index}].top: got ${rect.top}, expected at least ${check.minimumTop}`);
       }
