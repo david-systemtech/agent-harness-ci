@@ -34,7 +34,7 @@ import { describeRepositoryAt } from "./describe-repository.js";
 const { onCleanup, tempDir } = useCleanups();
 
 /** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
-const ALL_HOLD = "Every bank is reachable and passes the validator.";
+const ALL_HOLD = "Every bank is reachable.";
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);

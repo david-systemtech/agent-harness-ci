@@ -411,7 +411,7 @@ describe("the step registry", () => {
       "your-machines": "This machine is ready.",
       forges: "Every forge account is signed in and answering.",
       "key-manager": "Every key-manager connection is signed in and reachable.",
-      "memory-bank": "Every bank is reachable and passes the validator.",
+      "memory-bank": "Every bank is reachable.",
       skills: "Every skill source is in sync.",
       instructions: "The orientation block renders.",
       browser: "Chrome is paired, connected and current.",

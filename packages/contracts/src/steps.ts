@@ -526,7 +526,7 @@ export const STEP_REGISTRY = [
       { id: "memory-bank.owners", holds: "Each enabled team bank's owners resolve on its forge.", actions: [] },
       { id: "memory-bank.landing", holds: "No landing on an enabled bank has failed.", actions: ["check-again"] },
     ],
-    done: "Every bank is reachable and passes the validator.",
+    done: "Every bank is reachable.",
     links: [{ step: "key-manager" }, { step: "forges" }],
     skippable: true,
     skip: "memory-bank.present",
