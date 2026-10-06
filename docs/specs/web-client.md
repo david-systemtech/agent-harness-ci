@@ -171,7 +171,10 @@ web document/root and bounds the shell to VisualViewport height and offsetTop
 at scale 1, with `100dvh`/window-height fallback, `viewport-fit=cover` and
 `env(safe-area-inset-*)`. Keep unzoomed bounds during pinch zoom; remove locks,
 styles and listeners on wide mode or unmount. Focus scrolls only the owning
-scroller, never ancestors. Composer focus/keyboard opening explicitly repins
+scroller, never ancestors. A browser revealing focused Message can still scroll
+clipped boxes around the dock against pre-resize bounds when a keyboard resizes
+the layout viewport; the owner returns the shell and every clipped axis
+enclosing a dock to its origin on each refit and scroll (#1737). Composer focus/keyboard opening explicitly repins
 the latest transcript line after resizing; follow scrollport/content resizing
 and streaming until deliberate scroll up. Jump to latest resumes following.
 A visual/layout height gap identifies keyboard occlusion. When both heights
@@ -321,6 +324,9 @@ acceptance validation. Starting allocation is 342 captures against the 400 cap;
 reading/Jump to latest, browser-bar resizing, notices/cards and keyboard close.
 Focused tests also cover bar resizing after a focus-preserving close followed
 by gradual keyboard close/reopen, with visual-only and simultaneous height changes.
+#1737 resizes the whole page instead (a hosted harness hook): Message focused
+then layout and visual 844→480, back to 844 with focus kept, and the reverse
+order, each proving the dock bounds without a later resize event.
 Hosted geometry proves shell/dock/latest-line bounds, readable transcript and
 stable document/window scroll. Animated keyboards, browser-bar settings,
 rotation/insets, focus zoom, selection and Home Screen behavior require dated

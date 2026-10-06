@@ -51,20 +51,20 @@ export const DocumentsPane = ({ environmentId, sessionId, source }: DocumentsPan
               <p className="text-2xs text-ink-muted">{documentFacts(document, now).join(" · ")}</p>
               <div data-document-actions className="flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <VerbButton
-                  does="Shows it in the Preview, read as it is now. (Enter or Space)"
+                  does="Shows it in the Preview, read as it is now." keys="Enter or Space"
                   availability={previewOffer}
                   run={() => (previewOffer.status === "absent" ? say(`Not previewed: ${previewOffer.message}`) : preview(document.path))}
                 >
                   <Eye aria-hidden="true" />Preview
                 </VerbButton>
                 <VerbButton
-                  does="Opens its text in the Files pane. (Enter or Space)"
+                  does="Opens its text in the Files pane." keys="Enter or Space"
                   availability={sourceOffer}
                   run={() => (sourceOffer.status === "absent" ? say(`Not opened: ${sourceOffer.message}`) : source(document.path))}
                 >
                   <SquareArrowOutUpRight aria-hidden="true" />Source
                 </VerbButton>
-                <VerbButton does="Shows the call that first wrote it in the transcript. (Enter or Space)" availability={{ status: "present" }} run={() => reveal(document.first.toolCallId)}>
+                <VerbButton does="Shows the call that first wrote it in the transcript." keys="Enter or Space" availability={{ status: "present" }} run={() => reveal(document.first.toolCallId)}>
                   <MessageSquare aria-hidden="true" />Transcript
                 </VerbButton>
               </div>

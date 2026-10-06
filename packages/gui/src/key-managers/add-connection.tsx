@@ -128,7 +128,7 @@ export const SignInForm = ({ environmentId, providers, name, send, close, say }:
       {providers.length > 1 && (
         <RadioGroup aria-label="Provider" value={provider} onValueChange={(next) => choose(next as KeyManagerProvider)} className="grid grid-cols-2 gap-2">
           {providers.map((each) => (
-            <Tooltip key={each} content={`${KEY_MANAGER_PROVIDER_WORDS[each]} · Arrow keys to choose`}>
+            <Tooltip key={each} content={KEY_MANAGER_PROVIDER_WORDS[each]} keys="Arrow keys to choose">
               <ProviderRadio.Item autoFocus={each === providers[0]} value={each} className="flex min-h-9 items-center gap-2 rounded-lg border border-hairline px-3 py-2 text-xs text-ink-muted aria-checked:border-beam aria-checked:bg-wash-strong aria-checked:text-ink focus-visible:outline-2 focus-visible:outline-beam">
                 <Vault aria-hidden="true" className="size-4 shrink-0" />
                 {KEY_MANAGER_PROVIDER_WORDS[each]}

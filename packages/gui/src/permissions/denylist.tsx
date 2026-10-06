@@ -159,7 +159,7 @@ interface EntryRowProps {
 /** An entry: whether it is enabled, its pattern, whether it is a preset and its note, then Edit and Remove. */
 const EntryRow = ({ entry, writable, send, edit }: EntryRowProps) => (
   <li aria-label={entry.pattern} className="flex flex-wrap items-start gap-2 rounded-md bg-wash px-2.5 py-2 text-xs">
-    <Tooltip content={`Enable ${entry.pattern} (Space to toggle)`}><Switch aria-label="Enabled" checked={entry.enabled} disabled={!writable} onCheckedChange={(enabled) => void send({ kind: "enable", id: entry.id, enabled })} /></Tooltip>
+    <Tooltip content={`Enable ${entry.pattern}`} keys="Space to toggle"><Switch aria-label="Enabled" checked={entry.enabled} disabled={!writable} onCheckedChange={(enabled) => void send({ kind: "enable", id: entry.id, enabled })} /></Tooltip>
     <div className="flex min-w-0 flex-1 basis-40 flex-col gap-0.5">
       <span className={`break-all font-mono ${entry.enabled ? "text-ink" : "text-ink-faint"}`}>{entry.pattern}</span>
       {entry.preset && <span className="text-2xs text-ink-faint">preset</span>}

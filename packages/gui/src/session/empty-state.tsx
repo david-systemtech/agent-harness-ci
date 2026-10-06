@@ -69,15 +69,15 @@ export const EmptyState = () => {
       <AlertTitle>Not ready to run</AlertTitle>
       <AlertDescription className="flex flex-col gap-2">
         {environmentId === null && <p>No environment is ready. <Tooltip content="Pair with an environment"><Button variant="link" size="xs" onClick={() => openPairing()}><Link aria-hidden="true" />Pair with an environment</Button></Tooltip></p>}
-        {environmentId !== null && view.account.value === null && <p>No signed-in account. <Tooltip content={["Add an account in Settings", settingsKey].filter(Boolean).join(" · ")}>
+        {environmentId !== null && view.account.value === null && <p>No signed-in account. <Tooltip content="Add an account in Settings" keys={settingsKey}>
           <Button variant="link" size="xs" onClick={() => settings.open("accounts.accounts", environmentId ?? undefined)}><KeyRound aria-hidden="true" />Add an account</Button>
         </Tooltip></p>}
-        <p>Choose where your new session will work. <Tooltip content={["Choose a workspace in a new session", sessionKey].filter(Boolean).join(" · ")}>
+        <p>Choose where your new session will work. <Tooltip content="Choose a workspace in a new session" keys={sessionKey}>
           <Button variant="link" size="xs" onClick={() => start.here({ environmentId })}><FolderOpen aria-hidden="true" />Choose a workspace</Button>
         </Tooltip></p>
       </AlertDescription>
     </Alert>
-    <Tooltip content={["New session", sessionKey].filter(Boolean).join(" · ")}>
+    <Tooltip content="New session" keys={sessionKey}>
       <Button variant="default" onClick={() => start.here({ environmentId })}><Plus aria-hidden="true" />Start a new session</Button>
     </Tooltip>
     {phone.narrow && <Button variant="outline" onClick={event => phone.showDrawer(true, event.currentTarget)}><PanelLeft aria-hidden="true" />Choose a session</Button>}

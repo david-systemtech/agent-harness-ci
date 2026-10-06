@@ -64,7 +64,7 @@ export const PolicyTicks = ({ environmentId, connection, writable, say }: Policy
         const warning = ticked ? policyWarning(policy.writes) : null;
         return (
           <div key={policy.name} className="flex flex-col">
-            <Tooltip content={`${policy.name} · Space to toggle`}>
+            <Tooltip content={policy.name} keys="Space to toggle">
             <label className="flex items-center gap-2 text-ink">
               <input type="checkbox" name={policy.name} className="accent-beam" checked={ticked} disabled={!writable} onChange={(event) => tick(policy.name, event.target.checked)} />
               <ShieldCheck aria-hidden="true" className="size-3.5 shrink-0 text-ink-faint" />

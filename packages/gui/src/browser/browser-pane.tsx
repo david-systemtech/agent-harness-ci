@@ -135,7 +135,7 @@ export const BrowserPane = ({
         <IconButton label={state.loading ? "Stop" : "Reload"} keys="Enter / Space" size="icon-xs" className="[&_svg]:size-3.5" disabled={!id} onClick={() => id && (state.loading ? views?.stop(id) : views?.reload(id))}>
           {state.loading ? <Square aria-hidden="true" /> : <RotateCw aria-hidden="true" />}
         </IconButton>
-        <Tooltip content="Address · Enter to navigate · Escape to restore">
+        <Tooltip content="Address" keys="Enter to navigate · Escape to restore">
           <Input
             aria-label="Address"
             value={address}

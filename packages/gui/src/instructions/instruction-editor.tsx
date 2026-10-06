@@ -56,8 +56,8 @@ export const InstructionEditor = ({ environmentId, row, close, inline = false }:
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Tooltip content="Cancel · Escape"><Button onClick={close}><X aria-hidden="true" />Cancel</Button></Tooltip>
-            <Tooltip content="Save instruction · Enter"><Button type="submit" disabled={disabled || heading.trim() === ""}>
+            <Tooltip content="Cancel" keys="Escape"><Button onClick={close}><X aria-hidden="true" />Cancel</Button></Tooltip>
+            <Tooltip content="Save instruction" keys="Enter"><Button type="submit" disabled={disabled || heading.trim() === ""}>
               <Save aria-hidden="true" />Save instruction
             </Button></Tooltip>
           </div>

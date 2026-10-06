@@ -6,6 +6,7 @@ import { useLocalService } from "../connections/local-service.js";
 import { useOpenPairing } from "../connections/pairing.js";
 import { RunHereSwitch } from "../connections/run-here.js";
 import { phaseSentence } from "../connections/words.js";
+import { nativeFrame, useWindowFrame, WindowControls } from "../frame/window-controls.js";
 import { Button, Fold, Tooltip } from "../ui/index.js";
 import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
 
@@ -23,6 +24,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
   const local = views.find((view) => view.kind === "local");
   const [runHere] = usePresentation("runLocalEnvironment");
   const [details, showDetails] = useState(false);
+  const frame = useWindowFrame();
   const ready = home?.phase === "ready";
   const localReady = local?.phase === "ready";
   const failed = !localReady && !service.starting && service.failure !== undefined;
@@ -34,8 +36,9 @@ export const Introduction = ({ home, onBegin, onLater }: {
   const status = localReady ? "The environment on this machine is ready" : failed ? "The environment could not start on this machine." : off ? "This machine’s environment is turned off" : unavailable ? "This machine cannot start an environment" : stopped ? "The environment on this machine is not running" : local === undefined || service.starting || local.phase === "starting" ? "Starting the environment on this machine" : phaseSentence(local, false, false, clock.now());
   const description = localReady ? "You can sign in and start a session here." : failed ? "Try again to get this machine ready for your first session." : off ? "Turn on this machine’s environment to run sessions here, or use another machine’s environment." : unavailable ? "You can pair with an environment on another machine." : stopped ? "Start it again to get this machine ready for your first session." : starting ? "This background service runs your agents and keeps your sessions available. This usually takes a few seconds." : "You can pair with another environment or set up later.";
   return <section aria-labelledby={heading} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-abyss text-ink">
-    <header data-setup-frame className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline bg-panel px-4">
-      <Sparkles aria-hidden="true" className="size-4 text-beam-text" /><span className="text-sm font-semibold">agent-harness</span>
+    <header data-setup-frame {...nativeFrame(frame)} className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline bg-panel px-4">
+      <Sparkles aria-hidden="true" className="size-4 text-beam-text" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">agent-harness</span>
+      <WindowControls state={frame} />
     </header>
     <CredentialNoticeHost />
     <div className="flex min-h-0 flex-1 overflow-y-auto p-[7px]">
@@ -68,16 +71,16 @@ export const Introduction = ({ home, onBegin, onLater }: {
             {service.installing && <p className="text-xs text-ink-muted">Installing the environment (first start only)…</p>}
             {!runHere && <RunHereSwitch />}
             {service.available.status !== "present" && <p className="text-xs text-ink-muted">{service.available.reason}</p>}
-            {failed && <Tooltip content="Start details · Tab, Enter"><div><Fold summary="Start details" open={details} onOpenChange={showDetails}><p className="break-words text-xs text-ink-muted">{service.failure}</p></Fold></div></Tooltip>}
-            {(failed || stopped) && runHere && service.available.status === "present" && <Tooltip content="Try again · Tab, Enter"><Button variant="outline" className="self-start" disabled={service.starting || service.available.status !== "present"} onClick={() => service.start(local?.environmentId ?? LOCAL_PLACEHOLDER_ID)}><RotateCw aria-hidden="true" />Try again</Button></Tooltip>}
+            {failed && <Tooltip content="Start details" keys="Tab, Enter"><div><Fold summary="Start details" open={details} onOpenChange={showDetails}><p className="break-words text-xs text-ink-muted">{service.failure}</p></Fold></div></Tooltip>}
+            {(failed || stopped) && runHere && service.available.status === "present" && <Tooltip content="Try again" keys="Tab, Enter"><Button variant="outline" className="self-start" disabled={service.starting || service.available.status !== "present"} onClick={() => service.start(local?.environmentId ?? LOCAL_PLACEHOLDER_ID)}><RotateCw aria-hidden="true" />Try again</Button></Tooltip>}
             {ready && !localReady && <p className="text-sm text-mint">Your home environment is ready. You can begin set up.</p>}
           </div>
         </div>
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Tooltip content={ready ? "Begin set up · Tab, Enter" : "Waiting for this machine · Tab · Begin set up becomes available when an environment is ready"}><span tabIndex={ready ? undefined : 0}><Button data-setup-begin variant="default" disabled={!ready} onClick={onBegin}>{ready ? <ArrowRight aria-hidden="true" /> : <Monitor aria-hidden="true" />}{ready ? "Begin set up" : "Waiting for this machine…"}</Button></span></Tooltip>
-            <Tooltip content="I’ll set up later · Tab, Enter"><Button variant="outline" onClick={onLater}><LogOut aria-hidden="true" />I’ll set up later</Button></Tooltip>
-            <Tooltip content="Pair instead · Tab, Enter"><Button onClick={() => openPairing()}><Link aria-hidden="true" />Pair instead</Button></Tooltip>
+            <Tooltip content={ready ? "Begin set up" : "Waiting for this machine · Begin set up becomes available when an environment is ready"} keys={ready ? "Tab, Enter" : "Tab"}><span tabIndex={ready ? undefined : 0}><Button data-setup-begin variant="default" disabled={!ready} onClick={onBegin}>{ready ? <ArrowRight aria-hidden="true" /> : <Monitor aria-hidden="true" />}{ready ? "Begin set up" : "Waiting for this machine…"}</Button></span></Tooltip>
+            <Tooltip content="I’ll set up later" keys="Tab, Enter"><Button variant="outline" onClick={onLater}><LogOut aria-hidden="true" />I’ll set up later</Button></Tooltip>
+            <Tooltip content="Pair instead" keys="Tab, Enter"><Button onClick={() => openPairing()}><Link aria-hidden="true" />Pair instead</Button></Tooltip>
           </div>
           <p className="text-xs text-ink-muted">Only Account is required. The rest can wait until you need it.</p>
         </div>

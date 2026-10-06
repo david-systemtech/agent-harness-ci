@@ -100,7 +100,7 @@ const Headings = () => {
         <IconButton label={phone.narrow ? "Close sessions" : "Hide sidebar"} {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => phone.narrow ? phone.showDrawer(false) : setSidebarShown(false)}><PanelLeftClose aria-hidden="true" /></IconButton>
       </div>
       <div className="shrink-0 p-2">
-        <Tooltip content={["New session", newSessionKeys].filter(Boolean).join(" · ")}>
+        <Tooltip content="New session" keys={newSessionKeys}>
           <NewSessionButton control={{ environmentId: null }} label="New session" variant="default" size="sm" className="h-auto min-h-7 w-full flex-wrap justify-start py-0">
             <span className="inline-flex shrink-0 items-center gap-1"><Plus aria-hidden="true" data-icon="inline-start" /><span>New session</span></span>
             {!phone.narrow && newSessionKeys !== undefined && <kbd className="ml-auto shrink-0 font-mono text-2xs">{newSessionKeys}</kbd>}

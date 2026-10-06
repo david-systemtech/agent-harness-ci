@@ -99,7 +99,7 @@ export const MarkdownEditor = ({ value, change, readOnly = false, label = "Markd
   return <div data-markdown-editor className="overflow-hidden rounded-lg border border-hairline bg-panel focus-within:border-beam focus-within:ring-3 focus-within:ring-beam/50">
     {!readOnly && <div role="toolbar" aria-label="Markdown formatting" className="flex flex-wrap items-center gap-0.5 border-b border-hairline bg-wash px-1.5 py-1">
       {controls.map(({ name, icon: Icon, active, run, keys, separator }) => <span key={name} className={separator ? "ml-1 border-l border-hairline pl-1" : "inline-flex"}>
-        <Tooltip content={`${name} · ${keys}`}><Button size="icon-sm" aria-label={name} aria-pressed={active} className={active ? "bg-wash-strong" : undefined} onMouseDown={(event) => event.preventDefault()} onClick={run}><Icon aria-hidden="true" /></Button></Tooltip>
+        <Tooltip content={name} keys={keys}><Button size="icon-sm" aria-label={name} aria-pressed={active} className={active ? "bg-wash-strong" : undefined} onMouseDown={(event) => event.preventDefault()} onClick={run}><Icon aria-hidden="true" /></Button></Tooltip>
       </span>)}
       {link !== null && <Input data-local-escape autoFocus aria-label="Link URL" title="Link URL · Enter or blur to apply · Escape to cancel" value={link} className="h-7 w-56 rounded-md px-2 font-mono text-2xs" onChange={(event) => setLink(event.target.value)} onBlur={applyLink} onKeyDown={(event) => {
         if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); applyLink(); }

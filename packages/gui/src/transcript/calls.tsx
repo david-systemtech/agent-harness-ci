@@ -138,7 +138,7 @@ export const CallCard = ({ call, quietMs, revealed = null, choices, retain }: { 
       "min-w-0 rounded-lg border bg-wash outline-none focus:outline-2 focus:outline-beam",
       quiet ? "border-amber" : failed ? "border-signal/35" : open ? "border-hairline-strong" : "border-hairline",
     )}>
-      <Tooltip content={`${open ? "Collapse" : "Expand"} ${name} (Enter or Space)`}>
+      <Tooltip content={`${open ? "Collapse" : "Expand"} ${name}`} keys="Enter or Space">
         <button type="button" aria-label={name} aria-expanded={open} aria-controls={open ? id : undefined}
           onClick={() => { setOpen(false); keep({ ...choice, expanded: !open }); }}
           className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs outline-none focus-visible:outline-2 focus-visible:outline-beam">

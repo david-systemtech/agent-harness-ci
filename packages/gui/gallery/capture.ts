@@ -45,6 +45,8 @@ try {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, colorScheme: ladder, ...(platform === "web" && { isMobile: true, hasTouch: true }), reducedMotion: "reduce" });
     const previewRequests = scene === "phone-pane-preview" ? await observePreviewRequests(context) : undefined;
     const page = await context.newPage();
+    // A scene resizes the whole page when a keyboard shrinks the layout viewport, not only VisualViewport.
+    if (platform === "web") await page.exposeFunction("galleryLayoutViewport", (width: number, height: number) => page.setViewportSize({ width, height }));
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const sceneUrl = `http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}&platform=${platform}${platform === "web" ? `&textSize=${textSize}` : ""}`;

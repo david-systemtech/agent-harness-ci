@@ -24,7 +24,7 @@ export const BankInvitation = ({ environmentId, location, forges }: {
     ? github ? `${location.origin}/orgs/${owner}/people` : `${location.origin}/org/${owner}/members`
     : `${join}/settings/${github ? "access" : "collaboration"}`;
   return <>
-    <Tooltip content="Invite teammates · Tab, Enter or Space"><span className="inline-flex"><ExternalLink look="inline-flex items-center gap-1.5 text-beam-text underline" url={invite}><UserPlus aria-hidden="true" className="size-4" />Invite teammates on {host}</ExternalLink></span></Tooltip>
+    <Tooltip content="Invite teammates" keys="Tab, Enter or Space"><span className="inline-flex"><ExternalLink look="inline-flex items-center gap-1.5 text-beam-text underline" url={invite}><UserPlus aria-hidden="true" className="size-4" />Invite teammates on {host}</ExternalLink></span></Tooltip>
     <CopyLine label="Join link" text={join} />
   </>;
 };

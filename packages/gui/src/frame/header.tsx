@@ -12,7 +12,7 @@ import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { SessionDrawerTrigger, usePhoneFrame } from "./phone-frame.js";
 import { HeaderMenu } from "./header-menu.js";
-import { useWindowFrame, WindowControls } from "./window-controls.js";
+import { nativeFrame, useWindowFrame, WindowControls } from "./window-controls.js";
 import { ThemeToggle } from "./theme-toggle.js";
 
 /** The focused session's live summary, with the list's pending rename reflected immediately. */
@@ -57,7 +57,7 @@ export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
     <IconButton label="Settings" {...(settingsKeys !== undefined && { keys: settingsKeys })} onClick={() => settings.open()}><Settings aria-hidden="true" /></IconButton>
   </header>;
   return (
-    <header data-window-header data-native-frame={frame?.platform} style={frame?.platform === "darwin" && !frame.fullScreen ? { paddingLeft: 76 } : undefined} className="flex h-[44px] min-w-0 shrink-0 items-center gap-1 whitespace-nowrap border-b border-hairline bg-abyss px-2">
+    <header data-window-header {...nativeFrame(frame)} className="flex h-[44px] min-w-0 shrink-0 items-center gap-1 whitespace-nowrap border-b border-hairline bg-abyss px-2">
       {!sidebarShown && <IconButton label="Show sidebar" {...(sidebarKeys !== undefined && { keys: sidebarKeys })} size="icon-xs" onClick={() => setSidebarShown(true)}><PanelLeft aria-hidden="true" /></IconButton>}
       <div className="flex min-w-0 flex-1 items-center gap-1">
         {pane.session !== null ? <SessionBreadcrumb session={pane.session} /> : <>
@@ -66,7 +66,7 @@ export const Header = ({ onPair }: { readonly onPair?: () => void }) => {
           <span className="min-w-0 truncate text-xs text-ink-muted">{pane.newSession !== undefined ? "New session" : "No session"}</span>
         </>}
       </div>
-      <Tooltip content={["Search sessions and commands", searchKeys].filter(Boolean).join(" · ")}>
+      <Tooltip content="Search sessions and commands" keys={searchKeys}>
         <Button aria-label="Search sessions and commands" size="xs" className="hidden min-w-0 max-w-[448px] flex-1 justify-start gap-2 border border-hairline-strong bg-wash text-ink-faint min-[1024px]:inline-flex" onClick={() => actions.find((action) => action.id === "app.palette")?.run()}>
           <Search aria-hidden="true" /><span className="min-w-0 flex-1 truncate">Search sessions and commands</span><kbd className="shrink-0">{searchKeys}</kbd>
         </Button>

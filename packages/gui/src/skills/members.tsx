@@ -81,7 +81,7 @@ export const MemberCard = ({
       {alwaysCapability.status === "absent" && <p className="text-xs text-ink-faint">{alwaysCapability.message}</p>}
       {invalid && <p className="text-xs text-ink-faint">Invalid members cannot be enabled or made always-on.</p>}
       <label className="flex items-center gap-2 text-xs">
-        <Tooltip content="Enabled on this environment · Space"><Switch
+        <Tooltip content="Enabled on this environment" keys="Space"><Switch
           aria-label={`Enabled ${name ?? member.path} on this environment`}
           disabled={invalid || sending || enabledCapability.status === "absent"}
           checked={environmentEnabled}
@@ -104,7 +104,7 @@ export const MemberCard = ({
         return (
           <div key={account.accountId} className="flex flex-col gap-2">
             <label className="flex items-center gap-2 text-xs">
-              <Tooltip content={`Enabled on ${account.accountId} · Space`}><Switch
+              <Tooltip content={`Enabled on ${account.accountId}`} keys="Space"><Switch
                 aria-label={`Enabled ${name ?? member.path} on ${account.accountId}`}
                 disabled={invalid || sending || enabledCapability.status === "absent" || !environmentEnabled}
                 checked={accountEnabled}
@@ -120,7 +120,7 @@ export const MemberCard = ({
             </label>
             {!environmentEnabled && <p className="text-xs text-ink-faint">The environment's disabled choice takes precedence.</p>}
             <label className="flex items-center gap-2 text-xs">
-              <Tooltip content={`Every prompt on ${account.accountId} · Space`}><Switch
+              <Tooltip content={`Every prompt on ${account.accountId}`} keys="Space"><Switch
                 aria-label={`Every prompt ${name ?? member.path} on ${account.accountId}`}
                 disabled={invalid || sending || alwaysCapability.status === "absent" || account.channel === "none"}
                 checked={on}
@@ -182,7 +182,7 @@ export const MemberCard = ({
           >
             Confirm remove skill
           </SkillButton>
-          <Tooltip content="Cancel · Escape"><Button onClick={() => setRemoving(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
+          <Tooltip content="Cancel" keys="Escape"><Button onClick={() => setRemoving(false)}><X aria-hidden="true" />Cancel</Button></Tooltip>
         </DialogContent>
       </Dialog>
     </section>

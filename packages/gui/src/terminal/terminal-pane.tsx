@@ -99,7 +99,7 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
             <AccessUnavailable environmentId={environmentId} answer={authority}><p role="status" className="min-w-0 flex-1 text-xs text-ink-muted">{view.line}</p></AccessUnavailable>
           )}
           {renew && (
-            <Tooltip content="New terminal · Enter / Space">
+            <Tooltip content="New terminal" keys="Enter / Space">
               <Button size="xs" className={phone ? "ml-auto min-h-11 min-w-11 whitespace-normal" : "ml-auto"} onClick={() => terminal.current?.ask({ kind: "shell", focus: true })}>
                 <Plus aria-hidden="true" />New terminal
               </Button>
@@ -131,16 +131,16 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
         <Tooltip content="Ctrl · then type a key">
           <Button className="min-h-11 min-w-11" disabled={unavailable} aria-pressed={control} onClick={() => terminal.current?.control("ctrl")}>Ctrl</Button>
         </Tooltip>
-        <Tooltip content="Escape · Esc">
+        <Tooltip content="Escape" keys="Esc">
           <Button className="min-h-11 min-w-11" disabled={unavailable} onClick={() => terminal.current?.control("escape")}>Esc</Button>
         </Tooltip>
-        <Tooltip content="Tab · Tab">
+        <Tooltip content="Tab" keys="Tab">
           <Button className="min-h-11 min-w-11" disabled={unavailable} onClick={() => terminal.current?.control("tab")}>Tab</Button>
         </Tooltip>
         <Tooltip content="Select output · drag across text; turn off to scroll">
           <Button className="min-h-11 min-w-11" aria-pressed={selecting} onClick={() => setSelecting(value => !value)}>Select</Button>
         </Tooltip>
-        <Tooltip content="Close the environment terminal · Enter / Space">
+        <Tooltip content="Close the environment terminal" keys="Enter / Space">
           <Button className="min-h-11 min-w-11" onClick={() => {
             terminal.current?.ask({ kind: "close" });
             changeColumn(held => closePane(held, "terminal"));
@@ -151,7 +151,7 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
         To use this environment terminal, make a Custom pairing code with terminal scope on a trusted client, then deliberately pair again. The Phone preset does not grant terminal access.
       </p>}
       {!limited && (phone || selection.length > 0) && <div className="shrink-0 border-t border-hairline bg-panel p-2">
-        <Tooltip content="Add selected output to the session draft · Enter / Space">
+        <Tooltip content="Add selected output to the session draft" keys="Enter / Space">
           <Button data-terminal-selection-action className="min-h-11 whitespace-normal" disabled={selection.length === 0 || draftAuthority.status === "absent"} title={draftAuthority.status === "absent" ? draftAuthority.message : undefined} onPointerDown={event => event.preventDefault()} onClick={() => {
             const held = runtime.projections.session(environmentId, sessionId).read().draft ?? "";
             runtime.drafts.set(environmentId, sessionId, `${held}${held.length > 0 ? "\n\n" : ""}${selection}`);

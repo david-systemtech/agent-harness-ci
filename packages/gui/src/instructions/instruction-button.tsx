@@ -33,7 +33,7 @@ export const InstructionButton = ({
     : method.endsWith("edit") ? Pencil : Check;
   return (
     <div className="flex w-fit flex-col gap-1">
-      <Tooltip content={<>{children} · Enter / Space</>}><Button size="sm" variant="outline" disabled={busy || absent !== undefined} aria-describedby={absent === undefined ? undefined : id} onClick={run}>
+      <Tooltip content={children} keys="Enter / Space"><Button size="sm" variant="outline" disabled={busy || absent !== undefined} aria-describedby={absent === undefined ? undefined : id} onClick={run}>
         <Icon aria-hidden="true" />{children}
       </Button></Tooltip>
       {absent !== undefined && (

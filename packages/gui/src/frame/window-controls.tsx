@@ -20,6 +20,12 @@ export const useWindowFrame = (): ShellWindowState | undefined => {
   return state;
 };
 
+/** A window-wide header's native frame (look §9.1): the drag region, and the traffic-light gutter on macOS outside full screen. */
+export const nativeFrame = (state: ShellWindowState | undefined) => ({
+  "data-native-frame": state?.platform,
+  style: state?.platform === "darwin" && !state.fullScreen ? { paddingLeft: 76 } : undefined,
+});
+
 /** Native macOS controls remain with the OS; browser clients have no window buttons. */
 export const WindowControls = ({ state }: { readonly state: ShellWindowState | undefined }) => {
   const window = useShell()?.window;

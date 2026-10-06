@@ -12,7 +12,8 @@ export const activate = () => {
   const show = () => {
     const chip = document.querySelector<HTMLButtonElement>('[data-new-session-chip][aria-label^="Workspace:"]');
     if (opened || !chip || chip.disabled) return;
-    opened = true; chip.click();
+    // A keyboard person's Tab: on the phone layout only focus after a Tab shows a hint (#1741), and this scene bounds it.
+    opened = true; document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true })); chip.click();
   };
   const observer = new MutationObserver(show);
   observer.observe(document.body, { childList: true, subtree: true, attributes: true });

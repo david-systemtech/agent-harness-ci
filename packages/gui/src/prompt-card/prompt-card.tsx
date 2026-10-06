@@ -192,7 +192,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
 
   const note = <>
     <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
-    <PromptTooltip content={["Note", denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ")}>
+    <PromptTooltip content="Note" keys={[denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ") || undefined}>
       <Textarea
         id={noteId}
         rows={2}
@@ -260,7 +260,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
             {(prompt.kind === "permission" || prompt.kind === "denylist") && prompt.toolName !== null && ` · ${prompt.toolName}`}
           </h2>
           {facts.length > 0 && <span>{facts}</span>}
-          <PromptTooltip content={`${collapsed ? "Show request" : "Hide request"} · Enter or Space`}>
+          <PromptTooltip content={collapsed ? "Show request" : "Hide request"} keys="Enter or Space">
             <Button size="sm" className="ml-auto" aria-label={collapsed ? "Show request" : "Hide request"} aria-controls={bodyId} aria-expanded={!collapsed} onClick={() => {
               setCollapsed(!collapsed);
               if (collapsed) self.current?.focus({ preventScroll: true });

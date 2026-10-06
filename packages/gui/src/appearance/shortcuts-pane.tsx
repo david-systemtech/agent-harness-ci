@@ -72,7 +72,7 @@ export const ShortcutsPane = () => {
       <div className="flex flex-wrap items-center gap-2">
         <Search aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
         <Tooltip content="Search the shortcuts · Type to filter"><Input type="search" aria-label="Search the shortcuts" placeholder="Search the shortcuts" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1" /></Tooltip>
-        <Tooltip content="Reset every key · Enter / Space"><Button disabled={Object.keys(remaps).length === 0} onClick={() => setRemaps({})}>
+        <Tooltip content="Reset every key" keys="Enter / Space"><Button disabled={Object.keys(remaps).length === 0} onClick={() => setRemaps({})}>
           <RotateCcw aria-hidden="true" />Reset every key
         </Button></Tooltip>
       </div>
@@ -124,7 +124,7 @@ const EscStopsRun = () => {
           Off, no key stops a run: the Stop button and the palette&apos;s Stop the run do. On, Esc stops the focused pane&apos;s run once nothing else it closes is open.
         </span>
       </div>
-      <Tooltip content="Esc stops the run · Space"><Switch aria-labelledby={label} checked={on} onCheckedChange={set} /></Tooltip>
+      <Tooltip content="Esc stops the run" keys="Space"><Switch aria-labelledby={label} checked={on} onCheckedChange={set} /></Tooltip>
     </div></SettingsGroup>
   );
 };
@@ -215,7 +215,7 @@ const GuiKeys = ({ action, keys }: { readonly action: ListedAction; readonly key
       {remapped && (
         <>
           <span className="text-xs text-amber">Remapped from {defaults.length === 0 ? "no key" : defaults.map((key) => keyLabel(key, keys.macOS)).join(", ")}</span>
-          <Tooltip content="Reset this key · Enter / Space"><Button size="xs" onClick={() => keys.reset(action)}>
+          <Tooltip content="Reset this key" keys="Enter / Space"><Button size="xs" onClick={() => keys.reset(action)}>
             <RotateCcw aria-hidden="true" />Reset
           </Button></Tooltip>
         </>
@@ -242,7 +242,7 @@ const KeySlot = ({ action, place, written, keys }: { readonly action: ListedActi
     else keys.record(action, place, chord);
   };
   return (
-    <Tooltip content={recording ? "Press a chord · Esc to cancel" : `Record ${action.description} · ${written === undefined ? "No key assigned" : keyLabel(written, keys.macOS)} · Enter / Space`} onEscapeKeyDown={(event) => { if (recording) event.preventDefault(); }}><Button
+    <Tooltip content={recording ? "Press a chord" : `Record ${action.description} · ${written === undefined ? "No key assigned" : keyLabel(written, keys.macOS)}`} keys={recording ? "Esc to cancel" : "Enter / Space"} onEscapeKeyDown={(event) => { if (recording) event.preventDefault(); }}><Button
       aria-pressed={recording}
       aria-live="polite"
       data-recording={recording || undefined}

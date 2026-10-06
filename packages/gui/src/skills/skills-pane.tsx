@@ -46,7 +46,7 @@ const SkillsOn = ({ view }: { readonly view: EnvironmentView }) => {
       )}
       <label className="flex flex-col gap-1 text-sm">
         <span className="flex items-center gap-1"><Layers aria-hidden="true" className="size-3.5" />View skills for a session</span>
-        <Tooltip content="Skills session · Arrow keys"><select
+        <Tooltip content="Skills session" keys="Arrow keys"><select
           aria-label="Skills session"
           className="rounded-md border border-line bg-inset p-2 text-ink"
           value={sessionId ?? ""}

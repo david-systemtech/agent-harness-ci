@@ -125,7 +125,7 @@ const NoticeBanner = ({ notice }: { readonly notice: Notice }) => {
         <p>{notice.message}</p>
         {offer !== undefined && "line" in offer && <p className="mt-1 text-ink-muted">{offer.line}</p>}
       </div>
-      {offer !== undefined && "run" in offer && <Tooltip content={`${offer.label} · Enter / Space`}>
+      {offer !== undefined && "run" in offer && <Tooltip content={offer.label} keys="Enter / Space">
         <Button variant="outline" size="xs" className="min-w-0 max-w-full" onClick={() => { dismiss(); offer.run(); }}>
           <ArrowRight aria-hidden="true" /><span className="truncate">{offer.label}</span>
         </Button>

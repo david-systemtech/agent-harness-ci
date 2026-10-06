@@ -78,7 +78,7 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
         <IconButton label="Refresh files" keys="Enter / Space" size="icon-xs" onClick={() => { setReadSizes(new Map()); runtime.requests.refresh(environmentId, "files.list", { sessionId }); }}><RefreshCw aria-hidden="true" /></IconButton>
       </div>
       {savedFiles.length > 0 && <div role="region" aria-label="Pinned files" style={{ maxHeight: 96, overflowY: "auto" }} className="flex shrink-0 flex-col border-b border-hairline p-1">
-        {savedFiles.map((path) => <Tooltip key={path} content={`Open pinned ${path} · Enter / Space`}><Button aria-label={`Open pinned ${path}`} size="xs" className="justify-start" onClick={() => go({ directory: directoryOf(path), file: path })}><Pin aria-hidden="true" /><span className="truncate font-mono">{path}</span></Button></Tooltip>)}
+        {savedFiles.map((path) => <Tooltip key={path} content={`Open pinned ${path}`} keys="Enter / Space"><Button aria-label={`Open pinned ${path}`} size="xs" className="justify-start" onClick={() => go({ directory: directoryOf(path), file: path })}><Pin aria-hidden="true" /><span className="truncate font-mono">{path}</span></Button></Tooltip>)}
       </div>}
       {listing.result?.truncated === true && (
         <p className="px-3 text-xs text-amber">{`The workspace holds more than the ${FILES_LIST_CAP.toLocaleString("en")} files listed; the rest are not shown.`}</p>
@@ -93,7 +93,7 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
             const { icon: Icon, colour } = row.kind === "file" ? fileIcon(row.path) : { icon: row.kind === "up" ? CornerLeftUp : Folder, colour: "text-beam-text" };
             const size = readSizes.get(row.path);
             return <li key={`${row.kind} ${row.path}`}>
-              <Tooltip content={`${row.kind === "up" ? `Up to ${directoryName(row.path)}` : row.path} · Enter / Space to open`}>
+              <Tooltip content={row.kind === "up" ? `Up to ${directoryName(row.path)}` : row.path} keys="Enter / Space to open">
                 <button type="button" aria-label={row.kind === "up" ? `Up to ${directoryName(row.path)}` : undefined}
                   data-file-row className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-ink outline-none hover:bg-wash focus-visible:bg-wash focus-visible:outline-2 focus-visible:outline-beam"
                   onClick={() => go(row.kind === "file" ? { directory: place.directory, file: row.path } : { directory: row.path, file: null })}>

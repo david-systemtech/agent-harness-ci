@@ -463,6 +463,8 @@ Noninteractive space drags the window; every action is outside the drag region.
 On macOS retain native traffic lights and reserve fixed 76px left in native,
 non-fullscreen windows. Other native platforms draw three 28px window controls;
 browser clients draw none. Unfocused controls 60% opaque; close hover signal.
+A full-window surface with its own header (the first-run welcome, the Set up
+checklist) carries the same frame: drag, the macOS inset, controls at the end.
 
 Left-to-right order: collapsed-sidebar opener; focused environment chip;
 workspace basename;12px ChevronRight; truncating session title; centred search;
@@ -868,7 +870,12 @@ Tooltip offset 6/collision 8, max 18rem, md/hairline-strong/float, x 10/y 6/gap 
 xs/snug/wrap-anywhere, large scrim/40 shadow, no arrow. First delay 250ms,
 skip window 400ms. With keycap right padding 6. Reasons remain readable from a
 focusable disabled wrapper, not only on pointer hover. Session and PR tooltips
-may include the rich facts described in §9 and gui.md.
+may include the rich facts described in §9 and gui.md. Focus shows a tooltip
+only when it follows the keyboard or comes before any input. The phone layout
+(the media test the phone frame uses) asks more: only focus after a Tab press
+shows one, so focus the app moves itself (a side sheet restored on reload
+takes it) floats nothing over the window's notices, and no tooltip there
+carries a key legend ("Enter / Space"), as nothing on a phone presses it.
 
 ### 11.3 Palette, banners and transient toasts
 

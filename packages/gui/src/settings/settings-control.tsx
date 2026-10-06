@@ -8,7 +8,7 @@ export const SettingsControl = () => {
   const settings = useSettings();
   const key = useFirstKey("app.settings.toggle");
   return (
-    <Tooltip content={key === undefined ? "Settings" : `Settings (${key})`}>
+    <Tooltip content="Settings" keys={key}>
       <Button aria-label="Settings" className="h-7 px-2 text-xs" onClick={() => settings.open()}>
         <SettingsIcon aria-hidden="true" size={16} />
         Settings

@@ -68,7 +68,7 @@ export const FoldingSection = ({ heading, fold, rows }: { readonly heading: Fold
           commit={(renamed) => organise.hear(changeHeading(runtime.commands, group, { rename: renamed }), notDone("groups.rename"))}
         />
       ) : (
-        <Tooltip content={`${heading.repository ?? heading.text} · ${count} ${count === 1 ? "session" : "sessions"} · Enter or Space to ${heading.folded ? "expand" : "collapse"}${group === null ? "" : " · Shift+F10 for actions"}`}>
+        <Tooltip content={`${heading.repository ?? heading.text} · ${count} ${count === 1 ? "session" : "sessions"}`} keys={`Enter or Space to ${heading.folded ? "expand" : "collapse"}${group === null ? "" : " · Shift+F10 for actions"}`}>
           <button
             type="button"
             aria-label={heading.text}
@@ -132,7 +132,7 @@ export const EnvironmentSection = ({ heading, rows }: { readonly heading: Enviro
             <PendingWord>{`${view.pendingCommands} pending`}</PendingWord>
           </span>
         )}
-        <Tooltip content={`New session on ${named} · Enter or Space`}>
+        <Tooltip content={`New session on ${named}`} keys="Enter or Space">
           <NewSessionButton control={{ environmentId: view.environmentId }} label={`New session on ${named}`} className="size-6 shrink-0 p-0 text-ink-muted">
             <Plus aria-hidden="true" className="size-3" />
           </NewSessionButton>

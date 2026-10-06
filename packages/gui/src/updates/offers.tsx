@@ -50,7 +50,7 @@ export const ClientOffer = ({ view }: { readonly view: EnvironmentView }) => {
       {offered && (
         <>
           <p className="text-ink">{clientOfferWords(client, name, version)}</p>
-          <Tooltip content="Update environment · Enter / Space"><Button variant="default" disabled={!writable || asking} onClick={ask}>
+          <Tooltip content="Update environment" keys="Enter / Space"><Button variant="default" disabled={!writable || asking} onClick={ask}>
             <ArrowDownToLine aria-hidden="true" />{clientOfferAskWords(client, name)}
           </Button></Tooltip>
         </>
@@ -79,7 +79,7 @@ export const BundledServerOffer = ({ view }: { readonly view: EnvironmentView })
     <div className="flex flex-col items-start gap-1 text-sm">
       <p className={bundledServer.state === "failed" ? "text-signal" : "text-ink"}>{words}</p>
       {offered !== null && (
-        <Tooltip content="Install bundled environment · Enter / Space"><Button variant="default" disabled={!writable} onClick={() => void runtime.desktopUpdate.applyBundledServer()}>
+        <Tooltip content="Install bundled environment" keys="Enter / Space"><Button variant="default" disabled={!writable} onClick={() => void runtime.desktopUpdate.applyBundledServer()}>
           <ArrowDownToLine aria-hidden="true" />Install the bundled {offered}
         </Button></Tooltip>
       )}
