@@ -103,11 +103,14 @@ async function runSmoke(app, tarball, version) {
     if (bundled !== updated) throw new Error(`The desktop's Node (${bundled}) and the tarball's (${updated}) are signed otherwise (#1724)`);
     console.log(`Updated a desktop-installed ${baseline} to the tarball's ${version} with no keychain prompt; both Nodes are ${bundled}`);
   } finally {
+    // A failed uninstall fails the smoke too, without hiding why the update failed.
     try {
       if (installAttempted) cli("service", "uninstall");
-    } finally {
-      rmSync(work, { recursive: true, force: true });
+    } catch (error) {
+      console.error("Uninstalling the smoke's service failed:", error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
     }
+    rmSync(work, { recursive: true, force: true });
   }
 }
 
