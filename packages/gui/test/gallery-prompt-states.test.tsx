@@ -17,73 +17,43 @@ it.each<PromptKind>(["permission", "question", "plan", "denylist"])("captures %s
 });
 
 
-it("corrects native scroll rounding and waits for a later permission card resize to settle", async () => {
-  const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
-  let finishFonts!: () => void;
-  const ready = new Promise<void>(resolve => { finishFonts = resolve; });
-  Object.defineProperty(document, "fonts", { configurable: true, value: { ready } });
-  const frames: FrameRequestCallback[] = [];
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
-  vi.stubGlobal("cancelAnimationFrame", () => undefined);
+it("opens permission Details for capture without scrolling across ancestors", async () => {
   const root = document.createElement("div"); root.id = "root";
-  root.innerHTML = '<div data-composer-above><button aria-label="Allow once">Allow once</button></div>';
+  root.innerHTML = '<section class="phone-prompt-summary"><button>Details</button></section>';
   document.body.append(root);
-  const well = root.querySelector<HTMLElement>("[data-composer-above]")!, action = well.querySelector<HTMLElement>("button")!;
-  let cardBottom = 164.75;
-  let nativeBottom = 0;
-  well.getBoundingClientRect = () => new DOMRect(0, 0, 300, 120);
-  action.getBoundingClientRect = () => new DOMRect(10, cardBottom - well.scrollTop - 44, 150, 44);
-  action.scrollIntoView = () => {
-    if (action.getBoundingClientRect().bottom > 120) well.scrollTop = Math.floor(cardBottom - 120);
-    nativeBottom = action.getBoundingClientRect().bottom;
-  };
-  const stop = revealPermission();
-  onTestFinished(() => {
-    stop(); root.remove(); vi.unstubAllGlobals();
-    if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
-    else Object.defineProperty(document, "fonts", originalFonts);
+  const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+  root.querySelector("button")!.addEventListener("click", () => {
+    const action = document.createElement("button"); action.setAttribute("aria-label", "Allow once"); root.append(action);
   });
-  const advanceFrame = async (time: number) => { frames.shift()?.(time); await Promise.resolve(); };
-  await advanceFrame(0);
-  expect(well.scrollTop).toBe(0);
-  expect(action.matches('[data-permission-revealed]')).toBe(false);
-  finishFonts(); await Promise.resolve();
-  await advanceFrame(1);
-  expect(nativeBottom).toBe(120.75);
-  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
-  expect(action.matches('[data-permission-revealed]')).toBe(false);
-  // Resize only after the first scroll, enough to move the action outside again.
-  cardBottom += 6;
-  expect(action.getBoundingClientRect().bottom).toBeGreaterThan(120);
-  await advanceFrame(2);
-  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
-  expect(action.matches('[data-permission-revealed]')).toBe(false);
-  for (let frame = 3; frame < 12; frame++) await advanceFrame(frame);
-  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(120);
-  expect(action.matches('[data-permission-revealed]')).toBe(true);
+  const stop = revealPermission();
+  onTestFinished(() => { stop(); root.remove(); vi.restoreAllMocks(); });
+  await waitFor(() => expect(root.querySelector('[data-permission-revealed]')).not.toBeNull());
+  expect(scroll).not.toHaveBeenCalled();
 });
 
+it("does not open a permission request arriving after the scene was disposed", async () => {
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const stop = revealPermission(); stop();
+  onTestFinished(() => root.remove());
+  const click = vi.fn();
+  root.innerHTML = '<section class="phone-prompt-summary"><button>Details</button></section>';
+  root.querySelector("button")!.addEventListener("click", click);
+  await Promise.resolve();
+  expect(click).not.toHaveBeenCalled();
+});
 
-it("does not reveal a disposed permission scene when its fonts finish loading", async () => {
-  const originalFonts = Object.getOwnPropertyDescriptor(document, "fonts");
-  let finishFonts!: () => void;
-  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: new Promise<void>(resolve => { finishFonts = resolve; }) } });
-  const frames: FrameRequestCallback[] = [];
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
-  vi.stubGlobal("cancelAnimationFrame", () => undefined);
+it("reveals the desktop-hosted permission fixture in its dock when the request wrapper cannot scroll", async () => {
   const root = document.createElement("div"); root.id = "root";
-  root.innerHTML = '<button aria-label="Allow once">Allow once</button>'; document.body.append(root);
-  const action = root.querySelector<HTMLButtonElement>("button")!;
-  const scroll = vi.spyOn(action, "scrollIntoView");
+  root.innerHTML = '<div data-composer-column><div data-composer-above><button aria-label="Allow once">Allow once</button></div></div>'; document.body.append(root);
+  const dock = root.querySelector<HTMLElement>("[data-composer-column]")!, well = root.querySelector<HTMLElement>("[data-composer-above]")!, action = well.querySelector<HTMLElement>("button")!;
+  dock.getBoundingClientRect = () => new DOMRect(0, 0, 300, 180);
+  well.getBoundingClientRect = () => new DOMRect(0, 0, 300, 600);
+  action.getBoundingClientRect = () => new DOMRect(10, 300 - dock.scrollTop, 150, 44);
+  const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
   const stop = revealPermission();
-  onTestFinished(() => {
-    stop(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals();
-    if (originalFonts === undefined) Reflect.deleteProperty(document, "fonts");
-    else Object.defineProperty(document, "fonts", originalFonts);
-  });
-  frames.shift()?.(0); await Promise.resolve();
-  stop(); root.remove(); finishFonts(); await Promise.resolve();
-  for (let frame = 0; frame < 12; frame++) { frames.shift()?.(frame); await Promise.resolve(); }
+  onTestFinished(() => { stop(); root.remove(); vi.restoreAllMocks(); });
+  await waitFor(() => expect(action.matches("[data-permission-revealed]")).toBe(true));
+  expect(action.getBoundingClientRect().bottom).toBeLessThanOrEqual(180);
+  expect(well.scrollTop).toBe(0);
   expect(scroll).not.toHaveBeenCalled();
-  expect(action.matches('[data-permission-revealed]')).toBe(false);
 });

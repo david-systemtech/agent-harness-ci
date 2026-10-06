@@ -177,6 +177,19 @@ reachable at keyboard height. IME composition never sends early. Attachments,
 queue/status, plan/question/permission cards and tool/fork/rewind actions fit
 one column and are usable by touch.
 
+A pending request in the conversation dock is a compact summary with Details.
+Details opens the full command, reason, plan or questions in a bounded sheet
+inside the same web-frame viewport owner. Keep Close in its header and the
+existing answer verbs in a separate, non-scrolling bottom strip above the
+keyboard and safe inset; only request details, choices and notes scroll.
+At visual 390×480 and text 20, retain three readable transcript lines and
+reachable 44px Details, Close and answer controls. Closing/Escape preserves
+notes and question picks; answering removes the summary and restores composer
+focus with preventScroll. IME commit never answers early, in-flight answers
+cannot be submitted again, and reconnect reuses the existing answer identity.
+Denial/ceiling/delivery reasons remain available. The existing authoring
+conversation dialog retains its own bounded request and anchored decisions.
+
 Native reply/code selection and the OS copy menu remain available while reading
 history and receiving later stream output. Selecting transcript text pauses
 following, as scrolling up does; Jump to latest explicitly repins. Tool disclosure

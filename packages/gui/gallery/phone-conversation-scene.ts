@@ -4,8 +4,7 @@ import type { SceneGeometry } from "./scene-registry.js";
 export const revealPhoneDecision = (selector: string) => () => {
   const reveal = () => {
     const decision = document.querySelector<HTMLElement>(selector);
-    if (!decision) return;
-    decision.scrollIntoView({ block: "nearest" });
+    if (!decision) { document.querySelector<HTMLButtonElement>(".phone-prompt-summary button")?.click(); return; }
     observer.disconnect();
   };
   const observer = new MutationObserver(reveal);
