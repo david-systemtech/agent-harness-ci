@@ -1,4 +1,5 @@
 import { windowWords, type UsageGauge } from "@agent-harness/client-runtime";
+import { isKnownUsageWindow } from "@agent-harness/contracts";
 
 /**
  * What a turn cost the plan (docs/specs/tui.md, "The transcript": the cost
@@ -30,20 +31,29 @@ export const markOf = (gauge: UsageGauge | undefined): PlanMark => {
   return mark;
 };
 
+const share = (moved: number): string => `${(Math.round(moved * 1000) / 10).toFixed(1)}%`;
+
 /**
  * The windows that moved between `before` and `after`, as words ("1.2% of
- * the 5-hour window"); null while no window has been observed since
- * `before`, so the difference is not taken yet.
+ * the 5-hour window"), unknown limits folded into one ("up to 1.0% of other
+ * limits") so the line never repeats a label; null while no window has been
+ * observed since `before`, so the difference is not taken yet.
  */
 export const planDelta = (before: PlanMark, after: PlanMark): readonly string[] | null => {
   let observed = false;
   const words: string[] = [];
+  const others: (readonly [string, number])[] = [];
   for (const [window, then] of before) {
     const now = after.get(window);
     if (now === undefined || Date.parse(now.observedAt) <= Date.parse(then.observedAt)) continue;
     observed = true;
     const moved = now.utilisation - then.utilisation;
-    if (moved >= PLAN_DELTA_FLOOR) words.push(`${(Math.round(moved * 1000) / 10).toFixed(1)}% of the ${windowWords(window)} window`);
+    if (moved < PLAN_DELTA_FLOOR) continue;
+    if (isKnownUsageWindow(window)) words.push(`${share(moved)} of the ${windowWords(window)} window`);
+    else others.push([window, moved]);
   }
+  const [other] = others;
+  if (other !== undefined && others.length === 1) words.push(`${share(other[1])} of the ${windowWords(other[0])} window`);
+  if (others.length > 1) words.push(`up to ${share(Math.max(...others.map(([, moved]) => moved)))} of other limits`);
   return observed ? words : null;
 };

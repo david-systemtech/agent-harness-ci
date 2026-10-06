@@ -125,6 +125,11 @@ describe("Accounts", () => {
       Directory: "/home/milo/.agent-harness/accounts/2, the environment's own",
     });
 
+    const known = reading("account-1", 0.42, 0.1);
+    const unknown = (window: string, utilisation: number | null) => ({ window, utilisation, resetsAt: null, verdict: null, observedAt: known.readAt });
+    app.environment("desk").setUsage([{ ...known, windows: [...known.windows, unknown("iguana_necktie", 0), unknown("walrus_hat", null), unknown("otter_scarf", null)] }]);
+    await waitFor(() => expect(facts(personal)["Plan"]).toBe("5-hour 42% · Weekly 10% · Other limit 0%"));
+
     const laptop = await openRow(app, "Accounts", "laptop");
     expect(await within(laptop).findByRole("region", { name: "laptop milo" })).toBeDefined();
     expect(within(laptop).queryByRole("region", { name: "personal" })).toBeNull();

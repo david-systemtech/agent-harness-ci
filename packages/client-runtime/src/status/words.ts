@@ -80,13 +80,28 @@ export const readingsOf = (gauge: UsageGauge | undefined): readonly Reading[] =>
 /** Compact meters show only recognised windows; details retain every limit. */
 export const meterReadingsOf = (gauge: UsageGauge | undefined): readonly Reading[] => readingsOf(gauge).filter((reading) => isKnownUsageWindow(reading.window));
 
-/** A gauge's windows in one line: `5-hour 42% · Weekly 10%`; its reason when it has none. */
+/**
+ * The unknown limits of a one-line summary as one item: the one with a value
+ * as `Other limit 37%`, several as the fullest and how many are refused
+ * (`Other limits: highest 37%, 1 out`); nothing when none says how full it
+ * is, as identical labels with `—` tell a person nothing.
+ */
+const otherLimitsWords = (readings: readonly Reading[]): string | undefined => {
+  const said = readings.filter((reading) => reading.utilisation !== null || reading.pressure === "out");
+  if (said.length <= 1) return said[0] === undefined ? undefined : `${said[0].label} ${said[0].value}`;
+  const read = said.flatMap((reading) => (reading.utilisation === null ? [] : [reading.utilisation]));
+  const refused = said.filter((reading) => reading.pressure === "out").length;
+  const parts = [...(read.length === 0 ? [] : [`highest ${percent(Math.max(...read))}`]), ...(refused === 0 ? [] : [`${refused} out`])];
+  return `Other limits: ${parts.join(", ")}`;
+};
+
+/** A gauge's windows in one line: `5-hour 42% · Weekly 10%`, unknown limits folded into one item; its reason when it shows none. */
 export const readingWords = (gauge: UsageGauge | undefined): string | undefined => {
   if (!gauge) return undefined;
-  if (gauge.windows.length === 0) return gauge.unavailableReason ?? undefined;
-  return readingsOf(gauge)
-    .map((reading) => `${reading.label} ${reading.value}`)
-    .join(" · ");
+  const readings = readingsOf(gauge);
+  const others = otherLimitsWords(readings.filter((reading) => !isKnownUsageWindow(reading.window)));
+  const items = [...meterReadingsOf(gauge).map((reading) => `${reading.label} ${reading.value}`), ...(others === undefined ? [] : [others])];
+  return items.length === 0 ? (gauge.unavailableReason ?? undefined) : items.join(" · ");
 };
 
 /** The gauge pooling an account on its environment (`projections.usage` pools by account identity across environments); none for no account. */

@@ -17,6 +17,17 @@ describe("planDelta", () => {
     expect(planDelta(markOf(gauge(0.1, "2026-09-25T10:00:00.000Z", "iguana_necktie")), markOf(gauge(0.12, "2026-09-25T10:05:00.000Z", "iguana_necktie")))).toEqual(["2.0% of the Other limit window"]);
   });
 
+  it("folds unknown provider limits that moved into one item, by the most any of them moved", () => {
+    const at = (utilisations: readonly [number, number, number], observedAt: string): UsageGauge => ({
+      ...gauge(utilisations[0], observedAt),
+      windows: [["five_hour", utilisations[0]], ["iguana_necktie", utilisations[1]], ["walrus_hat", utilisations[2]]].map(([window, utilisation]) => ({ window: String(window), utilisation: Number(utilisation), resetsAt: null, verdict: null, observedAt })),
+    });
+    expect(planDelta(markOf(at([0.1, 0.1, 0.2], "2026-09-25T10:00:00.000Z")), markOf(at([0.12, 0.105, 0.21], "2026-09-25T10:05:00.000Z")))).toEqual([
+      "2.0% of the 5-hour window",
+      "up to 1.0% of other limits",
+    ]);
+  });
+
   it("names each window that moved, once a reading observed after the mark has come", () => {
     const before = markOf(gauge(0.1, "2026-09-25T10:00:00.000Z"));
     expect(planDelta(before, markOf(gauge(0.1, "2026-09-25T10:00:00.000Z")))).toBeNull();

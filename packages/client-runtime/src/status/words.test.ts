@@ -15,6 +15,19 @@ describe("a plan window", () => {
     expect(readingWords(pooled)).toBe("5-hour 42% · Other limit 37%");
   });
 
+  it("folds unknown limits into one item of a one-line summary and leaves out those without a value", () => {
+    const unknowns = [window("iguana_necktie", 0.12), window("walrus_hat", null), window("otter_scarf", null)];
+    expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), window("extra_usage", null), ...unknowns] })).toBe("5-hour 42% · Extra usage — · Other limit 12%");
+    expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), ...unknowns.slice(1)] })).toBe("5-hour 42%");
+    expect(readingWords({ ...gauge, windows: unknowns.slice(1) })).toBeUndefined();
+    expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), window("iguana_necktie", 0), window("walrus_hat", 0.12), window("otter_scarf", null)] })).toBe(
+      "5-hour 42% · Other limits: highest 12%",
+    );
+    expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), window("iguana_necktie", 0.6), window("walrus_hat", 0.12, "rejected")] })).toBe(
+      "5-hour 42% · Other limits: highest 60%, 1 out",
+    );
+  });
+
   it("is named as a gauge names it", () => {
     expect(["five_hour", "seven_day", "model_scoped:fable", "extra_usage"].map(windowLabel)).toEqual(["5-hour", "Weekly", "Weekly, Fable", "Extra usage"]);
   });
