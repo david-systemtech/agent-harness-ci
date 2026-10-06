@@ -107,7 +107,7 @@ const Headings = () => {
           </NewSessionButton>
         </Tooltip>
       </div>
-      <ScheduledStrip />
+      {!phone.narrow && <ScheduledStrip />}
       <div className="flex shrink-0 items-center gap-1 px-1.5 pt-2 pb-1.5">
         {(phone.narrow || list.rows.length > 8 || searchShown || filter !== "") && (
           <div className="phone-frame-filter relative min-w-0 flex-1">
@@ -121,6 +121,7 @@ const Headings = () => {
         </IconButton>
       </div>
       <div data-sidebar-scroll className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2">
+        {phone.narrow && <ScheduledStrip />}
         {query === "" ? (
           <>
             {dragged !== null && !headings.some((heading) => heading.kind === "pinned") && <EmptyPinned />}
@@ -136,7 +137,7 @@ const Headings = () => {
           <Matches query={query} rows={(lines) => rows(lines, null)} />
         )}
       </div>
-      <div className="flex shrink-0 flex-col border-t border-hairline">
+      <div data-sidebar-footer className="flex shrink-0 flex-col border-t border-hairline">
         <OrganiseLine />
         <Tooltip content="Restore a deleted session…">
           <Button className="h-auto w-full justify-start rounded-none px-2.5 py-2 text-left text-2xs whitespace-normal text-ink-muted hover:bg-wash" onClick={() => organise.open({ kind: "restore" })}><RotateCcw aria-hidden="true" className="size-3" /><span className="min-w-0">Restore a deleted session…</span></Button>

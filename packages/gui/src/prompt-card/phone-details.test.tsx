@@ -1,16 +1,19 @@
 // @vitest-environment jsdom-on-node
+import { readFileSync } from "node:fs";
+import { phoneLayoutMedia } from "../frame/phone-frame.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 import type { SceneModule } from "../../gallery/scene-registry.js";
 import { platform, script, route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
-async function phone(kind: "permission" | "question" | "plan" = "permission") {
+async function phone(kind: "permission" | "question" | "plan" = "permission", width = 390) {
   const original = window.matchMedia;
-  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
+  vi.spyOn(window, "matchMedia").mockImplementation(query => (width < 640 ? query === "(width < 640px)" : query.includes("pointer: coarse"))
     ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
-  vi.stubGlobal("innerWidth", 390);
-  vi.stubGlobal("visualViewport", Object.assign(new EventTarget(), { height: 480, width: 390, scale: 1, offsetTop: 120 }));
+  vi.stubGlobal("innerWidth", width);
+  if (width >= 640) vi.stubGlobal("innerHeight", 390);
+  vi.stubGlobal("visualViewport", Object.assign(new EventTarget(), { height: width < 640 ? 480 : 330, width, scale: 1, offsetTop: width < 640 ? 120 : 8 }));
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const scene: SceneModule = { platform, ...(script && { script }), route, readySelector: '[aria-label="Parked prompt"]', arrangeWeb: world => {
     const env = world.environment("desk"), sessionId = env.sessionId();
@@ -132,4 +135,29 @@ it("offers every plan mode with its ceiling reason and leaves planning until exp
   fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(screen.getByRole("region", { name: "Parked prompt" })).toBeDefined();
+});
+
+
+it("uses the shared landscape media for a bounded request sheet with touch actions", async () => {
+  await phone("permission", 844);
+  fireEvent.click(within(screen.getByRole("region", { name: "Parked prompt" })).getByRole("button", { name: "Details" }));
+  const sheet = await screen.findByRole("dialog", { name: "Permission" });
+  const stylesheet = document.createElement("style");
+  stylesheet.textContent = readFileSync(new URL("./phone-details.css", import.meta.url), "utf8");
+  document.head.append(stylesheet);
+  try {
+    const media = Array.from(stylesheet.sheet?.cssRules ?? []).find((rule): rule is CSSMediaRule => "conditionText" in rule);
+    expect(media?.conditionText).toBe(phoneLayoutMedia().map(query => query.media).join(", "));
+    // Activate the shipped media rules: jsdom cannot evaluate layout media.
+    stylesheet.textContent = Array.from(media?.cssRules ?? []).map(rule => rule.cssText).join("\n");
+    expect(getComputedStyle(sheet).position).toBe("absolute");
+    expect(getComputedStyle(sheet).overflow).toBe("hidden");
+    for (const name of ["Close", "Allow once"]) {
+      const action = within(sheet).getByRole("button", { name });
+      expect(getComputedStyle(action).minHeight).toBe("44px");
+      expect(getComputedStyle(action).minWidth).toBe("44px");
+    }
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  } finally { stylesheet.remove(); }
 });

@@ -1,7 +1,14 @@
 // @vitest-environment jsdom-on-node
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { expect, it, onTestFinished, vi } from "vitest";
+import { beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
+
+beforeEach(() => {
+  const original = window.matchMedia;
+  vi.stubGlobal("matchMedia", (query: string) => query === "(width < 640px)"
+    ? Object.defineProperty(Object.assign(new EventTarget(), { media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }), "matches", { get: () => window.innerWidth < 640 }) : original(query));
+  onTestFinished(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+});
 
 it.each([[false, 844], [true, 844], [false, 780], [true, 780]] as const)("repins on focus/open and after gradual close/reopen with layout resize %s and unoccluded height %s", async (resizeLayout, unoccludedHeight) => {
   const callbacks = new Map<Element, () => void>();

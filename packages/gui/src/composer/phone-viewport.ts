@@ -1,4 +1,5 @@
 import { useLayoutEffect, type RefObject } from "react";
+import { phoneLayoutMedia } from "../frame/phone-frame.js";
 
 /** The web frame is the single owner of keyboard bounds; never scroll its ancestors. */
 export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
@@ -7,9 +8,13 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     if (!frame) return;
     const subscribedViewport = window.visualViewport;
     const root = document.documentElement;
+    const media = phoneLayoutMedia();
+    let layoutWidth = window.innerWidth;
+    let unoccludedWidth = window.innerWidth;
     let unoccludedHeight = window.innerHeight;
     let focusHeight = unoccludedHeight;
     let keyboardOpen = false;
+    let rotatedKeyboardHeight: number | null = null;
     const clearPhone = () => {
       root.removeAttribute("data-phone-viewport");
       frame.removeAttribute("data-phone-composing");
@@ -17,15 +22,25 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     };
     const fit = (event?: Event) => {
       const viewport = window.visualViewport;
-      if (window.innerWidth >= 640) {
+      if (!media.some(query => query.matches)) {
         clearPhone();
-        keyboardOpen = false; unoccludedHeight = focusHeight = window.innerHeight;
+        keyboardOpen = false; rotatedKeyboardHeight = null; unoccludedWidth = window.innerWidth; unoccludedHeight = focusHeight = window.innerHeight;
         frame.style.maxHeight = `${viewport?.height ?? window.innerHeight}px`;
         return;
       }
       root.setAttribute("data-phone-viewport", "");
       // Keep the last unzoomed bounds. A second height observer would undo pinch zoom.
       if (viewport && viewport.scale !== 1) return;
+      // Match the new width to the held unoccluded axes. A keyboard-height
+      // intermediate can still look landscape while turning back to portrait.
+      if (layoutWidth !== window.innerWidth) {
+        const turned = Math.abs(window.innerWidth - unoccludedHeight) < Math.abs(window.innerWidth - unoccludedWidth);
+        const reference = turned ? unoccludedWidth : unoccludedHeight;
+        unoccludedWidth = layoutWidth = window.innerWidth;
+        unoccludedHeight = focusHeight = keyboardOpen ? Math.max(window.innerHeight, reference) : window.innerHeight;
+        rotatedKeyboardHeight = keyboardOpen ? focusHeight : null;
+        if (!keyboardOpen) frame.removeAttribute("data-phone-composing");
+      }
       const height = viewport?.height ?? window.innerHeight;
       frame.style.removeProperty("max-height");
       frame.style.height = `${height}px`;
@@ -37,8 +52,10 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       // Equal viewport heights cannot distinguish keyboard from browser chrome.
       // A quarter-height loss marks layout-resizing keyboards; keep the focus
       // snapshot through gradual resize events so animation cannot erase it.
-      const keyboardNow = height < window.innerHeight || ((messageFocused || keyboardOpen) && height <= focusHeight * 0.75);
+      const keyboardNow = height < window.innerHeight || ((messageFocused || keyboardOpen) && (height <= focusHeight * 0.75 || (rotatedKeyboardHeight !== null && height < rotatedKeyboardHeight)));
       if (!keyboardNow) {
+        rotatedKeyboardHeight = null;
+        unoccludedWidth = window.innerWidth;
         unoccludedHeight = window.innerHeight;
         // Follow the remaining growth during gradual closure, even with retained focus.
         if (keyboardOpen || !messageFocused || unoccludedHeight > focusHeight) focusHeight = unoccludedHeight;
@@ -53,11 +70,13 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       if (composing || keyboardOpened) document.activeElement?.closest("[data-dock-owner]")?.dispatchEvent(new Event("phone-composer-fit"));
     };
     fit();
+    media.forEach(query => query.addEventListener("change", fit));
     window.addEventListener("resize", fit);
     subscribedViewport?.addEventListener("resize", fit);
     subscribedViewport?.addEventListener("scroll", fit);
     frame.addEventListener("focusin", fit);
     return () => {
+      media.forEach(query => query.removeEventListener("change", fit));
       window.removeEventListener("resize", fit);
       subscribedViewport?.removeEventListener("resize", fit);
       subscribedViewport?.removeEventListener("scroll", fit);

@@ -2,11 +2,18 @@
 import { readFileSync } from "node:fs";
 import { mountGallery } from "../../gallery/mount.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { expect, it, onTestFinished, vi } from "vitest";
+import { beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp } from "../../test/harness.js";
 import { composerControlExpression } from "../../scripts/phone-refusal-smoke.js";
 import { filledKeyboardPrompt } from "../../gallery/scenes/phone-keyboard-dock.js";
 import { route } from "../../gallery/scenes/phone-gallery-conversation.js";
+
+beforeEach(() => {
+  const original = window.matchMedia;
+  vi.stubGlobal("matchMedia", (query: string) => query === "(width < 640px)"
+    ? Object.defineProperty(Object.assign(new EventTarget(), { media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }), "matches", { get: () => window.innerWidth < 640 }) : original(query));
+  onTestFinished(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+});
 
 it("keeps the composing draft until the input method commits, including an Enter without isComposing", async () => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
@@ -186,6 +193,7 @@ it.each(["long", "question", "plan"])("mounts the phone-conversation-%s surface 
 });
 
 it("lets a phone user scroll the refused draft, remedy and Run settings in the composer region", async () => {
+  vi.stubGlobal("innerWidth", 390);
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
   const refusal = "The account personal is not signed in on this environment, so no run can start. Sign in in Settings, Accounts.";
   const gallery = await mountGallery(root, "phone-refusal", "dark", {
@@ -214,8 +222,7 @@ it("lets a phone user scroll the refused draft, remedy and Run settings in the c
   const style = document.createElement("style"); style.textContent = readFileSync(new URL("./phone-conversation.css", import.meta.url), "utf8"); document.head.append(style);
   onTestFinished(() => style.remove());
   // jsdom has no layout: check the actual phone rule matching the rendered refusal's scroll owner.
-  const media = Array.from(style.sheet?.cssRules ?? []).filter((rule): rule is CSSMediaRule => rule.type === 4).filter(rule => rule.conditionText === "(max-width: 639px)");
-  const rules = media.flatMap(rule => Array.from(rule.cssRules)).filter((rule): rule is CSSStyleRule => rule.type === 1).filter(rule => column.matches(rule.selectorText));
+  const rules = Array.from(style.sheet?.cssRules ?? []).filter((rule): rule is CSSStyleRule => rule.type === 1).filter(rule => column.matches(rule.selectorText));
   expect(rules.some(rule => ["auto", "scroll"].includes(rule.style.getPropertyValue("overflow-y")))).toBe(true);
 });
 

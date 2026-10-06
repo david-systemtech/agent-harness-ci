@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { LANDSCAPE_PHONE_PROFILES } from "./phone-landscape-profiles.js";
 import { COMPACT_COMPOSER_PROFILES } from "./phone-compact-composer-profiles.js";
 import { captureName } from "./compare.js";
 import { sceneName } from "./scene-registry.js";
@@ -45,7 +46,7 @@ export function capturePlan(scenes: readonly string[]) {
   );
   const phone: CaptureCase[] = scenes.filter(scene => scene.startsWith("phone-")).flatMap(scene =>
     // Surface scenes carry the full matrix; scaffold and duplicate keyboard scenes keep one proof.
-    (scene.startsWith("phone-compact-composer-") ? COMPACT_COMPOSER_PROFILES : PHONE_PROFILES).filter(profile => {
+    (scene.startsWith("phone-landscape-") ? LANDSCAPE_PHONE_PROFILES : scene.startsWith("phone-compact-composer-") ? COMPACT_COMPOSER_PROFILES : PHONE_PROFILES).filter(profile => {
       if (scene === "phone-keyboard-dock") return profile.suffix === "phone-390";
       if (scene === "phone-gallery-conversation") return profile.suffix === "phone-390";
       if (scene === "phone-gallery-permission" || scene === "phone-gallery-continue" || scene === "phone-attention-keyboard") return profile.suffix === "phone-390-keyboard";

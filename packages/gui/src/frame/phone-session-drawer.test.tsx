@@ -1,9 +1,12 @@
 // @vitest-environment jsdom-on-node
+import { readFileSync } from "node:fs";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { renderApp } from "../../test/harness.js";
 import { mountGallery } from "../../gallery/mount.js";
+import { routineFixture } from "../../gallery/routine-fixtures.js";
+import { phoneLayoutMedia } from "./phone-frame.js";
 import { route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
 it("keeps the session drawer inside the shared web bounds and restores focus without scrolling", async () => {
@@ -71,4 +74,43 @@ it("searches and switches sessions while retaining both drafts and running work"
   await select("Receipt follow-up");
   expect(await screen.findByRole("textbox", { name: "Message" })).toHaveProperty("value", "Second unsent draft");
   expect(env.requests("runs.cancel")).toHaveLength(0);
+});
+
+it("keeps a session row usable while the landscape drawer footer scrolls independently", async () => {
+  vi.stubGlobal("innerWidth", 844); vi.stubGlobal("innerHeight", 390);
+  vi.stubGlobal("matchMedia", (query: string) => Object.assign(new EventTarget(), { matches: query.includes("pointer: coarse"), media: query, onchange: null }));
+  onTestFinished(() => { vi.unstubAllGlobals(); });
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, "landscape-drawer-controls", "light", {
+    "landscape-drawer-controls": { platform: "web", route, script: { environments: [{ name: "desk", reach: "paired", scopes: ["read", "sessions:write", "runs:drive"], sessions: [{ title: "Receipt review" }] }] },
+      arrangeWeb: world => world.environment("desk").wire.answer("routines.list", () => ({ result: { routines: Array.from({ length: 4 }, (_, index) => routineFixture(`Receipt check ${index + 1}`, index + 1)) } })),
+    },
+  });
+  onTestFinished(async () => { await gallery.close(); root.remove(); });
+  await gallery.ready;
+  fireEvent.click(screen.getByRole("button", { name: "Show sessions" }));
+  const drawer = screen.getByRole("dialog", { name: "Sessions" });
+  const scheduled = await within(drawer).findByRole("region", { name: "Scheduled" });
+  expect(await within(scheduled).findByRole("button", { name: /Receipt check 4/ })).toBeDefined();
+  expect(scheduled.closest("[data-sidebar-scroll]")).toBe(drawer.querySelector("[data-sidebar-scroll]"));
+  const stylesheet = document.createElement("style");
+  stylesheet.textContent = readFileSync(new URL("./phone-frame.css", import.meta.url), "utf8");
+  document.head.append(stylesheet);
+  try {
+    const media = Array.from(stylesheet.sheet?.cssRules ?? []).find((rule): rule is CSSMediaRule => "conditionText" in rule);
+    expect(media?.conditionText).toBe(phoneLayoutMedia()[1]?.media);
+    // Activate the shipped landscape rules: jsdom cannot evaluate layout media.
+    stylesheet.textContent = Array.from(media?.cssRules ?? []).map(rule => rule.cssText).join("\n");
+    expect(getComputedStyle(drawer.querySelector("[data-sidebar-scroll]")!).minHeight).toBe("56px");
+    const create = within(drawer).getByRole("button", { name: "New session" }).parentElement!;
+    const filter = within(drawer).getByRole("searchbox", { name: "Filter the sessions" }).parentElement!.parentElement!;
+    expect(getComputedStyle(create).paddingBlock).toBe("4px");
+    expect(getComputedStyle(filter).paddingBlock).toBe("4px");
+    const footer = within(drawer).getByRole("button", { name: "Restore a deleted session…" }).closest("div")!;
+    expect(getComputedStyle(footer).minHeight).toBe("48px");
+    expect(getComputedStyle(footer).flexShrink).toBe("1");
+    expect(getComputedStyle(footer).overflowY).toBe("auto");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Close sessions" }));
+    expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull();
+  } finally { stylesheet.remove(); }
 });

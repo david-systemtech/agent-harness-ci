@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
+import { phoneLayoutMedia } from "../frame/phone-frame.js";
 import { Menu, MenuContent, MenuItem, MenuShortcut, MenuTrigger } from "./menu.js";
 
 it("lets phone menu explanations use the row width without a keyboard shortcut column", () => {
@@ -13,12 +14,12 @@ it("lets phone menu explanations use the row width without a keyboard shortcut c
   stylesheet.textContent = readFileSync(new URL("./phone-overlays.css", import.meta.url), "utf8");
   document.head.append(stylesheet);
   try {
-    const media = Array.from(stylesheet.sheet?.cssRules ?? []).find((rule): rule is CSSMediaRule => "cssRules" in rule);
-    expect(media?.conditionText).toBe("(width < 640px)");
-    // jsdom does not evaluate viewport media queries; activate the shipped phone rules.
-    const phoneRules = Array.from(media?.cssRules ?? []).map(rule => rule.cssText).join("\n");
     expect(getComputedStyle(screen.getByText("Ctrl+J")).display).not.toBe("none");
-    stylesheet.textContent = phoneRules;
+    const media = Array.from(stylesheet.sheet?.cssRules ?? []).find((rule): rule is CSSMediaRule => "cssRules" in rule);
+    expect(media?.conditionText).toBe(phoneLayoutMedia().map(query => query.media).join(", "));
+    // jsdom does not evaluate viewport media queries. Exercise the shipped phone
+    // rules without a frame: standalone dialogs and menus need touch sizing too.
+    stylesheet.textContent = Array.from(media?.cssRules ?? []).map(rule => rule.cssText).join("\n");
     for (const keys of ["Ctrl+J", "Ctrl+Shift+Enter"]) expect(getComputedStyle(screen.getByText(keys)).display).toBe("none");
     const row = screen.getByRole("menuitem", { name: "Terminal" });
     expect(getComputedStyle(row).minHeight).toBe("44px");

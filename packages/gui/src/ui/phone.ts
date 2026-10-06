@@ -1,10 +1,11 @@
 import { useMemo, useSyncExternalStore } from "react";
+import { phoneLayoutMedia } from "../frame/phone-frame.js";
 
-/** Match the component styles' phone breakpoint, including a resize while a picker is open. */
+/** Follow the shared phone layout while a picker or request sheet is open. */
 export const usePhoneOverlay = (): boolean => {
-  const query = useMemo(() => window.matchMedia("(width < 640px)"), []);
+  const media = useMemo(phoneLayoutMedia, []);
   return useSyncExternalStore(
-    callback => { query.addEventListener("change", callback); return () => query.removeEventListener("change", callback); },
-    () => query.matches,
+    callback => { media.forEach(query => query.addEventListener("change", callback)); return () => media.forEach(query => query.removeEventListener("change", callback)); },
+    () => media.some(query => query.matches),
   );
 };

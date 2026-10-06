@@ -1212,7 +1212,15 @@ The owner's 2026-10-04 milestone amendment is specified in
 [web-client.md](web-client.md). Desktop dimensions above still govern the
 wide layout; the following rules govern phone use and its gallery evidence.
 
-Below 640px show one conversation with a session drawer and phone header
+Phone projection uses one shared layout decision: width below 640px, or a
+coarse primary pointer without hover at width 640–960px inclusive and layout
+height at most 500px. Short landscape 844×390 and 740×360 retain one conversation;
+keyboard VisualViewport shrink and pinch zoom never classify an ordinary desktop
+as a phone. Returning portrait keeps the drawer, active session, draft and run;
+returning to a genuinely wide non-phone viewport restores the held desktop panes.
+Phone styles and viewport fitting consume this decision.
+
+Show one conversation with a session drawer and phone header
 (More, Settings, attention). Preserve the desktop pane arrangement for return
 to wide mode; disable Split with a width reason. The existing below-900px
 pane-width dock rule becomes the side-column sheet, `min(480px, 85%)`. Closing
@@ -1282,6 +1290,22 @@ fallback on denial. No simulated haptics or synthetic refresh gesture. Native
 selection handles, OS rubberband and unsuppressed refresh gestures require
 engine-specific dated handset evidence under #1556; CSS alone proves no universal
 OS guarantee. Capped input/detail wells keep their own contained scrolling.
+
+#1641 adds four bounded landscape surfaces at 844×390 and 740×360 in dark/light
+and text 16/20 (32 captures): conversation, keyboard with a long parked card,
+Sessions drawer and composer details. Keep the landscape layout unchanged while
+filled-keyboard visual height becomes 330 with offsetTop 8; overlay proofs use 300.
+The filled-dock floor retains the waiting notice, three normal reply lines and
+the message/action row with the bottom safe reserve. The landscape drawer
+keeps a result well that grows with text size (at least 54px), with compact
+vertical padding around New session and Filter. Its footer may shrink to a
+48px internal scrollport, with each footer action reachable and Close outside it.
+Inject zero insets at 740px and
+44px left/right plus 21px bottom at 844px. Assert one conversation, three normal
+transcript lines, the dock bottom at visual bottom minus exactly one inset,
+44px Send/Stop and Close, long-card actions reachable in their bounded scroller,
+sheet/drawer focus and bounds, and no page/horizontal overflow. Real rotation,
+keyboard animation and notch values remain handset checks in #1556.
 
 Hosted gallery subsets at 390×844 and 360×740 cover dark/light, text 20,
 keyboard-height viewport, safe areas and long content. #1636 additionally keeps

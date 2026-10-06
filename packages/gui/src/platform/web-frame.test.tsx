@@ -4,11 +4,18 @@ import { createRuntime } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
 import { scriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { IDBFactory } from "fake-indexeddb";
-import { expect, it, onTestFinished, vi } from "vitest";
+import { beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { App } from "../app.js";
 import { WebViewport } from "./web-frame.js";
 import { openPresentation } from "../presentation.js";
 import { browserPlatform, type BrowserPlatform } from "./browser-platform.js";
+
+beforeEach(() => {
+  const original = window.matchMedia;
+  vi.stubGlobal("matchMedia", (query: string) => query === "(width < 640px)"
+    ? Object.defineProperty(Object.assign(new EventTarget(), { media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }), "matches", { get: () => window.innerWidth < 640 }) : original(query));
+  onTestFinished(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+});
 
 it("pairs without a desktop shell, discloses the minted grant and opens a shared conversation", async () => {
   const clock = manualClock();
