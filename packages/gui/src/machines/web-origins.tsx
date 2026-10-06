@@ -10,7 +10,11 @@ export const WebOrigins = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime(); const clock = useClock();
   const { part, picked, openings } = useSettings();
   const region = useRef<HTMLElement>(null);
+  // Each opening is gone to once: a later pick of another environment under the same opening (Set up this machine) leaves the focus be.
+  const seen = useRef<number | undefined>(undefined);
   useEffect(() => {
+    if (seen.current === openings) return;
+    seen.current = openings;
     if (part !== "browser-origins" || picked !== view.environmentId) return;
     if (typeof region.current?.scrollIntoView === "function") region.current.scrollIntoView({ block: "start" });
     region.current?.focus();
