@@ -1,4 +1,5 @@
 import { PRODUCT_NAME } from "@agent-harness/contracts";
+import { artefactNode } from "@agent-harness/contracts/launcher";
 import type { Configuration } from "electron-builder";
 import { APP_ID } from "../../src/app-id.js";
 import { PACKAGED_SERVER } from "../../src/packaged.js";
@@ -93,6 +94,17 @@ export interface BuildFolders {
   readonly nsisInclude: string;
 }
 
+/**
+ * The bundled server's Node, as electron-builder's `signIgnore` matches the
+ * absolute path of each file it would sign. electron-builder re-signs every
+ * Mach-O in the bundle with the app's identity, ad hoc here, which would put
+ * the app's signer on this Node in place of Node's own: an environment the
+ * desktop installs then writes its keychain item with another Node than the
+ * release tarball's, and its first update from the tarball raises a macOS
+ * prompt (#1724). Left alone, it is the tarball's Node, byte for byte.
+ */
+const BUNDLED_NODE_SIGN_IGNORE = `/Contents/Resources/${[PACKAGED_SERVER, ...artefactNode("darwin")].join("/")}$`;
+
 /** The section of the configuration for `target`'s platform and format alone. */
 const platformSection = (target: DesktopTarget, folders: BuildFolders): Configuration => {
   const targets = [{ target: target.format, arch: [target.arch] }];
@@ -110,6 +122,7 @@ const platformSection = (target: DesktopTarget, folders: BuildFolders): Configur
           hardenedRuntime: false,
           gatekeeperAssess: false,
           notarize: false,
+          signIgnore: [BUNDLED_NODE_SIGN_IGNORE],
         },
       };
     case "win32":
