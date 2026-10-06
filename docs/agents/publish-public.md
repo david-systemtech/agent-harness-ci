@@ -42,9 +42,10 @@ ID, parent and message, then rehearses that exact proposed public commit in a
 separate temporary checkout: `pnpm install --frozen-lockfile`, `pnpm typecheck`
 and `pnpm lint`, which prove the snapshot is a complete, consistent checkout.
 The rehearsal runs no tests. For a release, the hosted release workflow's
-`check` job runs the whole suite on the published tree, and every build and the
-release wait for it, so a failing suite publishes no release and leaves the tag
-reusable. That workflow runs on `v*` tags and manual dispatch only, so a
+`suite` job runs the whole suite on the published tree in six shards, and its
+`verify` job runs typecheck, lint and the schema export check. The builds and
+smokes run beside them, but the image push and the release wait for both, so a
+failing suite publishes no release and leaves the tag reusable. That workflow runs on `v*` tags and manual dispatch only, so a
 code-only snapshot (no `--tag`) relies on the private CI of the selected commit:
 publish only a commit whose CI is green. Those
 commands share a 30-minute budget and print progress; a failure or timeout
@@ -97,8 +98,9 @@ ref's complete privacy and mapping policies have passed, before either a dry run
 succeeds or any public ref is pushed (unless `--rehearsed-tree` names the tree a
 passing dry run rehearsed). This keeps the rehearsal outside the sharded unit
 suite and enforces it even for a code-only snapshot. For a `v*` tag, the hosted
-release workflow's `check` job runs typecheck, lint and the full test suite on
-the published tree before building release assets.
+release workflow's `verify` job runs typecheck and lint, and its six `suite`
+shards run the full test suite, on the published tree before anything is pushed
+or published.
 
 `.public-privacy.json` in the selected ref defines case-insensitive deny patterns
 for private terms and addresses. The check scans both filenames and all blob

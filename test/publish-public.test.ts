@@ -9,7 +9,7 @@ const root = join(import.meta.dirname, "..");
 const script = join(root, "scripts/publish-public.py");
 const folders: string[] = [];
 afterEach(() => { for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-// The hosted release workflow's check job owns the test suite (#1679).
+// The hosted release workflow's suite shards own the test suite (#1679, #1687).
 const rehearsalSteps = [["install", "--frozen-lockfile"], ["typecheck"], ["lint"]];
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
 function fixture() {
