@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { utcMinute } from "../instructions/orientation.js";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock } from "../serve/clock.js";
 import { readKeptTime, writeKeptTime } from "./kept-time.js";
@@ -75,8 +76,12 @@ export const createHostUpdaterPolls = (options: HostUpdaterPollsOptions): HostUp
       if (lastPollAt === undefined) {
         return { reason: "The host-side updater has not polled this container yet: install it on the Docker host, where it runs every five minutes, so the container is updated." };
       }
+      // The poll's time as data, which a client words where it is; the reason's own words for it stand for one that does not (#1742).
+      const at = new Date(lastPollAt).toISOString();
+      const when = `more than an hour ago, at ${utcMinute(at)}`;
       return {
-        reason: `The host-side updater last polled at ${new Date(lastPollAt).toISOString()}, more than an hour ago: check that it still runs on the Docker host, every five minutes, so the container is updated.`,
+        reason: `The host-side updater last polled ${when}: check that it still runs on the Docker host, every five minutes, so the container is updated.`,
+        times: [{ text: when, at }],
       };
     },
   };

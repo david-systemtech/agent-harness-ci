@@ -703,6 +703,26 @@ describe("a check's time", () => {
     expect(await within(machines).findByText("Last good, checked just now: The release channel was read.")).toBeDefined();
   });
 
+  // A poll time read on a phone broke inside its date and said milliseconds in UTC (#1742).
+  it("says a time a result's reason names where this window is, its age and its clock time, never the environment's UTC timestamp", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    await screen.findByText(NO_SESSION);
+    const polledAt = new Date(app.clock.now().getTime() - 2 * 3_600_000 - 5 * 60_000).toISOString();
+    app.environment("desk").setSetup({
+      "your-machines": {
+        state: "needs-attention",
+        reason: `The host-side updater last polled more than an hour ago, at ${polledAt.slice(0, 10)} ${polledAt.slice(11, 16)} UTC: check that it still runs on the Docker host.`,
+        failing: ["your-machines.host-updater"],
+        actions: ["check-again"],
+        times: [{ text: `more than an hour ago, at ${polledAt.slice(0, 10)} ${polledAt.slice(11, 16)} UTC`, at: polledAt }],
+      },
+    });
+    const machines = await cardOf(app, "Your machines");
+    const line = await within(machines).findByText(/^The host-side updater last polled 2 h ago, at /);
+    expect(line.textContent).toMatch(new RegExp(`at (\\S+\u00a0)*${clockTime(polledAt)}: check that it still runs on the Docker host\\.`));
+    expect(line.textContent).not.toMatch(/UTC|\d-\d/);
+  });
+
   it("shows a step pending once this window's check has waited half a second, and a result older than its step's cadence with its age", async () => {
     const threeHoursBefore = new Date(Date.parse(MANUAL_CLOCK_START) - 3 * 3_600_000).toISOString();
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { account: { checkedAt: threeHoursBefore } } }] });
