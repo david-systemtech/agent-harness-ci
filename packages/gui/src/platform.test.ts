@@ -66,7 +66,7 @@ describe("the bundle's platform", () => {
   ])("pairs under a label a person tells apart: browser and system from the user agent, installed or a tab (%#)", (userAgent, display, label) => {
     vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(userAgent);
     vi.spyOn(window, "matchMedia").mockImplementation((query) => Object.assign(new EventTarget(), { matches: query === display, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => true }));
-    onTestFinished(() => vi.restoreAllMocks());
+    onTestFinished(() => { vi.restoreAllMocks(); });
     expect(browserPlatform(window, "0.5.0").client).toEqual({ kind: "web", label, version: "0.5.0" });
   });
 
