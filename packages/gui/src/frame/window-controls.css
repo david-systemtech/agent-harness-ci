@@ -1,9 +1,9 @@
-[data-window-header][data-native-frame] {
+header[data-native-frame] {
   -webkit-app-region: drag;
   app-region: drag;
 }
 
-[data-window-header][data-native-frame] :is(button, input, select, textarea, a, [role="button"], [role="radio"], [role="group"]) {
+header[data-native-frame] :is(button, input, select, textarea, a, [role="button"], [role="radio"], [role="group"]) {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
