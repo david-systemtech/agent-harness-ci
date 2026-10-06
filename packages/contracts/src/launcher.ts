@@ -116,6 +116,22 @@ export interface PreparedMessage {
   readonly version: string;
 }
 
+/**
+ * Where a start stands with the OS keychain while its startup gate waits on
+ * it (#1689): `waiting` once a read has gone unanswered long enough that the
+ * OS is asking the person (macOS shows a prompt to let a binary it does not
+ * yet trust read the item), `answered` once that read returned, `refused`
+ * once it failed. A launcher pauses a trial's deadline while it waits.
+ */
+export const CREDENTIAL_ACCESS_STATES = ["waiting", "answered", "refused"] as const;
+export type CredentialAccessState = (typeof CREDENTIAL_ACCESS_STATES)[number];
+
+/** The environment's start waits on the person to let it read its stored key, or no longer does. A launcher that does not know it passes it over. */
+export interface CredentialAccessMessage {
+  readonly type: "credential-access";
+  readonly state: CredentialAccessState;
+}
+
 /** The launcher has committed the version that said `prepared`: the environment may now serve. */
 export interface CommittedMessage {
   readonly type: "committed";
@@ -176,7 +192,7 @@ export type LauncherAnswer = RequestAnswers[keyof RequestAnswers];
 export type Numbered<T> = T & { readonly id: number };
 
 /** Everything the environment sends the launcher. */
-export type EnvironmentMessage = PreparedMessage | Numbered<EnvironmentRequest> | LauncherReply;
+export type EnvironmentMessage = PreparedMessage | CredentialAccessMessage | Numbered<EnvironmentRequest> | LauncherReply;
 
 /** Everything the launcher sends the environment. */
 export type LauncherMessage = CommittedMessage | Numbered<LauncherAnswer> | LauncherQuery;
@@ -262,6 +278,8 @@ export const parseEnvironmentMessage = (value: unknown): EnvironmentMessage | un
   switch (type) {
     case "prepared":
       return isText(version) ? { type, version } : undefined;
+    case "credential-access":
+      return isOneOf(CREDENTIAL_ACCESS_STATES, value["state"]) ? { type, state: value["state"] } : undefined;
     case "install?":
       return isCount(id) && isText(version) && isText(value["staged"]) ? { type, id, version, staged: value["staged"] } : undefined;
     case "switch?":
@@ -385,3 +403,26 @@ export const isOutcomeRecord = (value: unknown): value is OutcomeRecord =>
   isText(value["toVersion"]) &&
   isOneOf(OUTCOME_STAGES, value["stage"]) &&
   isText(value["reason"]);
+
+/**
+ * The credential-access record, a file in the data directory: written by a
+ * start whose OS keychain read waits on the person, and taken away once the
+ * read returned (#1689). It outlives a start the launcher ended while it
+ * waited, so the desktop, which reads it while the environment does not
+ * answer, tells a wait under way (its process alive) from one that ended
+ * unanswered. Under a launcher older than the message, it is the window's
+ * only way to learn of the prompt.
+ */
+export const CREDENTIAL_ACCESS_FILE = "credential-access.json";
+
+/** The credential-access record's contents: the version whose start waits, its process, since when, and where the wait stands. */
+export interface CredentialAccessRecord {
+  readonly version: string;
+  readonly pid: number;
+  readonly since: string;
+  readonly state: CredentialAccessState;
+}
+
+/** Whether `value` is a credential-access record: every part present, the process a positive id, the state one a wait has. */
+export const isCredentialAccessRecord = (value: unknown): value is CredentialAccessRecord =>
+  isFields(value) && isText(value["version"]) && isCount(value["pid"]) && isText(value["since"]) && isOneOf(CREDENTIAL_ACCESS_STATES, value["state"]);

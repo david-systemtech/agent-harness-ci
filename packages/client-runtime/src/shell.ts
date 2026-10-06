@@ -1,5 +1,5 @@
 import type { PendingUpdate } from "@agent-harness/contracts";
-import type { GrantReader, HttpFetch, SecretStore } from "./platform.js";
+import type { CredentialAccessReader, GrantReader, HttpFetch, SecretStore } from "./platform.js";
 
 /**
  * The desktop shell interface: what only a desktop app can do for a client,
@@ -28,6 +28,8 @@ export interface Shell {
   readonly clipboard?: ShellClipboard;
   readonly openExternal?: (url: string) => Promise<void>;
   readonly localGrant?: GrantReader;
+  /** The local environment's credential-access record, which says its start waits on the person to let it read its stored key (#1689). */
+  readonly credentialAccess?: CredentialAccessReader;
   /** The OS keychain: where the runtime keeps client session tokens on a desktop. */
   readonly secrets?: ShellSecrets;
   /**
@@ -65,6 +67,7 @@ export const SHELL_MEMBERS = [
   "shell.clipboard",
   "shell.openExternal",
   "shell.localGrant.read",
+  "shell.credentialAccess.read",
   "shell.secrets",
   "shell.secrets.protection",
   "shell.http",
@@ -95,7 +98,7 @@ export const hasShellMember = (shell: Shell | undefined, member: ShellMember): b
  */
 export type SecretProtection = "os" | "unprotected" | "none";
 
-/** The macOS credential operation awaiting OS approval, refused, or settled. */
+/** A macOS credential operation awaiting OS approval, a kept credential that could not be read, or settled. */
 export type SecretAccess = "waiting" | "denied" | null;
 
 /** The OS keychain as the shell gives it: the platform's `SecretStore`, and how what it keeps is protected. */

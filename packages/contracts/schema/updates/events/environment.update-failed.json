@@ -31,7 +31,7 @@
     "reason": {
       "type": "string",
       "minLength": 1,
-      "description": "A short code naming the failure: the launcher's refusal of the switch, no-stop when a container's stop never came after its drain (#348), the outcome record's reason (deadline for a trial that missed its gate), or unknown when no record was left."
+      "description": "A short code naming the failure: the launcher's refusal of the switch, no-stop when a container's stop never came after its drain (#348), the outcome record's reason (deadline for a trial that missed its gate, credential for one whose OS keychain read the person refused or left unanswered, #1689), or unknown when no record was left."
     },
     "rolledBack": {
       "type": "boolean",

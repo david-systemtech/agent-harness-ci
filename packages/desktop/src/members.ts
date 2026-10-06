@@ -2,6 +2,7 @@ import { changeZoom } from "./zoom.js";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import type {
+  CredentialAccessReader,
   GrantReader,
   ShellContent,
   ShellWindowState,
@@ -79,6 +80,7 @@ export interface MemberParts {
   readonly electron: DesktopElectron;
   readonly secrets: Required<ShellSecrets>;
   readonly localGrant: GrantReader;
+  readonly credentialAccess: CredentialAccessReader;
   readonly service: ShellService;
   readonly update: ShellUpdate;
   readonly installer: ShellInstaller;
@@ -97,6 +99,7 @@ export const shellMembers = ({
   electron,
   secrets,
   localGrant,
+  credentialAccess,
   service,
   update,
   installer,
@@ -205,6 +208,7 @@ export const shellMembers = ({
     "secrets.protection": () => secrets.protection(),
     "secrets.access": () => secrets.access(),
     "localGrant.read": () => localGrant.read(),
+    "credentialAccess.read": () => credentialAccess.read(),
     "service.pendingUpdate": () => service.pendingUpdate!(),
     "service.applyUpdateNow": () => service.applyUpdateNow!(),
     "service.install": () => service.install(),
