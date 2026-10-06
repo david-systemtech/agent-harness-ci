@@ -1,4 +1,4 @@
-import { pendingUpdateWords, clockTime, type EnvironmentView } from "@agent-harness/client-runtime";
+import { credentialPromptWords, pendingUpdateWords, clockTime, type EnvironmentView } from "@agent-harness/client-runtime";
 
 /**
  * What the window says of a connection (docs/specs/gui.md, "The local
@@ -51,6 +51,8 @@ const unreachableWords = (since: string): string => `Unreachable since ${clockTi
  * freshness says.
  */
 export const phaseWords = (view: EnvironmentView, starting: boolean, installing: boolean, now: Date): string | undefined => {
+  // While an update's start waits on macOS's prompt for its stored key (#1689), that is what it waits on.
+  if (view.credentialPrompt !== undefined && view.phase !== "ready" && view.phase !== "syncing") return "Waiting on macOS: answer “Always Allow”";
   switch (view.phase) {
     case "ready":
     case "syncing":
@@ -88,6 +90,7 @@ export const updateWords = (view: EnvironmentView, now: Date): string | undefine
 /** The phase as a sentence, where the window waits on the environment. */
 export const phaseSentence = (view: EnvironmentView, starting: boolean, installing: boolean, now: Date): string => {
   const subject = subjectOf(view);
+  if (view.credentialPrompt !== undefined && view.phase !== "ready") return credentialPromptWords(view.credentialPrompt.toVersion);
   switch (view.phase) {
     case "ready":
       return `${subject} is ready.`;

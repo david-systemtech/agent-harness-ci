@@ -244,6 +244,18 @@ describe("the Your machines card in Set up", () => {
     expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1);
   });
 
+  it("says on this machine's card that macOS asks for its stored key while an update's start waits on it (#1689)", async () => {
+    const app = await opened();
+    const desk = app.environment("desk");
+    expect(await within(part("desk", "Reachability")).findByText("Reachable on the tailnet at desk.tail1234.ts.net (100.101.102.103).")).toBeDefined();
+    app.shell.answer("credentialAccess.read", async () => ({ version: "0.1.3", pid: 4242, since: "2026-10-06T10:34:01.000Z", state: "waiting", live: true }));
+    // The launcher switched to the new version, whose start waits on the prompt: nothing answers on this machine.
+    desk.discovery("nothing");
+    desk.server.drop();
+    const prompt = "macOS is asking to let agent-harness use its stored key: answer “Always Allow” in its dialog to finish the update to 0.1.3.";
+    expect(await within(card("desk")).findByText(prompt)).toBeDefined();
+  });
+
   it("offers Set up this machine on the card Add a machine makes, which switches the checklist's picker to it and opens its first step needing attention", async () => {
     const app = await opened({
       laptop: {

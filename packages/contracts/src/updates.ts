@@ -122,7 +122,7 @@ export const UpdateFailedPayload = z
     toVersion: RecordedVersion.meta({ description: "The version the update went to, which failed." }),
     stage: UpdateFailureStage,
     reason: z.string().min(1).meta({
-      description: "A short code naming the failure: the launcher's refusal of the switch, no-stop when a container's stop never came after its drain (#348), the outcome record's reason (deadline for a trial that missed its gate), or unknown when no record was left.",
+      description: "A short code naming the failure: the launcher's refusal of the switch, no-stop when a container's stop never came after its drain (#348), the outcome record's reason (deadline for a trial that missed its gate, credential for one whose OS keychain read the person refused or left unanswered, #1689), or unknown when no record was left.",
     }),
     rolledBack: z.boolean().meta({ description: "Whether the database snapshot was restored: true after a trial or a crash loop, false after a refused switch, which changed nothing." }),
   })
