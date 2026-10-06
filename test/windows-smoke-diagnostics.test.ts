@@ -60,6 +60,32 @@ Remove-Item -LiteralPath $dataDir -Recurse -Force
 }
 
 describe.skipIf(!hasPwsh && !process.env["CI"])("Windows smoke failure diagnostics", () => {
+  it("redacts decoded JSON credentials and preserves the evidence's strings and arrays", async () => {
+    scratch = mkdtempSync(join(tmpdir(), "windows-smoke-json-"));
+    const harness = join(scratch, "json.ps1");
+    writeFileSync(harness, `
+$ErrorActionPreference = 'Stop'
+. $env:DIAGNOSTICS_SCRIPT
+$secrets = @('fake"credential-suffix-for-tests', 'fake\\path-credential-for-tests', "fake\`nline-secret-for-tests")
+for ($i = 0; $i -lt $secrets.Count; $i++) {
+  $evidence = @{ message = "task error $($secrets[$i])"; password = $secrets[$i]; rows = @(@{ message = $secrets[$i] }); empty = @(); expectedVersion = '0.1.3' }
+  Write-WindowsSmokeText -Path (Join-Path $env:FIXTURE_ROOT "$i.json") -Text ($evidence | ConvertTo-Json -Depth 12) -Secrets $secrets
+  Write-WindowsSmokeText -Path (Join-Path $env:FIXTURE_ROOT "$i.log") -Text ("launcher output\`n" + ($evidence | ConvertTo-Json -Depth 12 -Compress)) -Secrets $secrets
+}
+$unknown = @{ password = 'unknown"credential-suffix-for-tests' }
+Write-WindowsSmokeText -Path (Join-Path $env:FIXTURE_ROOT 'unknown.json') -Text ($unknown | ConvertTo-Json)
+`);
+    await run(pwsh, ["-NoProfile", "-NonInteractive", "-File", harness], { env: {
+      ...env, FIXTURE_ROOT: scratch, DIAGNOSTICS_SCRIPT: join(import.meta.dirname, "../scripts/windows-smoke-diagnostics.ps1"),
+    } });
+    for (let i = 0; i < 3; i++) {
+      const expected = { message: "task error [REDACTED]", password: "[REDACTED]", rows: [{ message: "[REDACTED]" }], empty: [], expectedVersion: "0.1.3" };
+      expect(JSON.parse(readFileSync(join(scratch, `${i}.json`), "utf8"))).toEqual(expected);
+      expect(JSON.parse(readFileSync(join(scratch, `${i}.log`), "utf8").split("\n")[1] ?? "{}")).toEqual(expected);
+    }
+    expect(JSON.parse(readFileSync(join(scratch, "unknown.json"), "utf8"))).toEqual({ password: "[REDACTED]" });
+  });
+
   it("retains task results, scoped events, logs, process and port state before fixture deletion, with credentials redacted", async () => {
     const files = await capture();
     const output = files.map(([name, content]) => `${name}\n${content}`).join("\n");

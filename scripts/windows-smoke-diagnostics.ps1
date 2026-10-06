@@ -3,12 +3,53 @@
 function Protect-WindowsSmokeText {
   param([AllowEmptyString()][string] $Text, [string[]] $Secrets = @())
   $values = @($Secrets) + @(Get-ChildItem Env: | Where-Object { $_.Name -match 'TOKEN|PASSWORD|SECRET|CREDENTIAL|API_KEY' } | ForEach-Object { $_.Value })
-  foreach ($value in ($values | Where-Object { $_ } | Select-Object -Unique | Sort-Object { $_.Length } -Descending)) {
+  # Plain logs can embed serialized JSON too. Replace its escaped spelling first,
+  # so a backslash in a credential cannot leave a broken JSON escape behind.
+  $spellings = @(foreach ($value in ($values | Where-Object { $_ } | Select-Object -Unique)) {
+    $value
+    $encoded = ConvertTo-Json -InputObject $value -Compress
+    $encoded.Substring(1, $encoded.Length - 2)
+  }) | Select-Object -Unique | Sort-Object { $_.Length } -Descending
+  if ($Text.TrimStart().StartsWith('{') -or $Text.TrimStart().StartsWith('[')) {
+    try {
+      $decoded = ConvertFrom-Json -InputObject $Text -AsHashtable -NoEnumerate -Depth 100 -ErrorAction Stop
+      $protected = Protect-WindowsSmokeValue -Value $decoded -Secrets $spellings
+      return ConvertTo-Json -InputObject $protected -Depth 100
+    } catch { }
+  }
+  return Protect-WindowsSmokePlainText -Text $Text -Secrets $spellings
+}
+
+function Protect-WindowsSmokeValue {
+  param($Value, [string[]] $Secrets)
+  if ($Value -is [Collections.IDictionary]) {
+    $protected = [ordered]@{}
+    foreach ($key in $Value.Keys) {
+      if ($Value[$key] -is [string] -and $key -match 'token|password|secret|credential|api[_-]?key|authorization') {
+        $protected[$key] = '[REDACTED]'
+      } else {
+        $protected[$key] = Protect-WindowsSmokeValue -Value $Value[$key] -Secrets $Secrets
+      }
+    }
+    return $protected
+  }
+  if ($Value -is [array]) {
+    $protected = [Collections.Generic.List[object]]::new()
+    foreach ($item in $Value) { $protected.Add((Protect-WindowsSmokeValue -Value $item -Secrets $Secrets)) }
+    return ,$protected.ToArray()
+  }
+  if ($Value -is [string]) { return Protect-WindowsSmokePlainText -Text $Value -Secrets $Secrets }
+  return $Value
+}
+
+function Protect-WindowsSmokePlainText {
+  param([AllowEmptyString()][string] $Text, [string[]] $Secrets)
+  foreach ($value in $Secrets) {
     $Text = $Text.Replace($value, '[REDACTED]')
   }
   $Text = $Text -replace '(?im)(Authorization\s*:\s*)[^\r\n"'']+', '$1[REDACTED]'
   $Text = $Text -replace '(?i)(Bearer\s+)[^\s"''<>]+', '$1[REDACTED]'
-  $Text = $Text -replace '(?i)("[\w.-]*(?:token|password|secret|credential|api[_-]?key|authorization)[\w.-]*"\s*:\s*")[^"]*', '$1[REDACTED]'
+  $Text = $Text -replace '(?i)("[\w.-]*(?:token|password|secret|credential|api[_-]?key|authorization)[\w.-]*"\s*:\s*")(?:\\.|[^"\\])*', '$1[REDACTED]'
   $Text = $Text -replace '(?i)((?:[\w.-]*(?:token|password|secret|credential|api[_-]?key)[\w.-]*)["'']?\s*[:=]\s*["'']?)[^\s"'',;<>]+', '$1[REDACTED]'
   $Text = $Text -replace '(?i)(<Password>)[^<]*(</Password>)', '$1[REDACTED]$2'
   $Text = $Text -replace '(?i)(https?://)[^\s/@]+:[^\s/@]+@', '$1[REDACTED]@'
@@ -19,6 +60,26 @@ function Write-WindowsSmokeText {
   param([string] $Path, [AllowEmptyString()][string] $Text, [string[]] $Secrets = @())
   New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
   [IO.File]::WriteAllText($Path, (Protect-WindowsSmokeText -Text $Text -Secrets $Secrets), [Text.UTF8Encoding]::new($false))
+}
+
+function Write-WindowsSmokeCollectionError {
+  param([string] $Path, [string] $Message, [string[]] $Secrets = @())
+  Write-Warning (Protect-WindowsSmokeText -Text $Message -Secrets $Secrets)
+  try { Write-WindowsSmokeText -Path $Path -Text $Message -Secrets $Secrets } catch {
+    # Reporting an unavailable source must not prevent collecting another one.
+    Write-Warning (Protect-WindowsSmokeText -Text $_.Exception.Message -Secrets $Secrets)
+  }
+}
+
+function Copy-WindowsSmokeEvidenceFile {
+  param([string] $Source, [string] $Destination, [string[]] $Secrets = @())
+  try {
+    if (Test-Path -LiteralPath $Source -PathType Leaf -ErrorAction Stop) {
+      Write-WindowsSmokeText -Path $Destination -Text ([IO.File]::ReadAllText($Source)) -Secrets $Secrets
+    }
+  } catch {
+    Write-WindowsSmokeCollectionError -Path ($Destination + '.error.txt') -Message $_.Exception.Message -Secrets $Secrets
+  }
 }
 
 function Get-WindowsSmokeTaskEvents {
@@ -81,7 +142,7 @@ function Save-WindowsSmokeDiagnostics {
           try {
             Write-WindowsSmokeText -Path (Join-Path (Join-Path $OutputDirectory 'logs') $relative) -Text ([IO.File]::ReadAllText($file.FullName)) -Secrets $Secrets
           } catch {
-            Write-WindowsSmokeText -Path (Join-Path $OutputDirectory 'log-errors.txt') -Text "$relative : $($_.Exception.Message)" -Secrets $Secrets
+            Write-WindowsSmokeCollectionError -Path (Join-Path $OutputDirectory ($relative + '.error.txt')) -Message "$relative : $($_.Exception.Message)" -Secrets $Secrets
           }
           $relative
         }
@@ -98,7 +159,7 @@ function Save-WindowsSmokeDiagnostics {
         $content = (& $entry.Value | Out-String)
         Write-WindowsSmokeText -Path (Join-Path $OutputDirectory $entry.Key) -Text $content -Secrets $Secrets
       } catch {
-        Write-WindowsSmokeText -Path (Join-Path $OutputDirectory ($entry.Key + '.error.txt')) -Text $_.Exception.Message -Secrets $Secrets
+        Write-WindowsSmokeCollectionError -Path (Join-Path $OutputDirectory ($entry.Key + '.error.txt')) -Message $_.Exception.Message -Secrets $Secrets
       }
     }
   } catch {

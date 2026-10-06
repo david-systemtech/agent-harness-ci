@@ -14,7 +14,7 @@ let scratch = "";
 afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
 
 /** Run the hosted job's PowerShell at the account/process boundary, without creating OS users. */
-const execute = async (exitCode: number) => {
+const execute = async (exitCode: number, blockedSource = "") => {
   scratch = mkdtempSync(join(tmpdir(), "windows-smoke-user-"));
   const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
   const job = workflow.split("  smoke-windows:\n")[1]?.split("  smoke-macos:\n")[0] ?? "";
@@ -53,9 +53,15 @@ function Add-LocalGroupMember { param($SID, [FixtureLocalPrincipal[]] $Member)
   if ($Member.Count -ne 1 -or ![object]::ReferenceEquals($Member[0], $script:account)) { throw 'Group member must be the created local principal' }
   Add-Content $env:RECORD "member:$($Member[0].SID.Value)"
 }
-function Remove-LocalUser { param($Name) Add-Content $env:RECORD "removed:$Name" }
+function Remove-LocalUser { param($Name)
+  if ($null -ne $script:lockedFile) { $script:lockedFile.Dispose() }
+  Add-Content $env:RECORD "removed:$Name"
+}
 function icacls.exe { $global:LASTEXITCODE = 0 }
 function wevtutil.exe { $global:LASTEXITCODE = 0 }
+function Get-WinEvent {
+  [pscustomobject]@{ Id = 101; TimeCreated = [datetime]::UtcNow; Message = 'runner task event' } | Add-Member -MemberType ScriptMethod -Name ToXml -Value { '<Event><EventData><Data Name="TaskName">\\agent-harness</Data></EventData></Event>' } -PassThru
+}
 function Start-Process {
   param($FilePath, $ArgumentList, $Credential, [switch] $LoadUserProfile, [switch] $UseNewEnvironment,
     $WorkingDirectory, $RedirectStandardOutput, $RedirectStandardError, [switch] $Wait, [switch] $PassThru)
@@ -68,9 +74,18 @@ function Start-Process {
   $child = Join-Path $WorkingDirectory 'smoke.ps1'
   Copy-Item $child $env:CHILD_COPY
   Set-Content $RedirectStandardOutput ('ordinary-user child output password=' + $Credential.GetNetworkCredential().Password)
-  Set-Content $RedirectStandardError ''
+  Set-Content $RedirectStandardError 'ordinary-user child error'
   New-Item -ItemType Directory -Path (Join-Path $WorkingDirectory 'diagnostics') -Force | Out-Null
   Set-Content (Join-Path $WorkingDirectory 'diagnostics/task-query.txt') ('task result: 267009 password=' + $Credential.GetNetworkCredential().Password)
+  if ('${blockedSource}' -eq 'diagnostic') {
+    $path = Join-Path $WorkingDirectory 'diagnostics/00-locked.txt'
+    Set-Content $path 'locked diagnostic'
+    $script:lockedFile = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+  } elseif ('${blockedSource}' -eq 'stdout') {
+    $script:lockedFile = [IO.File]::Open($RedirectStandardOutput, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+  } elseif ('${blockedSource}' -eq 'destination') {
+    New-Item -ItemType Directory -Path (Join-Path $env:FIXTURE_ROOT 'windows-smoke-diagnostics/task-query.txt') -Force | Out-Null
+  }
   Add-Content $env:RECORD 'ordinary-user launch'
   [pscustomobject]@{ ExitCode = ${exitCode} }
 }
@@ -102,6 +117,17 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("the Windows smoke's user token"
     expect(readFileSync(join(scratch, "record"), "utf8")).toMatch(/removed:ah-smoke-/);
     expect(readFileSync(join(scratch, "windows-smoke-diagnostics/task-query.txt"), "utf8").trim()).toBe("task result: 267009 password=[REDACTED]");
     expect(readFileSync(join(scratch, "windows-smoke-diagnostics/stdout.log"), "utf8").trim()).toBe("ordinary-user child output password=[REDACTED]");
+  });
+
+  it.each(["diagnostic", "stdout", "destination"])("retains the remaining evidence when the %s source cannot be copied", async (source) => {
+    await expect(execute(7, source)).rejects.toMatchObject({ code: 1 });
+    expect(readFileSync(join(scratch, "record"), "utf8")).toMatch(/removed:ah-smoke-/);
+    expect(readFileSync(join(scratch, "windows-smoke-diagnostics/stderr.log"), "utf8").trim()).toBe("ordinary-user child error");
+    const events = JSON.parse(readFileSync(join(scratch, "windows-smoke-diagnostics/runner-task-events.json"), "utf8"));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ message: "runner task event" });
+    if (source !== "stdout") expect(readFileSync(join(scratch, "windows-smoke-diagnostics/stdout.log"), "utf8").trim()).toBe("ordinary-user child output password=[REDACTED]");
+    if (source !== "destination") expect(readFileSync(join(scratch, "windows-smoke-diagnostics/task-query.txt"), "utf8").trim()).toBe("task result: 267009 password=[REDACTED]");
   });
 
   it.each([

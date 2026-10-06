@@ -609,28 +609,31 @@ jobs:
             if ($child.ExitCode -ne 0) { throw "Ordinary-user smoke exited with $($child.ExitCode)" }
           } finally {
             # Retain only sanitized evidence before deleting the user and fixture.
+            $childDiagnostics = Join-Path $work 'diagnostics'
             try {
-              $childDiagnostics = Join-Path $work 'diagnostics'
               if (Test-Path $childDiagnostics) {
                 foreach ($file in (Get-ChildItem -LiteralPath $childDiagnostics -Recurse -File)) {
-                  $relative = [IO.Path]::GetRelativePath($childDiagnostics, $file.FullName)
-                  Write-WindowsSmokeText -Path (Join-Path $diagnostics $relative) -Text ([IO.File]::ReadAllText($file.FullName)) -Secrets $diagnosticSecrets
+                  try {
+                    $relative = [IO.Path]::GetRelativePath($childDiagnostics, $file.FullName)
+                    Copy-WindowsSmokeEvidenceFile -Source $file.FullName -Destination (Join-Path $diagnostics $relative) -Secrets $diagnosticSecrets
+                  } catch {
+                    Write-WindowsSmokeCollectionError -Path (Join-Path $diagnostics 'diagnostic-copy.error.txt') -Message $_.Exception.Message -Secrets $diagnosticSecrets
+                  }
                 }
               }
-              foreach ($name in 'stdout.log', 'stderr.log') {
-                $path = Join-Path $work $name
-                if (Test-Path $path) { Write-WindowsSmokeText -Path (Join-Path $diagnostics $name) -Text ([IO.File]::ReadAllText($path)) -Secrets $diagnosticSecrets }
-              }
-              # The ordinary user may not read Operational; collect the task-scoped
-              # events with the runner account as well, without elevating the smoke.
-              try {
-                $events = ConvertTo-Json -InputObject @(Get-WindowsSmokeTaskEvents -StartedAt $smokeStartedAt) -Depth 12
-                Write-WindowsSmokeText -Path (Join-Path $diagnostics 'runner-task-events.json') -Text $events -Secrets $diagnosticSecrets
-              } catch {
-                Write-WindowsSmokeText -Path (Join-Path $diagnostics 'runner-task-events.error.txt') -Text $_.Exception.Message -Secrets $diagnosticSecrets
-              }
             } catch {
-              Write-Warning (Protect-WindowsSmokeText -Text $_.Exception.Message -Secrets $diagnosticSecrets)
+              Write-WindowsSmokeCollectionError -Path (Join-Path $diagnostics 'diagnostic-list.error.txt') -Message $_.Exception.Message -Secrets $diagnosticSecrets
+            }
+            foreach ($name in 'stdout.log', 'stderr.log') {
+              Copy-WindowsSmokeEvidenceFile -Source (Join-Path $work $name) -Destination (Join-Path $diagnostics $name) -Secrets $diagnosticSecrets
+            }
+            # The ordinary user may not read Operational; collect the task-scoped
+            # events with the runner account as well, without elevating the smoke.
+            try {
+              $events = ConvertTo-Json -InputObject @(Get-WindowsSmokeTaskEvents -StartedAt $smokeStartedAt) -Depth 12
+              Write-WindowsSmokeText -Path (Join-Path $diagnostics 'runner-task-events.json') -Text $events -Secrets $diagnosticSecrets
+            } catch {
+              Write-WindowsSmokeCollectionError -Path (Join-Path $diagnostics 'runner-task-events.error.txt') -Message $_.Exception.Message -Secrets $diagnosticSecrets
             }
             try {
               if ($created) { Remove-LocalUser -Name $user }
