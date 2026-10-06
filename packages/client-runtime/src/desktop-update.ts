@@ -4,7 +4,7 @@ import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
 import type { Requests } from "./requests.js";
-import type { Shell, ShellBundledServer, ShellStagedBuild } from "./shell.js";
+import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } from "./shell.js";
 
 /**
  * The desktop's update flow (launcher-update spec, "The desktop moves with
@@ -56,8 +56,21 @@ export type DesktopBuildView =
   /** A restart will update: `staged` applies on "Restart to update", or at the next quit. */
   | { readonly state: "ready"; readonly version: string; readonly staged: ShellStagedBuild }
   | { readonly state: "applying"; readonly version: string; readonly staged: ShellStagedBuild }
-  /** A step failed, saying why; the build staged before, if any, stays to apply. */
-  | { readonly state: "failed"; readonly version: string | null; readonly failure: DesktopUpdateFailure; readonly message: string; readonly staged: ShellStagedBuild | null };
+  /**
+   * A step failed, saying why; the build staged before, if any, stays to
+   * apply. An install or cleanup that failed adds the release page, once a
+   * check has read it, and the shell's command that installs the staged
+   * build by hand, where the install has one.
+   */
+  | {
+      readonly state: "failed";
+      readonly version: string | null;
+      readonly failure: DesktopUpdateFailure;
+      readonly message: string;
+      readonly staged: ShellStagedBuild | null;
+      readonly byHand?: string;
+      readonly releasePage?: string;
+    };
 
 /** Where the server artefact the desktop carries is, against the local environment. */
 export type BundledServerView =
@@ -118,6 +131,9 @@ export const newerVersion = (a: string, b: string): boolean => ReleaseVersion.sa
 /** The page a release is downloaded from by hand, on the forge the local environment reads its releases from. */
 const releasePageOf = (source: ReleaseSource): string => `${source.origin}/${source.repository}/releases`;
 
+/** Why the shell did not apply a staged build. */
+type ApplyFailure = Omit<Extract<ShellApplyOutcome, { readonly outcome: "failed" }>, "outcome">;
+
 /** The update states in which an environment has an update under way to a version. */
 const PENDING_STATES: ReadonlySet<UpdatesStatus["pending"]["state"]> = new Set(["staging", "waiting", "ready", "draining", "switching"]);
 
@@ -148,6 +164,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   let bundledLooked = false;
   /** The build last handed to the shell for the next quit. */
   let handedForQuit: ShellStagedBuild | undefined;
+  /** The release page of the local environment's release source, as the last check read it. */
+  let releasePage: string | undefined;
 
   /** The local environment's id while it is ready; undefined otherwise. */
   const readyLocal = (): string | undefined =>
@@ -160,6 +178,13 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     failure,
     message,
     staged,
+  });
+
+  /** The view of `staged` failing to apply, with what the person can do about it by hand. */
+  const applyFailed = (version: string, failure: ApplyFailure, staged: ShellStagedBuild): DesktopBuildView => ({
+    ...failed(version, failure.failure, failure.message, staged),
+    ...(failure.byHand !== undefined && { byHand: failure.byHand }),
+    ...(releasePage !== undefined && { releasePage }),
   });
 
   /** What the build last staged is, for a failure that leaves it to apply. */
@@ -181,7 +206,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     showCheck({ state: "checking", version });
     const status = await host.call(environmentId, "updates.status", {});
     if (!status.ok) return failed(version, "check", `Could not ask the local environment for updates: ${status.error.message}`, stagedNow());
-    if (running.format === null) return { state: "unsupported", version, releasePage: releasePageOf(status.result.releaseSource) };
+    releasePage = releasePageOf(status.result.releaseSource);
+    if (running.format === null) return { state: "unsupported", version, releasePage };
     const settings = await host.call(environmentId, "settings.get", { keys: ["updates.pinnedVersion"] });
     if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${settings.error.message}`, stagedNow());
     const pinned = settings.result.values["updates.pinnedVersion"] ?? null;
@@ -199,17 +225,17 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     showCheck({ state: "ready", version, staged });
     if (handedForQuit?.path === staged.path && handedForQuit.sha256 === staged.sha256) return { state: "ready", version, staged };
     const outcome = await apply(staged, "quit");
-    if (outcome !== null) return failed(version, outcome.failure, outcome.message, staged);
+    if (outcome !== null) return applyFailed(version, outcome, staged);
     handedForQuit = staged;
     return { state: "ready", version, staged };
   };
 
   /** Applies `staged` through the shell: null once applied (or handed over for the quit), else what failed. */
-  const apply = async (staged: ShellStagedBuild, when: "now" | "quit"): Promise<{ readonly failure: "install" | "cleanup"; readonly message: string } | null> => {
+  const apply = async (staged: ShellStagedBuild, when: "now" | "quit"): Promise<ApplyFailure | null> => {
     if (update === undefined) return { failure: "install", message: "This desktop's shell cannot update itself." };
     try {
       const outcome = await update.apply(staged, when);
-      return outcome.outcome === "applied" ? null : { failure: outcome.failure, message: outcome.message };
+      return outcome.outcome === "applied" ? null : outcome;
     } catch (error) {
       return { failure: "install", message: `The desktop could not apply ${staged.version}: ${error instanceof Error ? error.message : String(error)}` };
     }
@@ -319,7 +345,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       const version = build.version ?? staged.version;
       setBuild({ state: "applying", version, staged });
       const outcome = await apply(staged, "now");
-      if (outcome !== null) setBuild(failed(version, outcome.failure, outcome.message, staged));
+      if (outcome !== null) setBuild(applyFailed(version, outcome, staged));
       return view.read().build;
     },
 

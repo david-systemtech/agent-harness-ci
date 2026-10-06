@@ -114,7 +114,7 @@ const sha256Of = async (path: string): Promise<string> => {
 };
 
 const APPLIED: ShellApplyOutcome = { outcome: "applied" };
-const failed = (failure: "install" | "cleanup", message: string): ShellApplyOutcome => ({ outcome: "failed", failure, message });
+const failed = (failure: "install" | "cleanup", message: string, byHand?: string): ShellApplyOutcome => ({ outcome: "failed", failure, message, ...(byHand !== undefined && { byHand }) });
 
 /** `pkexec`'s exit codes when it runs nothing: the authentication was dismissed (126), or refused or never asked (127). */
 const PKEXEC_REFUSED: ReadonlySet<number> = new Set([126, 127]);
@@ -228,7 +228,7 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
    * gives the command that installs the same package by hand.
    */
   const pacmanInstall = async (staged: ShellStagedBuild): Promise<ShellApplyOutcome> => {
-    const notInstalled = (why: string): ShellApplyOutcome => ({ ...failed("install", `${why}, so ${stays()}.`), byHand: `sudo pacman -U ${shellWord(staged.path)}` });
+    const notInstalled = (why: string): ShellApplyOutcome => failed("install", `${why}, so ${stays()}.`, `sudo pacman -U ${shellWord(staged.path)}`);
     let ran: CommandResult;
     try {
       ran = await system.run("pkexec", ["pacman", "-U", "--noconfirm", staged.path]);

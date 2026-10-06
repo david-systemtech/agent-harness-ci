@@ -196,7 +196,27 @@ describe("the desktop's own update", () => {
 
     await runtime.desktopUpdate.restart();
 
-    expect(build()).toEqual({ state: "failed", version: RUNNING, failure: "cleanup", message, staged: STAGED });
+    expect(build()).toEqual({ state: "failed", version: RUNNING, failure: "cleanup", message, staged: STAGED, releasePage: "https://git.example.test/david/agent-harness/releases" });
+  });
+
+  it("reports an install that failed with the shell's command that installs the staged build by hand and the release page, the build kept to apply", async () => {
+    const message = "Installing 0.6.0 needs pkexec, which polkit provides, and it is not installed, so 0.5.0 stays installed.";
+    const byHand = `sudo pacman -U ${STAGED.path}`;
+    const { runtime, until, build } = await launch({
+      updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+      shell: (shell) => shell.answer("update.apply", async (_staged, when) => (when === "now" ? { outcome: "failed", failure: "install", message, byHand } : { outcome: "applied" })),
+    });
+    await until(() => build().state === "ready", "reported the build ready");
+
+    expect(await runtime.desktopUpdate.restart()).toEqual({
+      state: "failed",
+      version: RUNNING,
+      failure: "install",
+      message,
+      staged: STAGED,
+      byHand,
+      releasePage: "https://git.example.test/david/agent-harness/releases",
+    });
   });
 
   it("says which step failed: the check when the local environment's own check could not read the channel, the stage when it refused the build, the install when the shell could not apply it", async () => {
