@@ -13,6 +13,12 @@
             "minLength": 1,
             "maxLength": 100
           },
+          "label": {
+            "description": "A name for people, shown in place of the id; a push registration names its browser and when it was enabled.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
           "transport": {
             "type": "string",
             "enum": [

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import { PushController, PushControls, type PushBrowser } from "./push.js";
+import { PushController, PushControls, pushTargetLabel, type PushBrowser } from "./push.js";
 
 const subscription = { endpoint: "https://fcm.googleapis.com/fcm/send/test", keys: { auth: "auth-for-tests", p256dh: "key-for-tests" } };
 const setup = (permission: NotificationPermission = "default") => {
@@ -99,4 +99,18 @@ it("chooses an enabled global fallback even when push APIs are unavailable", asy
   render(<PushControls controller={controller} fallback={[{ id: "fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "ready", failure: null }]} onFallback={() => { void controller.useFallback(); }} />);
   await userEvent.setup().click(screen.getByRole("button", { name: "Use fallback" }));
   expect(await screen.findByText(/Using the configured webhook fallback/)).toBeDefined();
+});
+
+it.each([
+  ["Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Mobile Safari/537.36", "Chrome on Android"],
+  ["Mozilla/5.0 (Linux; Android 15; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/130.0.0.0 Mobile Safari/537.36", "Samsung Internet on Android"],
+  ["Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1", "Safari on iPhone"],
+  ["Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/154.0.0.0 Mobile/15E148 Safari/604.1", "Chrome on iPhone"],
+  ["Mozilla/5.0 (iPad; CPU OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1", "Safari on iPad"],
+  ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0", "Edge on Windows"],
+  ["Mozilla/5.0 (Macintosh; Intel Mac OS X 15.6; rv:150.0) Gecko/20100101 Firefox/150.0", "Firefox on Mac"],
+  ["Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36", "Chrome on Linux"],
+  ["", "A browser"],
+])("labels a push registration by its browser and when it was enabled, never by its id (%#)", (userAgent, browser) => {
+  expect(pushTargetLabel(userAgent, new Date(2026, 9, 6, 13, 4))).toBe(`${browser}, enabled 6 Oct, 13:04`);
 });
