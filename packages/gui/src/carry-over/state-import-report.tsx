@@ -21,6 +21,9 @@ const CARRIED_ROWS: readonly (readonly [keyof StateImportCarried, string])[] = [
   ["devSites", "Dev sites"],
 ];
 
+/** A source profile by its label, its source id in the tooltip (#1726). */
+const ProfileName = ({ label, sourceId }: { readonly label: string; readonly sourceId: string }) => <span title={`Source id ${sourceId}`}>{label}</span>;
+
 /** ADR 0036's four groups, including the steps where encrypted credentials must be entered again. */
 export const StateImportResult = ({ report, clientLocalApplied }: { readonly report: StateImportReport; readonly clientLocalApplied: boolean }) => {
   const { choose } = useChecklist();
@@ -29,7 +32,11 @@ export const StateImportResult = ({ report, clientLocalApplied }: { readonly rep
   return (
     <section aria-label="State import result" className="flex flex-col gap-3 rounded-lg border border-hairline bg-inset p-3 text-xs text-ink">
       <h4 className="text-xs font-medium">{report.dryRun ? "Dry run report" : "Import report"}</h4>
-      {(report.sharedProjects ?? []).map((source) => <p key={source.sourceId}>{source.sourceId} shares a projects folder with {source.ownerSourceId}. Sessions and memory carry once, under the first source in source-id order.</p>)}
+      {(report.sharedProjects ?? []).map((source) => {
+        const profile = <ProfileName label={source.label} sourceId={source.sourceId} />;
+        const owner = <ProfileName label={source.ownerLabel} sourceId={source.ownerSourceId} />;
+        return <p key={source.sourceId}>{profile} shares a projects folder with {owner}: its sessions and memory carry once, with {owner}, and not again with {profile}.</p>;
+      })}
       <h5 className="text-xs font-medium">Carried</h5>
       {report.dryRun && <p className="text-ink-muted">These counts show what an import would carry. Nothing was written. A dry run does not test repository access or clear a failed import.</p>}
       <CountGrid label="Carried counts" rows={CARRIED_ROWS.map(([kind, label]) => [label, report.carried[kind]])} />

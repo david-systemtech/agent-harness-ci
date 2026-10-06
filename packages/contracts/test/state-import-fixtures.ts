@@ -89,12 +89,12 @@ export const stateImportSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ mode: "sepia" }, { fontSize: 0 }, { conversationWidth: "narrow" }, { settingsRow: "profiles" }],
   },
   "state-import/notices/state-import.finished.json": {
-    valid: [finished, { ...finished, failed: [failure] }],
-    invalid: [{ ...finished, carried: {} }, { carried, reEnter: [], later: [], notCarried: [] }],
+    valid: [finished, { ...finished, failed: [failure] }, { ...finished, sharedProjects: [{ sourceId: "secondary", label: "Secondary", ownerSourceId: "primary", ownerLabel: "Primary" }] }, { ...finished, sharedProjects: [{ sourceId: "secondary", ownerSourceId: "primary" }] }],
+    invalid: [{ ...finished, carried: {} }, { carried, reEnter: [], later: [], notCarried: [] }, { ...finished, sharedProjects: [{ sourceId: "secondary", label: "", ownerSourceId: "primary" }] }],
   },
   "state-import/report.json": {
-    valid: [{ ...report, sharedProjects: [{ sourceId: "secondary", ownerSourceId: "primary" }] }, report, { ...finished, clientLocal: {}, dryRun: true }],
-    invalid: [finished, { ...report, dryRun: "yes" }, { ...report, clientLocal: undefined }],
+    valid: [{ ...report, sharedProjects: [{ sourceId: "secondary", label: "Secondary", ownerSourceId: "primary", ownerLabel: "Primary" }] }, report, { ...finished, clientLocal: {}, dryRun: true }],
+    invalid: [finished, { ...report, dryRun: "yes" }, { ...report, clientLocal: undefined }, { ...report, sharedProjects: [{ sourceId: "secondary", ownerSourceId: "primary" }] }],
   },
   "state-import/event-type.json": { valid: ["state-import.started", "state-import.item-carried", "state-import.default-account-deferred"], invalid: ["state-import.finished", "state-import.carried", ""] },
   "state-import/item-kind.json": { valid: ["instruction", "bank", "bank-default", "forge-account", "key-manager-connection", "dev-site", "page-policy", "account", "account-default", "session", "archive", "pin", "group", "group-membership", "draft", "routine", "skill-source", "skill-always-on"], invalid: ["instructions", "account-mapping", ""] },

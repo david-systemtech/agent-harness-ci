@@ -2,7 +2,7 @@ import { defaultAccountRepair, deferredDefaults } from "./default-account.js";
 import { planBanks, BANK_REGISTRY_LABEL, type PlanBanksOptions } from "./banks.js";
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
-import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { defaultAccountItem, planAccounts, profileNames, type PlanAccountsOptions } from "./accounts.js";
 import { planSkills, type PlanSkillsOptions } from "./skills.js";
 import { planRoutines, type PlanRoutinesOptions } from "./routines.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
@@ -28,7 +28,7 @@ interface PlannedStore {
   readonly dependencies?: readonly StoreSnapshot[];
   readonly label: string;
   readonly items: readonly ImportItem[];
-  readonly directories?: readonly { readonly sourceId: string; readonly directory: string }[];
+  readonly directories?: readonly { readonly sourceId: string; readonly label: string; readonly directory: string }[];
   readonly notCarried?: readonly StateImportNotCarried[];
   readonly later?: readonly StateImportLater[];
 }
@@ -65,7 +65,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
   const planned: PlannedStore[] = [];
   const accounts = profiles.status === "read" ? await planAccounts(profiles.records, { ...options, sourceKey }) : undefined;
   if (accounts !== undefined && profiles.status === "read") {
-    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items, directories: accounts.listed.filter((entry) => entry.failure === null && accounts.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, directory: entry.observation?.directory ?? entry.directory })) });
+    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items, directories: accounts.listed.filter((entry) => entry.failure === null && accounts.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, label: entry.label, directory: entry.observation?.directory ?? entry.directory })) });
     failed.push(...accounts.failed);
   } else if (profiles.status === "failed") failed.push({ label: "Accounts", message: profiles.diagnostic });
   if (instructions.status === "failed") failed.push({ label: INSTRUCTIONS, message: instructions.diagnostic });
@@ -78,7 +78,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
   let skillRepairs: (preview: boolean) => readonly StateImportReEnter[] = () => [];
   if (skills.status === "failed") failed.push({ label: "Skills", message: skills.diagnostic });
   else {
-    const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [] });
+    const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [], profileNames: profiles.status === "read" ? profileNames(profiles.records) : new Map() });
     skillRepairs = plan.repairs;
     planned.push({ snapshot: skills.snapshot, label: "Skills", items: plan.items });
     failed.push(...plan.failed);

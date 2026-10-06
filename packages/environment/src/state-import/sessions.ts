@@ -9,6 +9,7 @@ import type { MethodContext, Undo } from "../serve/methods.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
 import { derivedUuid, mappedTarget, stateImportStream } from "./items.js";
 import { directoriesOf, type ImportPlan } from "./plan.js";
+import { profileName } from "./accounts.js";
 
 /** Each listed directory runs the Carry over owner under the state import's shared coordinator.
  * Session mappings commit with their records; memory and skills still refresh on a fresh parent command.
@@ -60,7 +61,7 @@ export const carryListedSources = async (plan: ImportPlan, options: {
   const seen = new Set<string>();
   for (const entry of directories) {
     if (entry.accountId === undefined || !liveAccounts.some((account) => account.id === entry.accountId)) {
-      failures.push({ label: `Sessions for ${entry.sourceId}`, message: "No live winning Account mapping; the source is retained for a retry." });
+      failures.push({ label: `Sessions for ${profileName(entry)}`, message: "No live winning Account mapping; the source is retained for a retry." });
       continue;
     }
     const sourceId = JSON.stringify([entry.accountId, entry.directory]);
@@ -69,10 +70,10 @@ export const carryListedSources = async (plan: ImportPlan, options: {
     const commandId = derivedUuid("state-import.carry-over", importId, plan.sourceKey, sourceId);
     const receipt = log.receipt(actor, commandId);
     if (receipt !== null) {
-      if (receipt.status === "rejected") failures.push({ label: `Carry over ${entry.sourceId}`, message: receipt.error.message });
+      if (receipt.status === "rejected") failures.push({ label: `Carry over ${profileName(entry)}`, message: receipt.error.message });
       else {
         const previous = log.read<{ payload: string }>("SELECT payload FROM events WHERE stream_kind = ? AND type = 'carry-over.imported' AND command_id = ? AND actor = ? ORDER BY sequence DESC LIMIT 1", ENVIRONMENT_STREAM_KIND, commandId, actor)[0];
-        if (previous !== undefined) for (const failure of CarryOverImportedPayload.parse(JSON.parse(previous.payload)).failed) failures.push({ label: `Carry over ${entry.sourceId}`, message: failure.message });
+        if (previous !== undefined) for (const failure of CarryOverImportedPayload.parse(JSON.parse(previous.payload)).failed) failures.push({ label: `Carry over ${profileName(entry)}`, message: failure.message });
       }
       continue;
     }
@@ -86,10 +87,10 @@ export const carryListedSources = async (plan: ImportPlan, options: {
         return answer.rejected === undefined ? answer : { aggregate: answer.aggregate, rejected: { code: answer.rejected.code, message: answer.rejected.message ?? "Carry over was refused.", data: answer.rejected.data ?? {} } };
       });
       accepted = run.receipt.status === "accepted";
-      if (!accepted) failures.push({ label: `Carry over ${entry.sourceId}`, message: run.receipt.status === "rejected" ? run.receipt.error.message : "Carry over failed." });
-      else for (const failure of (!run.replayed ? run.result?.failed : []) ?? []) failures.push({ label: `Carry over ${entry.sourceId}`, message: failure.message });
+      if (!accepted) failures.push({ label: `Carry over ${profileName(entry)}`, message: run.receipt.status === "rejected" ? run.receipt.error.message : "Carry over failed." });
+      else for (const failure of (!run.replayed ? run.result?.failed : []) ?? []) failures.push({ label: `Carry over ${profileName(entry)}`, message: failure.message });
     } catch {
-      failures.push({ label: `Carry over ${entry.sourceId}`, message: "Its source could not be carried; retained files are needed for a retry." });
+      failures.push({ label: `Carry over ${profileName(entry)}`, message: "Its source could not be carried; retained files are needed for a retry." });
     } finally {
       if (!accepted) for (const undo of undos.reverse()) await undo();
     }

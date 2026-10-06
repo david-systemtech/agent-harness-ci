@@ -8485,18 +8485,30 @@
               "description": "What a state import carried, counted per kind."
             },
             "sharedProjects": {
-              "description": "Directories sharing a real projects folder; sessions and memory are carried once under the first source in source-id order.",
+              "description": "Source profiles sharing a real projects folder with another: their sessions and memory carry once, with the owner, and not again with them. A notice an older environment wrote names them by source id alone.",
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
                   "sourceId": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "description": "The source profile whose projects folder is the owner's."
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "That profile's label: what the report names it by."
                   },
                   "ownerSourceId": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "description": "The source profile its sessions and memory carry with."
+                  },
+                  "ownerLabel": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The owner's label."
                   }
                 },
                 "required": [

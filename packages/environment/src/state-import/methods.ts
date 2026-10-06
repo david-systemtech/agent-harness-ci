@@ -22,6 +22,7 @@ import { emptyPlan, includeReportStores, itemsOf, planImport, recheckStores, rep
 import type { PlanRoutinesOptions } from "./routines.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
 import { carryListedSources } from "./sessions.js";
+import { profileLabel } from "./accounts.js";
 import { readSourceStores } from "./source/stores.js";
 import { readSourceFileFrecency } from "./source/report-stores.js";
 
@@ -113,7 +114,8 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         };
         const organisationStores = await readOrganisationStores(dataFolder?.path ?? null, terminalFolder?.path ?? null);
         const shared = await selectSharedSources(directoriesOf(combined), options.listSessions);
-        const sharedProjects = shared.sources.flatMap((source) => source.sharedProjectsWith === undefined ? [] : [{ sourceId: source.sourceId, ownerSourceId: source.sharedProjectsWith }]);
+        const labels = new Map(directoriesOf(combined).map((entry) => [entry.sourceId, profileLabel(entry)]));
+        const sharedProjects = shared.sources.flatMap((source) => source.sharedProjectsWith === undefined ? [] : [{ sourceId: source.sourceId, label: labels.get(source.sourceId)!, ownerSourceId: source.sharedProjectsWith, ownerLabel: labels.get(source.sharedProjectsWith)! }]);
         const listed = shared.sources.flatMap((entry) => {
           const accountId = combined.accountIds?.get(entry.sourceId);
           if (accountId === undefined) return [];

@@ -138,6 +138,15 @@ export const StateImportClientLocal = z
   .meta({ description: "The client-local values a state import carries: applied by the client that ran it only on the environment's machine." });
 export type StateImportClientLocal = z.infer<typeof StateImportClientLocal>;
 
+/** A source profile sharing its real projects folder with another, each named by its source id and its label (#1726). */
+const SharedProjects = z.object({
+  sourceId: z.string().min(1).meta({ description: "The source profile whose projects folder is the owner's." }),
+  label: z.string().min(1).meta({ description: "That profile's label: what the report names it by." }),
+  ownerSourceId: z.string().min(1).meta({ description: "The source profile its sessions and memory carry with." }),
+  ownerLabel: z.string().min(1).meta({ description: "The owner's label." }),
+});
+const sharedProjectsDescription = "Source profiles sharing a real projects folder with another: their sessions and memory carry once, with the owner, and not again with them.";
+
 /**
  * `state-import.finished`: a state import ended, on the environment stream
  * as the client session that ran it: its four groups and what failed, which
@@ -147,7 +156,7 @@ export type StateImportClientLocal = z.infer<typeof StateImportClientLocal>;
 export const StateImportFinishedPayload = z
   .object({
     carried: StateImportCarried,
-    sharedProjects: z.array(z.object({ sourceId: z.string().min(1), ownerSourceId: z.string().min(1) })).optional().meta({ description: "Directories sharing a real projects folder; sessions and memory are carried once under the first source in source-id order." }),
+    sharedProjects: z.array(SharedProjects.partial({ label: true, ownerLabel: true })).optional().meta({ description: `${sharedProjectsDescription} A notice an older environment wrote names them by source id alone.` }),
     reEnter: z.array(StateImportReEnter).meta({ description: "What must be entered again, each with the step that takes it." }),
     later: z.array(StateImportLater).meta({ description: "What arrives in milestone 2: other providers' profiles." }),
     notCarried: z.array(StateImportNotCarried).meta({ description: "What never carries." }),
@@ -160,6 +169,7 @@ export type StateImportFinishedPayload = z.infer<typeof StateImportFinishedPaylo
 
 /** What `stateImport.run` answers: the report's four groups and what failed, the client-local values, and whether it was a dry run. */
 export const StateImportReport = StateImportFinishedPayload.extend({
+  sharedProjects: z.array(SharedProjects).optional().meta({ description: sharedProjectsDescription }),
   clientLocal: StateImportClientLocal,
   dryRun: z.boolean().meta({ description: "Whether it was a dry run: the report of what an import would do, with nothing written." }),
 }).meta({

@@ -18,7 +18,7 @@ const opened = async (environment: Partial<ScriptedEnvironment> = {}, found = de
 };
 const report = (dryRun = false): StateImportReport => StateImportReport.parse({
   dryRun,
-  sharedProjects: [{ sourceId: "secondary", ownerSourceId: "primary" }],
+  sharedProjects: [{ sourceId: "00000000-0000-4000-8000-000000000002", label: "Work", ownerSourceId: "00000000-0000-4000-8000-000000000001", ownerLabel: "Personal" }],
   carried: { accounts: 2, archived: 3, pins: 4, groups: 5, forgeAccounts: 1, keyManagerConnections: 1, banks: 3, routines: 4, instructions: 5, skillSources: 6, alwaysOnSkills: 2, drafts: 1, devSites: 2 },
   reEnter: [{ label: "Forge token", step: "forges" }, { label: "Vault sign-in", step: "key-manager" }],
   later: [{ label: "Local model", provider: "local" }],
@@ -157,7 +157,10 @@ describe("State import on Carry over", () => {
     await screen.findByRole("region", { name: "State import" });
     await app.user.click(section().getByRole("button", { name: "Import" }));
     await section().findByRole("heading", { name: "Import report" });
-    expect(section().getByText(/secondary shares a projects folder with primary/)).toBeDefined();
+    // Each profile is named by its label, its source id only in the tooltip (#1726).
+    const shared = section().getByText(/shares a projects folder/);
+    expect(shared.textContent).toBe("Work shares a projects folder with Personal: its sessions and memory carry once, with Personal, and not again with Work.");
+    expect(within(shared).getAllByTitle(/^Source id 00000000-0000-4000-8000-00000000000[12]$/).map((name) => name.textContent)).toEqual(["Work", "Personal", "Personal", "Work"]);
     expect(section().getByText("Font size: 20 (source: 100)")).toBeDefined();
     const relaunched = await app.remount();
     expect(relaunched.presentation.values.read().textSize).toBe(20);

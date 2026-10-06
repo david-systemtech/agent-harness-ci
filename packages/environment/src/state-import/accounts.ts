@@ -30,6 +30,18 @@ export interface PlanAccountsOptions {
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
 }
 
+/** What the reports call a source profile: its label, or its directory when the label is not an Account label (#1726). */
+export const profileLabel = (profile: { readonly label: string; readonly directory: string }): string =>
+  AccountLabel.safeParse(profile.label).success ? profile.label : profile.directory;
+export const profileName = (profile: { readonly label: string; readonly directory: string }): string =>
+  AccountLabel.safeParse(profile.label).success ? `Claude profile "${profile.label}"` : `Claude profile in ${profile.directory}`;
+/** Every source profile's name for the reports, by source id: a later provider's by its label. */
+export const profileNames = (records: SourceProfiles): ReadonlyMap<string, string> => new Map([
+  ...records.profiles.map((profile) => [profile.sourceId, profileName(profile)] as const),
+  ...records.deferredProfiles.map((profile) => [profile.sourceId, `profile "${profile.label}"`] as const),
+  ...records.refusedProfiles.map((profile) => [profile.sourceId, `Claude profile "${profile.label}"`] as const),
+]);
+
 /** Every collision is checked again inside the owner's transaction, against its current labels. */
 const uniqueLabel = (label: string, taken: ReadonlySet<string>): string => {
   if (!taken.has(label.toLowerCase())) return label;
@@ -68,7 +80,7 @@ export const planAccounts = async (records: SourceProfiles, options: PlanAccount
       }
     } catch { failure = "Its listed directory or session use could not be read; no Account is guessed."; }
     listed.push({ ...profile, observation, accountId: null, failure, latestUse });
-    if (failure !== null) failed.push({ label: `Claude profile ${profile.sourceId}`, message: failure });
+    if (failure !== null) failed.push({ label: profileName(profile), message: failure });
   }
   const groups = new Map<string, ListedAccount[]>();
   const accountIds = new Map<string, string>();
@@ -96,7 +108,7 @@ export const planAccounts = async (records: SourceProfiles, options: PlanAccount
     for (const profile of group) {
       accountIds.set(profile.sourceId, plannedId);
       items.push({
-        ...keyOf(profile.sourceId), sourceDirectory: profile.observation!.directory, kind: "account", label: `Claude profile ${profile.sourceId}`,
+        ...keyOf(profile.sourceId), sourceDirectory: profile.observation!.directory, kind: "account", label: profileName(profile),
         contributes: () => profile === winner && adopted,
         apply: (context) => {
           const live = accounts.list();

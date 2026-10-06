@@ -206,6 +206,8 @@ it("fails unreadable identities, invalid labels, unresolved scopes and defaults 
   const commandId = randomUUID();
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview.result?.failed).toHaveLength(4);
+  // A profile is named by its label, or by its directory when its label is not one (#1726).
+  expect(preview.result?.failed.map((failure) => failure.label)).toEqual(expect.arrayContaining(['Claude profile "Identity"', `Claude profile in ${badLabel}`]));
   expect(preview.result?.later).toEqual([{ label: "Profile for codex", provider: "codex" }]);
   expect(await client.request("carryOver.inventory", { source: "state-import" })).toMatchObject({ later: [{ label: "Profile for codex", provider: "codex" }] });
   expect(await client.request("stateImport.run", { commandId, dryRun: false })).toMatchObject({ result: { carried: { accounts: 1, instructions: 1 }, failed: preview.result?.failed } });
