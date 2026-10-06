@@ -55,7 +55,7 @@ import {
   type RemoveResult,
   type SavedConnection,
 } from "./records.js";
-import { raiseCredentialFailure } from "../updates/credential-notice.js";
+import { desktopSawUnanswered } from "../updates/credential-notice.js";
 import { credentialPromptWords } from "../updates/words.js";
 import { createRunner, type Runner, type RunnerHost } from "./runner.js";
 import { actionOf, initialMachine, type DiscoveryAnswer, type RefreshOutcome } from "./state-machine.js";
@@ -227,7 +227,7 @@ interface Entry {
   /** The local environment's credential-access wait, while its start waits on the person (#1689). */
   credentialPrompt?: CredentialPrompt | null;
   /** The version whose wait was last seen, until a read tells whether it was answered. */
-  credentialSeen?: string | undefined;
+  credentialSeen?: { readonly toVersion: string; readonly at: Date } | undefined;
   credentialPolling?: boolean;
   credentialPoll?: Timer;
   updatePending?: PendingUpdate | null;
@@ -391,10 +391,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     if (closed || !isCurrent(environmentId, entry)) return;
     const waiting = read !== undefined && read.live && read.state === "waiting" ? { toVersion: read.version, since: read.since } : null;
     const seen = entry.credentialSeen;
-    if (waiting !== null) entry.credentialSeen = waiting.toVersion;
-    else if (seen !== undefined && (read === undefined || !read.live)) {
+    // When this client first saw the wait: the environment's report of a trial that ended before it is another trial's.
+    if (waiting !== null) {
+      if (seen?.toVersion !== waiting.toVersion) entry.credentialSeen = { toVersion: waiting.toVersion, at: platform.clock.now() };
+    } else if (seen !== undefined && (read === undefined || !read.live)) {
       entry.credentialSeen = undefined;
-      if (read?.version === seen && read.state !== "answered") raiseCredentialFailure(notices, environmentId, entry.saved.descriptor.name, seen);
+      if (read?.version === seen.toVersion && read.state !== "answered") desktopSawUnanswered(notices, environmentId, entry.saved.descriptor.name, seen.toVersion, seen.at);
     }
     const shown = entry.credentialPrompt ?? null;
     if (shown?.toVersion === waiting?.toVersion && shown?.since === waiting?.since) return;

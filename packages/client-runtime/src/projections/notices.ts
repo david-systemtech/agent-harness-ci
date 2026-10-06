@@ -1,6 +1,6 @@
 import { EnvironmentNotice, type AutoDecider, type EventEnvelope, type WorkspaceKeptReason } from "@agent-harness/contracts";
 import type { Notice, NoticeInput, Notices } from "../notices.js";
-import { raiseCredentialFailure, saidCredentialFailure } from "../updates/credential-notice.js";
+import { environmentUpdateFailed } from "../updates/credential-notice.js";
 
 /**
  * The notices `environment.subscribe` raises (docs/specs/client-runtime.md,
@@ -144,17 +144,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "environment.updated":
           raise({ kind: "updated", message: `${name} was updated from ${notice.payload.fromVersion} to ${notice.payload.toVersion}.`, action: null });
           return;
-        case "environment.update-failed": {
-          const { fromVersion, toVersion, stage, reason } = notice.payload;
-          // A trial that failed for the stored key (#1689): said so, or, under a launcher older than the wait, which ends it at
-          // deadline, known from the desktop having said so from the record the ended start left. Either is the one notice.
-          if (reason === "credential" || (stage === "trial" && saidCredentialFailure(notices, environmentId, name, toVersion))) {
-            raiseCredentialFailure(notices, environmentId, name, toVersion, fromVersion);
-            return;
-          }
-          raise({ kind: "update-failed", message: `${name} could not be updated to ${toVersion} (${stage}: ${reason}). It is running ${fromVersion}.`, action: null });
+        case "environment.update-failed":
+          // A trial that failed for the stored key (#1689) says so, in one notice with the desktop's report of that trial.
+          environmentUpdateFailed(notices, environmentId, name, notice.payload, new Date(event.occurredAt));
           return;
-        }
         case "environment.draining": {
           const existing = notices.list.read().find((notice) => notice.environmentId === environmentId && notice.kind === "draining");
           const shown = existing ?? raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });

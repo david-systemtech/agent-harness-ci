@@ -1,27 +1,76 @@
-import type { Notices } from "../notices.js";
-import { CREDENTIAL_PROMPT_UNANSWERED, credentialUpdateFailedWords } from "./words.js";
+import type { UpdateFailedPayload } from "@agent-harness/contracts";
+import type { Notice, Notices } from "../notices.js";
+import { credentialUpdateFailedWords } from "./words.js";
 
 /**
- * The one notice of an update to `toVersion` rolled back for want of the
- * stored key (#1689). Two sides say it: the environment, in its
- * `update-failed` (reason `credential`, or `deadline` under a launcher older
- * than the wait), and the desktop, from the record the ended start left. It
- * takes the place of what either said of that trial already, keeping the
- * version running where one of them named it.
+ * The one notice of an update rolled back for want of the stored key
+ * (#1689). Two sides can say it of the same trial: the environment, in its
+ * `update-failed` (reason `credential`; or `deadline` under a launcher older
+ * than the wait, which ends an unanswered wait as any other), and the
+ * desktop, from the record the ended start left. Each side's report waits
+ * here, per environment, for the other's of the same trial, which uses it up:
+ * the desktop's for the next `update-failed` that occurred within
+ * `PAIRING_MS` of it, the
+ * environment's `deadline` for a desktop report of a wait first seen before
+ * it. A notice of another trial, or one left on the queue, keeps its words.
  */
-export const raiseCredentialFailure = (notices: Notices, environmentId: string, name: string | null, toVersion: string, fromVersion?: string): void => {
-  const taken = notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "update-failed" && saidOfTrial(notice.message, name, toVersion));
-  const running = fromVersion ?? taken.map((notice) => / It is running (\S+)\.(?: |$)/.exec(notice.message)?.[1]).find((version) => version !== undefined);
-  notices.raise(environmentId, { kind: "update-failed", message: credentialUpdateFailedWords(name, toVersion, running), action: null });
+
+/** How long after the desktop's report the environment's of the same trial may come: a rollback, a restart and a reconnect. A chosen default. */
+export const PAIRING_MS = 10 * 60_000;
+
+interface Reports {
+  /** The desktop's notice that the prompt went unanswered, until the environment's report of that trial. */
+  desktop?: { readonly toVersion: string; readonly notice: Notice } | undefined;
+  /** The environment's notice of a trial that missed its deadline, until the desktop's report of a wait seen before it. */
+  environment?: { readonly toVersion: string; readonly fromVersion: string; readonly notice: Notice } | undefined;
+}
+
+const reportsOf = new WeakMap<Notices, Map<string, Reports>>();
+
+const reports = (notices: Notices, environmentId: string): Reports => {
+  let byEnvironment = reportsOf.get(notices);
+  if (byEnvironment === undefined) reportsOf.set(notices, (byEnvironment = new Map()));
+  let held = byEnvironment.get(environmentId);
+  if (held === undefined) byEnvironment.set(environmentId, (held = {}));
+  return held;
 };
 
-/** Whether the desktop or the environment already said the update to `toVersion` was rolled back for want of the stored key. */
-export const saidCredentialFailure = (notices: Notices, environmentId: string, name: string | null, toVersion: string): boolean =>
-  notices.list.read().some((notice) => notice.environmentId === environmentId && notice.kind === "update-failed" && notice.message.startsWith(credentialPrefix(name, toVersion)));
+const credentialFailure = (notices: Notices, environmentId: string, name: string | null, toVersion: string, fromVersion?: string): Notice =>
+  notices.raise(environmentId, { kind: "update-failed", message: credentialUpdateFailedWords(name, toVersion, fromVersion), action: null });
 
-const subject = (name: string | null, toVersion: string): string => `${name ?? "This machine"} could not be updated to ${toVersion}`;
-const credentialPrefix = (name: string | null, toVersion: string): string => `${subject(name, toVersion)}: ${CREDENTIAL_PROMPT_UNANSWERED}`;
+/**
+ * The desktop saw the start of `toVersion` wait on the prompt, from
+ * `seenAt`, and end with it unanswered: the environment's `deadline` of that
+ * trial, already shown, is reworded; else the desktop says it, and the
+ * environment's coming report of the trial uses it up.
+ */
+export const desktopSawUnanswered = (notices: Notices, environmentId: string, name: string | null, toVersion: string, seenAt: Date): void => {
+  const held = reports(notices, environmentId);
+  const environment = held.environment;
+  held.environment = undefined;
+  if (environment?.toVersion === toVersion && Date.parse(environment.notice.at) >= seenAt.getTime() && notices.retire((notice) => notice.id === environment.notice.id).length > 0) {
+    credentialFailure(notices, environmentId, name, toVersion, environment.fromVersion);
+    return;
+  }
+  held.desktop = { toVersion, notice: credentialFailure(notices, environmentId, name, toVersion) };
+};
 
-/** A notice of the update to `toVersion`'s trial failing: the environment's words for any reason, or the stored key's. */
-const saidOfTrial = (message: string, name: string | null, toVersion: string): boolean =>
-  message.startsWith(`${subject(name, toVersion)} (trial: `) || message.startsWith(credentialPrefix(name, toVersion));
+/**
+ * The environment's `update-failed`, which occurred `at`: in the stored key's
+ * words where its trial failed for it, which the desktop's report of that
+ * trial may tell.
+ */
+export const environmentUpdateFailed = (notices: Notices, environmentId: string, name: string, payload: UpdateFailedPayload, at: Date): void => {
+  const { fromVersion, toVersion, stage, reason } = payload;
+  const held = reports(notices, environmentId);
+  const desktop = held.desktop;
+  held.desktop = undefined;
+  const paired = desktop?.toVersion === toVersion && Math.abs(at.getTime() - Date.parse(desktop.notice.at)) <= PAIRING_MS;
+  if (reason === "credential" || (paired && stage === "trial" && reason === "deadline")) {
+    if (paired) notices.retire((notice) => notice.id === desktop.notice.id);
+    credentialFailure(notices, environmentId, name, toVersion, fromVersion);
+    return;
+  }
+  const notice = notices.raise(environmentId, { kind: "update-failed", message: `${name} could not be updated to ${toVersion} (${stage}: ${reason}). It is running ${fromVersion}.`, action: null });
+  if (stage === "trial" && reason === "deadline") held.environment = { toVersion, fromVersion, notice };
+};
