@@ -25,3 +25,17 @@ it("accepts a bounded scrolling landscape sheet but rejects a clipped, notch-cov
   act(() => outside.focus());
   expect(() => verifyLandscapeOverlay(".phone-composer-sheet", 300, 8)).toThrow("lost focus");
 });
+
+it("keeps a failed landscape proof blocking even when its diagnostic capture is preserved", async () => {
+  const { landscapeScene } = await import("../gallery/phone-landscape-scene.js");
+  const { measureSceneGeometry } = await import("../gallery/geometry.js");
+  const geometry = landscapeScene("keyboard").geometry;
+  const checks = typeof geometry === "function" ? geometry({ width: 844, height: 390 }) : geometry ?? [];
+  const root = document.createElement("div"); root.id = "root";
+  root.dataset["galleryGeometry"] = JSON.stringify(checks.filter(check => check.selector.includes("data-landscape-proof")));
+  const frame = document.createElement("div"); frame.dataset["landscapeProof"] = "failed";
+  root.append(frame); document.body.append(root);
+  expect(measureSceneGeometry()).toEqual([expect.stringContaining("no matching elements")]);
+  frame.dataset["landscapeProof"] = "passed";
+  expect(measureSceneGeometry()).toEqual([]);
+});

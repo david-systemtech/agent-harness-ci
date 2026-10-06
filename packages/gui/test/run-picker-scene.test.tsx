@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
 
 let close: (() => Promise<void>) | undefined;
@@ -7,6 +7,13 @@ afterEach(async () => {
   await close?.();
   close = undefined;
   document.body.replaceChildren();
+});
+
+beforeEach(() => {
+  const original = window.matchMedia;
+  vi.stubGlobal("matchMedia", (query: string) => query === "(width < 640px)"
+    ? Object.assign(new EventTarget(), { matches: window.innerWidth < 640, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+  onTestFinished(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 });
 
 it.each(["light", "dark"] as const)("shows the run-picker columns and geometry in %s", async (ladder) => {

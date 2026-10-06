@@ -10,15 +10,16 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
     arrangeWeb(world);
     if (surface === "keyboard") {
       const env = world.environment("desk");
-      env.startRun(env.sessionId(), "Continue checking the receipts.");
+      const { runId } = env.startRun(env.sessionId(), "Continue checking the receipts.");
+      env.emit(env.sessionId(), "assistant.text", { runId, itemId: "landscape-reply", text: "The latest receipt line remains readable while composing. ".repeat(16), aborted: false });
       env.openPrompt(env.sessionId(), filledKeyboardPrompt);
     }
   },
   readySelector: "[data-landscape-proof]",
-  geometry: surface === "conversation" || surface === "keyboard" ? landscapeGeometry : [
+  geometry: [{ selector: '[data-landscape-proof="passed"]' }, ...(surface === "conversation" || surface === "keyboard" ? landscapeGeometry : [
     { selector: surface === "drawer" ? ".phone-frame-drawer" : ".phone-composer-sheet", ...(surface === "drawer" && { contentFits: true }) },
     { selector: surface === "drawer" ? '[aria-label="Close sessions"]' : '.phone-composer-sheet [aria-label="Close dialog"]', minimumWidth: 44, minimumHeight: 44, hitTestable: true },
-  ],
+  ])],
   activate: () => {
     const root = document.documentElement;
     const insets = innerWidth === 844 ? { top: 0, right: 44, bottom: 21, left: 44 } : { top: 0, right: 0, bottom: 0, left: 0 };
@@ -72,8 +73,14 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
       started = true; observer.disconnect();
       void run().catch(error => {
         if (stopped) return;
-        document.querySelector("[data-web-client]")?.setAttribute("data-landscape-proof", "failed");
-        queueMicrotask(() => { throw error; });
+        const frame = document.querySelector("[data-web-client]");
+        frame?.setAttribute("data-landscape-proof", "failed");
+        // Preserve a complete report/capture set on a proof failure. The mandatory
+        // passed selector above still blocks geometry; the capture shows the reason.
+        const diagnostic = document.createElement("output");
+        diagnostic.className = "absolute inset-x-0 top-0 z-50 bg-float p-2 text-xs text-ink";
+        diagnostic.textContent = error instanceof Error ? error.message : String(error);
+        frame?.append(diagnostic);
       });
     };
     const observer = new MutationObserver(start);
