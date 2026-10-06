@@ -1027,6 +1027,11 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         return { status: "re-pair-offered", environmentId: id, name: existing.saved.descriptor.name };
       }
 
+      // The exchange spends the one-use code, so the store is asked first whether it can keep the token: a store that keeps none, or
+      // an OS prompt answered late or not at all (macOS's Keychain), leaves the code to pair with again (#1693).
+      if ((await platform.secrets.protection?.()) === "none") {
+        return pairingFailed("refused", "This device cannot keep a client session token: the OS keeps no key for it now. Unlock or set up the system keychain, then pair again.");
+      }
       const exchanged = await exchangeCode(platform.fetch, origin, code, platform.client, protocolVersion);
       if (!exchanged.ok) return { status: "failed", failure: exchanged.failure };
       const { credential } = exchanged;
