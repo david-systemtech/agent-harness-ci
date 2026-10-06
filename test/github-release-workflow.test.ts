@@ -53,6 +53,21 @@ describe("the public GitHub release workflow", () => {
     expect(upload).not.toContain("continue-on-error");
   });
 
+  it("updates an environment the macOS desktop installed from the desktop job's own server artefact, before the replacement smoke (#1724)", () => {
+    const kept = step("desktop-macos", "Keep the server artefact the macOS smoke updates to");
+    expect(kept).toContain("uses: actions/upload-artifact@");
+    expect(kept).toContain("name: server-darwin-arm64");
+    expect(kept).toContain("path: server/agent-harness-darwin-arm64.tar.gz");
+    expect(kept).toContain("if-no-files-found: error");
+    // The release job collects the desktops by their prefix; the artefact is not one of its assets.
+    expect(step("release", "The desktop jobs' builds")).toContain("pattern: desktop-*");
+    const smoke = job("smoke-macos").join("\n");
+    expect(smoke).toMatch(/download-artifact@[a-f0-9]{40} # v7\n {8}with:\n {10}name: server-darwin-arm64\n {10}path: artefact\n/);
+    const update = step("smoke-macos", "Update an environment the desktop installed from the server artefact with no keychain prompt");
+    expect(update).toContain('"$server/node/bin/node" scripts/macos-tarball-update-smoke.mjs unzipped/agent-harness.app artefact/agent-harness-darwin-arm64.tar.gz');
+    expect(smoke.indexOf(update)).toBeLessThan(smoke.indexOf("Replace the packaged desktop with an existing client credential"));
+  });
+
   it("checks the actual native screenshot collectors before the packaged macOS smoke", () => {
     const native = step("smoke-macos", "Verify native screenshot diagnostics");
     expect(native).toContain('"$server/node/bin/node" --test scripts/macos-smoke-diagnostics-native.test.mjs');
@@ -122,7 +137,7 @@ esac
    * container's AGENT_HARNESS_WEB_ORIGIN from the .env file beside the compose
    * file, as compose passes it through, or not at all when `dropsWebOrigin`.
    */
-  const containerSmoke = async (dropsWebOrigin = false) => {
+  const containerSmoke = async ({ dropsWebOrigin = false, needsDataDir = false } = {}) => {
     const smoke = step("image", "Inspect a container update without applying it");
     if (scratch) rmSync(scratch, { recursive: true, force: true });
     scratch = mkdtempSync(join(tmpdir(), "release-updater-smoke-"));
@@ -133,6 +148,9 @@ esac
     writeFileSync(join(bin, "docker"), `#!/bin/sh
 printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
+  "compose -f "*" exec -T environment agent-harness update status --json")
+    [ -z "$NEEDS_DATA_DIR" ] || { echo "No environment is running: it has no bootstrap grant file." >&2; exit 1; }
+    printf '{"version":"%s","pending":{"state":"current"},"manager":{"lastPoll": null}}\\n' "$VERSION" ;;
   "compose -f "*" exec -T environment agent-harness update status --json --data-dir /data")
     printf '{"version":"%s","pending":{"state":"current"},"manager":{"lastPoll": null}}\\n' "$VERSION" ;;
   "compose -f "*" exec -T environment printenv AGENT_HARNESS_WEB_ORIGIN")
@@ -149,7 +167,7 @@ esac
     const commands = smoke.split("        run: |\n")[1]?.replace(/^ {10}/gm, "") ?? "";
     const result = await run("bash", ["-euc", commands], { cwd: root, env: {
       ...process.env, PATH: `${bin}:${process.env["PATH"]}`, TMPDIR: scratch, CALLS: log,
-      IMAGE_REFERENCE: "example/image:1.2.3", VERSION: "1.2.3", DROPS_WEB_ORIGIN: dropsWebOrigin ? "1" : "",
+      IMAGE_REFERENCE: "example/image:1.2.3", VERSION: "1.2.3", DROPS_WEB_ORIGIN: dropsWebOrigin ? "1" : "", NEEDS_DATA_DIR: needsDataDir ? "1" : "",
     } }).then(({ stdout, stderr }) => ({ code: 0, stdout, stderr }), (error: { code: number; stdout: string; stderr: string }) => error);
     return { smoke, result, calls: readFileSync(log, "utf8").trim().split("\n") };
   };
@@ -170,10 +188,20 @@ esac
     const passed = await containerSmoke();
     expect(passed.result.code).toBe(0);
     expect(passed.calls.filter((call) => call.endsWith(" exec -T environment printenv AGENT_HARNESS_WEB_ORIGIN"))).toHaveLength(1);
-    const dropped = await containerSmoke(true);
+    const dropped = await containerSmoke({ dropsWebOrigin: true });
     expect(dropped.result.code).not.toBe(0);
     expect(dropped.result.stdout).toContain("::error::the container does not have the .env file's AGENT_HARNESS_WEB_ORIGIN");
     expect(dropped.calls.at(-1)).toContain("down --volumes --timeout 5");
+  });
+
+  it("checks that a verb run through compose exec finds the container's environment without --data-dir, and fails when it does not (#1725)", async () => {
+    const passed = await containerSmoke();
+    expect(passed.result.code).toBe(0);
+    expect(passed.calls.filter((call) => call.endsWith(" exec -T environment agent-harness update status --json"))).toHaveLength(1);
+    const lost = await containerSmoke({ needsDataDir: true });
+    expect(lost.result.code).not.toBe(0);
+    expect(lost.result.stdout).toContain("::error::agent-harness in the container does not find its environment without --data-dir");
+    expect(lost.calls.at(-1)).toContain("down --volumes --timeout 5");
   });
 
   it("builds three desktops on hosted runners, preserves the package checks, and transfers all three before assembling the release", () => {

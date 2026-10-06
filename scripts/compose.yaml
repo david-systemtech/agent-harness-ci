@@ -22,7 +22,11 @@
 # Until a client first pairs with it, the environment prints a pairing link,
 # QR and code to its log at each start: pair from there, or mint another with
 #
-#   docker compose exec environment agent-harness pair --preset own-client --data-dir /data
+#   docker compose exec environment agent-harness pair --preset own-client
+#
+# Every agent-harness verb run through `docker compose exec`, the terminal UI
+# (`tui`) among them, works on the container's own environment in /data, as
+# the declared container below makes it the default data directory (#1725).
 #
 # Settings that every start reads go in the .env file beside this one, never
 # in edits to this file: an update replaces this file with the next
