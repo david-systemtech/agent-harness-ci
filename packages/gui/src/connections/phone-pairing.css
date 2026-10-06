@@ -12,10 +12,12 @@
   [data-phone-pairing] { overflow-wrap: anywhere; }
   [data-phone-pairing] input { min-height: 44px; font-size: 16px; }
   [data-phone-pairing] button { min-height: 44px; min-width: 44px; }
-  /* The line takes the full width, its actions below it, never squeezed beside them (#1739). */
-  [data-phone-pairing] [role="status"] { flex-wrap: wrap; }
-  [data-phone-pairing] [role="status"] > span { flex-basis: 100%; }
   [data-pairing-scopes] label { min-width: 0; max-width: 100%; }
   /* Phone checkboxes already have a 44px target; their desktop hit slop must fit it. */
   [data-pairing-scopes] [role="checkbox"]::after { inset: 0; }
+}
+/* In the phone layout (phoneLayoutMedia, a phone held landscape too) the line takes the full width, its actions below it, never squeezed beside them (#1739). */
+@media (width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px) {
+  [data-phone-pairing] [role="status"] { flex-wrap: wrap; }
+  [data-phone-pairing] [role="status"] > span { flex-basis: 100%; }
 }
