@@ -41,6 +41,9 @@ const machine = (scripted: Scripted = {}) => {
 
 const LINUX_TOOLS = ["bwrap", "socat", "unshare"];
 const EPERM = { code: 1, output: "bwrap: setting up uid map: Permission denied\n" };
+/** What bwrap printed in a container whose seccomp profile refuses user namespaces, as QA saw it (#1756): its links and a path on that machine. */
+const NO_NAMESPACE =
+  "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces. See <https://deb.li/bubblewrap> or <file:///usr/share/doc/bubblewrap/README.Debian.gz>.";
 const UNSHARE_EPERM = { code: 1, output: "unshare: unshare failed: Operation not permitted\n" };
 
 const both = (probe: ContainmentProbe) => [probe.levels.workspace, probe.levels["workspace-no-network"]];
@@ -118,7 +121,7 @@ describe("the containment probe on Linux and WSL2", () => {
     const { system } = machine({
       path: LINUX_TOOLS,
       env: { [CONTAINER_MARKER_VARIABLE]: "1" },
-      answers: { bwrap: () => ({ code: 1, output: "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.\n" }) },
+      answers: { bwrap: () => ({ code: 1, output: `${NO_NAMESPACE}\n` }) },
       files: { "/run/.containerenv": "", "/proc/self/status": "Seccomp:\t2\n" },
     });
     const probe = await probeContainment(system);
@@ -129,7 +132,7 @@ describe("the containment probe on Linux and WSL2", () => {
     for (const level of both(probe)) {
       expect(told(level)).toEqual({
         reason: expect.not.stringMatching(/bwrap:|deb\.li|file:/),
-        detail: "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.",
+        detail: NO_NAMESPACE,
       });
     }
     expect(probe.container).toEqual({ declared: true, detected: true });

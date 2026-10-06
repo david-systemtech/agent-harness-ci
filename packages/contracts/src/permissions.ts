@@ -125,7 +125,7 @@ export const ContainmentAvailability = z
       cause: ContainmentCause,
       detail: z.string().min(1).optional().meta({
         description:
-          "What the mechanism's own command printed when it failed, verbatim, for whoever debugs it (#1756); kept out of the reason, which a client shows first. Absent when no command was run or the environment predates it.",
+          "What the mechanism's own command said when it failed, for whoever debugs it (#1756): the first line it printed, trimmed, or how it exited when it printed nothing; one line per command when several failed. Kept out of the reason, which a client shows first. Absent when no command failed or the environment predates it.",
       }),
     }),
   ])
