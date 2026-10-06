@@ -102,7 +102,7 @@ export const attentionStore = (log: EventLog): AttentionStore => {
   }));
   return { targets, deliveries, status: available => targets().map(({ target, owner }) => {
     const failure = log.read<{ failure: string }>("SELECT failure FROM attention_failures WHERE target_id = ?", target.id)[0]?.failure ?? null;
-    return { id: target.id, transport: target.transport, enabled: target.enabled, completion: target.completion, global: owner === null, owner, failure,
+    return { id: target.id, ...(target.label === undefined ? {} : { label: target.label }), transport: target.transport, enabled: target.enabled, completion: target.completion, global: owner === null, owner, failure,
       state: !target.enabled ? "disabled" : failure ? "failed" : !available(target.transport) ? "unavailable" : deliveries("pending").some(d => d.targetId === target.id) ? "pending" : "ready" };
   }) };
 };
