@@ -236,8 +236,9 @@
      apart, not in one :is(), whose specificity would be its most specific one's and outweigh the rule taking the outer caret away. */
   .caret::after,
   .caret > .markdown > :last-child::after,
-  .caret > .markdown > :is(ul, ol):last-child > li:last-child::after,
-  .caret > .markdown > blockquote:last-child > :last-child::after { content: ""; display: inline-block; width: 0.5em; height: 1em; background: var(--beam-text); animation: caret-blink 1.1s steps(1) infinite; }
+  /* In a list or quote, the block holding its last line however deep: a block of text with no block after it anywhere. */
+  .caret > .markdown > :is(ul, ol, blockquote):last-child
+    :is(p, li, h1, h2, h3, h4, h5, h6):last-child:not(:has(> :is(p, ul, ol, blockquote, pre, table)), .caret > .markdown :not(:last-child) *)::after { content: ""; display: inline-block; width: 0.5em; height: 1em; background: var(--beam-text); animation: caret-blink 1.1s steps(1) infinite; }
   .caret:has(> .markdown > *)::after { content: none; }
   /* A list or a quote ends on its last item's or paragraph's line, not on a line under it. */
   .caret > .markdown > :is(ul, ol, blockquote):last-child::after { content: none; }
