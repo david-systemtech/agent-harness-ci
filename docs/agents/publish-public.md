@@ -39,9 +39,13 @@ python3 scripts/publish-public.py \
 
 The preview prints the included file list, privacy check results, proposed commit
 ID, parent and message, then rehearses that exact proposed public commit in a
-separate temporary checkout: `pnpm install --frozen-lockfile`, `pnpm typecheck`,
-`pnpm lint` and `pnpm test --maxWorkers=4`. Those commands share a 30-minute
-budget and print progress; a failure or timeout blocks publication. Command
+separate temporary checkout: `pnpm install --frozen-lockfile`, `pnpm typecheck`
+and `pnpm lint`, which prove the snapshot is a complete, consistent checkout.
+The rehearsal runs no tests: the hosted release workflow's `check` job runs the
+whole suite on the published tree, and every build and the release wait for it,
+so a failing suite publishes no release and leaves the tag reusable. Those
+commands share a 30-minute budget and print progress; a failure or timeout
+blocks publication. Command
 output is withheld to protect credentials; failure diagnostics report the
 failed command and exit status. It writes temporary objects, dependency
 caches and rehearsal build output and may download the pinned scanner; it never
@@ -52,9 +56,12 @@ nonzero without pushing.
 Git failures identify the operation and exit status; remote URLs and raw stderr
 are omitted to keep credentials and private connection details out of diagnostics.
 
-Review the list and remove `--dry-run` to publish. Publication repeats the full
-rehearsal before the atomic push; a previous dry run is never treated as proof
-for a later ref or public parent. Omit `--tag` for a code-only
+Review the list and remove `--dry-run` to publish. Publication repeats the
+rehearsal before the atomic push; the publisher never treats a previous dry run
+as proof by itself. Pass `--no-rehearsal` to skip it only when the publish
+directly follows a passing dry run of the same ref and version: the rehearsal
+depends only on the snapshot tree, which that ref fixes. The publisher refuses
+`--no-rehearsal` with `--dry-run`, so a dry run always rehearses. Omit `--tag` for a code-only
 snapshot. For a release, the tag must be `v` plus `--version`, including any
 prerelease suffix (for example `0.1.0-beta.1`). The script atomically pushes
 `main` and the optional lightweight version tag, without force. An existing tag
@@ -81,9 +88,11 @@ not replace running the hosted release's typecheck, lint and full test suite
 in CI; paths computed without literal names still need ordinary test coverage.
 The publisher itself rehearses the proposed public commit after the selected
 ref's complete privacy and mapping policies have passed, before either a dry run
-succeeds or any public ref is pushed. This keeps the full rehearsal outside the
-sharded unit suite and enforces it even for a code-only snapshot. The hosted
-release workflow still checks the published tree before building release assets.
+succeeds or any public ref is pushed (unless `--no-rehearsal` follows a passing
+dry run). This keeps the rehearsal outside the sharded unit suite and enforces it
+even for a code-only snapshot. The hosted release workflow's `check` job runs
+typecheck, lint and the full test suite on the published tree before building
+release assets.
 
 `.public-privacy.json` in the selected ref defines case-insensitive deny patterns
 for private terms and addresses. The check scans both filenames and all blob
@@ -107,7 +116,8 @@ publication. Other platforms need the pinned scanner installed beforehand.
 Verification: `test/publish-public.test.ts` runs the command against local bare
 remotes, a stub scanner and a recording pnpm executable; it never pushes to
 GitHub or installs/runs a nested suite. It checks rehearsal ordering, the exact
-proposed commit, failure blocking and isolation of generated files. Run the real
-cleaned tree's privacy scan and full rehearsal as a maintainer dry-run before
+proposed commit, failure blocking, the `--no-rehearsal` opt-out and its refusal
+on a dry run, and isolation of generated files. Run the real
+cleaned tree's privacy scan and rehearsal as a maintainer dry-run before
 publication. The fast tests demonstrate deny-list failures, synthetic allowances
 and scanner failures; the maintainer run verifies the selected real snapshot.

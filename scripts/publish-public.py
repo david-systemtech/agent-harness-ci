@@ -241,15 +241,17 @@ def scanner_path(explicit, scratch):
 
 
 def rehearse(repo, commit, checkout):
-    # Run on a separate checkout: install/build/test output must never enter the
-    # scanned tree or alter the commit that will be pushed.
+    # Run on a separate checkout: install/build output must never enter the
+    # scanned tree or alter the commit that will be pushed. These steps prove the
+    # snapshot is a complete, consistent checkout; the hosted release workflow's
+    # check job runs the test suite on the published tree before any release.
     git(repo, 'update-ref', 'refs/heads/main', commit)
     git(repo, 'clone', '-q', '--branch', 'main', str(repo), str(checkout))
     pnpm = shutil.which('pnpm') if os.name == 'nt' else 'pnpm'
     if not pnpm:
         raise ValueError('Public checkout rehearsal requires pnpm; publication blocked')
     deadline = time.monotonic() + 30 * 60
-    for args in (['install', '--frozen-lockfile'], ['typecheck'], ['lint'], ['test', '--maxWorkers=4']):
+    for args in (['install', '--frozen-lockfile'], ['typecheck'], ['lint']):
         print('Public checkout rehearsal: pnpm ' + ' '.join(args), flush=True)
         # Keep raw output out of diagnostics, as with Git and the scanner.
         with subprocess.Popen([pnpm, *args], cwd=checkout, stdout=subprocess.DEVNULL,
@@ -276,6 +278,8 @@ def rehearse(repo, commit, checkout):
 
 
 def publish(args):
+    if args.dry_run and args.no_rehearsal:
+        raise ValueError('--no-rehearsal is refused on a dry run: the dry run is the rehearsal a publish may skip')
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', args.version):
         raise ValueError('Version must be a semantic version')
     if args.tag and args.tag != 'v' + args.version:
@@ -343,7 +347,10 @@ def publish(args):
         for path in git(repo, 'ls-tree', '-r', '--name-only', commit).decode().splitlines():
             print(path)
         print(f'Commit: {commit}\nParent: {parent or "(root)"}\nMessage: Publish {args.version}')
-        rehearse(repo, commit, scratch / 'rehearsal')
+        if args.no_rehearsal:
+            print('Public checkout rehearsal: skipped (--no-rehearsal)')
+        else:
+            rehearse(repo, commit, scratch / 'rehearsal')
         if args.dry_run:
             print('Dry run: no refs pushed')
             return
@@ -361,6 +368,9 @@ def main():
     parser.add_argument('--version', required=True)
     parser.add_argument('--tag')
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--no-rehearsal', action='store_true',
+                        help='Publish without the public checkout rehearsal: only after a passing dry run '
+                             'of the same ref and version (refused with --dry-run)')
     parser.add_argument('--gitleaks', help='Path to pinned gitleaks (also the test seam)')
     try:
         publish(parser.parse_args())
