@@ -24,8 +24,8 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   return t;
 };
 
-/** The Account step's line when both its checks hold and its keys hold valid values. */
-const ALL_HOLD = "At least one account is on this environment. Every account on this environment is signed in.";
+/** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
+const ALL_HOLD = "Every account is signed in.";
 
 /** An environment holding `ids` as configured accounts, each answering its status as `status` scripts it; with its client. */
 const withAccounts = async (ids: readonly string[], status: (account: AccountRef) => AuthStatus) => {

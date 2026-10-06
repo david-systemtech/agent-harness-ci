@@ -78,7 +78,8 @@ export const answeringCheck = (): AnsweringCheck => {
 /**
  * A step of the test's own under a registered step's id and home row: it
  * writes no settings, and has the given state checks, the local budget, an
- * hourly cadence and no triggers unless told otherwise.
+ * hourly cadence, no triggers and the line "Set up here." when done unless
+ * told otherwise.
  */
 export const scriptedStep = (id: RegisteredStepId, parts: Partial<Omit<Step, "id">> = {}): CheckedStep => ({
   id,
@@ -86,6 +87,7 @@ export const scriptedStep = (id: RegisteredStepId, parts: Partial<Omit<Step, "id
   writes: [],
   checks: [],
   stateChecks: [],
+  done: "Set up here.",
   links: [],
   skippable: false,
   budget: "local",

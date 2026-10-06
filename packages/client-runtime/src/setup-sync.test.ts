@@ -26,8 +26,8 @@ const scriptedRegistry = () => {
   const answers: { account: StateCheckAnswer; permissions: StateCheckAnswer } = { account: true, permissions: { reason: "The denylist lost its presets." } };
   const setupSteps: SetupSteps = {
     steps: [
-      scriptedStep("account", { stateChecks: [{ id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again"] }] }),
-      scriptedStep("permissions", { stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
+      scriptedStep("account", { done: "Every account is signed in.", stateChecks: [{ id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again"] }] }),
+      scriptedStep("permissions", { done: "The denylist holds its presets.", stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
       scriptedStep("appearance"),
     ],
     stateChecks: { "account.signed-in": () => answers.account, "permissions.denylist": () => answers.permissions },
@@ -87,8 +87,8 @@ describe("projections.setup over the in-process environment", () => {
     permissions.answer({ reason: "The denylist lost its presets." });
     const setupSteps: SetupSteps = {
       steps: [
-        scriptedStep("account", { stateChecks: [{ id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again"] }] }),
-        scriptedStep("permissions", { stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
+        scriptedStep("account", { done: "Every account is signed in.", stateChecks: [{ id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again"] }] }),
+        scriptedStep("permissions", { done: "The denylist holds its presets.", stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
       ],
       stateChecks: { "account.signed-in": account.checker, "permissions.denylist": permissions.checker },
     };

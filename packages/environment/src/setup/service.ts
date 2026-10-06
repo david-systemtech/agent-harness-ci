@@ -4,7 +4,7 @@ import { formatActor, type EventLog, type StreamRef } from "../event-log/event-l
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
-import { checkStep, type CheckAsker, type CheckContext, type CheckedStep, type StateChecker } from "./check.js";
+import { checkStep, type CheckAsker, type CheckContext, type CheckedStep, type DoneLines, type StateChecker } from "./check.js";
 import type { LlmSteps } from "./mint.js";
 import { stoppedMintedRuns } from "./minted.js";
 
@@ -36,10 +36,11 @@ import { stoppedMintedRuns } from "./minted.js";
 /** Who appends `setup.result-changed`: Set up itself, whoever asked for the check. */
 const SETUP_ACTOR = formatActor({ kind: "system", id: "setup" });
 
-/** The steps the service checks, in order, how the environment answers their state checks, by id, and the LLM steps' prompts and own sides (`mint.ts`). */
+/** The steps the service checks, in order, how the environment answers their state checks, by id, its lines for those done (#1698), and the LLM steps' prompts and own sides (`mint.ts`). */
 export interface SetupSteps extends LlmSteps {
   readonly steps: readonly CheckedStep[];
   readonly stateChecks: { readonly [id: string]: StateChecker };
+  readonly doneLines?: DoneLines;
 }
 
 export interface SetupServiceOptions {
@@ -128,6 +129,7 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
     const context: CheckContext = {
       values: readSettings(reader, options.presets),
       stateChecks: steps.stateChecks,
+      ...(steps.doneLines?.[step.id] !== undefined && { doneLine: steps.doneLines[step.id] }),
       clock,
       checkedAt: clock.now().toISOString(),
       askedBy,

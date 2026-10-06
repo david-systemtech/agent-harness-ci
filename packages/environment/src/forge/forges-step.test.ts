@@ -43,11 +43,8 @@ const withForge = async () => {
   return { t, forge, client: await t.client() };
 };
 
-/** The Forges step's line when every check holds. */
-const ALL_HOLD =
-  "At least one forge account is on this environment. Each forge account answers as the identity it was added with. Every read of each forge account passes. " +
-  "Exactly one forge account is primary. Every forge account whose credential is gh finds gh installed, at 2.40.0 or later, and signed in as its login. " +
-  "No forge account's token expires within thirty days. No origin a harness operation was refused on for want of a forge account counts as missing.";
+/** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
+const ALL_HOLD = "Every forge account is signed in and answering.";
 
 /** The manual clock's time `ms` after its start. */
 const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();

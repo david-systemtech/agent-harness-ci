@@ -348,7 +348,7 @@ describe("a minted session's run end", () => {
     expect(await noteResult(t, client)).toEqual({
       step: "instructions",
       state: "done",
-      reason: "NOTE.md is written.",
+      reason: "Set up here.",
       failing: [],
       actions: ["revise"],
       targets: [{ action: "revise", ...BANK }],
