@@ -112,8 +112,13 @@ it("retains the keyboard reserve through layout-resizing rotation, gradual close
   viewport.height = 280;
   resize(844, 280);
   expect(frame.hasAttribute("data-phone-composing")).toBe(true);
-  viewport.width = 390; viewport.height = 480;
+  viewport.width = 390; viewport.height = 330;
+  resize(390, 330);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  viewport.height = 480;
   resize(390, 480);
+  expect(frame.hasAttribute("data-phone-composing")).toBe(true);
+  act(() => viewport.dispatchEvent(new Event("resize")));
   expect(frame.hasAttribute("data-phone-composing")).toBe(true);
   viewport.height = 844;
   resize(390, 844);

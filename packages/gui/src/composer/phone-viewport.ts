@@ -10,6 +10,7 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
     const root = document.documentElement;
     const media = phoneLayoutMedia();
     let layoutWidth = window.innerWidth;
+    let unoccludedWidth = window.innerWidth;
     let unoccludedHeight = window.innerHeight;
     let focusHeight = unoccludedHeight;
     let keyboardOpen = false;
@@ -23,20 +24,19 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       const viewport = window.visualViewport;
       if (!media.some(query => query.matches)) {
         clearPhone();
-        keyboardOpen = false; rotatedKeyboardHeight = null; unoccludedHeight = focusHeight = window.innerHeight;
+        keyboardOpen = false; rotatedKeyboardHeight = null; unoccludedWidth = window.innerWidth; unoccludedHeight = focusHeight = window.innerHeight;
         frame.style.maxHeight = `${viewport?.height ?? window.innerHeight}px`;
         return;
       }
       root.setAttribute("data-phone-viewport", "");
       // Keep the last unzoomed bounds. A second height observer would undo pinch zoom.
       if (viewport && viewport.scale !== 1) return;
-      // A retained keyboard can resize layout and visual bounds together. Rebase
-      // its closing height to the previous width on an orientation turn, rather
-      // than treating the already-occluded new height as a closed keyboard.
+      // Match the new width to the held unoccluded axes. A keyboard-height
+      // intermediate can still look landscape while turning back to portrait.
       if (layoutWidth !== window.innerWidth) {
-        const turned = (layoutWidth > unoccludedHeight) !== (window.innerWidth > window.innerHeight);
-        const reference = turned ? layoutWidth : unoccludedHeight;
-        layoutWidth = window.innerWidth;
+        const turned = Math.abs(window.innerWidth - unoccludedHeight) < Math.abs(window.innerWidth - unoccludedWidth);
+        const reference = turned ? unoccludedWidth : unoccludedHeight;
+        unoccludedWidth = layoutWidth = window.innerWidth;
         unoccludedHeight = focusHeight = keyboardOpen ? Math.max(window.innerHeight, reference) : window.innerHeight;
         rotatedKeyboardHeight = keyboardOpen ? focusHeight : null;
         if (!keyboardOpen) frame.removeAttribute("data-phone-composing");
@@ -55,6 +55,7 @@ export const usePhoneViewport = (owner: RefObject<HTMLElement | null>) => {
       const keyboardNow = height < window.innerHeight || ((messageFocused || keyboardOpen) && (height <= focusHeight * 0.75 || (rotatedKeyboardHeight !== null && height < rotatedKeyboardHeight)));
       if (!keyboardNow) {
         rotatedKeyboardHeight = null;
+        unoccludedWidth = window.innerWidth;
         unoccludedHeight = window.innerHeight;
         // Follow the remaining growth during gradual closure, even with retained focus.
         if (keyboardOpen || !messageFocused || unoccludedHeight > focusHeight) focusHeight = unoccludedHeight;
