@@ -23,6 +23,33 @@ async function phone(kind: "permission" | "question" | "plan" = "permission") {
   return gallery;
 }
 
+it.each([
+  { key: "Enter", code: "Enter", ctrlKey: true },
+  { key: "Escape", code: "Escape" },
+])("restores Message without scrolling after answering the closed summary with $key", async keys => {
+  const gallery = await phone();
+  const summary = screen.getByRole("region", { name: "Parked prompt" });
+  const message = screen.getByRole("textbox", { name: "Message" });
+  const focus = vi.spyOn(message, "focus");
+  act(() => summary.focus());
+  fireEvent.keyDown(summary, keys);
+  await waitFor(() => expect(gallery.world.world.environment("desk").answered()).toHaveLength(1));
+  expect(screen.queryByRole("region", { name: "Parked prompt" })).toBeNull();
+  expect(document.activeElement).toBe(message);
+  expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+});
+
+it("answers with the approval shortcut immediately after opening Details", async () => {
+  const gallery = await phone();
+  fireEvent.click(within(screen.getByRole("region", { name: "Parked prompt" })).getByRole("button", { name: "Details" }));
+  const sheet = await screen.findByRole("dialog", { name: "Permission" });
+  await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+  fireEvent.keyDown(document.activeElement!, { key: "Enter", code: "Enter", ctrlKey: true });
+  await waitFor(() => expect(gallery.world.world.environment("desk").answered()).toHaveLength(1));
+  expect(screen.queryByRole("region", { name: "Parked prompt" })).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" })));
+});
+
 it("keeps the full permission and denial note in Details, preserving them on Close", async () => {
   const gallery = await phone();
   const summary = screen.getByRole("region", { name: "Parked prompt" });

@@ -172,7 +172,9 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   const settle = (outcome: RowOutcome) => {
     if (capability.status === "absent") return say(`Not answered: ${capability.message}`);
     if (outcome.kind === "say") return say(outcome.line);
+    const composer = phone && !details ? self.current?.closest("[data-web-client]")?.querySelector<HTMLElement>('[aria-label="Message"]') : undefined;
     answer(outcome.answer);
+    composer?.focus({ preventScroll: true });
   };
   const choose = (row: ChoiceRow | undefined) => settle(rowAnswer(prompt, row, fields.note));
   const allow = () => {

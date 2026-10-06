@@ -15,14 +15,14 @@ export const PhonePromptDetails = ({ open, onOpenChange, title, restore, footer,
   readonly children: ReactNode;
 }) => {
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
-  const content = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const frame = anchor?.closest<HTMLElement>("[data-web-client]");
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <span hidden ref={setAnchor} />
     <Dialog.Portal container={frame ?? undefined}>
       <Dialog.Overlay className="phone-prompt-scrim bg-scrim/30" />
-      <Dialog.Content ref={content} className="phone-prompt-sheet rounded-xl border border-hairline bg-float text-ink outline-none" aria-describedby={undefined}
-        onOpenAutoFocus={event => { event.preventDefault(); content.current?.focus({ preventScroll: true }); }}
+      <Dialog.Content className="phone-prompt-sheet rounded-xl border border-hairline bg-float text-ink outline-none" aria-describedby={undefined}
+        onOpenAutoFocus={event => { event.preventDefault(); body.current?.focus({ preventScroll: true }); }}
         onCloseAutoFocus={event => {
           event.preventDefault();
           const summary = restore.current;
@@ -35,7 +35,7 @@ export const PhonePromptDetails = ({ open, onOpenChange, title, restore, footer,
             <Dialog.Title className="min-w-0 font-medium">{title}</Dialog.Title>
             <Dialog.Close asChild><Button size="sm">Close</Button></Dialog.Close>
           </header>
-          <div data-phone-prompt-body className="min-h-0 overflow-y-auto overscroll-contain">{children}</div>
+          <div ref={body} tabIndex={-1} data-phone-prompt-body className="min-h-0 overflow-y-auto overscroll-contain outline-none">{children}</div>
           <footer data-phone-prompt-answer className="shrink-0 border-t border-hairline pt-2">{footer}</footer>
         </PromptEscape></KeyContext>
       </Dialog.Content>
