@@ -1279,7 +1279,9 @@ OS guarantee. Capped input/detail wells keep their own contained scrolling.
 #1641 adds four bounded landscape surfaces at 844×390 and 740×360 in dark/light
 and text 16/20 (32 captures): conversation, keyboard with a long parked card,
 Sessions drawer and composer details. Keep the landscape layout unchanged while
-visual height becomes 300 with offsetTop 8. Inject zero insets at 740px and
+filled-keyboard visual height becomes 330 with offsetTop 8; overlay proofs use 300.
+The filled-dock floor retains the waiting notice, three normal reply lines and
+the message/action row with the bottom safe reserve. Inject zero insets at 740px and
 44px left/right plus 21px bottom at 844px. Assert one conversation, three normal
 transcript lines, the dock bottom at visual bottom minus exactly one inset,
 44px Send/Stop and Close, long-card actions reachable in their bounded scroller,

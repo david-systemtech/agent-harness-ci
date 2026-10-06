@@ -314,8 +314,10 @@ rotation/insets, focus zoom, selection and Home Screen behavior require dated
 handset evidence in #1556 and never block builders.
 #1641 adds 32 bounded landscape captures: 844×390 and 740×360, text 16/20,
 dark/light, a conversation, long-card keyboard dock, Sessions drawer and composer
-details sheet. Keep layout bounds unchanged while visual height shrinks to 300px
-with offsetTop 8; inject zero insets or 44px side/21px bottom insets. Check one
+details sheet. Keep layout bounds unchanged while the filled-keyboard visual
+height shrinks to the supported 330px rectangle (including the waiting notice,
+three normal reply lines, message/actions and safe reserve); overlay proofs use
+300px. Both use offsetTop 8 and zero insets or 44px side/21px bottom insets. Check one
 projection, no page/horizontal overflow, three readable transcript lines,
 reachable Send/Stop and long-card decisions, bounded sheet/Close and trapped
 focus, and exactly one safe-area reserve at the dock edge. Focused transition

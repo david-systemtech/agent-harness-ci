@@ -41,8 +41,9 @@ export const landscapeScene = (surface: Surface): SceneModule => ({
       fit(); await settle();
       if (surface === "keyboard") {
         field.focus({ preventScroll: true });
-        // Keep the layout viewport unchanged: only the keyboard's visual rectangle shrinks.
-        viewport.height = 300; viewport.offsetTop = 8; fit(); await settle();
+        // Keep layout media unchanged. The supported filled-dock rectangle includes
+        // the waiting notice, three reply lines, 44px actions and the notch reserve.
+        viewport.height = 330; viewport.offsetTop = 8; fit(); await settle();
         const column = document.querySelector<HTMLElement>("[data-composer-column]")!;
         column.scrollTop = 0;
         const above = document.querySelector<HTMLElement>("[data-composer-above]")!;
