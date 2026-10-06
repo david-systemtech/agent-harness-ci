@@ -18,8 +18,8 @@ import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } f
  *   its build is the newest, and looks again every 30 seconds (#1753). The
  *   release the desktop follows is the environment's pin, else its
  *   channel's newest as the environment's own check last found it
- *   (`updates.status`), or, before a check of it succeeded, the environment's
- *   own version where newer than the desktop's build; when that is newer than the
+ *   (`updates.status`), or, while no newest is known and the last check has
+ *   not succeeded, the environment's own version where newer than the desktop's build; when that is newer than the
  *   build the shell runs, `updates.desktop.stage` has the environment stage
  *   the build for the shell's platform and format in the background, and
  *   the runtime reports it ready: the renderer's "Restart to update" applies
@@ -235,8 +235,9 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${settings.error.message}`, stagedNow());
     const pinned = settings.result.values["updates.pinnedVersion"] ?? null;
     const { newest, lastCheck, version: environmentVersion } = status.result;
-    // The environment runs a release, so a build older than it is behind before a check of the channel succeeded (#1753). Once one
-    // has, the newest is what a stage stages, even below the version the environment runs or none (a beta it left, a release withdrawn).
+    // The environment runs a release, so a build older than it is behind while the last check of the channel has not succeeded (#1753);
+    // `updates.status` says only the last. After one that did, the newest is what a stage stages, even below the version running or none.
+    // A failed check after a read that found no release follows the environment's version again, and its stage fails as the check would.
     const ahead = newest === null && lastCheck?.result !== "ok" && newerVersion(environmentVersion, version);
     const followed = pinned ?? (ahead ? environmentVersion : newest);
     if (followed === null) {
