@@ -89,6 +89,7 @@ const toneOf = (notice: Notice): "info" | "warning" | "error" => {
     case "unsupported-client":
     case "protocol-mismatch":
     case "update-refused":
+    case "credential-prompt":
     case "draining":
     case "account":
     case "prompt-parked":

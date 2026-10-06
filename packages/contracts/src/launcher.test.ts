@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  CREDENTIAL_ACCESS_FILE,
+  CREDENTIAL_ACCESS_STATES,
   DATABASE_FILE,
   DRAIN_CAP_MS,
   INSTALL_REFUSALS,
@@ -10,10 +12,12 @@ import {
   SWITCH_REFUSALS,
   UPDATE_ID_PATTERN,
   answersRequest,
+  isCredentialAccessRecord,
   isOutcomeRecord,
   parseEnvironmentMessage,
   parseLauncherMessage,
   parsePreflightReport,
+  type CredentialAccessRecord,
   type EnvironmentMessage,
   type LauncherMessage,
   type OutcomeRecord,
@@ -38,6 +42,8 @@ const fromEnvironment: readonly EnvironmentMessage[] = [
   { type: "draining", drainingSince: "2026-09-28T10:00:00.000Z", trigger: "launcher" },
   // The drain an update began, joined by the launcher's drain query (#335).
   { type: "draining", drainingSince: "2026-09-28T10:00:00.000Z", trigger: "update" },
+  // A start whose OS credential read waits on the person, then got or was refused its stored key (#1689).
+  ...CREDENTIAL_ACCESS_STATES.map((state) => ({ type: "credential-access", state }) as const),
 ];
 
 /** Every message the launcher sends the environment, one of each kind, each refusal reason included. */
@@ -121,6 +127,8 @@ describe("the launcher channel's messages", () => {
       { type: "idle", readiness: "ready", updatesManagedOutside: false },
       { type: "idle", ...status, activity: { state: "asleep" } },
       { type: "draining", trigger: "launcher" },
+      { type: "credential-access" },
+      { type: "credential-access", state: "asked" },
     ];
     for (const message of malformedFromEnvironment) expect(parseEnvironmentMessage(message), JSON.stringify(message)).toBeUndefined();
   });
@@ -251,6 +259,24 @@ describe("the files the environment and the launcher share in the data directory
     }
     for (const invalid of [null, [], "trial", { ...record, stage: "switch" }, { ...record, reason: 3 }, { ...record, updateId: "../update" }]) {
       expect(isOutcomeRecord(invalid), JSON.stringify(invalid)).toBe(false);
+    }
+  });
+
+  const waiting: CredentialAccessRecord = { version: "0.5.0", pid: 4242, since: "2026-10-06T10:34:01.000Z", state: "waiting" };
+
+  it("take a credential-access record naming the version, its process, since when and the state of its wait (#1689)", () => {
+    expect(CREDENTIAL_ACCESS_FILE).toBe("credential-access.json");
+    for (const state of CREDENTIAL_ACCESS_STATES) expect(isCredentialAccessRecord(overIpc({ ...waiting, state })), state).toBe(true);
+  });
+
+  it("refuse a credential-access record missing any of its parts, or with a state or process no wait has", () => {
+    for (const key of Object.keys(waiting)) {
+      const partial: Record<string, unknown> = { ...waiting };
+      delete partial[key];
+      expect(isCredentialAccessRecord(partial), key).toBe(false);
+    }
+    for (const invalid of [null, [], { ...waiting, state: "asked" }, { ...waiting, pid: 0 }, { ...waiting, pid: "4242" }, { ...waiting, version: "" }, { ...waiting, since: "" }]) {
+      expect(isCredentialAccessRecord(invalid), JSON.stringify(invalid)).toBe(false);
     }
   });
 });

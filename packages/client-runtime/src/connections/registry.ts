@@ -50,10 +50,13 @@ import {
   type ClientPreferences,
   type ConnectionCredential,
   type ConnectionRecord,
+  type CredentialPrompt,
   type EnvironmentDescriptor,
   type RemoveResult,
   type SavedConnection,
 } from "./records.js";
+import { desktopSawUnanswered } from "../updates/credential-notice.js";
+import { credentialPromptWords } from "../updates/words.js";
 import { createRunner, type Runner, type RunnerHost } from "./runner.js";
 import { actionOf, initialMachine, type DiscoveryAnswer, type RefreshOutcome } from "./state-machine.js";
 
@@ -217,7 +220,16 @@ export interface Registry extends Connections {
 /** How long a revoke waits for its answer before the connection is forgotten anyway. A chosen default. */
 export const REVOKE_TIMEOUT_MS = 10_000;
 
+/** How often the window reads the local environment's credential-access record while it does not answer (#1689). A chosen default, as the update poll's. */
+export const CREDENTIAL_POLL_MS = 5_000;
+
 interface Entry {
+  /** The local environment's credential-access wait, while its start waits on the person (#1689). */
+  credentialPrompt?: CredentialPrompt | null;
+  /** The version whose wait was last seen, until a read tells whether it was answered. */
+  credentialSeen?: { readonly toVersion: string; readonly at: Date } | undefined;
+  credentialPolling?: boolean;
+  credentialPoll?: Timer;
   updatePending?: PendingUpdate | null;
   updateError?: string | null;
   updateRestarting?: boolean;
@@ -295,6 +307,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       unreachableSince: iso(machine.unreachableSince),
       refreshFailed: machine.refreshFailed,
       action: actionOf(machine),
+      ...(entry.credentialPrompt != null && { credentialPrompt: entry.credentialPrompt }),
       ...(machine.updateDeadline !== null && { update: {
         pending: entry.updatePending ?? null,
         error: entry.updateError ?? null,
@@ -339,6 +352,58 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     if (isCurrent(environmentId, entry) && entry.runner.state.updateDeadline !== null) {
       entry.updatePoll = platform.clock.setTimeout(() => { void pollUpdate(environmentId, entry); }, 5000);
     }
+  };
+
+  /**
+   * Watches the local environment's credential-access record while it does
+   * not answer (#1689): a start that waits on macOS's prompt for its stored
+   * key cannot say so over the wire, so the window learns it from the record,
+   * read every `CREDENTIAL_POLL_MS` until the environment answers, then once
+   * more, since the wait may have ended just before.
+   */
+  const watchCredentialAccess = (environmentId: string, entry: Entry, open: boolean) => {
+    if (entry.saved.kind !== "local" || platform.shell?.credentialAccess === undefined) return;
+    if (!open) {
+      if (!entry.credentialPolling) void pollCredentialAccess(environmentId, entry);
+      return;
+    }
+    if (!entry.credentialPolling) return;
+    entry.credentialPolling = false;
+    entry.credentialPoll?.cancel();
+    void readCredentialAccess(environmentId, entry);
+  };
+
+  const pollCredentialAccess = async (environmentId: string, entry: Entry): Promise<void> => {
+    entry.credentialPolling = true;
+    await readCredentialAccess(environmentId, entry);
+    if (!entry.credentialPolling || closed || !isCurrent(environmentId, entry)) return;
+    entry.credentialPoll = platform.clock.setTimeout(() => void pollCredentialAccess(environmentId, entry), CREDENTIAL_POLL_MS);
+  };
+
+  /**
+   * Reads the record: a live start's wait shows on the machine and in a
+   * notice; once its start is gone with the record still there, unanswered or
+   * refused, the update was rolled back for it, which a notice says; a record
+   * taken away was answered.
+   */
+  const readCredentialAccess = async (environmentId: string, entry: Entry): Promise<void> => {
+    const read = await platform.shell?.credentialAccess?.read().catch(() => undefined);
+    if (closed || !isCurrent(environmentId, entry)) return;
+    const waiting = read !== undefined && read.live && read.state === "waiting" ? { toVersion: read.version, since: read.since } : null;
+    const seen = entry.credentialSeen;
+    // When this client first saw the wait: the environment's report of a trial that ended before it is another trial's.
+    if (waiting !== null) {
+      if (seen?.toVersion !== waiting.toVersion) entry.credentialSeen = { toVersion: waiting.toVersion, at: platform.clock.now() };
+    } else if (seen !== undefined && (read === undefined || !read.live)) {
+      entry.credentialSeen = undefined;
+      if (read?.version === seen.toVersion && read.state !== "answered") desktopSawUnanswered(notices, environmentId, entry.saved.descriptor.name, seen.toVersion, seen.at);
+    }
+    const shown = entry.credentialPrompt ?? null;
+    if (shown?.toVersion === waiting?.toVersion && shown?.since === waiting?.since) return;
+    entry.credentialPrompt = waiting;
+    notices.retire((notice) => notice.environmentId === environmentId && notice.kind === "credential-prompt");
+    if (waiting !== null) notices.raise(environmentId, { kind: "credential-prompt", message: credentialPromptWords(waiting.toVersion), action: null });
+    publish();
   };
 
   const entryOf = (environmentId: string): Entry => {
@@ -726,6 +791,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       }
       if (next.step !== "open") endSyncing(environmentId);
       if (!isCurrent(environmentId, e)) return;
+      watchCredentialAccess(environmentId, e, next.step === "open");
       if (next.blocked !== previous.blocked) return updateSaved(environmentId, e, { blocked: next.blocked });
       publish();
     },
@@ -1322,7 +1388,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
 
     close() {
       closed = true;
-      for (const entry of entries.values()) entry.updatePoll?.cancel();
+      for (const entry of entries.values()) {
+        entry.updatePoll?.cancel();
+        entry.credentialPoll?.cancel();
+      }
       stopNetwork?.();
       stopNetwork = undefined;
       for (const entry of entries.values()) entry.runner.stop();

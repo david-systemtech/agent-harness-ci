@@ -1,4 +1,4 @@
-import type { BootstrapGrant } from "@agent-harness/contracts";
+import type { BootstrapGrant, CredentialAccessRecord } from "@agent-harness/contracts";
 import type { Observable } from "./observable.js";
 import type { SecretProtection, Shell } from "./shell.js";
 
@@ -128,6 +128,19 @@ export interface NetworkState {
 
 /** The network as the platform sees it: online or offline, and whether the client is in the foreground. */
 export type NetworkSignal = Observable<NetworkState>;
+
+/**
+ * Reads the credential-access record the local environment writes while its
+ * start waits on the person to let it read its stored key (#1689): the
+ * record and whether its process is still alive, undefined when there is
+ * none. The desktop's shell provides one as its `credentialAccess` member.
+ */
+export interface CredentialAccessReader {
+  read(): Promise<LocalCredentialAccess | undefined>;
+}
+
+/** The local environment's credential-access record, and whether the start that wrote it still runs: a dead one's wait ended unanswered. */
+export type LocalCredentialAccess = CredentialAccessRecord & { readonly live: boolean };
 
 /** Reads the grant file the local environment writes. The desktop's shell provides one as its `localGrant` member. */
 export interface GrantReader {

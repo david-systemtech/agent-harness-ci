@@ -38,6 +38,7 @@ export const ANSWERED = [
   "secrets.protection",
   "secrets.access",
   "localGrant.read",
+  "credentialAccess.read",
   "service.applyUpdateNow",
   "service.install",
   "service.pendingUpdate",
