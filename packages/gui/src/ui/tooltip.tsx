@@ -1,5 +1,6 @@
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { createContext, useContext, useEffect, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { classes } from "./classes.js";
 
 export const TOOLTIP_DELAY_MS = 250;
@@ -10,17 +11,19 @@ const HasTooltipProvider = createContext(false);
 // All providers in the document therefore read the same last input modality.
 // Like `:focus-visible`, only focus that follows the keyboard (or no input yet) reveals a hint:
 // a dialog opened by a click focuses its first control, and its hint would cover the dialog's text.
+// The phone layout asks more: only Tab, as focus a person moved, reveals a hint there; a sheet restored on reload
+// focuses its close button before any input, and the hint covered the notice above it (#1741).
 type Modality = "keyboard" | "pointer" | "touch";
-interface TooltipInput { by: Modality; users: number; pointer: (event: PointerEvent) => void; keyboard: (event: KeyboardEvent) => void }
+interface TooltipInput { by: Modality; tabbed: boolean; users: number; pointer: (event: PointerEvent) => void; keyboard: (event: KeyboardEvent) => void }
 const pointerModality = (event: PointerEvent): Modality => event.pointerType === "touch" ? "touch" : "pointer";
 const inputs = new WeakMap<Document, TooltipInput>();
 const inputFor = (page: Document): TooltipInput => {
   let input = inputs.get(page);
   if (!input) {
-    const next: TooltipInput = { by: "keyboard", users: 0,
+    const next: TooltipInput = { by: "keyboard", tabbed: false, users: 0,
       pointer: event => { next.by = pointerModality(event); },
       // A chord or a window switch (Alt+Tab, Cmd+Tab) is not focus navigation, as for `:focus-visible`.
-      keyboard: event => { if (!event.altKey && !event.ctrlKey && !event.metaKey) next.by = "keyboard"; },
+      keyboard: event => { if (!event.altKey && !event.ctrlKey && !event.metaKey) { next.by = "keyboard"; next.tabbed = event.key === "Tab"; } },
     };
     inputs.set(page, next);
     input = next;
@@ -42,15 +45,21 @@ export const TooltipProvider = ({ children, delayDuration = TOOLTIP_DELAY_MS, sk
         page.removeEventListener("pointerdown", input.pointer, true);
         page.removeEventListener("keydown", input.keyboard, true);
         input.by = "keyboard";
+        input.tabbed = false;
       }
     };
   }, []);
   return <HasTooltipProvider value><RadixTooltip.Provider delayDuration={delayDuration} skipDelayDuration={skipDelayDuration} {...props}>{children}</RadixTooltip.Provider></HasTooltipProvider>;
 };
 
-/** Keyboard focus reveals the hint immediately; isolated controls get the same default timing. */
-export const Tooltip = ({ content, children, className, onEscapeKeyDown, open, defaultOpen = false, onOpenChange, ...props }: ComponentProps<typeof RadixTooltip.Root> & { readonly content: ReactNode; readonly children: ReactElement; readonly className?: string; readonly onEscapeKeyDown?: ComponentProps<typeof RadixTooltip.Content>["onEscapeKeyDown"] }) => {
+/** A hint's key legend, or none on the phone layout, which has no keyboard to press it with (#1715, #1741). */
+export const useKeyLegend = (keys: string | undefined): string | undefined => usePhoneFrame().narrow ? undefined : keys;
+
+/** Keyboard focus reveals the hint immediately; isolated controls get the same default timing. `keys` is the legend after its content. */
+export const Tooltip = ({ content, keys, children, className, onEscapeKeyDown, open, defaultOpen = false, onOpenChange, ...props }: ComponentProps<typeof RadixTooltip.Root> & { readonly content: ReactNode; readonly keys?: string; readonly children: ReactElement; readonly className?: string; readonly onEscapeKeyDown?: ComponentProps<typeof RadixTooltip.Content>["onEscapeKeyDown"] }) => {
   const shared = useContext(HasTooltipProvider);
+  const { narrow } = usePhoneFrame();
+  const legend = useKeyLegend(keys);
   const input = inputFor(document);
   const [shown, setShown] = useState(defaultOpen);
   const change = (next: boolean) => {
@@ -65,10 +74,10 @@ export const Tooltip = ({ content, children, className, onEscapeKeyDown, open, d
         if (window.matchMedia("(hover: none)").matches) event.preventDefault();
         else if (event.pointerType === "mouse" && input.by === "touch") input.by = "pointer";
       }}
-      onFocus={event => { if (input.by !== "keyboard") event.preventDefault(); }}
+      onFocus={event => { if (input.by !== "keyboard" || (narrow && !input.tabbed)) event.preventDefault(); }}
     >{children}</RadixTooltip.Trigger>
     <RadixTooltip.Portal>
-      <RadixTooltip.Content data-ui-tooltip onEscapeKeyDown={onEscapeKeyDown} sideOffset={6} collisionPadding={8} className={classes("z-50 flex max-w-72 gap-1.5 rounded-md border border-hairline-strong bg-float px-2.5 py-1.5 text-xs leading-snug text-ink [overflow-wrap:anywhere] shadow-lg shadow-scrim/40 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[side=left]:slide-in-from-left-1 data-[side=right]:slide-in-from-left-1 duration-100 motion-reduce:animate-none", className)}>{content}</RadixTooltip.Content>
+      <RadixTooltip.Content data-ui-tooltip onEscapeKeyDown={onEscapeKeyDown} sideOffset={6} collisionPadding={8} className={classes("z-50 flex max-w-72 gap-1.5 rounded-md border border-hairline-strong bg-float px-2.5 py-1.5 text-xs leading-snug text-ink [overflow-wrap:anywhere] shadow-lg shadow-scrim/40 data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[side=left]:slide-in-from-left-1 data-[side=right]:slide-in-from-left-1 duration-100 motion-reduce:animate-none", className)}>{content}{legend !== undefined && ` · ${legend}`}</RadixTooltip.Content>
     </RadixTooltip.Portal>
   </RadixTooltip.Root>;
   return shared ? hint : <TooltipProvider>{hint}</TooltipProvider>;
