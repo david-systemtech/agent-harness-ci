@@ -14,7 +14,7 @@ let scratch = "";
 afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
 
 /** Run the hosted job's PowerShell at the account/process boundary, without creating OS users. */
-const execute = async (exitCode: number, blockedSource = "") => {
+const execute = async (exitCode: number, blockedSource = "", grantFails = false) => {
   scratch = mkdtempSync(join(tmpdir(), "windows-smoke-user-"));
   const workflow = releaseWorkflowInput(join(import.meta.dirname, "..")).hosted;
   const job = workflow.split("  smoke-windows:\n")[1]?.split("  smoke-macos:\n")[0] ?? "";
@@ -34,6 +34,16 @@ const execute = async (exitCode: number, blockedSource = "") => {
   copyFileSync(join(import.meta.dirname, "../scripts/check-packaged-provider-sign-in.mjs"),
     join(scratch, "scripts/check-packaged-provider-sign-in.mjs"));
   writeFileSync(join(scratch, "scripts/install.ps1"), "fixture installer");
+  // The real script calls the local security policy; record the boundary instead.
+  writeFileSync(join(scratch, "scripts/windows-logon-right.ps1"), `
+function Grant-WindowsLogonRight { param([Parameter(Mandatory)][string] $Sid, [Parameter(Mandatory)][string] $Right)
+  if ('${grantFails}' -eq 'true') { throw 'fixture policy refused the right' }
+  Add-Content $env:RECORD "granted:\${Right}:$Sid"
+}
+function Revoke-WindowsLogonRight { param([Parameter(Mandatory)][string] $Sid, [Parameter(Mandatory)][string] $Right)
+  Add-Content $env:RECORD "revoked:\${Right}:$Sid"
+}
+`);
   const harness = join(scratch, "harness.ps1");
   writeFileSync(harness, `
 $ErrorActionPreference = 'Stop'
@@ -100,9 +110,11 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("the Windows smoke's user token"
     const result = await execute(0);
     expect(result.stdout).toContain("ordinary-user child output");
     const record = readFileSync(join(scratch, "record"), "utf8");
-    expect(record).toContain("member:fixture-user-sid");
-    expect(record).toContain("ordinary-user launch");
-    expect(record).toMatch(/removed:ah-smoke-/);
+    // A Password-logon task is a batch logon, which Users lack on Windows Server (#1683).
+    expect(record.trim().split("\n").map((line) => line.replace(/ah-smoke-\w+/, "ah-smoke-user"))).toEqual([
+      "member:fixture-user-sid", "granted:SeBatchLogonRight:fixture-user-sid", "ordinary-user launch",
+      "revoked:SeBatchLogonRight:fixture-user-sid", "removed:ah-smoke-user",
+    ]);
     const child = readFileSync(join(scratch, "child.ps1"), "utf8");
     expect(child).toContain("S-1-16-(\\d+)");
     expect(child).toContain("foreach ($attempt in 1, 2)");
@@ -114,9 +126,17 @@ describe.skipIf(!hasPwsh && !process.env["CI"])("the Windows smoke's user token"
 
   it("propagates a failed smoke and removes its temporary account", async () => {
     await expect(execute(7)).rejects.toMatchObject({ code: 1 });
-    expect(readFileSync(join(scratch, "record"), "utf8")).toMatch(/removed:ah-smoke-/);
+    expect(readFileSync(join(scratch, "record"), "utf8")).toMatch(/revoked:SeBatchLogonRight:fixture-user-sid\nremoved:ah-smoke-/);
     expect(readFileSync(join(scratch, "windows-smoke-diagnostics/task-query.txt"), "utf8").trim()).toBe("task result: 267009 password=[REDACTED]");
     expect(readFileSync(join(scratch, "windows-smoke-diagnostics/stdout.log"), "utf8").trim()).toBe("ordinary-user child output password=[REDACTED]");
+  });
+
+  it("fails before the smoke when the batch logon right cannot be granted, and still removes the account", async () => {
+    await expect(execute(0, "", true)).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("fixture policy refused the right") });
+    const record = readFileSync(join(scratch, "record"), "utf8");
+    expect(record).not.toContain("ordinary-user launch");
+    expect(record).not.toContain("revoked:");
+    expect(record).toMatch(/removed:ah-smoke-/);
   });
 
   it.each(["diagnostic", "stdout", "destination"])("retains the remaining evidence when the %s source cannot be copied", async (source) => {
