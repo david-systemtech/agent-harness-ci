@@ -73,6 +73,18 @@ describe("the Memory bank card", () => {
     expect(within(firstCard).queryByRole("button", { name: "Revise: Second" })).toBeNull();
   });
 
+  it("names the accounts a bank is the default for and is scoped to by their labels, never their ids (ticket 1752)", async () => {
+    const personal = "0bcb960d-1b0b-48d8-81f6-49fe44341431";
+    const team = "da2d4db4-7bec-465c-b7ec-91938a15e3d2";
+    const scoped = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "notes", creation: { kind: "personal", localOnly: true, org: "personal", project: "harness" } }), accounts: [personal, team], defaultFor: [personal, team] };
+    const { app, card } = await open({ accounts: [{ id: personal, label: "Personal mail" }, { id: team, label: "Team" }] }, [scoped]);
+    const notes = await within(card).findByRole("region", { name: "notes" });
+    expect(await within(notes).findByText("Default for Personal mail, Team")).toBeDefined();
+    await app.user.click(within(notes).getByText("Repository and scope"));
+    expect(within(notes).getByText("Personal mail, Team")).toBeDefined();
+    expect(notes.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
   it("shows the cached bank controls read-only without admin", async () => {
     const { card } = await open({ scopes: ["read"] });
     const create = await within(card).findByRole("button", { name: "Create" });

@@ -1,6 +1,6 @@
 import { SettingsCardGrid } from "../settings/part.js";
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { adminCall, oneLine, uuidv4, uuidv7 } from "@agent-harness/client-runtime";
+import { accountName, adminCall, oneLine, uuidv4, uuidv7 } from "@agent-harness/client-runtime";
 import type { BankRecord, MemoryPromoteResult, ParamsOf } from "@agent-harness/contracts";
 import { Brain, GitPullRequest, Power, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -31,6 +31,8 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const clock = useClock();
   const read = useObservable(useMemo(() => runtime.requests.cached(environmentId, "banks.list", {}), [runtime, environmentId]));
   const forges = useObservable(useMemo(() => runtime.requests.cached(environmentId, "forge.accounts.list", {}), [runtime, environmentId]));
+  const names = useObservable(useMemo(() => runtime.projections.accountNames(environmentId), [runtime, environmentId]));
+  const named = (accountIds: readonly string[]) => accountIds.map((accountId) => accountName(names, accountId)).join(", ");
   const sessions = useObservable(runtime.projections.sessionList);
   const repository = sessions.rows.find((row) => row.environmentId === environmentId && row.summary.repositoryIdentity !== null)?.summary.repositoryIdentity;
   const [mode, setMode] = useState<BankMode>("personal");
@@ -140,7 +142,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
             <Badge variant="secondary">{bank.role === "read-write" ? "Read and write" : "Read only"}</Badge>
             <Badge variant={bank.enabled ? "secondary" : "outline"}>{bank.enabled ? "On" : "Off"}</Badge>
             <Badge variant="outline">{bank.location.kind === "local" ? "Local only" : "Remote"}</Badge>
-            {bank.defaultFor.length > 0 && <Badge variant="outline">Default for {bank.defaultFor.join(", ")}</Badge>}
+            {bank.defaultFor.length > 0 && <Badge variant="outline">Default for {named(bank.defaultFor)}</Badge>}
             <Badge variant="outline">{bank.credential === "reference" ? "Key manager" : bank.credential === "forge" ? "Forge access" : "Stored credential"}</Badge>
           </div>
         </header>
@@ -151,7 +153,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
           <dl className="flex flex-col gap-2 text-ink-muted">
             <div><dt>Checkout</dt><dd className="break-all font-mono">{bank.checkout}</dd></div>
             {bank.location.kind === "remote" && <div><dt>Remote</dt><dd className="break-all font-mono">{bank.location.origin}/{bank.location.repository}</dd></div>}
-            <div><dt>Accounts</dt><dd>{bank.accounts === "all" ? "All accounts" : bank.accounts.join(", ") || "No accounts"}</dd></div>
+            <div><dt>Accounts</dt><dd>{bank.accounts === "all" ? "All accounts" : named(bank.accounts) || "No accounts"}</dd></div>
             <div><dt>Repositories</dt><dd className="break-all">{bank.repositories === "all" ? "All repositories" : bank.repositories.join(", ") || "No repositories"}</dd></div>
             <div><dt>Last sync</dt><dd>{bank.status.lastSync ?? "Never synced"}</dd></div>
           </dl>
