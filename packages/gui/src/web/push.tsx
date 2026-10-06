@@ -6,6 +6,7 @@ import type { AttentionTargetInput, AttentionTargetStatus } from "@agent-harness
 import { Button } from "../ui/button.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import type { WebModule } from "../platform/web-registrations.js";
+import { servingConnection } from "../connections/browser-reach.js";
 
 export interface PushSubscriptionData { readonly endpoint: string; readonly keys: { readonly auth: string; readonly p256dh: string } }
 export interface PushBrowser {
@@ -177,7 +178,7 @@ const PushSurface = () => {
   const [layout] = usePresentation("paneLayout");
   const session = layout.rows.flatMap(row => row.panes).find(pane => pane.id === layout.focused)?.session;
   const records = useObservable(useRuntime().connections.list);
-  const home = records.find(record => { try { return new URL(record.address).origin === window.location.origin; } catch { return false; } });
+  const home = servingConnection(records, window.location.origin);
   useEffect(() => {
     if (!settings.shown) { setAnchor(null); return; }
     const find = () => setAnchor(document.querySelector("[data-attention-settings]"));
