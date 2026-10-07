@@ -1,8 +1,9 @@
 import type { SkillReadiness, SkillsView, SkillsViewMember } from "@agent-harness/contracts";
 import { Sparkles, Power, Repeat, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { accountName } from "@agent-harness/client-runtime";
+import { useMemo, useState } from "react";
 import { Button, Dialog, DialogContent, Switch, Tooltip } from "../ui/index.js";
-import { useRuntime } from "../window-context.js";
+import { useObservable, useRuntime } from "../window-context.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
 
 /** Every member, including invalid and shadowed ones, is drawn from skills.get; choices are keyed by name. */
@@ -20,6 +21,7 @@ export const MemberCard = ({
   readonly say: (line: string) => void;
 }) => {
   const runtime = useRuntime();
+  const names = useObservable(useMemo(() => runtime.projections.accountNames(environmentId), [runtime, environmentId]));
   const { send, sending, commandId, refusal, clearRefusal } = useSkillVerb(say);
   const [removing, setRemoving] = useState(false);
   const name = member.name;
@@ -101,11 +103,12 @@ export const MemberCard = ({
         const alwaysChoice = skills.choices.find((choice) => choice.kind === "always-on" && choice.name === name && choice.accountId === account.accountId);
         const accountEnabled = enabledChoice?.kind === "enabled" ? enabledChoice.enabled : true;
         const on = alwaysChoice?.kind === "always-on" ? alwaysChoice.on : false;
+        const label = accountName(names, account.accountId);
         return (
           <div key={account.accountId} className="flex flex-col gap-2">
             <label className="flex items-center gap-2 text-xs">
-              <Tooltip content={`Enabled on ${account.accountId}`} keys="Space"><Switch
-                aria-label={`Enabled ${name ?? member.path} on ${account.accountId}`}
+              <Tooltip content={`Enabled on ${label}`} keys="Space"><Switch
+                aria-label={`Enabled ${name ?? member.path} on ${label}`}
                 disabled={invalid || sending || enabledCapability.status === "absent" || !environmentEnabled}
                 checked={accountEnabled}
                 onCheckedChange={(enabled) => {
@@ -116,12 +119,12 @@ export const MemberCard = ({
                     );
                 }}
               /></Tooltip>
-              <Power aria-hidden="true" className="size-3.5" />Enabled on {account.accountId}
+              <Power aria-hidden="true" className="size-3.5" />Enabled on {label}
             </label>
             {!environmentEnabled && <p className="text-xs text-ink-faint">The environment's disabled choice takes precedence.</p>}
             <label className="flex items-center gap-2 text-xs">
-              <Tooltip content={`Every prompt on ${account.accountId}`} keys="Space"><Switch
-                aria-label={`Every prompt ${name ?? member.path} on ${account.accountId}`}
+              <Tooltip content={`Every prompt on ${label}`} keys="Space"><Switch
+                aria-label={`Every prompt ${name ?? member.path} on ${label}`}
                 disabled={invalid || sending || alwaysCapability.status === "absent" || account.channel === "none"}
                 checked={on}
                 onCheckedChange={(on) => {
@@ -132,7 +135,7 @@ export const MemberCard = ({
                     );
                 }}
               /></Tooltip>
-              <Repeat aria-hidden="true" className="size-3.5" />Every prompt on {account.accountId}
+              <Repeat aria-hidden="true" className="size-3.5" />Every prompt on {label}
 
             </label>
             {account.channel === "none" && <p className="text-xs text-ink-faint">{account.reason ?? "This account has no instruction channel."}</p>}

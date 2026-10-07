@@ -7,7 +7,7 @@ import { settingsGeometry } from "../settings-scene.js";
 import type { SceneViewport } from "../scene-registry.js";
 import { prepareWorld, startWorld } from "../world.js";
 
-const prepared = await prepareWorld({ environments: [{ name: "desk", reach: "local", accounts: [{ label: "Personal" }] }] });
+const prepared = await prepareWorld({ environments: [{ name: "desk", reach: "local", accounts: [{ id: "personal", label: "Personal" }] }] });
 const skills: SkillsView = {
   ownDirectory: "/home/example/skills/own", sources: ["procedures", "guides"].map((name, index) => ({
     id: `0199dd00-0000-4000-8000-00000000000${index + 1}`,
@@ -34,7 +34,7 @@ export default function SkillsScene({ ladder }: { readonly ladder: LadderName })
     world.presentation.set("lightOrDark", ladder);
     prepared.shell.openDeepLink(settingsDeepLink("knowledge.skills"));
     const drawn = () => {
-      if (document.querySelector('[aria-label="Every prompt review on personal"]') === null
+      if (document.querySelector('[aria-label="Every prompt review on Personal"]') === null
       || document.querySelector('[aria-label="Declined: https://git.example.test/team/guides"]') === null) return;
       observer.disconnect();
       setReady(true);
@@ -54,5 +54,5 @@ export const geometry = (viewport: SceneViewport) => [
   { selector: 'input[aria-label="Source URL"]', height: 32 },
   { selector: '[data-settings-card-grid] > section:is([aria-label^="Trusted:"], [aria-label^="Declined:"])', width: viewport.width >= 1280 ? 541 : 720, contentFits: true },
   { selector: '[data-settings-card-grid] > section[aria-label^="https://git.example.test/team/"]', width: viewport.width >= 1280 ? 541 : 720, contentFits: true },
-  { selector: '[aria-label="Every prompt review on personal"]', width: 32, height: 18.4 },
+  { selector: '[aria-label="Every prompt review on Personal"]', width: 32, height: 18.4 },
 ];

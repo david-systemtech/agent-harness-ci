@@ -1,6 +1,7 @@
 import {
   ACCOUNT_STATUS_WORDS,
   MODE_BADGE_WORDS,
+  UNREAD_ACCOUNT,
   aboveCeilingWords,
   containmentWords,
   identityWords,
@@ -292,8 +293,11 @@ export const AccountPicker = ({ environmentId, sessionId, accountId }: AccountPi
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const [choice] = useModelChoice(environmentId, sessionId);
+  const names = useObservable(useMemo(() => runtime.projections.accountNames(environmentId), [runtime, environmentId]));
   const account = accounts.value?.find((candidate) => candidate.id === accountId);
-  const value = accountId === null ? "default account" : `${account?.label ?? accountId} ${account ? identityWords(account) : "not read yet"}`;
+  // Until the environment lists the account, the name this window last saw of it, else that it was never read: never its id.
+  const kept = accountId === null ? undefined : names.names[accountId];
+  const value = accountId === null ? "default account" : account !== undefined ? `${account.label} ${identityWords(account)}` : kept !== undefined ? `${kept} · last seen` : UNREAD_ACCOUNT;
   const model = choice ?? (projection.summary?.model ? { model: projection.summary.model, effort: null } : undefined);
   return <PickerButton name="Account" command="account" value={value} offer={useOffer(environmentId, "accounts.list")} columns
     items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={model} initialStage="Accounts" close={close} />}>

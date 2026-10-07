@@ -154,8 +154,7 @@ describe("Your machines", () => {
     await waitFor(() =>
       expect(levels("laptop")).toEqual([
         "Off: available",
-        "Workspace: not available: bwrap is not installed on this machine.",
-        "No network: not available: bwrap is not installed on this machine.",
+        "Workspace and No network: not available: bwrap is not installed on this machine.",
       ]),
     );
     expect(levels("desk")).toEqual(["Off: available", "Workspace: available", "No network: available"]);
@@ -163,6 +162,56 @@ describe("Your machines", () => {
     await app.user.click(within(card(pane, "laptop")).getByRole("button", { name: "Open Permissions" }));
     const permissions = screen.getByRole("region", { name: "Permissions" });
     expect(within(within(permissions).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("laptop");
+  });
+
+  it("says a reason the workspace levels share once, in its words, with what the tool printed behind Details, and levels with reasons of their own apart", async () => {
+    const reason = "bubblewrap could not run a command in an unshared user namespace with a read-only root: the container's seccomp profile refuses to create user namespaces.";
+    const detail = "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces. See <https://deb.li/bubblewrap>.";
+    const app = await opened({
+      laptop: {
+        containment: {
+          levels: [
+            { level: "off", available: true, reason: null, cause: null },
+            { level: "workspace", available: false, reason, cause: "seccomp", detail },
+            { level: "workspace-no-network", available: false, reason, cause: "seccomp", detail },
+          ],
+          mechanism: null,
+        },
+      },
+      desk: {
+        containment: {
+          levels: [
+            { level: "off", available: true, reason: null, cause: null },
+            { level: "workspace", available: false, reason: "bubblewrap is not installed.", cause: "binary_missing" },
+            { level: "workspace-no-network", available: false, reason: "socat is not installed.", cause: "socat_missing" },
+          ],
+          mechanism: null,
+        },
+      },
+    });
+    const pane = await openMachines(app);
+    const containment = (name: string) => within(card(pane, name)).getByRole("region", { name: "Containment" });
+    const unavailable = await within(containment("laptop")).findByText(`Workspace and No network: not available: ${reason}`);
+    expect(within(containment("laptop")).getAllByText(new RegExp(reason.slice(0, 40))).length).toBe(1);
+    expect(within(containment("laptop")).getAllByRole("listitem")).toHaveLength(2);
+
+    // What bwrap printed is not the reason: it is folded behind Details, under the level it explains.
+    const item = unavailable.closest("li");
+    if (item === null) throw new Error("the level is not a list item");
+    const disclosure = within(item).getByRole("group");
+    expect(disclosure.tagName).toBe("DETAILS");
+    expect((disclosure as HTMLDetailsElement).open).toBe(false);
+    expect(within(disclosure).getByText(detail)).toBeDefined();
+    await app.user.click(within(disclosure).getByText("Details"));
+    expect((disclosure as HTMLDetailsElement).open).toBe(true);
+
+    // Two reasons are two lines, and a level that printed nothing has no Details.
+    expect(within(containment("desk")).getAllByRole("listitem").map((level) => level.textContent)).toEqual([
+      "Off: available",
+      "Workspace: not available: bubblewrap is not installed.",
+      "No network: not available: socat is not installed.",
+    ]);
+    expect(within(containment("desk")).queryByRole("group")).toBeNull();
   });
 
   it("makes a pairing code for another client, with its link, its address and code, a QR of the link and its expiry, and says when it has expired", async () => {

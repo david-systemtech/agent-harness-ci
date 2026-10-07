@@ -259,6 +259,7 @@ export {
   type OfferedSetupAction,
   type RestorableStep,
   type SetupActionPlan,
+  type UpdateNowOutcome,
 } from "./setup/actions.js";
 export {
   STEP_STATE_WORDS,
@@ -362,6 +363,7 @@ export {
 } from "./attention/policy.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
+export { accountName, UNREAD_ACCOUNT, type AccountNames } from "./projections/account-names.js";
 export type { RoutineGroup, RoutineHistory, RoutineHistoryView, RoutineRow, RoutinesView, SentDefinition } from "./projections/routines.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
 export type {
@@ -660,6 +662,7 @@ export {
   credentialPromptWords,
   environmentVersionWords,
   offersClientVersion,
+  pendingUpdateId,
   pendingUpdateWords,
   pinnedWords,
   updatesUnreadWords,

@@ -463,6 +463,8 @@ Noninteractive space drags the window; every action is outside the drag region.
 On macOS retain native traffic lights and reserve fixed 76px left in native,
 non-fullscreen windows. Other native platforms draw three 28px window controls;
 browser clients draw none. Unfocused controls 60% opaque; close hover signal.
+A full-window surface with its own header (the first-run welcome, the Set up
+checklist) carries the same frame: drag, the macOS inset, controls at the end.
 
 Left-to-right order: collapsed-sidebar opener; focused environment chip;
 workspace basename;12px ChevronRight; truncating session title; centred search;

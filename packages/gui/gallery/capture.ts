@@ -1,7 +1,5 @@
-import { createReadStream } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { extname, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { capturePlan, captureShard, sceneFiles } from "./capture-plan.js";
 import { verifyPhoneMenuReachability } from "./phone-menu-reachability.js";
@@ -10,6 +8,7 @@ import { waitForFloatingLayout } from "./floating-layout.js";
 import { compareCapture, geometryFailures, galleryFailed } from "./compare.js";
 import type { Measurement } from "./compare.js";
 import { observePreviewRequests, verifyPhonePreviewIsolation } from "./phone-preview-isolation.js";
+import { galleryOrigin, serveGallery } from "./serve.js";
 
 // This executable starts a server and Chromium. Its only execution site is a hosted CI runner.
 if (process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"] !== "github-hosted") {
@@ -17,18 +16,7 @@ if (process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"
 }
 const directory = resolve(import.meta.dirname, "../gallery-dist");
 const output = resolve(import.meta.dirname, "../gallery-images");
-const types: Readonly<Record<string, string>> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".svg": "image/svg+xml" };
-const server = createServer((request, response) => {
-  const path = resolve(directory, `.${new URL(request.url ?? "/", "http://localhost").pathname}`);
-  if (!path.startsWith(directory + sep)) { response.writeHead(403).end(); return; }
-  response.setHeader("Content-Type", types[extname(path)] ?? "application/octet-stream");
-  const file = createReadStream(path);
-  file.on("error", () => response.writeHead(404).end());
-  file.pipe(response);
-});
-await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
-const address = server.address();
-if (address === null || typeof address === "string") throw new Error("Gallery server has no address.");
+const server = await serveGallery(directory);
 let browser;
 try {
   await mkdir(output, { recursive: true });
@@ -49,7 +37,7 @@ try {
     if (platform === "web") await page.exposeFunction("galleryLayoutViewport", (width: number, height: number) => page.setViewportSize({ width, height }));
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    const sceneUrl = `http://127.0.0.1:${address.port}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}&platform=${platform}${platform === "web" ? `&textSize=${textSize}` : ""}`;
+    const sceneUrl = `${galleryOrigin}/gallery.html?scene=${encodeURIComponent(scene)}&ladder=${ladder}&platform=${platform}${platform === "web" ? `&textSize=${textSize}` : ""}`;
     await page.goto(sceneUrl);
     await page.locator(`#root[data-gallery-ready="${scene}"]`).waitFor();
     await page.evaluate(waitForFloatingLayout);

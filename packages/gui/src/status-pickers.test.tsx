@@ -296,6 +296,31 @@ describe("the account picker", () => {
     expect(await within(statusLine()).findByRole("button", { name: "Account: personal milo@home.test" })).toBeTruthy();
   });
 
+  it("names the session's account by the label last seen when the window opens while its environment is not answering, never by its id (ticket 1752)", async () => {
+    const team = "da2d4db4-7bec-465c-b7ec-91938a15e3d2";
+    const unseen = "175f15dd-2b8e-4c3a-9d41-6a7e0f3c2b19";
+    const { app, env } = await opened([desk({
+      accounts: [{ id: "0bcb960d-1b0b-48d8-81f6-49fe44341431", label: "Personal mail", identity: HOME }, { id: team, label: "Team", identity: WORK }],
+      sessions: [{ title: "Receipts", accountId: team }, { title: "Elsewhere", accountId: unseen }],
+    })]);
+    expect(await within(statusLine()).findByRole("button", { name: "Account: Team milo@work.test" })).toBeDefined();
+    // A session on an account the environment does not list is named as one.
+    app.open("desk", 1);
+    expect(await within(statusLine()).findByRole("button", { name: "Account: an account not read yet" })).toBeDefined();
+    expect(statusLine().textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    app.open("desk", 0);
+    await within(statusLine()).findByRole("button", { name: "Account: Team milo@work.test" });
+
+    env.autoAccept(false);
+    env.discovery("nothing");
+    env.server.drop();
+    await app.remount();
+    await screen.findByText("Cached: what this window last saw of it; desk is not answering");
+    const chip = await within(statusLine()).findByRole("button", { name: "Account: Team · last seen" });
+    expect(chip.textContent).toBe("Team · last seen");
+    expect(statusLine().textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
   it("says the session is on the account already", async () => {
     const { app, env } = await opened();
     await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^work/ }));

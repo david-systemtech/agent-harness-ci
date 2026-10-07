@@ -253,10 +253,12 @@ export interface ScriptedEnvironment {
  * `desktopBuild` names, whatever platform and format it is asked for, or
  * its refusal, an error with the reason as its code; `updates.apply` is
  * accepted, the update going to the version asked for (else the channel's
- * newest), unless `receipts` rejects it.
+ * newest) under `updateId`, unless `receipts` rejects it.
  */
 export interface ScriptedUpdates {
   readonly status?: Partial<UpdatesStatus>;
+  /** The id of the update `updates.apply` takes; preset: a fresh one per call. */
+  readonly updateId?: string;
   /** Preset: refused `not_found`, as a release with no build for the platform and format is. */
   readonly desktopBuild?: ResultOf<"updates.desktop.stage"> | { readonly refused: string; readonly message?: string; readonly data?: Readonly<Record<string, unknown>> };
 }
@@ -1695,7 +1697,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return acceptedWith({ values: Object.fromEntries(UPDATE_SETTINGS_KEYS.map((key) => [key, values[key]])) });
   });
   // The update methods (#354), as `ScriptedUpdates` says.
-  let updates: { readonly status: UpdatesStatus; readonly desktopBuild: NonNullable<ScriptedUpdates["desktopBuild"]> } = {
+  let updates: { readonly status: UpdatesStatus; readonly desktopBuild: NonNullable<ScriptedUpdates["desktopBuild"]>; readonly updateId: string | undefined } = {
     status: checked(UpdatesStatus, {
       version: FAKE_HARNESS_VERSION,
       protocolVersion: spec.protocolVersion ?? PROTOCOL_VERSION,
@@ -1713,9 +1715,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       ...spec.updates?.status,
     }),
     desktopBuild: spec.updates?.desktopBuild ?? { refused: "not_found", message: "The release has no desktop build for this platform and format." },
+    updateId: spec.updates?.updateId,
   };
   const setUpdates = (changes: ScriptedUpdates) => {
-    updates = { status: checked(UpdatesStatus, { ...updates.status, ...changes.status }), desktopBuild: changes.desktopBuild ?? updates.desktopBuild };
+    updates = { status: checked(UpdatesStatus, { ...updates.status, ...changes.status }), desktopBuild: changes.desktopBuild ?? updates.desktopBuild, updateId: changes.updateId ?? updates.updateId };
   };
   wire.answer("updates.status", () => ({ result: updates.status }));
   wire.answer("updates.check", () => ({ result: updates.status }));
@@ -1728,7 +1731,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("updates.apply");
     if (refused) return refused;
     const toVersion = (params["version"] as string | undefined) ?? updates.status.newest ?? updates.status.version;
-    return acceptedWith({ updateId: uuidv4(), toVersion });
+    return acceptedWith({ updateId: updates.updateId ?? uuidv4(), toVersion });
   });
 
   /** The refusal of a level the probe says cannot be enforced (`containment_unavailable`); undefined for one it can. */

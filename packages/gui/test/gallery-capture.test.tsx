@@ -6,6 +6,7 @@ import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
 import { accessSettingsDetails, detailGeometry } from "../gallery/access-settings-details.js";
 import { measureSceneGeometry } from "../gallery/geometry.js";
+import { galleryOrigin, serveGallery } from "../gallery/serve.js";
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
 
@@ -119,6 +120,24 @@ it("fails a run that must wrap whole when it breaks inside, even at a hyphen, an
   expect(measureSceneGeometry()).toEqual([]);
 });
 
+
+it("serves the built gallery at the same origin on every run, so a scene that shows the page's origin captures the same pixels (ticket 1763)", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "gallery-dist-"));
+  onTestFinished(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, "gallery.html"), "<p>gallery</p>");
+  const origins: string[] = [];
+  for (const run of [1, 2]) {
+    const server = await serveGallery(directory);
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string") throw new Error(`Run ${run} has no address.`);
+      origins.push(`http://${address.address}:${address.port}`);
+      const page = await fetch(`${galleryOrigin}/gallery.html`);
+      expect([page.status, page.headers.get("content-type"), await page.text()]).toEqual([200, "text/html", "<p>gallery</p>"]);
+    } finally { await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done())); }
+  }
+  expect(origins).toEqual([galleryOrigin, galleryOrigin]);
+});
 
 it("captures every scene in dark and the specified light subset without exceeding the report budget", () => {
   expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "setup-account", "setup-appearance", "settings-banks", "dock-files"])).toEqual([
