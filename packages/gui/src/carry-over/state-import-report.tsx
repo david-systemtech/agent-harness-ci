@@ -1,9 +1,10 @@
 import { STEP_LABELS, type StateImportCarried, type StateImportReport } from "@agent-harness/contracts";
 import { ArrowRight } from "lucide-react";
+import { useState } from "react";
 import { CountGrid } from "./count-grid.js";
 import { TEXT_SIZE_LEAST, TEXT_SIZE_MOST } from "../presentation.js";
 import { useChecklist } from "../setup/checklist-window.js";
-import { Button } from "../ui/index.js";
+import { Button, Fact, Fold } from "../ui/index.js";
 
 const CARRIED_ROWS: readonly (readonly [keyof StateImportCarried, string])[] = [
   ["accounts", "Accounts"],
@@ -21,8 +22,21 @@ const CARRIED_ROWS: readonly (readonly [keyof StateImportCarried, string])[] = [
   ["devSites", "Dev sites"],
 ];
 
-/** A source profile by its label, its source id in the tooltip (#1726). */
-const ProfileName = ({ label, sourceId }: { readonly label: string; readonly sourceId: string }) => <span title={`Source id ${sourceId}`}>{label}</span>;
+/** Two source profiles sharing a projects folder, each by its label (#1726); their source ids wait under Details, which keyboard and touch reach (#1800). */
+const SharedProjects = ({ source }: { readonly source: NonNullable<StateImportReport["sharedProjects"]>[number] }) => {
+  const [details, showDetails] = useState(false);
+  return (
+    <div className="flex flex-col gap-1">
+      <p>{source.label} shares a projects folder with {source.ownerLabel}: its sessions and memory carry once, with {source.ownerLabel}, and not again with {source.label}.</p>
+      <Fold summary="Details" open={details} onOpenChange={showDetails}>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
+          <Fact name={`${source.label} source id`}>{source.sourceId}</Fact>
+          <Fact name={`${source.ownerLabel} source id`}>{source.ownerSourceId}</Fact>
+        </dl>
+      </Fold>
+    </div>
+  );
+};
 
 /** ADR 0036's four groups, including the steps where encrypted credentials must be entered again. */
 export const StateImportResult = ({ report, clientLocalApplied }: { readonly report: StateImportReport; readonly clientLocalApplied: boolean }) => {
@@ -32,11 +46,7 @@ export const StateImportResult = ({ report, clientLocalApplied }: { readonly rep
   return (
     <section aria-label="State import result" className="flex flex-col gap-3 rounded-lg border border-hairline bg-inset p-3 text-xs text-ink">
       <h4 className="text-xs font-medium">{report.dryRun ? "Dry run report" : "Import report"}</h4>
-      {(report.sharedProjects ?? []).map((source) => {
-        const profile = <ProfileName label={source.label} sourceId={source.sourceId} />;
-        const owner = <ProfileName label={source.ownerLabel} sourceId={source.ownerSourceId} />;
-        return <p key={source.sourceId}>{profile} shares a projects folder with {owner}: its sessions and memory carry once, with {owner}, and not again with {profile}.</p>;
-      })}
+      {(report.sharedProjects ?? []).map((source) => <SharedProjects key={source.sourceId} source={source} />)}
       <h5 className="text-xs font-medium">Carried</h5>
       {report.dryRun && <p className="text-ink-muted">These counts show what an import would carry. Nothing was written. A dry run does not test repository access or clear a failed import.</p>}
       <CountGrid label="Carried counts" rows={CARRIED_ROWS.map(([kind, label]) => [label, report.carried[kind]])} />

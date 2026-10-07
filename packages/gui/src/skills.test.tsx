@@ -243,7 +243,7 @@ it("shows the repository's trust question in its session and lists the granted d
   await waitFor(() => expect(within(pane()).queryByRole("region", { name: `Trusted: ${key}` })).toBeNull());
 });
 
-it("words each trust decision's time as the client's day and clock and keeps the client session id out of the line (ticket 1797)", async () => {
+it("words each trust decision's time as the client's day and clock and keeps the client session id under the row's Details, reached by keyboard (tickets 1797, 1800)", async () => {
   const sessionId = "bd70ad35-74b6-4f7f-aabf-670aed68a4a3";
   const decided = (key: string, decision: TrustRecord["decision"], decidedAt: string): TrustRecord => ({
     key,
@@ -268,7 +268,13 @@ it("words each trust decision's time as the client's day and clock and keeps the
     expect(line.textContent).toBe(`${verb} ${whenWords(record.decidedAt, app.clock.now())} by Desk window`);
     expect(row.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
     expect(row.textContent).not.toContain(sessionId);
-    expect(line.getAttribute("title")).toBe(`Client session ${sessionId}`);
+    expect(row.querySelector("[title*='Client session']")).toBeNull();
+    const details = within(row).getByRole("button", { name: "Details" });
+    expect(details.getAttribute("aria-expanded")).toBe("false");
+    for (let presses = 0; presses < 200 && document.activeElement !== details; presses += 1) await app.user.tab();
+    expect(document.activeElement).toBe(details);
+    await app.user.keyboard("{Enter}");
+    expect(within(row).getByText(sessionId).closest("dd")?.previousElementSibling?.textContent).toBe("Client session");
   }
 });
 
