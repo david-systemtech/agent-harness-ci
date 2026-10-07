@@ -493,6 +493,40 @@ describe("updates.apply in a container", () => {
     expect(t.env.log.head()).toBe(head);
   });
 
+  it("with no version shows on updates.status the channel's newest it read and when, beside the update it makes pending, with no wait for the next check (#1774)", async () => {
+    const fake = await startFakeReleaseSource();
+    onCleanup(() => fake.forge.close());
+    fake.publish({ version: RUNNING });
+    const t = await start(fake);
+    const client = await t.client();
+    await fake.grantAccess(client);
+    busy(t);
+    expect(await client.request("updates.check", {})).toMatchObject({ newest: RUNNING, lastCheck: { at: at(0), result: "ok" }, target: null });
+
+    // Published after the check, and asked for before the first scheduled check, two minutes after the start, reads the channel.
+    fake.publish({ version: TARGET, manifest: { image: IMAGE } });
+    t.clock.advance(MINUTE);
+    const { result } = await apply(client, { when: "now" });
+
+    expect(await client.request("updates.status", {})).toMatchObject({
+      newest: TARGET,
+      lastCheck: { at: at(MINUTE), result: "ok" },
+      target: { version: TARGET, source: "channel" },
+      pending: { state: "ready", updateId: result?.updateId, toVersion: TARGET, source: "request" },
+    });
+  });
+
+  it("shows its read of the channel that failed as the last check, keeping the newest an earlier check found", async () => {
+    const { fake, t, client } = await container();
+    expect((await client.request("updates.check", {})).newest).toBe(TARGET);
+    await client.request("updates.cancel", { commandId: randomUUID() });
+    fake.forge.close();
+    t.clock.advance(MINUTE);
+
+    expect((await apply(client, { when: "now" })).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "unreachable" } } });
+    expect(await client.request("updates.status", {})).toMatchObject({ newest: TARGET, lastCheck: { at: at(MINUTE), result: "failed", reason: "unreachable" } });
+  });
+
   it("keeps an ask to go now for its update until it is begun or withdrawn: a later ask for it when idle does not take it back, as a native drain cannot be", async () => {
     const { t, client, updateId } = await pendingUpdate();
     await apply(client, { when: "now" });

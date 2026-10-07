@@ -149,6 +149,12 @@ export type ReleaseRefusal =
   | { readonly code: "not_found"; readonly message: string; readonly data: Record<string, never> }
   | { readonly code: "conflict"; readonly message: string; readonly data: { readonly reason: ChannelFailure["reason"] | "schema" | "launcher" | "current" } };
 
+/** The release `updates.apply` asked for, or why not, and what reading the channel for it found. */
+export interface RequestedRelease {
+  readonly release: StageableRelease | ReleaseRefusal;
+  readonly reading: ChannelReading | ChannelFailure;
+}
+
 export interface ReleaseChannelReader {
   /** Reads the channel as `settings` follow it: its newest, the target and what to stage for it. */
   read(settings: ChannelSettings, context: ChannelContext): Promise<ChannelReading | ChannelFailure>;
@@ -156,11 +162,14 @@ export interface ReleaseChannelReader {
   pinRefusal(version: string): Promise<ReleaseRefusal | null>;
   /**
    * The release `updates.apply` asks for by `version`, or with none the
-   * newest on `channel` (current when nothing newer is published), ready to
-   * stage under a launcher speaking `launcherProtocol`, or for a container's
-   * host-side updater to pull with none (null, #348); or why it cannot be.
+   * newest on the channel `settings` follow (current when nothing newer is
+   * published), ready to stage under the launcher `context` names, or for a
+   * container's host-side updater to pull with none (null, #348); or why it
+   * cannot be. Beside it, what reading the channel for it found, as `read`
+   * finds it, so `updates.status` shows the newest the request was resolved
+   * against (#1774).
    */
-  requested(version: string | undefined, channel: ReleaseChannel, launcherProtocol: number | null): Promise<StageableRelease | ReleaseRefusal>;
+  requested(version: string | undefined, settings: ChannelSettings, context: ChannelContext): Promise<RequestedRelease>;
   /**
    * The desktop build for `platform` in `format` (#354), from the release
    * the desktop follows under `settings`: the pinned version, else the
@@ -200,6 +209,9 @@ type Examined =
   | { readonly outcome: "target"; readonly release: StageableRelease }
   | { readonly outcome: "passed-over"; readonly reason: UpdatePassOverReason; readonly message: string }
   | ChannelFailure;
+
+/** What the release of a version, among those listed, comes to. */
+type Examiner = (version: string) => Promise<Examined>;
 
 const failed = (reason: ChannelFailure["reason"], message: string): ChannelFailure => ({ outcome: "failed", reason, message });
 
@@ -324,6 +336,16 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     return examine(release);
   };
 
+  /** Examines the releases `listed` by version, each at most once however often it is asked for: one read of the channel reads a manifest once. */
+  const examinerOf = (listed: readonly Versioned[]): Examiner => {
+    const examined = new Map<string, Promise<Examined>>();
+    return (version) => {
+      const known = examined.get(version) ?? examineVersion(version, listed);
+      examined.set(version, known);
+      return known;
+    };
+  };
+
   // A running version that is no release version (a development build's) runs no release, and none is newer than it.
   const runsRelease = ReleaseVersion.safeParse(harnessVersion).success;
   const runsOn = (version: string): boolean => runsRelease && compareReleaseVersions(version, harnessVersion) === 0;
@@ -344,62 +366,94 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     listed: readonly Versioned[],
     target: string,
     { channel, failed, launcherProtocol }: { readonly channel: ReleaseChannel; readonly failed: ReadonlySet<string>; readonly launcherProtocol: number },
+    examineOf: Examiner,
   ): Promise<StageableRelease | null | ChannelFailure> => {
     for (const candidate of listed) {
       if (!newerThanRunning(candidate.version)) break;
       if (compareReleaseVersions(candidate.version, target) >= 0 || failed.has(candidate.version)) continue;
       if (channel === "stable" && isPrerelease(candidate.version)) continue;
-      const examined = await examine(candidate);
+      const examined = await examineOf(candidate.version);
       if (examined.outcome === "failed" && examined.reason !== "manifest") return examined;
       if (examined.outcome === "target" && examined.release.launcherProtocol <= launcherProtocol) return examined.release;
     }
     return null;
   };
 
+  /** What a read of the channel under `settings` and `context` finds in the releases `listed`. */
+  const readingOf = async (listed: readonly Versioned[], settings: ChannelSettings, context: ChannelContext, examineOf: Examiner): Promise<ChannelReading | ChannelFailure> => {
+    const newest = newestOn(listed, settings.channel);
+    const reading = (found: Partial<Pick<ChannelReading, "target" | "passedOver" | "stage" | "blocked">> = {}): ChannelReading => ({
+      outcome: "read",
+      newest: newest?.version ?? null,
+      target: null,
+      passedOver: null,
+      stage: null,
+      blocked: null,
+      ...found,
+    });
+    const failed = new Set(context.failedVersions);
+
+    // What would be the target: the pin, unless it runs or failed; else, with auto-update effective, the channel's newest when newer and not failed.
+    const { pinnedVersion } = settings;
+    const choice =
+      pinnedVersion !== null
+        ? runsOn(pinnedVersion) || failed.has(pinnedVersion)
+          ? null
+          : { target: { version: pinnedVersion, source: "pin" } as const, examine: () => examineOf(pinnedVersion) }
+        : settings.autoUpdate && newest !== null && newerThanRunning(newest.version) && !failed.has(newest.version)
+          ? { target: { version: newest.version, source: "channel" } as const, examine: () => examineOf(newest.version) }
+          : null;
+    if (choice === null) return reading();
+    const examined = await choice.examine();
+    if (examined.outcome === "failed") return examined;
+    const { target } = choice;
+    if (examined.outcome === "passed-over") return reading({ passedOver: { ...target, reason: examined.reason, message: examined.message } });
+
+    // Staged itself when the running launcher hosts it, or no launcher runs (which stages nothing); else through its stepping stone.
+    const { launcherProtocol } = context;
+    const { release } = examined;
+    if (launcherProtocol === null || release.launcherProtocol <= launcherProtocol) return reading({ target, stage: release });
+    const stone = await steppingStone(listed, target.version, { channel: settings.channel, failed, launcherProtocol }, examineOf);
+    if (stone !== null && "outcome" in stone) return stone;
+    if (stone !== null) return reading({ target, stage: stone });
+    // A handover to the running version's newer launcher is due unless it already failed.
+    if (ownLauncherProtocol > launcherProtocol && context.failedHandoverVersion !== harnessVersion) return reading({ target });
+    const installVersion = ownLauncherProtocol > launcherProtocol ? harnessVersion : target.version;
+    const message = launcherMessage(target.version, release.launcherProtocol, launcherProtocol, installVersion);
+    return reading({ target, blocked: { reason: "launcher", toVersion: target.version, message } });
+  };
+
+  /** The release `updates.apply` asks for, by `asked` or the newest on `channel`, among the releases `listed`; or why it cannot be. */
+  const requestedOf = async (
+    asked: string | undefined,
+    listed: readonly Versioned[],
+    { channel, launcherProtocol, examineOf }: { readonly channel: ReleaseChannel; readonly launcherProtocol: number | null; readonly examineOf: Examiner },
+  ): Promise<StageableRelease | ReleaseRefusal> => {
+    if (asked !== undefined && runsOn(asked)) return { code: "conflict", message: `This environment runs ${asked} already.`, data: { reason: "current" } };
+    const version = asked ?? newestOn(listed, channel)?.version;
+    if (version === undefined || (asked === undefined && !newerThanRunning(version))) {
+      return { code: "conflict", message: `This environment runs ${harnessVersion}, and nothing newer is published on the ${channel} channel.`, data: { reason: "current" } };
+    }
+    const examined = await examineOf(version);
+    switch (examined.outcome) {
+      case "failed":
+        return { code: "conflict", message: `The release ${version} cannot be read: ${examined.message}`, data: { reason: examined.reason } };
+      case "passed-over":
+        return examined.reason === "schema"
+          ? { code: "conflict", message: `Cannot update to ${version}: ${examined.message}`, data: { reason: "schema" } }
+          : { code: "not_found", message: `Cannot update to ${version}: ${examined.message}`, data: {} };
+      case "target": {
+        const needs = examined.release.launcherProtocol;
+        if (launcherProtocol === null || needs <= launcherProtocol) return examined.release;
+        return { code: "conflict", message: `Cannot update to ${version}: ${launcherMessage(version, needs, launcherProtocol)}`, data: { reason: "launcher" } };
+      }
+    }
+  };
+
   return {
     async read(settings, context) {
       const listed = await list();
-      if ("outcome" in listed) return listed;
-      const newest = newestOn(listed, settings.channel);
-      const reading = (found: Partial<Pick<ChannelReading, "target" | "passedOver" | "stage" | "blocked">> = {}): ChannelReading => ({
-        outcome: "read",
-        newest: newest?.version ?? null,
-        target: null,
-        passedOver: null,
-        stage: null,
-        blocked: null,
-        ...found,
-      });
-      const failed = new Set(context.failedVersions);
-
-      // What would be the target: the pin, unless it runs or failed; else, with auto-update effective, the channel's newest when newer and not failed.
-      const { pinnedVersion } = settings;
-      const choice =
-        pinnedVersion !== null
-          ? runsOn(pinnedVersion) || failed.has(pinnedVersion)
-            ? null
-            : { target: { version: pinnedVersion, source: "pin" } as const, examine: () => examineVersion(pinnedVersion, listed) }
-          : settings.autoUpdate && newest !== null && newerThanRunning(newest.version) && !failed.has(newest.version)
-            ? { target: { version: newest.version, source: "channel" } as const, examine: () => examine(newest) }
-            : null;
-      if (choice === null) return reading();
-      const examined = await choice.examine();
-      if (examined.outcome === "failed") return examined;
-      const { target } = choice;
-      if (examined.outcome === "passed-over") return reading({ passedOver: { ...target, reason: examined.reason, message: examined.message } });
-
-      // Staged itself when the running launcher hosts it, or no launcher runs (which stages nothing); else through its stepping stone.
-      const { launcherProtocol } = context;
-      const { release } = examined;
-      if (launcherProtocol === null || release.launcherProtocol <= launcherProtocol) return reading({ target, stage: release });
-      const stone = await steppingStone(listed, target.version, { channel: settings.channel, failed, launcherProtocol });
-      if (stone !== null && "outcome" in stone) return stone;
-      if (stone !== null) return reading({ target, stage: stone });
-      // A handover to the running version's newer launcher is due unless it already failed.
-      if (ownLauncherProtocol > launcherProtocol && context.failedHandoverVersion !== harnessVersion) return reading({ target });
-      const installVersion = ownLauncherProtocol > launcherProtocol ? harnessVersion : target.version;
-      const message = launcherMessage(target.version, release.launcherProtocol, launcherProtocol, installVersion);
-      return reading({ target, blocked: { reason: "launcher", toVersion: target.version, message } });
+      return "outcome" in listed ? listed : readingOf(listed, settings, context, examinerOf(listed));
     },
 
     async pinRefusal(version) {
@@ -417,28 +471,13 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
       }
     },
 
-    async requested(asked, channel, launcherProtocol) {
+    async requested(asked, settings, context) {
       const listed = await list();
-      if ("outcome" in listed) return { code: "conflict", message: listed.message, data: { reason: listed.reason } };
-      if (asked !== undefined && runsOn(asked)) return { code: "conflict", message: `This environment runs ${asked} already.`, data: { reason: "current" } };
-      const version = asked ?? newestOn(listed, channel)?.version;
-      if (version === undefined || (asked === undefined && !newerThanRunning(version))) {
-        return { code: "conflict", message: `This environment runs ${harnessVersion}, and nothing newer is published on the ${channel} channel.`, data: { reason: "current" } };
-      }
-      const examined = await examineVersion(version, listed);
-      switch (examined.outcome) {
-        case "failed":
-          return { code: "conflict", message: `The release ${version} cannot be read: ${examined.message}`, data: { reason: examined.reason } };
-        case "passed-over":
-          return examined.reason === "schema"
-            ? { code: "conflict", message: `Cannot update to ${version}: ${examined.message}`, data: { reason: "schema" } }
-            : { code: "not_found", message: `Cannot update to ${version}: ${examined.message}`, data: {} };
-        case "target": {
-          const needs = examined.release.launcherProtocol;
-          if (launcherProtocol === null || needs <= launcherProtocol) return examined.release;
-          return { code: "conflict", message: `Cannot update to ${version}: ${launcherMessage(version, needs, launcherProtocol)}`, data: { reason: "launcher" } };
-        }
-      }
+      if ("outcome" in listed) return { release: { code: "conflict", message: listed.message, data: { reason: listed.reason } }, reading: listed };
+      // Read as a check reads it, so the newest the request is resolved against is the one updates.status shows; a manifest both need is read once.
+      const examineOf = examinerOf(listed);
+      const reading = await readingOf(listed, settings, context, examineOf);
+      return { release: await requestedOf(asked, listed, { channel: settings.channel, launcherProtocol: context.launcherProtocol, examineOf }), reading };
     },
 
     async desktopBuild(platform, format, { channel, pinnedVersion }) {

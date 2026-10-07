@@ -34,9 +34,17 @@ export const reachWords = (runtime: Runtime, view: EnvironmentView): string => {
   return answer.status === "absent" ? answer.message.replace(/\.$/, "") : "Not reached yet";
 };
 
+/**
+ * `reach` and what follows from it: one clause after a colon; or, after a
+ * line that already says what to do after a colon of its own (a block's
+ * sentence, #1772), a sentence of its own.
+ */
+export const afterReach = (reach: string, rest: string): string =>
+  reach.includes(": ") ? `${reach}. ${rest.charAt(0).toUpperCase()}${rest.slice(1)}` : `${reach}: ${rest}`;
+
 /** Why nothing shown of an environment not ready can be written, over what this window read of it, if anything. */
 export const readOnlyLine = (runtime: Runtime, view: EnvironmentView, read: boolean, reach: string = reachWords(runtime, view)): string =>
-  `${reach}: ${read ? "the values this window last read, read-only." : "this window has read none of its values."}`;
+  afterReach(reach, read ? "the values this window last read, read-only." : "this window has read none of its values.");
 
 /** The methods that write `keys`, each once; none for a key the environment records itself. */
 export const writersOf = (keys: readonly SettingsKey[]): readonly MethodName[] => [...new Set(keys.flatMap((key) => writerOf(key) ?? []))];

@@ -6,6 +6,7 @@ import {
   type KnownCapabilityFlag,
   type MethodName,
 } from "@agent-harness/contracts";
+import { blockWords } from "./connections/block-words.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/records.js";
 import { SHELL_MEMBERS, hasShellMember, type Shell, type ShellMember } from "./shell.js";
 
@@ -121,7 +122,7 @@ export const answerCapability = (name: CapabilityName, record: ConnectionRecord 
     case "service-down":
       return absent("unreachable", `${environment}'s service is not running.`);
     case "blocked":
-      return absent("unreachable", `${environment} is blocked (${record.blocked ?? "unknown reason"}).`);
+      return absent("unreachable", blockWords({ name: environment, kind: record.kind, blocked: record.blocked, action: record.action }));
     case "backoff":
       return absent("unreachable", `${environment} cannot be reached.`);
   }

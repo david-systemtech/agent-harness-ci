@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { CAPABILITY_FLAG_LIST, type MethodName } from "@agent-harness/contracts";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { useHarness } from "../test/harness.js";
-import { METHOD_FLAGS, type CapabilityName } from "./capabilities.js";
+import { METHOD_FLAGS, answerCapability, type CapabilityName } from "./capabilities.js";
+import { BLOCKED_REASONS, type BlockedReason, type ConnectionRecord } from "./connections/records.js";
+import type { ConnectionAction } from "./connections/state-machine.js";
 import type { Shell } from "./shell.js";
 import { fakeShell, inMemoryPlatform } from "./testing/in-memory-platform.js";
 
@@ -131,5 +133,33 @@ describe("the capability names a client may ask for (contract)", () => {
     // @ts-expect-error: a flag missing from the list is not a capability name.
     const unlisted: CapabilityName = "no-such-flag";
     expect(unlisted).toBe("no-such-flag");
+  });
+});
+
+describe("a blocked environment's capability line (#1772)", () => {
+  /** A connection to `desk` blocked for `reason`, with the action the state machine offers for it. */
+  const blocked = (reason: BlockedReason, action: ConnectionAction | null, kind: "local" | "paired" = "paired"): ConnectionRecord =>
+    ({ environmentId: "env-desk", kind, enabled: true, phase: "blocked", blocked: reason, action, scopes: [], descriptor: { name: "desk", capabilities: [] } }) as unknown as ConnectionRecord;
+
+  const lines: Record<BlockedReason, readonly [ConnectionAction | null, string]> = {
+    "protocol-mismatch": ["update-environment", "desk is older than this client: update desk to this client's version."],
+    "unsupported-client": ["update-client", "desk is newer than this client: update this client."],
+    revoked: ["re-pair", "This client's access to desk was revoked: pair it again."],
+    expired: ["re-pair", "This client's access to desk expired: pair it again."],
+    "credential-unavailable": ["re-pair", "Stored credentials for desk could not be read: pair it again."],
+    "different-environment": [null, "The address kept for desk now reaches another environment."],
+  };
+
+  it.each(BLOCKED_REASONS)("says %s as a sentence with what to do, never its id", (reason) => {
+    const [action, line] = lines[reason];
+    const answer = answerCapability("terminals.open", blocked(reason, action), undefined);
+    expect(answer).toEqual({ status: "absent", reason: "unreachable", message: line });
+    // A one-word id is also a word of its sentence ("was revoked"); its raw form is the parenthesised code.
+    expect(answer.status === "absent" && answer.message).not.toContain(reason.includes("-") ? reason : `(${reason})`);
+  });
+
+  it("says a protocol mismatch the environment cannot update itself from as such, and a local block as one to try again", () => {
+    expect(answerCapability("runs.start", blocked("protocol-mismatch", null), undefined)).toMatchObject({ message: "desk is older than this client, and cannot update itself from here." });
+    expect(answerCapability("runs.start", blocked("revoked", null, "local"), undefined)).toMatchObject({ message: "This client's access to desk was revoked: try again." });
   });
 });

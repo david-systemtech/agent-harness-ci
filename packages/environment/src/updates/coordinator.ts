@@ -26,12 +26,12 @@ import type { AdapterHost } from "../adapter/host.js";
 import { formatActor, type EventInput, type EventLog, type JsonObject, type StreamRef } from "../event-log/event-log.js";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
-import type { LauncherChannel } from "../serve/launcher.js";
+import type { AnswerTo, LauncherChannel } from "../serve/launcher.js";
 import type { DrainCause } from "../serve/lifecycle.js";
 import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PrepareContext } from "../serve/methods.js";
 import type { RunRegistry } from "../serve/run-registry.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
-import type { ChannelBlock, ChannelContext, ChannelReading, ChannelSettings, ReleaseChannelReader, StageableRelease } from "./channel.js";
+import type { ChannelBlock, ChannelContext, ChannelFailure, ChannelReading, ChannelSettings, ReleaseChannelReader, StageableRelease } from "./channel.js";
 import type { StagingFailure } from "./checks.js";
 import { settleInterruptedRuns } from "./interrupted-runs.js";
 import { readUpdateHistory, settleLatestUpdate } from "./outcomes.js";
@@ -136,6 +136,8 @@ export interface UpdateCoordinatorOptions {
   readonly settings: () => ChannelSettings;
   /** The release channel: a release asked for by version, and an artefact's download. */
   readonly channel: Pick<ReleaseChannelReader, "requested" | "download">;
+  /** Hears what Update now's read of the channel found, and when it began: the channel's checks show it as a check's (#1774). */
+  readonly channelRead: (read: ChannelReading | ChannelFailure, at: Date) => void;
   /** Starts the drain with the trigger `update`, recording who asked on its notice. */
   readonly drain: (cause: DrainCause) => void;
   /** How an artefact is unpacked. Preset: the platform's `tar`. */
@@ -579,23 +581,32 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       return unstaged === null ? makePending(update, when) : refuse(refusalOf(unstaged));
     });
 
+  /** What the channel is read with, of the launcher's answer to `versions?`: with none, or refused, no launcher's protocol. */
+  const contextOf = (versions: AnswerTo<"versions?"> | undefined): ChannelContext => ({
+    launcherProtocol: versions?.type === "versions" ? versions.launcherProtocol : null,
+    ...(versions?.type === "versions" && versions.failedHandoverVersion !== undefined ? { failedHandoverVersion: versions.failedHandoverVersion } : {}),
+    failedVersions: readUpdateHistory(log).outcomes.failedVersions,
+  });
+
   /**
    * Stages the release of `version`, or with none the channel's newest, as
    * a request (Update now): read from the channel for the launcher running
-   * the environment, downloaded, checked, unpacked and installed; then the
+   * the environment (what the read found shown as a check's, #1774),
+   * downloaded, checked, unpacked and installed; then the
    * command makes it pending, or takes the waiting update when that is the
    * version the channel names. Managed outside, the release is read and
    * made pending with its image, for the host-side updater: nothing is
    * downloaded.
    */
   const download = async (version: string | undefined, when: ParamsOf<"updates.apply">["when"]): Promise<MethodHandler<"updates.apply">> => {
-    let launcherProtocol: number | null = null;
+    let versions: AnswerTo<"versions?"> | undefined;
     if (!options.managedOutside) {
-      const versions = await launcher.request({ type: "versions?" });
+      versions = await launcher.request({ type: "versions?" });
       if (versions.type === "refused") return refuse(conflict("no_launcher", NO_LAUNCHER_MESSAGE));
-      launcherProtocol = versions.launcherProtocol;
     }
-    const release = await options.channel.requested(version, options.settings().channel, launcherProtocol);
+    const at = clock.now();
+    const { release, reading } = await options.channel.requested(version, options.settings(), contextOf(versions));
+    options.channelRead(reading, at);
     if ("code" in release) return refuse(release);
     // What changed while the channel was read: an update began or is staged, or the newest named is what waits.
     const refused = underWay() ?? stagingUnderWay();
@@ -765,12 +776,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     },
 
     async channelContext() {
-      const versions = launcher.present() ? await launcher.request({ type: "versions?" }) : undefined;
-      return {
-        launcherProtocol: versions?.type === "versions" ? versions.launcherProtocol : null,
-        ...(versions?.type === "versions" && versions.failedHandoverVersion !== undefined ? { failedHandoverVersion: versions.failedHandoverVersion } : {}),
-        failedVersions: readUpdateHistory(log).outcomes.failedVersions,
-      };
+      return contextOf(launcher.present() ? await launcher.request({ type: "versions?" }) : undefined);
     },
 
     async follow(reading, settings) {
