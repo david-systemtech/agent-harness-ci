@@ -227,6 +227,7 @@ const UPDATES_STATUS = {
   releaseSource: { origin: "https://git.example.com", kind: "forgejo", repository: "david/agent-harness" },
   newest: null,
   lastCheck: null,
+  lastReadAt: null,
   target: null,
   passedOver: null,
   pending: { state: "current" },

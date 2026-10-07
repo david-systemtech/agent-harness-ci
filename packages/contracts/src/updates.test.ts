@@ -37,6 +37,7 @@ const status = {
   releaseSource: { origin: "https://git.systemtech.dev:5526", kind: "forgejo", repository: "david/agent-harness" },
   newest: "0.4.2",
   lastCheck: { at, result: "ok" },
+  lastReadAt: at,
   target: null,
   passedOver: null,
   pending: { state: "current" },

@@ -1,9 +1,11 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ChannelCheckedPayload } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock, MANUAL_CLOCK_START } from "../../test/clock.js";
 import type { ChannelFailure, ChannelReading, ReleaseChannelReader } from "./channel.js";
-import { CHECK_AGAIN_MS, createChannelChecks } from "./checks.js";
+import { CHECK_AGAIN_MS, RELEASE_CHANNEL_FILE, createChannelChecks } from "./checks.js";
 
 /**
  * The channel's checks against a read held until the test lets it answer,
@@ -17,15 +19,15 @@ const { tempDir } = useCleanups();
 /** What a read finds with `newest` the channel's newest, nothing to target. */
 const reading = (newest: string): ChannelReading => ({ outcome: "read", newest, target: null, passedOver: null, stage: null, blocked: null });
 
-/** Checks whose every read waits for the answer the test gives it. */
-const heldChecks = () => {
+/** Checks over `dataDir` whose every read waits for the answer the test gives it. */
+const heldChecks = (dataDir = tempDir("agent-harness-checks-")) => {
   const clock = manualClock();
   const answers: ((read: ChannelReading | ChannelFailure) => void)[] = [];
   const said: ChannelCheckedPayload[] = [];
   const channel: ReleaseChannelReader["read"] = () => new Promise((resolve) => answers.push(resolve));
   const checks = createChannelChecks({
     clock,
-    dataDir: tempDir("agent-harness-checks-"),
+    dataDir,
     channel: { read: channel } as ReleaseChannelReader,
     settings: () => ({ autoUpdate: true, channel: "stable", pinnedVersion: null }),
     context: () => Promise.resolve({ launcherProtocol: null, failedVersions: [] }),
@@ -49,13 +51,47 @@ const heldChecks = () => {
 
 const SECOND_LATER = new Date(Date.parse(MANUAL_CLOCK_START) + 1000);
 
+describe("the last read of the channel (#1812)", () => {
+  const unreachable = { outcome: "failed", reason: "unreachable", message: "The forge did not answer." } as const;
+
+  it("is none before any check read it, and the start of the last check that did", async () => {
+    const { clock, checks, answer, checked } = heldChecks();
+    expect(checks.status()).toEqual({ newest: null, lastCheck: null, lastReadAt: null, target: null, passedOver: null });
+    await checked(reading("0.5.0"));
+    const read = clock.now().toISOString();
+    expect(checks.status()).toMatchObject({ newest: "0.5.0", lastCheck: { at: read, result: "ok" }, lastReadAt: read });
+
+    clock.advance(CHECK_AGAIN_MS);
+    const checking = checks.check();
+    await answer(unreachable);
+    await checking;
+    expect(checks.status()).toMatchObject({ newest: "0.5.0", lastCheck: { result: "failed" }, lastReadAt: read });
+  });
+
+  it("before the first check since the start is the time kept in the data directory, beside no last check, and is kept through a check that fails", async () => {
+    const dataDir = tempDir("agent-harness-checks-");
+    const kept = "2026-09-23T23:48:00.000Z";
+    writeFileSync(join(dataDir, RELEASE_CHANNEL_FILE), `${JSON.stringify({ lastSucceededAt: kept })}\n`);
+    const { clock, checks, answer, checked } = heldChecks(dataDir);
+    expect(checks.status()).toEqual({ newest: null, lastCheck: null, lastReadAt: kept, target: null, passedOver: null });
+
+    const checking = checks.check();
+    await answer(unreachable);
+    await checking;
+    expect(checks.status()).toMatchObject({ newest: null, lastCheck: { result: "failed", reason: "unreachable" }, lastReadAt: kept });
+
+    await checked(reading("0.5.0"));
+    expect(checks.status()).toMatchObject({ newest: "0.5.0", lastReadAt: clock.now().toISOString() });
+  });
+});
+
 describe("Update now's read of the channel", () => {
   it("is shown as a check that found what it found, and a check that began before it and ends after it does not replace it", async () => {
     const { clock, checks, answer } = heldChecks();
     const checking = checks.check();
     clock.advance(1000);
     checks.readByRequest(reading("0.5.0"), clock.now());
-    expect(checks.status()).toEqual({ newest: "0.5.0", lastCheck: { at: SECOND_LATER.toISOString(), result: "ok" }, target: null, passedOver: null });
+    expect(checks.status()).toEqual({ newest: "0.5.0", lastCheck: { at: SECOND_LATER.toISOString(), result: "ok" }, lastReadAt: SECOND_LATER.toISOString(), target: null, passedOver: null });
 
     await answer(reading("0.4.1"));
     await checking;
@@ -74,6 +110,7 @@ describe("Update now's read of the channel", () => {
     expect(checks.status()).toEqual({
       newest: "0.4.1",
       lastCheck: { at: SECOND_LATER.toISOString(), result: "failed", reason: "unreachable", message: "The forge did not answer." },
+      lastReadAt: MANUAL_CLOCK_START,
       target: null,
       passedOver: null,
     });

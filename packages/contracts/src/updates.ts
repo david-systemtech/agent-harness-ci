@@ -340,7 +340,13 @@ export const UpdatesStatus = z
     manager: UpdateManager,
     releaseSource: ReleaseSource,
     newest: ReleaseVersion.nullable().meta({ description: "The channel's newest release as the last check that read it found it; null before one did." }),
-    lastCheck: UpdateCheck.nullable().meta({ description: "The last check of the channel; null before the first." }),
+    lastCheck: UpdateCheck.nullable().meta({ description: "The last check of the channel since the environment started; null before the first." }),
+    lastReadAt: Timestamp.nullable()
+      .optional()
+      .meta({
+        description:
+          "When the last check that read the channel began, kept in the data directory across restarts; null before any did, absent from an environment that predates it. Until the first check since the environment started ends, lastCheck is null while this says when the channel was last read: before the start while newest is null, else by that check, which found newest and is staging it (#1812).",
+      }),
     target: UpdateTarget.nullable().meta({
       description:
         "The release the environment would update to, as the last check that read the channel found it (a failed check leaves it); null for none: before a check read the channel, with auto-update off and nothing pinned, with nothing newer than what runs, with the pinned version running, or with the release passed over.",
