@@ -1,4 +1,4 @@
-import { phoneAttentionEmptyScene, phoneAttentionGeometry } from "../phone-attention-scene.js";
+import { phoneAttentionEmptyScene, phoneAttentionEmptyGeometry } from "../phone-attention-scene.js";
 export default phoneAttentionEmptyScene(true);
-export const geometry = phoneAttentionGeometry;
+export const geometry = phoneAttentionEmptyGeometry(true);
 export const platform = "web";

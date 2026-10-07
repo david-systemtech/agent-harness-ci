@@ -47,5 +47,16 @@ export const phoneAttentionGeometry = [
   { selector: "[data-attention-settings] article", wordsIntact: true },
   { selector: "[data-attention-settings] button", minimumHeight: 44 },
   { selector: "[data-attention-settings] label", minimumHeight: 44 },
-  { selector: "[data-attention-settings] form input", minimumHeight: 44 },
+];
+/** With no target there is no card; an admin's sheet carries the route form, a reader's none. */
+export const phoneAttentionEmptyGeometry = (admin: boolean) => [
+  { selector: "[data-phone-attention]", maxWidth: 390 },
+  { selector: "[data-attention-settings]", contentFits: true },
+  { selector: "[data-attention-settings] button", minimumHeight: 44 },
+  { selector: "[data-phone-push]", contentFits: true },
+  ...(admin ? [
+    { selector: "[data-attention-settings] form", contentFits: true, wordsIntact: true },
+    { selector: "[data-attention-settings] form label", minimumHeight: 44 },
+    { selector: "[data-attention-settings] form input", minimumHeight: 44 },
+  ] : []),
 ];

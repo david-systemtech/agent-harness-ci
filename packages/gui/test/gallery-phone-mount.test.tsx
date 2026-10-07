@@ -44,6 +44,10 @@ it("rejects a phone scene with implicit desktop capabilities and a mismatched ca
 });
 
 
+/** The hosted gallery fails a geometry rule whose selector matches nothing; the selectors a mounted scene leaves unmatched. */
+const unmatched = (geometry: SceneModule["geometry"]) =>
+  (typeof geometry === "function" ? geometry({ width: 390, height: 844 }) : geometry ?? []).map(rule => rule.selector).filter(selector => document.querySelector(selector) === null);
+
 it.each(["phone-attention-failure", "phone-attention-keyboard", "phone-attention-pending"])("integrates %s with the browser runtime and capture text size", async name => {
   const registry = discoverScenes(import.meta.glob<SceneModule>("../gallery/scenes/phone-attention-*.tsx", { eager: true }));
   const root = document.createElement("div"); root.id = "root"; document.body.append(root);
@@ -53,6 +57,7 @@ it.each(["phone-attention-failure", "phone-attention-keyboard", "phone-attention
   expect(gallery.world.shell).toBeUndefined();
   expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(String(20 / 14));
   expect(screen.getByRole("heading", { name: "Attention" })).toBeDefined();
+  expect(unmatched(registry[name]?.geometry)).toEqual([]);
 });
 
 it.each([
@@ -69,6 +74,7 @@ it.each([
   for (const text of shown) expect(document.body.textContent).toMatch(text);
   expect(document.body.textContent).not.toMatch(hidden);
   expect(screen.queryByRole("form", { name: "Add a webhook route" }) !== null).toBe(name.endsWith("admin"));
+  expect(unmatched(registry[name]?.geometry)).toEqual([]);
 });
 
 it("draws the phone pairing screen's refusal of a further origin, served at the page's own origin, before marking the scene ready (ticket 1739)", async () => {
