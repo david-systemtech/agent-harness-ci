@@ -34,6 +34,14 @@ it("measures the sign-in dialog's geometry in 1280 × 800 and 1280 × 700 window
   expect(plan.budget.desktop).toBe(8);
 });
 
+it("measures the session window's header in 1280 × 800 and 1280 × 700 windows beside its two dark captures (ticket 1790)", () => {
+  const plan = capturePlan(["window-session"]);
+  expect(plan.captures.map(c => [c.name, c.viewport, c.probes])).toEqual([
+    ["window-session.dark", { width: 1400, height: 900 }, [{ width: 1280, height: 800 }, { width: 1280, height: 700 }]],
+    ["window-session-narrow.dark", { width: 1024, height: 768 }, undefined],
+  ]);
+});
+
 it("retains desktop and bounded phone profiles while allowing surface-owned growth", async () => {
   const plan = capturePlan(await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname));
   expect(plan.budget.desktop).toBeGreaterThanOrEqual(354);

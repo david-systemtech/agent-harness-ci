@@ -32,10 +32,11 @@ export const PHONE_PROFILES = [
  * Laptop windows shorter than the standard captures, where a dialog's header and footer must stay in the
  * window (look.md §11.1; #1690 measured the sign-in dialog off-screen at 1280 × 800 and 1280 × 700). The
  * scene is mounted again in each and its geometry measured without a screenshot, so the published captures
- * keep their two sizes; the probes run once per scene, with its wide dark capture.
+ * keep their two sizes; the probes run once per scene, with its wide dark capture. The header's breadcrumb
+ * is measured there too, where #1790 saw a scratch folder's identifier squeeze the session title.
  */
 export const LAPTOP_PROBES = [{ width: 1280, height: 800 }, { width: 1280, height: 700 }] as const;
-const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in"]);
+const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "window-session"]);
 
 export interface CaptureCase {
   readonly scene: string;
