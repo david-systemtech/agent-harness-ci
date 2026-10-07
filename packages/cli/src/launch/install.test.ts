@@ -471,7 +471,7 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
       expect(treeOf(join(dataDir, "versions"))).toEqual(versions);
     });
 
-    it("tries nothing again either when that version cannot be removed, refusing io for the sentinel's hold, the version left without its sentinel", async () => {
+    it("tries nothing again either when that version cannot be removed, refusing io for the sentinel's hold", async () => {
       const dataDir = dataDirectory();
       const staged = stageVersion(dataDir, "0.6.0");
       const { answer, lines, waited } = await holdsOutlastingTheBound(dataDir, staged, true);

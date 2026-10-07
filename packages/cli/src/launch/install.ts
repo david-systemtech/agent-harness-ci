@@ -162,8 +162,10 @@ const inspectStaged = (dataDir: string, version: string, staged: string): { read
  * renamed into place and both directories put on disk, and the sentinel is
  * written last. A failure once it is renamed moves it back to the staging
  * area through `putBack` (preset: one try), or removes it when that fails,
- * so the versions directory is left as it was, and throws: the failure, or
- * when it could not be moved back, `StagedVersionLost` with the failure's words.
+ * so the versions directory is left as it was (or, when that removal fails
+ * too, holds the version's folder without its sentinel, which is no
+ * version), and throws: the failure, or when it could not be moved back,
+ * `StagedVersionLost` with the failure's words.
  */
 export const moveIntoVersions = async (
   dataDir: string,
@@ -306,7 +308,9 @@ export const createInstaller = (options: InstallerOptions): Installer => {
    * the sentinel's write meets a hold after the rename, all within one
    * `MOVE_RETRY_MS`: true once it is in place, false when the launcher
    * stopped first. Any other failure, or a hold past that, throws as the
-   * move did, the versions directory left as it was.
+   * move did, the versions directory left as it was, or holding the
+   * version's folder without its sentinel when it could be neither moved
+   * back nor removed.
    */
   const move = async (version: string, staged: string): Promise<boolean> => {
     const budget = { waited: 0 };
