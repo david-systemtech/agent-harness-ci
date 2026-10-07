@@ -26,8 +26,9 @@ import { environmentUpdateFailed } from "../updates/credential-notice.js";
  *   asks for nothing any more (a resolution heard as history takes it back
  *   too, saying nothing: `settled`); and when nobody answered it (an automatic
  *   rule: its TTL, its run ending first, the provider cancelling it) while
- *   its notice was still showing, a `prompt-resolved` notice says how it was
- *   settled. A person's answer, from any client, raises none;
+ *   its notice was still in the queue, drawn or not, a `prompt-resolved`
+ *   notice says how it was settled, the rule in `DECIDED_BECAUSE`'s words. A
+ *   person's answer, from any client, raises none;
  * - `routine.delivered`: `routine`, "<routine> on <name>: <summary>" (#525),
  *   marked with its outcome, a success or a failure, and about the firing's
  *   session, which opening it opens; a skip's is about none;
