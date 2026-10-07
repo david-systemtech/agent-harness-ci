@@ -30,7 +30,9 @@ import { readKeptTime, writeKeptTime } from "./kept-time.js";
  * it reports pending through the startup delay and network budget (#1326),
  * then needs attention if no read completed. When the last one succeeded is
  * kept in the data directory (`RELEASE_CHANNEL_FILE`), so a restart, an
- * update's included, does not make the channel read as unread. A check
+ * update's included, does not make the channel read as unread, and
+ * `updates.status` says it (`lastReadAt`) before the first check since the
+ * start has a newest or a last check to show (#1812). A check
  * appends nothing, so no trigger the step names hears it: the environment
  * hears each check that ends through `onChecked` instead, and triggers the
  * step from it (#679).
@@ -54,7 +56,7 @@ export const CHECK_AGAIN_MS = MINUTE_MS;
 export const RELEASE_CHANNEL_FRESH_MS = 24 * 60 * MINUTE_MS;
 
 /** What `updates.status` shows of the channel. */
-export type ChannelStatus = Pick<UpdatesStatus, "newest" | "lastCheck" | "target" | "passedOver">;
+export type ChannelStatus = Pick<UpdatesStatus, "newest" | "lastCheck" | "lastReadAt" | "target" | "passedOver">;
 
 /** Why the staging of what a check found failed: the check's reason, and what failed. */
 export interface StagingFailure {
@@ -103,13 +105,14 @@ const LAST_SUCCEEDED = "lastSucceededAt";
 const LAST_CHECK = "the last check of the release channel";
 
 /** What a check that changes it says (#1795): the newest shown, and the last check's result and reason, never its time or message. */
-const saidOf = ({ newest, lastCheck }: ChannelStatus): string =>
+const saidOf = ({ newest, lastCheck }: Pick<ChannelStatus, "newest" | "lastCheck">): string =>
   JSON.stringify([newest, lastCheck?.result ?? null, lastCheck?.result === "failed" ? lastCheck.reason : null]);
 
 export const createChannelChecks = (options: ChannelChecksOptions): ChannelChecks => {
   const { clock, channel } = options;
   const recordPath = join(options.dataDir, RELEASE_CHANNEL_FILE);
-  let status: ChannelStatus = { newest: null, lastCheck: null, target: null, passedOver: null };
+  /** What `updates.status` shows of the channel from this start's checks; the last read beside it is `lastSucceededAt`. */
+  let status: Omit<ChannelStatus, "lastReadAt"> = { newest: null, lastCheck: null, target: null, passedOver: null };
   let lastSucceededAt = readKeptTime(recordPath, LAST_SUCCEEDED, LAST_CHECK);
   let lastStartedAt: number | undefined;
   /** When the read whose findings `status` shows began: one that began before it shows none of its own. */
@@ -206,7 +209,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   };
 
   return {
-    status: () => status,
+    status: () => ({ ...status, lastReadAt: lastSucceededAt === undefined ? null : new Date(lastSucceededAt).toISOString() }),
 
     check() {
       if (running !== undefined) return running;

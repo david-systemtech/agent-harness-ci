@@ -209,7 +209,21 @@
           "type": "null"
         }
       ],
-      "description": "The last check of the channel; null before the first."
+      "description": "The last check of the channel since the environment started; null before the first."
+    },
+    "lastReadAt": {
+      "description": "When the last check that read the channel began, kept in the data directory across restarts; null before any did, absent from an environment that predates it. Before the first check since the environment started, newest and lastCheck are null while this says when the channel was last read (#1812).",
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "target": {
       "anyOf": [

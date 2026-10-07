@@ -1706,6 +1706,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       releaseSource: { origin: "https://git.example.test", kind: "forgejo", repository: "david/agent-harness" },
       newest: null,
       lastCheck: null,
+      lastReadAt: null,
       target: null,
       passedOver: null,
       pending: { state: "current" },
