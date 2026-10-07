@@ -7,3 +7,5 @@
   overflow-wrap: anywhere;
   white-space: normal;
 }
+/* A blocked line's Pair again is a touch target on a phone (#1776). */
+[data-web-client] [data-connection-blocked] button { min-width: 44px; min-height: 44px; }

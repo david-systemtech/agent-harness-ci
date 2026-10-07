@@ -4,7 +4,8 @@ import { phonePaneScene } from "../phone-pane-scene.js";
 /**
  * A reload with the Documents sheet open, on a connection another client has
  * revoked (#1741): the restored sheet takes focus, and its close button floats
- * no hint over the needs-pairing notice, which stays above the sheet.
+ * no hint over the needs-pairing notice, which stays above the sheet. The
+ * notice's Pair again is a touch target below the Limited access row (#1776).
  */
 const scene = phonePaneScene("documents");
 let world: ScriptedWorld | undefined;
@@ -28,6 +29,7 @@ export const activate = () => {
 export const readySelector = "[data-connection-blocked]";
 export const geometry = [
   { selector: "[data-connection-blocked]", contentFits: true, visibleWithin: "[data-web-client]" },
+  { selector: "[data-connection-blocked] button", below: "[data-limited-access]", visibleWithin: "[data-web-client]", hitTestable: true, minimumHeight: 44, minimumWidth: 44 },
   { selector: "[data-dock-sheet]", below: "[data-connection-blocked]", visibleWithin: "[data-web-client]" },
   { selector: '[aria-label="Close side sheet"]', visibleWithin: "[data-web-client]" },
 ];

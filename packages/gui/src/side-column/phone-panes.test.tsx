@@ -46,7 +46,7 @@ it.each(["files", "file", "diff", "documents", "tasks", "agent", "preview", "mar
   }
 });
 
-it("restores the Documents sheet on a revoked connection's reload with no hint over the needs-pairing notice above it", async () => {
+it("restores the Documents sheet on a revoked connection's reload with no hint over the needs-pairing notice and its Pair again above it", async () => {
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
   const Observer = globalThis.ResizeObserver;
@@ -59,7 +59,9 @@ it("restores the Documents sheet on a revoked connection's reload with no hint o
   const gallery = await mountGallery(root, "phone-pane-reload-revoked", "dark", registry, { platform: "web", textSize: 20 });
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
-  const notice = screen.getByText("This connection needs pairing again. Make a new code on a trusted client, then choose Pair.");
+  const notice = screen.getByText("This client's access to desk was revoked: pair it again. Make a new code on a trusted client first.");
+  const again = within(notice.closest<HTMLElement>("[data-connection-blocked]")!).getByRole("button", { name: "Pair again" });
+  expect(screen.getByRole("note", { name: "Limited access" }).compareDocumentPosition(again) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const sheet = screen.getByRole("dialog", { name: "Side column" });
   expect(document.activeElement).toBe(within(sheet).getByRole("button", { name: "Close side sheet" }));
   expect(screen.queryByRole("tooltip")).toBeNull();
