@@ -339,13 +339,13 @@ export const UpdatesStatus = z
     bundledClaudeCodeVersion: z.string().min(1).nullable().meta({ description: "The version of Claude Code the running version bundles; null when it could not be read." }),
     manager: UpdateManager,
     releaseSource: ReleaseSource,
-    newest: ReleaseVersion.nullable().meta({ description: "The channel's newest release as the last check that read it found it; null before one did." }),
+    newest: ReleaseVersion.nullable().meta({ description: "The channel's newest release as the last check that read it found it; null before one did, or when it found none." }),
     lastCheck: UpdateCheck.nullable().meta({ description: "The last check of the channel since the environment started; null before the first." }),
     lastReadAt: Timestamp.nullable()
       .optional()
       .meta({
         description:
-          "When the last check that read the channel began, kept in the data directory across restarts; null before any did, absent from an environment that predates it. Until the first check since the environment started ends, lastCheck is null while this says when the channel was last read: before the start while newest is null, else by that check, which found newest and is staging it (#1812).",
+          "When the last check that read the channel began, kept in the data directory across restarts; null before any did, absent from an environment that predates it. Until the first check since the environment started ends, lastCheck is null while this says when the channel was last read: before the start while newest, target and passedOver are all null, else by that check, which found what they show and is staging it (#1812, #1818).",
       }),
     target: UpdateTarget.nullable().meta({
       description:
