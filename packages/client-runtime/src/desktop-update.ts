@@ -3,7 +3,7 @@ import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/recor
 import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
-import { CACHE_REFRESH_NOTICES, QUERY_REFRESH_NOTICES, type Requests } from "./requests.js";
+import { CACHE_REFRESH_NOTICES, QUERY_REFRESH_NOTICES, type RequestFailure, type Requests } from "./requests.js";
 import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } from "./shell.js";
 
 /**
@@ -32,6 +32,11 @@ import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } f
  *   itself (no format) is reported `unsupported` with the release page, and
  *   nothing is staged. A failure says which step failed: the check, the
  *   stage, the install, or a cleanup, which is never an unreachable release.
+ *   A check the local environment went away during, before it answered (its
+ *   drain, update or restart closed the socket), is no failure: the view
+ *   goes back to what it was, and the build is checked again as soon as
+ *   that environment is ready, where a stage cut short finds the build it
+ *   staged (#1788). A person's Check again checks it at once.
  * - **The server it carries**, on a shell with `installer.bundledServer`:
  *   once per start, when the local environment is first ready, a bundled
  *   server newer than the environment (and than an update it has pending)
@@ -48,6 +53,8 @@ export const DESKTOP_CHECK_INTERVAL_MS = 60 * 60_000;
  * How soon the desktop's build is checked again while the local environment
  * has not read its release channel yet: it reads it two minutes after its
  * start, and a desktop started inside them would otherwise wait an hour (#1753).
+ * Also how soon after a check the environment went away during, unless its
+ * next ready comes first (#1788).
  */
 export const DESKTOP_UNREAD_RECHECK_MS = 30_000;
 
@@ -114,6 +121,15 @@ export interface DesktopUpdate {
   /** "Restart to update": the staged build applied now through the shell. Answers where the update is after; nothing happens unless a build is staged. */
   restart(): Promise<DesktopBuildView>;
   /**
+   * A person's Check again: the build checked now, once the local
+   * environment is ready, rather than at the next hourly check. Answers
+   * where the build is after; one already under way is waited for. It
+   * reads the environment's `updates.status` again and never asks it to
+   * read its channel: a check failure that is the environment's own failed
+   * read stays until that environment's next read of its channel.
+   */
+  checkAgain(): Promise<DesktopBuildView>;
+  /**
    * The card's offer: the bundled server handed to the local environment,
    * under the idle rules, once it is looked at again and still newer than
    * the environment and its pending update. Answers where it is after;
@@ -153,6 +169,17 @@ const releasePageOf = (source: ReleaseSource): string => `${source.origin}/${sou
 /** Why the shell did not apply a staged build. */
 type ApplyFailure = Omit<Extract<ShellApplyOutcome, { readonly outcome: "failed" }>, "outcome">;
 
+/** A check the local environment went away during, before it answered: no failure, and checked again at its next ready. */
+const INTERRUPTED = { state: "interrupted" } as const;
+
+/**
+ * Whether a call failed because the local environment went away before it
+ * answered: its socket closed (the bye of its drain, update or restart) or
+ * it was no longer ready, which the requests say `unreachable`. Its
+ * connection says why; the desktop's update has nothing to report of it.
+ */
+const wentAway = (failure: RequestFailure): boolean => failure.code === "unreachable";
+
 /** The local environment's notices after which what it runs or found newest may have changed, so the desktop's build is checked again (#1793). */
 const STATUS_NOTICES: ReadonlySet<string> = new Set([...CACHE_REFRESH_NOTICES, ...(QUERY_REFRESH_NOTICES["updates.status"] ?? [])]);
 
@@ -189,6 +216,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   /** A check is due: at the start, each hour after the last, and when what the local environment runs or found may have changed. */
   let due = true;
   let checking = false;
+  /** The check under way, or the last one, for Check again to wait on. */
+  let running: Promise<void> = Promise.resolve();
   /** A look again was asked while a check ran: the next starts when it ends. */
   let again = false;
   /** Whether the local environment was ready when the connections last changed. */
@@ -228,8 +257,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     return build.state === "ready" || build.state === "applying" || build.state === "failed" ? (build.staged ?? null) : null;
   };
 
-  /** One check of the desktop's build through the local environment `environmentId`, to where it leaves the view. */
-  const checkBuild = async (environmentId: string): Promise<DesktopBuildView> => {
+  /** One check of the desktop's build through the local environment `environmentId`, to where it leaves the view, or interrupted. */
+  const checkBuild = async (environmentId: string): Promise<DesktopBuildView | typeof INTERRUPTED> => {
     if (update === undefined) return { state: "unchecked" };
     let running;
     try {
@@ -241,10 +270,12 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     // A look again while waiting for the environment's first read stays waiting until it finds something.
     if (view.read().build.state !== "waiting") showCheck({ state: "checking", version });
     const status = await host.call(environmentId, "updates.status", {});
+    if (!status.ok && wentAway(status.error)) return INTERRUPTED;
     if (!status.ok) return failed(version, "check", `Could not ask the local environment for updates: ${status.error.message}`, stagedNow());
     releasePage = releasePageOf(status.result.releaseSource);
     if (running.format === null) return { state: "unsupported", version, releasePage };
     const settings = await host.call(environmentId, "settings.get", { keys: ["updates.pinnedVersion"] });
+    if (!settings.ok && wentAway(settings.error)) return INTERRUPTED;
     if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${settings.error.message}`, stagedNow());
     const pinned = settings.result.values["updates.pinnedVersion"] ?? null;
     const { newest, lastCheck, version: environmentVersion } = status.result;
@@ -260,6 +291,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     if (!newerVersion(followed, version)) return { state: "current", version };
     showCheck({ state: "staging", version, toVersion: followed });
     const stage = await host.stageCall(environmentId, "updates.desktop.stage", { platform: `${running.platform}-${running.arch}`, format: running.format });
+    if (!stage.ok && wentAway(stage.error)) return INTERRUPTED;
     if (!stage.ok) return failed(version, "stage", `The local environment could not stage the desktop's ${followed} build: ${stage.error.message}`, stagedNow());
     const staged: ShellStagedBuild = { path: stage.result.path, version: stage.result.version, sha256: stage.result.sha256 };
     if (!newerVersion(staged.version, version)) return { state: "current", version };
@@ -353,16 +385,31 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     return { state: "failed", version, reason, message };
   };
 
-  /** Runs the check now, when one is due and the local environment is ready; the next is due an hour after it ends, or shortly while the environment has not read its channel. */
+  /**
+   * Runs the check now, when one is due and the local environment is ready;
+   * the next is due an hour after it ends, or shortly while the environment
+   * has not read its channel. One the environment went away during leaves
+   * the view as it was before and is due again at once, so the environment's
+   * next ready runs it; shortly after, at the latest.
+   */
   const checkIfDue = (): void => {
     const environmentId = readyLocal();
     if (closed || checking || !due || environmentId === undefined || update === undefined) return;
     due = false;
     checking = true;
+    timer?.cancel();
+    const before = view.read().build;
     let next = DESKTOP_CHECK_INTERVAL_MS;
-    void checkBuild(environmentId)
+    running = checkBuild(environmentId)
       .then(
         (build) => {
+          if (build.state === "interrupted") {
+            due = true;
+            next = DESKTOP_UNREAD_RECHECK_MS;
+            const shown = view.read().build.state;
+            if (shown === "checking" || shown === "staging") setBuild(before);
+            return;
+          }
           if (build.state === "waiting") next = DESKTOP_UNREAD_RECHECK_MS;
           showCheck(build);
         },
@@ -414,6 +461,15 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       setBuild({ state: "applying", version, staged });
       const outcome = await apply(staged, "now");
       if (outcome !== null) setBuild(applyFailed(version, outcome, staged));
+      return view.read().build;
+    },
+
+    async checkAgain() {
+      if (!checking) {
+        due = true;
+        checkIfDue();
+      }
+      await running;
       return view.read().build;
     },
 

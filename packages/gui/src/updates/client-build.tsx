@@ -1,5 +1,5 @@
 import { desktopBuildWords, LOCAL_PLACEHOLDER_ID, type ShellSystem } from "@agent-harness/client-runtime";
-import { ExternalLink, Monitor } from "lucide-react";
+import { ExternalLink, Monitor, RotateCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SettingsGroup } from "../settings/part.js";
 import { Button, Tooltip } from "../ui/index.js";
@@ -13,7 +13,9 @@ import { ApplyFailureActions, applyFailed, RestartButton } from "./restart-to-up
  * as the runtime has it (launcher-update spec, "The desktop moves with its
  * local environment"; #424): where it is, "Restart to update" once a build
  * is staged, for an install that cannot update itself, the release page
- * to download one from, and once an install failed, what to do about it.
+ * to download one from, once an install failed, what to do about it, and
+ * once a check or a stage failed, Check again, rather than the next
+ * hourly check (#1788).
  */
 export const ClientBuild = () => {
   const runtime = useRuntime();
@@ -48,6 +50,11 @@ export const ClientBuild = () => {
         </>
       )}
       {applyFailed(build) && <ApplyFailureActions build={build} />}
+      {build.state === "failed" && !applyFailed(build) && (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="default" size="xs" onClick={() => void runtime.desktopUpdate.checkAgain()}><RotateCw aria-hidden="true" />Check again</Button>
+        </div>
+      )}
       <RestartButton />
       <WebRegisteredSurfaces location="settings-client" />
       </div>

@@ -123,6 +123,12 @@ export interface FakeWire {
    */
   answer(method: string, responder: FakeResponder): void;
   /**
+   * Leaves the next request for `method` unanswered, as an environment
+   * that goes away before it answers it does; the ones after are answered
+   * as `answer` says.
+   */
+  holdNext(method: string): void;
+  /**
    * How `POST /api/update` answers from now on, whatever the discovery says
    * (the route is outside the wire): preset the update taken, its id fresh
    * and its target the version asked for.
@@ -202,6 +208,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     return issued;
   };
 
+  /** The methods whose next request is left unanswered (`holdNext`). */
+  const heldNext = new Set<string>();
   const responders = new Map<string, FakeResponder>([
     [
       "environment.status",
@@ -245,6 +253,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
       }
     }
     if (frame.type !== "request") return;
+    if (heldNext.delete(frame.method)) return;
     const responder = responders.get(frame.method);
     const body = responder
       ? responder(frame.params, frame)
@@ -363,6 +372,9 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     },
     answer(method, responder) {
       responders.set(method, responder);
+    },
+    holdNext(method) {
+      heldNext.add(method);
     },
     updateRoute(answer) {
       updateAnswer = answer;
