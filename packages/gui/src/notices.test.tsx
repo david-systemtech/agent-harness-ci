@@ -315,6 +315,39 @@ describe("a notice", () => {
     expect(await screen.findByRole("region", { name: "Permission request" })).toBeDefined();
   });
 
+  it("of a prompt a rule settled on the session the focused pane shows is said by its transcript row and taken off, not drawn as a banner", async () => {
+    const app = await twoEnvironments();
+    const laptop = app.environment("laptop");
+    await waitFor(() => expect(laptop.requests("environment.subscribe")).toHaveLength(1));
+    act(() => app.open("laptop"));
+    laptop.startRun(laptop.sessionId(0), "Split the parser");
+    const promptId = laptop.openPrompt(laptop.sessionId(0), { kind: "permission", summary: "/etc/hostname" });
+    await waitFor(() => expect(app.runtime.projections.notices.read().map((notice) => notice.kind)).toEqual(["prompt-parked"]));
+    laptop.settleAutomatically(laptop.sessionId(0), promptId, "run_ended");
+    const transcript = await screen.findByRole("region", { name: "Transcript" });
+    await waitFor(() => expect(within(transcript).getByRole("article", { name: "Permission" }).textContent).toBe("/etc/hostname — denied: its run ended first"));
+    await waitFor(() => expect(app.runtime.projections.notices.read()).toEqual([]));
+    expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull();
+    act(() => app.open("desk"));
+    await waitFor(() => expect(app.shown()?.environmentId).toBe(app.environment("desk").environmentId));
+    expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull();
+  });
+
+  it("of a prompt a rule settled on another session says how, and offers to open it in the focused pane", async () => {
+    const app = await twoEnvironments();
+    const laptop = app.environment("laptop");
+    await waitFor(() => expect(laptop.requests("environment.subscribe")).toHaveLength(1));
+    act(() => app.open("desk"));
+    laptop.startRun(laptop.sessionId(0), "Split the parser");
+    const promptId = laptop.openPrompt(laptop.sessionId(0), { kind: "permission", summary: "/etc/hostname" });
+    await bannerSaying("Parser is waiting on laptop: /etc/hostname");
+    laptop.settleAutomatically(laptop.sessionId(0), promptId, "run_ended");
+    const banner = await bannerSaying("Parser: /etc/hostname was denied: its run ended first.");
+    await app.user.click(within(banner).getByRole("button", { name: "Open the session" }));
+    expect(app.shown()).toEqual({ environmentId: laptop.environmentId, sessionId: laptop.sessionId(0) });
+    expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull();
+  });
+
   it("clears restarted environments' obsolete draining banners while Settings is open", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");

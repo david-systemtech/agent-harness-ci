@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useSettingsNoticeHost } from "../settings/settings-window.js";
 import { stepHome, type Notice } from "@agent-harness/client-runtime";
@@ -39,7 +40,10 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
  * the session would do nothing, while the banner takes a phone's transcript
  * space. It is not dismissed, so it shows again once the pane shows
  * another session, or while Settings covers the pane, where opening the
- * session closes Settings.
+ * session closes Settings. A rule settling such a prompt draws none either:
+ * the prompt's transcript row in that pane says how (#1780), so its
+ * `prompt-resolved` notice is taken off this client as soon as the pane is
+ * in view, and does not show later about a session already seen.
  */
 
 /** What a banner offers: a button that runs something, or a line saying why it cannot. */
@@ -51,9 +55,9 @@ const stepOf = (notice: Notice): StepId | undefined => {
   return STEP_ORDER.find((id) => id === step);
 };
 
-/** Whether `notice` is a prompt parked on the session the focused pane shows. */
-const parkedInFocusedPane = (notice: Notice, layout: PaneLayout): boolean =>
-  notice.kind === "prompt-parked" && notice.about !== null &&
+/** Whether `notice` is about a prompt on the session the focused pane shows, parked or settled by a rule: the pane says it. */
+const saidInFocusedPane = (notice: Notice, layout: PaneLayout): boolean =>
+  (notice.kind === "prompt-parked" || notice.kind === "prompt-resolved") && notice.about !== null &&
   paneShowing(layout, { environmentId: notice.environmentId, sessionId: notice.about.sessionId })?.id === focusedPane(layout).id;
 
 /** What the notice offers, as the window runs it. */
@@ -154,7 +158,14 @@ export const WindowNotices = () => {
   const noticeHost = useSettingsNoticeHost();
   const [layout] = usePresentation("paneLayout");
   const covered = Boolean(noticeHost?.host);
-  const notices = useObservable(useRuntime().projections.notices).filter((notice) => covered || !parkedInFocusedPane(notice, layout));
+  const runtime = useRuntime();
+  const all = useObservable(runtime.projections.notices);
+  const notices = all.filter((notice) => covered || !saidInFocusedPane(notice, layout));
+  // A settled prompt's notice whose row the focused pane shows has been said: take it off.
+  useEffect(() => {
+    if (covered) return;
+    for (const notice of all) if (notice.kind === "prompt-resolved" && saidInFocusedPane(notice, layout)) runtime.notices.dismiss(notice.id);
+  }, [runtime, all, layout, covered]);
   if (notices.length === 0) return null;
   // Settings bounds both notice feeds together; another percentage cap here
   // would shrink each feed inside that already bounded scrollport.
