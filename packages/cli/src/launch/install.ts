@@ -39,6 +39,16 @@ import { declaredVersion, isComplete, VERSION_SENTINEL, versionCommand, versionD
 export const PREFLIGHT_TIMEOUT_MS = 30_000;
 
 /**
+ * How long, on Windows, the move of a staged version into the versions
+ * directory is tried again while a file of it is still held (`heldOnWindows`),
+ * the waits between tries doubling from `MOVE_RETRY_FIRST_WAIT_MS` up to
+ * `MOVE_RETRY_LONGEST_WAIT_MS`; a hold that outlasts it refuses the install.
+ */
+export const MOVE_RETRY_MS = 10_000;
+export const MOVE_RETRY_FIRST_WAIT_MS = 100;
+export const MOVE_RETRY_LONGEST_WAIT_MS = 2_000;
+
+/**
  * The minimum reserve an install leaves free. Admission also budgets the
  * database snapshot and rechecks after preflight. Renaming a staged version
  * into place does not allocate another copy.
@@ -76,7 +86,7 @@ export interface Installer {
    * time, in the order they were asked.
    */
   install(version: string, staged: string): Promise<InstallAnswer | undefined>;
-  /** Ends a preflight under way; nothing is installed or answered from now on. */
+  /** Ends a preflight, or a wait to try a move again, under way; nothing is installed or answered from now on. */
   stop(): void;
 }
 
@@ -84,6 +94,15 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 
 /** Whether `error` says the disk had no room: full, or over the user's quota. */
 const noRoom = (error: unknown): boolean => ["ENOSPC", "EDQUOT"].includes((error as NodeJS.ErrnoException).code ?? "");
+
+/**
+ * Whether `error` is Windows refusing to rename a folder while a file in it
+ * is still held: the preflight's `node.exe`, which has exited but whose
+ * image Windows releases a moment later, or a file just written that an
+ * on-access scan has open. It passes once the hold ends.
+ */
+const heldOnWindows = (error: unknown, platform: NodeJS.Platform): boolean =>
+  platform === "win32" && ["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "");
 
 /** Whether `staged` is a folder directly in the staging area of `dataDir` (links resolved), never a link to one. */
 const inStagingArea = (dataDir: string, staged: string): boolean => {
@@ -160,6 +179,8 @@ export const createInstaller = (options: InstallerOptions): Installer => {
   let stopped = false;
   /** Ends the preflight under way, if one is. */
   let endPreflight: (() => void) | undefined;
+  /** Ends the wait between two tries of a move, if one is under way. */
+  let endPause: (() => void) | undefined;
   /** The installs asked so far, each after the one before. */
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -214,6 +235,41 @@ export const createInstaller = (options: InstallerOptions): Installer => {
       });
     });
 
+  /** Waits `ms` on the launcher's timer, or until the launcher stops. */
+  const pause = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      const end = () => {
+        cancel();
+        endPause = undefined;
+        resolve();
+      };
+      const cancel = timer.after(ms, end);
+      endPause = end;
+    });
+
+  /**
+   * Moves `version` from `staged` into the versions directory
+   * (`moveIntoVersions`), trying again on Windows while a file of it is still
+   * held, for up to `MOVE_RETRY_MS`: true once it is in place, false when the
+   * launcher stopped first. Any other failure, or a hold past that, throws as
+   * the move did, the versions directory left as it was.
+   */
+  const move = async (version: string, staged: string): Promise<boolean> => {
+    let waited = 0;
+    for (let wait = MOVE_RETRY_FIRST_WAIT_MS; ; wait = Math.min(2 * wait, MOVE_RETRY_LONGEST_WAIT_MS)) {
+      try {
+        moveIntoVersions(dataDir, version, staged, fs, platform);
+        return true;
+      } catch (error) {
+        if (!heldOnWindows(error, platform) || waited + wait > MOVE_RETRY_MS) throw error;
+        log(`${staged} could not be moved into ${versions} yet, as a file of it is still held (${messageOf(error)}); trying again in ${wait} ms`);
+      }
+      await pause(wait);
+      waited += wait;
+      if (stopped) return false;
+    }
+  };
+
   /** Decides `install?` of `version` from `staged`, refusing with `refuse`: every step in the order the spec gives, the preflight last before the move. */
   const decide = async (version: string, staged: string, refuse: (reason: InstallRefusal, why: string) => InstallAnswer): Promise<InstallAnswer | undefined> => {
     const needs = (launcherProtocol: number) => `${version} needs launcher protocol ${launcherProtocol} and this launcher speaks ${LAUNCHER_PROTOCOL}`;
@@ -250,7 +306,7 @@ export const createInstaller = (options: InstallerOptions): Installer => {
       const needed = snapshotNeeds(dataDir);
       const free = freeBytes(dataDir);
       if (free < needed) return refuse("disk", `${free} bytes are free and staging must leave ${needed} for the database snapshot and reserve`);
-      moveIntoVersions(dataDir, version, staged, fs, platform);
+      if (!(await move(version, staged))) return undefined;
     } catch (error) {
       return refuse(noRoom(error) ? "disk" : "io", `it could not be moved into ${versions}: ${messageOf(error)}`);
     }
@@ -282,6 +338,7 @@ export const createInstaller = (options: InstallerOptions): Installer => {
     stop: () => {
       stopped = true;
       endPreflight?.();
+      endPause?.();
     },
   };
 };

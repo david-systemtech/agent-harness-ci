@@ -4,9 +4,9 @@ import { join, relative } from "node:path";
 import { LAUNCHER_PROTOCOL, type InstallAnswer } from "@agent-harness/contracts/launcher";
 import { DATABASE_FILE } from "@agent-harness/contracts/launcher";
 import { afterEach, describe, expect, it } from "vitest";
-import { fakeTimer, installVersion, layOutVersion, preflightRuns, stageVersion } from "../../test/launcher-fixtures.js";
+import { fakeTimer, installVersion, layOutVersion, preflightRuns, stageVersion, until } from "../../test/launcher-fixtures.js";
 import type { DurableFs } from "./durable.js";
-import { createInstaller, moveIntoVersions, type InstallerOptions } from "./install.js";
+import { createInstaller, MOVE_RETRY_FIRST_WAIT_MS, MOVE_RETRY_LONGEST_WAIT_MS, MOVE_RETRY_MS, moveIntoVersions, type InstallerOptions } from "./install.js";
 import { completeVersions } from "./versions.js";
 
 /**
@@ -275,6 +275,107 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
       expect(treeOf(staged), call).toEqual(stagedFiles);
       expect(lines.at(-1), call).toBe(`refuses install? of 0.6.0 from ${staged}: ${answer.type === "refused" ? answer.reason : ""}, as it could not be moved into ${join(dataDir, "versions")}: ${code}: ${call}`);
     }
+  });
+
+  describe("on Windows, a staged version whose rename meets a file still held", () => {
+    /** A recording fs whose rename of the staged 0.6.0 into the versions directory fails with `code` its first `times` tries. */
+    const heldFs = (dataDir: string, code: string, times: number) => {
+      const recorded = recordingFs(dataDir);
+      let tries = 0;
+      const fs: DurableFs = {
+        ...recorded.fs,
+        renameSync: (from, to) => {
+          if (to === join(dataDir, "versions", "0.6.0") && tries++ < times) throw Object.assign(new Error(`${code}: operation not permitted, rename '${from}'`), { code });
+          recorded.fs.renameSync(from, to);
+        },
+      };
+      return { fs, tries: () => tries };
+    };
+
+    it("tries the move again, after waits that double, until the hold ends, and installs", async () => {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const timer = fakeTimer();
+      const { fs, tries } = heldFs(dataDir, "EPERM", 2);
+      const { install, lines } = installer(dataDir, { fs, timer, platform: "win32" });
+      const answer = install("0.6.0", staged);
+      await until("the first try failed", () => timer.pending().includes(MOVE_RETRY_FIRST_WAIT_MS));
+      timer.run(MOVE_RETRY_FIRST_WAIT_MS);
+      await until("the second try failed", () => timer.pending().includes(2 * MOVE_RETRY_FIRST_WAIT_MS));
+      timer.run(2 * MOVE_RETRY_FIRST_WAIT_MS);
+      expect(await answer).toEqual({ type: "installed" });
+      expect(tries()).toBe(3);
+      expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
+      expect(lines.filter((line) => line.includes("trying again"))).toEqual([
+        `${staged} could not be moved into ${join(dataDir, "versions")} yet, as a file of it is still held (EPERM: operation not permitted, rename '${staged}'); trying again in ${MOVE_RETRY_FIRST_WAIT_MS} ms`,
+        `${staged} could not be moved into ${join(dataDir, "versions")} yet, as a file of it is still held (EPERM: operation not permitted, rename '${staged}'); trying again in ${2 * MOVE_RETRY_FIRST_WAIT_MS} ms`,
+      ]);
+    });
+
+    it("refuses io once the hold outlasts the bound, leaving the versions directory and the staged folder as they were", async () => {
+      for (const code of ["EPERM", "EACCES", "EBUSY"]) {
+        const dataDir = dataDirectory();
+        const staged = stageVersion(dataDir, "0.6.0");
+        const versions = treeOf(join(dataDir, "versions"));
+        const stagedFiles = treeOf(staged);
+        const timer = fakeTimer();
+        const { fs } = heldFs(dataDir, code, Infinity);
+        const { install, lines } = installer(dataDir, { fs, timer, platform: "win32" });
+        const answer = install("0.6.0", staged);
+        let waited = 0;
+        let settled = false;
+        void answer.then(() => (settled = true));
+        // Each wait between tries is run as soon as it is asked for, until the install is answered.
+        const retryWait = () => timer.pending().find((ms) => ms <= MOVE_RETRY_LONGEST_WAIT_MS);
+        while (!settled) {
+          await until("a try failed or the install was answered", () => settled || retryWait() !== undefined);
+          const wait = retryWait();
+          if (settled || wait === undefined) break;
+          waited += wait;
+          timer.run(wait);
+        }
+        expect(await answer, code).toEqual({ type: "refused", reason: "io" });
+        expect(waited, code).toBeLessThanOrEqual(MOVE_RETRY_MS);
+        expect(waited, code).toBeGreaterThan(MOVE_RETRY_MS - MOVE_RETRY_LONGEST_WAIT_MS);
+        expect(treeOf(join(dataDir, "versions")), code).toEqual(versions);
+        expect(treeOf(staged), code).toEqual(stagedFiles);
+        expect(lines.at(-1), code).toMatch(`refuses install? of 0.6.0 from ${staged}: io, as it could not be moved into ${join(dataDir, "versions")}: ${code}`);
+      }
+    });
+
+    it("refuses at once, trying nothing again, a failure that is not a hold, or a hold on another platform", async () => {
+      const cases: [code: string, platform: NodeJS.Platform, answer: InstallAnswer][] = [
+        ["ENOSPC", "win32", { type: "refused", reason: "disk" }],
+        ["EIO", "win32", { type: "refused", reason: "io" }],
+        ["EPERM", "linux", { type: "refused", reason: "io" }],
+        ["EBUSY", "darwin", { type: "refused", reason: "io" }],
+      ];
+      for (const [code, platform, refused] of cases) {
+        const dataDir = dataDirectory();
+        const staged = stageVersion(dataDir, "0.6.0");
+        const timer = fakeTimer();
+        const { fs, tries } = heldFs(dataDir, code, Infinity);
+        const { install } = installer(dataDir, { fs, timer, platform });
+        expect(await install("0.6.0", staged), `${code} on ${platform}`).toEqual(refused);
+        expect(tries(), `${code} on ${platform}`).toBe(1);
+        expect(completeVersions(dataDir), `${code} on ${platform}`).toEqual(["0.5.0"]);
+      }
+    });
+
+    it("answers nothing and installs nothing when the launcher stops while it waits to try again", async () => {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const timer = fakeTimer();
+      const { fs, tries } = heldFs(dataDir, "EPERM", Infinity);
+      const installing = createInstaller({ dataDir, timer, freeBytes: () => 2 ** 40, log: () => undefined, fs, platform: "win32" });
+      const answer = installing.install("0.6.0", staged);
+      await until("the first try failed", () => timer.pending().includes(MOVE_RETRY_FIRST_WAIT_MS));
+      installing.stop();
+      expect(await answer).toBeUndefined();
+      expect(tries()).toBe(1);
+      expect(timer.pending()).not.toContain(MOVE_RETRY_FIRST_WAIT_MS);
+      expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
+    });
   });
 
   it("runs one install at a time, in the order asked", async () => {
