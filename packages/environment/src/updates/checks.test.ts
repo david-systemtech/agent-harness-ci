@@ -142,8 +142,10 @@ describe("a check that changes what updates.status shows of the channel", () => 
     expect(said).toEqual([]);
   });
 
-  it("still ends the check when saying it throws", async () => {
+  it("still ends the check when saying it throws, and the next check that finds the same says it", async () => {
     const clock = manualClock();
+    let fails = true;
+    const said: ChannelCheckedPayload[] = [];
     const checks = createChannelChecks({
       clock,
       dataDir: tempDir("agent-harness-checks-"),
@@ -151,8 +153,9 @@ describe("a check that changes what updates.status shows of the channel", () => 
       settings: () => ({ autoUpdate: false, channel: "stable", pinnedVersion: null }),
       context: () => Promise.resolve({ launcherProtocol: null, failedVersions: [] }),
       follow: () => Promise.resolve(null),
-      said: () => {
-        throw new Error("The log is closed.");
+      said: (payload) => {
+        if (fails) throw new Error("The log is busy.");
+        said.push(payload);
       },
     });
     const heard: string[] = [];
@@ -163,5 +166,10 @@ describe("a check that changes what updates.status shows of the channel", () => 
     expect(heard).toEqual(["checked"]);
     expect(errors).toHaveBeenCalledWith("Saying the release channel's check on the environment's stream failed:", expect.any(Error));
     errors.mockRestore();
+
+    fails = false;
+    clock.advance(CHECK_AGAIN_MS);
+    await checks.check();
+    expect(said).toEqual([{ newest: "0.5.0", lastCheck: checks.status().lastCheck }]);
   });
 });

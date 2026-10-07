@@ -147,9 +147,10 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   const sayIfChanged = (): void => {
     const now = saidOf(status);
     if (stopped || now === lastSaid || status.lastCheck === null) return;
-    lastSaid = now;
     try {
       options.said({ newest: status.newest, lastCheck: status.lastCheck });
+      // Only once said: a change that did not reach the stream is said by the next check, though that one finds the same.
+      lastSaid = now;
     } catch (error) {
       console.error("Saying the release channel's check on the environment's stream failed:", error);
     }
