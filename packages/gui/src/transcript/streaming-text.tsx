@@ -1,12 +1,18 @@
-import { memo, use, useCallback, useState, type CSSProperties } from "react";
+import { createContext, memo, use, useCallback, useMemo, useState, type ComponentPropsWithoutRef, type CSSProperties } from "react";
+import type { Components, ExtraProps } from "react-markdown";
 import { usePresentation } from "../window-context.js";
-import { FindQuery, Marked } from "./find.js";
+import { FindQuery } from "./find.js";
+import { Markdown, type RehypePlugin } from "./markdown.js";
 
 /**
- * Text still streaming, each word fading in as it arrives (docs/specs/gui.md,
- * "A session pane": streamed text with the word fade) while the streaming
- * fade is on (`streamingFade`, presentation); plain text while it is off, or
- * while the system asks for reduced motion.
+ * Text still streaming, drawn as markdown as it arrives (#1754), each word
+ * fading in as it arrives (docs/specs/gui.md, "A session pane": streamed text
+ * with the word fade) while the streaming fade is on (`streamingFade`,
+ * presentation); drawn whole while it is off, or while the system asks for
+ * reduced motion. It is the same parse the settled text gets, so the end of a
+ * turn reflows nothing already shown: a closed emphasis, a heading, a list or
+ * a code span is formatted the moment it is whole, and an unclosed one at the
+ * end reads as typed until it closes.
  *
  * A delta rarely ends on a word's end ("Looking at the par"), so only whole
  * words (those whitespace follows) are shown while the fade is on, the rest
@@ -14,14 +20,15 @@ import { FindQuery, Marked } from "./find.js";
  * (`LONGEST_HELD`), so a stalled stream is not left looking stuck. The words
  * one delta brings fade in together, each a little after the one before; a
  * backlog past `INSTANT_WORDS` is a whole message landing, not a sentence
- * being said, and shows at once. A word whose fade has ended is folded back
- * into one plain text node, so an answer of thousands of words is one node
- * and the few words still fading. What was there before the transcript was
- * watching (a session opened mid-run), or when the fade was turned on, was
- * not seen arriving: it is shown whole as it is, a half word included, and
- * never replayed; only what comes after it fades in. While the find
- * bar looks for something the text is drawn whole, its matches marked. A
- * finished text is the markdown's to draw.
+ * being said, and shows at once. A word is found in the drawn markdown by
+ * where it stands in the text (`fadeWords`), so the marks around it (`**`,
+ * `#`, a list's dash) are never drawn and never fade. A word whose fade has
+ * ended is folded back into plain text, so an answer of thousands of words is
+ * a few text nodes and the few words still fading. What was there before the
+ * transcript was watching (a session opened mid-run), or when the fade was
+ * turned on, was not seen arriving: it is shown whole as it is, a half word
+ * included, and never replayed; only what comes after it fades in. While the
+ * find bar looks for something the text is drawn whole, its matches marked.
  */
 
 /** How long one word's fade takes (the stylesheet's `word-in` keyframes). */
@@ -40,7 +47,9 @@ const WORD = /\s*\S+\s*/g;
 /** The words that arrived together, fading. */
 interface Batch {
   readonly key: number;
-  readonly words: readonly string[];
+  /** Where in the text each word starts: each runs to the next, the last to `end`. */
+  readonly words: readonly number[];
+  readonly end: number;
   /** Each word's delay after the one before, in milliseconds. */
   readonly stagger: number;
 }
@@ -49,8 +58,8 @@ interface Reveal {
   /** The text the reveal has taken in, and whether the fade was on when it did. */
   readonly text: string;
   readonly fade: boolean;
-  /** Shown and no longer fading. */
-  readonly settled: string;
+  /** How much of `text` is shown and no longer fading. */
+  readonly settled: number;
   /** How much of `text` is shown, settled or fading: the rest is held. */
   readonly shown: number;
   readonly batches: readonly Batch[];
@@ -66,7 +75,7 @@ const wholeThrough = (text: string, from: number): number => {
 };
 
 /** `text` shown whole as it is, a half word included, nothing fading: it was there before, not seen arriving. */
-const adopt = (text: string, fade: boolean, nextKey = 0): Reveal => ({ text, fade, settled: text, shown: text.length, batches: [], ended: new Set(), nextKey });
+const adopt = (text: string, fade: boolean, nextKey = 0): Reveal => ({ text, fade, settled: text.length, shown: text.length, batches: [], ended: new Set(), nextKey });
 
 /** The reveal once `text` has arrived: what is new and whole fades in as one batch. */
 const advance = (reveal: Reveal, text: string): Reveal => {
@@ -75,56 +84,168 @@ const advance = (reveal: Reveal, text: string): Reveal => {
   let through = wholeThrough(text, reveal.shown);
   if (through === reveal.shown && text.length - reveal.shown > LONGEST_HELD) through = text.length;
   if (through === reveal.shown) return { ...reveal, text };
-  const arrived = text.slice(reveal.shown, through);
-  // Whitespace alone (a paragraph's break sent on its own) is carried as it is: the pieces joined are always what arrived.
-  const words = arrived.match(WORD) ?? [arrived];
+  // Whitespace alone (a paragraph's break sent on its own) is one word of no letters: the words joined are always what arrived.
+  const starts = [...text.slice(reveal.shown, through).matchAll(WORD)].map((word) => reveal.shown + word.index);
+  const words = starts.length === 0 ? [reveal.shown] : starts;
   // A burst lands at once, and what was still fading before it lands with it, so the text stays in order.
-  if (words.length >= INSTANT_WORDS) {
-    const before = reveal.batches.flatMap((batch) => batch.words).join("");
-    return { ...reveal, text, settled: reveal.settled + before + words.join(""), shown: through, batches: [], ended: new Set() };
-  }
+  if (words.length >= INSTANT_WORDS) return { ...reveal, text, settled: through, shown: through, batches: [], ended: new Set() };
   const stagger = words.length > 1 ? Math.min(STAGGER_MS, STAGGER_BUDGET_MS / words.length) : 0;
-  return { ...reveal, text, shown: through, batches: [...reveal.batches, { key: reveal.nextKey, words, stagger }], nextKey: reveal.nextKey + 1 };
+  return { ...reveal, text, shown: through, batches: [...reveal.batches, { key: reveal.nextKey, words, end: through, stagger }], nextKey: reveal.nextKey + 1 };
 };
 
 /**
  * The reveal with the batch `key` done fading: folded into the settled text
  * with every batch after it whose fade has ended too, once no batch before it
  * still fades (a short delta can end its fade before a long one before it).
+ * A batch the markdown draws no word of (a list's dash, a paragraph's break)
+ * has nothing to fade, so it never holds the ones after it back.
  */
-const retire = (reveal: Reveal, key: number): Reveal => {
+const retire = (reveal: Reveal, key: number, drawn: ReadonlySet<number>): Reveal => {
   const ended = new Set(reveal.ended).add(key);
+  const over = (batch: Batch) => ended.has(batch.key) || !drawn.has(batch.key);
   let done = 0;
-  while (done < reveal.batches.length && ended.has((reveal.batches[done] as Batch).key)) ended.delete((reveal.batches[done++] as Batch).key);
+  while (done < reveal.batches.length && over(reveal.batches[done] as Batch)) ended.delete((reveal.batches[done++] as Batch).key);
   if (done === 0) return { ...reveal, ended };
-  const folded = reveal.batches.slice(0, done);
-  return { ...reveal, settled: reveal.settled + folded.flatMap((batch) => batch.words).join(""), batches: reveal.batches.slice(done), ended };
+  return { ...reveal, settled: (reveal.batches[done - 1] as Batch).end, batches: reveal.batches.slice(done), ended };
 };
 
 const reducedMotion = (): boolean => typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** One delta's words, fading in; `onDone` once the last has. */
-const Fading = memo(({ batch, onDone }: { readonly batch: Batch; readonly onDone: (key: number) => void }) => (
-  <>
-    {batch.words.map((word, index) => (
+/** A node of the tree markdown is drawn from (hast), as much of it as the fade reads and writes. */
+interface TreeNode {
+  readonly type: string;
+  readonly tagName?: string;
+  readonly value?: string;
+  readonly position?: { readonly start: { readonly offset?: number }; readonly end: { readonly offset?: number } };
+  properties?: Record<string, unknown>;
+  children?: TreeNode[];
+}
+
+/** A text node of the drawn markdown, its words cut apart: drawn by `Span`, which keys each piece itself. */
+const textOf = (pieces: TreeNode[]): TreeNode => ({ type: "element", tagName: "span", properties: { dataText: true }, children: pieces });
+
+/** A word, or the part of one a text node holds, fading: `start` is where it stands in the text, and keys it. */
+const fadingPiece = (value: string, start: number, delay: number): TreeNode => ({
+  type: "element",
+  tagName: "span",
+  properties: { dataWord: start, dataDelay: delay },
+  children: [{ type: "text", value }],
+});
+
+/**
+ * A rehype plugin cutting each text node of the drawn markdown where the
+ * words of `batches` start and wrapping each word's part in a fading span;
+ * what stands before `settled` is left as it is. Every text node drawn from
+ * the text, faded or not, becomes one element (`textOf`), so a fold, which
+ * only turns pieces of a node back into its text, never moves the elements
+ * after it among their siblings: the markdown's renderer keys an element by
+ * its tag's count among them, and a moved one would be drawn anew, its
+ * words' fade replayed. A text node that does not
+ * hold its source letter for letter (an entity, a code span's ticks) fades
+ * whole as the word it starts in, or not at all if it starts in what has
+ * settled. The
+ * batches some word was drawn of are put in `drawn`, and the last piece drawn
+ * of each says so (`dataDone`), its fade's end retiring the batch.
+ */
+const fadeWords = (settled: number, batches: readonly Batch[], drawn: Set<number>) => {
+  const last = new Map<number, TreeNode>();
+  const piece = (batch: Batch, index: number, value: string, start: number): TreeNode => {
+    const made = fadingPiece(value, start, Math.round(index * batch.stagger));
+    last.set(batch.key, made);
+    return made;
+  };
+  const cut = (node: TreeNode): TreeNode[] => {
+    const from = node.position?.start.offset;
+    const to = node.position?.end.offset;
+    const value = node.value ?? "";
+    if (from === undefined || to === undefined) return [node];
+    if (to <= settled) return [textOf([node])];
+    if (to - from !== value.length) {
+      if (from < settled) return [textOf([node])];
+      for (const batch of batches) {
+        const index = batch.words.findLastIndex((start) => start <= from);
+        if (index !== -1 && from < batch.end) return [textOf([piece(batch, index, value, from)])];
+      }
+      return [textOf([node])];
+    }
+    const pieces: TreeNode[] = from < settled ? [{ type: "text", value: value.slice(0, settled - from) }] : [];
+    for (const batch of batches) {
+      batch.words.forEach((start, index) => {
+        const begin = Math.max(start, from, settled);
+        const end = Math.min(batch.words[index + 1] ?? batch.end, to);
+        if (begin < end) pieces.push(piece(batch, index, value.slice(begin - from, end - from), begin));
+      });
+    }
+    return [textOf(pieces)];
+  };
+  const walk = (node: TreeNode): void => {
+    if (node.children === undefined) return;
+    node.children = node.children.flatMap((child) => {
+      if (child.type === "text") return cut(child);
+      walk(child);
+      return [child];
+    });
+  };
+  return () => (tree: unknown) => {
+    walk(tree as TreeNode);
+    for (const [key, node] of last) {
+      drawn.add(key);
+      node.properties = { ...node.properties, dataDone: key };
+    }
+  };
+};
+
+/** Told when a batch's last word has faded in. */
+const FadeDone = createContext<(key: number) => void>(() => undefined);
+
+/**
+ * A span of the drawn markdown. A text node's (`textOf`) is no element of
+ * its own: its text, and each fading piece keyed by where its word stands, so
+ * a piece keeps its element, and its fade, while the pieces before it fold.
+ */
+const Span = ({ node, ...props }: ComponentPropsWithoutRef<"span"> & ExtraProps) => {
+  const done = use(FadeDone);
+  if (node?.properties["dataText"] !== true) return <span {...props} />;
+  return (node.children as TreeNode[]).map((child) => {
+    const word = child.properties?.["dataWord"];
+    if (typeof word !== "number") return child.value;
+    const batch = child.properties?.["dataDone"];
+    return (
       <span
-        // A batch's words never change once it is made, so their places are their keys.
-        key={index}
+        key={word}
         className="word-in"
-        style={fadeStyle(index * batch.stagger)}
-        onAnimationEnd={index === batch.words.length - 1 ? () => onDone(batch.key) : undefined}
+        style={fadeStyle(Number(child.properties?.["dataDelay"]))}
+        onAnimationEnd={typeof batch === "number" ? () => done(batch) : undefined}
       >
-        {word}
+        {child.children?.[0]?.value}
       </span>
-    ))}
-  </>
-));
+    );
+  });
+};
+
+const FADE_COMPONENTS: Components = { span: Span };
 
 // The stylesheet owns the animation so reduced-motion rules can stop an in-flight batch.
 const fadeStyle = (delay: number): CSSProperties => ({
   "--word-ms": `${WORD_MS}ms`,
   animationDelay: `${delay}ms`,
 } as CSSProperties);
+
+/** What is shown of the reveal, its fading words fading. */
+const Fading = memo(({ reveal, onDone }: { readonly reveal: Reveal; readonly onDone: (key: number, drawn: ReadonlySet<number>) => void }) => {
+  const { text, shown, settled, batches } = reveal;
+  const { plugin, drawn } = useMemo(() => {
+    const drawn = new Set<number>();
+    const plugin: RehypePlugin = fadeWords(settled, batches, drawn);
+    return { plugin, drawn };
+  }, [settled, batches]);
+  const done = useCallback((key: number) => onDone(key, drawn), [onDone, drawn]);
+  return (
+    <FadeDone value={done}>
+      <Markdown text={text.slice(0, shown)} plugin={plugin} components={FADE_COMPONENTS} />
+    </FadeDone>
+  );
+});
 
 export interface StreamingTextProps {
   readonly text: string;
@@ -138,19 +259,12 @@ export const StreamingText = ({ text, arrived }: StreamingTextProps) => {
   const finding = use(FindQuery) !== "";
   const fade = streamingFade && !finding && !reducedMotion();
   const [reveal, setReveal] = useState(() => (arrived && fade ? advance(adopt("", fade), text) : adopt(text, fade)));
-  const done = useCallback((key: number) => setReveal((was) => retire(was, key)), []);
+  const done = useCallback((key: number, drawn: ReadonlySet<number>) => setReveal((was) => retire(was, key, drawn)), []);
   let current = reveal;
   if (current.fade !== fade) current = adopt(text, fade, current.nextKey);
   else if (current.text !== text) current = fade ? advance(current, text) : adopt(text, fade, current.nextKey);
   // Adjusted while rendering, as React has state follow a prop: no effect, and no frame drawn a delta behind.
   if (current !== reveal) setReveal(current);
-  if (!fade) return <Marked text={text} />;
-  return (
-    <>
-      {current.settled}
-      {current.batches.map((batch) => (
-        <Fading key={batch.key} batch={batch} onDone={done} />
-      ))}
-    </>
-  );
+  if (!fade) return <Markdown text={text} />;
+  return <Fading reveal={current} onDone={done} />;
 };

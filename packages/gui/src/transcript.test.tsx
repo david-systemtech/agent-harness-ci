@@ -35,6 +35,14 @@ const fadeEnds = (word: HTMLElement) => {
 /** The words of `element` still fading in, each as it arrived. */
 const fading = (element: HTMLElement | undefined) => [...(element?.querySelectorAll("span") ?? [])].filter((span) => span.classList.contains("word-in")).map((span) => span.textContent);
 
+/** What `element` draws, its fading words drawn as the text they hold: how it reads once nothing fades. */
+const drawn = (element: HTMLElement | undefined) => {
+  const copy = element?.cloneNode(true) as HTMLElement | undefined;
+  for (const word of copy?.querySelectorAll(".word-in") ?? []) word.replaceWith(...word.childNodes);
+  copy?.normalize();
+  return copy?.querySelector(".markdown")?.outerHTML;
+};
+
 describe("streaming", () => {
   it("labels message spines and shows a caret only while a reply is streaming", async () => {
     const { env, transcript, session } = await opened();
@@ -79,9 +87,9 @@ describe("streaming", () => {
     expect((await within(transcript).findByRole("article", { name: "Your message" })).textContent).toBe("Fix the receipts");
 
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Looking at " }] });
-    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at "));
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at"));
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "the parser. " }] });
-    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. "));
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser."));
 
     env.emit(session, "assistant.text", { runId, itemId: "i-1", text: "Looking at the parser. Found it.", aborted: false });
     await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found it."));
@@ -91,23 +99,23 @@ describe("streaming", () => {
     const { app, env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Looking at " }] });
-    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Looking ", "at "]));
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Looking ", "at"]));
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "the par" }] });
-    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Looking ", "at ", "the "]));
-    expect(lastReply(transcript)?.textContent).toBe("Looking at the ");
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Looking ", "at ", "the"]));
+    expect(lastReply(transcript)?.textContent).toBe("Looking at the");
 
     act(() => app.presentation.set("streamingFade", false));
     expect(lastReply(transcript)?.textContent).toBe("Looking at the par");
     expect(fading(lastReply(transcript))).toEqual([]);
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "ser. " }] });
-    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. "));
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser."));
     expect(fading(lastReply(transcript))).toEqual([]);
 
     // Turned on again mid-stream, what is already there is not replayed: only what arrives after fades in.
     act(() => app.presentation.set("streamingFade", true));
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Found it. " }] });
-    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Found ", "it. "]));
-    expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found it. ");
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Found ", "it."]));
+    expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found it.");
   });
 
   it("keeps what is already shown, a half word included, when the fade is turned on, and fades in only what arrives after", async () => {
@@ -120,23 +128,24 @@ describe("streaming", () => {
     act(() => app.presentation.set("streamingFade", true));
     expect(lastReply(transcript)?.textContent).toBe("Looking at the par");
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "ser. Found " }] });
-    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found "));
-    expect(fading(lastReply(transcript))).toEqual(["ser. ", "Found "]);
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found"));
+    expect(fading(lastReply(transcript))).toEqual(["ser. ", "Found"]);
   });
 
-  it("keeps whitespace that arrives on its own, a paragraph's break included, while the fade is on", async () => {
+  it("keeps whitespace that arrives on its own, a paragraph's break starting the next paragraph, while the fade is on", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
+    const paragraphs = () => [...(lastReply(transcript)?.querySelectorAll("p") ?? [])].map((paragraph) => paragraph.textContent);
     // Each delta drawn before the next arrives, as a provider streams them.
     for (const [text, shown] of [
-      ["First line. ", "First line. "],
-      ["\n\n", "First line. \n\n"],
-      ["Second ", "First line. \n\nSecond "],
-      [" ", "First line. \n\nSecond  "],
-      ["line. ", "First line. \n\nSecond  line. "],
-    ]) {
+      ["First line. ", ["First line."]],
+      ["\n\n", ["First line."]],
+      ["Second ", ["First line.", "Second"]],
+      [" ", ["First line.", "Second"]],
+      ["line. ", ["First line.", "Second  line."]],
+    ] as const) {
       env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text }] });
-      await waitFor(() => expect(lastReply(transcript)?.textContent).toBe(shown));
+      await waitFor(() => expect(paragraphs()).toEqual(shown));
     }
   });
 
@@ -144,27 +153,102 @@ describe("streaming", () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "One two three " }] });
-    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three "]));
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three"]));
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "four " }] });
-    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three ", "four "]));
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three ", "four"]));
     const word = (text: string) => [...(lastReply(transcript)?.querySelectorAll("span") ?? [])].find((span) => span.textContent === text) as HTMLElement;
 
     // The later, shorter delta ends its fade first: the words before it are still fading, so nothing is folded yet.
-    fadeEnds(word("four "));
-    expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three ", "four "]);
+    fadeEnds(word("four"));
+    expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three ", "four"]);
     fadeEnds(word("three "));
     expect(fading(lastReply(transcript))).toEqual([]);
-    expect(lastReply(transcript)?.textContent).toBe("One two three four ");
+    expect(lastReply(transcript)?.textContent).toBe("One two three four");
+  });
+
+  it("keeps each later word's own element, its fade not replayed, when a batch before it folds, in its text and beside emphasis", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    for (const [text, words] of [
+      ["One ", ["One"]],
+      ["two ", ["One ", "two"]],
+      ["**three** ", ["One ", "two ", "three"]],
+      ["four ", ["One ", "two ", "three", " ", "four"]],
+    ] as const) {
+      env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text }] });
+      await waitFor(() => expect(fading(lastReply(transcript))).toEqual(words));
+    }
+    const word = (text: string) => [...(lastReply(transcript)?.querySelectorAll(".word-in") ?? [])].find((span) => span.textContent === text) as HTMLElement;
+    const later = [word("two "), word("three"), word("four")];
+
+    // The last delta's fade ends first and waits; the first's ends and folds it, the second still fading.
+    fadeEnds(word("four"));
+    fadeEnds(word("One "));
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["two ", "three", " ", "four"]));
+    expect(later.map((element) => element.isConnected)).toEqual([true, true, true]);
+    expect([word("two "), word("three"), word("four")]).toEqual(later);
+    expect(lastReply(transcript)?.textContent).toBe("One two three four");
   });
 
   it("keeps the words before a burst in their place when the burst lands at once", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Sure, " }] });
-    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Sure, "]));
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Sure,"]));
     const burst = Array.from({ length: 250 }, (_, index) => `w${index} `).join("");
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: burst }] });
-    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe(`Sure, ${burst}`));
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe(`Sure, ${burst.trimEnd()}`));
+  });
+
+  it("draws markdown as it streams, closed emphasis, a heading and inline code formatted before the turn ends, and the end reflows nothing", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Write about tea");
+    const chunks = ["# The History", " of Tea\n\nThe **first", "** leaves of *Camellia", " sinensis* were steeped in `po", "ts` long ago. "];
+    for (const text of chunks) env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text }] });
+    const reply = await waitFor(() => {
+      const found = lastReply(transcript);
+      expect(found?.textContent).toContain("long ago.");
+      return found as HTMLElement;
+    });
+    expect(within(reply).getByRole("status", { name: "Reply streaming" })).toBeDefined();
+    expect(reply.querySelector("h1")?.textContent).toBe("The History of Tea");
+    expect(reply.querySelector("strong")?.textContent).toBe("first");
+    expect(reply.querySelector("em")?.textContent).toBe("Camellia sinensis");
+    expect(reply.querySelector("code")?.textContent).toBe("pots");
+    expect(reply.textContent).not.toMatch(/[*#`]/);
+    const streamed = drawn(reply);
+
+    env.emit(session, "assistant.text", { runId, itemId: "i-1", text: chunks.join(""), aborted: false });
+    await waitFor(() => expect(within(reply).queryByRole("status", { name: "Reply streaming" })).toBeNull());
+    expect(drawn(lastReply(transcript))).toBe(streamed);
+  });
+
+  it("fades in only the words that arrive, inside emphasis too, never what was already there", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Write about tea");
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Tea was " }] });
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Tea ", "was"]));
+    for (const word of lastReply(transcript)?.querySelectorAll(".word-in") ?? []) fadeEnds(word as HTMLElement);
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual([]));
+
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "**first** steeped " }] });
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["first", " ", "steeped"]));
+    expect(lastReply(transcript)?.querySelector("strong .word-in")?.textContent).toBe("first");
+    expect(lastReply(transcript)?.textContent).toBe("Tea was first steeped");
+  });
+
+  it("draws markdown while it streams with the fade off too", async () => {
+    const { app, env, transcript, session } = await opened();
+    act(() => app.presentation.set("streamingFade", false));
+    const { runId } = env.startRun(session, "Write about tea");
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "## Tea\n\n- *green*\n- black" }] });
+    const reply = await waitFor(() => {
+      const found = lastReply(transcript);
+      expect(found?.querySelectorAll("li")).toHaveLength(2);
+      return found as HTMLElement;
+    });
+    expect(within(reply).getByRole("heading", { name: "Tea" })).toBeDefined();
+    expect(reply.querySelector("li em")?.textContent).toBe("green");
   });
 
   it("renders settled text as markdown, its fenced code highlighted", async () => {
@@ -487,7 +571,7 @@ describe("following the end", () => {
     const back = await screen.findByRole("button", { name: "Jump to the latest" });
     height = 2200;
     env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "the parser. " }] });
-    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. "));
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser."));
     expect(transcript.scrollTop).toBe(300);
 
     await app.user.click(back);

@@ -250,11 +250,11 @@ const CostLine = ({ run }: { readonly run: RunSummary }) => {
   );
 };
 
-/** The assistant's reply: fading in word by word while it streams, markdown once it has settled. */
+/** The assistant's reply, as markdown: fading in word by word while it streams, a caret after it. */
 const AssistantText = ({ text, streaming, arrived }: { readonly text: string; readonly streaming: boolean; readonly arrived: boolean }) => (
   <article aria-label="Reply" className="text-ink">
     {streaming ? (
-      <div className="caret whitespace-pre-wrap break-words">
+      <div className="caret">
         <span role="status" aria-label="Reply streaming" />
         <StreamingText text={text} arrived={arrived} />
       </div>
@@ -296,9 +296,7 @@ const Reasoning = ({ entry, arrived }: { readonly entry: AssistantEntry; readonl
     >
       <div className="border-l border-hairline pl-3 text-ink-muted">
         {entry.streaming ? (
-          <div className="whitespace-pre-wrap break-words">
-            <StreamingText text={entry.text} arrived={arrived} />
-          </div>
+          <StreamingText text={entry.text} arrived={arrived} />
         ) : (
           <Markdown text={entry.text} />
         )}

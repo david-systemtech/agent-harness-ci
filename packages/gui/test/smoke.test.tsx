@@ -107,10 +107,11 @@ describe("the composer through the real spine", { concurrent: false }, () => {
     await window.write("Fix the receipts{Enter}");
     const message = await within(window.transcript).findByRole("article", { name: "Your message" }, { timeout: 5000 });
     expect(message.textContent).toBe("Fix the receipts");
-    // Streamed: the words the delta brought, before the reply settles.
+    // Streamed: the words the delta brought, before the reply settles, as markdown draws them (a paragraph's end trimmed).
     const reply = () => within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent;
-    await deltaShown(t, "Looking at ", (prefix) => waitFor(() => expect(reply()?.slice(0, prefix.length)).toBe(prefix), { timeout: 5000 }));
-    expect(reply()).toBe("Looking at ");
+    const shows = (prefix: string) => waitFor(() => expect(reply()?.slice(0, prefix.trimEnd().length)).toBe(prefix.trimEnd()), { timeout: 5000 });
+    await deltaShown(t, "Looking at ", shows);
+    expect(reply()).toBe("Looking at");
     streamed.open();
     await waitFor(() => expect(reply()).toBe("Looking at the receipts."), { timeout: 5000 });
     await window.inWindow.findByRole("button", { name: "Send" });

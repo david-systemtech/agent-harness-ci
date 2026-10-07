@@ -46,14 +46,14 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
     env.emit(env.sessionId(), "assistant.delta", { runId, itemId: "reply", fragments: [{ kind: "text", text: "The receipt totals agree. " }] });
     return runId;
   });
-  await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The receipt totals agree. "));
+  await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The receipt totals agree."));
   await act(async () => {
     env.emit(env.sessionId(), "assistant.text", { runId, itemId: "reply", text: "The receipt totals agree.", aborted: false });
     env.endRun(env.sessionId(), runId);
     const next = env.startRun(env.sessionId(), "Check the next receipt");
     env.emit(env.sessionId(), "assistant.delta", { runId: next.runId, itemId: "next-reply", fragments: [{ kind: "text", text: "The next receipt agrees. " }] });
   });
-  await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The next receipt agrees. "));
+  await waitFor(() => expect(screen.getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("The next receipt agrees."));
   await waitFor(() => expect(platform.shell).toBeUndefined());
   const incoming = new URL(link);
   app.rerender(<App key="new-pairing-visit" runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { address: incoming.origin, code: incoming.hash.slice(1) } } }} />);
