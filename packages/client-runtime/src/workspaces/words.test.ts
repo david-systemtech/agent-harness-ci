@@ -49,6 +49,8 @@ describe("a workspace's name", () => {
     expect(workspaceName({ kind: "scratch", path: "/data/scratch/ed7df0d1-d3f8-4864-b8f4-58b1ca593b10" })).toBe("scratch");
     expect(workspaceName({ kind: "directory", path: "/home/david/harness" })).toBe("harness");
     expect(workspaceName({ kind: "worktree", path: "/data/worktrees/w1", repository: "/home/david/harness", branch: "fix/login" })).toBe("harness");
+    expect(workspaceName({ kind: "directory", path: "/" })).toBe("/");
+    expect(workspaceName({ kind: "directory", path: "C:\\" })).toBe("C:");
   });
 
   it("gives a new worktree's branch the preset name from the session's id when it is not named one", () => {

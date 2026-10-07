@@ -1,4 +1,4 @@
-import { baseName, type ChecksView } from "@agent-harness/client-runtime";
+import { workspaceName, type ChecksView } from "@agent-harness/client-runtime";
 import { useMemo } from "react";
 import { Folder, GitBranch, Hand, Terminal, CircleCheck, CircleMinus, CircleAlert } from "lucide-react";
 import { usePaneGrid } from "../grid/grid.js";
@@ -75,7 +75,7 @@ export const WorkspaceRow = ({ environmentId, sessionId, compact = false }: { re
   const known = useObservable(useMemo(() => runtime.projections.knownDirectories(environmentId), [runtime, environmentId]));
   const handoff = useHandoffPicker();
   const workspace = projection.summary?.workspace;
-  const label = workspace === undefined ? undefined : workspace.kind === "scratch" ? "scratch" : baseName(workspace.kind === "worktree" ? workspace.repository : workspace.path);
+  const label = workspace === undefined ? undefined : workspaceName(workspace);
   const chooseDirectory = (path: string) => {
     const id = grid.newSession(environmentId);
     grid.chooseChips(id, (held) => ({ ...held, environmentId, workspace: { environmentId, request: { kind: "directory", path } } }));
