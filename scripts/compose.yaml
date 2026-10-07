@@ -119,6 +119,10 @@ services:
       # start reads (#1691): set it in the .env file beside this one, which an
       # update keeps. Blank, as unset, leaves pairing links on the bound address.
       AGENT_HARNESS_WEB_ORIGIN: ${AGENT_HARNESS_WEB_ORIGIN:-}
+      # The header that proxy writes a client's address in, for the access
+      # log and the pairing rate limit (#1809). Blank is Tailscale Serve's
+      # X-Forwarded-For and Tailscale-User-Login; a named header reads no login.
+      AGENT_HARNESS_CLIENT_ADDRESS_HEADER: ${AGENT_HARNESS_CLIENT_ADDRESS_HEADER:-}
     volumes:
       - data:/data
       - work:/work

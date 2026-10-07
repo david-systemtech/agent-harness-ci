@@ -16,6 +16,7 @@ import type { IncomingMessage } from "node:http";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { SocketSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import type { EventLog } from "../event-log/event-log.js";
+import type { ClientAddress, ClientAddressOf } from "../serve/client-address.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { refuseUpgrade, type UpgradeHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
@@ -45,6 +46,8 @@ export interface WireOptions {
   readonly clientSessions: SocketSessions;
   readonly methods: MethodTable;
   readonly clock: Clock;
+  /** Where a socket came from, as the access log records it. */
+  readonly clientAddress: ClientAddressOf;
   /** The log subscriptions replay from and listen to, and commands run through. */
   readonly log: EventLog;
   /** Test seams for subscriptions. */
@@ -84,7 +87,7 @@ interface Socket {
   readonly ws: WebSocket;
   /** The socket's id and where it came from, as the access log records it. */
   readonly id: string;
-  readonly remoteAddress: string | undefined;
+  readonly client: ClientAddress;
   /** Waiting for `auth`, authenticated, or closing after a `bye`. */
   phase: "awaiting-auth" | "authenticated" | "closing";
   /** An `auth` frame that arrived before the gate, answered when it opens. */
@@ -210,7 +213,7 @@ export const createWire = (options: WireOptions): Wire => {
     const clientSession = verification.clientSession;
     socket.phase = "authenticated";
     socket.clientSession = clientSession;
-    clientSessions.socketOpened(clientSession.id, { socketId: socket.id, remoteAddress: socket.remoteAddress });
+    clientSessions.socketOpened(clientSession.id, { socketId: socket.id, remoteAddress: socket.client.address, ...(socket.client.login !== undefined && { login: socket.client.login }) });
     const look = options.environment.look();
     const hello: HelloFrame = {
       type: "hello",
@@ -292,7 +295,7 @@ export const createWire = (options: WireOptions): Wire => {
     const socket: Socket = {
       ws,
       id: randomUUID(),
-      remoteAddress: request.socket.remoteAddress,
+      client: options.clientAddress(request),
       phase: "awaiting-auth",
       held: undefined,
       authTimer: undefined,

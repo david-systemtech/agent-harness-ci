@@ -9,6 +9,7 @@ import {
   type EnvironmentReadiness,
 } from "@agent-harness/contracts";
 import type { Tx } from "../event-log/event-log.js";
+import type { ClientAddressOf } from "../serve/client-address.js";
 import { writeFileAtomic } from "../serve/files.js";
 import type { Address, RouteHandler } from "../serve/http.js";
 import type { ClientSessions } from "./client-sessions.js";
@@ -38,8 +39,10 @@ export interface BootstrapGrantOptions {
   readonly clientSessions: Pick<ClientSessions, "issueLocal">;
   /** Opens the transaction the exchange's client session and access-log events are written in. */
   readonly atomically: <T>(work: (tx: Tx) => T) => T;
-  /** Every exchange past the loopback gate, refused or not, spends from its remote address's bucket. */
+  /** Every exchange past the loopback gate, refused or not, spends from its client address's bucket. */
   readonly rateLimiter: RateLimiter;
+  /** Where an exchange came from; one a proxy forwarded from the tailnet is not loopback. */
+  readonly clientAddress: ClientAddressOf;
   /** The environment's readiness; the exchange answers `unavailable` unless it is `ready`. */
   readonly readiness: () => EnvironmentReadiness;
 }
@@ -72,9 +75,10 @@ export const createBootstrapGrant = (options: BootstrapGrantOptions): BootstrapG
     body: BootstrapRequest,
     what: "a bootstrap exchange",
     rateLimiter: options.rateLimiter,
+    clientAddress: options.clientAddress,
     readiness: options.readiness,
-    admit: (request) =>
-      isLoopbackAddress(request.socket.remoteAddress)
+    admit: (client) =>
+      isLoopbackAddress(client.address)
         ? undefined
         : { status: 403, error: { code: "unauthorized", message: "The bootstrap grant is exchanged over loopback only.", data: {} } },
     // Nothing here awaits, so one secret is exchanged once however many requests race.
