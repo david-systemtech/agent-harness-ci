@@ -119,6 +119,26 @@ describe("reading the channel", () => {
     expect(channelOf(await afterSettings(client))).toEqual({ newest: "0.5.0", lastCheck: ok, target: null, passedOver: null });
   });
 
+  it("says a check that finds a newer newest on the environment's stream, auto-update off, and a check that finds the same says nothing (#1795)", async () => {
+    const { fake, t, client } = await withChannel("0.4.1");
+    await setUpdates(client, { "updates.autoUpdate": false });
+    fake.publish({ version: "0.5.0" });
+    await afterSettings(client);
+    const from = t.env.log.head();
+    fake.publish({ version: "0.5.1" });
+    t.clock.advance(MINUTE);
+    await client.request("updates.check", {});
+    t.clock.advance(MINUTE);
+    await client.request("updates.check", {});
+
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: from });
+    const mine = (frame: Frame) => "subscription" in frame && frame.subscription === subscription;
+    await client.next((frame) => frame.type === "synchronized" && mine(frame));
+    const said = client.received.flatMap((frame) => (frame.type === "event" && mine(frame) && frame.event.type === "environment.channel-checked" ? [frame.event] : []));
+    expect(said.map(({ type, payload }) => ({ type, payload }))).toEqual([{ type: "environment.channel-checked", payload: { newest: "0.5.1", lastCheck: { at: after(MINUTE), result: "ok" } } }]);
+    expect(said[0]?.actor).toEqual({ kind: "system", id: "updates" });
+  });
+
   it("switched from beta to stable, targets nothing until stable passes what runs: nothing moves backwards on its own", async () => {
     const { fake, t, client } = await withChannel("0.6.0-beta.1");
     fake.publish({ version: "0.5.1" }, { version: "0.6.0-beta.1" });
@@ -272,7 +292,8 @@ describe("a failed check", () => {
     const from = t.env.log.head();
     const { lastCheck } = await client.request("updates.check", {});
     expect(lastCheck).toMatchObject({ result: "failed", reason: "no_release_access", message: expect.stringContaining("HTTP 401") as unknown as string });
-    expect((await environmentEvents(client, from)).filter((type) => !type.startsWith("forge.account."))).toEqual([]);
+    // The failure is state: the one notice says the check changed what updates.status shows, for a client to read it (#1795).
+    expect((await environmentEvents(client, from)).filter((type) => !type.startsWith("forge.account."))).toEqual(["environment.channel-checked"]);
   });
 
   it("with the forge unreachable reads unreachable, and keeps the newest and the target the last check that read the channel found", async () => {

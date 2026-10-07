@@ -178,7 +178,8 @@ describe("updates.settings.set", () => {
         payload: { values: { "updates.channel": "beta", "updates.idleWindowMinutes": 25 } },
       }),
     ]);
-    expect(t.env.log.head()).toBe(head + 2);
+    // The notice is the command's second event; the check the change began says what it found after it (#1795).
+    expect(t.env.log.readStream({ kinds: ["environment"] }, head)[0]).toMatchObject({ type: "settings.changed", sequence: head + 2, commandId });
     expect(await client.request("settings.get", {})).toEqual({ values: { ...presetSettings(), ...values } });
   });
 

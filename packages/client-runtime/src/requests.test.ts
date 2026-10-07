@@ -353,7 +353,7 @@ describe("the request cache", () => {
     expect(asked()).toBe(1);
   });
 
-  it("fetches updates.status again on every update notice, and no other query for the pending, started, failed or cancelled one (#344)", async () => {
+  it("fetches updates.status again on every update notice and a check of the channel that changed it, and no other query for the pending, started, failed, cancelled or checked one (#344, #1795)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let statuses = 0;
     wire.answer("updates.status", () => {
@@ -372,6 +372,7 @@ describe("the request cache", () => {
       ["environment.update-started", { updateId, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "idle" }],
       ["environment.update-failed", { updateId, fromVersion: "0.1.0", toVersion: "0.2.0", stage: "trial", reason: "deadline", rolledBack: true }],
       ["environment.update-cancelled", { updateId, toVersion: "0.2.0", cause: "requested" }],
+      ["environment.channel-checked", { newest: "0.2.0", lastCheck: { at: "2026-09-24T00:00:00.000Z", result: "ok" } }],
     ];
     for (const [sequence, [type, payload]] of steps.entries()) {
       environment?.event(noticeEvent(sequence + 1, wire.environmentId, type, payload));
@@ -379,9 +380,9 @@ describe("the request cache", () => {
       expect([asked(), statuses], type).toEqual([1, sequence + 2]);
     }
     // The update that took refreshes every answer, this one with them.
-    environment?.event(noticeEvent(5, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0", updateId }));
+    environment?.event(noticeEvent(steps.length + 1, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0", updateId }));
     await flush();
-    expect([asked(), statuses]).toEqual([2, 6]);
+    expect([asked(), statuses]).toEqual([2, steps.length + 2]);
     expect(status.read()).toMatchObject({ result: UPDATES_STATUS, error: null });
   });
 

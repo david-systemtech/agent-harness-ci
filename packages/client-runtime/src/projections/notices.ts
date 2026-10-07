@@ -195,6 +195,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "environment.update-started":
         case "environment.update-cancelled":
           return;
+        // A check of the release channel that changed what updates.status shows (#1795) raises none: a failed check is state,
+        // which the card and About show from updates.status, and a newer release is the card's.
+        case "environment.channel-checked":
+          return;
         // The forge's rows (a failed capability, a new problem, a git rejection, a missing origin) are `forge-notices.ts`'s, which
         // reads history too (#320).
         case "forge.account.added":

@@ -135,7 +135,7 @@ import { runMethods } from "../runs/run-methods.js";
 import { startActorRunIn, type ActorRunRequest } from "../runs/actor-start.js";
 import { RELEASE_SOURCE, channelSettingsOf, createReleaseChannel, type ChannelSettings } from "../updates/channel.js";
 import { createChannelChecks } from "../updates/checks.js";
-import { createUpdateCoordinator } from "../updates/coordinator.js";
+import { createUpdateCoordinator, UPDATES_ACTOR } from "../updates/coordinator.js";
 import { createHostUpdaterPolls } from "../updates/host-updater.js";
 import { updateMethods } from "../updates/methods.js";
 import { writeStartingChannel } from "../updates/starting-channel.js";
@@ -1642,6 +1642,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     settings: channelSettings,
     context: () => updates.channelContext(),
     follow: (reading, settings) => updates.follow(reading, settings),
+    // A check that changed the newest or the last check updates.status shows (#1795): a client reads it again, a desktop checks its build.
+    said: (payload) => void log.append(environmentStream, [{ type: "environment.channel-checked", payload }], { actor: UPDATES_ACTOR }),
   });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
