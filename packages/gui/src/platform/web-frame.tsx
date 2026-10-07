@@ -1,11 +1,11 @@
-import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { blockWords, type EnvironmentView } from "@agent-harness/client-runtime";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Settings, Plus, Link } from "lucide-react";
 import { BrowserPanesProvider } from "../browser/browser-panes.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
 import { LimitedAccess } from "../connections/limited-access.js";
 import { PairingForm } from "../connections/pairing.js";
-import { blockLine, remedyOf } from "../connections/words.js";
+import { remedyOf } from "../connections/words.js";
 import { PaneGridProvider, usePaneGrid } from "../grid/grid.js";
 import { focusedPane, showSession } from "../grid/layout.js";
 import { PaneGrid } from "../grid/pane-grid.js";
@@ -36,14 +36,14 @@ export const WebViewport = ({ children, narrow = false, connection }: { readonly
   return <div ref={frame} data-web-client data-web-grant={connection ? "" : undefined} data-phase={connection?.phase} data-ceiling={connection?.ceiling ?? undefined} data-scopes={connection?.scopes.join(", ")} data-phone-frame={narrow ? "" : undefined} className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">{children}</div>;
 };
 /**
- * A blocked connection's line in its reason's words (#1776). Where pairing
+ * A blocked connection's line in its block's words (#1776). Where pairing
  * again is the cure, it carries Pair again, which opens the pairing form for
  * that connection: a phone's header has no Pair button of its own.
  */
 const BlockedLine = ({ view, onPair }: { readonly view: EnvironmentView; readonly onPair: () => void }) => {
   const rePair = remedyOf(view) === "re-pair";
   return <div role="status" data-connection-blocked className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-    <p className="min-w-0 flex-1 basis-48">{blockLine(view)}{rePair && " Make a new code on a trusted client first."}</p>
+    <p className="min-w-0 flex-1 basis-48">{blockWords(view)}{rePair && " Make a new code on a trusted client first."}</p>
     {rePair && <Button variant="default" onClick={onPair}><Link aria-hidden="true" className="size-4" />Pair again</Button>}
   </div>;
 };
