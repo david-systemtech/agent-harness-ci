@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { HelloFrame, RequestFrame, SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { accepted, byCommand, groupEvent, groupOf, rejected, sessionEvent, summaryOf } from "../test/events.js";
+import { accepted, added, byCommand, groupEvent, groupOf, rejected, sessionEvent, summaryOf } from "../test/events.js";
 import { subscription, type Scripted } from "../test/scripted.js";
+import { recordedSnapshot } from "../test/transcript.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import { outboxDocument } from "./outbox/entries.js";
 import { DRAFT_DEBOUNCE_MS } from "./outbox/drafts.js";
@@ -960,5 +961,69 @@ describe("drafts", () => {
     void runtime.start();
     await wire.server.accept();
     expect((await wire.server.request("sessions.setDraft")).params).toMatchObject({ sessionId, draft: "Half a thought" });
+  });
+
+  // #1767: the list's copy of the event retired the overlay while the session's own stream still held the old draft, so a
+  // composer read "" for a moment, took it, and took its text back on the session's copy: the phone's composer collapsed.
+  it.each([
+    ["the event carrying its command id", false],
+    ["the receipt, then the list's cursor", true],
+  ])("keeps a saved draft on its open session until the session's own stream applies it, when the list applies it first through %s", async (_path, receiptFirst) => {
+    const { runtime, wire, clock, id, list } = await paired({ list: true });
+    const sessionId = randomUUID();
+    listed(list, 10, [summaryOf(sessionId)]);
+    wire.answer("sessions.subscribeSession", () => undefined);
+    const session = runtime.projections.session(id, sessionId);
+    const drafts: (string | null)[] = [];
+    onTestFinished(session.subscribe((projection) => drafts.push(projection.draft)));
+    const stream = await subscription(wire, "sessions.subscribeSession");
+    stream.snapshot(10, { ...recordedSnapshot(), sequence: 10, summary: summaryOf(sessionId) });
+    stream.synchronized(10);
+    await flush();
+    wire.answer("sessions.setDraft", () => undefined);
+    runtime.drafts.set(id, sessionId, "Explain the totals");
+    drafts.length = 0;
+    clock.advance(DRAFT_DEBOUNCE_MS);
+    const sent = await wire.server.request("sessions.setDraft");
+    const commandId = sent.params["commandId"] as string;
+    const event = byCommand(sessionEvent(11, { op: "set", sessionId, fields: { draft: "Explain the totals" } }, "session.draft-set"), commandId);
+    if (receiptFirst) wire.server.send({ type: "response", id: sent.id, result: { receipt: accepted(11) } });
+    list.event(event);
+    await flush();
+    expect(session.read().draft).toBe("Explain the totals");
+    stream.event(event);
+    if (!receiptFirst) wire.server.send({ type: "response", id: sent.id, result: { receipt: accepted(11) } });
+    await flush();
+    expect(session.read().draft).toBe("Explain the totals");
+    // What a composer followed from the save on: never the draft from before it.
+    expect(drafts.filter((draft) => draft !== "Explain the totals")).toEqual([]);
+    expect(row(runtime, sessionId)?.summary.draft).toBe("Explain the totals");
+    // Both streams have it: the overlay has gone, so another client's draft shows on the session as it lands.
+    const theirs = sessionEvent(12, { op: "set", sessionId, fields: { draft: "Their draft" } }, "session.draft-set");
+    list.event(theirs);
+    stream.event(theirs);
+    await flush();
+    expect(session.read().draft).toBe("Their draft");
+    expect(row(runtime, sessionId)?.summary.draft).toBe("Their draft");
+  });
+
+  it("lets a deletion's overlay leave on the list alone while the session's stream is held live, since that stream ends rather than applying it", async () => {
+    const { runtime, wire, id, list } = await paired({ list: true });
+    const sessionId = randomUUID();
+    listed(list, 10, [summaryOf(sessionId)]);
+    wire.answer("sessions.subscribeSession", () => undefined);
+    onTestFinished(runtime.projections.session(id, sessionId).subscribe(() => undefined));
+    const stream = await subscription(wire, "sessions.subscribeSession");
+    stream.snapshot(10, { ...recordedSnapshot(), sequence: 10, summary: summaryOf(sessionId) });
+    stream.synchronized(10);
+    wire.answer("sessions.delete", () => answering(accepted(11)));
+    expect(await runtime.commands.dispatch(id, "sessions.delete", { sessionId })).toMatchObject({ ok: true });
+    list.event(sessionEvent(11, { op: "remove", sessionId }, "session.deleted"));
+    await flush();
+    expect(row(runtime, sessionId)).toBeUndefined();
+    // Restored elsewhere: the row comes back, so no hide overlay was left waiting on the session's stream.
+    list.event(sessionEvent(12, added(summaryOf(sessionId)), "session.restored"));
+    await flush();
+    expect(row(runtime, sessionId)).toBeDefined();
   });
 });

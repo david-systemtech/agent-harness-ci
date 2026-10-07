@@ -90,6 +90,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     applied(environmentId, stream, event, news) {
       // Session completion events refresh diffs even during replay, and when another Client performed the undo.
       if (stream.startsWith("session.") && event.type === "files.undo-finished") requestCache.sessionChanged(environmentId, event.streamId, event.type);
+      // A session's projection reads its own stream, so an overlay the list has applied waits for that stream too (#1767).
+      if (stream.startsWith("session.")) outbox.sessionApplied(environmentId);
       if (stream === "list") {
         outbox.applied(environmentId, event);
         // Every run and prompt event of every session comes on the list: the run states and the parked asks fold them all.
@@ -148,6 +150,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     notices,
     report,
     lists: made.lists,
+    sessionCursor: (environmentId, sessionId) => {
+      const stream = made.peek(environmentId, sessionId);
+      return stream?.freshness === "live" && stream.data?.summary ? stream.cursor : null;
+    },
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
     routineName: (environmentId, routineId) =>
       requestCache.peek(environmentId, "routines.list", {})?.routines.find((routine) => routine.state.id.toLowerCase() === routineId)?.definition.name ?? null,

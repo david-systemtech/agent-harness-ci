@@ -61,7 +61,11 @@ export { STOP_WAIT_MS } from "./stop-first.js";
  *   requests (`requests.call`), never queued.
  * - An accepted receipt removes the entry, and its overlay stays until the
  *   list's cursor reaches the receipt's sequence (or an event carrying its
- *   command id applies first). A rejection removes the entry and its
+ *   command id applies first) and, for a change to a session's fields while
+ *   the runtime holds that session's stream live, that stream's cursor
+ *   reaches it too: the session's projection reads its own stream, which can
+ *   apply the event after the list (#1767). A
+ *   rejection removes the entry and its
  *   overlay and raises one notice. An error answer (no receipt) does the
  *   same, but `unavailable` on a `sessions:write` command, which is sent
  *   again on the next ready.
@@ -291,6 +295,8 @@ export interface OutboxHost {
   readonly report: (error: unknown) => void;
   /** Each environment's session list as the environment confirmed it: its cursor retires an accepted command's overlay. */
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
+  /** The cursor of the session's own stream while the runtime holds one live on a session that exists; null otherwise: such a stream applies nothing more. */
+  sessionCursor(environmentId: string, sessionId: string): number | null;
   /** The environment's list as it shows now, overlay and all: what a command's optimistic change is reckoned against. */
   shown(environmentId: string): ListData | null;
   /** The name of routine `routineId` (in lowercase) as the environment last listed it (the request cache's `routines.list`), read without fetching; null when it is not held. */
@@ -315,8 +321,10 @@ export interface Outbox extends Commands {
   readonly view: Observable<OutboxView>;
   /** Reads the outboxes of these environments: before their connections start. */
   load(environmentIds: readonly string[]): Promise<void>;
-  /** An event applied to an environment's list: an overlay of the command it names leaves. */
+  /** An event applied to an environment's list: an overlay of the command it names leaves, once its session's own stream has it too. */
   applied(environmentId: string, event: EventEnvelope): void;
+  /** An event applied to a session's own stream: an overlay waiting on that stream may leave. */
+  sessionApplied(environmentId: string): void;
   /** Answers every command still waiting `closed` (their entries stay kept) and waits for the outbox's writes. */
   close(): Promise<void>;
 }
@@ -485,12 +493,22 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       overlays: current.overlays.flatMap((o) => (o.commandId !== entry.commandId ? [o] : keepOverlay ? [keepOverlay(o)] : [])),
     }));
 
-  /** Drops overlays whose receipt's sequence the list's cursor has reached. */
-  const settleOverlays = (environmentId: string) => {
+  /** Whether an overlay can leave: the list's cursor has reached its sequence, and, for a field of a session, so has the session's own stream when one is held. */
+  const settledIn = (environmentId: string) => {
     const cursor = host.lists.read().get(environmentId)?.cursor ?? null;
-    const { overlays } = outboxOf(environmentId);
-    if (cursor === null || !overlays.some((o) => o.sequence !== null && o.sequence <= cursor)) return;
-    change(environmentId, (current) => ({ ...current, overlays: current.overlays.filter((o) => o.sequence === null || o.sequence > cursor) }));
+    return (o: OverlayRecord): boolean => {
+      if (cursor === null || o.sequence === null || o.sequence > cursor) return false;
+      // Only a field's change waits: a deletion ends the session's stream rather than applying there.
+      const own = o.change.target.kind === "session" && o.change.op === "set" ? host.sessionCursor(environmentId, o.change.target.id) : null;
+      return own === null || o.sequence <= own;
+    };
+  };
+
+  /** Drops the overlays that can leave. */
+  const settleOverlays = (environmentId: string) => {
+    const settled = settledIn(environmentId);
+    if (!outboxOf(environmentId).overlays.some(settled)) return;
+    change(environmentId, (current) => ({ ...current, overlays: current.overlays.filter((o) => !settled(o)) }));
   };
 
   /**
@@ -1013,7 +1031,15 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     applied(environmentId, event) {
       const commandId = event.commandId?.toLowerCase();
       if (commandId === undefined || !outboxOf(environmentId).overlays.some((o) => o.commandId === commandId)) return;
-      change(environmentId, (current) => ({ ...current, overlays: current.overlays.filter((o) => o.commandId !== commandId) }));
+      // The event's sequence stands for the receipt's, which may not have come yet.
+      const settled = settledIn(environmentId);
+      change(environmentId, (current) => ({
+        ...current,
+        overlays: current.overlays.map((o) => (o.commandId === commandId ? { ...o, sequence: event.sequence } : o)).filter((o) => !settled(o)),
+      }));
+    },
+    sessionApplied(environmentId) {
+      settleOverlays(environmentId);
     },
     async checkpoint() {
       await Promise.all([...senders.values()].map(sender => sender.loaded));

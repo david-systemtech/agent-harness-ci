@@ -58,6 +58,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
           } return result; })()
         });
       })()`));
+      console.error("PHONE-REFUSAL composer since the refusal", await page.evaluate("JSON.stringify(globalThis.__phoneSmokeComposer ?? null)"));
       throw error;
     }
   };
@@ -90,6 +91,18 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(refusal).toContainText("not signed in");
       await expect(refusal).toContainText("no run can start");
       await expect(field).toHaveValue(message);
+      // Record every text the composer puts in its field and every scroll of its column from here on (#1767).
+      await page.evaluate(`(() => {
+        const field = document.querySelector('[aria-label="Message"]');
+        const column = field.closest('[data-composer-column]');
+        const start = performance.now(), at = () => Math.round(performance.now() - start);
+        const log = globalThis.__phoneSmokeComposer = [];
+        // Wrap React's own value tracker where it has one, so the composer still sees its changes.
+        const value = Object.getOwnPropertyDescriptor(field, 'value') ?? Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+        Object.defineProperty(field, 'value', { configurable: true, get() { return value.get.call(this); },
+          set(text) { log.push({ at: at(), text: String(text).length }); value.set.call(this, text); } });
+        column.addEventListener('scroll', () => log.push({ at: at(), scrollTop: column.scrollTop, scrollHeight: column.scrollHeight, clientHeight: column.clientHeight }));
+      })()`);
       assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-composer-column]')).overflowY"), "auto", "A touch user can scroll the full composer, including its refusal and Run settings.");
       await fits(refusal);
       await page.screenshot({ path: join(output, `phone-refusal-${engine}-${viewport.width}.png`) });
@@ -122,6 +135,12 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await fits(remedy);
       await fits(page.getByRole("button", { name: /^Send/ }));
       await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
+      // Saving the draft must not put other text in the field for a moment: emptied, the field collapses and the column loses its scroll.
+      // The environment has the draft; wait for the page to apply its echoes too (no new record for a second) before reading the log.
+      let records = -1;
+      await expect.poll(async () => records === (records = Number(await page.evaluate("globalThis.__phoneSmokeComposer.length"))), { timeout: 60_000, intervals: [1_000] }).toBe(true);
+      const composer = String(await page.evaluate("JSON.stringify(globalThis.__phoneSmokeComposer)"));
+      assert.deepEqual((JSON.parse(composer) as { text?: number }[]).filter(entry => entry.text !== undefined), [], `The composer kept the refused draft while it was saved: ${composer}`);
       await page.reload();
       await page.locator('[data-web-grant][data-phase="ready"]').waitFor();
       await expect(field).toHaveValue(message, { timeout: 60_000 });

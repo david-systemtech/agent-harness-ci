@@ -15,7 +15,9 @@ import type { OverlayChange } from "./rules.js";
  *
  * An overlay leaves when an event carrying its command id applies, when the
  * list's cursor reaches the sequence its receipt names, or when its command
- * is rejected, dropped or replaced. Until then it holds its fields whatever
+ * is rejected, dropped or replaced; an applied change to a session's fields
+ * waits for the session's own stream's cursor too while the runtime holds
+ * that stream live, since the session's projection reads it (#1767). Until then it holds its fields whatever
  * the confirmed list says: a live event from another client changing the
  * same field does not displace it, since this command lands later by
  * sequence and wins there (last writer wins per field, no merge; ADR 0003).
