@@ -96,11 +96,13 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const noRoom = (error: unknown): boolean => ["ENOSPC", "EDQUOT"].includes((error as NodeJS.ErrnoException).code ?? "");
 
 /**
- * A move's failure after which the version is in neither place: it could not
- * be moved back to the staging area, so it was removed, and no try of the
- * move can follow. It keeps the failure's message and code, which say why.
+ * A move's failure after which the staged version is gone from the staging
+ * area: it could not be moved back there, so it was removed, or, when that
+ * failed too, left in the versions directory without its sentinel, which is
+ * no version. No try of the move can follow. It keeps the failure's message
+ * and code, which say why.
  */
-class StagedVersionRemoved extends Error {
+class StagedVersionLost extends Error {
   readonly code: string | undefined;
   constructor(failure: unknown) {
     super(messageOf(failure), { cause: failure });
@@ -161,7 +163,7 @@ const inspectStaged = (dataDir: string, version: string, staged: string): { read
  * written last. A failure once it is renamed moves it back to the staging
  * area through `putBack` (preset: one try), or removes it when that fails,
  * so the versions directory is left as it was, and throws: the failure, or
- * when it was removed, `StagedVersionRemoved` with the failure's words.
+ * when it could not be moved back, `StagedVersionLost` with the failure's words.
  */
 export const moveIntoVersions = async (
   dataDir: string,
@@ -185,8 +187,12 @@ export const moveIntoVersions = async (
     try {
       await putBack(() => fs.renameSync(target, staged));
     } catch {
-      removeTreeSync(target, fs.rmSync.bind(fs));
-      throw new StagedVersionRemoved(error);
+      try {
+        removeTreeSync(target, fs.rmSync.bind(fs));
+      } catch {
+        // Left without its sentinel, it is no version; the failure that started this is what is said.
+      }
+      throw new StagedVersionLost(error);
     }
     throw error;
   }
@@ -284,7 +290,7 @@ export const createInstaller = (options: InstallerOptions): Installer => {
         await step();
         return;
       } catch (error) {
-        if (stopped || error instanceof StagedVersionRemoved || !heldOnWindows(error, platform) || budget.waited + wait > MOVE_RETRY_MS) throw error;
+        if (stopped || error instanceof StagedVersionLost || !heldOnWindows(error, platform) || budget.waited + wait > MOVE_RETRY_MS) throw error;
         log(`${what}, as a file of it is still held (${messageOf(error)}); trying again in ${wait} ms`);
       }
       await pause(wait);

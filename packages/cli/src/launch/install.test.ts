@@ -362,12 +362,17 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
       }
     });
 
-    /** A recording fs on which the sentinel's temporary file in versions/0.6.0 cannot be opened its first `sentinelTimes` tries, nor versions/0.6.0 renamed back its first `backTimes`, both with EPERM. */
-    const heldAfterRename = (dataDir: string, sentinelTimes: number, backTimes: number) => {
+    /**
+     * A recording fs on which the sentinel's temporary file in versions/0.6.0 cannot be opened its first `sentinelTimes` tries,
+     * nor versions/0.6.0 renamed back its first `backTimes`, both with EPERM; with `removalHeld`, versions/0.6.0 cannot be
+     * removed either once it was moved in, with EBUSY.
+     */
+    const heldAfterRename = (dataDir: string, sentinelTimes: number, backTimes: number, removalHeld = false) => {
       const recorded = recordingFs(dataDir);
       const target = join(dataDir, "versions", "0.6.0");
       let sentinelTries = 0;
       let backTries = 0;
+      let movedIn = false;
       const held = (what: string) => Object.assign(new Error(`EPERM: operation not permitted, ${what}`), { code: "EPERM" });
       const fs: DurableFs = {
         ...recorded.fs,
@@ -378,6 +383,11 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
         renameSync: (from, to) => {
           if (from === target && backTries++ < backTimes) throw held("rename back");
           recorded.fs.renameSync(from, to);
+          if (to === target) movedIn = true;
+        },
+        rmSync: (path, options) => {
+          if (removalHeld && movedIn && path === target) throw Object.assign(new Error("EBUSY: resource busy or locked, rmdir"), { code: "EBUSY" });
+          recorded.fs.rmSync(path, options);
         },
       };
       return { fs, backTries: () => backTries };
@@ -427,12 +437,10 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
       expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
     });
 
-    it("tries nothing again once a rename back held past the bound has removed the version, refusing io for the sentinel's hold", async () => {
-      const dataDir = dataDirectory();
-      const staged = stageVersion(dataDir, "0.6.0");
-      const versions = treeOf(join(dataDir, "versions"));
+    /** Installs 0.6.0 on win32 with the sentinel and the rename back held for good (and the removal too, with `removalHeld`), running every wait between tries as it is asked for. */
+    const holdsOutlastingTheBound = async (dataDir: string, staged: string, removalHeld: boolean) => {
       const timer = fakeTimer();
-      const { fs, backTries } = heldAfterRename(dataDir, Infinity, Infinity);
+      const { fs, backTries } = heldAfterRename(dataDir, Infinity, Infinity, removalHeld);
       const { install, lines } = installer(dataDir, { fs, timer, platform: "win32" });
       const answer = install("0.6.0", staged);
       let settled = false;
@@ -446,13 +454,32 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
         waited += wait;
         timer.run(wait);
       }
-      expect(await answer).toEqual({ type: "refused", reason: "io" });
+      return { answer: await answer, lines, waited, backTries: backTries() };
+    };
+
+    it("tries nothing again once a rename back held past the bound has removed the version, refusing io for the sentinel's hold", async () => {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const versions = treeOf(join(dataDir, "versions"));
+      const { answer, lines, waited, backTries } = await holdsOutlastingTheBound(dataDir, staged, false);
+      expect(answer).toEqual({ type: "refused", reason: "io" });
       expect(waited).toBeLessThanOrEqual(MOVE_RETRY_MS);
-      expect(backTries()).toBeGreaterThan(1);
+      expect(backTries).toBeGreaterThan(1);
       // The version was removed with its rename back, so the move itself is never tried again.
       expect(lines.filter((line) => line.includes("could not be moved into") && line.includes("trying again"))).toEqual([]);
       expect(lines.at(-1)).toBe(`refuses install? of 0.6.0 from ${staged}: io, as it could not be moved into ${join(dataDir, "versions")}: EPERM: operation not permitted, open the sentinel`);
       expect(treeOf(join(dataDir, "versions"))).toEqual(versions);
+    });
+
+    it("tries nothing again either when that version cannot be removed, refusing io for the sentinel's hold, the version left without its sentinel", async () => {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const { answer, lines, waited } = await holdsOutlastingTheBound(dataDir, staged, true);
+      expect(answer).toEqual({ type: "refused", reason: "io" });
+      expect(waited).toBeLessThanOrEqual(MOVE_RETRY_MS);
+      expect(lines.filter((line) => line.includes("could not be moved into") && line.includes("trying again"))).toEqual([]);
+      expect(lines.at(-1)).toBe(`refuses install? of 0.6.0 from ${staged}: io, as it could not be moved into ${join(dataDir, "versions")}: EPERM: operation not permitted, open the sentinel`);
+      expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
     });
 
     it("answers nothing and installs nothing when the launcher stops while it waits to try again", async () => {
