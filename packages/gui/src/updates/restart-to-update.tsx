@@ -12,6 +12,13 @@ export type ApplyFailed = Extract<DesktopBuildView, { readonly state: "failed" }
 export const applyFailed = (build: DesktopBuildView): build is ApplyFailed =>
   build.state === "failed" && build.staged !== null && (build.failure === "install" || build.failure === "cleanup");
 
+/**
+ * look.md's update chip: fixed 22 high, x 8/gap 6, md/mono 2xs, and as wide
+ * as its words, which a fixed cap cut to "Restart to up…" (#1806); `w-fit`
+ * keeps About's column from stretching it.
+ */
+const CHIP = "h-[22px] w-fit shrink-0 gap-1.5 border px-2 font-mono text-2xs";
+
 /** Whether a restart would update: a build is staged and ready, or left to apply after a failed check or stage. */
 const restartable = (build: DesktopBuildView): boolean => build.state === "ready" || (build.state === "failed" && build.staged !== null && !applyFailed(build));
 
@@ -29,7 +36,7 @@ export const RestartButton = ({ onFailed }: { readonly onFailed?: () => void }) 
   const restart = () => void runtime.desktopUpdate.restart().then((after) => { if (applyFailed(after)) onFailed?.(); });
   return (
     <Tooltip content={build.state === "failed" ? `Restart to update · ${build.message}` : "Restart to update"}>
-      <Button aria-label="Restart to update" size="xs" className={classes("h-[22px] max-w-36 gap-1.5 border font-mono", build.state === "failed" ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text")} onClick={restart}>
+      <Button aria-label="Restart to update" size="xs" className={classes(CHIP, build.state === "failed" ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text")} onClick={restart}>
         <ArrowDown aria-hidden="true" /><span className="truncate">Restart to update</span>
       </Button>
     </Tooltip>
@@ -75,7 +82,7 @@ export const RestartToUpdate = () => {
       <Popover open={details} onOpenChange={setDetails}>
         <Tooltip content="Update failed" keys="Enter for the details">
           <PopoverTrigger asChild>
-            <Button aria-label="Update failed" size="xs" className="h-[22px] max-w-36 gap-1.5 border border-signal/30 font-mono text-signal">
+            <Button aria-label="Update failed" size="xs" className={classes(CHIP, "border-signal/30 text-signal")}>
               <CircleAlert aria-hidden="true" /><span className="truncate">Update failed</span>
             </Button>
           </PopoverTrigger>
@@ -93,7 +100,7 @@ export const RestartToUpdate = () => {
   const label = build.state === "applying" ? "Restarting to update…" : build.state === "staging" ? "Downloading update…" : failed ? "Update failed" : "Checking for an update…";
   const Icon = failed ? CircleAlert : LoaderCircle;
   return <Tooltip content={build.state === "failed" ? build.message : label}>
-    <span role="status" tabIndex={0} className={classes("flex h-[22px] max-w-36 items-center gap-1.5 rounded-md border px-2 font-mono text-xs", failed ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text opacity-60")}>
+    <span role="status" tabIndex={0} className={classes(CHIP, "flex items-center rounded-md", failed ? "border-signal/30 text-signal" : "border-beam/30 text-beam-text opacity-60")}>
       <Icon aria-hidden="true" className={classes("size-3 shrink-0", pending && "animate-spin motion-reduce:animate-none")} /><span className="truncate">{label}</span>
     </span>
   </Tooltip>;

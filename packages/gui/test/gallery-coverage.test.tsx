@@ -6,7 +6,7 @@ it("covers every registered Settings pane, all first-run steps and the verificat
   const names = await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname);
   // look.md §16: these are the states a baseline set must include, independent of discovery order.
   const required = [
-    "window-empty", "window-not-ready", "window-start-failed", "window-session", "header", "grid-two", "primitives", "window-scale-11", "window-scale-20",
+    "window-empty", "window-not-ready", "window-start-failed", "window-session", "header", "update-chip", "grid-two", "primitives", "window-scale-11", "window-scale-20",
     "session-conversation", "session-streaming", "session-tools", "session-find", "session-queue", "session-steering", "session-history",
     "composer-idle", "composer-running", "composer-stopping", "composer-slash", "status-line", "context-usage", "run-picker", "run-picker-compact",
     "dock-files", "dock-file-view", "dock-files-empty", "dock-files-loading", "dock-files-error", "dock-diff", "dock-terminal", "dock-browser", "dock-browser-loading", "dock-documents", "dock-tasks", "dock-preview", "dock-sheet",
