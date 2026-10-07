@@ -15,6 +15,9 @@
 #    run's failed steps are printed here, so the Forgejo log stays readable.
 #    The run's last job deletes ci/<id>.
 #
+# The `smoke` event (.forgejo/workflows/smoke.yml) first checks that the hosted
+# smoke and release workflows installed on `workflows` are this commit's.
+#
 # Needs GH_CI_TOKEN: a fine-grained token for agent-harness-ci, with Contents
 # read/write (the push, and repository_dispatch) and Actions read (the run). GROUP is the pull request number or,
 # on main, the commit, so a newer push to a pull request cancels the older run on GitHub as it does here and
@@ -27,7 +30,7 @@ api=https://api.github.com/repos/$repo
 group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 # A separate network job shares the transport, not the unit suite.
 event=${GH_CI_EVENT:-ci}
-case "$event" in ci | catalogue | gallery) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
+case "$event" in ci | catalogue | gallery | smoke) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
 sha=$(git rev-parse HEAD)
 if [ "$event" = gallery ]; then
   # This script and its sibling publisher stay checked out from the trusted base.
@@ -134,9 +137,24 @@ tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
 "$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="$sha" . ||
   { echo "::error::gitleaks found a secret; nothing was pushed to GitHub"; exit 1; }
 
-echo "Pushing $sha to $repo as ci/$id"
 auth=(-c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$GH_CI_TOKEN"; }; f')
 export GH_CI_TOKEN GIT_TERMINAL_PROMPT=0
+if [ "$event" = smoke ]; then
+  # The hosted smoke calls the release workflow, and both run as installed by hand on the relay
+  # repository's `workflows` branch (#1769). A copy that is not this commit's would smoke another
+  # release than the one this commit publishes, so nothing runs until both are installed byte for byte.
+  git "${auth[@]}" fetch --quiet --no-tags "https://github.com/$repo.git" refs/heads/workflows ||
+    { echo "::error::could not read $repo's workflows branch"; exit 1; }
+  installed=$(git rev-parse FETCH_HEAD)
+  for pair in .forgejo/github-workflows/smoke.yml:.github/workflows/smoke.yml public/.github-workflows/release.yml:.github/workflows/release.yml; do
+    source=${pair%%:*} target=${pair#*:}
+    if ! want=$(git rev-parse -q --verify "$sha:$source") || [ "$(git rev-parse -q --verify "$installed:$target")" != "$want" ]; then
+      echo "::error::$repo's $target on its workflows branch is not this commit's $source; install it there byte for byte"
+      exit 1
+    fi
+  done
+fi
+echo "Pushing $sha to $repo as ci/$id"
 # GitHub sometimes rejects a push while other relays push at once ("[remote rejected] ... (failed)",
 # main run 3778 on 2026-10-01, in a burst of six merges in three minutes), so try it three times.
 for try in 1 2 3; do

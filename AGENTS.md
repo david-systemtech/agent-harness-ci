@@ -135,7 +135,9 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   runners, publishes the complete GitHub release and pushes its versioned image to GHCR.
   The snapshot publisher (#1275, PR #1277) installs this overlay as `.github/workflows/release.yml`
   in the public repository using a push token with `workflow` scope; the private root holds no workflows.
-  Manual dispatch builds all assets with a synthetic version without publishing; Forgejo's
+  Manual dispatch builds all assets with a synthetic version without publishing, and every
+  merge to main runs its builds and smokes the same way through the `smoke` relay
+  (`.forgejo/workflows/smoke.yml`, #1769); Forgejo's
   release workflow is manual recovery only. For tagging, snapshot checks, dry runs and public
   visibility, read `docs/agents/releases.md`. Its publish step uses `pnpm --filter
   agent-harness publish-release` (`scripts/release/publish.ts`, notes from `notes.ts`),

@@ -1,12 +1,20 @@
 # The snapshot publisher installs this overlay in the public repository's workflows.
 # Its version tags start releases; branch pushes register no run.
 # Manual dispatch builds all assets with a synthetic version, without publishing.
+# A main merge's smoke (.forgejo/github-workflows/smoke.yml, #1769) calls it with that commit:
+# the image, the three desktops and their smokes, with a synthetic version, and nothing else.
 name: release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: The commit to build and smoke, without publishing
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,7 +24,7 @@ defaults:
     shell: bash
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.sha || github.ref }}
   cancel-in-progress: false
 
 # prepare decides the run in a minute; the builds and their smokes start from it and run beside
@@ -35,6 +43,9 @@ jobs:
       prerelease: ${{ steps.run.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
@@ -51,6 +62,8 @@ jobs:
 
       - name: Prepare the tag or dry run
         id: run
+        env:
+          RELEASE_SMOKE_SHA: ${{ inputs.sha }}
         run: pnpm exec tsx --conditions=@agent-harness/source packages/cli/scripts/prepare-release.ts
       - name: The tag's release is not published yet
         if: steps.run.outputs.publish == 'true'
@@ -59,11 +72,16 @@ jobs:
           RELEASE_TOKEN: ${{ github.token }}
         run: pnpm --filter agent-harness publish-release --tag "$TAG" --check
 
+  # A main merge's smoke skips verify and suite: that merge's CI ran them. Nothing publishes without them.
   verify:
+    if: ${{ !inputs.sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
@@ -93,6 +111,7 @@ jobs:
   # One hosted runner no longer finishes the whole suite in 30 minutes (run 37441040959), so it
   # runs in six shards, as pull request CI does (#1687).
   suite:
+    if: ${{ !inputs.sha }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -101,6 +120,9 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
@@ -130,6 +152,9 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Build the image locally
         id: build
@@ -146,7 +171,7 @@ jobs:
             HARNESS_VERSION=${{ needs.prepare.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/david-systemtech/agent-harness
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ inputs.sha || github.sha }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
 
       - name: Check the image's version
@@ -282,6 +307,9 @@ jobs:
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
@@ -354,6 +382,9 @@ jobs:
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
@@ -415,6 +446,9 @@ jobs:
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
@@ -471,6 +505,9 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: desktop-win32-x64
@@ -820,6 +857,9 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: desktop-darwin-arm64
@@ -973,6 +1013,9 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: desktop-linux-x64
@@ -1092,6 +1135,9 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
