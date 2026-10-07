@@ -562,6 +562,12 @@ it("runs gallery independently and preserves geometry failures as blocking check
   expect(ci).not.toContain("GH_CI_EVENT: gallery");
 });
 
+// GitHub's test shards have 40 minutes, so the web smoke can wait on a slow Ubuntu mirror (#1802).
+it("waits on the hosted run longer than a hosted test shard may take", () => {
+  const ci = readFileSync(join(root, ".forgejo", "workflows", "ci.yml"), "utf8");
+  expect(ci).toMatch(/\n {2}ci:\n {4}runs-on: relay\n(?: {4}#.*\n)* {4}timeout-minutes: 55\n/);
+});
+
 it("relays a PR head as data without executing its credential-stealing script", async () => {
   const f = await apiFixture();
   const git = (...args: string[]) => run("git", ["-C", f.checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);

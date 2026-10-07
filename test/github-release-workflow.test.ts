@@ -275,7 +275,8 @@ esac
     // shards, like pull request CI, together run every test file once (#1687).
     expect(needs("suite")).toEqual([]);
     const suite = job("suite").join("\n");
-    expect(suite).toContain("    timeout-minutes: 25\n");
+    // The web smoke's shard may wait 12 minutes on a slow Ubuntu mirror for browser dependencies (#1802).
+    expect(suite).toContain("    timeout-minutes: 40\n");
     expect(suite).toMatch(/\n {6}fail-fast: false\n/);
     expect(suite).toMatch(/\n {8}shard: \[1, 2, 3, 4, 5, 6\]\n/);
     expect(step("suite", "The suite shard")).toContain("pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/6");

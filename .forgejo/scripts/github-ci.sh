@@ -79,7 +79,7 @@ except ValueError: sys.exit(1)
   rm -f "$out"
 }
 
-# Three failed polls cost at most 15 minutes of API transport, within the 40-minute
+# Three failed polls cost at most 15 minutes of API transport, within the 55-minute
 # relay budget. A valid reply resets the count, even when the run is still queued.
 transport_failures=0
 transport_failure() {

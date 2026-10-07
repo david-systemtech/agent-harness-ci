@@ -11,11 +11,14 @@ export async function smokeProcess(command: string, args: string[], options: {
   readonly stderr?: Writable;
   /** Elevate only the supervisor; the command retains the calling uid and environment. */
   readonly privilegedCleanup?: boolean;
+  /** Stop the phase as stalled once it writes nothing, to stdout or stderr, for this long. */
+  readonly stallMs?: number;
 }): Promise<{ stdout: string }> {
   options.signal.throwIfAborted();
   if (process.platform !== "linux") throw new Error("Hosted smoke process cleanup requires Linux.");
   let abort = () => {};
   let escalation: Promise<void> | undefined;
+  let quiet: ReturnType<typeof setTimeout> | undefined;
   try {
     return await new Promise((resolve, reject) => {
       const supervisor = fileURLToPath(new URL("./smoke-supervisor.py", import.meta.url));
@@ -43,7 +46,15 @@ export async function smokeProcess(command: string, args: string[], options: {
       };
       output.setEncoding("utf8");
       errors.setEncoding("utf8");
+      const watchForStall = () => {
+        if (options.stallMs === undefined) return;
+        clearTimeout(quiet);
+        quiet = setTimeout(() => {
+          if (!failure) { failure = new Error(`${command} wrote no output for ${options.stallMs} ms; it stalled.`); stop(); }
+        }, options.stallMs);
+      };
       const count = (chunk: string) => {
+        watchForStall();
         bytes += Buffer.byteLength(chunk);
         if (bytes > 8 * 1024 * 1024 && !failure) { failure = new Error("Smoke output exceeded 8 MiB."); stop(); }
       };
@@ -62,6 +73,7 @@ export async function smokeProcess(command: string, args: string[], options: {
       });
       child.on("error", reject);
       child.on("close", (code, signal) => {
+        clearTimeout(quiet);
         // Keep the final survivor report even if command output exhausted its budget.
         if (code === 125 && suppressedErrors) (options.stderr ?? process.stderr).write(suppressedErrors);
         if (options.signal.aborted) reject(options.signal.reason);
@@ -70,11 +82,13 @@ export async function smokeProcess(command: string, args: string[], options: {
         else if (code !== 0) reject(new Error(`${command} exited with ${signal ?? code}.`));
         else resolve({ stdout });
       });
+      watchForStall();
       abort = stop;
       options.signal.addEventListener("abort", abort, { once: true });
       if (options.signal.aborted) abort();
     });
   } finally {
+    clearTimeout(quiet);
     options.signal.removeEventListener("abort", abort);
     await escalation;
   }
