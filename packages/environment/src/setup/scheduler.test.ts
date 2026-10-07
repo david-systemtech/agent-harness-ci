@@ -6,7 +6,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { answeringCheck, lateCheck, scriptedStep } from "../../test/setup-steps.js";
+import { answeringCheck, appendedAfter, lateCheck, scriptedStep } from "../../test/setup-steps.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { SetupSteps } from "./service.js";
 
@@ -264,7 +264,7 @@ describe("what a pass the environment starts appends", () => {
 
     await advance(t, HOUR);
     expect(holds.calls()).toBe(2);
-    expect(t.env.log.head()).toBe(head);
+    expect(appendedAfter(t.env.log, head)).toEqual([]);
     expect(await checkedAts(t)).toEqual([["account", after(HOUR)]]);
 
     holds.answer({ reason: "Work is signed out." });

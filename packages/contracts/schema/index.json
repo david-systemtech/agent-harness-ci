@@ -3095,6 +3095,10 @@
       "title": "UpdateCancelledPayload"
     },
     {
+      "path": "updates/events/environment.channel-checked.json",
+      "title": "ChannelCheckedPayload"
+    },
+    {
       "path": "updates/manager.json",
       "title": "UpdateManager"
     },

@@ -195,6 +195,20 @@ export const UpdateCheck = z
 export type UpdateCheck = z.infer<typeof UpdateCheck>;
 
 /**
+ * `environment.channel-checked`: a check of the channel, Update now's read
+ * included, changed what `updates.status` shows of it: the newest it found,
+ * or the last check's result or reason (#1795). A check that finds what the
+ * last found, or fails again for the same reason, says nothing.
+ */
+export const ChannelCheckedPayload = z
+  .object({
+    newest: ReleaseVersion.nullable().meta({ description: "The channel's newest release as updates.status now shows it; null before a check read the channel." }),
+    lastCheck: UpdateCheck,
+  })
+  .meta({ description: "A check of the release channel changed what updates.status shows of it: the newest now shown, and the last check." });
+export type ChannelCheckedPayload = z.infer<typeof ChannelCheckedPayload>;
+
+/**
  * Where the update coordinator is (launcher-update spec, "States"): nothing
  * to do, staging a target, waiting for idle or the cap, ready for the
  * host-side updater (managed outside, where a native environment would

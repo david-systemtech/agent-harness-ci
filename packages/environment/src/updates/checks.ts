@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { CHECK_BUDGET_SECONDS, type UpdateCheck, type UpdateCheckFailure, type UpdatesStatus } from "@agent-harness/contracts";
+import { CHECK_BUDGET_SECONDS, type ChannelCheckedPayload, type UpdateCheck, type UpdateCheckFailure, type UpdatesStatus } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { ChannelContext, ChannelFailure, ChannelReading, ChannelSettings, ReleaseChannelReader } from "./channel.js";
@@ -13,10 +13,14 @@ import { readKeptTime, writeKeptTime } from "./kept-time.js";
  * reading the forge; and once the update settings the target follows
  * change. A check that reads the channel hands what it found to the update
  * coordinator, which stages it (#347), and the check fails as its staging
- * does. A failed check is state, never a notice: `updates.status` shows
- * the last check with its reason, and the channel's newest, the target and
- * a release passed over as the last check that read the channel found
- * them. Update now's read of the channel (`updates.apply`) is shown as a
+ * does. A failed check is state, never a notice to people: `updates.status`
+ * shows the last check with its reason, and the channel's newest, the target
+ * and a release passed over as the last check that read the channel found
+ * them. A check that changes the newest shown, or the last check's result or
+ * reason, is said on the environment's stream (`environment.channel-checked`,
+ * #1795), after which a client reads `updates.status` again and a desktop
+ * checks its own build; one that finds what the last found, or fails again
+ * for the same reason, says nothing. Update now's read of the channel (`updates.apply`) is shown as a
  * check's, staging nothing of its own, so the newest it resolved the update
  * against is the newest shown (#1774); a read never replaces what one that
  * began after it found. The Your machines step's
@@ -69,6 +73,8 @@ export interface ChannelChecksOptions {
   readonly context: () => Promise<ChannelContext>;
   /** Stages what a check that read the channel under `settings` found: null once staged or when there is nothing to stage, else why not. */
   readonly follow: (reading: ChannelReading, settings: ChannelSettings) => Promise<StagingFailure | null>;
+  /** Says on the environment's stream that a check changed the newest or the last check `updates.status` shows. */
+  readonly said: (payload: ChannelCheckedPayload) => void;
 }
 
 export interface ChannelChecks {
@@ -96,6 +102,10 @@ export interface ChannelChecks {
 const LAST_SUCCEEDED = "lastSucceededAt";
 const LAST_CHECK = "the last check of the release channel";
 
+/** What a check that changes it says (#1795): the newest shown, and the last check's result and reason, never its time or message. */
+const saidOf = ({ newest, lastCheck }: ChannelStatus): string =>
+  JSON.stringify([newest, lastCheck?.result ?? null, lastCheck?.result === "failed" ? lastCheck.reason : null]);
+
 export const createChannelChecks = (options: ChannelChecksOptions): ChannelChecks => {
   const { clock, channel } = options;
   const recordPath = join(options.dataDir, RELEASE_CHANNEL_FILE);
@@ -111,6 +121,8 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   /** Whether the settings changed while a check was under way, which read them before. */
   let again = false;
   let stopped = false;
+  /** What the last check said, from what `updates.status` showed of the channel at the start: nothing read, no check. */
+  let lastSaid = saidOf(status);
   const listeners = new Set<() => void>();
 
   /** The failed check of a read that began `at`. */
@@ -131,12 +143,26 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
     status = { ...status, newest: reading.newest, target: reading.target, passedOver: reading.passedOver };
   };
 
-  /** A read that began `at` ended as `lastCheck`, shown unless a later read's is; then the listeners hear it. */
+  /** Says what `updates.status` shows of the channel when a check changed it; a check that ends once the checks stopped, as the environment closes, says nothing. */
+  const sayIfChanged = (): void => {
+    const now = saidOf(status);
+    if (stopped || now === lastSaid || status.lastCheck === null) return;
+    try {
+      options.said({ newest: status.newest, lastCheck: status.lastCheck });
+      // Only once said: a change that did not reach the stream is said by the next check, though that one finds the same.
+      lastSaid = now;
+    } catch (error) {
+      console.error("Saying the release channel's check on the environment's stream failed:", error);
+    }
+  };
+
+  /** A read that began `at` ended as `lastCheck`, shown unless a later read's is; then it is said if it changed what is shown, and the listeners hear it. */
   const ended = (at: Date, lastCheck: UpdateCheck): void => {
     if (at.getTime() >= endedAt) {
       endedAt = at.getTime();
       status = { ...status, lastCheck };
     }
+    sayIfChanged();
     for (const listener of [...listeners]) {
       try {
         listener();

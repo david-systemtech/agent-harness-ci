@@ -25,6 +25,7 @@ describe("environment notices", () => {
       "environment.update-started",
       "environment.update-failed",
       "environment.update-cancelled",
+      "environment.channel-checked",
       "environment.renamed",
       "environment.icon-set",
       "environment.colour-set",
@@ -244,7 +245,7 @@ describe("an update's notices", () => {
   });
 
   it("go on the environment stream only, none of them list-flagged", () => {
-    for (const type of ["environment.update-pending", "environment.update-started", "environment.update-failed", "environment.update-cancelled"]) {
+    for (const type of ["environment.update-pending", "environment.update-started", "environment.update-failed", "environment.update-cancelled", "environment.channel-checked"]) {
       expect(eventTypeEntry("environment", type)?.list, type).toBe(false);
       expect(eventTypeEntry("session", type), type).toBeUndefined();
     }

@@ -227,8 +227,9 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * the parked prompts; a sign-in moving (`signin.updated`, which carries it)
  * the environment's sign-in, which a client attending it follows for its
  * verification URL and its end (#147); every step of an update (pending,
- * started, updated, failed, cancelled) `updates.status`, which the card and
- * About follow (#344); every `forge.account.*` event the forge accounts
+ * started, updated, failed, cancelled) and a check of the release channel
+ * that changed what it shows (`environment.channel-checked`, #1795)
+ * `updates.status`, which the card and About follow (#344); every `forge.account.*` event the forge accounts
  * (#320), a missing origin (`forge.origin-missing`) changing none of them;
  * and settings changing (`settings.changed`, appended with every
  * `settings.updated`, #391) the settings, read through `settings.get` and,
@@ -293,7 +294,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.handoff.recommend": ["usage.updated", "account.updated", "signin.updated"],
   "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],
   "accounts.signin.get": ["signin.updated"],
-  "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
+  "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled", "environment.channel-checked"],
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
   "banks.list": BANK_RECORD_EVENTS,
   "banks.get": BANK_RECORD_EVENTS,

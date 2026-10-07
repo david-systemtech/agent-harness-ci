@@ -219,6 +219,7 @@ import {
   UpdateSettingsValues,
 } from "./update-settings.js";
 import {
+  ChannelCheckedPayload,
   EnvironmentUpdatedPayload,
   PendingUpdate,
   UpdateBlockedReason,
@@ -1474,6 +1475,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "updates/events/environment.updated.json", title: "EnvironmentUpdatedPayload", schema: EnvironmentUpdatedPayload },
   { path: "updates/events/environment.update-failed.json", title: "UpdateFailedPayload", schema: UpdateFailedPayload },
   { path: "updates/events/environment.update-cancelled.json", title: "UpdateCancelledPayload", schema: UpdateCancelledPayload },
+  { path: "updates/events/environment.channel-checked.json", title: "ChannelCheckedPayload", schema: ChannelCheckedPayload },
   { path: "updates/manager.json", title: "UpdateManager", schema: UpdateManager },
   { path: "updates/check-failure.json", title: "UpdateCheckFailure", schema: UpdateCheckFailure },
   { path: "updates/check.json", title: "UpdateCheck", schema: UpdateCheck },
