@@ -101,7 +101,10 @@ describe("webhook startup recovery", () => {
     await secondPost;
     await t.close();
     receiver.answer({ status: 204 });
-    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // The two entries' attempts run concurrently, so the first's refusal is waited on itself, not inferred from the second's attempt.
+    let refused!: () => void;
+    const firstRefused = new Promise<void>((resolve) => { refused = resolve; });
+    const errors = vi.spyOn(console, "error").mockImplementation((message: unknown) => { if (String(message).includes(first)) refused(); });
     onCleanup(() => errors.mockRestore());
     const injection = onOpenedLog((log) => {
       const read = log.read.bind(log);
@@ -117,9 +120,8 @@ describe("webhook startup recovery", () => {
     });
     const restarted = await startTestEnvironment({ dataDir });
     onCleanup(() => restarted.close());
-    await untilRoutineEvent(restarted, routine.state.id, (e) => e.type === "routine.delivery-attempted" && e.payload["entryId"] === second);
+    await Promise.all([firstRefused, untilRoutineEvent(restarted, routine.state.id, (e) => e.type === "routine.delivery-attempted" && e.payload["entryId"] === second)]);
     await restarted.close();
-    expect(errors.mock.calls.some((args) => String(args[0]).includes(first))).toBe(true);
     injection.mockRestore();
     const again = await startTestEnvironment({ dataDir });
     onCleanup(() => again.close());
