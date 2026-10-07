@@ -21,7 +21,9 @@ private even for a public repository: the owner must make the new
 not change repository or package settings. This makes release and image reads
 available without an account.
 
-1. Choose a merged main commit with green CI. Follow the snapshot publisher's
+1. Choose a merged main commit whose `ci / ci` and `smoke / smoke` checks are
+   both green; a red or missing smoke rules the commit out (see "The smoke of
+   every merge" below). Follow the snapshot publisher's
    procedure to publish its cleaned tree to the public repository without a tag.
    Verify that snapshot includes the installed release workflow.
 2. For a build rehearsal, manually dispatch GitHub's **release** workflow on
@@ -65,6 +67,29 @@ one. If publishing succeeded but moving `latest` failed, repair that alias to
 The Forgejo release workflow is retained for manual recovery only: it has no
 push trigger. Do not dispatch it during a GitHub release, since it publishes to
 Forgejo's own release and registry.
+
+## The smoke of every merge
+
+Each merge to `main` runs the release workflow's builds and platform smokes
+without publishing (#1769), so a start-up or packaging defect shows on the
+merge rather than after a release attempt is published. Forgejo's `smoke`
+workflow (`.forgejo/workflows/smoke.yml`) relays the merge to
+`david-systemtech/agent-harness-ci` as the `ci` relay does (`.forgejo/scripts/github-ci.sh`,
+event `smoke`), and its `smoke / smoke` status on the merge commit is the
+hosted run's verdict. There, `.github/workflows/smoke.yml` calls
+`.github/workflows/release.yml` with the merge's commit: `prepare` names a
+synthetic `v0.0.0-ci.<run number>` version, the image, the three desktops and
+the three smokes run as on a tag, and `verify` and `suite` are skipped (the
+merge's own CI ran them), which skips `image-push` and `release` with them.
+No tag, image push, draft release or `latest` move is possible in that mode.
+
+Both hosted files are installed by hand on agent-harness-ci's default branch,
+`workflows`: `.forgejo/github-workflows/smoke.yml` as `.github/workflows/smoke.yml`
+and `public/.github-workflows/release.yml` as `.github/workflows/release.yml`,
+byte for byte. The relay compares both installed copies with the merge's own
+before it pushes anything and fails with one error line naming the copy that
+differs, so a merge that changes either file shows a red smoke until the new
+copy is installed; install it, then re-run that merge's `smoke` job.
 
 The hosted macOS replacement smoke names each awaited operation while keeping the
 combined credential/update request's two-minute deadline. On a timeout it samples
