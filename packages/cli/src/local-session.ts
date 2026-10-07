@@ -166,7 +166,9 @@ type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: fals
  * its own client session, which the environment answers with `bye: revoked`
  * and the close; settles with what `work` came to, a failure included. A
  * refused revoke, a socket closed early and an environment silent for the
- * timeout while the verb waits on it fail the verb.
+ * timeout while the verb waits on it fail the verb. An environment that goes
+ * away (`bye: updating` or `draining`) once every call has its answer, but
+ * before the work has settled, leaves the work to settle the verb (#1765).
  */
 const overWire = <T>(
   url: string,
@@ -183,6 +185,8 @@ const overWire = <T>(
     let following: Following | undefined;
     let greeted = false;
     let outcome: Outcome<T> | undefined;
+    /** What the environment's going-away bye said, heard after every call's answer and before the work settled: no call or notice is answered after it. */
+    let goneAway: string | undefined;
     let settled = false;
     let timer: Timer | undefined;
 
@@ -215,6 +219,7 @@ const overWire = <T>(
     const call: LocalCall = (method, params, options = {}) =>
       new Promise((resolveCall, rejectCall) => {
         if (settled || outcome !== undefined) return rejectCall(new LocalFailure(`${method} was called after the verb's work was done.`));
+        if (goneAway !== undefined) return rejectCall(new LocalFailure(goneAway));
         const id = `call-${++calls}`;
         const answer = (frame: ResponseFrame) => {
           if (frame.error) return rejectCall(new LocalRefusal(method, frame.error));
@@ -231,6 +236,7 @@ const overWire = <T>(
     const notices: LocalNotices = (hear) =>
       new Promise((resolveNotices, rejectNotices) => {
         if (settled || outcome !== undefined) return rejectNotices(new LocalFailure("The notices were asked for after the verb's work was done."));
+        if (goneAway !== undefined) return rejectNotices(new LocalFailure(goneAway));
         if (following !== undefined) return rejectNotices(new LocalFailure("The notices are followed once per verb."));
         following = { id: "notices", live: false, hear, ready: (error) => (error === undefined ? resolveNotices() : rejectNotices(error)) };
         // From the start of the log: what catch-up replays is passed over, and the notices after it are heard.
@@ -261,6 +267,8 @@ const overWire = <T>(
     /** The work is done: the verb revokes its own client session, and settles with the work's outcome once the environment says so. */
     const finish = (done: Outcome<T>) => {
       if (settled) return;
+      // The environment went away already: its socket carries no revoke, and the client session goes unrevoked as at a bye after the work.
+      if (goneAway !== undefined) return settle(done);
       outcome = done;
       send({ type: "request", id: "revoke", method: "access.sessions.revoke", params: { commandId: randomUUID(), clientSessionId: credential.clientSessionId } });
       rearm();
@@ -293,8 +301,18 @@ const overWire = <T>(
           if (outcome !== undefined && frame.reason === "revoked") return settle(outcome);
           // The environment went away after the work was done (an update the work asked for drains at once): the
           // client session goes unrevoked, and the environment revokes a local session an hour after its connection closed.
-          if (outcome !== undefined && (frame.reason === "updating" || frame.reason === "draining")) return settle(outcome);
-          return fail(`The environment closed the socket (${frame.reason})${frame.message ? `: ${frame.message}` : "."}`);
+          const said = `The environment closed the socket (${frame.reason})${frame.message ? `: ${frame.message}` : "."}`;
+          if (frame.reason === "updating" || frame.reason === "draining") {
+            if (outcome !== undefined) return settle(outcome);
+            // The answer that made it go can come in the same read as this bye, ahead of the work hearing it (#1765): with no
+            // call or notice left to wait on, the work settles the verb, and a call or notices it asks for from here fail with
+            // this bye. Before the hello the work has not run, so the bye fails the verb.
+            if (greeted && pending.size === 0 && following === undefined) {
+              goneAway = said;
+              return rearm();
+            }
+          }
+          return fail(said);
         }
         case "subscribed":
           if (following?.id === frame.id) following.subscription = frame.subscription;
@@ -327,8 +345,13 @@ const overWire = <T>(
           return;
       }
     });
-    ws.addEventListener("error", () => fail(`The environment at ${url} did not answer.`));
-    ws.addEventListener("close", () => fail("The environment closed the socket before answering."));
+    // After a going-away bye the socket's end tells nothing: the work settles the verb.
+    ws.addEventListener("error", () => {
+      if (goneAway === undefined) fail(`The environment at ${url} did not answer.`);
+    });
+    ws.addEventListener("close", () => {
+      if (goneAway === undefined) fail("The environment closed the socket before answering.");
+    });
     // The connection and its hello are waited on from the start.
     rearm();
   });
