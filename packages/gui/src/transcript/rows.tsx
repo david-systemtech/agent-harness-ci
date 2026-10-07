@@ -6,6 +6,7 @@ import {
   fileUndoWords,
   oneLine,
   promptsIn,
+  DECIDED_BECAUSE,
   turnFacts,
   updateInterruptedText,
   type AssistantEntry,
@@ -331,12 +332,15 @@ const Subagent = ({ entry, facts }: { readonly entry: SubagentEntry; readonly fa
  * sequence of its `prompt.opened`, permissions spec), once answered: what it
  * asked and how it was answered; a plan's text in place, as markdown. While
  * it is parked it is the card's under the transcript, which leaves it out.
+ * One nobody answered says the rule that settled it, in its notice's words,
+ * since the card goes without a word (#1780).
  */
 const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
   const { prompt, answer } = entry;
   if (answer === null) return null;
+  const rule = typeof answer.decidedBy === "string" ? "" : `: ${DECIDED_BECAUSE[answer.decidedBy.auto]}`;
   if (entry.kind === "plan") {
-    const verdict = answer.decision === "allow" ? `Approved${answer.mode ? `, continuing in ${answer.mode.effective}` : ""}` : "Kept planning";
+    const verdict = `${answer.decision === "allow" ? `Approved${answer.mode ? `, continuing in ${answer.mode.effective}` : ""}` : "Kept planning"}${rule}`;
     return (
       <article aria-label="Plan" className="flex flex-col gap-2 rounded-md border border-hairline px-3 py-2">
         <p className="text-[0.85em]">
@@ -351,7 +355,7 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
     return (
       <article aria-label="Question" className="flex flex-col gap-1">
         {(questions.length > 0 ? questions.map((question) => question.question) : [prompt.summary]).map((question) => {
-          const said = answer.answers?.[question] ?? (answer.decision === "deny" ? "skipped" : "answered");
+          const said = `${answer.answers?.[question] ?? (answer.decision === "deny" ? "skipped" : "answered")}${rule}`;
           return (
             <p key={question}>
               <span className="font-medium text-ink">
@@ -367,7 +371,9 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
       </article>
     );
   }
-  const verdict = `${answer.decision === "allow" ? "allowed" : "denied"}${answer.remember === "session" ? " for this session" : ""}${answer.message ? `: ${oneLine(answer.message, 120)}` : ""}`;
+  // A rule's message is written for the model; the rule's words are the person's.
+  const why = rule !== "" ? rule : answer.message ? `: ${oneLine(answer.message, 120)}` : "";
+  const verdict = `${answer.decision === "allow" ? "allowed" : "denied"}${answer.remember === "session" ? " for this session" : ""}${why}`;
   return (
     <article aria-label="Permission" className="text-ink-muted">
       <Marked text={prompt.summary} />

@@ -1,5 +1,6 @@
-import { EnvironmentNotice, type AutoDecider, type EventEnvelope, type WorkspaceKeptReason } from "@agent-harness/contracts";
+import { EnvironmentNotice, type EventEnvelope, type WorkspaceKeptReason } from "@agent-harness/contracts";
 import type { Notice, NoticeInput, Notices } from "../notices.js";
+import { DECIDED_BECAUSE } from "../permissions/words.js";
 import { environmentUpdateFailed } from "../updates/credential-notice.js";
 
 /**
@@ -25,8 +26,9 @@ import { environmentUpdateFailed } from "../updates/credential-notice.js";
  *   asks for nothing any more (a resolution heard as history takes it back
  *   too, saying nothing: `settled`); and when nobody answered it (an automatic
  *   rule: its TTL, its run ending first, the provider cancelling it) while
- *   its notice was still showing, a `prompt-resolved` notice says how it was
- *   settled. A person's answer, from any client, raises none;
+ *   its notice was still in the queue, drawn or not, a `prompt-resolved`
+ *   notice says how it was settled, the rule in `DECIDED_BECAUSE`'s words. A
+ *   person's answer, from any client, raises none;
  * - `routine.delivered`: `routine`, "<routine> on <name>: <summary>" (#525),
  *   marked with its outcome, a success or a failure, and about the firing's
  *   session, which opening it opens; a skip's is about none;
@@ -81,16 +83,6 @@ const KEPT_BECAUSE: Readonly<Record<WorkspaceKeptReason, string>> = {
   uncommitted_changes: "it has uncommitted changes",
   git_filters_refused: "its repository configures filters the environment will not run to check it",
   git_failed: "git could not check or remove it",
-};
-
-/** Why a prompt was settled with nobody answering it, as a notice says it. */
-const AUTOMATIC: Readonly<Record<AutoDecider, string>> = {
-  ttl: "nobody answered it before its time ran out",
-  unattended: "nobody was present to answer it",
-  bypass: "the run bypasses permissions",
-  run_ended: "its run ended first",
-  reviewer: "the provider's reviewer decided it",
-  cancelled: "the provider withdrew it",
 };
 
 export interface EnvironmentNotices {
@@ -178,7 +170,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           if (typeof decidedBy === "string" || words === undefined) return;
           raise({
             kind: "prompt-resolved",
-            message: `${context.title(sessionId) ?? words.title}: ${words.summary} was ${decision === "allow" ? "allowed" : "denied"}: ${AUTOMATIC[decidedBy.auto]}.`,
+            message: `${context.title(sessionId) ?? words.title}: ${words.summary} was ${decision === "allow" ? "allowed" : "denied"}: ${DECIDED_BECAUSE[decidedBy.auto]}.`,
             action: null,
             about: taken.about,
           });

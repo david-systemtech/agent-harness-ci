@@ -1,4 +1,4 @@
-import { Denylist, denylistPresets, type ContainmentAvailability, type DenylistSection, type DenylistTestKind, type ReviewCounts, type ReviewDenial, type ReviewRun } from "@agent-harness/contracts";
+import { Denylist, denylistPresets, type AutoDecider, type ContainmentAvailability, type DenylistSection, type DenylistTestKind, type ReviewCounts, type ReviewDenial, type ReviewRun } from "@agent-harness/contracts";
 import { whenWords } from "../transcript/format.js";
 
 /**
@@ -7,8 +7,20 @@ import { whenWords } from "../transcript/format.js";
  * it: a containment level's availability, a denylist section's name, what
  * it holds and the grammar its patterns follow (the contracts' own
  * descriptions), what a test takes, and the Unattended review's runs,
- * which the terminal UI's `/review` says too.
+ * which the terminal UI's `/review` says too; and why a prompt was settled
+ * with nobody answering it, as its `prompt-resolved` notice and the GUI's
+ * transcript row both say it (#1780).
  */
+
+/** Why a prompt was settled with nobody answering it: the automatic rule that decided it. */
+export const DECIDED_BECAUSE: Readonly<Record<AutoDecider, string>> = {
+  ttl: "nobody answered it before its time ran out",
+  unattended: "nobody was present to answer it",
+  bypass: "the run bypasses permissions",
+  run_ended: "its run ended first",
+  reviewer: "the provider's reviewer decided it",
+  cancelled: "the provider withdrew it",
+};
 
 /** Whether the environment can enforce a level, with the probe's reason when it cannot; "not reported" for a level its report leaves out. */
 export const availabilityWords = (availability: ContainmentAvailability | undefined): string => {

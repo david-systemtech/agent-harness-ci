@@ -401,6 +401,16 @@ describe("delegated work and plans", () => {
 });
 
 describe("prompts in place", () => {
+  it("says which rule settled a prompt nobody answered, in the notice's words rather than the message the model reads", async () => {
+    const { env, transcript, session } = await opened();
+    env.startRun(session, "Clean up");
+    const permission = env.openPrompt(session, { summary: "Bash: rm -rf build" });
+    await screen.findByRole("region", { name: "Parked prompt" });
+    env.settleAutomatically(session, permission, "run_ended", { message: "The run ended before anyone answered, so the request was denied." });
+    const row = await within(transcript).findByRole("article", { name: "Permission" });
+    expect(row.textContent).toBe("Bash: rm -rf build — denied: its run ended first");
+  });
+
   it("draws an answered prompt and question at the place each was asked, not where they were answered", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Clean up");
