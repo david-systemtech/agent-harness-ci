@@ -199,8 +199,10 @@ and check the notification; **Disable push** removes this client's registration.
 If permission is denied, the client explains it rather than repeatedly asking.
 Change the OS/browser permission explicitly to retry, or select **Use fallback**
 for an available configured webhook route. The fallback list shows delivery
-status/failure; ask an admin if none is configured or a global route is disabled.
-A read-granted client can manage its own targets, not global routes.
+status/failure. A client paired with the admin grant adds the route itself (see
+below); any other client asks an admin when none is configured or a global
+route is disabled. A read-granted client can manage its own targets, not
+global routes.
 
 The environment sends the generic **A session needs you** with an HTTPS
 session link after an ask has waited six seconds; answers/expiry cancel queued
@@ -213,10 +215,19 @@ opt-in and silent outcomes stay quiet.
 
 ### Operator recipe: signed webhook to Matrix
 
-An admin configures a dedicated named endpoint and attention route over the
-existing authenticated wire. There is no `agent-harness attention` CLI verb
-and the Attention UI controls existing routes rather than creating endpoint
-secrets. Use these method/parameter shapes from a trusted admin client:
+An admin adds the route from a client paired with the admin grant (the
+**My own client** preset): **Settings > Attention** (bell button), **Add a
+webhook route**. Type a name (lower-case letters, digits and hyphens, such as
+`phone-attention`), the receiver's URL and a dedicated signing secret, then
+**Add route**. The environment keeps the endpoint under that name, with its
+secret in its vault, and adds a global route naming it, shown as **Signed
+webhook · Global route**. Tap **Test** on that route to post a signed test to
+the receiver and read the status it answered. A name already taken by
+another endpoint, such as a routine's, is refused rather than replaced;
+adding the route's own name again replaces its URL and secret.
+
+There is no `agent-harness attention` CLI verb. A script can make the same
+two calls over the authenticated wire with an admin token:
 
 ```text
 routines.endpoints.set

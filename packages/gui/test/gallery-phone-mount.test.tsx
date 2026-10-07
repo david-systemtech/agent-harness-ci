@@ -55,6 +55,22 @@ it.each(["phone-attention-failure", "phone-attention-keyboard", "phone-attention
   expect(screen.getByRole("heading", { name: "Attention" })).toBeDefined();
 });
 
+it.each([
+  { name: "phone-attention-empty-admin", shown: [/Add a webhook route above/], hidden: /ask an environment admin|Global routes require admin/i },
+  { name: "phone-attention-empty-reader", shown: [/Global routes require admin/, /Ask an environment admin/], hidden: /Add a webhook route/ },
+])("draws $name, the empty Attention sheet with its push section, at phone width (ticket 1808)", async ({ name, shown, hidden }) => {
+  const registry = discoverScenes(import.meta.glob<SceneModule>("../gallery/scenes/phone-attention-*.tsx", { eager: true }));
+  const root = document.createElement("div"); root.id = "root"; document.body.append(root);
+  const gallery = await mountGallery(root, name, "dark", registry, { platform: "web", textSize: 14 });
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  expect(await screen.findByRole("region", { name: "Web Push" })).toBeDefined();
+  expect(screen.getByRole("region", { name: "Web Push" }).closest("[data-attention-settings]")).not.toBeNull();
+  for (const text of shown) expect(document.body.textContent).toMatch(text);
+  expect(document.body.textContent).not.toMatch(hidden);
+  expect(screen.queryByRole("form", { name: "Add a webhook route" }) !== null).toBe(name.endsWith("admin"));
+});
+
 it("draws the phone pairing screen's refusal of a further origin, served at the page's own origin, before marking the scene ready (ticket 1739)", async () => {
   // The capture's phone layout, where Pair with an environment sits under More.
   const matchMedia = window.matchMedia;

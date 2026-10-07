@@ -1,9 +1,10 @@
 import { createPortal } from "react-dom";
-import type { AttentionTargetStatus } from "@agent-harness/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { EndpointName, type AttentionTargetStatus } from "@agent-harness/contracts";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import { Bell, RefreshCw, X } from "lucide-react";
 import { Button } from "../ui/button.js";
+import { Input } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { usePickedEnvironment, useSettings } from "../settings/settings-window.js";
 import type { WebModule } from "../platform/web-registrations.js";
@@ -15,20 +16,27 @@ export interface AttentionSettingsProps {
   readonly onConfigure: (id: string, enabled: boolean, completion: boolean, global: boolean) => void;
   readonly onRemove: (id: string, global: boolean) => void;
   readonly onRefresh: () => void;
+  /** Makes the named endpoint and its global route; resolves true once both are saved. */
+  readonly onAddRoute: (route: WebhookRouteInput) => Promise<boolean>;
+  /** Posts a signed test to a webhook route's named endpoint. */
+  readonly onTest: (endpoint: string) => void;
 }
+/** What an admin types to add a signed-webhook route: the endpoint's name, its URL and its signing secret. */
+export interface WebhookRouteInput { readonly name: string; readonly url: string; readonly secret: string }
 /** A target is named by its label; a push registration's id is an opaque client session id that means nothing to a person. */
 export const attentionTargetLabel = (target: AttentionTargetStatus): string => target.label ?? (target.transport === "push" ? "Web Push registration" : target.id);
-/** Status and preference controls never receive transport endpoints, keys or secrets. */
-export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRemove, onRefresh }: AttentionSettingsProps) => (
+/** Status and preference controls never receive a transport's URL, keys or secrets; the route form sends a secret once and never reads it back. */
+export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRemove, onRefresh, onAddRoute, onTest }: AttentionSettingsProps) => (
   <section data-attention-settings className="flex min-w-0 flex-col gap-3 break-words text-base">
     <p className="text-ink-muted">A waiting ask is delivered after six seconds. No prompt, transcript, session title or secrets appear in the notification.</p>
     <p className="text-ink-muted">In-app Parked asks work while connected. Closed-phone delivery needs an enabled push subscription or a configured webhook fallback.</p>
     {!admin && <p className="text-ink-muted">Global routes require admin. Re-pair with an explicit admin grant to configure them.</p>}
     <Button title="Refresh attention status" className="h-11 self-start" onClick={onRefresh} disabled={busy}><RefreshCw aria-hidden="true" />Refresh status</Button>
-    {targets.length === 0 && <p role="status">No delivery targets are registered. Enable Web Push or choose a configured fallback when that transport is available.</p>}
+    {targets.length === 0 && <p role="status">{admin ? "No delivery targets are registered. Add a webhook route or enable Web Push below." : "No delivery targets are registered. Enable Web Push or choose a configured fallback when that transport is available."}</p>}
     {targets.map(target => {
       const locked = busy || (target.global && !admin);
       const label = attentionTargetLabel(target);
+      const testable = admin && target.global ? target.webhookEndpoint : undefined;
       return <article key={target.id} className="flex min-w-0 flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
         <h3 className="font-semibold">{label}</h3>
         <p>{target.transport === "push" ? "Web Push" : "Signed webhook"} · {target.global ? "Global route" : "This client"} · <span role="status">{target.state}</span></p>
@@ -37,6 +45,7 @@ export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRem
         <div className="flex flex-wrap gap-2">
           <Button className="h-11" title={`${target.enabled ? "Disable" : "Enable"} ${label}`} aria-label={`${target.enabled ? "Disable" : "Enable"} ${label}`} disabled={locked} onClick={() => onConfigure(target.id, !target.enabled, target.completion, target.global)}>{target.enabled ? "Disable" : "Enable"}</Button>
           <Button className="h-11" title={`Remove ${label}`} aria-label={`Remove ${label}`} disabled={locked} onClick={() => onRemove(target.id, target.global)}>Remove</Button>
+          {testable && <Button className="h-11" title={`Post a signed test to ${testable}`} aria-label={`Test ${label}`} disabled={busy} onClick={() => onTest(testable)}>Test</Button>}
         </div>
         <label className="flex min-h-11 cursor-pointer items-center gap-3">
           <input type="checkbox" className="size-5 shrink-0" aria-label={`Routine completions for ${label}`} checked={target.completion} disabled={locked} onChange={event => onConfigure(target.id, target.enabled, event.target.checked, target.global)} />
@@ -44,8 +53,34 @@ export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRem
         </label>
       </article>;
     })}
+    {admin && <WebhookRouteForm busy={busy} onAdd={onAddRoute} />}
   </section>
 );
+
+/** An admin's way to the closed-phone fallback: the named endpoint (URL and signing secret) and the global route that names it. */
+const WebhookRouteForm = ({ busy, onAdd }: { readonly busy: boolean; readonly onAdd: (route: WebhookRouteInput) => Promise<boolean> }) => {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [secret, setSecret] = useState("");
+  const [problem, setProblem] = useState<string>();
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!EndpointName.safeParse(name.trim()).success) return setProblem("A name is 1 to 40 lower-case letters, digits and hyphens.");
+    if (url.trim() === "" || secret === "") return setProblem("Type the receiver's URL and its signing secret.");
+    setProblem(undefined);
+    if (await onAdd({ name: name.trim(), url: url.trim(), secret })) { setName(""); setUrl(""); setSecret(""); }
+  };
+  const field = "flex min-h-11 flex-col gap-1";
+  return <form aria-label="Add a webhook route" className="flex min-w-0 flex-col gap-3 rounded-lg border border-hairline bg-panel p-3" onSubmit={event => { void submit(event); }}>
+    <h3 className="font-semibold">Add a webhook route</h3>
+    <p className="text-ink-muted">A signed webhook reaches a closed phone through a receiver you run, for example one that forwards to a chat room. The secret is kept in this environment's vault and never shown again.</p>
+    <label className={field}><span>Name</span><Input className="h-11" autoComplete="off" autoCapitalize="none" spellCheck={false} placeholder="phone-attention" value={name} onChange={event => setName(event.target.value)} /></label>
+    <label className={field}><span>Receiver URL</span><Input className="h-11" type="url" inputMode="url" autoComplete="off" placeholder="https://receiver.example/attention" value={url} onChange={event => setUrl(event.target.value)} /></label>
+    <label className={field}><span>Signing secret</span><Input className="h-11" type="password" autoComplete="off" value={secret} onChange={event => setSecret(event.target.value)} /></label>
+    {problem && <p role="alert" className="text-signal">{problem}</p>}
+    <Button type="submit" className="h-11 self-start" disabled={busy}>Add route</Button>
+  </form>;
+};
 
 const ConnectedAttention = ({ environmentId }: { readonly environmentId: string }) => {
   const runtime = useRuntime();
@@ -72,10 +107,42 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
     } catch { setLine("Could not save attention preferences. Check your connection and grant."); }
     finally { setBusy(false); }
   };
+  /** The endpoint first, then the route naming it; an endpoint no route names (a routine's) is never replaced from here. */
+  const addRoute = async ({ name, url, secret }: WebhookRouteInput): Promise<boolean> => {
+    setBusy(true); setLine(undefined);
+    try {
+      const [endpoints, current] = await Promise.all([runtime.requests.call(environmentId, "routines.endpoints.list", {}), runtime.requests.call(environmentId, "attention.targets.list", {})]);
+      if (!endpoints.ok || !current.ok) throw new Error("Status unavailable.");
+      const route = current.result.targets.find(target => target.global && target.webhookEndpoint === name);
+      if (!route && endpoints.result.endpoints.some(endpoint => endpoint.name === name)) { setLine(`An endpoint named ${name} already exists on this environment. Choose another name.`); return false; }
+      if (!route && current.result.targets.some(target => target.id === name)) { setLine(`A delivery target named ${name} already exists. Choose another name.`); return false; }
+      const endpoint = await runtime.requests.call(environmentId, "routines.endpoints.set", { commandId: crypto.randomUUID(), name, url, secret: { kind: "pasted", secret } });
+      const refused = !endpoint.ok ? endpoint.error.message : endpoint.result.receipt.status === "rejected" ? endpoint.result.receipt.error.message : null;
+      if (refused !== null) { setLine(`Webhook route not saved: ${refused}`); return false; }
+      const target = { id: route?.id ?? name, ...(route?.label === undefined ? {} : { label: route.label }), transport: "webhook" as const, enabled: true, completion: route?.completion ?? false, configuration: { endpoint: name } };
+      const set = await runtime.requests.call(environmentId, "attention.routes.set", { commandId: crypto.randomUUID(), target });
+      const refusedRoute = !set.ok ? set.error.message : set.result.receipt.status === "rejected" ? set.result.receipt.error.message : null;
+      if (refusedRoute !== null) { setLine(`Webhook route not saved: ${refusedRoute}`); return false; }
+      setLine(`Webhook route ${name} saved. Test it to check that its receiver takes the signed post.`);
+      refresh();
+      return true;
+    } catch { setLine("Could not save the webhook route. Check your connection and admin grant."); return false; }
+    finally { setBusy(false); }
+  };
+  const test = async (endpoint: string) => {
+    setBusy(true); setLine(`Posting a signed test to ${endpoint}…`);
+    try {
+      const answer = await runtime.requests.call(environmentId, "routines.endpoints.test", { name: endpoint });
+      if (!answer.ok) setLine(`Not tested: ${answer.error.message}`);
+      else setLine(answer.result.error === null ? `${endpoint} answered ${answer.result.status ?? "nothing"} in ${answer.result.durationMs} ms.` : `${endpoint} did not take the test: ${answer.result.error}`);
+    } catch { setLine("Could not test the webhook route. Check your connection and admin grant."); }
+    finally { setBusy(false); }
+  };
   return <>
     {(line || answer.error) && <p role="status" className="mb-3 text-ink-muted">{line ?? "Could not read attention status. Check your connection and read grant."}</p>}
     <AttentionSettingsPane targets={answer.result?.targets ?? []} admin={admin} busy={busy} onRefresh={refresh}
-      onConfigure={(id, enabled, completion, global) => { void write(id, global, { enabled, completion }); }} onRemove={(id, global) => { void write(id, global); }} />
+      onConfigure={(id, enabled, completion, global) => { void write(id, global, { enabled, completion }); }} onRemove={(id, global) => { void write(id, global); }}
+      onAddRoute={addRoute} onTest={endpoint => { void test(endpoint); }} />
   </>;
 };
 
