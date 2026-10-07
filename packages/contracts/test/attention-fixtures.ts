@@ -7,7 +7,7 @@ const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 export const attentionSchemaFixtures = {
   "attention/payload.json": { valid: [{ message: "A session needs you", url: "https://example.test:8443/#/session/env-1/session-1" }], invalid: [{ message: "Prompt text", url: "https://example.test/" }, { message: "A session needs you", url: "http://example.test/#/session/env-1/session-1" }] },
   "attention/target-input.json": { valid: [target, atLimit], invalid: [{ ...target, transport: "email" }, { ...target, completion: undefined }, overLimit] },
-  "attention/target-status.json": { valid: [status], invalid: [{ ...status, state: "unknown" }] },
+  "attention/target-status.json": { valid: [status, { ...status, transport: "webhook", webhookEndpoint: "phone-attention", global: true }], invalid: [{ ...status, state: "unknown" }, { ...status, transport: "webhook", webhookEndpoint: "https://receiver.example/attention" }] },
 };
 export const attentionMethodFixtures = {
   "attention.targets.list": { params: { valid: [{}], invalid: [[]] }, result: { valid: [{ targets: [status] }, { targets: [] }], invalid: [{ targets: [{}] }] } },

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { AttentionTargetInput, type AttentionTargetStatus } from "@agent-harness/contracts";
+import { AttentionTargetInput, EndpointName, type AttentionTargetStatus } from "@agent-harness/contracts";
 import type { EventLog, Projector, ProjectionDb } from "../event-log/event-log.js";
 
 export const attentionStream = { kind: "settings", id: "attention" } as const;
@@ -102,7 +102,10 @@ export const attentionStore = (log: EventLog): AttentionStore => {
   }));
   return { targets, deliveries, status: available => targets().map(({ target, owner }) => {
     const failure = log.read<{ failure: string }>("SELECT failure FROM attention_failures WHERE target_id = ?", target.id)[0]?.failure ?? null;
-    return { id: target.id, ...(target.label === undefined ? {} : { label: target.label }), transport: target.transport, enabled: target.enabled, completion: target.completion, global: owner === null, owner, failure,
+    // A push target's configuration holds its gateway URL under the same key; only a webhook's endpoint name is shown.
+    const webhookEndpoint = target.transport === "webhook" ? EndpointName.safeParse(target.configuration["endpoint"]).data : undefined;
+    return { id: target.id, ...(target.label === undefined ? {} : { label: target.label }), transport: target.transport,
+      ...(webhookEndpoint === undefined ? {} : { webhookEndpoint }), enabled: target.enabled, completion: target.completion, global: owner === null, owner, failure,
       state: !target.enabled ? "disabled" : failure ? "failed" : !available(target.transport) ? "unavailable" : deliveries("pending").some(d => d.targetId === target.id) ? "pending" : "ready" };
   }) };
 };
