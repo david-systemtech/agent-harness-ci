@@ -75,6 +75,8 @@ const start = async (options: TestEnvironmentOptions & { readonly source?: Sourc
     ...rest,
   });
   onCleanup(() => t.close());
+  // Set up's start pass appends its results after the start returns: done before the test reads the log or a step (#1804).
+  await t.env.setup.startPass;
   return { t, dataFolder, client: await t.client() };
 };
 

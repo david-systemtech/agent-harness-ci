@@ -53,6 +53,8 @@ const BUILD_MS = 120_000;
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
+  // Set up's start pass appends its results after the start returns: done before the test reads the log or a step (#1804).
+  await t.env.setup.startPass;
   return t;
 };
 

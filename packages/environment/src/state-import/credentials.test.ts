@@ -25,6 +25,8 @@ const bank = (slug: string, remote: string) => {
 const start = async (folder: string, options: TestEnvironmentOptions = {}) => {
   const t = await startTestEnvironment({ stateImportSource: machinePointedAt({ dataFolder: folder, home: tempDir() }), ...options });
   onCleanup(() => t.close());
+  // Set up's start pass appends its results after the start returns: done before the test reads the log or a step (#1804).
+  await t.env.setup.startPass;
   return { t, client: await t.client() };
 };
 const run = async (client: Awaited<ReturnType<typeof start>>["client"], dryRun = false, commandId = randomUUID()) =>

@@ -87,6 +87,8 @@ const start = async (options: Start = {}): Promise<WireClient> => {
   const { sessions, directory = adoptedDirectory(), ...rest } = options;
   const t = await startTestEnvironment({ ...rest, adapter: fakeAdapter({ ambientDirectory: directory, ...(sessions !== undefined && { sessions }) }) });
   onCleanup(() => t.close());
+  // Set up's start pass appends its results after the start returns: done before the test reads the log or a step (#1804).
+  await t.env.setup.startPass;
   return t.client();
 };
 
