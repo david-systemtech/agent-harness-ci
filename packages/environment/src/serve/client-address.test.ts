@@ -18,7 +18,7 @@ describe("the client address behind the HTTPS origin", () => {
       address: "100.64.0.7",
       login: "owner@example.test",
     });
-    expect(resolve(request("::ffff:127.0.0.1", { host: "WEB.example", "x-forwarded-for": "fd7a:115c:a1e0::7" }))).toEqual({ address: "fd7a:115c:a1e0::7" });
+    expect(resolve(request("::ffff:127.0.0.1", { host: "WEB.example", "x-forwarded-for": "fd7a:115c:a1e0::1" }))).toEqual({ address: "fd7a:115c:a1e0::1" });
   });
 
   it("takes the last X-Forwarded-For entry, the one the proxy wrote, not one a client sent ahead of it", () => {
