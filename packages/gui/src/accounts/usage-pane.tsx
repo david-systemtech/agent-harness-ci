@@ -14,7 +14,7 @@ import {
 import { settingsRow, type AccountUsage } from "@agent-harness/contracts";
 import { useId, useMemo } from "react";
 import { nameOf } from "../connections/words.js";
-import { reachWords } from "../settings/generic-editor.js";
+import { afterReach, reachWords } from "../settings/generic-editor.js";
 import { WindowReading } from "../status/window-reading.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
@@ -96,7 +96,7 @@ const EnvironmentLine = ({ answer, view }: { readonly answer: EnvironmentAnswer<
   if (view === undefined) return null;
   if (view.phase !== "ready") {
     const read = answer.value === null ? "this window has read none of its readings." : "its readings as this window last read them.";
-    return <p className="text-sm text-amber">{`${nameOf(view)}: ${reachWords(runtime, view)}: ${read}`}</p>;
+    return <p className="text-sm text-amber">{`${nameOf(view)}: ${afterReach(reachWords(runtime, view), read)}`}</p>;
   }
   return answer.error === null ? null : <p className="text-sm text-amber">{`${nameOf(view)}: ${answer.error.message}`}</p>;
 };

@@ -5,7 +5,7 @@ import { settingsRow, type AccountIdentity, type AccountRecord } from "@agent-ha
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nameOf } from "../connections/words.js";
-import { reachWords } from "../settings/generic-editor.js";
+import { afterReach, reachWords } from "../settings/generic-editor.js";
 import { StepLinks } from "../settings/step-links.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { useSettingsValues } from "../settings/settings-values.js";
@@ -106,7 +106,7 @@ export const AccountsList = ({ view, add, inlineSignIn = false }: AccountsListPr
     <>
       {!ready && (
         <p className="text-sm text-amber">
-          {reachWords(runtime, view)}: {accounts === null ? "this window has read none of its accounts." : "its accounts as this window last read them, read-only."}
+          {afterReach(reachWords(runtime, view), accounts === null ? "this window has read none of its accounts." : "its accounts as this window last read them, read-only.")}
         </p>
       )}
       {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">Read-only: {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p></AccessUnavailable>}
