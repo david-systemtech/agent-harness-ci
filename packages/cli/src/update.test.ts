@@ -624,9 +624,12 @@ describe("the update verbs", () => {
 
   it("other than apply, keep the route's 10 seconds for an unanswered call", async () => {
     const t = await start();
+    // credential's first call is updates.status, which it reads the release source from.
     for (const [method, args] of [
       ["updates.status", ["status"]],
       ["updates.settings.set", ["settings", "--channel", "beta"]],
+      ["updates.status", ["credential", "--stdin"]],
+      ["updates.begin", ["begin", "--update-id", "11111111-1111-4111-8111-111111111111"]],
     ] as const) {
       const clock = manualClock();
       let asked!: () => void;
@@ -638,12 +641,12 @@ describe("the update verbs", () => {
       // A command is silent while it prepares; a query, in its handler.
       if (method === "updates.status") t.env.methods.register(registry[method], silent);
       else t.env.methods.register(registry[method], { prepare: silent } as never);
-      const cli = harness();
+      const cli = harness("token-for-tests\n");
       const verb = runCli(["update", ...args, "--data-dir", t.dataDir], { ...cli.context, clock });
       await calling;
       clock.advance(10_000);
-      expect(await verb, method).toBe(1);
-      expect(cli.err(), method).toMatch("did not answer within 10 seconds");
+      expect(await verb, args[0]).toBe(1);
+      expect(cli.err(), args[0]).toMatch("did not answer within 10 seconds");
     }
   });
 
