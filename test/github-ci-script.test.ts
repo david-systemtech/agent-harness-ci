@@ -471,30 +471,41 @@ jobs:
     const { result, errors } = await failedRun(jobs);
     expect(result.code).toBe(1);
     expect(errors).toEqual([expect.stringContaining("GitHub ended the run as failed although none of its jobs failed")]);
-    expect(errors[0]).toContain(`never started: ${missing}`);
-    expect(errors[0]).toContain("run the job again");
+    expect(errors[0]).toContain(`Jobs the verdict needs that did not pass: ${missing}.`);
+    expect(errors[0]).toContain("a re-run clears an error of GitHub's, not one in the workflow file");
   });
 
   it("fails ci when a job the verdict needs was skipped", async () => {
     const jobs = JSON.stringify({ jobs: [...JSON.parse(passed("checks", "test (1)", "test (2)", "test (3)")).jobs, { id: 9, name: "root-user", conclusion: "skipped", steps: [] }] });
     const { result, errors } = await failedRun(jobs);
     expect(result.code).toBe(1);
-    expect(errors[0]).toContain("never started: root-user");
+    expect(errors[0]).toContain("did not pass: root-user.");
   });
 
-  it("fails ci without guessing when the workflow's jobs cannot be read", async () => {
-    const { result, errors } = await failedRun(passed("checks", "root-user", "test (1)", "test (2)", "test (3)"), {
-      FAKE_WORKFLOW: WORKFLOW.replace("        shard: [1, 2, 3]\n", "        os: [linux]\n"),
+  it("reads a job key with a trailing comment and stops the jobs at the next top-level key", async () => {
+    const { result, errors } = await failedRun(passed("checks", "test (1)", "test (2)", "test (3)"), {
+      FAKE_WORKFLOW: `${WORKFLOW.replace("  root-user:\n", "  root-user:  # runs as root\n")}concurrency:\n  group: ci\n`,
     });
     expect(result.code).toBe(1);
-    expect(errors[0]).toContain("never started: (the jobs its workflow needs could not be read)");
+    expect(errors[0]).toContain("did not pass: root-user.");
+  });
+
+  it.each([
+    ["a matrix other than one shard list", { FAKE_WORKFLOW: WORKFLOW.replace("        shard: [1, 2, 3]\n", "        os: [linux]\n") }],
+    ["a quoted job key", { FAKE_WORKFLOW: WORKFLOW.replace("  root-user:\n", '  "root-user":\n') }],
+    ["a job with a name of its own", { FAKE_WORKFLOW: WORKFLOW.replace("  root-user:\n", "  root-user:\n    name: as root\n") }],
+    ["a workflow whose fetch fails", { FAKE_API_MODE: "exhausted", FAKE_API_STAGE: "contents" }],
+  ])("fails ci without guessing on %s", async (_, env) => {
+    const { result, errors } = await failedRun(passed("checks", "root-user", "test (1)", "test (2)", "test (3)"), env);
+    expect(result.code).toBe(1);
+    expect(errors[0]).toContain("did not pass: (the jobs its workflow needs could not be read).");
   });
 
   it("fails any other event's run with the same cause named, reading no workflow", async () => {
     const { f, result, errors } = await failedRun(passed("checks", "root-user", "test (1)", "test (2)", "test (3)"), { GH_CI_EVENT: "catalogue" });
     expect(result.code).toBe(1);
     expect(errors).toEqual([expect.stringContaining("GitHub ended the run as failed although none of its jobs failed")]);
-    expect(errors[0]).toContain("never started: (not read for a catalogue run)");
+    expect(errors[0]).not.toContain("Jobs the verdict needs");
     expect(apiCalls(f).filter((call) => call.stage === "contents")).toEqual([]);
   });
 

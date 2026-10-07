@@ -273,14 +273,17 @@ if [ "$conclusion" = failure ] && python3 -c '
 import json,sys
 sys.exit(any(j.get("conclusion") not in ("success","skipped") for j in json.load(open(sys.argv[1])).get("jobs",[])))' "$gl/jobs.json"; then
   missing="(the jobs its workflow needs could not be read)"
-  [ "$event" = ci ] || missing="(not read for a $event run)"
   read -r head_sha path < <(printf '%s' "$reply_run" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("head_sha") or "-", r.get("path") or "-")')
   if [ "$event" = ci ] && workflow=$(gh_get "$api/contents/$path?ref=$head_sha"); then
     printf '%s' "$workflow" > "$gl/workflow.json"
     missing=$(python3 - "$gl/workflow.json" "$gl/jobs.json" <<'PYVERDICT'
 import base64,json,re,sys
 def needed(text):
-    jobs=re.split(r"^  ([A-Za-z0-9_-]+):[ \t]*$", text.partition("\njobs:\n")[2], flags=re.M)
+    # The jobs section ends at the next top-level key. Each line there at two spaces must be a plain
+    # job key, `id:` with at most a comment: a key in any other form would fold its job into the one before.
+    section=re.split(r"^(?=[^\s#])", text.partition("\njobs:\n")[2], maxsplit=1, flags=re.M)[0]
+    if any(not re.fullmatch(r"[A-Za-z0-9_-]+:[ \t]*(?:#.*)?", line[2:]) for line in section.splitlines() if re.match(r"  [^\s#]", line)): return []
+    jobs=re.split(r"^  ([A-Za-z0-9_-]+):[ \t]*(?:#.*)?$", section, flags=re.M)
     names=[]
     for job,body in zip(jobs[1::2],jobs[2::2]):
         if job=="cleanup": continue
@@ -299,7 +302,9 @@ PYVERDICT
     echo "::warning::GitHub ended the run as failed although none of its jobs failed; every job the verdict needs passed, so it passes (its cleanup never ran, and the hosted sweep deletes ci/$id): https://github.com/$repo/actions/runs/$run_id"
     exit 0
   fi
-  echo "::error::GitHub ended the run as failed although none of its jobs failed: GitHub failed the run itself (its run page names the error) and these jobs never started: $missing; run the job again: https://github.com/$repo/actions/runs/$run_id"
+  verdict=
+  [ "$event" != ci ] || verdict=" Jobs the verdict needs that did not pass: $missing."
+  echo "::error::GitHub ended the run as failed although none of its jobs failed.$verdict Its run page names the cause; a re-run clears an error of GitHub's, not one in the workflow file: https://github.com/$repo/actions/runs/$run_id"
   exit 1
 fi
 python3 -c '
