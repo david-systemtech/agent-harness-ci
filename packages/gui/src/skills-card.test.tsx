@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { CATALOGUE, type SkillsView, type SkillsViewMember, type SkillsViewSource } from "@agent-harness/contracts";
+import { CATALOGUE, whenWords, type SkillsView, type SkillsViewMember, type SkillsViewSource } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -156,7 +156,7 @@ it("lists a trusted repository with when and by whom, and revokes it for the nex
   });
   act(() => desk.notice("trust.updated", {}));
   const row = await within(card()).findByRole("region", { name: `Trusted: ${record.key}` });
-  expect(within(row).getByText(/Trusted 2026-09-29T10:00:00.000Z by Desk window/)).toBeDefined();
+  expect(within(row).getByText(`Trusted ${whenWords(record.decidedAt, app.clock.now())} by Desk window`)).toBeDefined();
   expect(within(card()).getByText(/Trust also admits project settings, permission rules and hooks/)).toBeDefined();
   await app.user.click(within(row).getByRole("button", { name: "Revoke trust" }));
   expect(await within(card()).findByText("No repository is trusted on this environment.")).toBeDefined();
