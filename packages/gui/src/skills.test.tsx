@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import type { SkillsView, SkillsViewMember, SkillsViewSource } from "@agent-harness/contracts";
+import { whenWords, type SkillsView, type SkillsViewMember, type SkillsViewSource, type TrustRecord } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -241,6 +241,35 @@ it("shows the repository's trust question in its session and lists the granted d
   expect(within(trusted).getByText(/Desk window/)).toBeDefined();
   await app.user.click(within(trusted).getByRole("button", { name: "Revoke trust" }));
   await waitFor(() => expect(within(pane()).queryByRole("region", { name: `Trusted: ${key}` })).toBeNull());
+});
+
+it("words each trust decision's time as the client's day and clock and keeps the client session id out of the line (ticket 1797)", async () => {
+  const sessionId = "bd70ad35-74b6-4f7f-aabf-670aed68a4a3";
+  const decided = (key: string, decision: TrustRecord["decision"], decidedAt: string): TrustRecord => ({
+    key,
+    keyKind: "identity",
+    decision,
+    decidedAt,
+    clientSessionId: sessionId,
+    clientLabel: "Desk window",
+    sessionId: null,
+  });
+  const trusted = decided("https://git.example.test/team/procedures", "trusted", "2026-10-05T04:43:42.504Z");
+  const declined = decided("https://git.example.test/team/guides", "declined", "2026-09-28T21:07:13.250Z");
+  const { app } = await opened((app) => {
+    app.environment("desk").wire.answer("trust.list", () => ({ result: { trusted: [trusted], declined: [declined] } }));
+  });
+  for (const [record, verb] of [
+    [trusted, "Trusted"],
+    [declined, "Declined"],
+  ] as const) {
+    const row = await within(pane()).findByRole("region", { name: `${verb}: ${record.key}` });
+    const line = within(row).getByText(new RegExp(`^${verb} `));
+    expect(line.textContent).toBe(`${verb} ${whenWords(record.decidedAt, app.clock.now())} by Desk window`);
+    expect(row.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+    expect(row.textContent).not.toContain(sessionId);
+    expect(line.getAttribute("title")).toBe(`Client session ${sessionId}`);
+  }
 });
 
 it("names each account's switches, their tooltips and accessible names by the account's label, never its id (ticket 1752)", async () => {

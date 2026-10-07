@@ -1,6 +1,6 @@
-import { trustOfferEmpty, type TrustRecord } from "@agent-harness/contracts";
+import { trustOfferEmpty, whenWords, type TrustRecord } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { SettingsCardGrid } from "../settings/part.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
@@ -118,15 +118,17 @@ export const TrustedRepositories = ({ environmentId, say }: { readonly environme
   );
 };
 
+/** A decision's line reads its time where this client is, as Access does (#1797); the client session id, there for support, is its tooltip. */
 const TrustRow = ({ environmentId, record, say }: { readonly environmentId: string; readonly record: TrustRecord; readonly say: (line: string) => void }) => {
   const runtime = useRuntime();
+  const clock = useClock();
   const { send, sending, commandId } = useSkillVerb(say);
   const trusted = record.decision === "trusted";
   return (
     <section aria-label={`${trusted ? "Trusted" : "Declined"}: ${record.key}`} className="flex flex-col gap-2 rounded-md border border-line p-3">
       <h4>{record.key}</h4>
-      <p className="text-sm text-ink-muted">
-        {trusted ? "Trusted" : "Declined"} {record.decidedAt} by {record.clientLabel} ({record.clientSessionId})
+      <p className="text-sm text-ink-muted" title={`Client session ${record.clientSessionId}`}>
+        {`${trusted ? "Trusted" : "Declined"} ${whenWords(record.decidedAt, clock.now())} by ${record.clientLabel}`}
       </p>
       <SkillButton
         environmentId={environmentId}
