@@ -1,10 +1,11 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
 import { scriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, expect, it, onTestFinished, vi } from "vitest";
+import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { App } from "../app.js";
 import { WebViewport } from "./web-frame.js";
 import { openPresentation } from "../presentation.js";
@@ -163,4 +164,55 @@ it("bounds a phone without VisualViewport and removes listeners on unmount", () 
   act(() => window.dispatchEvent(new Event("resize")));
   expect(frame.style.height).toBe("");
   expect(document.documentElement.hasAttribute("data-phone-viewport")).toBe(false);
+});
+
+/** A phone-sized web client paired with `desk`, open on its conversation. */
+const pairedPhone = async () => {
+  vi.stubGlobal("innerWidth", 390); vi.stubGlobal("innerHeight", 844);
+  const clock = manualClock();
+  const world = scriptedWorld(clock, { environments: [{ name: "desk", reach: "unpaired", scopes: ["read", "sessions:write", "runs:drive"], hello: { ceiling: "acceptEdits" } }] });
+  const view = Object.assign(Object.create(window) as Window & typeof globalThis, { indexedDB: new IDBFactory() });
+  const platform: BrowserPlatform = { ...browserPlatform(view, "0.0.0"), clock,
+    fetch: (url, request) => world.fetch(url.replace(/^https:/, "http:"), request),
+    webSocket: (url, handlers) => world.webSocket(url.replace(/^wss:/, "ws:"), handlers),
+  };
+  const runtime = createRuntime(platform);
+  await runtime.start();
+  const presentation = await openPresentation(platform.documents);
+  presentation.set("runLocalEnvironment", false); presentation.set("firstLaunchDone", true);
+  const env = world.environment("desk");
+  const link = env.wire.link.replace(/^http:/, "https:");
+  expect(await runtime.connections.add({ link })).toMatchObject({ status: "paired" });
+  const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: {} }} />);
+  onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
+  await screen.findByRole("note", { name: "Limited access" });
+  return { runtime, env, link };
+};
+const blockedLine = () => waitFor(() => { const found = document.querySelector<HTMLElement>("[data-connection-blocked]"); expect(found).not.toBeNull(); return found!; });
+
+it("offers a revoked phone Pair again on its blocked line, outside every menu, and pairs that connection again in place", async () => {
+  const { runtime, env, link } = await pairedPhone();
+  act(() => env.wire.server.bye("revoked"));
+  const line = await blockedLine();
+  expect(line.textContent).toContain("This client's access to desk was revoked: pair it again.");
+  expect(line.textContent).not.toContain("choose Pair.");
+  const again = within(line).getByRole("button", { name: "Pair again" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  const user = userEvent.setup();
+  await user.click(again);
+  expect(screen.getByRole("heading", { name: "Pair with this environment" })).toBeDefined();
+  await user.type(screen.getByRole("textbox", { name: "Pairing link" }), link);
+  await user.click(screen.getByRole("button", { name: "Pair" }));
+  await waitFor(() => expect(screen.queryByRole("heading", { name: "Pair with this environment" })).toBeNull());
+  expect(document.querySelector("[data-connection-blocked]")).toBeNull();
+  expect(screen.queryByText(/Already paired/)).toBeNull();
+  expect(runtime.connections.list.read().filter(record => record.environmentId === env.environmentId)).toHaveLength(1);
+});
+
+it("says a phone blocked by a newer environment needs this client updated, with no Pair again", async () => {
+  const { env } = await pairedPhone();
+  act(() => env.wire.server.bye("protocol", { protocolVersion: PROTOCOL_VERSION + 1 }));
+  const line = await blockedLine();
+  expect(line.textContent).toBe("desk is newer than this client: update this client.");
+  expect(within(line).queryByRole("button")).toBeNull();
 });

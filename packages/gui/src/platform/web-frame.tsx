@@ -1,10 +1,11 @@
-import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { blockWords, type EnvironmentView } from "@agent-harness/client-runtime";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Settings, Plus, Link } from "lucide-react";
 import { BrowserPanesProvider } from "../browser/browser-panes.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
 import { LimitedAccess } from "../connections/limited-access.js";
 import { PairingForm } from "../connections/pairing.js";
+import { remedyOf } from "../connections/words.js";
 import { PaneGridProvider, usePaneGrid } from "../grid/grid.js";
 import { focusedPane, showSession } from "../grid/layout.js";
 import { PaneGrid } from "../grid/pane-grid.js";
@@ -34,6 +35,18 @@ export const WebViewport = ({ children, narrow = false, connection }: { readonly
   usePhoneViewport(frame);
   return <div ref={frame} data-web-client data-web-grant={connection ? "" : undefined} data-phase={connection?.phase} data-ceiling={connection?.ceiling ?? undefined} data-scopes={connection?.scopes.join(", ")} data-phone-frame={narrow ? "" : undefined} className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">{children}</div>;
 };
+/**
+ * A blocked connection's line in its block's words (#1776). Where pairing
+ * again is the cure, it carries Pair again, which opens the pairing form for
+ * that connection: a phone's header has no Pair button of its own.
+ */
+const BlockedLine = ({ view, onPair }: { readonly view: EnvironmentView; readonly onPair: () => void }) => {
+  const rePair = remedyOf(view) === "re-pair";
+  return <div role="status" data-connection-blocked className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+    <p className="min-w-0 flex-1 basis-48">{blockWords(view)}{rePair && " Make a new code on a trusted client first."}</p>
+    {rePair && <Button variant="default" onClick={onPair}><Link aria-hidden="true" className="size-4" />Pair again</Button>}
+  </div>;
+};
 /** The first browser slice uses the same session components and environment-owned work. */
 export const WebFrame = (props: WebFrameProps) => (
   <PhoneFrameProvider><BrowserPanesProvider><TerminalPanesProvider><PaneGridProvider><NewSessionSurfaces><PaneLines>
@@ -54,7 +67,8 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   const settings = useSettings();
   const checklist = useChecklist();
   const [line, setLine] = useState<string>();
-  const [pairing, setPairing] = useState(false);
+  /** The pairing form, shown in place of the conversation; `rePair` names the connection it replaces. */
+  const [pairing, setPairing] = useState<{ readonly rePair?: string }>();
   const [handedLink, setHandedLink] = useState<string>();
   const paired = environments.filter(env => env.kind === "paired");
   const selected = paired.find(env => env.environmentId === pane.session?.environmentId) ?? paired[0];
@@ -67,7 +81,7 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
     void runtime.connections.add(input).then(outcome => {
       if (outcome.status === "re-pair-offered") {
         setHandedLink("link" in input ? input.link : `${input.address}/pair#${input.code}`);
-        setPairing(true);
+        setPairing({});
       }
       setLine(outcome.status === "failed" ? outcome.failure.message : outcome.status === "re-pair-offered" ? "Already paired. Confirm this link to replace the connection deliberately." : undefined);
     }, () => setLine("Pairing failed. Make a new code and try again."));
@@ -89,22 +103,22 @@ const WebConversation = ({ platform, route }: WebFrameProps) => {
   useEffect(() => { if (pane.session) history.replaceState(null, "", sessionLink(pane.session)); }, [pane.session]);
   if (checklist.shown) return <ChecklistView />;
   return <WebViewport narrow={phone.narrow} connection={selected}>
-    {phone.narrow ? <Header onPair={() => setPairing(value => !value)} /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
+    {phone.narrow ? <Header onPair={() => setPairing(held => held ? undefined : {})} /> : <header className="flex min-w-0 shrink-0 items-center gap-1 border-b border-hairline p-2">
       <label className="sr-only" htmlFor="web-session">Sessions</label>
       <select id="web-session" aria-label="Sessions" className="min-w-0 flex-1 rounded-md border border-hairline bg-panel px-2 text-ink" value={pane.session ? `${pane.session.environmentId}/${pane.session.sessionId}` : ""} onChange={event => open(event.target.value)}>
         <option value="">Open a session</option>
         {sessions.rows.map(row => <option key={`${row.environmentId}/${row.summary.id}`} value={`${row.environmentId}/${row.summary.id}`}>{row.summary.title ?? "Untitled session"}</option>)}
       </select>
       <Button title="New session" aria-label="New session" onClick={() => grid.newSession(null)}><Plus aria-hidden="true" className="size-4" /></Button>
-      <Button title="Pair with an environment" aria-label="Pair with an environment" onClick={() => setPairing(value => !value)}><Link aria-hidden="true" className="size-4" /></Button>
+      <Button title="Pair with an environment" aria-label="Pair with an environment" onClick={() => setPairing(held => held ? undefined : {})}><Link aria-hidden="true" className="size-4" /></Button>
       <Button title="Settings" aria-label="Settings" onClick={() => settings.open()}><Settings aria-hidden="true" className="size-4" /></Button>
     </header>}
     {persistence === "visit-only" && <p role="status" className="shrink-0 border-b border-hairline bg-panel px-3 py-2 text-sm">Storage is unavailable. Pair for this visit; this connection will be forgotten when you close or reload.</p>}
     {selected && <LimitedAccess view={selected} />}
-    {selected?.phase === "blocked" && <p role="status" data-connection-blocked className="shrink-0 px-3 py-2 text-sm">This connection needs pairing again. Make a new code on a trusted client, then choose Pair.</p>}
+    {selected?.phase === "blocked" && <BlockedLine view={selected} onPair={() => setPairing({ rePair: selected.environmentId })} />}
     {line && <p role="status" className="shrink-0 px-3 py-2 text-sm">{line}</p>}
     <WebRegisteredSurfaces />
-    {(paired.length === 0 || pairing) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} onPaired={() => { setPairing(false); setHandedLink(undefined); setLine(undefined); }} toBrowserOrigins={(environmentId) => settings.open("environments.machines", environmentId, "browser-origins")} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    {(paired.length === 0 || pairing !== undefined) ? <main className="min-h-0 flex-1 overflow-y-auto p-4"><h1 className="mb-3 text-lg">Pair with this environment</h1><p className="mb-4 text-sm text-ink-muted">Open a Phone link or scan its QR with your camera. You can also paste a link or enter the HTTPS address and code.</p><PairingForm link={handedLink} rePair={pairing?.rePair} onPaired={() => { setPairing(undefined); setHandedLink(undefined); setLine(undefined); }} toBrowserOrigins={(environmentId) => settings.open("environments.machines", environmentId, "browser-origins")} /></main> : <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <WindowNotices />
       <PaneGrid />
     </main>}
