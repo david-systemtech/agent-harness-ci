@@ -29,6 +29,8 @@ const start = async (source: string, options: TestEnvironmentOptions = {}) => {
   const observed = { ...adapter, observeIdentity: async () => ({ provider: "claude", email: "fixture@example.com", organisation: null }) };
   const t = await startTestEnvironment({ adapter: observed, accounts: [], stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }), ...options });
   onCleanup(() => t.close());
+  // Set up's start pass appends its results after the start returns: done before the test reads the log or a step (#1804).
+  await t.env.setup.startPass;
   return { t, client: await t.client() };
 };
 type Client = Awaited<ReturnType<typeof start>>["client"];
