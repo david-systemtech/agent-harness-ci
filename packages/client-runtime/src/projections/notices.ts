@@ -1,5 +1,6 @@
-import { EnvironmentNotice, type AutoDecider, type EventEnvelope, type WorkspaceKeptReason } from "@agent-harness/contracts";
+import { EnvironmentNotice, type EventEnvelope, type WorkspaceKeptReason } from "@agent-harness/contracts";
 import type { Notice, NoticeInput, Notices } from "../notices.js";
+import { DECIDED_BECAUSE } from "../permissions/words.js";
 import { environmentUpdateFailed } from "../updates/credential-notice.js";
 
 /**
@@ -81,16 +82,6 @@ const KEPT_BECAUSE: Readonly<Record<WorkspaceKeptReason, string>> = {
   uncommitted_changes: "it has uncommitted changes",
   git_filters_refused: "its repository configures filters the environment will not run to check it",
   git_failed: "git could not check or remove it",
-};
-
-/** Why a prompt was settled with nobody answering it, as a notice says it. */
-const AUTOMATIC: Readonly<Record<AutoDecider, string>> = {
-  ttl: "nobody answered it before its time ran out",
-  unattended: "nobody was present to answer it",
-  bypass: "the run bypasses permissions",
-  run_ended: "its run ended first",
-  reviewer: "the provider's reviewer decided it",
-  cancelled: "the provider withdrew it",
 };
 
 export interface EnvironmentNotices {
@@ -178,7 +169,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           if (typeof decidedBy === "string" || words === undefined) return;
           raise({
             kind: "prompt-resolved",
-            message: `${context.title(sessionId) ?? words.title}: ${words.summary} was ${decision === "allow" ? "allowed" : "denied"}: ${AUTOMATIC[decidedBy.auto]}.`,
+            message: `${context.title(sessionId) ?? words.title}: ${words.summary} was ${decision === "allow" ? "allowed" : "denied"}: ${DECIDED_BECAUSE[decidedBy.auto]}.`,
             action: null,
             about: taken.about,
           });

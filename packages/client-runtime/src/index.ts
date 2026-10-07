@@ -616,6 +616,7 @@ export {
   DENYLIST_SECTION_NAMES,
   DENYLIST_TEST_KIND_NAMES,
   NOTHING_TO_REVIEW,
+  DECIDED_BECAUSE,
   availabilityWords,
   reviewCountsWords,
   reviewDenialWords,

@@ -1,5 +1,7 @@
 import {
   PromptOpenedPayload,
+  type AutoDecider,
+  type DecidedBy,
   type EventEnvelope,
   type ListedPrompt,
   type Mode,
@@ -20,8 +22,9 @@ import type { ManualClock } from "./in-memory-platform.js";
  * `prompt.resolved`, a second answer refused `conflict` `already_answered`,
  * and a retry of an applied command answered from its stored receipt, as the
  * environment answers one. A test can have another client answer first,
- * heard now or later, and can hold an answer's response while it applies,
- * for the socket to drop before it arrives.
+ * heard now or later, or an automatic rule settle it, and can hold an
+ * answer's response while it applies, for the socket to drop before it
+ * arrives.
  */
 
 export interface PromptsHost {
@@ -48,6 +51,8 @@ export interface ScriptedPrompts {
    * `hear` is called, as an answer on its way.
    */
   answerElsewhere(sessionId: string, promptId: string, options?: { readonly decision?: "allow" | "deny"; readonly heard?: boolean }): { hear(): void };
+  /** An automatic rule settles the prompt (a denial, as the broker's are, unless `decision` says otherwise), with the message the model reads. */
+  settleAutomatically(sessionId: string, promptId: string, auto: AutoDecider, options?: { readonly decision?: "allow" | "deny"; readonly message?: string }): void;
   /** Every answer the environment recorded, in order. */
   answered(): readonly PromptAnsweredPayload[];
   /** While on, an answer is applied but its response is never sent, as when the socket drops first. */
@@ -106,7 +111,7 @@ export const scriptedPrompts = (host: PromptsHost): { readonly prompts: Scripted
   };
 
   /** Records the answer, and says it on the streams unless `quiet`: `prompt.answered` with the summary patch, then `prompt.resolved`. */
-  const apply = (listed: ListedPrompt, answer: Record<string, unknown>, decidedBy: string, quiet = false) => {
+  const apply = (listed: ListedPrompt, answer: Record<string, unknown>, decidedBy: DecidedBy, quiet = false) => {
     const { sessionId, promptId, prompt } = listed;
     parked.delete(keyOf(sessionId, promptId));
     done.add(keyOf(sessionId, promptId));
@@ -122,7 +127,8 @@ export const scriptedPrompts = (host: PromptsHost): { readonly prompts: Scripted
       mode: prompt.kind === "plan" && decision === "allow" ? { requested: mode, effective: mode ?? "acceptEdits", ceiling: prompt.ceiling, clamped: false, clampReason: null } : null,
       remember: answer["remember"] === "session" ? "session" : null,
       decidedBy,
-      delivery: "live",
+      // No run waits for a prompt its run's end or the provider settled.
+      delivery: typeof decidedBy !== "string" && (decidedBy.auto === "run_ended" || decidedBy.auto === "cancelled") ? null : "live",
     };
     answered.push(payload);
     const say = () => {
@@ -169,6 +175,11 @@ export const scriptedPrompts = (host: PromptsHost): { readonly prompts: Scripted
       const heard = options.heard ?? true;
       const { say } = apply(listed, { decision: options.decision ?? "allow" }, OTHER_CLIENT, !heard);
       return { hear: heard ? () => undefined : say };
+    },
+    settleAutomatically(sessionId, promptId, auto, options = {}) {
+      const listed = parked.get(keyOf(sessionId, promptId));
+      if (!listed) throw new Error(`No prompt ${promptId} is parked on ${sessionId}.`);
+      apply(listed, { decision: options.decision ?? "deny", message: options.message }, { auto });
     },
     answered: () => answered,
     holdAnswers(on) {
