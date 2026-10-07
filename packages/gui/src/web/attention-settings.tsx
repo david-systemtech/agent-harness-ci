@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { EndpointName, type AttentionTargetStatus } from "@agent-harness/contracts";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import { Bell, RefreshCw, X } from "lucide-react";
 import { Button } from "../ui/button.js";
@@ -88,6 +88,8 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
   const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "attention.targets.list", {}), [runtime, environmentId]));
   const [busy, setBusy] = useState(false);
   const [line, setLine] = useState<string>();
+  /** Endpoints this sheet made whose route never followed and that it could not withdraw: a retry under the same name takes them over. */
+  const strays = useRef(new Set<string>());
   const admin = runtime.capability(environmentId, "attention.routes.set").status === "present";
   const refresh = () => runtime.requests.refresh(environmentId, "attention.targets.list", {});
   useEffect(() => {
@@ -114,20 +116,31 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
       const [endpoints, current] = await Promise.all([runtime.requests.call(environmentId, "routines.endpoints.list", {}), runtime.requests.call(environmentId, "attention.targets.list", {})]);
       if (!endpoints.ok || !current.ok) throw new Error("Status unavailable.");
       const route = current.result.targets.find(target => target.global && target.webhookEndpoint === name);
-      if (!route && endpoints.result.endpoints.some(endpoint => endpoint.name === name)) { setLine(`An endpoint named ${name} already exists on this environment. Choose another name.`); return false; }
+      if (!route && !strays.current.has(name) && endpoints.result.endpoints.some(endpoint => endpoint.name === name)) { setLine(`An endpoint named ${name} already exists on this environment. Choose another name.`); return false; }
       if (!route && current.result.targets.some(target => target.id === name)) { setLine(`A delivery target named ${name} already exists. Choose another name.`); return false; }
       const endpoint = await runtime.requests.call(environmentId, "routines.endpoints.set", { commandId: crypto.randomUUID(), name, url, secret: { kind: "pasted", secret } });
       const refused = !endpoint.ok ? endpoint.error.message : endpoint.result.receipt.status === "rejected" ? endpoint.result.receipt.error.message : null;
       if (refused !== null) { setLine(`Webhook route not saved: ${refused}`); return false; }
       const target = { id: route?.id ?? name, ...(route?.label === undefined ? {} : { label: route.label }), transport: "webhook" as const, enabled: true, completion: route?.completion ?? false, configuration: { endpoint: name } };
-      const set = await runtime.requests.call(environmentId, "attention.routes.set", { commandId: crypto.randomUUID(), target });
-      const refusedRoute = !set.ok ? set.error.message : set.result.receipt.status === "rejected" ? set.result.receipt.error.message : null;
-      if (refusedRoute !== null) { setLine(`Webhook route not saved: ${refusedRoute}`); return false; }
+      const set = await runtime.requests.call(environmentId, "attention.routes.set", { commandId: crypto.randomUUID(), target }).catch(() => null);
+      const refusedRoute = !set ? "Check your connection and admin grant." : !set.ok ? set.error.message : set.result.receipt.status === "rejected" ? set.result.receipt.error.message : null;
+      if (refusedRoute !== null) {
+        // An endpoint this call made is withdrawn rather than left in the vault with no route naming it.
+        if (!route) await withdraw(name);
+        setLine(`Webhook route not saved: ${refusedRoute}`);
+        return false;
+      }
+      strays.current.delete(name);
       setLine(`Webhook route ${name} saved. Test it to check that its receiver takes the signed post.`);
       refresh();
       return true;
     } catch { setLine("Could not save the webhook route. Check your connection and admin grant."); return false; }
     finally { setBusy(false); }
+  };
+  const withdraw = async (name: string) => {
+    const removed = await runtime.requests.call(environmentId, "routines.endpoints.remove", { commandId: crypto.randomUUID(), name }).catch(() => null);
+    if (removed?.ok && removed.result.receipt.status === "accepted") strays.current.delete(name);
+    else strays.current.add(name);
   };
   const test = async (endpoint: string) => {
     setBusy(true); setLine(`Posting a signed test to ${endpoint}…`);

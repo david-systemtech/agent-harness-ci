@@ -112,7 +112,8 @@ it("names two push registrations of the same client kind by their readable label
   expect(screen.getByRole("button", { name: "Enable Web Push registration" })).toBeDefined();
 });
 
-it("an admin client makes the named endpoint and its global route from Attention settings, then tests it, without replacing another endpoint", async () => {
+/** The web client paired with `desk` under an admin grant, its Attention sheet open; the environment holds a routine's endpoint, `routine-hook`. */
+const openAdminSheet = async () => {
   const { createRuntime } = await import("@agent-harness/client-runtime");
   const { manualClock } = await import("@agent-harness/client-runtime/testing");
   const { scriptedWorld } = await import("@agent-harness/client-runtime/testing/scripted-environment");
@@ -125,10 +126,11 @@ it("an admin client makes the named endpoint and its global route from Attention
   const world = scriptedWorld(clock, { environments: [{ name: "desk", reach: "unpaired", scopes: ["read", "admin"], sessions: [] }] });
   const desk = world.environment("desk");
   const routes: AttentionTargetStatus[] = [];
-  const accepted = (result: Record<string, unknown>) => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result } });
+  const endpoints = new Set(["routine-hook"]);
   desk.wire.answer("attention.targets.list", () => ({ result: { targets: [...routes] } }));
-  desk.wire.answer("routines.endpoints.list", () => ({ result: { endpoints: [{ name: "routine-hook", url: "https://receiver.example/routines", secretKind: "pasted", lastResult: null }] } }));
-  desk.wire.answer("routines.endpoints.set", params => accepted({ endpoint: { name: params["name"], url: params["url"], secretKind: "pasted", lastResult: null } }));
+  desk.wire.answer("routines.endpoints.list", () => ({ result: { endpoints: [...endpoints].map(name => ({ name, url: "https://receiver.example/routines", secretKind: "pasted", lastResult: null })) } }));
+  desk.wire.answer("routines.endpoints.set", params => { endpoints.add(String(params["name"])); return accepted({ endpoint: { name: params["name"], url: params["url"], secretKind: "pasted", lastResult: null } }); });
+  desk.wire.answer("routines.endpoints.remove", params => { endpoints.delete(String(params["name"])); return accepted({ name: params["name"] }); });
   desk.wire.answer("attention.routes.set", params => {
     const target = params["target"] as { id: string; enabled: boolean; completion: boolean; configuration: { endpoint: string } };
     routes.push({ id: target.id, transport: "webhook", webhookEndpoint: target.configuration.endpoint, enabled: target.enabled, completion: target.completion, global: true, state: "ready", failure: null });
@@ -147,13 +149,19 @@ it("an admin client makes the named endpoint and its global route from Attention
   await user.click(await screen.findByRole("button", { name: "Settings" }));
   await user.click(await screen.findByRole("button", { name: "Attention settings" }));
   await screen.findByRole("form", { name: "Add a webhook route" });
-  expect(document.body.textContent).not.toMatch(/ask an environment admin/i);
   const fill = async (name: string) => {
     await user.clear(screen.getByLabelText("Name")); await user.type(screen.getByLabelText("Name"), name);
     await user.clear(screen.getByLabelText("Receiver URL")); await user.type(screen.getByLabelText("Receiver URL"), "https://receiver.example/attention");
     await user.clear(screen.getByLabelText("Signing secret")); await user.type(screen.getByLabelText("Signing secret"), "token-for-tests");
     await user.click(screen.getByRole("button", { name: "Add route" }));
   };
+  return { desk, endpoints, user, fill };
+};
+const accepted = (result: Record<string, unknown>) => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result } });
+
+it("an admin client makes the named endpoint and its global route from Attention settings, then tests it, without replacing another endpoint", async () => {
+  const { desk, user, fill } = await openAdminSheet();
+  expect(document.body.textContent).not.toMatch(/ask an environment admin/i);
   await fill("routine-hook");
   expect(await screen.findByText(/An endpoint named routine-hook already exists/)).toBeDefined();
   expect(desk.requests("routines.endpoints.set")).toEqual([]);
@@ -165,4 +173,23 @@ it("an admin client makes the named endpoint and its global route from Attention
   await user.click(screen.getByRole("button", { name: "Test phone-attention" }));
   expect(await screen.findByText("phone-attention answered 204 in 120 ms.")).toBeDefined();
   expect(desk.requests("routines.endpoints.test").map(request => request.params)).toEqual([{ name: "phone-attention" }]);
+});
+
+it("withdraws the endpoint it just made when the route is refused, and lets a retry under the same name finish when that withdrawal failed too", async () => {
+  const { desk, endpoints, fill } = await openAdminSheet();
+  const forbidden = { result: { receipt: { status: "rejected", sequence: 2, changed: false, reason: "forbidden", error: { code: "forbidden", message: "This target belongs to another registration.", data: {} } } } };
+  desk.wire.answer("attention.routes.set", () => forbidden);
+  await fill("phone-attention");
+  expect(await screen.findByText(/Webhook route not saved: This target belongs/)).toBeDefined();
+  expect(desk.requests("routines.endpoints.remove").map(request => request.params)).toEqual([expect.objectContaining({ name: "phone-attention" })]);
+  expect(endpoints.has("phone-attention")).toBe(false);
+  // The route fails again and so does the clean-up: the endpoint is left behind, but it is this sheet's own.
+  desk.wire.answer("routines.endpoints.remove", () => ({ error: { code: "unavailable", message: "The environment is busy.", data: {} } }));
+  await fill("phone-attention");
+  expect(await screen.findByText(/Webhook route not saved/)).toBeDefined();
+  expect(endpoints.has("phone-attention")).toBe(true);
+  desk.wire.answer("attention.routes.set", params => accepted({ id: (params["target"] as { id: string }).id }));
+  await fill("phone-attention");
+  expect(await screen.findByText(/Webhook route phone-attention saved/)).toBeDefined();
+  expect(desk.requests("routines.endpoints.set")).toHaveLength(3);
 });
