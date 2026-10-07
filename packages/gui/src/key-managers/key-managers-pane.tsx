@@ -6,7 +6,7 @@ import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
-import { reachWords } from "../settings/generic-editor.js";
+import { afterReach, reachWords } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AddConnection } from "./add-connection.js";
@@ -60,7 +60,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
       {hint}
       {!ready && (
         <p className="text-sm text-amber">
-          {reachWords(runtime, view)}: {connections === null ? "this window has read none of its key managers." : "its key managers as this window last read them, read-only."}
+          {afterReach(reachWords(runtime, view), connections === null ? "this window has read none of its key managers." : "its key managers as this window last read them, read-only.")}
         </p>
       )}
       {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p className="text-sm text-amber">Read-only: {admin.message}</p></AccessUnavailable>}

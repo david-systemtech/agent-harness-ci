@@ -11,7 +11,7 @@ import { SuggestedInstructions } from "./suggested-instructions.js";
 import { SetupOrientation } from "./setup-orientation.js";
 import { SetupSeed } from "./setup-seed.js";
 import { Orientation } from "./orientation.js";
-import { reachWords } from "../settings/generic-editor.js";
+import { afterReach, reachWords } from "../settings/generic-editor.js";
 import { StepLinks } from "../settings/step-links.js";
 
 /** The user layer on the picked environment, read from the runtime's live request cache. */
@@ -32,7 +32,7 @@ export const InstructionsContent = ({ view, setup = false }: { readonly view: En
       {setup && <SetupSeed view={view} listed={listed} />}
       {view.phase !== "ready" && (
         <p className="text-sm text-amber">
-          {result === null ? "No cached instructions." : "Cached instructions, stale."} {reachWords(runtime, view)}: read-only.
+          {result === null ? "No cached instructions." : "Cached instructions, stale."} {afterReach(reachWords(runtime, view), "read-only.")}
         </p>
       )}
       {listed.error !== null && result !== null && <p className="text-sm text-amber">Cached instructions, stale. {listed.error.message}</p>}

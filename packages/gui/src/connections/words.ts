@@ -1,4 +1,4 @@
-import { credentialPromptWords, pendingUpdateWords, clockTime, type EnvironmentView } from "@agent-harness/client-runtime";
+import { blockWords, credentialPromptWords, pendingUpdateWords, clockTime, type EnvironmentView } from "@agent-harness/client-runtime";
 
 /**
  * What the window says of a connection (docs/specs/gui.md, "The local
@@ -15,30 +15,6 @@ export const nameOf = (view: EnvironmentView): string => view.name ?? "this mach
 
 /** The environment as a sentence begins with it. */
 const subjectOf = (view: EnvironmentView): string => view.name ?? "The environment on this machine";
-
-/** A block, with what to do about it, in one line. */
-export const blockLine = (view: EnvironmentView): string => {
-  const name = nameOf(view);
-  const again = view.kind === "local" ? "try again" : "pair it again";
-  switch (view.blocked) {
-    case "unsupported-client":
-      return `${subjectOf(view)} is newer than this client: update this client.`;
-    case "protocol-mismatch":
-      return view.action === "update-environment"
-        ? `${subjectOf(view)} is older than this client: update ${name} to this client's version.`
-        : `${subjectOf(view)} is older than this client, and cannot update itself from here.`;
-    case "revoked":
-      return `This client's access to ${name} was revoked: ${again}.`;
-    case "expired":
-      return `This client's access to ${name} expired: ${again}.`;
-    case "credential-unavailable":
-      return `Stored credentials for ${name} could not be read: ${again}.`;
-    case "different-environment":
-      return `The address kept for ${name} now reaches another environment.`;
-    default:
-      return `${subjectOf(view)} is blocked.`;
-  }
-};
 
 /** Since when an environment has not been reached, at this client's hour and minute. */
 const unreachableWords = (since: string): string => `Unreachable since ${clockTime(since)}`;
@@ -72,7 +48,7 @@ export const phaseWords = (view: EnvironmentView, starting: boolean, installing:
     case "disabled":
       return "Disabled";
     case "blocked":
-      return blockLine(view);
+      return blockWords(view);
   }
 };
 
@@ -110,7 +86,7 @@ export const phaseSentence = (view: EnvironmentView, starting: boolean, installi
     case "disabled":
       return `${subject} is disabled on this client.`;
     case "blocked":
-      return blockLine(view);
+      return blockWords(view);
   }
 };
 
