@@ -39,6 +39,11 @@
     },
     {
       "type": "string",
+      "const": "environment.channel-checked",
+      "description": "A check of the release channel changed the newest or the last check updates.status shows; a client reads it again."
+    },
+    {
+      "type": "string",
       "const": "environment.renamed",
       "description": "The environment was renamed; a client redraws its badge."
     },

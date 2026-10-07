@@ -214,6 +214,13 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ updateId, toVersion: "0.5.0", cause: "settings" }, { updateId, toVersion: "0.5.0", cause: "superseded" }],
     invalid: [{ updateId, toVersion: "0.5.0" }, { updateId, cause: "requested" }],
   },
+  "updates/events/environment.channel-checked.json": {
+    valid: [
+      { newest: "0.5.0", lastCheck: { at, result: "ok" } },
+      { newest: null, lastCheck: { at, result: "failed", reason: "unreachable", message: "The forge did not answer." } },
+    ],
+    invalid: [{ newest: "0.5.0" }, { newest: "v0.5.0", lastCheck: { at, result: "ok" } }, { newest: null, lastCheck: { at, result: "failed" } }],
+  },
   "updates/settings-patch.json": {
     valid: [{}, { "updates.channel": "beta" }, { "updates.pinnedVersion": null, "updates.idleWindowMinutes": 25 }],
     invalid: [{ "updates.deferralCapHours": 0 }, { "updates.pinnedVersion": "v1.0.0" }, { "permissions.defaultCeiling": "plan" }],

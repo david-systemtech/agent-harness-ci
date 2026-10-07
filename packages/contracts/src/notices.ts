@@ -64,7 +64,7 @@ import { StepResult } from "./setup.js";
 import { SkillsUpdatedPayload } from "./skills.js";
 import { TrustUpdatedPayload } from "./trust.js";
 import { InstructionsUpdatedPayload } from "./instructions.js";
-import { EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
+import { ChannelCheckedPayload, EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
 import { WorkspaceKeptPayload } from "./workspaces.js";
 
@@ -96,6 +96,9 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.update-started",
   "environment.update-failed",
   "environment.update-cancelled",
+  // A check of the release channel changed what updates.status shows of it (#1795): a client reads it again, and a
+  // desktop checks its own build.
+  "environment.channel-checked",
   // The environment's name, icon and colour (#323): a client redraws its badge.
   "environment.renamed",
   "environment.icon-set",
@@ -212,6 +215,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "environment.update-started": "An update began its drain.",
   "environment.update-failed": "An update did not take, and the version it went from runs.",
   "environment.update-cancelled": "A pending update was withdrawn.",
+  "environment.channel-checked": "A check of the release channel changed the newest or the last check updates.status shows; a client reads it again.",
   "environment.renamed": "The environment was renamed; a client redraws its badge.",
   "environment.icon-set": "The environment took another icon; a client redraws its badge.",
   "environment.colour-set": "The environment took another colour; a client redraws its badge.",
@@ -330,6 +334,10 @@ const EnvironmentUpdateFailed = z
 const EnvironmentUpdateCancelled = z
   .object({ type: z.literal("environment.update-cancelled"), payload: UpdateCancelledPayload })
   .meta({ description: "A pending update was withdrawn before its drain." });
+
+const EnvironmentChannelChecked = z
+  .object({ type: z.literal("environment.channel-checked"), payload: ChannelCheckedPayload })
+  .meta({ description: "A check of the release channel changed what updates.status shows of it: the newest found, or the last check's result or reason." });
 
 const EnvironmentRenamed = z
   .object({ type: z.literal("environment.renamed"), payload: EnvironmentRenamedPayload })
@@ -577,6 +585,7 @@ export const EnvironmentNotice = z
     EnvironmentUpdateStarted,
     EnvironmentUpdateFailed,
     EnvironmentUpdateCancelled,
+    EnvironmentChannelChecked,
     EnvironmentRenamed,
     EnvironmentIconSet,
     EnvironmentColourSet,

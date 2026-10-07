@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChannelCheckedPayload",
+  "type": "object",
+  "properties": {
+    "newest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+          "description": "A release's version: a semantic version without the tag's v (0.4.2, 1.0.0-beta.2); one with a prerelease part is a prerelease, which only the beta channel follows."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The channel's newest release as updates.status now shows it; null before a check read the channel."
+    },
+    "lastCheck": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            "result": {
+              "type": "string",
+              "const": "ok"
+            }
+          },
+          "required": [
+            "at",
+            "result"
+          ],
+          "description": "The check read the channel, and staged its target if it had one."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            "result": {
+              "type": "string",
+              "const": "failed"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "no_release_access",
+                "unreachable",
+                "manifest",
+                "artefact",
+                "install"
+              ],
+              "description": "Why a check failed: no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed), manifest (the release's manifest is missing or not its schema), artefact (this platform's artefact did not download, or does not match its size and SHA-256) or install (the launcher refused to install it). A failed check is tried again at the next."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "description": "What failed, for people."
+            }
+          },
+          "required": [
+            "at",
+            "result",
+            "reason",
+            "message"
+          ],
+          "description": "The check failed: why, and what failed."
+        }
+      ],
+      "description": "The last check of the channel: when it ran, and whether it read the channel and staged its target or failed, with why."
+    }
+  },
+  "required": [
+    "newest",
+    "lastCheck"
+  ],
+  "description": "A check of the release channel changed what updates.status shows of it: the newest now shown, and the last check."
+}
