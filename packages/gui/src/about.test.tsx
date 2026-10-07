@@ -245,6 +245,19 @@ describe("Restart to update", () => {
     await waitFor(() => expect(shell.calls.filter(([member]) => member === "update.apply")).toHaveLength(3));
   });
 
+  it("shows a failed stage on About with its reason and checks again from there at once, offering the build it then stages", async () => {
+    const message = "The artefact did not download.";
+    const app = await opened({ updates: { status: { newest: "0.6.0" }, desktopBuild: { refused: "conflict", message, data: { reason: "download" } } } });
+    const about = within(await openAbout(app));
+    expect(await about.findByText(`The local environment could not stage the desktop's 0.6.0 build: ${message}`)).toBeDefined();
+
+    app.environment("desk").setUpdates({ desktopBuild: STAGED });
+    await app.user.click(about.getByRole("button", { name: "Check again" }));
+    expect(await about.findByText("0.6.0 is ready: it installs when this client next quits, or now with Restart to update.")).toBeDefined();
+    expect(about.queryByRole("button", { name: "Check again" })).toBeNull();
+    expect(about.getByRole("button", { name: "Restart to update" })).toBeDefined();
+  });
+
   it("shows nothing while no newer build is staged", async () => {
     const app = await opened({ updates: { status: { lastCheck: { at: "2026-10-03T21:21:26.000Z", result: "ok" } } } });
     const about = await openAbout(app);
