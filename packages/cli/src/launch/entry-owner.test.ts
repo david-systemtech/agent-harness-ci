@@ -66,11 +66,11 @@ describe("the launcher's watch on the process that started its entry", () => {
     expect(run.lines.at(-1)).toBe("conhost (pid 4242), which started the launcher entry, has ended, so the launcher stops");
   });
 
-  it("settles at once when the process that started the entry is gone already", async () => {
-    const fake = standIn(`console.log("gone the process that started the launcher entry (pid 4242) has ended");`);
+  it("settles at once when the process that started the entry is gone already, saying so in the words of a watched end", async () => {
+    const fake = standIn(`console.log("gone the process (pid 4242), which started the launcher entry, has ended");`);
     const run = watching(fake.start);
     await run.watch.ended;
-    expect(run.lines).toEqual(["the process that started the launcher entry (pid 4242) has ended, so the launcher stops"]);
+    expect(run.lines).toEqual(["the process (pid 4242), which started the launcher entry, has ended, so the launcher stops"]);
   });
 
   it("says it cannot watch, and never settles, when the watch fails", async () => {
@@ -181,7 +181,7 @@ function Get-CimInstance {
     const owner = sleeper();
     const run = runWatch(sleeper(), owner, -1);
     expect(await run.exited).toBe(0);
-    expect(run.lines).toEqual([`gone the process that started the launcher entry (pid ${owner.pid}) has ended`]);
+    expect(run.lines).toEqual([`gone the process (pid ${owner.pid}), which started the launcher entry, has ended`]);
   }, 60_000);
 
   it("exits without a word once the launcher has, the process it watched still running", async () => {

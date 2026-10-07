@@ -10,7 +10,9 @@ import { createInterface } from "node:readline";
  * started its entry, and when that one ends stops at once, ending its child's
  * process tree without a drain, as End means; its exit with 0 ends the entry
  * too. A launcher whose entry has lost that process already, as an
- * entry left running by an End before this watch did, stops at once.
+ * entry left running by an End before this watch did, stops at once,
+ * saying so in the words of a watched end, so the service log reads the same
+ * however soon the End came.
  *
  * Node cannot wait on a process it did not start, and a pid polled for can
  * be reused, so Windows PowerShell (part of Windows) waits on a handle it
@@ -33,7 +35,7 @@ $owner = $null
 try { $owner = Get-Process -Id $entry.ParentProcessId } catch { }
 if ($null -ne $owner) { $null = $owner.SafeHandle }
 if ($null -eq $owner -or $owner.StartTime -gt $entry.CreationDate) {
-  [Console]::Out.WriteLine('gone the process that started the launcher entry (pid ' + $entry.ParentProcessId + ') has ended')
+  [Console]::Out.WriteLine('gone the process (pid ' + $entry.ParentProcessId + '), which started the launcher entry, has ended')
   exit 0
 }
 [Console]::Out.WriteLine('watching ' + $owner.Id + ' ' + $owner.ProcessName)
