@@ -250,6 +250,10 @@ it.skipIf(process.platform !== "linux")("a phase that writes nothing for its sta
   await vi.advanceTimersByTimeAsync(999);
   expect(runningProcess(pid)).toBe(true);
   await vi.advanceTimersByTimeAsync(1);
+  // The stall's SIGTERM alone ends the command, before the held SIGKILL escalation is released.
+  const waitUntil = Date.now() + 30_000;
+  while (runningProcess(pid) && Date.now() < waitUntil) await new Promise(resolve => setImmediate(resolve));
+  expect(runningProcess(pid)).toBe(false);
   await vi.advanceTimersByTimeAsync(5_000);
   await stalled;
   expect(signal.aborted).toBe(false);

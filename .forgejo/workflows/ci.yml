@@ -39,8 +39,9 @@ concurrency:
 jobs:
   ci:
     runs-on: relay
-    # GitHub's job has 25 minutes; this leaves room for its queue and the push.
-    timeout-minutes: 40
+    # GitHub's test shards have 40 minutes, for the web smoke's wait on a slow Ubuntu
+    # mirror (#1802); this leaves room for their queue and the push.
+    timeout-minutes: 55
     steps:
       # The whole history, so the push to GitHub can send just what it lacks.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
