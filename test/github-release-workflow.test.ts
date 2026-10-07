@@ -75,9 +75,10 @@ describe("the public GitHub release workflow", () => {
     expect(steps.indexOf(native)).toBeLessThan(steps.indexOf("Replace the packaged desktop with an existing client credential"));
   });
 
-  it("runs only for public v tags or manual dry runs", () => {
-    expect(lines.slice(lines.indexOf("on:") + 1, lines.indexOf("permissions:"))).toEqual([
-      "  push:", '    tags: ["v*"]', "  workflow_dispatch:", "",
+  it("runs only for public v tags, manual dry runs or a main merge's smoke, which names its commit", () => {
+    expect(lines.slice(lines.indexOf("on:") + 1, lines.indexOf("permissions:")).filter((line) => !line.trimStart().startsWith("#"))).toEqual([
+      "  push:", '    tags: ["v*"]', "  workflow_dispatch:", "  workflow_call:", "    inputs:", "      sha:",
+      "        description: The commit to build and smoke, without publishing", "        required: true", "        type: string", "",
     ]);
     expect(workflow).not.toMatch(/secrets\.|PACKAGES_TOKEN|desktop-builds\.sh/);
     expect(lines).toContain("    shell: bash");
@@ -302,6 +303,26 @@ esac
       expect(waitsFor(name).has("suite"), name).toBe(true);
     }
     expect(needs("release")).toEqual(expect.arrayContaining(["verify", "suite", "image-push"]));
+  });
+
+  it("builds and smokes the called commit without publishing when a main merge's smoke calls it (#1769)", () => {
+    // Every job checks out the called commit; a tag's run leaves the input empty, so its own ref.
+    const checkouts = lines.flatMap((line, i) => line.includes("- uses: actions/checkout@") ? [lines.slice(i, i + 3).join("\n")] : []);
+    expect(checkouts.length).toBeGreaterThan(0);
+    for (const checkout of checkouts) expect(checkout).toMatch(/\n {8}with:\n {10}ref: \$\{\{ inputs\.sha \}\}$/);
+    expect(step("prepare", "Prepare the tag or dry run")).toContain("RELEASE_SMOKE_SHA: ${{ inputs.sha }}");
+    // The merge's own CI ran typecheck, lint and the suite; without them nothing publishes.
+    for (const name of ["verify", "suite"]) expect(job(name), name).toContain("    if: ${{ !inputs.sha }}");
+    for (const name of ["image-push", "release"]) {
+      expect(waitsFor(name).has("verify"), name).toBe(true);
+      expect(job(name).some((line) => line.startsWith("    if:")), name).toBe(false);
+    }
+    for (const name of ["prepare", "image", "desktop-macos", "desktop-windows", "desktop-arch", "smoke-windows", "smoke-macos", "smoke-linux"]) {
+      expect(job(name).some((line) => line.startsWith("    if:")), name).toBe(false);
+    }
+    // Each merge's smoke is its own group; a tag's run keeps its ref's.
+    expect(lines.slice(lines.indexOf("concurrency:"), lines.indexOf("concurrency:") + 2)).toEqual(["concurrency:", "  group: release-${{ inputs.sha || github.ref }}"]);
+    expect(step("image", "Build the image locally")).toContain("org.opencontainers.image.revision=${{ inputs.sha || github.sha }}");
   });
 
   it("pushes the very image the image job checked, handed on as an artifact", () => {
