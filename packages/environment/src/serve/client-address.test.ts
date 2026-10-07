@@ -45,6 +45,12 @@ describe("the client address behind the HTTPS origin", () => {
     }
   });
 
+  it("takes no Tailscale login behind a proxy a setting names, which leaves a login header a client sent as it was", () => {
+    const login = { "tailscale-user-login": "owner@example.test" };
+    expect(forwardedClientAddress(WEB_ORIGIN, "X-Real-IP")(proxied({ "x-real-ip": "100.64.0.8", ...login }))).toEqual({ address: "100.64.0.8" });
+    expect(forwardedClientAddress(WEB_ORIGIN, "X-Forwarded-For")(proxied({ "x-forwarded-for": "100.64.0.8", ...login }))).toEqual({ address: "100.64.0.8" });
+  });
+
   it("reads the header a setting names in place of X-Forwarded-For", () => {
     const named = forwardedClientAddress(WEB_ORIGIN, "X-Real-IP");
     expect(named(proxied({ "x-real-ip": "100.64.0.8", "x-forwarded-for": "100.64.0.7" }))).toEqual({ address: "100.64.0.8" });

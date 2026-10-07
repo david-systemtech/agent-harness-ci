@@ -15,7 +15,7 @@ export type ClientAddressOf = (request: IncomingMessage) => ClientAddress;
 /** The header Tailscale Serve, like most proxies, writes the client's address in. */
 export const DEFAULT_CLIENT_ADDRESS_HEADER = "x-forwarded-for";
 
-/** The header Tailscale Serve names the tailnet user in; it drops one a client sends. */
+/** The header Tailscale Serve names the tailnet user in; it drops one a client sends, which another proxy need not. */
 const LOGIN_HEADER = "tailscale-user-login";
 
 /** The TCP peer: all the environment knows of a client without a proxy in front of it. */
@@ -34,18 +34,21 @@ const lastEntry = (value: string | readonly string[] | undefined): string | unde
  * taken only from a loopback peer whose Host is the web origin's, as the proxy
  * sends; a tailnet or LAN peer reaches the listener directly and could write
  * any header. Anything else, or a header that holds no address, is the peer.
+ * The login is read only when no `header` is named, the Serve setup: a proxy
+ * named by its header is not Serve, and passes a client's own login header on.
  */
-export const forwardedClientAddress = (webOrigin: string | undefined, header: string = DEFAULT_CLIENT_ADDRESS_HEADER): ClientAddressOf => {
+export const forwardedClientAddress = (webOrigin: string | undefined, header?: string): ClientAddressOf => {
   if (webOrigin === undefined) return peerAddress;
   const webHost = new URL(webOrigin).hostname;
-  const name = header.toLowerCase();
+  const name = (header ?? DEFAULT_CLIENT_ADDRESS_HEADER).toLowerCase();
+  const behindServe = header === undefined;
   return (request) => {
     const peer = peerAddress(request);
     const host = request.headers.host;
     if (!isLoopbackAddress(peer.address) || host === undefined || hostOf(host) !== webHost) return peer;
     const forwarded = lastEntry(request.headers[name]);
     if (forwarded === undefined || isIP(forwarded) === 0) return peer;
-    const login = request.headers[LOGIN_HEADER];
+    const login = behindServe ? request.headers[LOGIN_HEADER] : undefined;
     return { address: forwarded, ...(typeof login === "string" && login.trim() !== "" && { login: login.trim() }) };
   };
 };

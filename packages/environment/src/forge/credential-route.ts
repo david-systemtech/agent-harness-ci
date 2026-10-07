@@ -10,6 +10,7 @@ import {
 } from "@agent-harness/contracts";
 import { isLoopbackAddress } from "../auth/bootstrap.js";
 import { EXCHANGE_RATE, createRateLimiter } from "../auth/rate-limit.js";
+import type { ClientAddressOf } from "../serve/client-address.js";
 import type { Clock } from "../serve/clock.js";
 import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { BankCredentials } from "../banks/credentials.js";
@@ -48,6 +49,8 @@ export type CredentialRouteForge = Pick<ForgeService, "secrets" | "list" | "reso
 export interface CredentialRouteOptions {
   readonly forge: CredentialRouteForge;
   readonly clock: Clock;
+  /** Where a request came from: one the web origin's proxy forwarded from the tailnet is not loopback (#1809). */
+  readonly clientAddress: ClientAddressOf;
   readonly banks?: Pick<BankCredentials, "find" | "resolveCredential">;
 }
 
@@ -62,7 +65,7 @@ const bearer = (header: string | undefined): string | null => {
   return match?.[1] ?? null;
 };
 
-export const createCredentialRoute = ({ forge, clock, banks }: CredentialRouteOptions): RouteHandler => {
+export const createCredentialRoute = ({ forge, clock, clientAddress, banks }: CredentialRouteOptions): RouteHandler => {
   const bySecret = createRateLimiter({ clock, ...CREDENTIAL_ROUTE_RATE });
   const unmatched = createRateLimiter({ clock, ...EXCHANGE_RATE });
 
@@ -71,7 +74,7 @@ export const createCredentialRoute = ({ forge, clock, banks }: CredentialRouteOp
     forge.list().find((account) => forgeAccountIds.includes(account.id) && servedOrigins(account).includes(origin)) ?? null;
 
   return async (request, response) => {
-    if (!isLoopbackAddress(request.socket.remoteAddress)) return answer(response, 403, unauthorized("The credential route answers over loopback only."));
+    if (!isLoopbackAddress(clientAddress(request).address)) return answer(response, 403, unauthorized("The credential route answers over loopback only."));
 
     const given = bearer(request.headers.authorization);
     const bankGrant = given === null ? null : banks?.find(given) ?? null;

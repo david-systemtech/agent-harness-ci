@@ -1,5 +1,5 @@
 import { request as httpRequest } from "node:http";
-import { BOOTSTRAP_PATH, PAIR_PATH, PROTOCOL_VERSION, WIRE_PATH, type EventEnvelope } from "@agent-harness/contracts";
+import { BOOTSTRAP_PATH, GIT_CREDENTIAL_PATH, PAIR_PATH, PROTOCOL_VERSION, WIRE_PATH, type EventEnvelope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { useCleanups } from "../../test/cleanups.js";
@@ -84,5 +84,12 @@ describe("a client behind the HTTPS proxy", () => {
     const body = { secret: t.grant().secret, kind: "tui", label: "proxied" };
     expect(await post(t, BOOTSTRAP_PATH, { host: WEB_HOST, "x-forwarded-for": "100.64.0.7" }, body)).toBe(403);
     expect(await post(t, BOOTSTRAP_PATH, { host: WEB_HOST }, body)).toBe(200);
+  });
+
+  it("is refused the git credential route, which answers loopback clients only", async () => {
+    const t = await start();
+    const body = { protocol: "https", host: "forge.example.test" };
+    expect(await post(t, GIT_CREDENTIAL_PATH, { host: WEB_HOST, "x-forwarded-for": "100.64.0.7" }, body)).toBe(403);
+    expect(await post(t, GIT_CREDENTIAL_PATH, { host: WEB_HOST }, body)).not.toBe(403);
   });
 });

@@ -362,7 +362,7 @@ export interface EnvironmentOptions {
   readonly tailnetName?: string;
   /** Canonical HTTPS origin for web links, configured independently of the TLS proxy. */
   readonly webOrigin?: string;
-  /** The header the proxy in front of `webOrigin` writes the client's address in (#1809). Preset: `X-Forwarded-For`. */
+  /** The header the proxy in front of `webOrigin` writes the client's address in (#1809). Preset: Tailscale Serve's `X-Forwarded-For`, with its `Tailscale-User-Login`; a named header reads no login. */
   readonly clientAddressHeader?: string;
   /** Override the packaged public bundle directory, for hosted verification. */
   readonly webClientDirectory?: string;
@@ -2032,7 +2032,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), clientAddress, readiness: () => readiness }),
   );
   // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
-  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock, banks: bankCredentials }));
+  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock, clientAddress, banks: bankCredentials }));
   // The update route (#353): updates.apply over HTTP for a client whose protocol the wire refuses; a client session's token, no exchange.
   surface.route("POST", UPDATE_PATH, createUpdateRoute({ log, clientSessions, methods: table, readiness: () => readiness }));
   // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
