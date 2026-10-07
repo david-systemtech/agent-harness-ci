@@ -61,9 +61,10 @@ export { STOP_WAIT_MS } from "./stop-first.js";
  *   requests (`requests.call`), never queued.
  * - An accepted receipt removes the entry, and its overlay stays until the
  *   list's cursor reaches the receipt's sequence (or an event carrying its
- *   command id applies first) and, for a session the runtime holds a stream
- *   of, that stream's cursor reaches it too: the session's projection reads
- *   its own stream, which can apply the event after the list (#1767). A
+ *   command id applies first) and, for a change to a session's fields while
+ *   the runtime holds that session's stream live, that stream's cursor
+ *   reaches it too: the session's projection reads its own stream, which can
+ *   apply the event after the list (#1767). A
  *   rejection removes the entry and its
  *   overlay and raises one notice. An error answer (no receipt) does the
  *   same, but `unavailable` on a `sessions:write` command, which is sent
@@ -294,7 +295,7 @@ export interface OutboxHost {
   readonly report: (error: unknown) => void;
   /** Each environment's session list as the environment confirmed it: its cursor retires an accepted command's overlay. */
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
-  /** The cursor of the session's own stream while the runtime holds one; null when none is held or it holds nothing yet. */
+  /** The cursor of the session's own stream while the runtime holds one live on a session that exists; null otherwise: such a stream applies nothing more. */
   sessionCursor(environmentId: string, sessionId: string): number | null;
   /** The environment's list as it shows now, overlay and all: what a command's optimistic change is reckoned against. */
   shown(environmentId: string): ListData | null;
@@ -492,12 +493,13 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       overlays: current.overlays.flatMap((o) => (o.commandId !== entry.commandId ? [o] : keepOverlay ? [keepOverlay(o)] : [])),
     }));
 
-  /** Whether an overlay can leave: the list's cursor has reached its sequence, and so has its session's own stream when one is held. */
+  /** Whether an overlay can leave: the list's cursor has reached its sequence, and, for a field of a session, so has the session's own stream when one is held. */
   const settledIn = (environmentId: string) => {
     const cursor = host.lists.read().get(environmentId)?.cursor ?? null;
     return (o: OverlayRecord): boolean => {
       if (cursor === null || o.sequence === null || o.sequence > cursor) return false;
-      const own = o.change.target.kind === "session" ? host.sessionCursor(environmentId, o.change.target.id) : null;
+      // Only a field's change waits: a deletion ends the session's stream rather than applying there.
+      const own = o.change.target.kind === "session" && o.change.op === "set" ? host.sessionCursor(environmentId, o.change.target.id) : null;
       return own === null || o.sequence <= own;
     };
   };

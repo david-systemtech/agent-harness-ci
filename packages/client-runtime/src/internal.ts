@@ -150,7 +150,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     notices,
     report,
     lists: made.lists,
-    sessionCursor: (environmentId, sessionId) => made.peek(environmentId, sessionId)?.cursor ?? null,
+    sessionCursor: (environmentId, sessionId) => {
+      const stream = made.peek(environmentId, sessionId);
+      return stream?.freshness === "live" && stream.data?.summary ? stream.cursor : null;
+    },
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
     routineName: (environmentId, routineId) =>
       requestCache.peek(environmentId, "routines.list", {})?.routines.find((routine) => routine.state.id.toLowerCase() === routineId)?.definition.name ?? null,
