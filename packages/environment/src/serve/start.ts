@@ -1,6 +1,7 @@
 import { webOriginPolicy } from "../web/origin-policy.js";
 import { webAttention } from "../web/attention.js";
 import { externalWebOrigin, serveWebClient } from "./web-client.js";
+import { forwardedClientAddress } from "./client-address.js";
 import { reconcileImportedSessions } from "../sessions/import-dedupe.js";
 import { validatorUpdateMethods } from "../banks/validator-update.js";
 import { migrationMethods } from "../banks/migrate.js";
@@ -361,6 +362,8 @@ export interface EnvironmentOptions {
   readonly tailnetName?: string;
   /** Canonical HTTPS origin for web links, configured independently of the TLS proxy. */
   readonly webOrigin?: string;
+  /** The header the proxy in front of `webOrigin` writes the client's address in (#1809). Preset: `X-Forwarded-For`. */
+  readonly clientAddressHeader?: string;
   /** Override the packaged public bundle directory, for hosted verification. */
   readonly webClientDirectory?: string;
   /** The environment's own IANA time zone, which a routine that names none is saved in (#521). Preset: the process's. */
@@ -2012,18 +2015,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
+  // Each knows a client behind the web origin's proxy by the address the proxy forwarded (#1809).
+  const clientAddress = forwardedClientAddress(webOrigin, options.clientAddressHeader);
   const grant = createBootstrapGrant({
     dataDir,
     clientSessions,
     atomically: accessLog.atomically,
     rateLimiter: createRateLimiter({ clock }),
+    clientAddress,
     readiness: () => readiness,
   });
   surface.route("POST", BOOTSTRAP_PATH, grant.exchange);
   surface.route(
     "POST",
     PAIR_PATH,
-    pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
+    pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), clientAddress, readiness: () => readiness }),
   );
   // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
   surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock, banks: bankCredentials }));
@@ -2056,6 +2062,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clientSessions: socketSessions(clientSessions, accessLog.atomically),
     methods: table,
     clock,
+    clientAddress,
     log,
     ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
   });

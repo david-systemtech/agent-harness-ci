@@ -79,7 +79,8 @@ export const SocketOpenedPayload = z
   .object({
     clientSessionId: ClientSessionId,
     socketId: SocketId,
-    remoteAddress: z.string().nullable().meta({ description: "The address the socket came from, when known." }),
+    remoteAddress: z.string().nullable().meta({ description: "The address the socket came from, when known: behind the web origin's proxy, the address it forwarded." }),
+    login: z.string().optional().meta({ description: "The Tailscale login the web origin's proxy named, when it named one." }),
   })
   .meta({ description: "socket.opened: a WebSocket authenticated as the client session." });
 

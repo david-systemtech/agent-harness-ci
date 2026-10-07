@@ -14,11 +14,15 @@
       "description": "The socket's id, the same on its opened and closed events."
     },
     "remoteAddress": {
-      "description": "The address the socket came from, when known.",
+      "description": "The address the socket came from, when known: behind the web origin's proxy, the address it forwarded.",
       "type": [
         "string",
         "null"
       ]
+    },
+    "login": {
+      "description": "The Tailscale login the web origin's proxy named, when it named one.",
+      "type": "string"
     }
   },
   "required": [
