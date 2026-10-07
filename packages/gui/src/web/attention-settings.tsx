@@ -113,33 +113,26 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
     return listed?.ok ? { route: listed.result.targets.find(target => target.global && target.webhookEndpoint === name), targets: listed.result.targets } : undefined;
   };
   /**
-   * The endpoint first, then the route naming it. An endpoint a routine delivers to is never replaced from here; one
-   * that nothing names (left by an earlier try whose route never followed) is taken over.
+   * The route first, then the endpoint it names, so a refused route leaves no secret behind and a retry under the same
+   * name finishes a route whose endpoint step failed. An endpoint no route of this sheet names is never replaced: other
+   * clients' own targets, which this client cannot list, may deliver to it.
    */
   const addRoute = async ({ name, url, secret }: WebhookRouteInput): Promise<boolean> => {
     setBusy(true); setLine(undefined);
     try {
-      const [endpoints, routines, current] = await Promise.all([runtime.requests.call(environmentId, "routines.endpoints.list", {}), runtime.requests.call(environmentId, "routines.list", {}), routeNaming(name)]);
-      if (!endpoints.ok || !routines.ok || !current) throw new Error("Status unavailable.");
+      const [endpoints, current] = await Promise.all([runtime.requests.call(environmentId, "routines.endpoints.list", {}), routeNaming(name)]);
+      if (!endpoints.ok || !current) throw new Error("Status unavailable.");
       const { route, targets } = current;
-      const routineNames = routines.result.routines.some(routine => routine.definition.delivery.some(target => target.kind === "webhook" && target.target === name));
-      const otherTarget = targets.some(target => target !== route && (target.id === name || target.webhookEndpoint === name));
-      const existed = endpoints.result.endpoints.some(endpoint => endpoint.name === name);
-      if (!route && (routineNames || otherTarget) && existed) { setLine(`An endpoint named ${name} already exists on this environment. Choose another name.`); return false; }
+      if (!route && endpoints.result.endpoints.some(endpoint => endpoint.name === name)) { setLine(`An endpoint named ${name} already exists on this environment. Choose another name.`); return false; }
       if (!route && targets.some(target => target.id === name)) { setLine(`A delivery target named ${name} already exists. Choose another name.`); return false; }
-      const endpoint = await runtime.requests.call(environmentId, "routines.endpoints.set", { commandId: crypto.randomUUID(), name, url, secret: { kind: "pasted", secret } });
-      const refused = !endpoint.ok ? endpoint.error.message : endpoint.result.receipt.status === "rejected" ? endpoint.result.receipt.error.message : null;
-      if (refused !== null) { setLine(`Webhook route not saved: ${refused}`); return false; }
       const target = { id: route?.id ?? name, ...(route?.label === undefined ? {} : { label: route.label }), transport: "webhook" as const, enabled: true, completion: route?.completion ?? false, configuration: { endpoint: name } };
       const set = await runtime.requests.call(environmentId, "attention.routes.set", { commandId: crypto.randomUUID(), target }).catch(() => null);
       const refusedRoute = !set ? "Check your connection and admin grant." : !set.ok ? set.error.message : set.result.receipt.status === "rejected" ? set.result.receipt.error.message : null;
-      // A timeout or a lost answer says nothing of whether the route was applied: what the environment lists now decides,
-      // and an endpoint this call made for a route that did not follow is withdrawn.
-      if (refusedRoute !== null && !route) {
-        const after = await routeNaming(name);
-        if (after && !after.route && !existed) await runtime.requests.call(environmentId, "routines.endpoints.remove", { commandId: crypto.randomUUID(), name }).catch(() => null);
-        if (!after?.route) { setLine(`Webhook route not saved: ${refusedRoute}`); return false; }
-      } else if (refusedRoute !== null) { setLine(`Webhook route not saved: ${refusedRoute}`); return false; }
+      // A timeout or a lost answer says nothing of whether the route was applied: what the environment lists now decides.
+      if (refusedRoute !== null && !(await routeNaming(name))?.route) { setLine(`Webhook route not saved: ${refusedRoute}`); refresh(); return false; }
+      const endpoint = await runtime.requests.call(environmentId, "routines.endpoints.set", { commandId: crypto.randomUUID(), name, url, secret: { kind: "pasted", secret } });
+      const refused = !endpoint.ok ? endpoint.error.message : endpoint.result.receipt.status === "rejected" ? endpoint.result.receipt.error.message : null;
+      if (refused !== null) { setLine(`Webhook route not saved: ${refused}`); refresh(); return false; }
       setLine(`Webhook route ${name} saved. Test it to check that its receiver takes the signed post.`);
       refresh();
       return true;

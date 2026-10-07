@@ -222,10 +222,11 @@ webhook route**. Type a name (lower-case letters, digits and hyphens, such as
 **Add route**. The environment keeps the endpoint under that name, with its
 secret in its vault, and adds a global route naming it, shown as **Signed
 webhook · Global route**. Tap **Test** on that route to post a signed test to
-the receiver and read the status it answered. A name a routine or
-another target already uses is refused rather than replaced; adding the
-route's own name again replaces its URL and secret, and an endpoint nothing
-names (left by a try whose route was not saved) is taken over.
+the receiver and read the status it answered. The route is saved
+before its endpoint. A name another endpoint already has, such as a
+routine's, is refused rather than replaced, and adding a route's own name
+again replaces its URL and secret, which finishes a route whose endpoint step
+failed.
 
 There is no `agent-harness attention` CLI verb. A script can make the same
 two calls over the authenticated wire with an admin token:
