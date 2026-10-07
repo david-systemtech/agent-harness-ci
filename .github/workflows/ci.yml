@@ -99,7 +99,10 @@ jobs:
           fi
 
   # Six shards reduce work queued before the long snapshot-publisher tests.
-  # Keep the full run inside the relay's 40-minute budget.
+  # Keep the full run inside the relay's 55-minute budget. The shard holding
+  # test/web-smoke.test.ts may wait up to 12 minutes for a slow Ubuntu mirror to
+  # install the browsers' system dependencies (agent-harness #1802), so a shard
+  # gets 40 minutes.
   test:
     strategy:
       fail-fast: false
@@ -109,7 +112,7 @@ jobs:
     # Root bypasses filesystem permissions and skips the serve handshake.
     # Use the hosted runner's ordinary user for every test file, including
     # files that exercise permissions without explicitly checking the uid.
-    timeout-minutes: 25
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
