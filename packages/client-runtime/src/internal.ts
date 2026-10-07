@@ -464,7 +464,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     knownDirectories: { hide: (environmentId, path) => hideKnownDirectory(directoriesHost, environmentId, path) },
     environmentNow: (environmentId) => made.now(environmentId),
     requests,
-    desktopUpdate: { view: desktopUpdate.view, restart: () => desktopUpdate.restart(), applyBundledServer: () => desktopUpdate.applyBundledServer() },
+    desktopUpdate: { view: desktopUpdate.view, restart: () => desktopUpdate.restart(), checkAgain: () => desktopUpdate.checkAgain(), applyBundledServer: () => desktopUpdate.applyBundledServer() },
     setup: { check: (environmentId, step) => setup.check(environmentId, step) },
     forges: createForges({ clock: platform.clock, shell: platform.shell, capability, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),
     keyManagers: createKeyManagers({ clock: platform.clock, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),

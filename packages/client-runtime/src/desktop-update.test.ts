@@ -364,6 +364,58 @@ describe("the desktop's own update", () => {
     expect(denied.build()).toMatchObject({ failure: "install", staged: STAGED });
   });
 
+  it.each(["draining", "updating"] as const)(
+    "never fails a stage the local environment's %s cut short, and stages again as soon as the environment is ready, which finds the build staged (#1788)",
+    async (reason) => {
+      const { clock, desk, runtime, until, build, shellCalls } = await launch({
+        updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED },
+        desk: (desk) => desk.wire.holdNext("updates.desktop.stage"),
+      });
+      await until(() => build().state === "staging" && desk.requests("updates.desktop.stage").length === 1, "started the stage");
+
+      // The environment goes away before it answers the stage: its socket closes with a bye, and the stage with it.
+      desk.bye(reason);
+      await until(() => runtime.connections.list.read()[0]?.phase === reason, "heard the environment go");
+      for (let i = 0; i < 5; i++) await flush();
+      expect(build().state).not.toBe("failed");
+
+      // Ready again well inside a minute, not the hour after: the next stage answers the build the cut one staged.
+      clock.advance(10_000);
+      await until(() => runtime.connections.list.read()[0]?.phase === "ready", "reconnected");
+      await until(() => build().state === "ready", "reported the build ready");
+      expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+      expect(params(desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
+      expect(shellCalls("update.apply")).toEqual([[STAGED, "quit"]]);
+    },
+  );
+
+  it("never fails a check whose read of the local environment's updates its restart cut short, and shows what it had until it looks again (#1788)", async () => {
+    const { clock, desk, runtime, until, build } = await launch({ updates: { status: { newest: RUNNING } } });
+    await until(() => build().state === "current", "found the build current");
+
+    desk.wire.holdNext("updates.status");
+    desk.setUpdates({ status: { newest: "0.6.0" }, desktopBuild: STAGED });
+    clock.advance(HOUR);
+    await until(() => desk.requests("updates.status").length === 2, "checked again");
+    desk.bye("draining");
+    await until(() => runtime.connections.list.read()[0]?.phase === "draining", "heard the environment drain");
+    for (let i = 0; i < 5; i++) await flush();
+    expect(build()).toEqual({ state: "current", version: RUNNING });
+
+    clock.advance(10_000);
+    await until(() => build().state === "ready", "staged the build once the environment was ready again");
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+  });
+
+  it("checks again at once on a person's Check again after a failed stage, not an hour later", async () => {
+    const { desk, runtime, until, build } = await launch({ updates: { status: { newest: "0.6.0" }, desktopBuild: { refused: "conflict", message: "The artefact did not download.", data: { reason: "download" } } } });
+    await until(() => build().state === "failed", "failed the stage");
+
+    desk.setUpdates({ desktopBuild: STAGED });
+    expect(await runtime.desktopUpdate.checkAgain()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(desk.requests("updates.desktop.stage")).toHaveLength(2);
+  });
+
   it("is never checked on a shell with no update", async () => {
     const { desk, build, shellCalls } = await launch({ updates: { status: { newest: "0.6.0" }, desktopBuild: STAGED }, without: ["update"] });
     await flush();
