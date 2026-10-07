@@ -250,6 +250,32 @@ describe("the local session route", () => {
     });
     await expect(tooLate).rejects.toThrow(LocalFailure);
     await expect(tooLate).rejects.toThrow("The environment closed the socket (draining): The environment is stopping.");
+
+    const v = await start();
+    const followed = { fetch: globalThis.fetch, WebSocket: readTogether(() => v.clock.advance(0)) };
+    const noticesTooLate = withLocalSession({ dataDir: v.dataDir }, followed, "notices after the bye", async (call, notices) => {
+      await call("environment.drain", { commandId: randomUUID() });
+      await notices(() => undefined);
+    });
+    await expect(noticesTooLate).rejects.toThrow("The environment closed the socket (draining): The environment is stopping.");
+  });
+
+  it("fails the verb with the going-away bye at once when it comes before the hello", async () => {
+    const t = await start();
+    const { clock, start: silence } = heldClock();
+    // The environment stops before it greets: the bye takes the hello's place, and the silence is timed from it.
+    class ByeFirst extends globalThis.WebSocket {
+      override dispatchEvent(event: Event): boolean {
+        if (event.type !== "message" || (JSON.parse(String((event as MessageEvent).data)) as { readonly type: string }).type !== "hello") return super.dispatchEvent(event);
+        silence();
+        return super.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "bye", reason: "draining", message: "The environment is stopping." }) }));
+      }
+    }
+    const verb = withLocalSession({ dataDir: t.dataDir }, { fetch: globalThis.fetch, WebSocket: ByeFirst }, "a bye before the hello", (call) => call("environment.status", {}), {
+      timeoutMs: 300,
+      clock,
+    });
+    await expect(verb).rejects.toThrow("The environment closed the socket (draining): The environment is stopping.");
   });
 
   it("fails the verb when the wire's connection never opens", async () => {

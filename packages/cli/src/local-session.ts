@@ -185,7 +185,7 @@ const overWire = <T>(
     let following: Following | undefined;
     let greeted = false;
     let outcome: Outcome<T> | undefined;
-    /** What the environment's going-away bye said, heard after every call's answer and before the work settled: no call is answered after it. */
+    /** What the environment's going-away bye said, heard after every call's answer and before the work settled: no call or notice is answered after it. */
     let goneAway: string | undefined;
     let settled = false;
     let timer: Timer | undefined;
@@ -236,6 +236,7 @@ const overWire = <T>(
     const notices: LocalNotices = (hear) =>
       new Promise((resolveNotices, rejectNotices) => {
         if (settled || outcome !== undefined) return rejectNotices(new LocalFailure("The notices were asked for after the verb's work was done."));
+        if (goneAway !== undefined) return rejectNotices(new LocalFailure(goneAway));
         if (following !== undefined) return rejectNotices(new LocalFailure("The notices are followed once per verb."));
         following = { id: "notices", live: false, hear, ready: (error) => (error === undefined ? resolveNotices() : rejectNotices(error)) };
         // From the start of the log: what catch-up replays is passed over, and the notices after it are heard.
@@ -304,8 +305,9 @@ const overWire = <T>(
           if (frame.reason === "updating" || frame.reason === "draining") {
             if (outcome !== undefined) return settle(outcome);
             // The answer that made it go can come in the same read as this bye, ahead of the work hearing it (#1765): with no
-            // call or notice left to wait on, the work settles the verb, and a call it makes from here fails with this bye.
-            if (pending.size === 0 && following === undefined) {
+            // call or notice left to wait on, the work settles the verb, and a call or notices it asks for from here fail with
+            // this bye. Before the hello the work has not run, so the bye fails the verb.
+            if (greeted && pending.size === 0 && following === undefined) {
               goneAway = said;
               return rearm();
             }
