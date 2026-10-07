@@ -3,14 +3,16 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative as relativePath } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { ContractError, PROTOCOL_VERSION, UpdatesStatus, pastTimeWords, registry } from "@agent-harness/contracts";
 import { HARNESS_VERSION, PRESET_IDLE_WINDOW_MS } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
+import { manualClock } from "../../environment/test/clock.js";
 import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
 import { testLauncher } from "../../environment/test/launcher.js";
 import { ARTEFACT, startFakeReleaseSource, type FakeReleaseSource } from "../../environment/test/release-source.js";
 import { runCli, type CliContext } from "./cli.js";
-import { renderUpdatesStatus } from "./update.js";
+import { UPDATE_APPLY_WAIT_MS, renderUpdatesStatus } from "./update.js";
 
 /**
  * The `update` verbs that reach the local environment (launcher-update spec,
@@ -363,6 +365,35 @@ describe("agent-harness update apply", () => {
       expect(err, args.join(" ")).toContain("agent-harness update apply");
     }
   });
+
+  it("waits on the environment's staging and install past the route's 10 seconds, and fails as unanswered only past its own wait", async () => {
+    const t = await start({ harnessVersion: "0.4.1", launcher: testLauncher({ present: true }) });
+    const clock = manualClock();
+    let asked!: () => void;
+    const applying = new Promise<void>((resolve) => (asked = resolve));
+    // The environment answers once the update is staged and installed, and says nothing meanwhile.
+    t.env.methods.register(registry["updates.apply"], {
+      prepare: () => {
+        asked();
+        return new Promise<never>(() => undefined);
+      },
+    });
+    const cli = harness();
+    let settled = false;
+    const verb = runCli(["update", "apply", "--version", "0.5.0", "--path", artefact("0.5.0"), "--now", "--data-dir", t.dataDir], { ...cli.context, clock }).finally(() => (settled = true));
+    await applying;
+
+    clock.advance(10_000);
+    await setImmediate();
+    expect(settled).toBe(false);
+    clock.advance(UPDATE_APPLY_WAIT_MS - 10_001);
+    await setImmediate();
+    expect(settled).toBe(false);
+    clock.advance(1);
+
+    expect(await verb).toBe(1);
+    expect(cli.err()).toMatch(`did not answer within ${UPDATE_APPLY_WAIT_MS / 1000} seconds`);
+  });
 });
 
 describe("updates from public GitHub releases", () => {
@@ -589,6 +620,31 @@ describe("the update verbs", () => {
     const { code, err } = await run(["update", "status", "--data-dir", t.dataDir, "--port", String(port)]);
     expect(code).toBe(1);
     expect(err).toMatch(/did not answer/);
+  });
+
+  it("other than apply, keep the route's 10 seconds for an unanswered call", async () => {
+    const t = await start();
+    for (const [method, args] of [
+      ["updates.status", ["status"]],
+      ["updates.settings.set", ["settings", "--channel", "beta"]],
+    ] as const) {
+      const clock = manualClock();
+      let asked!: () => void;
+      const calling = new Promise<void>((resolve) => (asked = resolve));
+      const silent = () => {
+        asked();
+        return new Promise<never>(() => undefined);
+      };
+      // A command is silent while it prepares; a query, in its handler.
+      if (method === "updates.status") t.env.methods.register(registry[method], silent);
+      else t.env.methods.register(registry[method], { prepare: silent });
+      const cli = harness();
+      const verb = runCli(["update", ...args, "--data-dir", t.dataDir], { ...cli.context, clock });
+      await calling;
+      clock.advance(10_000);
+      expect(await verb, method).toBe(1);
+      expect(cli.err(), method).toMatch("did not answer within 10 seconds");
+    }
   });
 
   it("print the usage and exit 2 on a verb they do not know, or none", async () => {

@@ -100,7 +100,7 @@ export interface CliContext extends ProcessContext {
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector" | "browser">;
   /** The network `pair`, the `update` verbs and `browser pair` use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
-  /** What `browser pair`'s countdown runs on; preset: the system clock. A seam for tests. */
+  /** What `browser pair`'s countdown and the `update` verbs' wait on the environment run on; preset: the system clock. A seam for tests. */
   readonly clock?: Pick<Clock, "now" | "setTimeout">;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
@@ -317,7 +317,9 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       });
     }
     if (args[0] === "state-import") return await stateImport(args.slice(1), { stdout: context.stdout, stderr: context.stderr, net: netOf(context) });
-    if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });
+    if (args[0] === "update") {
+      return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context), clock: context.clock ?? systemClock });
+    }
     if (args[0] === "tui") {
       return await tui(args.slice(1), {
         stdout: context.stdout,

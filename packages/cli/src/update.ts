@@ -19,8 +19,9 @@ import {
   type UpdateTarget,
   type UpdatesStatus,
 } from "@agent-harness/contracts";
-import { defaultDataDirectory } from "@agent-harness/environment";
+import { defaultDataDirectory, FORGE_DOWNLOAD_TIMEOUT_MS, UNPACK_TIMEOUT_MS, type Clock } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
+import { PREFLIGHT_TIMEOUT_MS } from "./launch/install.js";
 import { LocalFailure, withLocalSession, type LocalTarget, type Net } from "./local-session.js";
 import { SNAPSHOT_VERBS, UPDATE_SNAPSHOT_USAGE } from "./update-snapshot.js";
 
@@ -60,7 +61,20 @@ export interface UpdateContext {
   /** Reads all of standard input: where `update credential` takes the token from. */
   readonly stdin: () => Promise<string>;
   readonly net: Net;
+  /** What the wait on the environment runs on. */
+  readonly clock: Pick<Clock, "setTimeout">;
 }
+
+/**
+ * How long `update apply` waits on `updates.apply`, which the environment
+ * answers only once the update is staged and installed, saying nothing
+ * meanwhile: the release's download when no artefact is given (up to
+ * `FORGE_DOWNLOAD_TIMEOUT_MS` once the forge answers), the artefact's unpack
+ * (up to `UNPACK_TIMEOUT_MS`) and the launcher's install, its preflight's
+ * `PREFLIGHT_TIMEOUT_MS` included, with a minute more for the reads and
+ * flushes around them. The other verbs keep the route's wait.
+ */
+export const UPDATE_APPLY_WAIT_MS = FORGE_DOWNLOAD_TIMEOUT_MS + UNPACK_TIMEOUT_MS + PREFLIGHT_TIMEOUT_MS + 60_000;
 
 /** Where the environment is: the flags every `update` verb takes. */
 const TARGET_OPTIONS = { "data-dir": { type: "string" }, port: { type: "string" } } as const;
@@ -190,7 +204,9 @@ export const renderUpdatesStatus = (status: UpdatesStatus, now: Date): string =>
 const status = async (args: readonly string[], context: UpdateContext): Promise<number> => {
   const values = parseOptions(args, { ...TARGET_OPTIONS, json: { type: "boolean" }, "host-updater": { type: "boolean" } });
   const params = values["host-updater"] === true ? { hostUpdater: true as const } : {};
-  const document = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update status`, (call) => call("updates.status", params));
+  const document = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update status`, (call) => call("updates.status", params), {
+    clock: context.clock,
+  });
   context.stdout(values.json ? `${JSON.stringify(document, null, 2)}\n` : renderUpdatesStatus(document, new Date()));
   return 0;
 };
@@ -201,6 +217,7 @@ const settings = async (args: readonly string[], context: UpdateContext): Promis
   const patch = settingsPatch(values);
   const answer = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update settings`, (call) =>
     call("updates.settings.set", { commandId: randomUUID(), values: patch }),
+    { clock: context.clock },
   );
   if (answer.receipt.status === "rejected") throw new LocalFailure(`The environment refused the update settings: ${answer.receipt.error.message}`);
   // A fresh command id always carries the result.
@@ -229,7 +246,8 @@ const apply = async (args: readonly string[], context: UpdateContext): Promise<n
       ...(version !== undefined && { version: version.data }),
       ...(values.path !== undefined && { artefactPath: absolutePath(values.path) }),
       when,
-    }),
+    }, { timeoutMs: UPDATE_APPLY_WAIT_MS }),
+    { clock: context.clock },
   );
   if (answer.receipt.status === "rejected") throw new LocalFailure(`The environment refused the update: ${answer.receipt.error.message}`);
   // A fresh command id always carries the result.
@@ -292,7 +310,7 @@ const credential = async (args: readonly string[], context: UpdateContext): Prom
     if (added === undefined) throw new LocalFailure("The environment answered the token without the forge account it added.");
     const problem = added.problem === null ? "" : ` It has a problem: ${added.problem.message}`;
     return `Added the forge account ${added.slug} for ${where}: the environment reads its releases with it.${problem}\n`;
-  });
+  }, { clock: context.clock });
   context.stdout(said);
   return 0;
 };
@@ -308,6 +326,7 @@ const begin = async (args: readonly string[], context: UpdateContext): Promise<n
   if (!updateId.success) throw new UsageError(`update begin takes --update-id, the id of the ready update whose image was pulled; got ${values["update-id"] || "none"}.`);
   const answer = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update begin`, (call) =>
     call("updates.begin", { commandId: randomUUID(), updateId: updateId.data }),
+    { clock: context.clock },
   );
   if (answer.receipt.status === "rejected") throw new LocalFailure(`The environment refused to begin the update: ${answer.receipt.error.message}`);
   // A fresh command id always carries the result.

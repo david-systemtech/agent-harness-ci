@@ -22,7 +22,7 @@ import { stagingArea } from "../serve/launcher-files.js";
 export type Unpack = (archive: string, into: string) => Promise<void>;
 
 /** How long an unpack may take before it is given up: a server artefact is a few hundred megabytes at most. */
-const UNPACK_TIMEOUT_MS = 5 * 60_000;
+export const UNPACK_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * The preset unpack: the platform's `tar`, which reads a gzipped tar on
