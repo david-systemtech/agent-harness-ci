@@ -129,6 +129,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       // A notice replayed onto a stream that held nothing is history: every ready fetches the cache again anyway, and it says nothing new.
       if (!news) return;
       requestCache.noticed(environmentId, event.type);
+      desktopUpdate.noticed(environmentId, event.type);
       clientCalls.heard(environmentId, event);
       if (event.type === "prompt.parked") {
         const { sessionId, runId, promptId, kind, title, summary } = event.payload as { sessionId: string; runId: string; promptId: string; kind: PromptKind; title: string; summary: string };
