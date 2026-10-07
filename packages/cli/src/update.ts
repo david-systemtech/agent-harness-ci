@@ -148,8 +148,19 @@ const managerLine = (manager: UpdateManager, now: Date): string => {
   }
 };
 
-const checkLine = (check: UpdateCheck | null): string => {
-  if (check === null) return "never";
+/** The channel's newest; with none since the start though the channel was read before it, that the read is due and when it last was (#1812). */
+const newestLine = ({ newest, lastCheck, lastReadAt = null }: UpdatesStatus): string => {
+  if (newest !== null) return newest;
+  // A check since the start that read the channel and found no release has no newest to show.
+  if (lastReadAt === null || lastCheck?.result === "ok") return "not read yet";
+  return `due, not read since the environment started; last read at ${lastReadAt}`;
+};
+
+/** The last check; with none since the start though the channel was read before it, when it last was (#1812). */
+const checkLine = (check: UpdateCheck | null, lastReadAt: string | null): string => {
+  if (check === null) {
+    return lastReadAt === null ? "never" : `none since the environment started, the first due two minutes after it; the channel was last read at ${lastReadAt}`;
+  }
   return check.result === "ok" ? `${check.at}, ok` : `${check.at}, failed (${check.reason}): ${check.message}`;
 };
 
@@ -190,8 +201,8 @@ export const renderUpdatesStatus = (status: UpdatesStatus, now: Date): string =>
     `Updates: ${managerLine(status.manager, now)}`,
     ...(status.installed.length > 0 ? [`Installed: ${status.installed.join(", ")}`] : []),
     `Releases: ${status.releaseSource.origin}/${status.releaseSource.repository}`,
-    `Channel's newest: ${status.newest ?? "not read yet"}`,
-    `Last check: ${checkLine(status.lastCheck)}`,
+    `Channel's newest: ${newestLine(status)}`,
+    `Last check: ${checkLine(status.lastCheck, status.lastReadAt ?? null)}`,
     `Target: ${targetLine(status.target)}`,
     ...(status.passedOver === null ? [] : [`Passed over: ${status.passedOver.version} (${status.passedOver.source}, ${status.passedOver.reason}): ${status.passedOver.message}`]),
     `Pending update: ${pendingLine(status.pending)}`,

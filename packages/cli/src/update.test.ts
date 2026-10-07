@@ -145,6 +145,35 @@ describe("agent-harness update status", () => {
     expect(own[0]?.revokedAt).not.toBeNull();
     expect(await liveLabels(t)).not.toContain("agent-harness update status");
   });
+
+  it("before the first check since the start, says when the channel was last read, kept in the data directory, and that the read is due, never that there was no check (#1812)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-harness-cli-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const dataDir = join(dir, "data");
+    mkdirSync(dataDir);
+    // Twelve minutes before this start, as the last start's environment kept it.
+    const lastRead = "2026-09-23T23:48:00.000Z";
+    writeFileSync(join(dataDir, "release-channel.json"), `${JSON.stringify({ lastSucceededAt: lastRead })}\n`);
+    const fake = await releaseSource("0.5.0");
+    const t = await start({ harnessVersion: "0.4.1", dataDir, releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+    const admin = await t.client();
+    await fake.grantAccess(admin);
+
+    const before = await run(["update", "status", "--data-dir", t.dataDir]);
+    expect(before.code).toBe(0);
+    expect(before.out).toContain(`Channel's newest: due, not read since the environment started; last read at ${lastRead}\n`);
+    expect(before.out).toContain(`Last check: none since the environment started, the first due two minutes after it; the channel was last read at ${lastRead}\n`);
+    expect(before.out).not.toMatch(/not read yet|Last check: never/);
+
+    t.clock.advance(2 * 60_000);
+    const firstCheck = t.clock.now().toISOString();
+    await expect.poll(async () => (await admin.request("updates.status", {})).lastCheck, { timeout: 10_000 }).toEqual({ at: firstCheck, result: "ok" });
+    const after = await run(["update", "status", "--data-dir", t.dataDir]);
+    expect(after.out).toContain("Channel's newest: 0.5.0\n");
+    expect(after.out).toContain(`Last check: ${firstCheck}, ok\n`);
+    expect((await admin.request("updates.status", {})).lastReadAt).toBe(firstCheck);
+    await admin.close();
+  });
 });
 
 describe("agent-harness update settings", () => {
@@ -477,6 +506,7 @@ describe("the status as update status prints it", () => {
     releaseSource: { origin: "https://github.com", kind: "github", repository: "david-systemtech/agent-harness" },
     newest: "0.5.0",
     lastCheck: { at, result: "failed", reason: "unreachable", message: "The forge did not answer." },
+    lastReadAt: null,
     target: { version: "0.5.0", source: "channel" },
     passedOver: null,
     pending: { state: "current" },
@@ -520,6 +550,17 @@ describe("the status as update status prints it", () => {
     );
     expect(renderUpdatesStatus({ ...base, manager: { kind: "outside", lastPoll: null }, lastCheck: null, newest: null, target: null }, now)).toMatch(
       /Updates: managed outside, by a host-side updater; it has not polled yet\nReleases: .*\nChannel's newest: not read yet\nLast check: never\nTarget: none\n/,
+    );
+    // A read kept from before the start, and no check since (#1812).
+    expect(renderUpdatesStatus({ ...base, lastCheck: null, newest: null, target: null, lastReadAt: later }, now)).toContain(
+      `Channel's newest: due, not read since the environment started; last read at ${later}\nLast check: none since the environment started, the first due two minutes after it; the channel was last read at ${later}\n`,
+    );
+    // An environment that predates the last read answers without it, as one before any read.
+    const predating = UpdatesStatus.parse(JSON.parse(JSON.stringify({ ...base, lastCheck: null, newest: null, target: null, lastReadAt: undefined })));
+    expect(renderUpdatesStatus(predating, now)).toContain("Channel's newest: not read yet\nLast check: never\n");
+    // The first check since failed: the read is still due, and the last check is that one.
+    expect(renderUpdatesStatus({ ...base, newest: null, target: null, lastReadAt: later }, now)).toContain(
+      `Channel's newest: due, not read since the environment started; last read at ${later}\nLast check: ${at}, failed (unreachable): The forge did not answer.\n`,
     );
     expect(renderUpdatesStatus({ ...base, target: null, passedOver: { version: "0.3.0", source: "pin", reason: "schema", message: "Its schema is below the database's." } }, now)).toContain(
       "Target: none\nPassed over: 0.3.0 (pin, schema): Its schema is below the database's.\nPending update: none\n",
