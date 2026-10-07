@@ -109,11 +109,13 @@ jobs:
           fi
 
   # One hosted runner no longer finishes the whole suite in 30 minutes (run 37441040959), so it
-  # runs in six shards, as pull request CI does (#1687).
+  # runs in six shards, as pull request CI does (#1687). The shard holding test/web-smoke.test.ts
+  # may wait up to 12 minutes for a slow Ubuntu mirror to install the browsers' system
+  # dependencies (#1802), so a shard gets 40 minutes.
   suite:
     if: ${{ !inputs.sha }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:

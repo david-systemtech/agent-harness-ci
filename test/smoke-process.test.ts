@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { PassThrough, Writable } from "node:stream";
-import { mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
@@ -203,6 +203,57 @@ it.skipIf(process.platform !== "linux")("preserves the command's failure status 
   await expect(smokeProcess(process.execPath, ["-e", "process.exit(7);"], {
     cwd: process.cwd(), signal: new AbortController().signal, stdout: output, stderr: output,
   })).rejects.toThrow(`${process.execPath} exited with 7.`);
+});
+
+// A slow mirror keeps an install writing for longer than its stall limit; only silence stops it (#1802).
+it.skipIf(process.platform !== "linux")("a phase that keeps writing output outlasts its stall limit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-stall-"));
+  const output = new PassThrough();
+  const ticks: string[] = [];
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  onTestFinished(() => { vi.useRealTimers(); output.destroy(); rmSync(dir, { recursive: true, force: true }); });
+  // Each tick waits for the test to release it, so the held clock, not the runner's speed, sets the gaps.
+  const child = `const fs=require('node:fs'); let n=0; const tick=()=>{ if(n===4) process.exit(0); console.log('tick '+(++n)); const go=${JSON.stringify(dir)}+'/go-'+n; const wait=setInterval(()=>{ if(fs.existsSync(go)){ clearInterval(wait); tick(); } },10); }; tick();`;
+  output.on("data", chunk => {
+    for (const match of String(chunk).matchAll(/tick (\d+)/g)) {
+      ticks.push(match[1]!);
+      void vi.advanceTimersByTimeAsync(900).then(() => writeFileSync(join(dir, `go-${match[1]}`), ""));
+    }
+  });
+  const result = await smokeProcess(process.execPath, ["-e", child], {
+    cwd: process.cwd(), signal: new AbortController().signal, stdout: output, stderr: output, stallMs: 1_000,
+  });
+  expect(ticks).toEqual(["1", "2", "3", "4"]);
+  expect(result.stdout).toBe("tick 1\ntick 2\ntick 3\ntick 4\n");
+});
+
+it.skipIf(process.platform !== "linux")("a phase that writes nothing for its stall limit is stopped as stalled", async () => {
+  const output = new PassThrough();
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  let pid = 0;
+  output.on("data", chunk => {
+    const match = /quiet ready (\d+)/.exec(String(chunk));
+    if (match) { pid = Number(match[1]); ready(); }
+  });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  onTestFinished(() => {
+    vi.useRealTimers(); output.destroy();
+    if (pid && runningProcess(pid)) process.kill(pid, "SIGKILL");
+  });
+  const signal = new AbortController().signal;
+  const execution = smokeProcess(process.execPath, ["-e", "console.log('quiet ready '+process.pid); setInterval(()=>{},60000);"], {
+    cwd: process.cwd(), signal, stdout: output, stderr: output, stallMs: 1_000,
+  });
+  const stalled = expect(execution).rejects.toThrow(`${process.execPath} wrote no output for 1000 ms; it stalled.`);
+  await started;
+  await vi.advanceTimersByTimeAsync(999);
+  expect(runningProcess(pid)).toBe(true);
+  await vi.advanceTimersByTimeAsync(1);
+  await vi.advanceTimersByTimeAsync(5_000);
+  await stalled;
+  expect(signal.aborted).toBe(false);
+  expect(runningProcess(pid)).toBe(false);
 });
 
 it.skipIf(process.platform !== "linux")("cancellation preserves its reason when the caller cannot signal an owned descendant", async () => {

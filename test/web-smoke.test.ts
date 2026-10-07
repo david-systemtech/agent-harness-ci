@@ -4,10 +4,10 @@ import { join, resolve } from "node:path";
 import { removeTree } from "../packages/filesystem/src/index.js";
 import { expect, it, onTestFinished } from "vitest";
 import { smokeProcess } from "./smoke-process.js";
-async function phase(name: string, args: string[], cwd: string, signal: AbortSignal, env = process.env, privilegedCleanup = false) {
+async function phase(name: string, args: string[], cwd: string, signal: AbortSignal, env = process.env, privilegedCleanup = false, stallMs?: number) {
   const started = performance.now();
   console.log(`WEB-SMOKE PHASE ${name}: start (uid=${process.getuid?.()}, pnpm ${args.join(" ")})`);
-  const execution = smokeProcess("pnpm", args, { cwd, env, signal, privilegedCleanup });
+  const execution = smokeProcess("pnpm", args, { cwd, env, signal, privilegedCleanup, ...(stallMs === undefined ? {} : { stallMs }) });
   try {
     const result = await execution;
     console.log(`WEB-SMOKE PHASE ${name}: complete (${Math.round(performance.now() - started)} ms)`);
@@ -27,7 +27,10 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
   const deadline = (ms: number) => AbortSignal.any([controller.signal, AbortSignal.timeout(ms)]);
   try {
     const cwd = resolve("packages/gui");
-    await phase("browser system dependencies", ["exec", "playwright", "install-deps", "chromium", "webkit"], cwd, deadline(240_000), process.env, true);
+    // apt fetches these from the runner's Ubuntu mirror: 39 s on a good day, but at its slowest the
+    // mirror needs about 10 minutes for the 126 MB (run 37627174245). An install that still writes
+    // its progress may take that long; one that goes quiet for three minutes has stalled (#1802).
+    await phase("browser system dependencies", ["exec", "playwright", "install-deps", "chromium", "webkit"], cwd, deadline(720_000), process.env, true, 180_000);
     await phase("browser downloads", ["exec", "playwright", "install", "chromium", "webkit"], cwd, deadline(240_000));
     await phase("production build", ["exec", "vite", "build", "--outDir", join(out, "web")], cwd, deadline(120_000));
     const result = await phase("conversation", ["exec", "tsx", "--conditions=@agent-harness/source", "scripts/web-smoke.ts"], cwd, deadline(240_000),
@@ -47,7 +50,7 @@ it.skipIf(!hosted)("the served production client completes the phone conversatio
     expect(result.stdout).toContain("PHONE-RUN-PICKER PASS chromium");
     expect(result.stdout).toContain("PHONE-RUN-PICKER PASS webkit");
   } finally { controller.abort(); await removeTree(out); }
-}, 960_000);
+}, 1_440_000);
 
 function expectFrameChecks(stdout: string) {
   for (const engine of ["chromium", "webkit"]) {
