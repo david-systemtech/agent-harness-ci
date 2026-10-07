@@ -1632,6 +1632,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
     settings: channelSettings,
     channel: releaseChannel,
+    channelRead: (read, at) => channelChecks.readByRequest(read, at),
     drain: (cause) => void lifecycle.drain("update", cause),
   });
   const channelChecks = createChannelChecks({
