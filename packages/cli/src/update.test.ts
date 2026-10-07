@@ -377,7 +377,7 @@ describe("agent-harness update apply", () => {
         asked();
         return new Promise<never>(() => undefined);
       },
-    });
+    } as never);
     const cli = harness();
     let settled = false;
     const verb = runCli(["update", "apply", "--version", "0.5.0", "--path", artefact("0.5.0"), "--now", "--data-dir", t.dataDir], { ...cli.context, clock }).finally(() => (settled = true));
@@ -637,7 +637,7 @@ describe("the update verbs", () => {
       };
       // A command is silent while it prepares; a query, in its handler.
       if (method === "updates.status") t.env.methods.register(registry[method], silent);
-      else t.env.methods.register(registry[method], { prepare: silent });
+      else t.env.methods.register(registry[method], { prepare: silent } as never);
       const cli = harness();
       const verb = runCli(["update", ...args, "--data-dir", t.dataDir], { ...cli.context, clock });
       await calling;
