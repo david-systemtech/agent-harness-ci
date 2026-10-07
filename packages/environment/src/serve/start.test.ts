@@ -208,6 +208,46 @@ describe("discovery and health", () => {
     expect((await getJson(address, HEALTH_PATH)).body).toEqual({ status: "ready", version: packageVersion });
   });
 
+  it("answer starting until the extension's folder is made, so a reader after ready finds its manifest (#1804)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const manifest = join(dataDir, "extension", "current", "manifest.json");
+    const files = fileVault(join(dataDir, "vault.json"));
+    // Past the gate, the extension's start reads the vault's keys first: held there, the folder is not made yet.
+    let gated = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reach!: () => void;
+    const reached = new Promise<void>((resolve) => (reach = resolve));
+    let address: Address | undefined;
+    const starting = start({
+      dataDir,
+      launcher: recordingLauncher(() => { gated = true; }).channel,
+      hooks: { beforeStep: (_step, progress) => { address = progress.address; } },
+      vault: {
+        ...files,
+        keys: async () => {
+          if (gated) {
+            gated = false;
+            reach();
+            await gate;
+          }
+          return files.keys();
+        },
+      },
+    });
+    await reached;
+    if (!address) throw new Error("the listener was not bound before the gate");
+
+    expect(existsSync(manifest)).toBe(false);
+    expect((await getJson(address, DISCOVERY_PATH)).body).toMatchObject({ readiness: "starting" });
+    expect((await getJson(address, HEALTH_PATH)).body).toEqual({ status: "starting", version: packageVersion });
+
+    release();
+    await starting;
+    expect((await getJson(address, DISCOVERY_PATH)).body).toMatchObject({ readiness: "ready" });
+    expect(existsSync(manifest)).toBe(true);
+  });
+
   it("answer nothing else: an unknown path is not found and another method is not allowed", async () => {
     const env = await start();
     expect((await fetch(url(env.address, "/api/nothing"))).status).toBe(404);

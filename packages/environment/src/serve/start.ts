@@ -2098,6 +2098,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire serves no request,
   // so a trial the launcher rolls back never served a person. With no launcher it does not wait.
   await step("prepared", () => launcher.prepared(harnessVersion));
+  // The extension's listener bound and its folder made (#547), past the gate, so a trial the launcher rolls back never
+  // replaced the folder Chrome loads; before readiness turns `ready`, so a reader that finds it ready finds the folder
+  // whole (#1804: the Windows smoke read it in between), and a first client's browser.status finds them.
+  closers.push(() => browser.close());
+  await browser.start();
   // What the workspace roots hold that no session names (a crash between a create's `prepare` and its commit left it), read
   // at once, past the gate and before anything can make a workspace; swept below, before the wire opens (#330).
   const strays = reaper.strays();
@@ -2168,10 +2173,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
   // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
   closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
-  // The extension's listener bound and its folder made (#547), past the gate, so a trial the launcher rolls back never
-  // replaced the folder Chrome loads; before the wire opens, so a first client's browser.status finds them.
-  closers.push(() => browser.close());
-  await browser.start();
   // The vault entries of webhook endpoints that are gone deleted (#522), before a client can set one again.
   await endpoints.start();
   // The helper can answer startup fetches only after the internal listener is ready.
