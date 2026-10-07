@@ -306,10 +306,11 @@ esac
   });
 
   it("builds and smokes the called commit without publishing when a main merge's smoke calls it (#1769)", () => {
-    // Every job checks out the called commit; a tag's run leaves the input empty, so its own ref.
-    const checkouts = lines.flatMap((line, i) => line.includes("- uses: actions/checkout@") ? [lines.slice(i, i + 3).join("\n")] : []);
+    // Every job checks out the called commit; a tag's run leaves the input empty, so its own ref. No job
+    // pushes with git, so none leaves its token in .git/config for the commit's install scripts to read.
+    const checkouts = lines.flatMap((line, i) => line.includes("- uses: actions/checkout@") ? [lines.slice(i, i + 4).join("\n")] : []);
     expect(checkouts.length).toBeGreaterThan(0);
-    for (const checkout of checkouts) expect(checkout).toMatch(/\n {8}with:\n {10}ref: \$\{\{ inputs\.sha \}\}$/);
+    for (const checkout of checkouts) expect(checkout).toMatch(/\n {8}with:\n {10}ref: \$\{\{ inputs\.sha \}\}\n {10}persist-credentials: false$/);
     expect(step("prepare", "Prepare the tag or dry run")).toContain("RELEASE_SMOKE_SHA: ${{ inputs.sha }}");
     // The merge's own CI ran typecheck, lint and the suite; without them nothing publishes.
     for (const name of ["verify", "suite"]) expect(job(name), name).toContain("    if: ${{ !inputs.sha }}");
