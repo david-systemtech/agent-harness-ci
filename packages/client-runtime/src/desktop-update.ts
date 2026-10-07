@@ -119,7 +119,10 @@ export interface DesktopUpdate {
   /**
    * A person's Check again: the build checked now, once the local
    * environment is ready, rather than at the next hourly check. Answers
-   * where the build is after; one already under way is waited for.
+   * where the build is after; one already under way is waited for. It
+   * reads the environment's `updates.status` again and never asks it to
+   * read its channel: a check failure that is the environment's own failed
+   * read stays until that environment's next read of its channel.
    */
   checkAgain(): Promise<DesktopBuildView>;
   /**
