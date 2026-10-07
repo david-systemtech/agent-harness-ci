@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { CHECK_BUDGET_SECONDS, type UpdateCheck, type UpdateCheckFailure, type UpdatesStatus } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
-import type { ChannelContext, ChannelReading, ChannelSettings, ReleaseChannelReader } from "./channel.js";
+import type { ChannelContext, ChannelFailure, ChannelReading, ChannelSettings, ReleaseChannelReader } from "./channel.js";
 import { readKeptTime, writeKeptTime } from "./kept-time.js";
 
 /**
@@ -16,9 +16,13 @@ import { readKeptTime, writeKeptTime } from "./kept-time.js";
  * does. A failed check is state, never a notice: `updates.status` shows
  * the last check with its reason, and the channel's newest, the target and
  * a release passed over as the last check that read the channel found
- * them. The Your machines step's `your-machines.release-channel` reads it:
- * it holds while auto-update is off (switched off, or a version pinned) or
- * a check succeeded in the last 24 hours. Before its first scheduled read,
+ * them. Update now's read of the channel (`updates.apply`) is shown as a
+ * check's, staging nothing of its own, so the newest it resolved the update
+ * against is the newest shown (#1774); a read never replaces what one that
+ * began after it found. The Your machines step's
+ * `your-machines.release-channel` reads it: it holds while auto-update is
+ * off (switched off, or a version pinned) or a check succeeded in the last
+ * 24 hours. Before its first scheduled read,
  * it reports pending through the startup delay and network budget (#1326),
  * then needs attention if no read completed. When the last one succeeded is
  * kept in the data directory (`RELEASE_CHANNEL_FILE`), so a restart, an
@@ -74,6 +78,8 @@ export interface ChannelChecks {
   check(): Promise<void>;
   /** The settings the target follows changed: a check now, or again once the one under way ends. */
   settingsChanged(): void;
+  /** Update now's read of the channel (`updates.apply`), which began `at`: shown as a check that found `read`, staging nothing. */
+  readByRequest(read: ChannelReading | ChannelFailure, at: Date): void;
   /** The Your machines step's `your-machines.release-channel`. */
   releaseChannelHolds(): StateCheckAnswer;
   /**
@@ -96,12 +102,49 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   let status: ChannelStatus = { newest: null, lastCheck: null, target: null, passedOver: null };
   let lastSucceededAt = readKeptTime(recordPath, LAST_SUCCEEDED, LAST_CHECK);
   let lastStartedAt: number | undefined;
+  /** When the read whose findings `status` shows began: one that began before it shows none of its own. */
+  let foundAt = Number.NEGATIVE_INFINITY;
+  /** When the read `status` shows as the last check began, failed or not: one that began before it is not the last check. */
+  let endedAt = Number.NEGATIVE_INFINITY;
   let firstCheckDueAt = clock.now().getTime() + FIRST_CHECK_MS;
   let running: Promise<void> | undefined;
   /** Whether the settings changed while a check was under way, which read them before. */
   let again = false;
   let stopped = false;
   const listeners = new Set<() => void>();
+
+  /** The failed check of a read that began `at`. */
+  const failedCheck = (at: Date, failure: { readonly reason: UpdateCheckFailure; readonly message: string }): UpdateCheck => ({ at: at.toISOString(), result: "failed", reason: failure.reason, message: failure.message });
+
+  /** The failed check of a read that began `at` and met a fault of the environment's own, such as a file it could not write. */
+  const faultCheck = (at: Date, error: unknown): UpdateCheck =>
+    failedCheck(at, { reason: "unreachable", message: `The check failed: ${error instanceof Error ? error.message : String(error)}` });
+
+  /** A read that began `at` found `reading`: its time kept, and its newest, target and release passed over shown unless a later read's are. */
+  const found = (at: Date, reading: ChannelReading): void => {
+    if (lastSucceededAt === undefined || at.getTime() > lastSucceededAt) {
+      lastSucceededAt = at.getTime();
+      writeKeptTime(recordPath, LAST_SUCCEEDED, lastSucceededAt, LAST_CHECK);
+    }
+    if (at.getTime() < foundAt) return;
+    foundAt = at.getTime();
+    status = { ...status, newest: reading.newest, target: reading.target, passedOver: reading.passedOver };
+  };
+
+  /** A read that began `at` ended as `lastCheck`, shown unless a later read's is; then the listeners hear it. */
+  const ended = (at: Date, lastCheck: UpdateCheck): void => {
+    if (at.getTime() >= endedAt) {
+      endedAt = at.getTime();
+      status = { ...status, lastCheck };
+    }
+    for (const listener of [...listeners]) {
+      try {
+        listener();
+      } catch (error) {
+        console.error("A listener to the release channel's checks threw:", error);
+      }
+    }
+  };
 
   const once = async (): Promise<void> => {
     const at = clock.now();
@@ -110,27 +153,16 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
       const settings = options.settings();
       const read = await channel.read(settings, await options.context());
       if (read.outcome === "failed") {
-        lastCheck = { at: at.toISOString(), result: "failed", reason: read.reason, message: read.message };
+        lastCheck = failedCheck(at, read);
       } else {
-        lastSucceededAt = at.getTime();
-        writeKeptTime(recordPath, LAST_SUCCEEDED, lastSucceededAt, LAST_CHECK);
-        status = { ...status, newest: read.newest, target: read.target, passedOver: read.passedOver };
+        found(at, read);
         const unstaged = await options.follow(read, settings);
-        lastCheck = unstaged === null ? { at: at.toISOString(), result: "ok" } : { at: at.toISOString(), result: "failed", ...unstaged };
+        lastCheck = unstaged === null ? { at: at.toISOString(), result: "ok" } : failedCheck(at, unstaged);
       }
     } catch (error) {
-      // A fault of the environment's own, such as a temporary file it could not write: the check failed, and says why.
-      const message = error instanceof Error ? error.message : String(error);
-      lastCheck = { at: at.toISOString(), result: "failed", reason: "unreachable", message: `The check failed: ${message}` };
+      lastCheck = faultCheck(at, error);
     }
-    status = { ...status, lastCheck };
-    for (const listener of [...listeners]) {
-      try {
-        listener();
-      } catch (error) {
-        console.error("A listener to the release channel's checks threw:", error);
-      }
-    }
+    ended(at, lastCheck);
   };
 
   /** Runs a check, or answers the one under way. */
@@ -160,6 +192,16 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
       if (stopped) return;
       if (running !== undefined) again = true;
       else void run();
+    },
+
+    readByRequest(read, at) {
+      if (read.outcome === "failed") return ended(at, failedCheck(at, read));
+      try {
+        found(at, read);
+      } catch (error) {
+        return ended(at, faultCheck(at, error));
+      }
+      ended(at, { at: at.toISOString(), result: "ok" });
     },
 
     releaseChannelHolds() {
