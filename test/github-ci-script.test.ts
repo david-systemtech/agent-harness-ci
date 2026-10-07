@@ -77,6 +77,7 @@ if 'api.github.com/' not in url:
     os.execv('/bin/sh', ['sh', os.environ['FAKE_DOWNLOAD_CURL'], *args])
 stage = ('artifacts' if '/artifacts?' in url else 'archive' if url.endswith('/zip') else
          'dispatch' if url.endswith('/dispatches') else
+         'contents' if '/contents/' in url else
          'discovery' if '?' in url else
          'logs' if url.endswith('/logs') else
          'jobs' if url.endswith('/jobs') else 'status')
@@ -135,8 +136,11 @@ elif stage == 'discovery':
         with open(os.environ['FAKE_LOG'], 'a') as log: log.write('retried reply\\n')
     out.write_text(json.dumps({'workflow_runs':[{'id':42, 'display_title':title}]}))
 elif stage == 'jobs':
-    out.write_text(json.dumps({'jobs':[{'id':7, 'name':'checks', 'conclusion':'failure',
+    out.write_text(os.environ.get('FAKE_JOBS') or json.dumps({'jobs':[{'id':7, 'name':'checks', 'conclusion':'failure',
                                       'steps':[{'name':'tests', 'conclusion':'failure'}]}]}))
+elif stage == 'contents':
+    import base64
+    out.write_text(json.dumps({'content':base64.b64encode(os.environ['FAKE_WORKFLOW'].encode()).decode()}))
 elif stage == 'logs':
     if out: out.write_text('test failure details\\n')
     else: print('test failure details')
@@ -147,7 +151,8 @@ else:
     if mode == 'reset' and count == 3:
         out.write_text(json.dumps({'status':'in_progress', 'conclusion':None}))
         sys.exit(0)
-    out.write_text(json.dumps({'status':'completed', 'conclusion':os.environ.get('FAKE_API_CONCLUSION', 'success')}))
+    out.write_text(json.dumps({'status':'completed', 'conclusion':os.environ.get('FAKE_API_CONCLUSION', 'success'),
+                               'head_sha':'0123456789abcdef0123456789abcdef01234567', 'path':'.github/workflows/ci.yml'}))
 `;
 
 interface Fixture {
@@ -414,6 +419,95 @@ describe("the relay's GitHub API", () => {
   });
 });
 
+
+// GitHub runs 37641730701 and 37655301851 (2026-10-07): every job passed, the
+// cleanup job never appeared and the run ended `failure`, its one annotation
+// GitHub's own "Internal server error" (#1816).
+describe("a hosted run GitHub fails with no failed job (#1816)", () => {
+  const WORKFLOW = `name: ci
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-24.04
+  root-user:
+    runs-on: ubuntu-24.04
+  # The relay pushed ci/<id> only so the commit could be checked out.
+  cleanup:
+    needs: [checks, test, root-user]
+    if: always()
+    runs-on: ubuntu-24.04
+`;
+  const passed = (...names: string[]) => JSON.stringify({ jobs: names.map((name, id) => ({ id, name, conclusion: "success", steps: [] })) });
+  const failedRun = async (jobs: string, env: NodeJS.ProcessEnv = {}) => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_CONCLUSION: "failure", FAKE_JOBS: jobs, FAKE_WORKFLOW: WORKFLOW, ...env });
+    const lines = (kind: string) => result.stdout.split("\n").filter((line) => line.startsWith(`::${kind}::`));
+    return { f, result, errors: lines("error"), warnings: lines("warning") };
+  };
+
+  it("passes ci once every job the verdict needs passed, reading them from the workflow at the run's commit", async () => {
+    const { f, result, errors, warnings } = await failedRun(passed("checks", "root-user", "test (1)", "test (2)", "test (3)"));
+    expect(errors).toEqual([]);
+    expect(result.code).toBe(0);
+    expect(warnings).toEqual([expect.stringContaining("GitHub ended the run as failed although none of its jobs failed")]);
+    expect(warnings[0]).toContain("cleanup never ran");
+    const contents = apiCalls(f).filter((call) => call.stage === "contents");
+    expect(contents.map((call) => call.args.at(-1))).toEqual([
+      "https://api.github.com/repos/david-systemtech/agent-harness-ci/contents/.github/workflows/ci.yml?ref=0123456789abcdef0123456789abcdef01234567",
+    ]);
+    expect(apiCalls(f).filter((call) => call.stage === "logs")).toEqual([]);
+  });
+
+  it.each([
+    ["a shard", passed("checks", "root-user", "test (1)", "test (2)"), "test (3)"],
+    ["the whole matrix", passed("checks", "root-user"), "test (1), test (2), test (3)"],
+    ["a job", passed("checks", "test (1)", "test (2)", "test (3)"), "root-user"],
+  ])("fails ci and names GitHub as the cause when %s the verdict needs never appeared", async (_, jobs, missing) => {
+    const { result, errors } = await failedRun(jobs);
+    expect(result.code).toBe(1);
+    expect(errors).toEqual([expect.stringContaining("GitHub ended the run as failed although none of its jobs failed")]);
+    expect(errors[0]).toContain(`never started: ${missing}`);
+    expect(errors[0]).toContain("run the job again");
+  });
+
+  it("fails ci when a job the verdict needs was skipped", async () => {
+    const jobs = JSON.stringify({ jobs: [...JSON.parse(passed("checks", "test (1)", "test (2)", "test (3)")).jobs, { id: 9, name: "root-user", conclusion: "skipped", steps: [] }] });
+    const { result, errors } = await failedRun(jobs);
+    expect(result.code).toBe(1);
+    expect(errors[0]).toContain("never started: root-user");
+  });
+
+  it("fails ci without guessing when the workflow's jobs cannot be read", async () => {
+    const { result, errors } = await failedRun(passed("checks", "root-user", "test (1)", "test (2)", "test (3)"), {
+      FAKE_WORKFLOW: WORKFLOW.replace("        shard: [1, 2, 3]\n", "        os: [linux]\n"),
+    });
+    expect(result.code).toBe(1);
+    expect(errors[0]).toContain("never started: (the jobs its workflow needs could not be read)");
+  });
+
+  it("fails any other event's run with the same cause named, reading no workflow", async () => {
+    const { f, result, errors } = await failedRun(passed("checks", "root-user", "test (1)", "test (2)", "test (3)"), { GH_CI_EVENT: "catalogue" });
+    expect(result.code).toBe(1);
+    expect(errors).toEqual([expect.stringContaining("GitHub ended the run as failed although none of its jobs failed")]);
+    expect(errors[0]).toContain("never started: (not read for a catalogue run)");
+    expect(apiCalls(f).filter((call) => call.stage === "contents")).toEqual([]);
+  });
+
+  it("still prints a failed job's steps and log when one failed", async () => {
+    const jobs = JSON.stringify({ jobs: [...JSON.parse(passed("checks", "root-user", "test (1)", "test (3)")).jobs,
+      { id: 7, name: "test (2)", conclusion: "failure", steps: [{ name: "tests", conclusion: "failure" }] }] });
+    const { result, errors } = await failedRun(jobs);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("test (2) failed at: tests");
+    expect(result.stdout).toContain("test failure details");
+    expect(errors).toEqual([expect.stringContaining("GitHub CI failure:")]);
+  });
+});
 
 describe("the advisory gallery relay", () => {
   it("publishes a valid ZIP whose held transfer takes 180 seconds, keeping JSON requests short", async () => {

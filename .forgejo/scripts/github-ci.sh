@@ -13,7 +13,8 @@
 # 2. Send a repository_dispatch carrying the sha, the id and a concurrency group.
 # 3. Find the run by its title, wait for it, and exit with its verdict. A failed
 #    run's failed steps are printed here, so the Forgejo log stays readable.
-#    The run's last job deletes ci/<id>.
+#    The run's last job deletes ci/<id>. A run GitHub failed with no failed job
+#    passes only when every job the verdict needs passed (#1816).
 #
 # The `smoke` event (.forgejo/workflows/smoke.yml) first checks that the hosted
 # smoke and release workflows installed on `workflows` are this commit's.
@@ -262,7 +263,46 @@ for _ in 1 2 3; do
   if reply=$(gh_get "$api/actions/runs/$run_id/jobs"); then break
   else transport_failure "$api/actions/runs/$run_id/jobs"; sleep 3; fi
 done
-printf '%s' "$reply" | python3 -c '
+printf '%s' "$reply" > "$gl/jobs.json"
+# GitHub sometimes ends a run as failed with none of its jobs failed: on 2026-10-07 two
+# ci runs' jobs all passed, the cleanup job never appeared and the run page's one
+# annotation was GitHub's "Internal server error" (#1816). A ci run still passes then
+# when every job the verdict needs passed: each job of the hosted ci workflow at the
+# run's commit but cleanup, which only deletes ci/<id> (the hosted sweep removes it).
+if [ "$conclusion" = failure ] && python3 -c '
+import json,sys
+sys.exit(any(j.get("conclusion") not in ("success","skipped") for j in json.load(open(sys.argv[1])).get("jobs",[])))' "$gl/jobs.json"; then
+  missing="(the jobs its workflow needs could not be read)"
+  [ "$event" = ci ] || missing="(not read for a $event run)"
+  read -r head_sha path < <(printf '%s' "$reply_run" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("head_sha") or "-", r.get("path") or "-")')
+  if [ "$event" = ci ] && workflow=$(gh_get "$api/contents/$path?ref=$head_sha"); then
+    printf '%s' "$workflow" > "$gl/workflow.json"
+    missing=$(python3 - "$gl/workflow.json" "$gl/jobs.json" <<'PYVERDICT'
+import base64,json,re,sys
+def needed(text):
+    jobs=re.split(r"^  ([A-Za-z0-9_-]+):[ \t]*$", text.partition("\njobs:\n")[2], flags=re.M)
+    names=[]
+    for job,body in zip(jobs[1::2],jobs[2::2]):
+        if job=="cleanup": continue
+        # A job named otherwise, or a matrix other than one shard list, is not read: nothing passes on a guess.
+        shards=re.search(r"^ {6}matrix:\n {8}shard: \[([0-9, ]+)\]\n(?! {8}\S)", body+"\n", re.M)
+        if re.search(r"^ {4}name:", body, re.M) or ("matrix:" in body and not shards): return []
+        names+=[f"{job} ({s.strip()})" for s in shards[1].split(",")] if shards else [job]
+    return names
+want=needed(base64.b64decode(json.load(open(sys.argv[1])).get("content","")).decode())
+passed={j.get("name") for j in json.load(open(sys.argv[2])).get("jobs",[]) if j.get("conclusion")=="success"}
+print(", ".join(n for n in want if n not in passed) if want else "(the jobs its workflow needs could not be read)")
+PYVERDICT
+    ) || missing="(the jobs its workflow needs could not be read)"
+  fi
+  if [ "$event" = ci ] && [ -z "$missing" ]; then
+    echo "::warning::GitHub ended the run as failed although none of its jobs failed; every job the verdict needs passed, so it passes (its cleanup never ran, and the hosted sweep deletes ci/$id): https://github.com/$repo/actions/runs/$run_id"
+    exit 0
+  fi
+  echo "::error::GitHub ended the run as failed although none of its jobs failed: GitHub failed the run itself (its run page names the error) and these jobs never started: $missing; run the job again: https://github.com/$repo/actions/runs/$run_id"
+  exit 1
+fi
+python3 -c '
 import json,sys
 try: jobs=json.load(sys.stdin).get("jobs",[])
 except ValueError: jobs=[]
@@ -270,7 +310,7 @@ for j in jobs:
     if j.get("conclusion") not in ("success","skipped"):
         bad=[s["name"] for s in j.get("steps",[]) if s.get("conclusion")=="failure"]
         print(j["id"], j["name"], "failed at:", ", ".join(bad) or j.get("conclusion"))
-' | while read -r job rest; do
+' < "$gl/jobs.json" | while read -r job rest; do
   echo "::group::$rest"
   gh_api --fail -L -o "$gl/job-$job.log" "$api/actions/jobs/$job/logs" ||
     { echo "::error::GitHub API transport failed: GET $api/actions/jobs/$job/logs (retries exhausted)"; exit 1; }
