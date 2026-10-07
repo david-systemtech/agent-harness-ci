@@ -558,6 +558,10 @@ describe("the status as update status prints it", () => {
     // An environment that predates the last read answers without it, as one before any read.
     const predating = UpdatesStatus.parse(JSON.parse(JSON.stringify({ ...base, lastCheck: null, newest: null, target: null, lastReadAt: undefined })));
     expect(renderUpdatesStatus(predating, now)).toContain("Channel's newest: not read yet\nLast check: never\n");
+    // The first check since the start read the channel and is staging what it found: under way, never "none since" (#1812).
+    const staging = renderUpdatesStatus({ ...base, lastCheck: null, newest: "0.5.0", lastReadAt: later }, now);
+    expect(staging).toContain(`Channel's newest: 0.5.0\nLast check: under way, the first since the environment started; it read the channel at ${later}\n`);
+    expect(staging).not.toContain("none since");
     // The first check since failed: the read is still due, and the last check is that one.
     expect(renderUpdatesStatus({ ...base, newest: null, target: null, lastReadAt: later }, now)).toContain(
       `Channel's newest: due, not read since the environment started; last read at ${later}\nLast check: ${at}, failed (unreachable): The forge did not answer.\n`,

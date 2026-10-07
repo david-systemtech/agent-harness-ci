@@ -345,7 +345,7 @@ export const UpdatesStatus = z
       .optional()
       .meta({
         description:
-          "When the last check that read the channel began, kept in the data directory across restarts; null before any did, absent from an environment that predates it. Before the first check since the environment started, newest and lastCheck are null while this says when the channel was last read (#1812).",
+          "When the last check that read the channel began, kept in the data directory across restarts; null before any did, absent from an environment that predates it. Until the first check since the environment started ends, lastCheck is null while this says when the channel was last read: before the start while newest is null, else by that check, which found newest and is staging it (#1812).",
       }),
     target: UpdateTarget.nullable().meta({
       description:
