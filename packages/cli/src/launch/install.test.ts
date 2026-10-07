@@ -427,6 +427,34 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
       expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
     });
 
+    it("tries nothing again once a rename back held past the bound has removed the version, refusing io for the sentinel's hold", async () => {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const versions = treeOf(join(dataDir, "versions"));
+      const timer = fakeTimer();
+      const { fs, backTries } = heldAfterRename(dataDir, Infinity, Infinity);
+      const { install, lines } = installer(dataDir, { fs, timer, platform: "win32" });
+      const answer = install("0.6.0", staged);
+      let settled = false;
+      void answer.then(() => (settled = true));
+      let waited = 0;
+      const retryWait = () => timer.pending().find((ms) => ms <= MOVE_RETRY_LONGEST_WAIT_MS);
+      while (!settled) {
+        await until("a try failed or the install was answered", () => settled || retryWait() !== undefined);
+        const wait = retryWait();
+        if (settled || wait === undefined) break;
+        waited += wait;
+        timer.run(wait);
+      }
+      expect(await answer).toEqual({ type: "refused", reason: "io" });
+      expect(waited).toBeLessThanOrEqual(MOVE_RETRY_MS);
+      expect(backTries()).toBeGreaterThan(1);
+      // The version was removed with its rename back, so the move itself is never tried again.
+      expect(lines.filter((line) => line.includes("could not be moved into") && line.includes("trying again"))).toEqual([]);
+      expect(lines.at(-1)).toBe(`refuses install? of 0.6.0 from ${staged}: io, as it could not be moved into ${join(dataDir, "versions")}: EPERM: operation not permitted, open the sentinel`);
+      expect(treeOf(join(dataDir, "versions"))).toEqual(versions);
+    });
+
     it("answers nothing and installs nothing when the launcher stops while it waits to try again", async () => {
       const dataDir = dataDirectory();
       const staged = stageVersion(dataDir, "0.6.0");

@@ -96,6 +96,19 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const noRoom = (error: unknown): boolean => ["ENOSPC", "EDQUOT"].includes((error as NodeJS.ErrnoException).code ?? "");
 
 /**
+ * A move's failure after which the version is in neither place: it could not
+ * be moved back to the staging area, so it was removed, and no try of the
+ * move can follow. It keeps the failure's message and code, which say why.
+ */
+class StagedVersionRemoved extends Error {
+  readonly code: string | undefined;
+  constructor(failure: unknown) {
+    super(messageOf(failure), { cause: failure });
+    this.code = (failure as NodeJS.ErrnoException).code;
+  }
+}
+
+/**
  * Whether `error` is Windows refusing to rename a folder while a file in it
  * is still held: the preflight's `node.exe`, which has exited but whose
  * image Windows releases a moment later, or a file just written that an
@@ -147,7 +160,8 @@ const inspectStaged = (dataDir: string, version: string, staged: string): { read
  * renamed into place and both directories put on disk, and the sentinel is
  * written last. A failure once it is renamed moves it back to the staging
  * area through `putBack` (preset: one try), or removes it when that fails,
- * so the versions directory is left as it was, and throws.
+ * so the versions directory is left as it was, and throws: the failure, or
+ * when it was removed, `StagedVersionRemoved` with the failure's words.
  */
 export const moveIntoVersions = async (
   dataDir: string,
@@ -172,6 +186,7 @@ export const moveIntoVersions = async (
       await putBack(() => fs.renameSync(target, staged));
     } catch {
       removeTreeSync(target, fs.rmSync.bind(fs));
+      throw new StagedVersionRemoved(error);
     }
     throw error;
   }
@@ -269,7 +284,7 @@ export const createInstaller = (options: InstallerOptions): Installer => {
         await step();
         return;
       } catch (error) {
-        if (stopped || !heldOnWindows(error, platform) || budget.waited + wait > MOVE_RETRY_MS) throw error;
+        if (stopped || error instanceof StagedVersionRemoved || !heldOnWindows(error, platform) || budget.waited + wait > MOVE_RETRY_MS) throw error;
         log(`${what}, as a file of it is still held (${messageOf(error)}); trying again in ${wait} ms`);
       }
       await pause(wait);
