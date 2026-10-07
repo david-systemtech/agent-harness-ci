@@ -70,7 +70,8 @@ export const TranscriptLine = ({ label, right = false, inset = right, time, chil
 export const TranscriptRowView = memo(({ row, facts }: { readonly row: TranscriptRow; readonly facts: RowFacts }) => {
   const user = row.kind === "user" && !environmentMessage(row.entry);
   const thinking = row.kind === "assistant" && row.entry.kind === "assistant-thinking";
-  const label = user ? <span className="text-beam-text">you</span> : thinking ? <span className="text-sage">thinking</span> : row.kind === "turn" ? "end" : row.kind === "user" ? "environment" : "";
+  // An environment message's bubble names it; its spine stays empty, since the 56 px column cannot hold "environment" (#1791).
+  const label = user ? <span className="text-beam-text">you</span> : thinking ? <span className="text-sage">thinking</span> : row.kind === "turn" ? "end" : "";
   return <div data-row-id={row.id}><TranscriptLine label={label} right={user} inset={row.kind === "user" || row.kind === "turn"} time={row.kind === "user" ? row.entry.sentAt : row.kind === "turn" ? row.run.endedAt ?? undefined : undefined}><RowBody row={row} facts={facts} /></TranscriptLine></div>;
 }, (before, after) => {
   // The projection creates row wrappers on each delta. Settled speech and user messages

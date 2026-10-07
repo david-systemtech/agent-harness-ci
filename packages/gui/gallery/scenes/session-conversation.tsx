@@ -19,6 +19,8 @@ export async function sessionScene(kind: "conversation" | "streaming" | "find") 
   else {
     env.emit(sessionId, "assistant.text", { runId, itemId: "reply", text, aborted: false });
     env.endRun(sessionId, runId, { durationMs: 2400 });
+    // A message the environment sent: its spine label must fit the 56 px column (#1791).
+    if (kind === "conversation") env.emit(sessionId, "message.sent", { runId, messageId: "0199aa00-0000-4000-8000-000000001791", text: "Check the receipt totals again after the update.", attachments: [], delivery: "prompt", heldBy: null, ceiling: "auto" }, { actor: { kind: "system", id: "updates" } });
   }
   await new Promise<void>((resolve) => {
     const ready = () => { if (projection.read().freshness === "live" && projection.read().items.some((item) => item.kind === "assistant-text")) { unsubscribe(); resolve(); } };
@@ -60,5 +62,5 @@ export default await sessionScene("conversation");
 /** Comfortable column: at most 920px, inside the 224px sidebar, 21px frame and 2px card border. */
 export const geometry = ({ width }: SceneViewport): readonly SceneGeometry[] => [
   { selector: '[aria-label="Transcript"] > div', width: Math.min(920, width - 247) },
-  { selector: '[data-measure="transcript-spine"]', width: 56 },
+  { selector: '[data-measure="transcript-spine"]', width: 56, contentFits: true },
 ];

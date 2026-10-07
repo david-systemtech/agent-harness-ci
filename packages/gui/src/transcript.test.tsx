@@ -705,4 +705,15 @@ describe("a run an update cut", () => {
     expect(within(message).getByText("Check the current state, then continue.")).toBeTruthy();
     expect(within(transcript).getAllByRole("article", { name: "Your message" })).toHaveLength(1);
   });
+
+  it("names an environment message once, in its bubble, and leaves its spine without a label", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "message.sent", { runId, messageId: "0199aa00-0000-4000-8000-000000000098", text: "Check the current state, then continue.", attachments: [], delivery: "prompt", heldBy: null, ceiling: "auto" }, { actor: { kind: "system", id: "updates" } });
+    const message = await within(transcript).findByRole("article", { name: "Environment message" });
+    const row = message.closest<HTMLElement>("[data-row-id]")!;
+    // The 56 px spine column cannot hold "environment"; it spilled into the bubble's own header.
+    expect(row.querySelector('[data-measure="transcript-spine"] > span')?.textContent).toBe("");
+    expect(within(row).getAllByText(/environment/i)).toHaveLength(1);
+  });
 });
