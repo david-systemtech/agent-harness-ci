@@ -1,7 +1,7 @@
 import type { SessionSummary, Workspace, WorkspaceRequest } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { SessionRow } from "../projections/session-list.js";
-import { baseName, heldWords, presetBranch, problemLine, repositoryWords, requestLabel, resolverRefusal, workspaceLabel, type RefusalPlace } from "./words.js";
+import { baseName, heldWords, presetBranch, problemLine, repositoryWords, requestLabel, resolverRefusal, workspaceLabel, workspaceName, type RefusalPlace } from "./words.js";
 
 /**
  * The workspace picker's words, as both renderers say them
@@ -43,6 +43,14 @@ describe("a workspace's name", () => {
     expect(workspaceLabel({ kind: "directory", path: "/home/david/harness" })).toBe("directory harness");
     expect(workspaceLabel({ kind: "worktree", path: "/data/worktrees/w1", repository: "/home/david/harness", branch: "fix/login" })).toBe("worktree harness on fix/login");
     expect(workspaceLabel({ kind: "scratch", path: "/data/scratch/s1" })).toBe("scratch");
+  });
+
+  it("names a recorded workspace by name alone: scratch as scratch, never its folder, and a worktree by its repository", () => {
+    expect(workspaceName({ kind: "scratch", path: "/data/scratch/ed7df0d1-d3f8-4864-b8f4-58b1ca593b10" })).toBe("scratch");
+    expect(workspaceName({ kind: "directory", path: "/home/david/harness" })).toBe("harness");
+    expect(workspaceName({ kind: "worktree", path: "/data/worktrees/w1", repository: "/home/david/harness", branch: "fix/login" })).toBe("harness");
+    expect(workspaceName({ kind: "directory", path: "/" })).toBe("/");
+    expect(workspaceName({ kind: "directory", path: "C:\\" })).toBe("C:");
   });
 
   it("gives a new worktree's branch the preset name from the session's id when it is not named one", () => {

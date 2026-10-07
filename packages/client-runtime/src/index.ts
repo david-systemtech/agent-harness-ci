@@ -214,6 +214,7 @@ export {
   requestLabel,
   resolverRefusal,
   workspaceLabel,
+  workspaceName,
   type RefusalPlace,
 } from "./workspaces/words.js";
 export type {

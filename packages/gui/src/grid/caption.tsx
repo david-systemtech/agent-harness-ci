@@ -1,4 +1,4 @@
-import { workspaceLabel } from "@agent-harness/client-runtime";
+import { workspaceLabel, workspaceName } from "@agent-harness/client-runtime";
 import type { Workspace } from "@agent-harness/contracts";
 import { ChevronRight, Folder, Info, Pencil, X } from "lucide-react";
 import { useFirstKey } from "../keys/key-dispatch.js";
@@ -122,7 +122,7 @@ const WorkspaceNote = ({ workspace }: { readonly workspace: Workspace }) => {
   const label = workspaceLabel(workspace);
   return (
     <span role="note" aria-label={`Workspace: ${label}`} title={workspace.path} className="flex min-w-0 shrink items-center gap-1 rounded-md bg-wash px-1.5 py-0.5 text-xs text-ink-muted">
-      <Folder aria-hidden="true" className="size-3 shrink-0" /><span className="truncate">{workspace.kind === "scratch" ? "scratch" : (workspace.kind === "worktree" ? workspace.repository : workspace.path).split(/[\\/]/).filter(Boolean).at(-1) ?? label}</span>
+      <Folder aria-hidden="true" className="size-3 shrink-0" /><span className="truncate">{workspaceName(workspace)}</span>
       {workspace.kind === "worktree" && <span className="max-w-20 shrink-0 truncate rounded-sm bg-wash-strong px-1 font-mono text-2xs">{workspace.branch}</span>}
     </span>
   );

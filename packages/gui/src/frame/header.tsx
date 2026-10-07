@@ -1,3 +1,4 @@
+import { workspaceName } from "@agent-harness/client-runtime";
 import { ChevronRight, PanelLeft, Search, Settings } from "lucide-react";
 import { useMemo } from "react";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
@@ -26,12 +27,12 @@ const SessionBreadcrumb = ({ session }: { readonly session: PaneSession }) => {
   const path = summary?.workspace.path;
   const { narrow } = usePhoneFrame();
   if (narrow) return <span data-header-session-title title={summary?.title ?? undefined} className="min-w-0 flex-1 truncate text-sm text-ink">{summary?.title ?? "Session"}</span>;
-  const workspace = path?.split(/[/\\]/).filter(Boolean).at(-1) ?? path ?? "No workspace";
+  const workspace = summary === null ? "No workspace" : workspaceName(summary.workspace);
   return <>
     {environment !== undefined && <span title={environment.name ?? undefined} className="flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-hairline px-1.5 text-xs text-ink-muted">
       <EnvironmentGlyph view={environment} /><span className="truncate">{environment.name ?? "This machine"}</span>
     </span>}
-    <span title={path ?? undefined} className="min-w-0 max-w-56 truncate text-xs text-ink-muted">{workspace}</span>
+    <span data-header-workspace title={path ?? undefined} className="min-w-0 max-w-56 truncate text-xs text-ink-muted">{workspace}</span>
     <ChevronRight aria-hidden="true" className="size-3 shrink-0 text-ink-faint" />
     <span data-header-session-title title={summary?.title ?? undefined} className="min-w-12 flex-1 truncate text-xs text-ink-muted">{summary?.title ?? "Session"}</span>
   </>;

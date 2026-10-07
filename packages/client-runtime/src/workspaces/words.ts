@@ -29,6 +29,22 @@ export const workspaceLabel = (workspace: Workspace): string => {
   }
 };
 
+/**
+ * A recorded workspace by its name alone, as a session's caption and the
+ * window's header say it (#1790): scratch as scratch, never its folder's
+ * identifier, a worktree by its repository, a directory by its own name.
+ */
+export const workspaceName = (workspace: Workspace): string => {
+  switch (workspace.kind) {
+    case "worktree":
+      return baseName(workspace.repository);
+    case "scratch":
+      return "scratch";
+    default:
+      return baseName(workspace.path);
+  }
+};
+
 /** A repository identity as a known directory shows it: without its scheme, which is always `https://`. */
 export const repositoryWords = (identity: string): string => identity.replace(/^https:\/\//, "");
 
