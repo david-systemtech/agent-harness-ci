@@ -10,11 +10,15 @@ import { completeVersions, VERSION_SENTINEL, versionDirectory, VERSIONS_DIRECTOR
  * rollback and the watch" and "Kept"): the database snapshots, which only a
  * rollback reads, and the versions no one will run. The launcher calls them
  * as a watch ends with no update pending, so no rollback can need a snapshot
- * and no version is being switched to. Nor is one half moved in: an install
- * waits only on its preflight, which runs in the staging area, and moves the
- * version into the versions directory, sentinel and all, in one synchronous
- * step, as this runs in one, and the launcher records it staged before any
- * timer can run again.
+ * and no version is being switched to. A version an install is moving in
+ * has no sentinel until the move's last step: the install waits on its
+ * preflight, which runs in the staging area, and moves the version in, sentinel
+ * and all, in one step, and the launcher records it staged before any timer
+ * can run again. On Windows a move that meets a file still held waits on the
+ * timer between tries (`install.ts`, up to `MOVE_RETRY_MS`): between them the
+ * version's folder is absent, or, while its rename back to the staging area
+ * waits, there without its sentinel, so a watch ending then may remove it and
+ * the install is refused `io`, to be asked for again.
  */
 
 /** How many versions before the active one a watch's end keeps, by precedence. */

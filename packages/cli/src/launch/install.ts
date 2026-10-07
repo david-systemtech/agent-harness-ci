@@ -146,9 +146,17 @@ const inspectStaged = (dataDir: string, version: string, staged: string): { read
  * install cut short left, no version) is removed, the staged folder is
  * renamed into place and both directories put on disk, and the sentinel is
  * written last. A failure once it is renamed moves it back to the staging
- * area, so the versions directory is left as it was, and throws.
+ * area through `putBack` (preset: one try), or removes it when that fails,
+ * so the versions directory is left as it was, and throws.
  */
-export const moveIntoVersions = (dataDir: string, version: string, staged: string, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): void => {
+export const moveIntoVersions = async (
+  dataDir: string,
+  version: string,
+  staged: string,
+  fs: DurableFs = nodeFs,
+  platform: NodeJS.Platform = process.platform,
+  putBack: (rename: () => void) => Promise<void> = async (rename) => rename(),
+): Promise<void> => {
   const target = versionDirectory(dataDir, version);
   // Only our last-written marker may complete a version, even if the artefact carried one.
   fs.rmSync(join(staged, VERSION_SENTINEL), { force: true });
@@ -161,7 +169,7 @@ export const moveIntoVersions = (dataDir: string, version: string, staged: strin
     writeFileDurably(join(target, VERSION_SENTINEL), "", fs, platform);
   } catch (error) {
     try {
-      fs.renameSync(target, staged);
+      await putBack(() => fs.renameSync(target, staged));
     } catch {
       removeTreeSync(target, fs.rmSync.bind(fs));
     }
@@ -248,25 +256,46 @@ export const createInstaller = (options: InstallerOptions): Installer => {
     });
 
   /**
-   * Moves `version` from `staged` into the versions directory
-   * (`moveIntoVersions`), trying again on Windows while a file of it is still
-   * held, for up to `MOVE_RETRY_MS`: true once it is in place, false when the
-   * launcher stopped first. Any other failure, or a hold past that, throws as
-   * the move did, the versions directory left as it was.
+   * Runs `step`, and on Windows while a file it touches is still held runs it
+   * again after a wait, logging `what` each time, the waits doubling from
+   * `MOVE_RETRY_FIRST_WAIT_MS` up to `MOVE_RETRY_LONGEST_WAIT_MS` for as long
+   * as `budget`'s waits, shared by one move's steps, stay within
+   * `MOVE_RETRY_MS`. Throws its last failure, or at once once the launcher
+   * has stopped.
    */
-  const move = async (version: string, staged: string): Promise<boolean> => {
-    let waited = 0;
+  const whileHeld = async (budget: { waited: number }, what: string, step: () => void | Promise<void>): Promise<void> => {
     for (let wait = MOVE_RETRY_FIRST_WAIT_MS; ; wait = Math.min(2 * wait, MOVE_RETRY_LONGEST_WAIT_MS)) {
       try {
-        moveIntoVersions(dataDir, version, staged, fs, platform);
-        return true;
+        await step();
+        return;
       } catch (error) {
-        if (!heldOnWindows(error, platform) || waited + wait > MOVE_RETRY_MS) throw error;
-        log(`${staged} could not be moved into ${versions} yet, as a file of it is still held (${messageOf(error)}); trying again in ${wait} ms`);
+        if (stopped || !heldOnWindows(error, platform) || budget.waited + wait > MOVE_RETRY_MS) throw error;
+        log(`${what}, as a file of it is still held (${messageOf(error)}); trying again in ${wait} ms`);
       }
       await pause(wait);
-      waited += wait;
+      budget.waited += wait;
+      if (stopped) throw new Error("The launcher stopped.");
+    }
+  };
+
+  /**
+   * Moves `version` from `staged` into the versions directory
+   * (`moveIntoVersions`), trying the move again on Windows while a file of
+   * it is still held, and so too the rename back to the staging area when
+   * the sentinel's write meets a hold after the rename, all within one
+   * `MOVE_RETRY_MS`: true once it is in place, false when the launcher
+   * stopped first. Any other failure, or a hold past that, throws as the
+   * move did, the versions directory left as it was.
+   */
+  const move = async (version: string, staged: string): Promise<boolean> => {
+    const budget = { waited: 0 };
+    const putBack = (rename: () => void) => whileHeld(budget, `${versionDirectory(dataDir, version)} could not be moved back to ${staged} yet`, rename);
+    try {
+      await whileHeld(budget, `${staged} could not be moved into ${versions} yet`, () => moveIntoVersions(dataDir, version, staged, fs, platform, putBack));
+      return true;
+    } catch (error) {
       if (stopped) return false;
+      throw error;
     }
   };
 

@@ -210,7 +210,7 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
     expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
   });
 
-  it("stages many small files on Windows with one sentinel flush, independent of the tree size", () => {
+  it("stages many small files on Windows with one sentinel flush, independent of the tree size", async () => {
     for (const count of [4, 1000]) {
       const dataDir = dataDirectory();
       const staged = stageVersion(dataDir, "0.6.0");
@@ -218,7 +218,7 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
       mkdirSync(payload);
       for (let index = 0; index < count; index++) writeFileSync(join(payload, `${index}.txt`), "payload");
       const { fs, calls } = recordingFs(dataDir);
-      moveIntoVersions(dataDir, "0.6.0", staged, fs, "win32");
+      await moveIntoVersions(dataDir, "0.6.0", staged, fs, "win32");
       expect(calls.filter((call) => call.startsWith("fsync "))).toEqual(["fsync versions/0.6.0/..complete (temporary)"]);
       expect(calls.indexOf("rename staging/0.6.0 to versions/0.6.0")).toBeLessThan(calls.indexOf("write versions/0.6.0/..complete (temporary)"));
       expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
@@ -226,7 +226,7 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
     }
   });
 
-  it("never promotes a bundled sentinel on Windows when writing the completion marker fails", () => {
+  it("never promotes a bundled sentinel on Windows when writing the completion marker fails", async () => {
     const dataDir = dataDirectory();
     const staged = stageVersion(dataDir, "0.6.0");
     writeFileSync(join(staged, ".complete"), "bundled");
@@ -239,7 +239,7 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
         if (from === staged) completeAtRename = completeVersions(dataDir).includes("0.6.0");
       },
     };
-    expect(() => moveIntoVersions(dataDir, "0.6.0", staged, fs, "win32")).toThrow("EIO");
+    await expect(moveIntoVersions(dataDir, "0.6.0", staged, fs, "win32")).rejects.toThrow("EIO");
     expect(completeAtRename).toBe(false);
     expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
     expect(readFileSync(join(staged, "packages", "cli", "package.json"), "utf8")).toContain("0.6.0");
@@ -360,6 +360,71 @@ describe.runIf(posix)("installing a staged version, without a launcher", () => {
         expect(tries(), `${code} on ${platform}`).toBe(1);
         expect(completeVersions(dataDir), `${code} on ${platform}`).toEqual(["0.5.0"]);
       }
+    });
+
+    /** A recording fs on which the sentinel's temporary file in versions/0.6.0 cannot be opened its first `sentinelTimes` tries, nor versions/0.6.0 renamed back its first `backTimes`, both with EPERM. */
+    const heldAfterRename = (dataDir: string, sentinelTimes: number, backTimes: number) => {
+      const recorded = recordingFs(dataDir);
+      const target = join(dataDir, "versions", "0.6.0");
+      let sentinelTries = 0;
+      let backTries = 0;
+      const held = (what: string) => Object.assign(new Error(`EPERM: operation not permitted, ${what}`), { code: "EPERM" });
+      const fs: DurableFs = {
+        ...recorded.fs,
+        openSync: (path, flags, mode) => {
+          if (path.startsWith(join(target, "..complete.")) && sentinelTries++ < sentinelTimes) throw held("open the sentinel");
+          return recorded.fs.openSync(path, flags, mode);
+        },
+        renameSync: (from, to) => {
+          if (from === target && backTries++ < backTimes) throw held("rename back");
+          recorded.fs.renameSync(from, to);
+        },
+      };
+      return { fs, backTries: () => backTries };
+    };
+
+    it("tries the rename back to the staging area again when the sentinel's write meets a hold after the rename, then the move, and installs", async () => {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const timer = fakeTimer();
+      const { fs, backTries } = heldAfterRename(dataDir, 1, 1);
+      const { install, lines } = installer(dataDir, { fs, timer, platform: "win32" });
+      const answer = install("0.6.0", staged);
+      // The rename back waits first, then the whole move, each from the first wait, on the one budget.
+      await until("the rename back failed", () => timer.pending().includes(MOVE_RETRY_FIRST_WAIT_MS));
+      timer.run(MOVE_RETRY_FIRST_WAIT_MS);
+      await until("the move failed", () => timer.pending().includes(MOVE_RETRY_FIRST_WAIT_MS));
+      timer.run(MOVE_RETRY_FIRST_WAIT_MS);
+      expect(await answer).toEqual({ type: "installed" });
+      expect(backTries()).toBe(2);
+      expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.6.0"]);
+      expect(lines.filter((line) => line.includes("trying again"))).toEqual([
+        `${join(dataDir, "versions", "0.6.0")} could not be moved back to ${staged} yet, as a file of it is still held (EPERM: operation not permitted, rename back); trying again in ${MOVE_RETRY_FIRST_WAIT_MS} ms`,
+        `${staged} could not be moved into ${join(dataDir, "versions")} yet, as a file of it is still held (EPERM: operation not permitted, open the sentinel); trying again in ${MOVE_RETRY_FIRST_WAIT_MS} ms`,
+      ]);
+    });
+
+    it("refuses io naming the sentinel's hold, not a missing folder, when the holds outlast the bound", async () => {
+      const dataDir = dataDirectory();
+      const staged = stageVersion(dataDir, "0.6.0");
+      const versions = treeOf(join(dataDir, "versions"));
+      const timer = fakeTimer();
+      const { fs } = heldAfterRename(dataDir, Infinity, 3);
+      const { install, lines } = installer(dataDir, { fs, timer, platform: "win32" });
+      const answer = install("0.6.0", staged);
+      let settled = false;
+      void answer.then(() => (settled = true));
+      const retryWait = () => timer.pending().find((ms) => ms <= MOVE_RETRY_LONGEST_WAIT_MS);
+      while (!settled) {
+        await until("a try failed or the install was answered", () => settled || retryWait() !== undefined);
+        const wait = retryWait();
+        if (settled || wait === undefined) break;
+        timer.run(wait);
+      }
+      expect(await answer).toEqual({ type: "refused", reason: "io" });
+      expect(lines.at(-1)).toBe(`refuses install? of 0.6.0 from ${staged}: io, as it could not be moved into ${join(dataDir, "versions")}: EPERM: operation not permitted, open the sentinel`);
+      expect(treeOf(join(dataDir, "versions"))).toEqual(versions);
+      expect(completeVersions(dataDir)).toEqual(["0.5.0"]);
     });
 
     it("answers nothing and installs nothing when the launcher stops while it waits to try again", async () => {
