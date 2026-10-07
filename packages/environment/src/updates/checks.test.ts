@@ -67,4 +67,15 @@ describe("Update now's read of the channel", () => {
       passedOver: null,
     });
   });
+
+  it("failed, does not keep a check that began before it and ends after it from showing the newest it found", async () => {
+    const { clock, checks, answer } = heldChecks();
+    const checking = checks.check();
+    clock.advance(1000);
+    checks.readByRequest({ outcome: "failed", reason: "unreachable", message: "The forge did not answer." }, clock.now());
+
+    await answer(reading("0.5.0"));
+    await checking;
+    expect(checks.status()).toMatchObject({ newest: "0.5.0", lastCheck: { at: SECOND_LATER.toISOString(), result: "failed", reason: "unreachable" } });
+  });
 });

@@ -102,8 +102,10 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   let status: ChannelStatus = { newest: null, lastCheck: null, target: null, passedOver: null };
   let lastSucceededAt = readKeptTime(recordPath, LAST_SUCCEEDED, LAST_CHECK);
   let lastStartedAt: number | undefined;
-  /** When the read whose findings `status` shows began: a read that began before it shows nothing. */
-  let shownAt = Number.NEGATIVE_INFINITY;
+  /** When the read whose findings `status` shows began: one that began before it shows none of its own. */
+  let foundAt = Number.NEGATIVE_INFINITY;
+  /** When the read `status` shows as the last check began, failed or not: one that began before it is not the last check. */
+  let endedAt = Number.NEGATIVE_INFINITY;
   let firstCheckDueAt = clock.now().getTime() + FIRST_CHECK_MS;
   let running: Promise<void> | undefined;
   /** Whether the settings changed while a check was under way, which read them before. */
@@ -124,15 +126,15 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
       lastSucceededAt = at.getTime();
       writeKeptTime(recordPath, LAST_SUCCEEDED, lastSucceededAt, LAST_CHECK);
     }
-    if (at.getTime() < shownAt) return;
-    shownAt = at.getTime();
+    if (at.getTime() < foundAt) return;
+    foundAt = at.getTime();
     status = { ...status, newest: reading.newest, target: reading.target, passedOver: reading.passedOver };
   };
 
   /** A read that began `at` ended as `lastCheck`, shown unless a later read's is; then the listeners hear it. */
   const ended = (at: Date, lastCheck: UpdateCheck): void => {
-    if (at.getTime() >= shownAt) {
-      shownAt = at.getTime();
+    if (at.getTime() >= endedAt) {
+      endedAt = at.getTime();
       status = { ...status, lastCheck };
     }
     for (const listener of [...listeners]) {
