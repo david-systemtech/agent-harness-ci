@@ -15,6 +15,15 @@ describe("a GitHub release run", () => {
     });
   });
 
+  it("builds a synthetic prerelease without publishing when a main merge's smoke calls it, whatever the caller's event (#1769)", () => {
+    for (const event of ["repository_dispatch", "push"]) {
+      expect(releaseRunOf({ GITHUB_EVENT_NAME: event, GITHUB_REF: "refs/heads/workflows", GITHUB_RUN_NUMBER: "7", RELEASE_SMOKE_SHA: "a".repeat(40) })).toEqual({
+        tag: "v0.0.0-ci.7", version: "0.0.0-ci.7", prerelease: true, publish: false,
+      });
+    }
+    expect(() => releaseRunOf({ GITHUB_EVENT_NAME: "repository_dispatch", RELEASE_SMOKE_SHA: "a".repeat(40) })).toThrow();
+  });
+
   it.each(["refs/heads/main", "refs/tags/1.2.3", "refs/tags/v01.2.3", "refs/tags/v1.2", "refs/tags/v1.2.3-beta.01", "refs/tags/v1.2.3+build.1"])("refuses %s before building or pushing an image", (ref) => {
     expect(() => releaseRunOf({ GITHUB_EVENT_NAME: "push", GITHUB_REF: ref })).toThrow();
   });

@@ -1,0 +1,51 @@
+# Install byte for byte as .github/workflows/smoke.yml on the agent-harness-ci
+# default branch (workflows), after review, beside public/.github-workflows/release.yml
+# installed byte for byte as .github/workflows/release.yml. The smoke relay
+# (.forgejo/workflows/smoke.yml) dispatches nothing while either differs from
+# the merge it relays (#1769).
+name: smoke
+run-name: smoke ${{ github.event.client_payload.sha }} ${{ github.event.client_payload.id }}
+on:
+  repository_dispatch:
+    types: [smoke]
+concurrency:
+  group: smoke-${{ github.event.client_payload.group }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  payload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check the payload
+        env:
+          SHA: ${{ github.event.client_payload.sha }}
+        run: '[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }'
+  # The release workflow's prepare, image, desktop and smoke jobs on the merge, with a synthetic
+  # version; it skips verify and suite, the merge's CI ran them, and with them every publishing job.
+  smoke:
+    needs: [payload]
+    # Its prepare, image-push and release jobs ask for these, used only when a tag publishes:
+    # a caller that grants less fails the whole run before any job starts.
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release.yml
+    with:
+      sha: ${{ github.event.client_payload.sha }}
+  cleanup:
+    needs: [payload, smoke]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Delete this run's ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_REF: ci/${{ github.event.client_payload.id }}
+        run: |
+          [[ "$RUN_REF" =~ ^ci/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad id"; exit 1; }
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
