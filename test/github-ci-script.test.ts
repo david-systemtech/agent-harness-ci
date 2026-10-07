@@ -206,9 +206,14 @@ const fixture = async (): Promise<Fixture> => {
 const apiFixture = async (): Promise<Fixture> => {
   const f = await fixture();
   const git = (await run("bash", ["-c", "command -v git"])).stdout.trim();
+  // A fetch from GitHub reads FAKE_WORKFLOWS_REPO, the relay repository's stand-in, instead.
   writeFileSync(join(f.bin, "git"), `#!/bin/sh
 for arg in "$@"; do
   if [ "$arg" = push ]; then echo 'git push' >> "$FAKE_LOG"; exit 0; fi
+done
+for arg in "$@"; do
+  shift
+  case $arg in https://github.com/*) echo "git fetch $arg" >> "$FAKE_LOG"; set -- "$@" "$FAKE_WORKFLOWS_REPO" ;; *) set -- "$@" "$arg" ;; esac
 done
 exec ${git} "$@"
 `, { mode: 0o755 });
@@ -462,6 +467,85 @@ describe("the advisory gallery relay", () => {
     }
     const dispatch = apiCalls(f).find((call) => call.stage === "dispatch");
     expect(dispatch?.args.join(" ")).toContain('"event_type": "gallery"');
+  });
+});
+
+describe("the smoke relay (#1769)", () => {
+  const HOSTED = { ".forgejo/github-workflows/smoke.yml": ".github/workflows/smoke.yml", "public/.github-workflows/release.yml": ".github/workflows/release.yml" };
+  /** The commit under test holds `tree`; the relay repository's `workflows` branch holds `installed`. */
+  const smokeFixture = async (tree: Record<string, string>, installed: Record<string, string>) => {
+    const f = await apiFixture();
+    const workflows = join(f.checkout, "..", "workflows");
+    for (const [repo, files] of [[f.checkout, tree], [workflows, installed]] as const) {
+      if (repo === workflows) await run("git", ["init", "-q", "-b", "workflows", repo]);
+      for (const [path, text] of Object.entries(files)) {
+        mkdirSync(join(repo, path, ".."), { recursive: true });
+        writeFileSync(join(repo, path), text);
+      }
+      await run("git", ["-C", repo, "add", "-A"]);
+      await run("git", ["-C", repo, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", "commit", "-q", "--allow-empty", "-m", "files"]);
+    }
+    return { ...f, env: { ...f.env, GH_CI_EVENT: "smoke", FAKE_WORKFLOWS_REPO: workflows } };
+  };
+  const errors = (stdout: string) => stdout.split("\n").filter((line) => line.startsWith("::error::"));
+  const tree = { ".forgejo/github-workflows/smoke.yml": "name: smoke\n", "public/.github-workflows/release.yml": "name: release\n" };
+
+  it("dispatches a smoke run once the relay repository's installed smoke and release workflows are this commit's, byte for byte", async () => {
+    const f = await smokeFixture(tree, { ".github/workflows/smoke.yml": "name: smoke\n", ".github/workflows/release.yml": "name: release\n", ".github/workflows/ci.yml": "name: ci\n" });
+    const result = await relay(f);
+    expect(errors(result.stdout)).toEqual([]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("GitHub run finished: success");
+    expect(readFileSync(f.log, "utf8")).toContain("git fetch https://github.com/david-systemtech/agent-harness-ci.git");
+    expect(apiCalls(f).find((call) => call.stage === "dispatch")?.args.join(" ")).toContain('"event_type": "smoke"');
+  });
+
+  it.each([
+    [".github/workflows/release.yml", { ".github/workflows/smoke.yml": "name: smoke\n", ".github/workflows/release.yml": "name: release \n" }],
+    [".github/workflows/release.yml", { ".github/workflows/smoke.yml": "name: smoke\n" }],
+    [".github/workflows/smoke.yml", { ".github/workflows/smoke.yml": "name: smoke # old\n", ".github/workflows/release.yml": "name: release\n" }],
+  ])("pushes and dispatches nothing while the installed %s differs from this commit's or is missing", async (path, installed) => {
+    const f = await smokeFixture(tree, installed);
+    const result = await relay(f);
+    expect(result.code).toBe(1);
+    const source = Object.entries(HOSTED).find(([, target]) => target === path)?.[0] ?? "";
+    expect(errors(result.stdout)).toEqual([expect.stringContaining(`${path} on its workflows branch is not this commit's ${source}`)]);
+    expect(readFileSync(f.log, "utf8")).not.toContain("git push");
+    expect(apiCalls(f)).toEqual([]);
+  });
+
+  it("relays each merge to main to the hosted smoke, which calls the release workflow with that commit and grants every permission its jobs ask for", () => {
+    const relayWorkflow = readFileSync(join(root, ".forgejo", "workflows", "smoke.yml"), "utf8");
+    expect(relayWorkflow).toMatch(/\non:\n {2}push:\n {4}branches: \[main\]\n(?: {2}#.*\n)? {2}workflow_dispatch:\n\n/);
+    expect(relayWorkflow).toContain("    runs-on: relay\n");
+    expect(relayWorkflow).toContain("          fetch-depth: 0\n");
+    expect(relayWorkflow).toContain("        run: bash .forgejo/scripts/github-ci.sh\n");
+    expect(relayWorkflow).toContain("          GH_CI_EVENT: smoke\n");
+    expect(relayWorkflow).toContain("          GROUP: ${{ github.sha }}\n");
+    const hosted = readFileSync(join(root, ".forgejo", "github-workflows", "smoke.yml"), "utf8");
+    expect(hosted).toContain("    types: [smoke]\n");
+    // The relay finds its run by this title.
+    expect(hosted).toContain("run-name: smoke ${{ github.event.client_payload.sha }} ${{ github.event.client_payload.id }}\n");
+    const call = /\n {2}smoke:\n([\s\S]*?)\n {2}[a-z]+:\n/.exec(hosted)?.[1] ?? "";
+    expect(call).toContain("    uses: ./.github/workflows/release.yml\n");
+    expect(call).toContain("      sha: ${{ github.event.client_payload.sha }}");
+    // A caller that grants a called job less than it asks for fails the whole run before it starts.
+    const release = readFileSync(join(root, "public", ".github-workflows", "release.yml"), "utf8");
+    const asked = new Set([...release.matchAll(/^ {6}([a-z-]+): write$/gm)].map((match) => match[1]));
+    expect([...asked].sort()).toEqual(["contents", "packages"]);
+    for (const scope of asked) expect(call).toContain(`      ${scope}: write\n`);
+    const cleanup = /\n {2}cleanup:\n([\s\S]*)$/.exec(hosted)?.[1] ?? "";
+    expect(cleanup).toContain("    if: always()\n");
+    expect(cleanup).toContain("RUN_REF: ci/${{ github.event.client_payload.id }}");
+    expect(cleanup).toContain('gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF"');
+  });
+
+  it("refuses a commit that has no hosted smoke workflow to compare", async () => {
+    const f = await smokeFixture({}, {});
+    const result = await relay(f);
+    expect(result.code).toBe(1);
+    expect(errors(result.stdout)).toEqual([expect.stringContaining(".github/workflows/smoke.yml on its workflows branch is not this commit's .forgejo/github-workflows/smoke.yml")]);
+    expect(apiCalls(f)).toEqual([]);
   });
 });
 

@@ -1,0 +1,44 @@
+# The release workflow's builds and platform smokes for each merge to main,
+# without publishing (#1769): the image, the macOS, Windows and Arch desktops
+# and their smokes, on GitHub's free public-repository runners in
+# david-systemtech/agent-harness-ci. This job is the relay, as ci.yml's: it
+# pushes the merge there, waits for the run and passes or fails with it
+# (.forgejo/scripts/github-ci.sh), so `smoke / smoke` on the merge commit is
+# that run's verdict and a red smoke is seen before a release, not after.
+#
+# The hosted side is .forgejo/github-workflows/smoke.yml, which calls
+# public/.github-workflows/release.yml. Both are installed by hand on
+# agent-harness-ci's `workflows` branch, and the relay fails at once, before
+# pushing anything, while either installed copy differs from the merge's own.
+
+name: smoke
+
+on:
+  push:
+    branches: [main]
+  # By hand on any branch, to see a deliberately failing smoke turn the check red.
+  workflow_dispatch:
+
+# Each merge is its own group, so every merge gets a verdict.
+concurrency:
+  group: smoke-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: relay
+    # The hosted run takes about 20 minutes; this leaves room for its queue,
+    # macOS runners above all.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Build and smoke the desktops on GitHub
+        run: bash .forgejo/scripts/github-ci.sh
+        env:
+          GH_CI_EVENT: smoke
+          GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+          FORGEJO_TOKEN: ${{ github.token }}
+          GROUP: ${{ github.sha }}
+          FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
