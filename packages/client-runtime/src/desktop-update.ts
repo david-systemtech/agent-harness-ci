@@ -3,7 +3,7 @@ import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/recor
 import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
-import type { Requests } from "./requests.js";
+import { CACHE_REFRESH_NOTICES, QUERY_REFRESH_NOTICES, type Requests } from "./requests.js";
 import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } from "./shell.js";
 
 /**
@@ -15,7 +15,11 @@ import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } f
  *   local environment is ready, and hourly after, through that environment
  *   and never the forge; while that environment has not read its channel
  *   since it started, the desktop says it waits for that read, never that
- *   its build is the newest, and looks again every 30 seconds (#1753). The
+ *   its build is the newest, and looks again every 30 seconds (#1753). It
+ *   looks again at once, too, when what the environment runs or found may
+ *   have changed: the environment ready again (the reconnect after its
+ *   restart for an update) or one of its notices after which
+ *   `updates.status` is read again (#1793). The
  *   release the desktop follows is the environment's pin, else its
  *   channel's newest as the environment's own check last found it
  *   (`updates.status`), or, while no newest is known and the last check has
@@ -37,7 +41,7 @@ import type { Shell, ShellApplyOutcome, ShellBundledServer, ShellStagedBuild } f
  *   over (`applyBundledServer`).
  */
 
-/** How often the desktop's build is checked after the check at launch. */
+/** How often the desktop's build is checked after the check at launch, when nothing says what is newest changed. */
 export const DESKTOP_CHECK_INTERVAL_MS = 60 * 60_000;
 
 /**
@@ -132,8 +136,10 @@ export interface DesktopUpdateHost {
 
 /** The runtime's side of the flow: the view and the calls, and its start and stop. */
 export interface DesktopUpdateFlow extends DesktopUpdate {
-  /** Starts following the local environment: the check at its first ready, and hourly. */
+  /** Starts following the local environment: the check at its first ready, at each ready after, and hourly. */
   start(): void;
+  /** A notice on the environment's own stream, heard as news: the local environment's update notices check the desktop's build again. */
+  noticed(environmentId: string, type: string): void;
   /** Stops the hourly check and forgets the local environment. */
   close(): void;
 }
@@ -146,6 +152,9 @@ const releasePageOf = (source: ReleaseSource): string => `${source.origin}/${sou
 
 /** Why the shell did not apply a staged build. */
 type ApplyFailure = Omit<Extract<ShellApplyOutcome, { readonly outcome: "failed" }>, "outcome">;
+
+/** The local environment's notices after which what it runs or found newest may have changed, so the desktop's build is checked again (#1793). */
+const STATUS_NOTICES: ReadonlySet<string> = new Set([...CACHE_REFRESH_NOTICES, ...(QUERY_REFRESH_NOTICES["updates.status"] ?? [])]);
 
 /** The update states in which an environment has an update under way to a version. */
 const PENDING_STATES: ReadonlySet<UpdatesStatus["pending"]["state"]> = new Set(["staging", "waiting", "ready", "draining", "switching"]);
@@ -177,9 +186,13 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   let stopRecords: (() => void) | undefined;
   let timer: Timer | undefined;
   let closed = false;
-  /** A check is due: at the start, and each hour after the last. */
+  /** A check is due: at the start, each hour after the last, and when what the local environment runs or found may have changed. */
   let due = true;
   let checking = false;
+  /** A look again was asked while a check ran: the next starts when it ends. */
+  let again = false;
+  /** Whether the local environment was ready when the connections last changed. */
+  let wasReady = false;
   /** The bundled server is looked at once per start. */
   let bundledLooked = false;
   /** The build last handed to the shell for the next quit. */
@@ -358,11 +371,28 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       .finally(() => {
         checking = false;
         if (closed) return;
+        if (again) {
+          again = false;
+          due = true;
+          checkIfDue();
+          return;
+        }
         timer = host.clock.setTimeout(() => {
           due = true;
           checkIfDue();
         }, next);
       });
+  };
+
+  /** What the local environment runs or found newest may have changed (#1793): the build is checked now, or as soon as the check under way ends, not at the hour. */
+  const lookAgain = (): void => {
+    if (checking) {
+      again = true;
+      return;
+    }
+    timer?.cancel();
+    due = true;
+    checkIfDue();
   };
 
   /** Looks at the bundled server once, at the local environment's first ready. */
@@ -397,12 +427,21 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
 
     start() {
       if (stopRecords !== undefined || closed) return;
+      wasReady = readyLocal() !== undefined;
       stopRecords = host.records.subscribe(() => {
-        checkIfDue();
+        const ready = readyLocal() !== undefined;
+        // Ready again, after its restart for an update or any reconnect: it may run another version, or have read its channel since.
+        if (ready && !wasReady) lookAgain();
+        else checkIfDue();
+        wasReady = ready;
         lookIfFirstReady();
       });
       checkIfDue();
       lookIfFirstReady();
+    },
+
+    noticed(environmentId, type) {
+      if (!closed && STATUS_NOTICES.has(type) && environmentId === readyLocal()) lookAgain();
     },
 
     close() {
