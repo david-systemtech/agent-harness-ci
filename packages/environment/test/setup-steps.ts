@@ -1,4 +1,5 @@
-import { STEP_REGISTRY, type RegisteredStepId, type Step } from "@agent-harness/contracts";
+import { EVENT_TYPES, STEP_REGISTRY, type RegisteredStepId, type Step, type StreamKind } from "@agent-harness/contracts";
+import type { EventLog } from "../src/event-log/event-log.js";
 import type { StateCheckAnswer } from "../src/permissions/step-checks.js";
 import type { CheckedStep, StateChecker } from "../src/setup/check.js";
 import type { SetupSteps } from "../src/setup/service.js";
@@ -102,3 +103,14 @@ export const scriptedStep = (id: RegisteredStepId, parts: Partial<Omit<Step, "id
  * cadence and on its triggers (#571), would add to.
  */
 export const NO_SETUP_STEPS: SetupSteps = { steps: [], stateChecks: {} };
+
+/**
+ * The types of the events appended after `head`, on every stream, but the
+ * release channel's check's: with no release source to read, the first
+ * check, two minutes after the start, fails and says so (#1795).
+ */
+export const appendedAfter = (log: EventLog, head: number): string[] =>
+  log
+    .readStream({ kinds: Object.keys(EVENT_TYPES) as StreamKind[] }, head)
+    .map(({ type }) => type)
+    .filter((type) => type !== "environment.channel-checked");

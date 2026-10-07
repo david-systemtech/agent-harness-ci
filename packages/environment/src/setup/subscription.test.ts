@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { lateCheck, scriptedStep } from "../../test/setup-steps.js";
+import { appendedAfter, lateCheck, scriptedStep } from "../../test/setup-steps.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import { PRESET_IDLE_WINDOW_MS } from "../serve/run-registry.js";
@@ -136,7 +136,7 @@ describe("setup.result-changed", () => {
     t.clock.advance(HOUR);
     const same = await check(client, "permissions");
     expect(same).toEqual({ ...first, checkedAt: after(HOUR) });
-    expect(t.env.log.head()).toBe(head);
+    expect(appendedAfter(t.env.log, head)).toEqual([]);
     expect((await snapshot(t, client)).setup?.find((result) => result.step === "permissions")).toEqual(same);
 
     // Then the denylist loses its presets: the new result is noticed, once.
@@ -146,7 +146,7 @@ describe("setup.result-changed", () => {
     expect(changed).toMatchObject({ state: "needs-attention", failing: ["permissions.denylist"], actions: ["restore"], checkedAt: after(HOUR + MINUTE) });
     await client.next(isSetupNotice(subscription));
     expect(noticed(client, subscription)).toEqual([changed]);
-    expect(t.env.log.head()).toBe(head + 1);
+    expect(appendedAfter(t.env.log, head)).toEqual(["setup.result-changed"]);
   });
 
   const work = { action: "sign-in-again", kind: "account", id: "account-work", label: "Work" } as const;
