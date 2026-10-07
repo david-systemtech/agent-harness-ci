@@ -268,6 +268,53 @@ describe("a notice", () => {
     await waitFor(() => expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull());
   });
 
+  it("of a prompt parked on the session the focused pane shows is left to its card, and shows again once another session is open", async () => {
+    const app = await twoEnvironments();
+    const laptop = app.environment("laptop");
+    await waitFor(() => expect(laptop.requests("environment.subscribe")).toHaveLength(1));
+    act(() => app.open("laptop"));
+    laptop.startRun(laptop.sessionId(0), "Split the parser");
+    laptop.openPrompt(laptop.sessionId(0), { kind: "permission", summary: "/etc/hostname" });
+    await waitFor(() => expect(app.runtime.projections.notices.read().map((notice) => notice.kind)).toEqual(["prompt-parked"]));
+    expect(await screen.findByRole("region", { name: "Permission request" })).toBeDefined();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Parked asks, 1 waiting" })).toBeDefined());
+    expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull();
+    act(() => app.open("desk"));
+    const banner = await bannerSaying("Parser is waiting on laptop: /etc/hostname");
+    await app.user.click(within(banner).getByRole("button", { name: "Open the session" }));
+    expect(app.shown()).toEqual({ environmentId: laptop.environmentId, sessionId: laptop.sessionId(0) });
+  });
+
+  it("of a prompt parked on the session the focused pane shows still shows in Settings, which covers the pane, and Open the session closes it", async () => {
+    const app = await twoEnvironments();
+    const laptop = app.environment("laptop");
+    await waitFor(() => expect(laptop.requests("environment.subscribe")).toHaveLength(1));
+    act(() => app.open("laptop"));
+    await app.user.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = await screen.findByRole("dialog", { name: "Settings" });
+    laptop.startRun(laptop.sessionId(0), "Split the parser");
+    laptop.openPrompt(laptop.sessionId(0), { kind: "permission", summary: "/etc/hostname" });
+    const banner = await bannerSaying("Parser is waiting on laptop: /etc/hostname");
+    expect(within(settings).getByRole("region", { name: "Notifications" }).contains(banner)).toBe(true);
+    await app.user.click(within(banner).getByRole("button", { name: "Open the session" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+    expect(await screen.findByRole("region", { name: "Permission request" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull();
+  });
+
+  it("of a prompt parked on another session offers to open it in the focused pane", async () => {
+    const app = await twoEnvironments();
+    const laptop = app.environment("laptop");
+    await waitFor(() => expect(laptop.requests("environment.subscribe")).toHaveLength(1));
+    act(() => app.open("desk"));
+    laptop.startRun(laptop.sessionId(0), "Split the parser");
+    laptop.openPrompt(laptop.sessionId(0), { kind: "permission", summary: "/etc/hostname" });
+    const banner = await bannerSaying("Parser is waiting on laptop: /etc/hostname");
+    await app.user.click(within(banner).getByRole("button", { name: "Open the session" }));
+    expect(app.shown()).toEqual({ environmentId: laptop.environmentId, sessionId: laptop.sessionId(0) });
+    expect(await screen.findByRole("region", { name: "Permission request" })).toBeDefined();
+  });
+
   it("clears restarted environments' obsolete draining banners while Settings is open", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");
