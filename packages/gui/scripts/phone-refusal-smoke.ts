@@ -136,6 +136,9 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await fits(page.getByRole("button", { name: /^Send/ }));
       await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
       // Saving the draft must not put other text in the field for a moment: emptied, the field collapses and the column loses its scroll.
+      // The environment has the draft; wait for the page to apply its echoes too (no new record for a second) before reading the log.
+      let records = -1;
+      await expect.poll(async () => records === (records = Number(await page.evaluate("globalThis.__phoneSmokeComposer.length"))), { timeout: 60_000, intervals: [1_000] }).toBe(true);
       const composer = String(await page.evaluate("JSON.stringify(globalThis.__phoneSmokeComposer)"));
       assert.deepEqual((JSON.parse(composer) as { text?: number }[]).filter(entry => entry.text !== undefined), [], `The composer kept the refused draft while it was saved: ${composer}`);
       await page.reload();

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { HelloFrame, RequestFrame, SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { accepted, byCommand, groupEvent, groupOf, rejected, sessionEvent, summaryOf } from "../test/events.js";
+import { accepted, added, byCommand, groupEvent, groupOf, rejected, sessionEvent, summaryOf } from "../test/events.js";
 import { subscription, type Scripted } from "../test/scripted.js";
 import { recordedSnapshot } from "../test/transcript.js";
 import { createRuntimeWithSeams } from "./internal.js";
@@ -1005,5 +1005,25 @@ describe("drafts", () => {
     await flush();
     expect(session.read().draft).toBe("Their draft");
     expect(row(runtime, sessionId)?.summary.draft).toBe("Their draft");
+  });
+
+  it("lets a deletion's overlay leave on the list alone while the session's stream is held live, since that stream ends rather than applying it", async () => {
+    const { runtime, wire, id, list } = await paired({ list: true });
+    const sessionId = randomUUID();
+    listed(list, 10, [summaryOf(sessionId)]);
+    wire.answer("sessions.subscribeSession", () => undefined);
+    onTestFinished(runtime.projections.session(id, sessionId).subscribe(() => undefined));
+    const stream = await subscription(wire, "sessions.subscribeSession");
+    stream.snapshot(10, { ...recordedSnapshot(), sequence: 10, summary: summaryOf(sessionId) });
+    stream.synchronized(10);
+    wire.answer("sessions.delete", () => answering(accepted(11)));
+    expect(await runtime.commands.dispatch(id, "sessions.delete", { sessionId })).toMatchObject({ ok: true });
+    list.event(sessionEvent(11, { op: "remove", sessionId }, "session.deleted"));
+    await flush();
+    expect(row(runtime, sessionId)).toBeUndefined();
+    // Restored elsewhere: the row comes back, so no hide overlay was left waiting on the session's stream.
+    list.event(sessionEvent(12, added(summaryOf(sessionId)), "session.restored"));
+    await flush();
+    expect(row(runtime, sessionId)).toBeDefined();
   });
 });
