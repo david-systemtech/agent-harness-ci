@@ -47,3 +47,10 @@ export const parseWebOrigin = (value: string | undefined): string | undefined =>
   } catch { /* The usage line covers malformed URLs too. */ }
   throw new UsageError("--web-origin takes a canonical HTTPS origin: lowercase host, no explicit default port, path, query or credentials.");
 };
+
+/** The header name the proxy in front of the web origin writes the client's address in (#1809), as HTTP spells a header name. */
+export const parseClientAddressHeader = (value: string | undefined): string | undefined => {
+  if (value === undefined) return undefined;
+  if (/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(value)) return value;
+  throw new UsageError(`--client-address-header takes a header name, such as X-Forwarded-For; got ${value}.`);
+};

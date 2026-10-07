@@ -62,6 +62,15 @@ this variable when `--web-origin` is absent; `service install` does not take
 `--web-origin`. Keep the same data directory and listener port. The foreground command above
 is an alternative to a running service, not a second environment on its port.
 
+Behind Serve every phone reaches the environment from `127.0.0.1`. For a
+request from loopback whose Host is the web origin's, the environment takes the
+client's address from the `X-Forwarded-For` header Serve sends, and its
+Tailscale login from `Tailscale-User-Login`: the Access log shows them, and
+each phone spends its own pairing rate limit. It never trusts those headers
+from a tailnet or LAN address. A proxy that writes the address in another
+header is named with `--client-address-header` or
+`AGENT_HARNESS_CLIENT_ADDRESS_HEADER`.
+
 Install Tailscale on the phone, join the same tailnet and connect. Open
 `https://<device>.<tailnet>.ts.net:8443/`. Tailnet encryption alone does not
 make `http://<address>:7433` a browser secure origin. Plain tailnet HTTP lacks

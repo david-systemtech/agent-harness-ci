@@ -29,7 +29,7 @@ import {
   type EnvironmentOptions,
   type PreflightSeams,
 } from "@agent-harness/environment";
-import { parseOptions, parsePort, parseWebOrigin, UsageError } from "./args.js";
+import { parseClientAddressHeader, parseOptions, parsePort, parseWebOrigin, UsageError } from "./args.js";
 import { BANK_USAGE, bank } from "./bank.js";
 import { BROWSER_USAGE, browser } from "./browser.js";
 import { harnessCommand } from "./harness-command.js";
@@ -65,7 +65,7 @@ const PAIR_HELP = [
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
-  `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>] [--web-origin <https-origin>]`,
+  `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>] [--web-origin <https-origin>] [--client-address-header <name>]`,
   `       ${PRODUCT_NAME} ${LAUNCH_USAGE}`,
   `       ${PRODUCT_NAME} ${PREFLIGHT_USAGE}`,
   `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
@@ -124,12 +124,15 @@ const given = (value: string | undefined): string | undefined => {
  * `serve`'s options. A new environment's name is `--name`, else
  * `AGENT_HARNESS_NAME`, and its channel `AGENT_HARNESS_CHANNEL` (#846): the
  * variables the published compose file passes into the container. Only the
- * start that creates the environment uses either.
+ * start that creates the environment uses either. The header the web
+ * origin's proxy forwards a client's address in is `--client-address-header`,
+ * else `AGENT_HARNESS_CLIENT_ADDRESS_HEADER` (#1809).
  */
-const parseServe = (args: readonly string[], env: Readonly<Record<string, string | undefined>>): Pick<EnvironmentOptions, "dataDir" | "port" | "name" | "channel" | "webOrigin"> => {
-  const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" }, "web-origin": { type: "string" } });
+const parseServe = (args: readonly string[], env: Readonly<Record<string, string | undefined>>): Pick<EnvironmentOptions, "dataDir" | "port" | "name" | "channel" | "webOrigin" | "clientAddressHeader"> => {
+  const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" }, "web-origin": { type: "string" }, "client-address-header": { type: "string" } });
   const port = parsePort(values.port, 0);
   const webOrigin = parseWebOrigin(values["web-origin"] ?? given(env["AGENT_HARNESS_WEB_ORIGIN"]));
+  const clientAddressHeader = parseClientAddressHeader(values["client-address-header"] ?? given(env["AGENT_HARNESS_CLIENT_ADDRESS_HEADER"]));
   const name = values.name ?? given(env[NEW_ENVIRONMENT_NAME_VARIABLE]);
   const channelValue = given(env[NEW_ENVIRONMENT_CHANNEL_VARIABLE]);
   let channel: ReleaseChannel | undefined;
@@ -144,6 +147,7 @@ const parseServe = (args: readonly string[], env: Readonly<Record<string, string
     ...(name !== undefined && { name }),
     ...(channel !== undefined && { channel }),
     ...(webOrigin !== undefined && { webOrigin }),
+    ...(clientAddressHeader !== undefined && { clientAddressHeader }),
   };
 };
 

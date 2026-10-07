@@ -2,7 +2,7 @@ import { renderUnicodeCompact } from "uqr";
 import { expect, it } from "vitest";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { runCli } from "./cli.js";
-import { parseWebOrigin, UsageError } from "./args.js";
+import { parseClientAddressHeader, parseWebOrigin, UsageError } from "./args.js";
 
 it("prints the canonical Phone link and QR with its exact limited grant", async () => {
   const environment = await startTestEnvironment({ webOrigin: "https://web.example:8443" });
@@ -26,4 +26,9 @@ it("explains the canonical spelling required for an HTTPS origin", () => {
   for (const value of ["https://WEB.example", "https://web.example:443"]) {
     expect(() => parseWebOrigin(value)).toThrow("canonical HTTPS origin");
   }
+});
+it("takes a header name for the client address behind the web origin's proxy, and refuses anything else", () => {
+  expect(parseClientAddressHeader(undefined)).toBeUndefined();
+  expect(parseClientAddressHeader("X-Real-IP")).toBe("X-Real-IP");
+  for (const value of ["", "X Real IP", "x-real-ip:", "x-real-ip\r\n"]) expect(() => parseClientAddressHeader(value)).toThrow("--client-address-header takes a header name");
 });
