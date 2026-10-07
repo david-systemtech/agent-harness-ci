@@ -19,8 +19,8 @@ export async function sessionScene(kind: "conversation" | "streaming" | "find") 
   else {
     env.emit(sessionId, "assistant.text", { runId, itemId: "reply", text, aborted: false });
     env.endRun(sessionId, runId, { durationMs: 2400 });
-    // A message the environment sent: its spine label must fit the 56 px column (#1791).
-    if (kind === "conversation") env.emit(sessionId, "message.sent", { runId, messageId: "0199aa00-0000-4000-8000-000000001791", text: "Check the receipt totals again after the update.", attachments: [], delivery: "prompt", heldBy: null, ceiling: "auto" }, { actor: { kind: "system", id: "updates" } });
+    // A continuation the environment sent, on the run it starts: its spine label must fit the 56 px column (#1791).
+    if (kind === "conversation") env.emit(sessionId, "message.sent", { runId: "0199a1ff-0000-4000-8000-000000001791", messageId: "0199aa00-0000-4000-8000-000000001791", text: "Check the receipt totals again after the update.", attachments: [], delivery: "prompt", heldBy: null, ceiling: "auto" }, { actor: { kind: "system", id: "updates" } });
   }
   await new Promise<void>((resolve) => {
     const ready = () => { if (projection.read().freshness === "live" && projection.read().items.some((item) => item.kind === "assistant-text")) { unsubscribe(); resolve(); } };
