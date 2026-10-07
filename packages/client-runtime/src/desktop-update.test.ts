@@ -155,6 +155,23 @@ describe("the desktop's own update", () => {
     expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
   });
 
+  it("is checked again when the local environment's check of its channel finds a newer release it takes no update for, auto-update off, not an hour later (#1795)", async () => {
+    const { desk, until, build } = await launch({
+      settings: { "updates.autoUpdate": false },
+      updates: { status: { version: RUNNING, newest: RUNNING, lastCheck: { at: "2026-10-07T10:13:00.000Z", result: "ok" } } },
+    });
+    await until(() => build().state === "current", "found the build current");
+
+    // The environment's hourly check finds 0.6.0 and, auto-update off, takes no update for it: it says only that it checked.
+    const lastCheck = { at: "2026-10-07T11:13:14.000Z", result: "ok" } as const;
+    desk.setUpdates({ status: { newest: "0.6.0", lastCheck }, desktopBuild: STAGED });
+    desk.notice("environment.channel-checked", { newest: "0.6.0", lastCheck });
+
+    await until(() => build().state === "ready", "staged the newest the environment's check found");
+    expect(build()).toEqual({ state: "ready", version: RUNNING, staged: STAGED });
+    expect(params(desk, "updates.desktop.stage")).toEqual([{ platform: "linux-x64", format: "pacman" }]);
+  });
+
   it("waits for the local environment's first read of its channel, never reporting the build newest, and stages the newer build as soon as that read lands (#1753)", async () => {
     const { clock, desk, until, build } = await launch();
     await until(() => build().state === "waiting", "waited for the environment's first check");

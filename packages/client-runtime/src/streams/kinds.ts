@@ -253,7 +253,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * `environment.icon-set` and `environment.colour-set` (#323). The other
  * notices are `environment.started`, `environment.updated` (harness
  * versions), `environment.draining`, an update's pending, started, failed
- * and cancelled (#335), `account.updated` (the account store, #134),
+ * and cancelled (#335), a check of the release channel that changed what
+ * `updates.status` shows (`environment.channel-checked`, #1795), `account.updated` (the account store, #134),
  * `signin.updated` and `signin.executable-chosen` (the sign-in director,
  * #135), `prompt.parked` and `prompt.resolved` (the permission broker,
  * #130), `usage.updated` (plan usage, #136), `settings.changed` (#391),
@@ -308,11 +309,13 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "usage.updated":
         return data;
       // An update's steps (#335): the status holds none of them, `updates.status` does (#342), and the notices queue says
-      // what is news (#344). The drain an update began is `environment.draining`'s.
+      // what is news (#344). The drain an update began is `environment.draining`'s. A check of the release channel that
+      // changed what `updates.status` shows (#1795) holds none either: the request cache reads it again.
       case "environment.update-pending":
       case "environment.update-started":
       case "environment.update-failed":
       case "environment.update-cancelled":
+      case "environment.channel-checked":
         return data;
       // A prompt's notices change no status: the parked asks (`projections.runs`) and the notices queue read them (#142).
       case "prompt.parked":
