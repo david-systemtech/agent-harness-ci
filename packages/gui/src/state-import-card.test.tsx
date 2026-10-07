@@ -157,10 +157,20 @@ describe("State import on Carry over", () => {
     await screen.findByRole("region", { name: "State import" });
     await app.user.click(section().getByRole("button", { name: "Import" }));
     await section().findByRole("heading", { name: "Import report" });
-    // Each profile is named by its label, its source id only in the tooltip (#1726).
+    // Each profile is named by its label (#1726); its source id waits under the line's Details, which the keyboard reaches (#1800).
     const shared = section().getByText(/shares a projects folder/);
     expect(shared.textContent).toBe("Work shares a projects folder with Personal: its sessions and memory carry once, with Personal, and not again with Work.");
-    expect(within(shared).getAllByTitle(/^Source id 00000000-0000-4000-8000-00000000000[12]$/).map((name) => name.textContent)).toEqual(["Work", "Personal", "Personal", "Work"]);
+    expect(section().queryByTitle(/Source id/)).toBeNull();
+    expect(section().queryByText(/00000000-0000-4000-8000/)).toBeNull();
+    const details = section().getByRole("button", { name: "Details" });
+    for (let presses = 0; presses < 200 && document.activeElement !== details; presses += 1) await app.user.tab();
+    expect(document.activeElement).toBe(details);
+    await app.user.keyboard("{Enter}");
+    const ids = section().getAllByRole("definition").filter((term) => term.textContent.startsWith("00000000"));
+    expect(ids.map((id) => [id.previousElementSibling?.textContent, id.textContent])).toEqual([
+      ["Work source id", "00000000-0000-4000-8000-000000000002"],
+      ["Personal source id", "00000000-0000-4000-8000-000000000001"],
+    ]);
     expect(section().getByText("Font size: 20 (source: 100)")).toBeDefined();
     const relaunched = await app.remount();
     expect(relaunched.presentation.values.read().textSize).toBe(20);
