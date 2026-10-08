@@ -196,6 +196,7 @@ export const accountSchemaFixtures: Record<string, Fixtures> = {
   "settings/keys/accounts.defaultAccount.json": { valid: [null, accountId, "claude-max"], invalid: ["", 3] },
   "settings/keys/accounts.defaultModelFamily.json": { valid: [null, "opus"], invalid: ["", false] },
   "settings/keys/accounts.defaultEffort.json": { valid: [null, "high"], invalid: ["", 2] },
+  "settings/keys/accounts.favouriteModels.json": { valid: [[], ["opus"], ["sonnet", "opus", "claude-fable-5"]], invalid: [null, [""], ["opus", "opus"], "opus", [2], Array.from({ length: 21 }, (_, index) => `model-${index}`)] },
 };
 
 /** Params and results for every account, model and command method. */
