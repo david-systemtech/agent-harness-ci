@@ -5,6 +5,7 @@ import {
   MANAGED_TOOL_COMMANDS,
   TOOL_COMMAND_PLATFORMS,
   VerifiableToolName,
+  documentedChoice,
   documentedCommand,
   installChoice,
   installedInstead,
@@ -28,7 +29,8 @@ import type { EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, PreparedCommand } from "../serve/methods.js";
 import type { ToolTerminals } from "../terminals/service.js";
-import { commandLine } from "./command-line.js";
+import { commandLine, confirmedLine } from "./command-line.js";
+import { drivenUpdate, heldBySystem } from "./detection.js";
 import type { ToolDoctor } from "./doctor.js";
 import { MANAGED_TOOLS_ACTOR, type ManagedTools } from "./registry.js";
 import type { ToolVerifier } from "./verify.js";
@@ -46,9 +48,15 @@ import type { ToolVerifier } from "./verify.js";
  *   the method the row detected (claude's native installer is its script),
  *   and on `claude` runs its `doctor` first, whose report the answer sets
  *   beside the detected method, which the run uses (ADR 0026: the realpath's
- *   shape is trusted over what doctor reports). Anything else (a Copy-only
- *   row, no method available here, `vault`'s Update) is `tool_not_runnable`,
- *   answering the vendor's documented command.
+ *   shape is trusted over what doctor reports); Scoop, mise and asdf name
+ *   the package the realpath is installed under where it is the tool's own
+ *   (`drivenUpdate`). Run in a terminal pane,
+ *   and Update of a tool installed by a method the table cannot drive here,
+ *   run the vendor's documented command (`documentedChoice`) held back
+ *   until a person presses Enter in the tool terminal (#1833). Anything
+ *   else (no method available here, no command for the tool on this
+ *   platform, `vault`'s Update) is `tool_not_runnable`, answering the
+ *   vendor's documented command where there is one.
  * - **One at a time.** Package managers lock, so one run per environment
  *   runs at a time; another is `conflict` `tool_run_in_progress` until the
  *   one under way has finished, even one the row would refuse, since the
@@ -144,39 +152,46 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
     return (program) => found.has(program);
   };
 
-  /** The vendor's documented command for `tool`, which a refusal answers for a person to copy (`documentedCommand`); null where the table has none here. */
-  const documented = (tool: ManagedToolName, installed: boolean, available: (program: string) => boolean): string | null => {
-    const command = tablePlatform === null ? null : documentedCommand(tool, installed, tablePlatform, available, commands);
+  /** The vendor's documented command for `tool` at `realpath`, which a refusal answers for a person to copy (`documentedCommand`); null where the table has none here. */
+  const documented = (tool: ManagedToolName, realpath: string | null, available: (program: string) => boolean): string | null => {
+    const command = tablePlatform === null ? null : documentedCommand(tool, realpath !== null && !heldBySystem(realpath), tablePlatform, available, commands);
     return command === null ? null : line(command);
   };
 
   /**
    * The entry and command that `action` of `tool` (the tool installed or
-   * updated), whose row is `row`, runs here; else why not, in a sentence.
+   * updated), whose row is `row`, runs here, and whether it waits for Enter
+   * first; else why not, in a sentence.
    */
   const choose = (
     tool: InstallableToolName,
     action: RunnableToolAction,
     row: ManagedToolRow,
     available: (program: string) => boolean,
-  ): { readonly entry: ToolCommandEntry; readonly command: ToolCommand } | string => {
+  ): { readonly entry: ToolCommandEntry; readonly command: ToolCommand; readonly confirmed: boolean } | string => {
     if (action === "install") {
       if (row.status !== "not-installed") return `${tool} is installed already, ${METHOD_WORDS[row.method ?? "unknown"]}: its row's action is ${row.action}.`;
       const entry = tablePlatform === null ? null : installChoice(tool, tablePlatform, available, commands);
       if (entry === null || entry.install === null) return `No way to install ${tool} is available on this environment: run the vendor's command yourself.`;
-      return { entry, command: entry.install };
+      return { entry, command: entry.install, confirmed: false };
     }
-    if (row.status === "not-installed" || row.method === null) return `${tool} is not installed on this environment: Install it.`;
-    const method = toolCommandMethodOf(row.method);
-    const entry = method === null || tablePlatform === null ? null : toolCommandEntry(tool, method, tablePlatform, commands);
-    return entry === null ? `The harness does not update ${tool} installed ${METHOD_WORDS[row.method]}: run the vendor's command yourself.` : { entry, command: entry.update };
+    if (row.status === "not-installed" || row.method === null || row.path === null || row.realpath === null) return `${tool} is not installed on this environment: Install it.`;
+    if (tablePlatform === null) return `The harness has no commands for ${platform}: update ${tool} the way it was installed.`;
+    const method = action === "update" ? toolCommandMethodOf(row.method) : null;
+    const entry = method === null ? null : toolCommandEntry(tool, method, tablePlatform, commands);
+    const command = entry === null ? null : drivenUpdate(entry, { path: row.path, realpath: row.realpath });
+    if (entry !== null && command !== null) return { entry, command, confirmed: false };
+    // Installed in a way the table does not drive here, or Run in a terminal pane asked: the vendor's command, once a person presses Enter,
+    // never a self-update over a file a system package manager may own.
+    const documented = documentedChoice(tool, !heldBySystem(row.realpath), tablePlatform, available, commands);
+    return documented === null ? `The harness has no command for ${tool} installed ${METHOD_WORDS[row.method]} here: update it the way it was installed.` : { ...documented, confirmed: true };
   };
 
   /** What `tools.run` of `tool`'s `action` runs here, read from its row, the PATH and the table. */
   const plan = async (tool: ManagedToolName, action: RunnableToolAction): Promise<Plan> => {
     const target = action === "install" ? installedInstead(tool) : tool;
     const [row, available] = await Promise.all([tools.row(target), availability()]);
-    const refused = (message: string): Plan => ({ kind: "refused", message, command: documented(target, row.status !== "not-installed", available) });
+    const refused = (message: string): Plan => ({ kind: "refused", message, command: documented(target, row.status === "not-installed" ? null : row.realpath, available) });
     if (target === "vault") return refused("The harness never installs or updates vault, which is under the Business Source License: Install bao instead.");
     const chosen = choose(target, action, row, available);
     if (typeof chosen === "string") return refused(chosen);
@@ -187,7 +202,7 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
       kind: "run",
       tool: target,
       method: chosen.entry.method,
-      command: line(chosen.command),
+      command: chosen.confirmed ? confirmedLine(chosen.command, platform) : line(chosen.command),
       doctor,
       env: path === undefined ? {} : { PATH: path },
       cwd: home ?? profile ?? homedir(),

@@ -33,9 +33,9 @@ export const ContextMeter = ({ facts }: { readonly facts: ContextFacts }) => {
     <Popover>
       <Tooltip content={`Context usage: ${detail}`}>
         <PopoverTrigger asChild>
-          <Button aria-label="Context usage" className="h-6 shrink-0 gap-1 px-1 text-xs font-normal [&_svg]:size-6">
-            <span>Ctx</span>
-            <svg role="img" aria-label={`Context: ${facts.percent === null ? "unknown" : `${facts.percent}%`}`} viewBox="0 0 36 36" className={`h-6 w-6 ${tone}`}>
+          <Button aria-label="Context usage" className="h-6 min-w-0 shrink gap-1 px-1 text-xs font-normal [&_svg]:size-6">
+            <span className="min-w-0 truncate">Context</span>
+            <svg role="img" aria-label={`Context: ${facts.percent === null ? "unknown" : `${facts.percent}%`}`} viewBox="0 0 36 36" className={`h-6 w-6 shrink-0 ${tone}`}>
               <circle cx="18" cy="18" r="16" fill="currentColor" fillOpacity="0.12" />
               <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="4" />
               <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeWidth="4" pathLength="100" strokeDasharray={`${facts.percent ?? 0} 100`} transform="rotate(-90 18 18)" className="transition-[stroke-dasharray] duration-300" />

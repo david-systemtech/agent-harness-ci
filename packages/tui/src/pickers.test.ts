@@ -243,13 +243,13 @@ describe("/model", () => {
     await command(app, "/model");
     await app.waitFor("Models for work on desk");
     await app.waitFor("Opus 4 (claude-opus-4)");
-    expect(app.rows().find((row) => row.includes("claude-opus-4"))).toMatch(/Opus 4 \(claude-opus-4\)\s+low · medium · high\s+this session/);
+    expect(app.rows().find((row) => row.includes("claude-opus-4"))).toMatch(/Opus 4 \(claude-opus-4\)\s+Low · Medium · High\s+this session/);
     expect(app.frame()).toContain("claude-haiku-4");
     await app.press(KEY.enter);
     await app.waitFor("Effort for Opus 4");
     await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("The next run of Receipts goes out on claude-opus-4 at high effort.");
-    await app.waitFor("claude-opus-4 high ·");
+    await app.waitFor("The next run of Receipts goes out on Opus 4 - High.");
+    await app.waitFor("Opus 4 - High ·");
 
     await app.type("go");
     await app.press(KEY.enter);
@@ -273,20 +273,20 @@ describe("/model", () => {
     await app.press(KEY.enter);
     await app.waitFor("Effort for Opus 4");
     await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("The next run of Receipts goes out on claude-opus-4 at high effort.");
+    await app.waitFor("The next run of Receipts goes out on Opus 4 - High.");
     // The session is on Opus 4 at high: Sonnet 4's high is not the session's, nor is its own effort.
     await command(app, "/model");
     await app.waitFor("Sonnet 4 (claude-sonnet-4)");
     await app.press(KEY.down, KEY.down, KEY.enter);
     await app.waitFor("Effort for Sonnet 4");
-    expect(app.rows().find((row) => row.includes("high"))).not.toContain("this session");
+    expect(app.rows().find((row) => row.includes("High"))).not.toContain("this session");
     expect(app.rows().find((row) => row.includes("the model's own"))).not.toContain("this session");
     // Opus 4's high still is.
     await app.press(KEY.esc);
     await app.waitFor("Models for work on desk");
     await app.press(KEY.up, KEY.up, KEY.enter);
     await app.waitFor("Effort for Opus 4");
-    expect(app.rows().find((row) => row.includes("high"))).toContain("this session");
+    expect(app.rows().find((row) => row.includes("High"))).toContain("this session");
   });
 });
 
@@ -900,6 +900,20 @@ describe("/setup", () => {
     expect(app.frame()).not.toContain("Action: Update gh");
     await app.press(KEY.enter);
     expect(env.requests("tools.run")).toEqual([]);
+  });
+
+  it("offers a tool update the table cannot drive, which runs in a tool terminal held until Enter (#1833)", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup", "managedTools"],
+      keyManagers: { tools: [{ tool: "gh", action: "terminal", method: "unknown", status: "method-unknown", command: "brew install gh" }] },
+      setup: { ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+        forges: { state: "needs-attention", reason: "gh needs attention.", actions: ["update"], targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }] },
+      },
+    })]);
+    await command(app, "/setup");
+    await app.waitFor("Action: Update gh");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => env.requests("tools.run").length === 1, "the update sent");
+    expect(env.requests("tools.run").map((request) => [request.params["tool"], request.params["action"]])).toEqual([["gh", "update"]]);
   });
 
   it("keeps unreachable results cached and stale without checking them", async () => {

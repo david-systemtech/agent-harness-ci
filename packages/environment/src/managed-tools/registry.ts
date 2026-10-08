@@ -23,7 +23,7 @@ import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { commandLine } from "./command-line.js";
-import { findOnPath, methodFromShape, versionIn, type FoundTool } from "./detection.js";
+import { drivenUpdate, findOnPath, heldBySystem, methodFromShape, versionIn, type FoundTool } from "./detection.js";
 import { LATEST_FILE, createLatestVersions, type ReleaseOrigins } from "./latest.js";
 import { readLoginPath } from "./login-path.js";
 import { systemPackageOwner, type PackageOwnerLookup } from "./package-owner.js";
@@ -46,9 +46,11 @@ import { runCommand } from "./run.js";
  * tool and the forge's `gh` read their rows here.
  *
  * A row's action is Update where the closed command table (#376) updates
- * the tool installed the way it was, else Copy, whose row carries the
- * vendor's documented command a refusal of `tools.run` would answer (#426);
- * Install for a tool not installed. After a tool run the registry probes
+ * the tool installed the way it was, else Run in a terminal pane, whose row
+ * carries the vendor's documented command (#426) that `tools.run` holds
+ * back in a tool terminal until a person presses Enter (#1833); Copy only
+ * for `vault`, which the harness never runs a command for; Install for a
+ * tool not installed. After a tool run the registry probes
  * again at once (`probeNow`), whatever the cadence, reading the PATH anew.
  *
  * Each installed tool's row carries its latest version (#374), cached in the
@@ -156,13 +158,14 @@ const statusOf = (tool: ManagedTool, { version, method }: Detected, latest: stri
 };
 
 /**
- * An installed tool's action: Update where the command table updates it
- * installed that way, on any platform (a method's shape says its platform),
- * else Copy the command; `vault`, which has no entry, is always Copy.
+ * Whether the command table updates `tool` installed by the method `found`
+ * says, on any platform (a method's shape says its platform), and the entry
+ * drives it where it was found (`drivenUpdate`); `vault`, which has no
+ * entry, never.
  */
-const actionOf = (commands: readonly ToolCommandEntry[], tool: ManagedToolName, method: ManagedToolInstallMethod): ManagedToolAction => {
-  const driven = toolCommandMethodOf(method);
-  return commands.some((entry) => entry.tool === tool && entry.method === driven) ? "update" : "copy";
+const drives = (commands: readonly ToolCommandEntry[], tool: ManagedToolName, found: Detected): boolean => {
+  const driven = toolCommandMethodOf(found.method);
+  return commands.some((entry) => entry.tool === tool && entry.method === driven && drivenUpdate(entry, found) !== null);
 };
 
 const notInstalled = (tool: ManagedTool): ManagedToolRow => ({
@@ -266,10 +269,10 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
     return { path: found.path, realpath: found.realpath, version, method };
   };
 
-  /** The vendor's documented command a Copy row of `tool` carries, with the programs on `pathValue` deciding which install the table would run. */
-  const copyCommand = (tool: ManagedToolName, pathValue: string): string | null => {
+  /** The vendor's documented command a terminal row of `tool` at `realpath` carries, with the programs on `pathValue` deciding which install the table would run. */
+  const copyCommand = (tool: ManagedToolName, realpath: string, pathValue: string): string | null => {
     const available = (program: string) => findOnPath(program, pathValue, { platform, ownResources: options.ownResources }) !== null;
-    const command = tablePlatform === null ? null : documentedCommand(tool, true, tablePlatform, available, commands);
+    const command = tablePlatform === null ? null : documentedCommand(tool, !heldBySystem(realpath), tablePlatform, available, commands);
     return command === null ? null : commandLine(command, platform);
   };
 
@@ -277,8 +280,9 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
   const rowOf = (tool: ManagedTool, found: Detected | null, pathValue: string): ManagedToolRow => {
     if (found === null) return notInstalled(tool);
     const known = latest.known(tool.name, found.method);
-    const action = actionOf(commands, tool.name, found.method);
-    const command = action === "copy" ? copyCommand(tool.name, pathValue) : null;
+    const driven = drives(commands, tool.name, found);
+    const command = driven ? null : copyCommand(tool.name, found.realpath, pathValue);
+    const action: ManagedToolAction = driven ? "update" : command === null ? "copy" : "terminal";
     return { ...notInstalled(tool), ...found, latest: known, status: statusOf(tool, found, known), action, command };
   };
 

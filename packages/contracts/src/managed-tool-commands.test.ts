@@ -8,7 +8,9 @@ import {
   TOOL_INSTALL_ORDER,
   TOOL_RUN_CONFLICT_REASONS,
   ToolCommand,
+  TOOL_PACKAGE_ARGUMENT,
   ToolCommandEntry,
+  documentedChoice,
   eventTypeEntry,
   installChoice,
   installedInstead,
@@ -16,6 +18,8 @@ import {
   registry,
   toolCommandEntry,
   toolCommandMethodOf,
+  updateCommand,
+  type ManagedToolInstallMethod,
   type ToolCommandEntry as Entry,
 } from "./index.js";
 
@@ -152,7 +156,7 @@ describe("the closed command table", () => {
     }
   });
 
-  it("drives Homebrew, WinGet, apt, dnf, npm and claude's native installer; manual, unknown, mise, asdf and Scoop are Copy only", () => {
+  it("drives every install method detection names but unknown: a package manager by its own, claude's native installer by its script (#1833)", () => {
     expect(Object.fromEntries((["homebrew", "winget", "apt", "dnf", "npm", "native", "manual", "unknown", "mise", "asdf", "scoop"] as const).map((method) => [method, toolCommandMethodOf(method)]))).toEqual({
       homebrew: "homebrew",
       winget: "winget",
@@ -160,12 +164,73 @@ describe("the closed command table", () => {
       dnf: "dnf",
       npm: "npm",
       native: "script",
-      manual: null,
+      manual: "manual",
       unknown: null,
-      mise: null,
-      asdf: null,
-      scoop: null,
+      mise: "mise",
+      asdf: "asdf",
+      scoop: "scoop",
     });
+  });
+
+  it("updates claude and bao however they were installed, on every platform the method exists on (#1833)", () => {
+    const everywhere = ["darwin", "linux", "win32"] as const;
+    const methodsOn: Record<"claude" | "bao", Partial<Record<ManagedToolInstallMethod, readonly (typeof TOOL_COMMAND_PLATFORMS)[number][]>>> = {
+      claude: { homebrew: ["darwin", "linux"], winget: ["win32"], scoop: ["win32"], mise: everywhere, asdf: ["darwin", "linux"], npm: everywhere, native: everywhere, manual: everywhere, apt: ["linux"], dnf: ["linux"] },
+      bao: { homebrew: ["darwin", "linux"], winget: ["win32"], scoop: ["win32"], mise: everywhere, asdf: ["darwin", "linux"], manual: everywhere, apt: ["linux"], dnf: ["linux"] },
+    };
+    for (const [tool, byMethod] of Object.entries(methodsOn) as [keyof typeof methodsOn, (typeof methodsOn)["claude"]][]) {
+      for (const [method, platforms] of Object.entries(byMethod) as [ManagedToolInstallMethod, readonly (typeof TOOL_COMMAND_PLATFORMS)[number][]][]) {
+        const driven = toolCommandMethodOf(method);
+        for (const platform of platforms) expect(driven === null ? null : toolCommandEntry(tool, driven, platform), `${tool} ${method} ${platform}`).not.toBeNull();
+      }
+    }
+    expect(said(entry("claude", "manual", "win32").update)).toBe("claude update");
+    expect(said(entry("doppler", "manual", "linux").update)).toBe("doppler update");
+  });
+
+  it("updates through Scoop, mise and asdf the package the tool was installed as, else the registry's name for it", () => {
+    const names = { claude: ["claude-code", "claude", "claude"], bao: ["openbao", "openbao", "openbao"], doppler: ["doppler", "doppler", "doppler"], op: ["1password-cli", "1password", "1password-cli"], bws: ["bws", "bitwarden-secrets-manager", "bitwarden-secrets-manager"], gh: ["gh", "github-cli", "github-cli"] } as const;
+    for (const [tool, [scoop, mise, asdf]] of Object.entries(names) as [keyof typeof names, readonly [string, string, string]][]) {
+      expect(said(updateCommand(entry(tool, "scoop", "win32"), null)), tool).toBe(`scoop update ${scoop}`);
+      expect(said(updateCommand(entry(tool, "mise", "linux"), null)), tool).toBe(`mise upgrade ${mise}`);
+      expect(said(updateCommand(entry(tool, "asdf", "darwin"), null)), tool).toBe(`asdf install ${asdf} latest && asdf set --home ${asdf} latest`);
+      for (const method of ["scoop", "mise", "asdf"] as const) expect(entry(tool, method, method === "scoop" ? "win32" : "linux").install, `${tool} ${method}`).toBeNull();
+    }
+    expect(toolCommandEntry("bao", "asdf", "win32")).toBeNull();
+    // The package its realpath names wins; a name that could be an option or a path never becomes an argument.
+    expect(said(updateCommand(entry("bao", "mise", "linux"), "bao-nightly"))).toBe("mise upgrade bao-nightly");
+    expect(said(updateCommand(entry("bao", "mise", "linux"), "--all"))).toBe("mise upgrade openbao");
+    expect(said(updateCommand(entry("bao", "homebrew", "linux"), "anything"))).toBe("brew upgrade openbao");
+    expect(MANAGED_TOOL_COMMANDS.filter((each) => words(each.update).includes(TOOL_PACKAGE_ARGUMENT)).every((each) => each.package !== undefined)).toBe(true);
+  });
+
+  it("updates a bare bao from OpenBao's release archive, checked against the release's checksums before it replaces the current binary where it is", () => {
+    const posix = entry("bao", "manual", "linux");
+    expect(posix).toEqual(entry("bao", "manual", "darwin"));
+    const [[[program, flag, script]]] = posix.update as [[[string, string, string]]];
+    expect([program, flag, posix.update.flat(2)]).toEqual(["sh", "-c", ["sh", "-c", script]]);
+    expect(script).toContain("command -v bao");
+    expect(script).toContain("openbao_${version}_${os}_${arch}.tar.gz");
+    expect(script).toContain("checksums.txt");
+    expect(script.indexOf("checksums")).toBeLessThan(script.indexOf("install -m 0755"));
+    const windows = entry("bao", "manual", "win32");
+    const [[[iex, line]]] = windows.update as [[[string, string]]];
+    expect(iex).toBe("iex");
+    expect(line).toContain("Get-FileHash -Algorithm SHA256");
+    expect(line).toContain("'_windows_'");
+    // The line reaches powershell.exe as one argument, where a double quote would be mangled.
+    expect(line).not.toContain('"');
+    expect(line.indexOf("Get-FileHash")).toBeLessThan(line.indexOf("Copy-Item"));
+  });
+
+  it("documents a command for a tool the table cannot drive: its bare binary's update, else its script's, else an install", () => {
+    const every = () => true;
+    expect(documentedChoice("bao", true, "linux", every)?.entry.method).toBe("manual");
+    expect(documentedChoice("doppler", true, "linux", every)?.entry.method).toBe("manual");
+    expect(documentedChoice("bws", true, "linux", every)?.entry.method).toBe("script");
+    expect(said(documentedChoice("gh", true, "linux", every)?.command ?? null)).toBe("brew install gh");
+    expect(documentedChoice("gh", false, "win32", every)?.entry.method).toBe("winget");
+    expect(documentedChoice("vault", true, "linux", every)).toBeNull();
   });
 
   it("offers bao's Install on vault's row, and nothing in vault's place for any other tool", () => {

@@ -26,9 +26,10 @@
       "type": "string",
       "enum": [
         "install",
-        "update"
+        "update",
+        "terminal"
       ],
-      "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+      "description": "What tools.run does: install (a tool not installed), update (one installed by a method the harness drives; for one it does not, as terminal) or terminal (the vendor's documented command, run in the tool terminal once a person presses Enter there); a Copy row runs nothing."
     },
     "id": {
       "type": "string",

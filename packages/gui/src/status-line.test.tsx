@@ -88,12 +88,12 @@ describe("the status line", () => {
 
   it("shows the environment's badge, the account's label and identity, model and effort, the mode badge and the containment default marked so", async () => {
     const { env, session } = await opened();
-    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "fable", effort: "high" });
     env.endRun(session, runId);
     const line = await screen.findByRole("region", { name: "Status line" });
     expect(await within(line).findByRole("button", { name: "Account: work milo@work.test" })).toBeTruthy();
     expect(within(line).getByText("desk")).toBeTruthy();
-    expect(within(line).getByRole("button", { name: "Model: claude-opus-4 high" }).textContent).toBe("claude-opus-4 high");
+    expect(within(line).getByRole("button", { name: "Model: Fable 5.1 - High" }).textContent).toBe("Fable 5.1 - High");
     expect(within(line).getByRole("button", { name: "Mode: auto" }).textContent).toBe("auto");
     expect(await within(line).findByRole("button", { name: "Containment: workspace (default)" })).toBeTruthy();
   });
@@ -192,7 +192,7 @@ describe("the plan gauge", () => {
     ] });
     await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
     const details = await screen.findByRole("dialog", { name: "Usage details" });
-    expect(await within(details).findByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
+    expect(await within(details).findByText("Current request context appears in the Context meter when supported.")).toBeTruthy();
     expect(within(statusLine()).queryByRole("img", { name: /^Ctx/ })).toBeNull();
   });
 
@@ -206,7 +206,7 @@ describe("the plan gauge", () => {
     expect(within(details).getByText("milo@work.test")).toBeTruthy();
     expect(within(details).getByText("80%")).toBeTruthy();
     expect(within(details).getByText(/2026-09-25T14:30:00/)).toBeTruthy();
-    expect(within(details).getByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
+    expect(within(details).getByText("Current request context appears in the Context meter when supported.")).toBeTruthy();
     await waitFor(() => expect(env.requests("accounts.usage").length).toBeGreaterThan(before));
     const age = within(details).getByLabelText("Reading age").textContent;
     act(() => app.clock.advance(60_000));
@@ -236,6 +236,20 @@ describe("the plan gauge", () => {
     const refused = within(gauge).getByRole("img", { name: "Weekly — out" });
     expect(refused.textContent).toBe("!");
     expect((refused.querySelector('[data-usage-arc]') as SVGCircleElement).style.strokeDasharray).toBe("100 100");
+  });
+
+  it("captions a weekly bucket by its model alone, keeps the window's name in the tooltip, and truncates rather than abbreviates", async () => {
+    const { env } = await opened();
+    env.setUsage([reading("account-1", WORK, [window("seven_day", 0.8, "2026-09-25T09:00:00.000Z"), window("model_scoped:fable", 0.95, "2026-09-25T09:00:00.000Z")])]);
+    const gauge = await within(statusLine()).findByRole("group", { name: "Plan usage" });
+    const fable = await within(gauge).findByText("Fable");
+    expect(within(gauge).getByText("Weekly")).toBeTruthy();
+    expect(within(gauge).queryByText(/^Weekly,/)).toBeNull();
+    expect(fable.className).toContain("truncate");
+    expect(within(gauge).getByRole("button", { name: "Usage details" }).className.split(" ")).not.toContain("shrink-0");
+    expect(within(gauge).getByRole("img", { name: "Weekly, Fable 95%" })).toBeTruthy();
+    act(() => within(gauge).getByRole("button", { name: "Usage details" }).focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Weekly 80% · Weekly, Fable 95%");
   });
 
   it("pools the session's account identity across two environments, each window from the reading that observed it last", async () => {
@@ -313,7 +327,7 @@ describe("run info", () => {
     expect(fact("Started by")).toBe("client, attended");
     await waitFor(() => expect(fact("Account")).toBe("work (milo@work.test)"));
     expect(fact("Model")).toBe("claude-opus-4");
-    expect(fact("Effort")).toBe("high");
+    expect(fact("Effort")).toBe("High");
     expect(fact("Mode")).toBe("auto, clamped from bypassPermissions to the ceiling auto");
     expect(fact("Containment")).toBe("workspace (the environment's default), enforced by bubblewrap");
     expect(fact("Tokens")).toBe("4.0k (1.5k in, 2.0k cache read, 0 cache write, 500 out)");
@@ -338,13 +352,20 @@ describe("current context meter", () => {
     const { app, env, session } = await opened([desk({ provider: { contextReadings: true }, models: [{ accountId: "account-1", models: [{ id: "claude-opus-4", family: "opus", tier: 1, label: null, efforts: [], contextWindow: 1000 }] }] })]);
     const meter = await within(statusLine()).findByRole("img", { name: "Context: unknown" });
     expect(meter.textContent).toBe("—");
+    const contextButton = within(statusLine()).getByRole("button", { name: "Context usage" });
+    expect(within(contextButton).getByText("Context").className).toContain("truncate");
+    expect(contextButton.className.split(" ")).not.toContain("shrink-0");
+    expect(within(statusLine()).queryByText("Ctx")).toBeNull();
+    act(() => contextButton.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Context usage: Context reading unknown");
+    act(() => contextButton.blur());
     const { runId } = env.startRun(session, "Check context");
     expect(await within(statusLine()).findByRole("img", { name: "Context: 0%" })).toBeTruthy();
     env.emit(session, "context.reported", { runId, model: "claude-opus-4", contextTokens: 800, contextWindow: null });
     expect(await within(statusLine()).findByRole("img", { name: "Context: 80%" })).toBeTruthy();
     await app.user.click(within(statusLine()).getByRole("button", { name: "Usage details" }));
     const planDetails = await screen.findByRole("dialog", { name: "Usage details" });
-    expect(within(planDetails).getByText("Current request context appears in the Ctx meter when supported.")).toBeTruthy();
+    expect(within(planDetails).getByText("Current request context appears in the Context meter when supported.")).toBeTruthy();
     expect(within(planDetails).queryByText(/Context tokens are not reported/)).toBeNull();
     await app.user.keyboard("{Escape}");
     await app.user.click(within(statusLine()).getByRole("button", { name: "Context usage" }));

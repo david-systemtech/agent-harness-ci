@@ -1,3 +1,4 @@
+import { usageWindowMeterLabel } from "@agent-harness/contracts";
 import { elapsedClock, gaugeOf, gaugeWho, meterReadingsOf, NO_PLAN_READING, NO_WINDOWS_READ, readingsOf, type UsageGauge, type UsageView } from "@agent-harness/client-runtime";
 import { Gauge, RefreshCw } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
@@ -15,12 +16,12 @@ export const UsageMeter = ({ environmentId, accountId }: { readonly environmentI
   const refresh = () => {
     for (const id of new Set([environmentId, ...(gauge?.accounts.map((account) => account.environmentId) ?? [])])) runtime.requests.refresh(id, "accounts.usage", {});
   };
-  return <span role="group" aria-label="Plan usage" className="ml-auto flex shrink-0 items-center">
+  return <span role="group" aria-label="Plan usage" className="ml-auto flex min-w-0 items-center">
     <Popover open={open} onOpenChange={(shown) => { setOpen(shown); if (shown) refresh(); }}>
       <Tooltip content={readings.map((reading) => `${reading.label} ${reading.value}`).join(" · ") || "Usage details"} keys="Enter to open">
         <PopoverTrigger asChild>
-          <Button aria-label="Usage details" className="h-auto gap-2 rounded-md px-0 py-0 text-2xs [&_svg]:size-6">
-            {readings.length === 0 ? <Gauge aria-hidden="true" /> : readings.map((reading) => <span key={reading.window} className="flex items-center gap-1">{reading.label} <UsageRing reading={reading} /></span>)}
+          <Button aria-label="Usage details" className="h-auto min-w-0 shrink gap-2 rounded-md px-0 py-0 text-2xs [&_svg]:size-6">
+            {readings.length === 0 ? <Gauge aria-hidden="true" /> : readings.map((reading) => <span key={reading.window} className="flex min-w-0 items-center gap-1"><span className="min-w-0 truncate">{usageWindowMeterLabel(reading.window)}</span> <UsageRing reading={reading} /></span>)}
           </Button>
         </PopoverTrigger>
       </Tooltip>
@@ -53,7 +54,7 @@ const UsageDetails = ({ environmentId, gauge, usage, refresh }: { readonly envir
     </div>)}
     {age !== null && <p aria-label="Reading age" className="text-ink-faint">Read {elapsedClock(age)} ago{age >= 360_000 ? " · stale" : ""} · <time dateTime={gauge?.readAt}>{gauge?.readAt}</time></p>}
     {sources.filter((answer) => answer.error !== null).map((answer) => <p key={answer.environmentId} className="text-amber">{answer.error?.message}</p>)}
-    <p className="text-ink-faint">Current request context appears in the Ctx meter when supported.</p>
+    <p className="text-ink-faint">Current request context appears in the Context meter when supported.</p>
     <Tooltip content="Refresh usage" keys="Enter to refresh"><Button aria-label="Refresh usage" className="h-6 gap-1 self-start px-2 text-xs [&_svg]:size-3" onClick={refresh}><RefreshCw aria-hidden="true" />Refresh</Button></Tooltip>
   </section>;
 };

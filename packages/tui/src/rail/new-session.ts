@@ -1,4 +1,4 @@
-import { ACCOUNT_STATUS_WORDS, identityWords, requestLabel, type EnvironmentView, type NewSessionChips, type NewSessionFocus, type NewSessionView, type Observable } from "@agent-harness/client-runtime";
+import { ACCOUNT_STATUS_WORDS, identityWords, modelDisplayName, modelName, requestLabel, type EnvironmentView, type NewSessionChips, type NewSessionFocus, type NewSessionView, type Observable } from "@agent-harness/client-runtime";
 import type { AccountRecord, ModelEntry } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import { browserPicker } from "./browser.js";
@@ -36,9 +36,10 @@ export interface CardOpening {
 
 /** An account as its chip says it; "…" while the environment's accounts are being read. */
 const accountWords = (view: NewSessionView, reading: boolean): string => view.account.value?.label ?? (reading ? "…" : "none");
+/** A model as its chip says it: its display name alone, as the chip line holds every chip on one row. */
 const modelWords = (view: NewSessionView, reading: boolean): string => {
   const model = view.model.value;
-  return model !== null ? (model.label ?? model.id) : reading ? "…" : "none";
+  return model !== null ? modelDisplayName(model.id, model.label) : reading ? "…" : "none";
 };
 
 /** The projection marks the browser chip, including the account's reach preset. */
@@ -196,7 +197,7 @@ const modelStep = (acts: RailActs, view: EnvironmentView, projection: Projection
       return projection.read().model.options.map(
         (model: ModelEntry): PickerRow => ({
           key: `model:${model.id}`,
-          text: model.label ?? model.id,
+          text: modelName(model),
           detail: model.id === chosen ? `${model.family} · the card's now` : model.family,
           choose: () => reopen({ ...chips, model: model.id }),
         }),

@@ -86,7 +86,10 @@ export const toolsVerify = defineMethod({
  * (`MANAGED_TOOL_COMMANDS`): Install the first method available here, in
  * the order Homebrew, WinGet, the vendor's apt or dnf repository, the
  * vendor's script; Update the method the tool's row says it was installed
- * by. `vault` is never installed: its Install runs `bao`'s. Update on
+ * by. Run in a terminal pane (`terminal`), and Update of a tool installed
+ * by a method the table cannot drive, run the vendor's documented command
+ * (`documentedChoice`) in the tool terminal once a person presses Enter
+ * there (#1833). `vault` is never installed: its Install runs `bao`'s. Update on
  * `claude` runs its `doctor` first (`tools.detail`), whose report the
  * answer carries beside the method the row detected. The terminal streams
  * through `terminals.subscribe` and takes a `sudo` password through
@@ -97,8 +100,9 @@ export const toolsVerify = defineMethod({
  * raising `tools.updated`) and verified, and `tool.run-finished` appended
  * with the exit code and the verification.
  *
- * A Copy-only row, a tool no method available here installs, or `vault`'s
- * Update is `tool_not_runnable`, answering the vendor's documented command.
+ * A tool no method available here installs, one the table has no command
+ * for on this platform, or `vault`'s Update is `tool_not_runnable`,
+ * answering the vendor's documented command where there is one.
  * One tool run per environment runs at a time, since package managers
  * lock: another while one is under way, even one the row would refuse, is
  * `conflict` reason `tool_run_in_progress`, naming its tool and terminal.

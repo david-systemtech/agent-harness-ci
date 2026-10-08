@@ -6,6 +6,7 @@ import {
   handedOffAlreadyWords,
   handingOffWords,
   identityWords,
+  modelName,
   oneLine,
   readingWords,
 } from "@agent-harness/client-runtime";
@@ -155,7 +156,7 @@ export const HandoffPicker = ({ environmentId, sessionId, at = null, signIn, clo
                       <span className="text-xs text-ink-faint">{notes.join(" · ")}</span>
                     </span>
                     {reading !== undefined && <span className="text-xs text-ink-faint">{reading}</span>}
-                    {models !== undefined && <span className="font-mono text-xs text-ink-muted">Models: {models.length === 0 ? "none available" : models.map((model) => model.label ?? model.id).join(", ")}</span>}
+                    {models !== undefined && <span className="font-mono text-xs text-ink-muted">Models: {models.length === 0 ? "none available" : models.map(modelName).join(", ")}</span>}
                     {blocked !== undefined && <span className="text-xs text-signal">{blocked}</span>}
                   </button>
                   </span>
