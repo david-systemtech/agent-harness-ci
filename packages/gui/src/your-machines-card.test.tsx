@@ -285,8 +285,10 @@ describe("the Your machines step in Set up", () => {
     await app.user.selectOptions(channel, "beta");
     await waitFor(() => expect(desk.settings()["updates.channel"]).toBe("beta"));
 
-    expect(within(more).getByText("Leaves Set up")).toBeDefined();
-    await app.user.click(within(more).getByRole("button", { name: "All settings for this computer" }));
+    // The step's status has its own Open in Settings with the same hint: this one is beside All settings.
+    const allSettings = within(more).getByRole("button", { name: "All settings for this computer" });
+    expect(within(allSettings.parentElement as HTMLElement).getByText("Leaves Set up")).toBeDefined();
+    await app.user.click(allSettings);
     expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
     const settings = screen.getByRole("region", { name: "Settings" });
     expect(within(settings).getByRole("region", { name: "Your machines" })).toBeDefined();
