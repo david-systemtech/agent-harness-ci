@@ -74,7 +74,10 @@ export const createHostUpdaterPolls = (options: HostUpdaterPollsOptions): HostUp
     holds() {
       if (!managedOutside || within(HOST_UPDATER_FRESH_MS)) return true;
       if (lastPollAt === undefined) {
-        return { reason: "The host-side updater has not polled this container yet: install it on the Docker host, where it runs every five minutes, so the container is updated." };
+        return {
+          reason: "The host-side updater has not polled this container yet: install it on the Docker host, where it runs every five minutes, so the container is updated.",
+          actions: ["how-to-set-up", "check-again"],
+        };
       }
       // The poll's time as data, which a client words where it is; the reason's own words for it stand for one that does not (#1742).
       const at = new Date(lastPollAt).toISOString();
@@ -82,6 +85,8 @@ export const createHostUpdaterPolls = (options: HostUpdaterPollsOptions): HostUp
       return {
         reason: `The host-side updater last polled ${when}: check that it still runs on the Docker host, every five minutes, so the container is updated.`,
         times: [{ text: when, at }],
+        // It has polled, so it is set up: no How to set it up (#1883).
+        actions: ["check-again"],
       };
     },
   };
