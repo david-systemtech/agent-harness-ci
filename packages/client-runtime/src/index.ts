@@ -674,7 +674,7 @@ export {
   type ClientSessionSummary,
 } from "./access/words.js";
 export { readAccessLog, revokeSession, setSessionCeiling, setSessionAccess, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
-export { ceilingAboveOwn, offeredPresets, type OfferedPreset, type OfferedPresets } from "./access/presets.js";
+export { CEILING_CHOICES, CANNOT_GIVE_MORE, SCOPE_TICKS, ceilingAboveOwn, offeredPresets, type CeilingChoice, type OfferedPreset, type OfferedPresets } from "./access/presets.js";
 export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.js";
 export {
   bundledClaudeCodeWords,
