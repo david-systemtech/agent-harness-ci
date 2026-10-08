@@ -1,9 +1,9 @@
-import type { SceneModule } from "./scene-registry.js";
+import type { SceneGeometry, SceneModule } from "./scene-registry.js";
 import { arrangeWeb as arrangeBrowser } from "./scenes/phone-browser.js";
 import { platform, script, route, arrangeWeb } from "./phone-compact-composer-scene.js";
 
 /** Exercise each toolbar entry with the actual phone dialog/menu focus owners. */
-export const composerDetailsScene = (label: string, browser = false): SceneModule => ({
+export const composerDetailsScene = (label: string, browser = false, geometry: readonly SceneGeometry[] = []): SceneModule => ({
   platform, script, route,
   arrangeWeb: world => { arrangeWeb(world); if (browser) arrangeBrowser(world); },
   activate: () => {
@@ -46,5 +46,6 @@ export const composerDetailsScene = (label: string, browser = false): SceneModul
   geometry: [
     { selector: browser ? '[role="dialog"]:has([data-web-browser])' : '.phone-composer-sheet', visibleWithin: browser ? '[role="dialog"]:has([data-web-browser])' : '.phone-composer-sheet', contentFits: true },
     { selector: browser ? '[role="dialog"]:has([data-web-browser]) button' : '.phone-composer-sheet button', renderedOnly: true, minimumWidth: 44, minimumHeight: 44 },
+    ...geometry,
   ],
 });

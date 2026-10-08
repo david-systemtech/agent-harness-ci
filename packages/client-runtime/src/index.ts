@@ -696,6 +696,7 @@ export {
   noCommandWords,
   requiredWords,
   runWords,
+  terminalCommandWords,
   toolRunWords,
   verificationWords,
 } from "./managed-tools/words.js";

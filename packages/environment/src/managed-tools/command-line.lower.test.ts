@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { MANAGED_TOOL_COMMANDS } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { commandLine } from "./command-line.js";
+import { CONFIRM_PROMPT, commandLine, confirmedLine } from "./command-line.js";
 
 /**
  * A command of the closed command table as the one line a tool terminal's
@@ -64,5 +64,27 @@ describe("a command's line on Windows", () => {
     expect(commandLine([[["irm", "https://claude.ai/install.ps1"], ["iex"]]], "win32")).toBe("irm https://claude.ai/install.ps1 | iex");
     expect(commandLine([[["echo", "a,b", "@x", "$env:PATH", "it's"]]], "win32")).toBe("echo 'a,b' '@x' '$env:PATH' 'it''s'");
     expect(() => commandLine([[["a"]], [["b"]]], "win32")).toThrow(/one step/);
+  });
+});
+
+describe.runIf(process.platform !== "win32")("a command held back until Enter (#1833)", () => {
+  const command = [[["printf", "%s\\n", "it's run"]]];
+  const run = (shell: string, input: string): string =>
+    execFileSync(shell, ["-c", `${confirmedLine(command, "linux")}; printf 'after\\n'`], { encoding: "utf8", input, env: { PATH: "/usr/bin:/bin", HOME: "/nonexistent" } });
+
+  it("writes the command out and the prompt, and runs it once a line is read, in every POSIX shell here", () => {
+    for (const shell of SHELLS) expect(run(shell, "\n"), shell).toBe(`printf '%s\\n' 'it'\\''s run'\n\n${CONFIRM_PROMPT} it's run\nafter\n`);
+  });
+
+  it("runs nothing when no line comes: the terminal closed", () => {
+    for (const shell of SHELLS) expect(run(shell, ""), shell).not.toContain("it's run\n");
+  });
+});
+
+describe("a command held back until Enter on Windows", () => {
+  it("writes the command out, reads a line, then runs it, all in one PowerShell line", () => {
+    expect(confirmedLine([[["winget", "upgrade", "--exact", "--id", "OpenBao.OpenBao"]]], "win32")).toBe(
+      `Write-Host 'winget upgrade --exact --id OpenBao.OpenBao'; $null = Read-Host '${CONFIRM_PROMPT}'; winget upgrade --exact --id OpenBao.OpenBao`,
+    );
   });
 });

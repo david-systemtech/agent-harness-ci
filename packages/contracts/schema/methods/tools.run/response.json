@@ -184,9 +184,10 @@
           "type": "string",
           "enum": [
             "install",
-            "update"
+            "update",
+            "terminal"
           ],
-          "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+          "description": "What tools.run does: install (a tool not installed), update (one installed by a method the harness drives; for one it does not, as terminal) or terminal (the vendor's documented command, run in the tool terminal once a person presses Enter there); a Copy row runs nothing."
         },
         "method": {
           "type": "string",
@@ -196,9 +197,13 @@
             "apt",
             "dnf",
             "script",
-            "npm"
+            "npm",
+            "scoop",
+            "mise",
+            "asdf",
+            "manual"
           ],
-          "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package, which it only updates."
+          "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update."
         },
         "command": {
           "type": "string",

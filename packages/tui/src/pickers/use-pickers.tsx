@@ -497,7 +497,8 @@ export const usePickers = (host: PickersHost): Pickers => {
     if (tools?.error) return { status: "unavailable", message: tools.error.message };
     if (tools?.result === null || tools === undefined) return { status: "loading", message: "Reading managed tools…" };
     const tool = tools.result.tools.find((tool) => offer.plan.kind === "run-tool" && tool.tool === offer.plan.tool);
-    return tool?.action === "update" ? undefined : { status: "unavailable", message: tool?.command ?? "The environment does not serve an update for this tool." };
+    // A tool the table cannot drive still updates: in a tool terminal, its vendor's command held back until Enter there (#1833).
+    return tool?.action === "update" || tool?.action === "terminal" ? undefined : { status: "unavailable", message: tool?.command ?? "The environment does not serve an update for this tool." };
   };
   const runnableOffers = (card: Extract<Panel, { kind: "setup" }>) => offered(card).filter((offer) => toolUpdateReason(card, offer) === undefined);
   const selectedOffer = (card: Extract<Panel, { kind: "setup" }>) => {
