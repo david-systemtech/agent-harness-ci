@@ -1,5 +1,5 @@
 import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
-import type { ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { ScriptedForges, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -21,7 +21,26 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | ForgesRegion;
+
+/** setup-copy.md §5.6's Forges states (#1849): gh offered first, the add form at its token steps, and a site detection cannot recognise. */
+type ForgesRegion = "forges-gh" | "forges-add" | "forges-unknown";
+
+/** What each Forges state's environment holds of forges; every value is invented. */
+const FORGES: { readonly [Region in ForgesRegion]: ScriptedForges } = {
+  "forges-gh": {
+    login: "maintainer",
+    accounts: [{ origin: "https://git.example.test", kind: "forgejo" }],
+    gh: { installed: true, version: "2.63.2", meetsMinimum: true, accounts: [{ host: "github.com", login: "maintainer", active: true, tokenKind: "oauth", scopes: ["repo", "read:org"] }] },
+  },
+  "forges-add": { login: "maintainer" },
+  "forges-unknown": { login: "maintainer", detect: { "https://code.example.test": "not_a_forge" } },
+};
+
+/** The address each add-form state types, as a person would. */
+const TYPED: Partial<Record<SetupRegion, string>> = { "forges-add": "https://git.example.test/team/project", "forges-unknown": "https://code.example.test/team/project" };
+
+const isForges = (kind: SetupRegion): kind is ForgesRegion => kind in FORGES;
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
@@ -47,9 +66,10 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : isForges(kind) ? "forges" : kind;
   const prepared = await prepareWorld({ environments: [{
-    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
+    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(isForges(kind) ? ["forge"] : [])],
+    ...(isForges(kind) && { forges: FORGES[kind] }),
     accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
@@ -121,6 +141,23 @@ export function setupRegionScene(kind: SetupRegion) {
             signed = true;
             scene.prepared.world.environment("desk").signIn("awaiting-code", { url: SIGN_IN_URL });
           }
+          return;
+        }
+        const typed = TYPED[kind];
+        if (typed !== undefined) {
+          // Add a forge, the address typed as a person types it, then Check address once it can be pressed.
+          const scroll = document.querySelector("[data-setup-scroll]");
+          if (finished || scroll === null) return;
+          const buttons = [...scroll.querySelectorAll<HTMLButtonElement>("button")];
+          const field = scroll.querySelector<HTMLInputElement>('form input[placeholder="https://github.com/you/project"]');
+          if (field === null) { buttons.find((button) => button.textContent === "Add a forge" && !button.disabled)?.click(); return; }
+          if (field.value !== typed) {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, typed);
+            field.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+          }
+          const check = buttons.find((button) => button.textContent === "Check address");
+          if (check !== undefined && !check.disabled) { finished = true; check.click(); }
           return;
         }
         if (kind === "host-updater") {
