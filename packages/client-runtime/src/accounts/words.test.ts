@@ -58,10 +58,11 @@ describe("the machine's own sign-in (setup-copy.md §5.1)", () => {
 
 describe("an account's row (setup-copy.md §5.1)", () => {
   it("says its state as a word, the read's error left to Details", () => {
-    expect(accountStatusWords({ state: "signed-in", detail: null })).toBe("Signed in");
-    expect(accountStatusWords({ state: "signed-out", detail: null })).toBe("Signed out");
-    expect(accountStatusWords({ state: "expired", detail: null })).toBe("Sign-in ran out");
-    expect(accountStatusWords({ state: "unreadable", detail: "auth status exited 1" })).toBe("Cannot read the sign-in");
+    expect(accountStatusWords({ state: "signed-in" })).toBe("Signed in");
+    expect(accountStatusWords({ state: "signed-out" })).toBe("Signed out");
+    expect(accountStatusWords({ state: "expired" })).toBe("Sign-in ran out");
+    const unreadable = { state: "unreadable", detail: "auth status exited 1" } as const;
+    expect(accountStatusWords(unreadable)).toBe("Cannot read the sign-in");
   });
 
   it("keeps its folder for Details, saying whose it is", () => {
@@ -75,7 +76,7 @@ describe("an account's row (setup-copy.md §5.1)", () => {
   });
 
   it("says a default account that was removed by what new sessions use, never by its id", () => {
-    expect(DEFAULT_CHOICE_WORDS["accounts.defaultAccount"].missing("0199aa00-0000-4000-8000-000000000001")).toBe("The account you chose was removed. New sessions use your first account.");
+    expect(DEFAULT_CHOICE_WORDS["accounts.defaultAccount"].missing()).toBe("The account you chose was removed. New sessions use your first account.");
   });
 });
 
