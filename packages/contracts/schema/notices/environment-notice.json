@@ -7243,7 +7243,7 @@
                   }
                 ]
               },
-              "description": "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out."
+              "description": "The actions to offer beside the reason: those of the checks that failed, each once (check-again for a check that could not finish, and only those a failure offers of the ones its check declares), after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out."
             },
             "targets": {
               "description": "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once, after the session try-again continues when an LLM step's minted session stopped; on a done LLM step, each of its subjects for revise; absent when none is named. The reader leaves out one of a verb or a kind it does not know.",

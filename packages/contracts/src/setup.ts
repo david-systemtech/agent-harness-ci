@@ -223,7 +223,7 @@ const GivenResult = z.object({
   }),
   actions: z.array(OfferedAction).meta({
     description:
-      "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out.",
+      "The actions to offer beside the reason: those of the checks that failed, each once (check-again for a check that could not finish, and only those a failure offers of the ones its check declares), after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out.",
   }),
   targets: z
     .array(OfferedTarget)
