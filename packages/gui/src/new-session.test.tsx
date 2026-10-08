@@ -250,16 +250,13 @@ describe("new-session readiness", () => {
     const accountsPane = await within(settings).findByRole("region", { name: "Accounts" });
     expect((within(accountsPane).getByRole("combobox", { name: "Environment" }) as HTMLSelectElement).value).toBe(LAPTOP_ID);
     if (accounts.length === 0) {
-      await app.user.click(within(accountsPane).getByRole("button", { name: "Add an account…" }));
-      const adding = await within(accountsPane).findByRole("region", { name: "Add an account on laptop" });
-      await app.user.type(within(adding).getByRole("textbox", { name: "Label for the new account" }), "Personal");
-      await app.user.click(within(adding).getByRole("button", { name: "Add" }));
+      await app.user.click(within(within(accountsPane).getByRole("group", { name: "How do you want to sign in?" })).getByRole("button", { name: "Sign in with Claude" }));
     } else {
       const adopted = await within(accountsPane).findByRole("region", { name: "Adopted" });
       await app.user.click(within(adopted).getByRole("button", { name: "Sign in again" }));
     }
-    const signing = await within(accountsPane).findByRole("region", { name: `Sign in: ${accounts.length === 0 ? "Personal" : "Adopted"} on laptop` });
-    await waitFor(() => expect(params(app, "laptop", accounts.length === 0 ? "accounts.add" : "accounts.signin.start")).toEqual([expect.objectContaining(accounts.length === 0 ? { label: "Personal" } : { accountId: "signed-out" })]));
+    const signing = await within(accountsPane).findByRole("region", { name: `Sign in: ${accounts.length === 0 ? "Claude account" : "Adopted"} on laptop` });
+    await waitFor(() => expect(params(app, "laptop", accounts.length === 0 ? "accounts.add" : "accounts.signin.start")).toEqual([expect.objectContaining(accounts.length === 0 ? { label: "Claude account" } : { accountId: "signed-out" })]));
     expect(params(app, "desk", "accounts.add")).toEqual([]);
     expect(params(app, "desk", "accounts.signin.start")).toEqual([]);
     app.environment("laptop").signIn("awaiting-code", { url: "https://claude.test/sign-in" });

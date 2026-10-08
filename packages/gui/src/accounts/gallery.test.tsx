@@ -22,7 +22,8 @@ it.each([
       const personal = await within(pane).findByRole("region", { name: "Personal" });
       expect(within(personal).getByText("Default")).toBeDefined();
       expect(within(personal).getAllByRole("img")).toHaveLength(2);
-      expect(within(personal).getByRole("button", { name: "Relabel" }).querySelector("svg")).not.toBeNull();
+      expect(within(personal).getByText("Plan: 5-hour 42% · Weekly 78%")).toBeDefined();
+      expect(within(personal).getByRole("button", { name: "Sign in again" }).querySelector("svg")).not.toBeNull();
     } else if (scene === "settings-default-model") {
       const model = await within(pane).findByRole("button", { name: "Model family: Claude Sonnet 5" });
       expect(within(model).getByText("claude-sonnet-5").className).toContain("font-mono");

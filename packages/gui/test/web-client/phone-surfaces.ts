@@ -154,7 +154,7 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await chooseRow(page, "Accounts");
   await expect(page.getByRole("button", { name: "Give this phone full access", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Add an account…", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Sign in with Claude", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Close Settings", exact: true }).click();
   const grant = page.locator("[data-web-grant]");
   const scopes = await grant.getAttribute("data-scopes");
@@ -357,7 +357,7 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
   }
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await chooseRow(page, "Accounts");
-  await expect(page.getByRole("button", { name: "Add an account…", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Sign in with Claude", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Open the Carry over step in Set up", exact: true }).click();
   const setup = page.getByRole("region", { name: "Set up", exact: true });
   for (const step of STEP_ORDER) {

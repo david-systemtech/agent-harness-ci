@@ -5,8 +5,9 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
 
 /**
  * The Accounts rows (docs/specs/gui.md, "Settings: the rail, the rows and the
- * addresses"; ADR 0018, ADR 0027; #414): Accounts, the picked environment's
- * accounts with adopt, add and sign in, relabel and remove; Default account
+ * addresses"; ADR 0018, ADR 0027; #414; setup-copy.md §5.1, #1842): Accounts,
+ * the picked environment's accounts with the question of how to sign in (this
+ * computer's Claude Code sign-in, or Sign in with Claude), rename and remove; Default account
  * and model, the Account step's four keys; and Usage, every gauge pooled by
  * account identity across the environments. Driven through the harness over
  * two scripted environments: `desk`, this machine's, and `laptop`, paired.
@@ -43,6 +44,22 @@ const facts = (region: HTMLElement): Record<string, string> => {
   return Object.fromEntries(terms.map((term) => [term.textContent ?? "", term.nextElementSibling?.textContent ?? ""]));
 };
 
+/** What a card's Details say, the fold opened first. */
+const details = async (app: RenderedApp, region: HTMLElement): Promise<readonly string[]> => {
+  const fold = within(region).getByRole("button", { name: "Details" });
+  if (fold.getAttribute("aria-expanded") !== "true") await app.user.click(fold);
+  return [...region.querySelectorAll("[id] > div > div > p")].map((line) => line.textContent ?? "");
+};
+
+/** Opens a card's More options. */
+const moreOptions = async (app: RenderedApp, region: HTMLElement) => {
+  const fold = within(region).getByRole("button", { name: "More options" });
+  if (fold.getAttribute("aria-expanded") !== "true") await app.user.click(fold);
+};
+
+/** The question the Accounts row asks. */
+const question = (region: HTMLElement) => within(region).getByRole("group", { name: "How do you want to sign in?" });
+
 /** A reading of `accountId` as milo, its two windows as given. */
 const reading = (accountId: string, fiveHour: number, week: number, observedAt = "2026-09-30T10:00:00.000Z"): AccountUsage => ({
   accountId,
@@ -60,7 +77,8 @@ describe("provider sign-in attendance", () => {
     const app = await opened({ desk: { accounts: [{ label: "Personal", identity: MILO }] }, laptop: { accounts: [] } });
     const accounts = await openRow(app, "Accounts", "laptop");
     const offer = await within(accounts).findByRole("group", { name: "milo@example.test on desk" });
-    await app.user.click(within(offer).getByRole("button", { name: "Sign in this account here too" }));
+    expect(within(offer).getByText("milo@example.test is signed in on desk. Each computer signs in on its own.")).toBeDefined();
+    await app.user.click(within(offer).getByRole("button", { name: "Sign in here too" }));
     await within(accounts).findByRole("region", { name: "Sign in: Personal on laptop" });
     expect(app.environment("laptop").requests("accounts.add").map(request => request.params)).toEqual([expect.objectContaining({ label: "Personal" })]);
     expect(app.environment("laptop").requests("accounts.add").map(request => Object.keys(request.params).sort())).toEqual([["commandId", "label"]]);
@@ -97,7 +115,7 @@ describe("provider sign-in attendance", () => {
 });
 
 describe("Accounts", () => {
-  it("lists the picked environment's accounts from accounts.list, each with its label, identity, status, plan reading and directory", async () => {
+  it("lists the picked environment's accounts from accounts.list, each with its label, email and state, its plan reading and folder in Details", async () => {
     const app = await opened({
       desk: {
         accounts: [
@@ -111,24 +129,21 @@ describe("Accounts", () => {
     const accounts = await openRow(app, "Accounts");
 
     const personal = await within(accounts).findByRole("region", { name: "personal" });
-    await waitFor(() => expect(facts(personal)["Plan"]).toBe("5-hour 42% · Weekly 10%"));
-    expect(facts(personal)).toEqual({
-      Identity: "milo@example.test",
-      Status: "signed in",
-      Plan: "5-hour 42% · Weekly 10%",
-      Directory: "/home/milo/.account-1, adopted in place",
-    });
-    expect(facts(within(accounts).getByRole("region", { name: "work" }))).toEqual({
-      Identity: "not read yet",
-      Status: "status unreadable: auth status timed out after 10 s",
-      Plan: "no reading yet",
-      Directory: "/home/milo/.agent-harness/accounts/2, the environment's own",
-    });
+    expect(facts(personal)).toEqual({ Email: "milo@example.test", Status: "Signed in" });
+    expect(within(personal).queryByText(/\/home\/milo/)).toBeNull();
+    await waitFor(async () => expect(await details(app, personal)).toEqual(["Folder: /home/milo/.account-1 (Claude Code's own, used in place)", "Plan: 5-hour 42% · Weekly 10%"]));
+    const work = within(accounts).getByRole("region", { name: "work" });
+    expect(facts(work)).toEqual({ Email: "Not known until it signs in", Status: "Cannot read the sign-in" });
+    expect(await details(app, work)).toEqual([
+      "Folder: /home/milo/.agent-harness/accounts/2 (made by agent-harness)",
+      "Plan: no reading yet",
+      "Sign-in read: auth status timed out after 10 s",
+    ]);
 
     const known = reading("account-1", 0.42, 0.1);
     const unknown = (window: string, utilisation: number | null) => ({ window, utilisation, resetsAt: null, verdict: null, observedAt: known.readAt });
     app.environment("desk").setUsage([{ ...known, windows: [...known.windows, unknown("iguana_necktie", 0), unknown("walrus_hat", null), unknown("otter_scarf", null)] }]);
-    await waitFor(() => expect(facts(personal)["Plan"]).toBe("5-hour 42% · Weekly 10% · Other limit 0%"));
+    await waitFor(async () => expect((await details(app, personal))[1]).toBe("Plan: 5-hour 42% · Weekly 10% · Other limit 0%"));
 
     const laptop = await openRow(app, "Accounts", "laptop");
     expect(await within(laptop).findByRole("region", { name: "laptop milo" })).toBeDefined();
@@ -154,37 +169,40 @@ describe("Accounts", () => {
     expect(within(work).queryByText("Default")).toBeNull();
   });
 
-  it("offers the Claude Code sign-in on the environment's machine from accounts.probe, adopts it with accounts.adopt, and says a refusal in one line", async () => {
-    const app = await opened({ desk: { accounts: [{ label: "work", directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/1" } }], ambient: { present: true, signedIn: true, identity: MILO } } });
+  it("offers this computer's Claude Code sign-in from accounts.probe, pre-selected, uses it with accounts.adopt, and says a refusal in one line, its raw words under Details", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "milo@example.test", directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/1" } }], ambient: { present: true, signedIn: true, identity: MILO } } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
-    const offer = await within(accounts).findByRole("region", { name: "Use the Claude Code sign-in on desk's machine (milo@example.test)" });
-    const label = within(offer).getByRole("textbox", { name: "Label (the email it signs in as when empty)" });
+    const choice = await within(accounts).findByRole("radio", { name: "Use the Claude Code sign-in on this computer (milo@example.test)" });
+    expect(choice.getAttribute("aria-checked")).toBe("true");
 
-    await app.user.type(label, "WORK");
-    await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
-    expect(await within(accounts).findByText("Not adopted: The label WORK is taken by another account on this environment, ignoring case.")).toBeDefined();
-    expect(desk.requests("accounts.adopt")[0]?.params).toMatchObject({ label: "WORK" });
+    // Named by its email, which another account has: the environment's line, as an alert.
+    await app.user.click(within(question(accounts)).getByRole("button", { name: "Use this sign-in" }));
+    const refused = await within(accounts).findByRole("alert");
+    expect(refused.textContent).toBe("Error: Another account is already called milo@example.test. Choose another name.");
+    expect(desk.requests("accounts.adopt")[0]?.params).not.toHaveProperty("label");
+    expect(within(accounts).getByRole("region", { name: "Details" }).textContent).toContain("conflict (label_taken)");
 
-    // Left empty, the account takes the email it signs in as; the offer goes once the directory is held.
-    await app.user.clear(label);
-    await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
-    expect(await within(accounts).findByText("Adopted milo@example.test on desk.")).toBeDefined();
-    expect(desk.requests("accounts.adopt")[1]?.params).not.toHaveProperty("label");
+    // Renamed, the email is free; the choice goes once the sign-in is held.
+    desk.changeAccount("account-1", { label: "work" });
+    await within(accounts).findByRole("region", { name: "work" });
+    await app.user.click(within(question(accounts)).getByRole("button", { name: "Use this sign-in" }));
+    expect(await within(accounts).findByText("milo@example.test is signed in.")).toBeDefined();
     const adopted = await within(accounts).findByRole("region", { name: "milo@example.test" });
-    expect(facts(adopted)).toMatchObject({ Identity: "milo@example.test", Status: "signed in", Directory: "/home/milo/.claude, adopted in place" });
-    await waitFor(() => expect(within(accounts).queryByRole("region", { name: /^Use the Claude Code sign-in/ })).toBeNull());
-    expect(within(accounts).getAllByText(/^(Not adopted|Adopted)/)).toHaveLength(1);
+    expect(facts(adopted)).toEqual({ Email: "milo@example.test", Status: "Signed in" });
+    expect((await details(app, adopted))[0]).toBe("Folder: /home/milo/.claude (Claude Code's own, used in place)");
+    await waitFor(() => expect(within(accounts).queryByRole("radio")).toBeNull());
+    expect(within(accounts).queryByRole("alert")).toBeNull();
   });
 
-  it("adds an account and signs it in on the sign-in card, and signs in again an account whose sign-in lapsed, each end said in one line", async () => {
+  it("signs in with Claude on the sign-in card with no label form, names the account by its email once signed in, and signs in again an account whose sign-in lapsed, each end said in one line", async () => {
     const app = await opened({ desk: { accounts: [{ label: "work", identity: MILO, status: { state: "expired", checkedAt: null, detail: null } }] } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
-    await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
-    const adding = await screen.findByRole("region", { name: "Add an account on desk" });
-    await app.user.type(within(adding).getByRole("textbox", { name: "Label for the new account" }), "personal{Enter}");
-    const signing = await screen.findByRole("region", { name: "Sign in: personal on desk" });
+    await app.user.click(await within(question(accounts)).findByRole("button", { name: "Sign in with Claude" }));
+    expect(screen.queryByRole("textbox", { name: "Label for the new account" })).toBeNull();
+    const signing = await screen.findByRole("region", { name: "Sign in: Claude account on desk" });
+    expect(desk.requests("accounts.add").map((request) => request.params["label"])).toEqual(["Claude account"]);
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
     await within(signing).findByRole("button", { name: "Copy terminal command" });
     await app.user.click(within(signing).getByRole("button", { name: "Copy terminal command" }));
@@ -192,12 +210,16 @@ describe("Accounts", () => {
     await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
     await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests#for-tests" })]));
     desk.signIn("done");
-    expect(await within(accounts).findByText("personal is signed in on desk.")).toBeDefined();
+    expect(await within(accounts).findByText("Claude account is signed in on desk.")).toBeDefined();
     expect(within(signing).getByRole("button", { name: "Done" })).toBeDefined();
     await app.user.click(within(signing).getByRole("button", { name: "Done" }));
-    expect(screen.queryByRole("region", { name: "Sign in: personal on desk" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Sign in: Claude account on desk" })).toBeNull();
     expect(desk.requests("accounts.signin.cancel")).toHaveLength(0);
-    await waitFor(async () => expect(facts(await within(accounts).findByRole("region", { name: "personal" }))["Status"]).toBe("signed in"));
+    await waitFor(async () => expect(facts(await within(accounts).findByRole("region", { name: "Claude account" }))["Status"]).toBe("Signed in"));
+    // Its status read names who it signed in as: it takes that email, being still the name it was added under.
+    desk.changeAccount("account-2", { identity: { provider: "claude", email: "personal@example.test", organisation: null } });
+    expect(await within(accounts).findByRole("region", { name: "personal@example.test" })).toBeDefined();
+    expect(desk.requests("accounts.relabel").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", label: "personal@example.test" })]);
 
     const work = within(accounts).getByRole("region", { name: "work" });
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
@@ -207,7 +229,7 @@ describe("Accounts", () => {
     await within(again).findByRole("textbox", { name: "Then paste the code it shows" });
     await app.user.click(within(again).getByRole("button", { name: "Cancel the sign-in" }));
     expect(await within(accounts).findByText("The sign-in of work was cancelled.")).toBeDefined();
-    expect(within(accounts).queryByText("personal is signed in on desk.")).toBeNull();
+    expect(within(accounts).queryByText("Claude account is signed in on desk.")).toBeNull();
   });
 
   it("cancels an inline sign-in when Settings closes", async () => {
@@ -223,7 +245,7 @@ describe("Accounts", () => {
     await waitFor(() => expect(desk.requests("accounts.signin.cancel")).toHaveLength(1));
   });
 
-  it("disables every account's Sign in again, with why, while the Add card is open, and offers it again once that card is cancelled", async () => {
+  it("disables every account's Sign in again, with why, while a new account's sign-in card is open, and offers it again once that card is cancelled", async () => {
     const app = await opened({ desk: { accounts: [{ label: "work", status: { state: "expired", checkedAt: null, detail: null } }, { label: "personal" }] } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
@@ -233,8 +255,8 @@ describe("Accounts", () => {
     await screen.findByRole("tooltip", { name: "Sign in again · Enter / Space" });
     expect(within(accounts).getByRole("button", { name: "Sign in again", description: "Sign in again · Enter / Space" })).toBe(offered);
     act(() => offered.blur());
-    await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
-    const adding = await screen.findByRole("region", { name: "Add an account on desk" });
+    await app.user.click(within(question(accounts)).getByRole("button", { name: "Sign in with Claude" }));
+    const adding = await screen.findByRole("region", { name: "Sign in: Claude account on desk" });
     for (const label of ["work", "personal"]) {
       const card = within(accounts).getByRole("region", { name: label });
       const again = within(card).getByRole("button", { name: "Sign in again", description: "Finish or cancel the open sign-in first." });
@@ -242,8 +264,9 @@ describe("Accounts", () => {
       expect(within(card).getByText("Finish or cancel the open sign-in first.")).toBeDefined();
     }
     expect(desk.requests("accounts.signin.start")).toHaveLength(0);
+    expect(within(question(accounts)).getByRole("button", { name: "Sign in with Claude" }).hasAttribute("disabled")).toBe(true);
 
-    await app.user.click(within(adding).getByRole("button", { name: "Cancel" }));
+    await app.user.click(await within(adding).findByRole("button", { name: "Cancel the sign-in" }));
     const work = within(accounts).getByRole("region", { name: "work" });
     expect(within(work).queryByText("Finish or cancel the open sign-in first.")).toBeNull();
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
@@ -256,9 +279,8 @@ describe("Accounts", () => {
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
     await within(accounts).findByRole("region", { name: "work" });
-    await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
-    await app.user.type(within(await screen.findByRole("region", { name: "Add an account on desk" })).getByRole("textbox", { name: "Label for the new account" }), "personal{Enter}");
-    const signing = await screen.findByRole("region", { name: "Sign in: personal on desk" });
+    await app.user.click(within(question(accounts)).getByRole("button", { name: "Sign in with Claude" }));
+    const signing = await screen.findByRole("region", { name: "Sign in: Claude account on desk" });
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
     await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
     await waitFor(() => expect(desk.requests("accounts.signin.code")).toHaveLength(1));
@@ -267,32 +289,41 @@ describe("Accounts", () => {
 
     const work = within(accounts).getByRole("region", { name: "work" });
     expect(within(work).queryByText("Finish or cancel the open sign-in first.")).toBeNull();
-    expect(within(accounts).getByRole("button", { name: "Add an account…" }).hasAttribute("disabled")).toBe(false);
+    expect(within(question(accounts)).getByRole("button", { name: "Sign in with Claude" }).hasAttribute("disabled")).toBe(false);
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
     await screen.findByRole("region", { name: "Sign in: work on desk" });
-    expect(screen.queryByRole("region", { name: "Sign in: personal on desk" })).toBeNull();
-    expect(within(accounts).getByText("personal is signed in on desk.")).toBeDefined();
+    expect(screen.queryByRole("region", { name: "Sign in: Claude account on desk" })).toBeNull();
+    expect(within(accounts).getByText("Claude account is signed in on desk.")).toBeDefined();
     await waitFor(() => expect(desk.requests("accounts.signin.start").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-1" })]));
     expect(desk.requests("accounts.signin.cancel")).toHaveLength(0);
   });
 
-  it("relabels one with accounts.relabel, says a refusal in one line, and shows at once a relabel another client made", async () => {
+  it("renames one with accounts.relabel from its More options, says a refusal in one line, and shows at once a rename another client made", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }, { label: "work" }] } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
     const personal = await within(accounts).findByRole("region", { name: "personal" });
-    const label = within(personal).getByRole("textbox", { name: "Label" });
+    expect(within(personal).queryByRole("textbox", { name: "Name" })).toBeNull();
+    await moreOptions(app, personal);
+    const label = within(personal).getByRole("textbox", { name: "Name" });
     expect((label as HTMLInputElement).value).toBe("personal");
-    expect(within(personal).getByRole("button", { name: "Relabel" }).hasAttribute("disabled")).toBe(true);
+
+    await app.user.clear(label);
+    await app.user.click(within(personal).getByRole("button", { name: "Rename" }));
+    expect((await within(personal).findByRole("alert")).textContent).toBe("Error: Enter a name.");
+    await app.user.type(label, "x".repeat(201));
+    await app.user.click(within(personal).getByRole("button", { name: "Rename" }));
+    expect((await within(personal).findByRole("alert")).textContent).toBe("Error: Use 200 characters or fewer.");
+    expect(desk.requests("accounts.relabel")).toEqual([]);
 
     await app.user.clear(label);
     await app.user.type(label, "Work");
-    await app.user.click(within(personal).getByRole("button", { name: "Relabel" }));
-    expect(await within(accounts).findByText("Not relabelled: The label Work is taken by another account on this environment, ignoring case.")).toBeDefined();
+    await app.user.click(within(personal).getByRole("button", { name: "Rename" }));
+    expect(await within(accounts).findByText("Another account is already called Work. Choose another name.")).toBeDefined();
 
     await app.user.clear(label);
     await app.user.type(label, " home {Enter}");
-    expect(await within(accounts).findByText("Relabelled personal to home.")).toBeDefined();
+    expect(await within(accounts).findByText("Renamed personal to home.")).toBeDefined();
     expect(desk.requests("accounts.relabel").at(-1)?.params).toMatchObject({ accountId: "account-1", label: "home" });
     expect(await within(accounts).findByRole("region", { name: "home" })).toBeDefined();
     expect(desk.accounts().map((account) => account.label)).toEqual(["home", "work"]);
@@ -300,7 +331,8 @@ describe("Accounts", () => {
     // Another client's change reaches the pane through account.updated, the field following it.
     desk.changeAccount("account-2", { label: "office" });
     const office = await within(accounts).findByRole("region", { name: "office" });
-    expect((within(office).getByRole("textbox", { name: "Label" }) as HTMLInputElement).value).toBe("office");
+    await moreOptions(app, office);
+    expect((within(office).getByRole("textbox", { name: "Name" }) as HTMLInputElement).value).toBe("office");
     expect(within(accounts).queryByRole("region", { name: "work" })).toBeNull();
   });
 
@@ -310,37 +342,39 @@ describe("Accounts", () => {
     const accounts = await openRow(app, "Accounts");
 
     // An owned directory: kept unless its deletion is ticked. Cancel sends nothing.
-    await app.user.click(within(await within(accounts).findByRole("region", { name: "work" })).getByRole("button", { name: "Remove…" }));
-    let asking = await screen.findByRole("dialog", { name: "Remove work from desk?" });
-    expect(within(asking).getByText("Its directory, /home/milo/.agent-harness/accounts/2, stays unless you delete it too, with its sign-in and history.")).toBeDefined();
+    for (const label of ["personal", "work", "spare"]) await moreOptions(app, await within(accounts).findByRole("region", { name: label }));
+    await app.user.click(within(within(accounts).getByRole("region", { name: "work" })).getByRole("button", { name: "Remove…" }));
+    let asking = await screen.findByRole("dialog", { name: "Remove work?" });
+    expect(within(asking).getByText("Its sign-in and history stay on this computer unless you delete them too.")).toBeDefined();
     await app.user.click(within(asking).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog", { name: "Remove work from desk?" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Remove work?" })).toBeNull();
     expect(desk.requests("accounts.remove")).toEqual([]);
 
     await app.user.click(within(within(accounts).getByRole("region", { name: "work" })).getByRole("button", { name: "Remove…" }));
-    asking = await screen.findByRole("dialog", { name: "Remove work from desk?" });
+    asking = await screen.findByRole("dialog", { name: "Remove work?" });
     await app.user.click(within(asking).getByRole("checkbox", { name: "Also delete its sign-in and history" }));
     await app.user.click(within(asking).getByRole("button", { name: "Remove" }));
-    expect(await within(accounts).findByText("Removed work from desk and deleted its sign-in and history.")).toBeDefined();
+    expect(await within(accounts).findByText("Removed work and deleted its sign-in and history.")).toBeDefined();
     expect(desk.requests("accounts.remove")[0]?.params).toMatchObject({ accountId: "account-2", deleteDirectory: true });
     await waitFor(() => expect(within(accounts).queryByRole("region", { name: "work" })).toBeNull());
 
     // An adopted directory is the machine's own: never deleted, so nothing asks.
     await app.user.click(within(within(accounts).getByRole("region", { name: "personal" })).getByRole("button", { name: "Remove…" }));
-    asking = await screen.findByRole("dialog", { name: "Remove personal from desk?" });
-    expect(within(asking).getByText("Its directory, /home/milo/.account-1, is the machine's own Claude Code directory, adopted in place: removing the account leaves it as it is.")).toBeDefined();
+    asking = await screen.findByRole("dialog", { name: "Remove personal?" });
+    expect(within(asking).getByText("Claude Code stays signed in on this computer.")).toBeDefined();
     expect(within(asking).queryByRole("checkbox")).toBeNull();
     await app.user.click(within(asking).getByRole("button", { name: "Remove" }));
-    expect(await within(accounts).findByText("Removed personal from desk; its directory stays at /home/milo/.account-1.")).toBeDefined();
+    expect(await within(accounts).findByText("Removed personal.")).toBeDefined();
     expect(desk.requests("accounts.remove")[1]?.params).not.toHaveProperty("deleteDirectory");
 
     // One another client removed while this one asked: the environment's refusal, in one line.
     await app.user.click(within(within(accounts).getByRole("region", { name: "spare" })).getByRole("button", { name: "Remove…" }));
-    asking = await screen.findByRole("dialog", { name: "Remove spare from desk?" });
+    asking = await screen.findByRole("dialog", { name: "Remove spare?" });
     desk.changeAccount("account-3", null);
     await app.user.click(within(asking).getByRole("button", { name: "Remove" }));
-    expect(await within(accounts).findByText("Not removed: No account account-3 on this environment.")).toBeDefined();
-    expect(screen.queryByRole("dialog", { name: "Remove spare from desk?" })).toBeNull();
+    expect((await within(accounts).findByRole("alert")).textContent).toBe("Error: agent-harness could not find what this needs. Choose Remove to try again.");
+    expect(within(accounts).getByRole("region", { name: "Details" }).textContent).toContain("not_found: No account account-3 on this environment.");
+    expect(screen.queryByRole("dialog", { name: "Remove spare?" })).toBeNull();
     expect(desk.accounts()).toEqual([]);
   });
 
@@ -350,14 +384,17 @@ describe("Accounts", () => {
       desk: { accounts: [{ label: "personal" }] },
     });
     const laptop = await openRow(app, "Accounts", "laptop");
-    expect(await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
-    expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
+    expect(await within(laptop).findByText("You can look but not change this. This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
+    expect(within(laptop).getAllByText(/^You can look but not change this\./)).toHaveLength(1);
     const milo = await within(laptop).findByRole("region", { name: "laptop milo" });
-    const offer = await within(laptop).findByRole("region", { name: /^Use the Claude Code sign-in/ });
+    await within(laptop).findByRole("radio", { name: "Use the Claude Code sign-in on laptop (milo@example.test)" });
+    await app.user.click(within(question(laptop)).getByRole("radio", { name: "Sign in with Claude" }));
+    expect(within(question(laptop)).getByRole("button", { name: "Sign in with Claude" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(question(laptop)).getByRole("radio", { name: /^Use the Claude Code sign-in/ }));
+    await moreOptions(app, milo);
     for (const control of [
-      within(laptop).getByRole("button", { name: "Add an account…" }),
-      within(offer).getByRole("button", { name: "Adopt" }),
-      within(milo).getByRole("textbox", { name: "Label" }),
+      within(question(laptop)).getByRole("button", { name: "Use this sign-in" }),
+      within(milo).getByRole("textbox", { name: "Name" }),
       within(milo).getByRole("button", { name: "Sign in again" }),
       within(milo).getByRole("button", { name: "Remove…" }),
     ]) {
@@ -366,16 +403,18 @@ describe("Accounts", () => {
 
     const accounts = await openRow(app, "Accounts", "desk");
     const personal = await within(accounts).findByRole("region", { name: "personal" });
+    await moreOptions(app, personal);
     expect(within(personal).getByRole("button", { name: "Remove…" }).hasAttribute("disabled")).toBe(false);
     const desk = app.environment("desk");
     desk.discovery("nothing");
     desk.server.drop();
-    expect(await within(accounts).findByText(/^Unreachable since \d\d:\d\d: its accounts as this window last read them, read-only\.$/)).toBeDefined();
+    expect(await within(accounts).findByText(/^These are the accounts from \d\d:\d\d\. You cannot change them until desk is back\.$/)).toBeDefined();
     const cached = within(accounts).getByRole("region", { name: "personal" });
-    expect(facts(cached)["Status"]).toBe("signed in");
+    expect(facts(cached)["Status"]).toBe("Signed in");
     for (const name of ["Sign in again", "Remove…"]) expect(within(cached).getByRole("button", { name }).hasAttribute("disabled"), name).toBe(true);
-    expect(within(accounts).getByRole("button", { name: "Add an account…" }).hasAttribute("disabled")).toBe(true);
-    expect(within(accounts).queryByText(/^Read-only:/)).toBeNull();
+    // The question waits for desk: it is asked only of an environment reached.
+    expect(within(accounts).queryByRole("group", { name: "How do you want to sign in?" })).toBeNull();
+    expect(within(accounts).queryByText(/^You can look but not change this\./)).toBeNull();
   });
 });
 
@@ -505,7 +544,7 @@ describe("Default account and model", () => {
     const defaults = await openRow(app, "Default account and model");
     let picker = await openDefault(app, defaults, "Default account");
     await within(picker).findByRole("menuitem", { name: "work (signed out)" });
-    expect(within(picker).getByRole("menuitem", { name: "The first account adopted or added" }).dataset["selected"]).toBe("true");
+    expect(within(picker).getByRole("menuitem", { name: "Your first account" }).dataset["selected"]).toBe("true");
     await app.user.click(within(picker).getByRole("menuitem", { name: "work (signed out)" }));
     await waitFor(() => expect(desk.settings()["accounts.defaultAccount"]).toBe("account-2"));
     await app.user.click(within(picker).getByRole("menuitem", { name: "claude-sonnet-5" }));
@@ -541,7 +580,7 @@ describe("Default account and model", () => {
       desk: { accounts: [{ label: "personal" }], models: MODELS.slice(0, 1), settings: { "accounts.defaultAccount": "account-9", "accounts.defaultModelFamily": "gpt", "accounts.defaultEffort": "max" } },
     });
     const defaults = await openRow(app, "Default account and model");
-    expect(await within(defaults).findByRole("button", { name: "Default account: account-9 (no longer held: runs take the first account)" })).toBeDefined();
+    expect(await within(defaults).findByRole("button", { name: "Default account: The account you chose was removed. New sessions use your first account." })).toBeDefined();
     expect(within(defaults).getByRole("button", { name: "Model family: gpt (not offered: runs take the strongest model)" })).toBeDefined();
     const picker = await openDefault(app, defaults, "Effort");
     expect(within(picker).getByRole("menuitem", { name: "Max (not offered: runs take the model's own)" }).dataset["selected"]).toBe("true");

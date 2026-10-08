@@ -17,6 +17,43 @@ it("captures the real Account gate with disabled Skip and Continue", async () =>
 });
 
 
+// setup-copy.md §5.1's states (#1842): Claude Code found with no account yet, an account signed in, one signed out.
+it("captures the Account question with this computer's Claude Code sign-in pre-selected and no account yet", async () => {
+  const Scene = setupRegionScene("account-claude-code");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const choice = await screen.findByRole("radio", { name: "Use the Claude Code sign-in on this computer (reader@example.test)" });
+    expect(choice.getAttribute("aria-checked")).toBe("true");
+    const question = screen.getByRole("group", { name: "How do you want to sign in?" });
+    expect(within(question).getByRole("button", { name: "Use this sign-in" })).toBeDefined();
+    expect(screen.getByText("Sign in to continue. Account is the one required step.")).toBeDefined();
+  } finally { view.unmount(); }
+});
+
+it("captures an Account step with an account signed in, its row with its label, email and state, and Continue let go", async () => {
+  const Scene = setupRegionScene("account-signed-in");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const row = await screen.findByRole("region", { name: "reader@example.test" });
+    expect(within(row).getByText("Signed in")).toBeDefined();
+    const footer = screen.getByRole("navigation", { name: "Step navigation" });
+    await waitFor(() => expect(within(footer).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByText(/\/accounts\/reader/)).toBeNull();
+  } finally { view.unmount(); }
+});
+
+it("captures an Account step with an account signed out and Claude Code on this computer signed out", async () => {
+  const Scene = setupRegionScene("account-signed-out");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    expect(await screen.findByText("Claude Code is on this computer but not signed in. Sign in below instead.")).toBeDefined();
+    const row = await screen.findByRole("region", { name: "Project" });
+    expect(within(row).getByText("Signed out")).toBeDefined();
+    expect(within(row).getByRole("button", { name: "Sign in again" })).toBeDefined();
+    expect(screen.queryByRole("radio")).toBeNull();
+  } finally { view.unmount(); }
+});
+
 // setup-copy.md §5.4's never-polled line with its How to set it up open beside it (#1883).
 it("captures Your machines' never-polled container line with the host updater's setup open, its commands to copy", async () => {
   const Scene = setupRegionScene("host-updater");

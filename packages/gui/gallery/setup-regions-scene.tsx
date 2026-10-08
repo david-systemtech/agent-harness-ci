@@ -20,7 +20,24 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | AccountRegion;
+
+/** setup-copy.md §5.1's Account states beyond the empty one (#1842): Claude Code found and signed in, an account signed in, one signed out. */
+type AccountRegion = "account-claude-code" | "account-signed-in" | "account-signed-out";
+const ACCOUNT_REGIONS: ReadonlySet<SetupRegion> = new Set<SetupRegion>(["account-claude-code", "account-signed-in", "account-signed-out"]);
+
+/** Who the gallery's Claude Code signs in as; an invented address. */
+const READER = { provider: "claude" as const, email: "reader@example.test", organisation: null };
+
+/** The accounts and this computer's Claude Code sign-in each Account state starts from. */
+const ACCOUNT_STATES = {
+  "account-claude-code": { accounts: [], ambient: { present: true, signedIn: true, identity: READER } },
+  "account-signed-in": { accounts: [{ label: READER.email, identity: READER, directory: { kind: "owned", path: "/accounts/reader" } }], ambient: {} },
+  "account-signed-out": {
+    accounts: [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "signed-out", checkedAt: null, detail: null } }],
+    ambient: { present: true, signedIn: false },
+  },
+} as const;
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
@@ -35,10 +52,12 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" || ACCOUNT_REGIONS.has(kind) ? "account" : kind === "host-updater" ? "your-machines" : kind as StepId;
+  const accountState = kind in ACCOUNT_STATES ? ACCOUNT_STATES[kind as AccountRegion] : undefined;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
-    accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
+    ...(accountState !== undefined && { ambient: accountState.ambient }),
+    accounts: accountState !== undefined ? accountState.accounts : kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],

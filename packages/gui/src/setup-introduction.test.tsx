@@ -1,4 +1,4 @@
-import { act, screen } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { expect, it } from "vitest";
 import { renderApp } from "../test/harness.js";
@@ -11,9 +11,8 @@ it("keeps the introduction after the environment is ready until Begin set up ope
   expect(screen.getByText("The environment on this machine is ready")).toBeDefined();
   await app.user.click(screen.getByRole("button", { name: "Begin set up" }));
   const card = screen.getByRole("region", { name: "Account" });
-  expect(card.textContent).toContain("Your agent needs a signed-in coding account to start a session. We will help you connect it.");
   expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
-  expect(screen.getByRole("button", { name: "Sign in an account" })).toBeDefined();
+  expect(within(within(card).getByRole("group", { name: "How do you want to sign in?" })).getByRole("button", { name: "Sign in with Claude" })).toBeDefined();
 });
 
 it("keeps a failed start in the introduction, opens pairing, and retries to readiness", async () => {

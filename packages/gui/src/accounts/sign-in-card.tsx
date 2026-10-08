@@ -20,6 +20,8 @@ export interface SignInCardProps {
   readonly account: Pick<AccountRecord, "id" | "label"> | null;
   /** A label and identity hint from another environment; starts a fresh local account, carries no credential. */
   readonly suggestion?: { readonly label: string; readonly email: string };
+  /** A new account's label, added at once with no label form (the Account step's Sign in with Claude, setup-copy.md §5.1). */
+  readonly label?: string;
   /** Closes the card. */
   readonly close: () => void;
   /** Told, inline, as the sign-in succeeds, with the line Done will say: the card waits only on Done from then on. */
@@ -60,7 +62,7 @@ type Sending = "add" | "start" | "code" | null;
  *   card cancels the sign-in it started (`accounts.signin.cancel`), since
  *   the card is its attendant.
  */
-export const SignInCard = ({ environmentId, account, close, say, succeeded, inline = false, suggestion }: SignInCardProps) => {
+export const SignInCard = ({ environmentId, account, close, say, succeeded, inline = false, suggestion, label: given }: SignInCardProps) => {
   const heading = useId();
   const codeForm = useId();
   const runtime = useRuntime();
@@ -74,7 +76,8 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
   const [label, setLabel] = useState(account?.label ?? "");
   const [accountId, setAccountId] = useState<string | null>(account?.id ?? null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
-  const [sending, setSending] = useState<Sending>(account === null ? (suggestion === undefined ? null : "add") : "start");
+  const added = account === null ? (suggestion?.label ?? given) : undefined;
+  const [sending, setSending] = useState<Sending>(account === null ? (added === undefined ? null : "add") : "start");
   const [typed, setTyped] = useState("");
   const [completed, setCompleted] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -170,7 +173,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
   };
 
   const add = (event: FormEvent) => { event.preventDefault(); addLabel(typed.trim()); };
-  useEffect(() => { if (suggestion !== undefined) addLabel(suggestion.label); }, []);
+  useEffect(() => { if (added !== undefined) addLabel(added); }, []);
 
   const submitCode = (text: string) => {
     if (accountId === null) return;
