@@ -31,7 +31,7 @@ const STEPS = [
   "Choose Load unpacked, paste the folder location and confirm.",
   "Choose the agent-harness extension's icon, then Options, and type this code:",
   "Sites you are building",
-];
+] as const;
 /** More options stays open for the window's life once chosen (more-options.tsx), so it is opened only when shut. */
 const moreOptions = async (user: { click(element: Element): Promise<void> }) => {
   const fold = within(card()).getByRole("button", { name: "More options" });
