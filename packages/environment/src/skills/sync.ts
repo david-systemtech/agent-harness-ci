@@ -158,7 +158,7 @@ export const createSkillSync = (options: SkillSyncOptions): SkillSync => {
       if (follow.kind === "pinned" && follow.commit !== before.commit) {
         const found = await sources.fetch(before, follow);
         if (found.outcome === "failed") throw found.refusal;
-        if (found.outcome === "layout_moved") return () => ({ aggregate: stream, rejected: noSkills(before.folder, found.commit, found.folders) });
+        if (found.outcome === "layout_moved") return () => ({ aggregate: stream, rejected: noSkills(before.folder, found.folders) });
         fetched = found;
       }
 
