@@ -146,7 +146,7 @@ const dropControl = (control: HTMLElement, onto: () => HTMLElement): boolean => 
 /** A pane's drop target, by its label, while something is dragged. */
 const zone = (pane: () => HTMLElement, label: string) => () => within(pane().closest("[data-panel]") as HTMLElement).getByLabelText(label);
 
-const TRAIN_CHIPS = ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5 (claude-sonnet-5)", "Workspace: directory train"];
+const TRAIN_CHIPS = ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: directory train"];
 
 describe("New session in the focused pane", () => {
   it("shows the surface in the focused pane from the header's control, Mod+N and a heading's, and the session the pane showed stays in the sidebar", async () => {
@@ -165,7 +165,7 @@ describe("New session in the focused pane", () => {
     await waitFor(() => expect(grid()).toEqual([["*Fix the rail"]]));
     await app.user.keyboard("{Control>}n{/Control}");
     expect(grid()).toEqual([["*+"]]);
-    await chipsRead(() => surfaces()[0] as HTMLElement, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory harness"]);
+    await chipsRead(() => surfaces()[0] as HTMLElement, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory harness"]);
 
     // A heading's control carries its environment: the chips after it follow, the repository kept where laptop has it.
     await app.user.click(headingControl("laptop"));
@@ -305,7 +305,7 @@ describe("the chips", () => {
     const app = await withOpen("Fix the rail");
     await app.user.keyboard("{Control>}n{/Control}");
     const surface = () => surfaces()[0] as HTMLElement;
-    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory harness"]);
+    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory harness"]);
 
     await app.runtime.connections.setEnabled(LAPTOP_ID, false);
     await openChip(app, surface(), "Environment");
@@ -331,10 +331,10 @@ describe("the chips", () => {
 
     await openChip(app, surface(), "Workspace");
     await app.user.click(await screen.findByRole("button", { name: "Scratch: a directory of its own" }));
-    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5 (claude-sonnet-5)", "Workspace: scratch"]);
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: scratch"]);
     // What was chosen is layout: the surface comes back with its chips after the window opens again.
     await app.remount();
-    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5 (claude-sonnet-5)", "Workspace: scratch"]);
+    await chipsRead(surface, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: scratch"]);
   });
 });
 
@@ -353,14 +353,14 @@ describe("the workspace chip", () => {
     const app = await launch({ desk: { folders: { "/work/harness": {}, "/home/milo/notes": {} } } });
     await app.user.click(headingControl("desk"));
     const surface = () => surfaces()[0] as HTMLElement;
-    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory harness"]);
+    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory harness"]);
 
     await openChip(app, surface(), "Workspace");
     expect(known()).toEqual(["/work/harnessgit.systemtech.dev/david/agent-harness", "/home/milo/notes", "/srv/oldgone since Wed 23 Sep 22:00 (not offered)"]);
     await app.user.click(screen.getByRole("button", { name: "Hide /work/harness" }));
     await waitFor(() => expect(known()).toEqual(["/home/milo/notes", "/srv/oldgone since Wed 23 Sep 22:00 (not offered)"]));
     // The preset moves on to the most recent directory left.
-    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory notes"]);
+    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory notes"]);
 
     await app.user.click(screen.getByRole("button", { name: /^\/home\/milo\/notes/ }));
     await waitFor(() => expect(screen.queryByRole("list", { name: "Known directories" })).toBeNull());
@@ -372,7 +372,7 @@ describe("the workspace chip", () => {
     expect(within(screen.getByRole("dialog", { name: "Where it works on desk" })).getByRole("status").textContent).toBe("A workspace is a full path on desk, or one from its home (~).");
     await app.user.clear(typed);
     await app.user.keyboard("/work/harness{Enter}");
-    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory harness"]);
+    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory harness"]);
     expect(within(surface()).getByRole("group", { name: "Where it starts" }).querySelector("[title='/work/harness']")).not.toBeNull();
 
     // A session started there a minute on uses it again: it is back on the list.
@@ -440,7 +440,7 @@ describe("the first send", () => {
     await openChip(app, surface(), "Workspace");
     act(() => screen.getByRole("textbox", { name: "A directory on desk" }).focus());
     await app.user.keyboard("/work/gone{Enter}");
-    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory gone"]);
+    await chipsRead(surface, ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory gone"]);
 
     await typeOn(app, surface(), "Look around");
     await app.user.click(within(surface()).getByRole("button", { name: "Send" }));
@@ -478,7 +478,7 @@ const twoPanes = async () => {
   return app;
 };
 
-const DESK_CHIPS = ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory harness"];
+const DESK_CHIPS = ["Environment: desk", "Account: Work milo@work.test", "Model: Opus 5", "Workspace: directory harness"];
 
 describe("a new session in a new pane", () => {
   it("opens from Mod+Shift+N and the palette's New session in a new pane, splitting the focused pane right and replacing no session", async () => {
@@ -528,7 +528,7 @@ describe("a new session in a new pane", () => {
     // laptop's most recent directory.
     expect(dropControl(headingControl("laptop"), zone(() => paneOf("Fix the rail"), "New session to the right"))).toBe(true);
     expect(grid()).toEqual([["Train tidy", "Fix the rail", "*+", "+"], ["+"]]);
-    await chipsRead(() => surfaces()[0] as HTMLElement, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5 (claude-sonnet-5)", "Workspace: directory brand"]);
+    await chipsRead(() => surfaces()[0] as HTMLElement, ["Environment: laptop", "Account: Home milo@home.test", "Model: Sonnet 5", "Workspace: directory brand"]);
     await openChip(app, surfaces()[0] as HTMLElement, "Environment");
     expect(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /^laptop/ }).textContent).toContain("the chip's now");
     await app.user.keyboard("{Escape}");

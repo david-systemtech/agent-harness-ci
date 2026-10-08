@@ -1,6 +1,6 @@
 import { useComposition } from "../composer/composition.js";
-import { buttonRows, denylistMatchWords, denylistRepeatWords, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type PromptEntry, type RowOutcome } from "@agent-harness/client-runtime";
-import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
+import { buttonRows, denylistCardWords, denylistRepeatWords, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type PromptEntry, type RowOutcome } from "@agent-harness/client-runtime";
+import { type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { ChevronDown, ChevronUp, ClipboardList, MessageCircleQuestionMark, ShieldAlert, StickyNote } from "lucide-react";
 import { Kbd } from "../ui/kbd.js";
 import { createContext, use, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
@@ -56,9 +56,10 @@ export const PromptFieldsProvider = ({ children }: { readonly children: ReactNod
  *   approving button refuses even with the focus on it. Esc
  *   (`permission.deny`) denies. A `denylist` prompt offers Deny and Allow
  *   once, never remembered, as the terminal UI's card does (ADR 0006: the
- *   person present may allow a denylisted call); it names each entry it
- *   matched in words with what the agent may do instead, and says when the
- *   run asked about the same entry before (#1820).
+ *   person present may allow a denylisted call); it names what was asked,
+ *   then each entry it matched in words with what the agent may do instead,
+ *   each once (#1905), and says when the run asked about the same entry
+ *   before (#1820).
  * - **A question** offers its options, several at once where it allows, and
  *   an answer in the person's own words; Mod+Enter sends, Esc skips (a deny).
  * - **A plan** offers Keep planning (Esc) and one approval per mode, the
@@ -298,22 +299,22 @@ const PromptBody = ({ prompt, repeat, fields, setFields, full = false }: { reado
   if (prompt.kind === "question") return <QuestionForm prompt={prompt} picks={fields.picks} setPicks={(picks) => setFields({ ...fields, picks })} />;
   if (prompt.kind === "plan") return <PlanBody text={prompt.plan ?? prompt.summary} />;
   const input = inputText(prompt.input);
+  // A denylist prompt's summary and reason name its match as a sentence its list says again; it says each thing once instead (#1905).
+  const denylist = denylistCardWords(prompt);
+  const summary = denylist?.asked ?? prompt.summary;
   return (
     <>
-      <p className="shrink-0">{full ? prompt.summary : oneLine(prompt.summary, 300)}</p>
-      {prompt.reason !== null && <p className="shrink-0 text-amber">{full ? prompt.reason : oneLine(prompt.reason, 300)}</p>}
+      <p className="shrink-0">{full ? summary : oneLine(summary, 300)}</p>
+      {denylist === undefined && prompt.reason !== null && <p className="shrink-0 text-amber">{full ? prompt.reason : oneLine(prompt.reason, 300)}</p>}
       {prompt.blockedPath !== null && <p className="text-xs text-ink-muted">Path: {prompt.blockedPath}</p>}
       {prompt.agentId !== null && <p className="text-xs text-ink-muted">Asked by the subagent {prompt.agentId}</p>}
-      {prompt.denylist !== null && prompt.denylist.length > 0 && (
+      {denylist !== undefined && (
         <ul aria-label="On the denylist" className="flex flex-col gap-0.5 text-signal">
-          {prompt.denylist.map((match, at) => {
-            const words = denylistMatchWords(match);
-            return <li key={at} className="flex flex-col gap-0.5">
-              <span>{describeDenylistMatch(match)}</span>
-              <span className="text-xs text-ink">{words.protects}</span>
-              <span className="text-xs text-ink-muted">{words.instead}</span>
-            </li>;
-          })}
+          {denylist.entries.map((entry, at) => <li key={at} className="flex flex-col gap-0.5">
+            {entry.heading !== undefined && <span>{entry.heading}</span>}
+            <span className="text-xs text-ink">{entry.protects}</span>
+            <span className="text-xs text-ink-muted">{entry.instead}</span>
+          </li>)}
         </ul>
       )}
       {repeat !== undefined && <p className="text-xs font-medium text-signal">{repeat}</p>}

@@ -86,6 +86,10 @@ export const EnvironmentBinding = z
     tailscaleInstalled: z.boolean().optional().meta({
       description: "Whether a Tailscale CLI or macOS app is installed, even when its address could not be read; absent from an older environment or detector that cannot report installation.",
     }),
+    firewallAsksOnce: z.literal(true).optional().meta({
+      description:
+        "Present on Windows when the environment runs on the launcher's copy of Node, whose path no update changes: its firewall asks the person once, at the first start that binds an address beside loopback, whether to let that Node accept connections, and the answer holds through updates (#1910). Absent elsewhere, on another Node (a foreground serve, or a version the launcher could not copy), and from an older environment.",
+    }),
     lan: BindAddress.nullable().meta({ description: "The LAN address the environment binds; null when it binds none." }),
     lanAddresses: z.array(BindAddress).meta({
       description:

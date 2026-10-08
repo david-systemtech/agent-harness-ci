@@ -207,6 +207,18 @@ describe("the public release's packaged server smoke tests", () => {
     expect(body).toContain("$launchers[0].ParentProcessId -ne $entries[0].ProcessId");
   });
 
+  it("finds the scheduled task's environment running on the data directory's one Node, which no update moves, so Windows Firewall keeps its answer (#1910)", () => {
+    const body = job(hosted, "smoke-windows");
+    const oneChain = body.indexOf("not one of each (#1712)");
+    const stableNode = body.indexOf("which keeps Windows Firewall's answer through updates (#1910)");
+    const uninstall = body.indexOf("$uninstall = Start-Process");
+    expect(oneChain).toBeGreaterThan(-1);
+    expect([oneChain, stableNode, uninstall]).toEqual([oneChain, stableNode, uninstall].toSorted((a, b) => a - b));
+    expect(body).toContain('$servers[0].ExecutablePath -ne "$dataDir\\node\\node.exe"');
+    // The processes the stop and the uninstall must see gone include the environment on that Node.
+    expect(body.match(/-or \$_\.ExecutablePath -eq "\$dataDir\\node\\node\.exe"/g)).toHaveLength(2);
+  });
+
   it("waits for the silent per-user Windows setup and uses its installed Node and CLI", () => {
     const body = job(hosted, "smoke-windows");
     expect(body).toContain("shell: pwsh");

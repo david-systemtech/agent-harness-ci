@@ -3,6 +3,7 @@ export { PROTOCOL_VERSION } from "@agent-harness/contracts";
 
 export { createRuntime, type Runtime } from "./runtime.js";
 export { CredentialAccessUnansweredError, isCredentialAccessUnanswered, PairingCodeSpentError, StoredCredentialUnavailableError } from "./credential-unavailable.js";
+export { SERVICE_FAILURE_KINDS, ServiceFailureError, serviceFailureOf, type ServiceFailure, type ServiceFailureKind } from "./service-failure.js";
 export { derived, writable, type Observable, type Writable } from "./observable.js";
 /** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4), and for a command (version 7). */
 export { uuidv4, uuidv7 } from "./ids.js";
@@ -517,7 +518,7 @@ export {
 export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, type Xterm } from "./terminals/text-screen.js";
 export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { buttonRows, choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
-export { denylistMatchWords, denylistRepeatWords, type AskedPrompt, type DenylistMatchWords } from "./prompts/denylist.js";
+export { denylistCardWords, denylistMatchWords, denylistRepeatWords, type AskedPrompt, type DenylistCardEntry, type DenylistCardWords, type DenylistMatchWords } from "./prompts/denylist.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
 export { BULK_LEAST, askDetail, bulkAsks, bulkQuestion, decidable, inBulk } from "./prompts/asks.js";
 export {

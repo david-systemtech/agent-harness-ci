@@ -13,9 +13,14 @@ export const consumeBrowserRoute = (view: Pick<Window, "location" | "history">):
       return code === undefined ? {} : { pairing: { address: origin, code } };
     } catch { return {}; }
   }
+  const session = sessionOfHash(hash);
+  return session ? { session } : {};
+};
+/** The session a `#/session/<environment>/<session>` hash opens, if it is one. */
+export const sessionOfHash = (hash: string): PaneSession | undefined => {
   const match = /^#\/session\/([^/]+)\/([^/]+)$/.exec(hash);
   try {
-    return match ? { session: { environmentId: decodeURIComponent(match[1] ?? ""), sessionId: decodeURIComponent(match[2] ?? "") } } : {};
-  } catch { return {}; }
+    return match ? { environmentId: decodeURIComponent(match[1] ?? ""), sessionId: decodeURIComponent(match[2] ?? "") } : undefined;
+  } catch { return undefined; }
 };
 export const sessionLink = ({ environmentId, sessionId }: PaneSession): string => `/#/session/${encodeURIComponent(environmentId)}/${encodeURIComponent(sessionId)}`;
