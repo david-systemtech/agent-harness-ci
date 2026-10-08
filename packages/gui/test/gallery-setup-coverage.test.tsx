@@ -81,7 +81,7 @@ it("captures the ready introduction before the owner enters Account", async () =
   const view = render(<Scene ladder="light" />);
   try {
     expect((await screen.findByRole("button", { name: "Begin set up" })).hasAttribute("disabled")).toBe(false);
-    expect(screen.getByText("The environment on this machine is ready")).toBeTruthy();
+    expect(screen.getByText("agent-harness is ready on this computer.")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Step navigation" })).toBeNull();
   } finally { view.unmount(); }
 });

@@ -2,6 +2,7 @@ import { uuidv4 } from "@agent-harness/client-runtime";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { narrowSheet, phoneLayout } from "../test/phone-layout.js";
 import { MintedSessionCard } from "./setup/minted-session-card.js";
 import type { ComponentType } from "react";
 import type { StepCardProps } from "./setup/cards.js";
@@ -214,6 +215,16 @@ describe("the minted session on its card", () => {
     expect(env.requests("setup.mint")).toHaveLength(0);
     expect(env.requests("runs.start")).toHaveLength(0);
     expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
+  });
+
+  it("shows the Files sheet Write it myself asked for on a phone, where a sheet left open is hidden", async () => {
+    phoneLayout();
+    narrowSheet();
+    const app = await openCard();
+    await app.user.click(screen.getByRole("button", { name: "Write it myself" }));
+    const files = await screen.findByRole("dialog", { name: "Side column" });
+    expect(within(files).getByRole("tab", { name: "Files" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Show the side column" })).toBeNull();
   });
 
   it("presets account, model family and effort and remembers changes across cards in this checklist run", async () => {

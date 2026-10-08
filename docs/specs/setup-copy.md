@@ -128,6 +128,7 @@ The welcome block ("Welcome to agent-harness", the lede and the two intro cards)
 | installing (first start) | `Installing agent-harness on this computer…` | `This happens once and takes about a minute.` | — |
 | ready | `agent-harness is ready on this computer.` | `Choose Begin set up.` | **Begin set up** |
 | failed: no service in this app | `agent-harness cannot start on this computer.` | `This copy of the app is missing a part. Reinstall agent-harness.` | Details, **Connect to another computer** |
+| failed: the app's service will not run | same title | `This copy of the app has a part that will not run. Reinstall agent-harness.` | Details, **Connect to another computer** |
 | failed: install | same title | `Installing the background service did not work. Choose Try again.` | **Try again**, Details |
 | failed: start | same title | `The background service did not start. Choose Try again.` | **Try again**, Details |
 | failed: no answer in 60 s | same title | `The background service started but did not answer. Choose Try again.` | **Try again**, Details |
@@ -136,13 +137,19 @@ The welcome block ("Welcome to agent-harness", the lede and the two intro cards)
 | unavailable (no service in this app, e.g. a browser tab) | `This app cannot run agent-harness itself.` | `Connect it to a computer that runs agent-harness.` | **Connect to another computer** (replaces the raw `no-shell`) |
 | stopped | `agent-harness is not running on this computer.` | `Choose Start.` | **Start** |
 | reconnecting | `Reconnecting to agent-harness on this computer…` | `This happens by itself.` | — |
-| stopping (no update under way) | `agent-harness is stopping on this computer…` | `Choose Start once it has stopped.` | — (today this reads "restarting for an update") |
-| blocked / disabled | the block's plain line (§3 patterns) | its one fix | its fix button |
+| stopping (draining, no update under way) | `agent-harness is stopping on this computer…` | `Choose Start once it has stopped.` | — (today this reads "restarting for an update") |
+| restarting for an update this app knows of or the environment announced (`bye: updating`, from any client), or waiting on macOS's prompt for the saved key | the connection's own line (the update's progress, the prompt's, or `{name} is restarting for an update…`) | — | — |
+| disabled on this client | the connection's own line, `{name} is disabled on this client.` | — | — |
+| blocked | the block's plain line (§3 patterns) | its one fix | its fix button |
 
 - "Begin set up" keeps its label in every state; while disabled the visible line beneath says `Available once agent-harness is ready.`
-- "Pair instead" becomes **Connect to another computer**; "I'll set up later" stays.
+- "Pair instead" becomes **Connect to another computer**; "I'll set up later" stays. It is the one Connect to another computer
+  button on the page, beside Begin set up, in every state; the table's states that name it point at that button.
+- When the home is another computer that is ready and this one is not, a line beneath the description says
+  `{name} is ready. Choose Begin set up.`
 - "Start details" becomes **Details** with Copy details; the desktop's failure text is its content (desktop/src/service.ts gives a
-  `kind`: no-artefact, unrunnable, install, start, status, no-answer, plus the raw text).
+  `kind`: no-artefact, unrunnable, install, start, status, no-answer, plus the raw text). A failure that carries no kind takes the
+  kind of the step the window was on (reading the service's state, installing it, starting it).
 
 ### 4.2 Pairing dialog (gui/src/connections/pairing.tsx; also Your machines › Add a device)
 Title `Connect to another computer`. Description `Paste the pairing link from the other computer.` Hint (visible, below the field):

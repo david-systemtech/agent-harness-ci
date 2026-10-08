@@ -124,6 +124,14 @@ describe("the Your machines card in Set up", () => {
     expect(within(reachability()).queryByText(/^Tailscale address/)).toBeNull();
   });
 
+  it("says beforehand, on a Windows machine, that Windows asks once and which button to press, and says nothing of it elsewhere (ticket 1910)", async () => {
+    await opened({ desk: { status: { binding: { ...DESK_BINDING, firewallAsksOnce: true } } } });
+    const firewall =
+      "Windows asks once, at the first start that binds the tailnet or a LAN address, whether Node.js may accept connections: keep Private networks ticked and choose Allow access, which may ask for an administrator's approval. Updates do not ask again.";
+    expect(await within(part("desk", "Reachability")).findByText(firewall)).toBeDefined();
+    expect(within(part("laptop", "Reachability")).queryByText(firewall)).toBeNull();
+  });
+
   it("defaults to the first private IPv4 choice and warns when an IPv6 address is selected", async () => {
     const app = await opened({ desk: { status: { binding: { ...DESK_BINDING, lanAddresses: ["192.168.1.20", "fd00::20", "2001:db8::1", "2001:db8::2"] } } } });
     const reachability = () => part("desk", "Reachability");
