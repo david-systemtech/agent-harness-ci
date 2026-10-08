@@ -164,6 +164,40 @@ describe("the Skills card's lines and actions", () => {
     await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
     await waitFor(() => expect(desk.requests("skills.sources.remove")).toHaveLength(1));
     expect(desk.requests("skills.sources.add")).toHaveLength(1);
+    expect(desk.requests("skills.probe")).toHaveLength(1);
+  });
+
+  it("at the limit of 20 collections, removes the moved collection first so its chosen folders fit", async () => {
+    const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
+    const others = Array.from({ length: 19 }, (_, index): SkillsViewSource => ({
+      ...source, id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, url: `https://git.example.test/team/c${index}`, identity: `https://git.example.test/team/c${index}`, position: index + 2,
+    }));
+    let followed: SkillsViewSource[] = [moved, ...others];
+    const { app, desk, update } = await opened({ ...initial(), sources: followed }, { setup: { skills: {
+      state: "needs-attention", reason: "team/procedures (skills) no longer has skills where they were. Choose its folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
+      targets: [{ action: "choose-folders", kind: "skill-source", id: moved.id, label: "team/procedures (skills)" }],
+    } } });
+    desk.wire.answer("skills.probe", () => ({ result: { ...found, folders: [{ ...found.folders[0]!, folder: "agents" }] } }));
+    const replacement = { ...moved, id: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", folder: "agents", skillCount: 2, sync: { outcome: "ok", since: source.addedAt } } as const;
+    desk.wire.answer("skills.sources.add", () => {
+      if (followed.length >= 20) return { error: { code: "conflict", message: "You can follow up to 20 collections. Remove one first.", data: { reason: "source_limit", limit: 20 } } };
+      followed = [...followed, replacement];
+      update({ ...initial(), sources: followed });
+      return accepted({ source: replacement });
+    });
+    desk.wire.answer("skills.sources.remove", (params) => {
+      followed = followed.filter((held) => held.id !== params.sourceId);
+      update({ ...initial(), sources: followed });
+      return accepted({ source: moved });
+    });
+    await app.user.click(await within(card()).findByRole("button", { name: "Choose folders: team/procedures (skills)" }));
+    await app.user.click(await within(card()).findByRole("checkbox", { name: "agents · 2 skills" }));
+    await app.user.click(within(card()).getByRole("button", { name: "Add selected" }));
+    await waitFor(() => expect(desk.requests("skills.sources.add")).toHaveLength(1));
+    expect(desk.requests("skills.sources.remove").map((request) => request.params)).toEqual([expect.objectContaining({ sourceId: moved.id })]);
+    expect(followed.map((held) => held.id)).toContain(replacement.id);
+    expect(followed.map((held) => held.id)).not.toContain(moved.id);
+    expect(within(card()).queryByText("You can follow up to 20 collections. Remove one first.")).toBeNull();
   });
 
   it("leaves member cards, always-on switches and repository trust to Settings, and All skill settings opens Settings › Skills", async () => {

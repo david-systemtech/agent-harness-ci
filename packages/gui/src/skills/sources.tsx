@@ -127,24 +127,28 @@ const folderWords = (identity: string, folder: string, count: number): string =>
  * turn; or what kept the look from the repository, with Go to Forges for a
  * private one. Choosing a moved collection's folders again (`replacing`)
  * looks afresh on the branch it follows, adds the chosen ones following
- * that branch, and removes the moved one once they are added.
+ * that branch, and removes the moved one once they are added; or first,
+ * when the chosen ones would not fit beside it under the limit of
+ * collections (`followed` is how many are followed now).
  */
 export const FoundFolders = ({ environmentId, url, replacing, done }: {
   readonly environmentId: string;
   readonly url: string;
-  readonly replacing?: SkillsViewSource;
+  readonly replacing?: { readonly source: SkillsViewSource; readonly followed: number };
   readonly done: (line: string) => void;
 }) => {
   const runtime = useRuntime();
   const { choose: goTo } = useChecklist();
-  const branch = replacing?.follow.kind === "branch" ? replacing.follow.branch : null;
+  const branch = replacing?.source.follow.kind === "branch" ? replacing.source.follow.branch : null;
   const params = useMemo(() => ({ url, ...(branch !== null && { branch }) }), [url, branch]);
   const probed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.probe", params), [runtime, environmentId, params]));
   const [chosen, choose] = useState<readonly string[]>([]);
   const { send, sending, refusal, commandId } = useCollectionVerb();
+  // A look kept from before this opened; with none, following the answer is already the first look.
+  const kept = useRef(probed.fetchedAt !== null);
   useEffect(() => {
     // Choosing again reads the repository as it is now, never a look kept from before.
-    if (replacing !== undefined) runtime.requests.refresh(environmentId, "skills.probe", params);
+    if (replacing !== undefined && kept.current) runtime.requests.refresh(environmentId, "skills.probe", params);
   }, [runtime, environmentId, params, replacing]);
   if (probed.error !== null) {
     const problem = probed.error.data?.["problem"];
@@ -161,6 +165,10 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
   const folders = [...(probe.root === null ? [] : [probe.root]), ...probe.folders];
   if (folders.length === 0) return <p className="text-sm">No skill folders were found there.</p>;
   const add = async () => {
+    const remove = async () => replacing === undefined || await send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: replacing.source.id }), "Add selected");
+    // At the limit the moved collection makes room for the chosen folders, or the first add would be refused.
+    const first = replacing !== undefined && replacing.followed + chosen.length > SKILL_SOURCE_LIMIT;
+    if (first && !(await remove())) return;
     const added: string[] = [];
     for (const folder of chosen) {
       const ok = await send(
@@ -172,7 +180,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
       added.push(skillCollectionName({ identity: probe.identity, folder }, CATALOGUE.skills));
       choose((held) => held.filter((value) => value !== folder));
     }
-    if (replacing !== undefined && !(await send(() => runtime.requests.call(environmentId, "skills.sources.remove", { commandId: commandId(), sourceId: replacing.id }), "Add selected"))) return;
+    if (!first && !(await remove())) return;
     done(added.map((name) => `Added ${name}.`).join(" "));
   };
   return (
