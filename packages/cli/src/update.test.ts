@@ -562,9 +562,36 @@ describe("the status as update status prints it", () => {
     const staging = renderUpdatesStatus({ ...base, lastCheck: null, newest: "0.5.0", lastReadAt: later }, now);
     expect(staging).toContain(`Channel's newest: 0.5.0\nLast check: under way, the first since the environment started; it read the channel at ${later}\n`);
     expect(staging).not.toContain("none since");
+    // It staged a pin on a channel with no newest: the target it found shows the read, so under way, and no newest is due (#1818).
+    const pinned = renderUpdatesStatus({ ...base, lastCheck: null, newest: null, target: { version: "0.5.0-rc.1", source: "pin" }, lastReadAt: later }, now);
+    expect(pinned).toContain(`Channel's newest: none on the channel\nLast check: under way, the first since the environment started; it read the channel at ${later}\n`);
+    expect(pinned).not.toMatch(/none since|due|not read/);
+    // Staging that pin failed: the channel was still read since the start, so its newest is not due either.
+    expect(renderUpdatesStatus({ ...base, newest: null, target: { version: "0.5.0-rc.1", source: "pin" }, lastReadAt: at }, now)).toContain(
+      `Channel's newest: none on the channel\nLast check: ${at}, failed (unreachable): The forge did not answer.\n`,
+    );
+    // A check since the start that read the channel and found nothing to show ended ok: read, with no newest on it.
+    expect(renderUpdatesStatus({ ...base, lastCheck: { at, result: "ok" }, newest: null, target: null, lastReadAt: at }, now)).toContain(
+      `Channel's newest: none on the channel\nLast check: ${at}, ok\n`,
+    );
+    // A read since the start that found no newest and passed over the pin shows it as read too.
+    const passed = { version: "0.3.0", source: "pin", reason: "schema", message: "Its schema is below the database's." } as const;
+    expect(renderUpdatesStatus({ ...base, lastCheck: null, newest: null, target: null, passedOver: passed, lastReadAt: later }, now)).toContain(
+      `Channel's newest: none on the channel\nLast check: under way, the first since the environment started; it read the channel at ${later}\n`,
+    );
     // The first check since failed: the read is still due, and the last check is that one.
     expect(renderUpdatesStatus({ ...base, newest: null, target: null, lastReadAt: later }, now)).toContain(
       `Channel's newest: due, not read since the environment started; last read at ${later}\nLast check: ${at}, failed (unreachable): The forge did not answer.\n`,
+    );
+    // The environment says whether a check since the start read the channel: one found nothing and a later one failed,
+    // which shows no newest, target or release passed over and no check that ended ok, so it is not due (#1818).
+    const failedLater = { ...base, lastCheck: { at: later, result: "failed", reason: "unreachable", message: "The forge did not answer." }, newest: null, target: null } as const;
+    expect(renderUpdatesStatus({ ...failedLater, lastReadAt: at, readSinceStart: true }, now)).toContain(
+      `Channel's newest: none on the channel\nLast check: ${later}, failed (unreachable): The forge did not answer.\n`,
+    );
+    // Saying none did, a read before the start is due, as without it.
+    expect(renderUpdatesStatus({ ...failedLater, lastReadAt: at, readSinceStart: false }, now)).toContain(
+      `Channel's newest: due, not read since the environment started; last read at ${at}\n`,
     );
     expect(renderUpdatesStatus({ ...base, target: null, passedOver: { version: "0.3.0", source: "pin", reason: "schema", message: "Its schema is below the database's." } }, now)).toContain(
       "Target: none\nPassed over: 0.3.0 (pin, schema): Its schema is below the database's.\nPending update: none\n",
