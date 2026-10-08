@@ -33,14 +33,18 @@ import { keep, runToExit, spawnSignInProcess, type SignInChild, type SignInSpawn
  * - **The end**: exit 0 is the port's `finished`, the account store's status
  *   read (which appends `account.identity-set`, or refuses an identity
  *   another account holds): `done` when it reads signed in, else `failed`
- *   with what it said; any other exit is `failed` with stderr's last line.
+ *   with what it said; any other exit is `failed` with stderr's last line,
+ *   its cause `code-refused` when the code had been written (the provider
+ *   refused it).
  *   While that read runs the sign-in is completing: the expiry is off and a
  *   cancel or a removal is refused, so it cannot end otherwise after the
  *   identity was recorded. Ten minutes on the environment's clock with no
  *   code, or after the code, is `expired`; `accounts.signin.cancel` is
- *   `cancelled`; either stops the process.
+ *   `cancelled`; either stops the process. Removing the account cancels its
+ *   sign-in with the cause `account-removed`.
  * - **A restart** ends a sign-in the last run left running: its latest
- *   notice is followed by a `cancelled` one ("The environment restarted.").
+ *   notice is followed by a `cancelled` one ("The environment restarted.",
+ *   the cause `restarted`).
  * - **Every change of state** is a `signin.updated` notice on the
  *   environment's stream, carrying the sign-in: a command's in its own
  *   transaction, with its receipt, and the process's as `system:sign-in`.
@@ -141,7 +145,7 @@ export const createSignInDirector =
     const programOf = (provider: string): SignInProgram | undefined => (Object.hasOwn(programs, provider) ? programs[provider] : undefined);
 
     const unavailableMessage = (account: Pick<AccountRecord, "provider" | "directory">): string =>
-      `Signing in from the environment is not available for the ${account.provider} provider. The account's directory is ${account.directory.path}; sign it in with the provider's own CLI there, then call accounts.refresh.`;
+      `Signing in from the environment is not available for the ${account.provider} provider. The account's directory is ${account.directory.path}; sign it in with the provider's own CLI there, then check the account again.`;
 
     const heldMessage = (holder: Running): string => `A sign-in is already running for ${holder.label}; cancel it, or wait for it to end.`;
 
@@ -280,7 +284,8 @@ export const createSignInDirector =
       if (code !== 0) {
         const said = lastLine(sign.stderr) ?? error ?? lastLine(sign.stdout);
         const how = code === null ? "The provider's CLI stopped" : `The provider's CLI exited with code ${code}`;
-        update(sign, { state: "failed", error: said === null ? `${how}.` : `${how}: ${said}` });
+        // After the code was written, the CLI fails only as the provider refuses it.
+        update(sign, { state: "failed", error: said === null ? `${how}.` : `${how}: ${said}`, ...(sign.state.state === "submitting" && { cause: "code-refused" as const }) });
         return;
       }
       // Completing: the status read decides, and neither the expiry, a cancel nor a removal cuts across the identity it records.
@@ -423,7 +428,7 @@ export const createSignInDirector =
       const left = SignInSchema.safeParse(JSON.parse(row.payload));
       if (!left.success || ended(left.data)) return;
       try {
-        log.append(stream, [noticeOf({ ...left.data, state: "cancelled", error: "The environment restarted." })], { actor: SIGN_IN_ACTOR });
+        log.append(stream, [noticeOf({ ...left.data, state: "cancelled", error: "The environment restarted.", cause: "restarted" })], { actor: SIGN_IN_ACTOR });
       } catch (error) {
         console.error("Closing the sign-in the last run left open failed:", error);
       }
@@ -432,10 +437,10 @@ export const createSignInDirector =
 
     return {
       ready(account) {
-        if (programOf(account.provider) === undefined) return { started: false, message: unavailableMessage(account) };
+        if (programOf(account.provider) === undefined) return { started: false, reason: "signin_unavailable", message: unavailableMessage(account) };
         const holder = running();
         if (holder !== null) {
-          return { started: false, message: `${heldMessage(holder)} Sign ${account.label} in with accounts.signin.start once it has.` };
+          return { started: false, reason: "signin_running", message: `${heldMessage(holder)} Sign ${account.label} in once it has ended.` };
         }
         return { started: true, message: null };
       },
@@ -460,7 +465,7 @@ export const createSignInDirector =
         const program = programOf(account.provider);
         if (program === undefined) return refuse("signin_unavailable", unavailableMessage(account), { accountId: account.id });
         const holder = running();
-        if (holder !== null) return refuse("signin_running", heldMessage(holder), { accountId: holder.accountId });
+        if (holder !== null) return refuse("signin_running", heldMessage(holder), { accountId: holder.accountId, label: holder.label });
         const sign = fresh(account, program);
         return accepted(sign.state, context, () => begin(sign));
       },
@@ -508,7 +513,7 @@ export const createSignInDirector =
       removed(accountId) {
         const sign = running();
         // A sign-in that is completing ends as its status read says, which finds the account gone.
-        if (sign !== null && sign.accountId === accountId && !sign.completing) update(sign, { state: "cancelled", error: "The account was removed." });
+        if (sign !== null && sign.accountId === accountId && !sign.completing) update(sign, { state: "cancelled", error: "The account was removed.", cause: "account-removed" });
       },
 
       close() {

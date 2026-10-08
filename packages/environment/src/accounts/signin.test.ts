@@ -220,10 +220,13 @@ describe("accounts.signin.start", () => {
     const setup = await start();
     await awaitingCode(setup);
     const second = await command(setup.client, "accounts.signin.start", { accountId: "work" });
-    expect(second.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "signin_running", accountId: "work" } } });
+    // The holder's label goes with the refusal, so a client names it without reading the message (setup-copy.md §5.2).
+    expect(second.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "signin_running", accountId: "work", label: "work" } } });
     expect(second.receipt.status === "rejected" && second.receipt.error.message).toContain("already running for work");
     const added = await command(setup.client, "accounts.add", { label: "Personal" });
-    expect(added.result?.signIn).toEqual({ started: false, message: expect.stringContaining("already running for work") });
+    expect(added.result?.signIn).toEqual({ started: false, reason: "signin_running", message: expect.stringContaining("already running for work") });
+    // Its words name no method (#1843).
+    expect(added.result?.signIn.message).not.toMatch(/accounts\./);
     expect(setup.spawner.logins()).toHaveLength(1);
     // The sign-in that holds the floor goes on as it was.
     expect(notices(setup.t).at(-1)).toMatchObject({ accountId: "work", state: "awaiting-code" });
@@ -384,7 +387,7 @@ describe("a restart", () => {
     await first.t.close();
     const again = await start({ spawner, dataDir, workDirectory });
     const last = notices(again.t).at(-1);
-    expect(last).toMatchObject({ accountId: "work", state: "cancelled", url: VERIFICATION_URL, error: "The environment restarted." });
+    expect(last).toMatchObject({ accountId: "work", state: "cancelled", url: VERIFICATION_URL, error: "The environment restarted.", cause: "restarted" });
     expect(notices(again.t).map((notice) => notice.state)).toEqual(["starting", "awaiting-code", "cancelled"]);
     expect(await again.client.request("accounts.signin.get", {})).toEqual({ signIn: null });
     // A sign-in that ended is left as it is at the next start.
@@ -403,6 +406,8 @@ describe("a failed login", () => {
     login.exit(1);
     const failed = await reaches(setup.t, "failed");
     expect(failed.error).toBe("The provider's CLI exited with code 1: OAuth error: Invalid authorization code");
+    // It failed after the code was written: the provider refused the code (setup-copy.md §5.2).
+    expect(failed.cause).toBe("code-refused");
     expect(accountEvents(setup.t, "work").map((event) => event.type)).toEqual(["account.adopted"]);
     // The floor is free again.
     await signIn(setup.client, "accounts.signin.start", { accountId: "work" });
@@ -412,7 +417,19 @@ describe("a failed login", () => {
     const setup = await start();
     setup.spawner.failNext = "spawn EACCES";
     await signIn(setup.client, "accounts.signin.start", { accountId: "work" });
-    expect((await reaches(setup.t, "failed")).error).toBe("The provider's CLI could not be started: spawn EACCES");
+    const failed = await reaches(setup.t, "failed");
+    expect(failed.error).toBe("The provider's CLI could not be started: spawn EACCES");
+    expect(failed.cause).toBeUndefined();
+  });
+
+  it("before any code is not a refused code", async () => {
+    const setup = await start();
+    const login = await awaitingCode(setup);
+    login.printError("Error: the network is down\n");
+    login.exit(1);
+    const failed = await reaches(setup.t, "failed");
+    expect(failed.error).toBe("The provider's CLI exited with code 1: Error: the network is down");
+    expect(failed.cause).toBeUndefined();
   });
 });
 
@@ -456,6 +473,8 @@ describe("accounts.signin.cancel", () => {
     const other = await setup.t.client({ token: (await setup.t.pair({ kind: "desktop", scopes: ["read", "admin"] })).token, clientKind: "desktop" });
     const cancelled = await signIn(other, "accounts.signin.cancel", { accountId: "work" });
     expect(cancelled).toMatchObject({ state: "cancelled", error: null });
+    // A person's cancel has no cause: only the system's are said apart.
+    expect(cancelled.cause).toBeUndefined();
     expect(login.killed).toBe(true);
     const again = await command(setup.client, "accounts.signin.cancel", { accountId: "work" });
     expect(again).toEqual({ receipt: expect.objectContaining({ status: "accepted", changed: false }), result: { signIn: cancelled } });
@@ -468,7 +487,7 @@ describe("accounts.signin.cancel", () => {
     const setup = await start();
     const login = await awaitingCode(setup);
     await command(setup.client, "accounts.remove", { accountId: "work" });
-    expect(await reaches(setup.t, "cancelled")).toMatchObject({ error: "The account was removed." });
+    expect(await reaches(setup.t, "cancelled")).toMatchObject({ error: "The account was removed.", cause: "account-removed" });
     expect(login.killed).toBe(true);
   });
 });
