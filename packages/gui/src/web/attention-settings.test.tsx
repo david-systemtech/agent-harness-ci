@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import type { AttentionTargetStatus } from "@agent-harness/contracts";
@@ -133,9 +133,15 @@ const openAdminSheet = async () => {
   desk.wire.answer("routines.endpoints.remove", params => { endpoints.delete(String(params["name"])); return accepted({ name: params["name"] }); });
   desk.wire.answer("attention.routes.set", params => {
     const target = params["target"] as { id: string; enabled: boolean; completion: boolean; configuration: { endpoint: string } };
-    routes.push({ id: target.id, transport: "webhook", webhookEndpoint: target.configuration.endpoint, enabled: target.enabled, completion: target.completion, global: true, state: "ready", failure: null });
+    routes.push({ id: target.id, transport: "webhook", webhookEndpoint: target.configuration.endpoint, enabled: target.enabled, completion: target.completion, global: true, state: target.enabled ? "ready" : "disabled", failure: null });
     return accepted({ id: target.id });
   });
+  desk.wire.answer("attention.routes.configure", params => {
+    const index = routes.findIndex(route => route.id === params["id"]);
+    routes[index] = { ...routes[index]!, enabled: params["enabled"] === true, completion: params["completion"] === true, state: params["enabled"] === true ? "ready" : "disabled" };
+    return accepted({ id: params["id"] });
+  });
+  desk.wire.answer("attention.routes.remove", params => { routes.splice(routes.findIndex(route => route.id === params["id"]), 1); return accepted({ id: params["id"] }); });
   desk.wire.answer("routines.endpoints.test", () => ({ result: { status: 204, durationMs: 120, error: null } }));
   const view = Object.assign(Object.create(window) as Window & typeof globalThis, { indexedDB: new IDBFactory() });
   const platform = { ...browserPlatform(view, "0.0.0"), clock, fetch: world.fetch, webSocket: world.webSocket };
@@ -157,10 +163,12 @@ const openAdminSheet = async () => {
   };
   const routeSet = (params: Record<string, unknown>) => {
     const target = params["target"] as { id: string; enabled: boolean; completion: boolean; configuration: { endpoint: string } };
-    routes.push({ id: target.id, transport: "webhook", webhookEndpoint: target.configuration.endpoint, enabled: target.enabled, completion: target.completion, global: true, state: "ready", failure: null });
+    routes.push({ id: target.id, transport: "webhook", webhookEndpoint: target.configuration.endpoint, enabled: target.enabled, completion: target.completion, global: true, state: target.enabled ? "ready" : "disabled", failure: null });
   };
   return { desk, endpoints, routes, routeSet, user, fill };
 };
+/** A delivery target's card text, found by its heading. */
+const card = (name: string) => screen.getByRole("heading", { name }).closest("article")?.textContent;
 const accepted = (result: Record<string, unknown>) => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result } });
 
 it("an admin client makes the named endpoint and its global route from Attention settings, then tests it, without replacing another endpoint", async () => {
@@ -172,8 +180,10 @@ it("an admin client makes the named endpoint and its global route from Attention
   await fill("phone-attention");
   expect(await screen.findByText(/Webhook route phone-attention saved/)).toBeDefined();
   expect(desk.requests("routines.endpoints.set").map(request => request.params)).toEqual([expect.objectContaining({ name: "phone-attention", url: "https://receiver.example/attention", secret: { kind: "pasted", secret: "token-for-tests" } })]);
-  expect(desk.requests("attention.routes.set").map(request => request.params)).toEqual([expect.objectContaining({ target: { id: "phone-attention", transport: "webhook", enabled: true, completion: false, configuration: { endpoint: "phone-attention" } } })]);
-  expect(await screen.findByText(/Signed webhook · Global route/)).toBeDefined();
+  // Saved disabled, so nothing is delivered to it before its endpoint exists, then enabled once the endpoint is saved.
+  expect(desk.requests("attention.routes.set").map(request => request.params)).toEqual([expect.objectContaining({ target: { id: "phone-attention", transport: "webhook", enabled: false, completion: false, configuration: { endpoint: "phone-attention" } } })]);
+  expect(desk.requests("attention.routes.configure").map(request => request.params)).toEqual([expect.objectContaining({ id: "phone-attention", enabled: true, completion: false })]);
+  await waitFor(() => expect(card("phone-attention")).toMatch(/Signed webhook · Global route · ready/));
   await user.click(screen.getByRole("button", { name: "Test phone-attention" }));
   expect(await screen.findByText("phone-attention answered 204 in 120 ms.")).toBeDefined();
   expect(desk.requests("routines.endpoints.test").map(request => request.params)).toEqual([{ name: "phone-attention" }]);
@@ -198,20 +208,32 @@ it("never replaces an endpoint no listed route names, even one only another clie
   expect(desk.requests("attention.routes.set")).toEqual([]);
 });
 
-it("finishes a route whose endpoint step failed when it is added again under the same name, after the sheet was closed", async () => {
-  const { desk, fill } = await openAdminSheet();
+it("removes the route it just saved when the environment refuses the endpoint, so no enabled route names a missing endpoint", async () => {
+  const { desk, routes, fill } = await openAdminSheet();
+  desk.wire.answer("routines.endpoints.set", () => ({ result: { receipt: { status: "rejected", sequence: 2, changed: false, reason: "invalid_params", error: { code: "invalid_params", message: "Use https, or http only to a private address.", data: {} } } } }));
+  await fill("phone-attention");
+  expect(await screen.findByText("Webhook route not saved: Use https, or http only to a private address.")).toBeDefined();
+  expect(desk.requests("attention.routes.remove").map(request => request.params)).toEqual([expect.objectContaining({ id: "phone-attention" })]);
+  expect(desk.requests("attention.routes.configure")).toEqual([]);
+  expect(routes).toEqual([]);
+});
+
+it("leaves a route it could not remove disabled, and adding it again under the same name finishes it after the sheet was closed", async () => {
+  const { desk, routes, fill } = await openAdminSheet();
   desk.wire.answer("routines.endpoints.set", () => ({ error: { code: "unavailable", message: "The environment is busy.", data: {} } }));
+  desk.wire.answer("attention.routes.remove", () => ({ error: { code: "unavailable", message: "The environment is busy.", data: {} } }));
   await fill("phone-attention");
   expect(await screen.findByText("Webhook route not saved: The environment is busy.")).toBeDefined();
-  expect(await screen.findByText(/Signed webhook · Global route/)).toBeDefined();
+  expect(routes.map(route => [route.id, route.enabled])).toEqual([["phone-attention", false]]);
+  await waitFor(() => expect(card("phone-attention")).toMatch(/Signed webhook · Global route · disabled/));
   await userEvent.click(screen.getByRole("button", { name: "Close attention settings" }));
   await userEvent.click(await screen.findByRole("button", { name: "Attention settings" }));
   await screen.findByRole("form", { name: "Add a webhook route" });
   desk.wire.answer("routines.endpoints.set", params => accepted({ endpoint: { name: params["name"], url: params["url"], secretKind: "pasted", lastResult: null } }));
   await fill("phone-attention");
   expect(await screen.findByText(/Webhook route phone-attention saved/)).toBeDefined();
-  expect(desk.requests("routines.endpoints.set")).toHaveLength(2);
-  expect(desk.requests("attention.routes.set").map(request => (request.params["target"] as { id: string }).id)).toEqual(["phone-attention", "phone-attention"]);
+  expect(desk.requests("attention.routes.set")).toHaveLength(1);
+  expect(routes.map(route => [route.id, route.enabled])).toEqual([["phone-attention", true]]);
 });
 
 it("goes on to the endpoint when the route's answer is lost but the route was applied", async () => {
@@ -221,4 +243,13 @@ it("goes on to the endpoint when the route's answer is lost but the route was ap
   expect(await screen.findByText(/Webhook route phone-attention saved/)).toBeDefined();
   expect(desk.requests("routines.endpoints.set").map(request => request.params)).toEqual([expect.objectContaining({ name: "phone-attention" })]);
   expect(desk.requests("routines.endpoints.remove")).toEqual([]);
+});
+
+it("enables the route when the endpoint's answer is lost but the endpoint was saved", async () => {
+  const { desk, endpoints, routes, fill } = await openAdminSheet();
+  desk.wire.answer("routines.endpoints.set", params => { endpoints.add(String(params["name"])); return { error: { code: "unavailable", message: "The answer was lost.", data: {} } }; });
+  await fill("phone-attention");
+  expect(await screen.findByText(/Webhook route phone-attention saved/)).toBeDefined();
+  expect(desk.requests("attention.routes.remove")).toEqual([]);
+  expect(routes.map(route => [route.id, route.enabled])).toEqual([["phone-attention", true]]);
 });

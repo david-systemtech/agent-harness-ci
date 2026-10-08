@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { EndpointName, type AttentionTargetStatus } from "@agent-harness/contracts";
+import { EndpointName, type AttentionTargetStatus, type CommandReceipt } from "@agent-harness/contracts";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import { Bell, RefreshCw, X } from "lucide-react";
@@ -82,6 +82,10 @@ const WebhookRouteForm = ({ busy, onAdd }: { readonly busy: boolean; readonly on
   </form>;
 };
 
+/** Why a command did not apply: its refusal, the error answered, or no answer at all; null once it was accepted. */
+const refusal = (answer: { readonly ok: true; readonly result: { readonly receipt: CommandReceipt } } | { readonly ok: false; readonly error: { readonly message: string } } | null): string | null =>
+  !answer ? "Check your connection and admin grant." : !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : null;
+
 const ConnectedAttention = ({ environmentId }: { readonly environmentId: string }) => {
   const runtime = useRuntime();
   const clock = useClock();
@@ -112,28 +116,44 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
     const listed = await runtime.requests.call(environmentId, "attention.targets.list", {}).catch(() => null);
     return listed?.ok ? { route: listed.result.targets.find(target => target.global && target.webhookEndpoint === name), targets: listed.result.targets } : undefined;
   };
+  /** Whether the environment lists the endpoint now; undefined when the list cannot be read. */
+  const endpointListed = async (name: string) => {
+    const listed = await runtime.requests.call(environmentId, "routines.endpoints.list", {}).catch(() => null);
+    return listed?.ok ? listed.result.endpoints.some(endpoint => endpoint.name === name) : undefined;
+  };
   /**
-   * The route first, then the endpoint it names, so a refused route leaves no secret behind and a retry under the same
-   * name finishes a route whose endpoint step failed. An endpoint no route of this sheet names is never replaced: other
-   * clients' own targets, which this client cannot list, may deliver to it.
+   * A new route is saved disabled, then the endpoint it names, then the route is enabled: a refused route leaves no
+   * secret behind, a refused endpoint takes its new route away again, and nothing is delivered to a route whose endpoint
+   * does not exist. An endpoint no route of this sheet names is never replaced: other clients' own targets, which this
+   * client cannot list, may deliver to it. Adding a route's own name again finishes or replaces it.
    */
   const addRoute = async ({ name, url, secret }: WebhookRouteInput): Promise<boolean> => {
     setBusy(true); setLine(undefined);
+    const notSaved = (why: string) => { setLine(`Webhook route not saved: ${why}`); refresh(); return false; };
     try {
       const [endpoints, current] = await Promise.all([runtime.requests.call(environmentId, "routines.endpoints.list", {}), routeNaming(name)]);
       if (!endpoints.ok || !current) throw new Error("Status unavailable.");
       const { route, targets } = current;
       if (!route && endpoints.result.endpoints.some(endpoint => endpoint.name === name)) { setLine(`An endpoint named ${name} already exists on this environment. Choose another name.`); return false; }
       if (!route && targets.some(target => target.id === name)) { setLine(`A delivery target named ${name} already exists. Choose another name.`); return false; }
-      const target = { id: route?.id ?? name, ...(route?.label === undefined ? {} : { label: route.label }), transport: "webhook" as const, enabled: true, completion: route?.completion ?? false, configuration: { endpoint: name } };
-      const set = await runtime.requests.call(environmentId, "attention.routes.set", { commandId: crypto.randomUUID(), target }).catch(() => null);
-      const refusedRoute = !set ? "Check your connection and admin grant." : !set.ok ? set.error.message : set.result.receipt.status === "rejected" ? set.result.receipt.error.message : null;
-      // A timeout or a lost answer says nothing of whether the route was applied: what the environment lists now decides.
-      if (refusedRoute !== null && !(await routeNaming(name))?.route) { setLine(`Webhook route not saved: ${refusedRoute}`); refresh(); return false; }
-      const endpoint = await runtime.requests.call(environmentId, "routines.endpoints.set", { commandId: crypto.randomUUID(), name, url, secret: { kind: "pasted", secret } });
-      const refused = !endpoint.ok ? endpoint.error.message : endpoint.result.receipt.status === "rejected" ? endpoint.result.receipt.error.message : null;
-      if (refused !== null) { setLine(`Webhook route not saved: ${refused}`); refresh(); return false; }
-      setLine(`Webhook route ${name} saved. Test it to check that its receiver takes the signed post.`);
+      const id = route?.id ?? name;
+      if (!route) {
+        const set = await runtime.requests.call(environmentId, "attention.routes.set", { commandId: crypto.randomUUID(), target: { id, transport: "webhook", enabled: false, completion: false, configuration: { endpoint: name } } }).catch(() => null);
+        // A timeout or a lost answer says nothing of whether the route was applied: what the environment lists now decides.
+        const refused = refusal(set);
+        if (refused !== null && !(await routeNaming(name))?.route) return notSaved(refused);
+      }
+      const endpoint = await runtime.requests.call(environmentId, "routines.endpoints.set", { commandId: crypto.randomUUID(), name, url, secret: { kind: "pasted", secret } }).catch(() => null);
+      const refusedEndpoint = refusal(endpoint);
+      if (refusedEndpoint !== null) {
+        if (route) return notSaved(refusedEndpoint);
+        const listed = await endpointListed(name);
+        // The new route goes once the environment says its endpoint is not there; unknown, it stays disabled for a retry.
+        if (listed === false) await runtime.requests.call(environmentId, "attention.routes.remove", { commandId: crypto.randomUUID(), id }).catch(() => null);
+        if (listed !== true) return notSaved(refusedEndpoint);
+      }
+      const enabled = refusal(await runtime.requests.call(environmentId, "attention.routes.configure", { commandId: crypto.randomUUID(), id, enabled: true, completion: route?.completion ?? false }).catch(() => null));
+      setLine(enabled === null ? `Webhook route ${name} saved. Test it to check that its receiver takes the signed post.` : `Webhook route ${name} saved but not enabled: ${enabled} Enable it below.`);
       refresh();
       return true;
     } catch { setLine("Could not save the webhook route. Check your connection and admin grant."); return false; }
