@@ -185,8 +185,21 @@ const sameSize = (a: Size | null, b: Size) => a !== null && a.cols === b.cols &&
 const KEPT_ASKED_AGAIN_MS = 60_000;
 
 /** The bundled machine face; xterm takes a concrete family and pixel size rather than CSS variables. */
-const FONT_FAMILY = '"JetBrains Mono Variable", ui-monospace, monospace';
+const FACE = '"JetBrains Mono Variable"';
+const FONT_FAMILY = `${FACE}, ui-monospace, monospace`;
 const fontSize = () => 12 * (Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--font-scale")) || 1);
+
+/**
+ * The bundled face loading, or null when it is loaded already or the document loads no fonts. xterm.js measures its
+ * cells and its glyphs as it opens and not again when a face loads later, so a terminal opened on a fallback face
+ * keeps that face's spacing until it is resized (#1864). Settles whether or not the face loads.
+ */
+const faceLoading = (): Promise<unknown> | null => {
+  const fonts = document.fonts as Partial<FontFaceSet> | undefined;
+  const face = `${fontSize()}px ${FACE}`;
+  if (fonts?.load === undefined || fonts.check?.(face) !== false) return null;
+  return fonts.load(face).catch(() => undefined);
+};
 
 /** xterm's Ctrl mappings, including keys present on phone numeric keyboards. */
 const controlData = (key: string): string => {
@@ -206,11 +219,24 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   let onScreen = options.onScreen;
   /**
    * xterm.js measures its cells as it opens, so it opens in the pane the first time the pane is on screen, never
-   * hidden; until then what the terminal prints is taken in all the same.
+   * hidden, and in the bundled face once that has loaded; until then what the terminal prints is taken in all the same.
    */
   let opened = false;
+  let opening = false;
   const openOnScreen = () => {
-    if (opened || !onScreen) return;
+    if (opened || opening || !onScreen) return;
+    const loading = faceLoading();
+    if (loading === null) return openNow();
+    opening = true;
+    void loading.then(() => {
+      opening = false;
+      if (disposed || !onScreen) return;
+      openNow();
+      fitNow();
+      if (wantsKeys) takeKeys();
+    });
+  };
+  const openNow = () => {
     opened = true;
     openStyled(term, host);
   };
@@ -509,7 +535,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const shell = () => findShell(begin(null));
 
   const takeKeys = () => {
-    if (!onScreen) return void (wantsKeys = true);
+    if (!onScreen || !opened) return void (wantsKeys = true);
     wantsKeys = false;
     term.focus();
   };
