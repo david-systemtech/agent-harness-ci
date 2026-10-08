@@ -206,10 +206,10 @@ const DefaultColumns = ({ initial, narrow, writable, options, valueOf, save, acc
   </div>;
 };
 
-/** Which favourite a move or removal last touched, and with what, so the keyboard stays on it once the list is drawn again. */
+/** Where the keyboard goes once the list is drawn again after an edit: a favourite's button, or Add a favourite once the list is empty. */
 interface Touched {
-  readonly id: string;
-  readonly by: -1 | 1 | 0;
+  readonly id: string | undefined;
+  readonly edit: "up" | "down" | "remove";
 }
 
 /**
@@ -218,8 +218,9 @@ interface Touched {
  * added from those the signed-in accounts list (Add a favourite, by account
  * while several list models), moved one place up or down, or removed; each
  * edit writes the whole list through `settings.update`, a refused one said
- * in one line. A favourite no signed-in account lists stays, said so, until
- * it is removed. Greyed while the environment cannot be reached or without
+ * in one line; the list and Add a favourite are held until a write is
+ * answered, so the next edit starts from what it wrote. A favourite no
+ * signed-in account lists stays, said so, until it is removed. Greyed while the environment cannot be reached or without
  * `admin`, whose line the pane says.
  */
 const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
@@ -229,19 +230,22 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value ?? [];
   const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId])).value ?? [];
   const [line, setLine] = useState<string | undefined>(undefined);
+  const [saving, setSaving] = useState(false);
   const list = useRef<HTMLOListElement>(null);
+  const add = useRef<HTMLButtonElement>(null);
   const touched = useRef<Touched | undefined>(undefined);
   const favourites = (settings.values?.["accounts.favouriteModels"] as readonly string[] | undefined) ?? [];
   useLayoutEffect(() => {
     const last = touched.current;
-    if (last === undefined) return;
+    if (last === undefined || saving) return;
     touched.current = undefined;
+    if (last.id === undefined) return add.current?.focus();
     const row = list.current?.querySelector<HTMLElement>(`[data-favourite="${CSS.escape(last.id)}"]`);
     const buttons = [...(row?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
-    (buttons.find((button) => button.dataset["move"] === String(last.by)) ?? buttons[0])?.focus();
-  }, [favourites]);
+    (buttons.find((button) => button.dataset["edit"] === last.edit) ?? buttons[0])?.focus();
+  }, [favourites, saving]);
   if (settings.values === null) return null;
-  const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present";
+  const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present" && !saving;
   // Each model the signed-in accounts list, as the first account listing it names it.
   const signedIn = new Set(accounts.filter((account) => account.status.state === "signed-in").map((account) => account.id));
   const listed = new Map<string, ModelEntry>();
@@ -250,12 +254,23 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
   const full = favourites.length >= FAVOURITE_MODELS_MAX;
   const accountLabel = (id: string) => accounts.find((account) => account.id === id)?.label ?? id;
   const nameOf = (id: string) => listed.get(id)?.label ?? id;
-  const save = async (next: readonly string[], last?: Touched) => {
+  // A refused edit leaves the list as it was, so the keyboard goes back to the button pressed.
+  const save = async (next: readonly string[], after?: Touched, pressed: Touched | undefined = after) => {
     setLine(undefined);
-    touched.current = last;
-    const saved = await settings.save("accounts.favouriteModels", next);
-    if (!saved.ok) setLine(`Not saved: ${saved.line}`);
+    setSaving(true);
+    touched.current = after;
+    try {
+      const saved = await settings.save("accounts.favouriteModels", next);
+      if (!saved.ok) {
+        touched.current = pressed;
+        setLine(`Not saved: ${saved.line}`);
+      }
+    } finally {
+      setSaving(false);
+    }
   };
+  // After a removal the keyboard goes to the next favourite's Remove, the previous one's for the last, or Add a favourite.
+  const afterRemoving = (index: number): Touched => ({ id: favourites[index + 1] ?? favourites[index - 1], edit: "remove" });
   const candidate = (entry: ModelEntry) => <MenuItem key={entry.id} aria-label={modelName(entry)} onSelect={() => void save(addFavourite(favourites, entry.id))} className="items-start text-xs">
     <Cpu aria-hidden="true" className="mt-0.5 size-3" />
     <span className="min-w-0 flex-1"><span className="block">{entry.label ?? entry.id}</span>{entry.label !== null && <span className="block font-mono text-2xs text-ink-muted">{entry.id}</span>}</span>
@@ -275,9 +290,9 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
                   {entry?.label != null && <span className="block font-mono text-2xs text-ink-muted">{id}</span>}
                   {entry === undefined && <span className="block text-2xs text-ink-faint">No signed-in account lists it: the picker passes it over.</span>}
                 </span>
-                <IconButton label={`Move ${nameOf(id)} up`} data-move="-1" disabled={!writable || index === 0} onClick={() => void save(moveFavourite(favourites, id, -1), { id, by: -1 })}><ArrowUp aria-hidden="true" /></IconButton>
-                <IconButton label={`Move ${nameOf(id)} down`} data-move="1" disabled={!writable || index === favourites.length - 1} onClick={() => void save(moveFavourite(favourites, id, 1), { id, by: 1 })}><ArrowDown aria-hidden="true" /></IconButton>
-                <IconButton label={`Remove ${nameOf(id)}`} disabled={!writable} onClick={() => void save(removeFavourite(favourites, id), favourites[index + 1] === undefined ? undefined : { id: favourites[index + 1]!, by: 0 })}><X aria-hidden="true" /></IconButton>
+                <IconButton label={`Move ${nameOf(id)} up`} data-edit="up" disabled={!writable || index === 0} onClick={() => void save(moveFavourite(favourites, id, -1), { id, edit: "up" })}><ArrowUp aria-hidden="true" /></IconButton>
+                <IconButton label={`Move ${nameOf(id)} down`} data-edit="down" disabled={!writable || index === favourites.length - 1} onClick={() => void save(moveFavourite(favourites, id, 1), { id, edit: "down" })}><ArrowDown aria-hidden="true" /></IconButton>
+                <IconButton label={`Remove ${nameOf(id)}`} data-edit="remove" disabled={!writable} onClick={() => void save(removeFavourite(favourites, id), afterRemoving(index), { id, edit: "remove" })}><X aria-hidden="true" /></IconButton>
               </li>;
             })}
           </ol>
@@ -285,7 +300,7 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
         <div className="flex flex-wrap items-center gap-2">
           <Menu modal={false}>
             <MenuTrigger asChild>
-              <Button variant="outline" aria-label="Add a favourite" disabled={!writable || full || candidates.length === 0} className="h-8 text-xs"><Plus aria-hidden="true" />Add a favourite</Button>
+              <Button ref={add} variant="outline" aria-label="Add a favourite" disabled={!writable || full || candidates.length === 0} className="h-8 text-xs"><Plus aria-hidden="true" />Add a favourite</Button>
             </MenuTrigger>
             <MenuContent side="bottom" align="start" aria-label="Models to add" aria-labelledby={undefined} className="w-72 max-h-[320px] overflow-y-auto">
               {candidates.map((group) => <MenuGroup key={group.accountId} aria-label={candidates.length > 1 ? accountLabel(group.accountId) : undefined}>

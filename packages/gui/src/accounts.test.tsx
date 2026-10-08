@@ -600,6 +600,35 @@ describe("Favourite models (ticket 1821)", () => {
     expect(favourites(section)).toEqual(["claude-opus-5"]);
   });
 
+  it("holds the list until a write is answered, so a quick second edit starts from the first, and keeps the keyboard in the list after a removal", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5", "claude-sonnet-5", "retired-model", "older-model"] } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-opus-5", "claude-sonnet-5", "retired-model", "older-model"]));
+    const button = (name: string) => within(section).getByRole("button", { name });
+
+    // A second Remove before the first is answered is not taken; had it been, its list would bring Opus back.
+    fireEvent.click(button("Remove Claude Opus 5"));
+    expect(button("Remove claude-sonnet-5").hasAttribute("disabled")).toBe(true);
+    expect(button("Add a favourite").hasAttribute("disabled")).toBe(true);
+    fireEvent.click(button("Remove claude-sonnet-5"));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5", "retired-model", "older-model"]));
+    expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual(["claude-sonnet-5", "retired-model", "older-model"]);
+    // The keyboard goes to the next favourite's Remove.
+    await waitFor(() => expect(document.activeElement).toBe(button("Remove claude-sonnet-5")));
+
+    // From the last favourite, to the one before it; from the only one, to Add a favourite.
+    await app.user.click(button("Remove older-model"));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5", "retired-model"]));
+    await waitFor(() => expect(document.activeElement).toBe(button("Remove retired-model")));
+    await app.user.click(button("Remove retired-model"));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5"]));
+    await waitFor(() => expect(document.activeElement).toBe(button("Remove claude-sonnet-5")));
+    await app.user.click(button("Remove claude-sonnet-5"));
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual([]));
+    await waitFor(() => expect(document.activeElement).toBe(button("Add a favourite")));
+  });
+
   it("keeps a favourite no account lists, said so, until it is removed, and is read-only without admin", async () => {
     const app = await opened({
       desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["retired-model", "claude-opus-5"] } },
