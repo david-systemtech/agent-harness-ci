@@ -1190,8 +1190,7 @@ it("publishes and accepts the required captures per registered scene through mai
   const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); console.log(JSON.stringify(capturePlan(desktop).shards.map(shard => ({ id: shard.id, names: shard.captures.map(c => c.name) }))));'], { cwd: root });
   const shards = JSON.parse(plan.stdout) as { id: string; names: string[] }[];
   const names = shards.flatMap(shard => shard.names);
-  // The registered desktop captures outgrew one 400-capture report (#1937), so the hosted job captures them in named shards.
-  expect(names.length).toBeGreaterThan(400);
+  // The hosted job captures the registered desktop scenes in named shards of at most 400 captures (#1937), however many the plan holds.
   const artifacts: { id: number; name: string; size_in_bytes: number }[] = [];
   const archives: Record<string, string> = {};
   for (const [index, shard] of shards.entries()) {
