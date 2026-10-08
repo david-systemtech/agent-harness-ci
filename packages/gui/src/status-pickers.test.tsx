@@ -192,6 +192,18 @@ describe("the model picker", () => {
     expect(within(statusLine()).getByRole("button", { name: /^Model:/ })).toBe(document.activeElement);
   });
 
+  it("marks the effort the status line shows as this session's from either chip, when the effort came from the default (ticket 1896)", async () => {
+    const { app, env, session } = await opened([desk({ models })]);
+    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    env.endRun(session, runId);
+    await within(statusLine()).findByRole("button", { name: "Model: Opus - High" });
+    const marked = (menu: HTMLElement) =>
+      within(within(menu).getByRole("group", { name: "Effort" })).getAllByRole("menuitem").filter((item) => item.textContent?.includes("this session")).map((item) => item.getAttribute("aria-label"));
+    expect(marked(await openPicker(app, "Account"))).toEqual(["High"]);
+    await app.user.keyboard("{Escape}");
+    expect(marked(await openPicker(app, "Model"))).toEqual(["High"]);
+  });
+
   it("moves within a column and tabs between columns, with permission and browser submenus", async () => {
     const { app } = await opened([desk({ models })]);
     const menu = await openPicker(app, "Model");
