@@ -750,6 +750,8 @@ start−90°, number fixed 9px (8px at 100), no percent glyph. Mint below 75%, a
 at 75%, signal at 90%; tint 12% disc. Unknown reading dash and empty track;
 rejected limit signal/full arc, exclamation only when utilization unknown.
 Arc transitions 300ms. Plan slots follow provider readings, not fabricated limits.
+A list row draws the same ring compact: 16px, no number, the reading in words
+its tooltip (the §10.6 account rows).
 Context ring only when capability exists: contextTokens / contextWindow, else
 learned model denominator; actual run model takes priority. Known denominator
 and started run without usage shows 0; before run unknown. Clamp displayed share
@@ -772,7 +774,10 @@ Account 224px; stage 2 Model 256px; stage 3 Effort 256px only when
 supported. Choose the environment only in its environment chip. This popup
 shows only that environment's accounts, with no environment headings or choices.
 Account rows show 12px KeyRound or 8px swatch, label, identity, provider,
-sign-in state and plan pressure. Label xs/500, note 2xs/muted, x 10/y 8/gap 8.
+sign-in state and plan pressure: one compact §10.5 ring per plan window on a
+16px line under the note, kept with none, so a row's height does not move with
+its windows; the reading in words is that line's tooltip, never row text.
+Label xs/500, note 2xs/muted, x 10/y 8/gap 8.
 Selected wash, keyboard-focused wash-strong/ink with check indicator; disabled
 50% opacity and visible reason. Use stable account/environment identities, not
 list positions. “Add an account” opens inline sign-in for the chosen environment.

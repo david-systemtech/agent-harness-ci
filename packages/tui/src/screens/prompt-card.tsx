@@ -1,4 +1,4 @@
-import { choiceRows, oneLine } from "@agent-harness/client-runtime";
+import { choiceRows, denylistMatchWords, oneLine } from "@agent-harness/client-runtime";
 import { Box, Text } from "ink";
 import { describeDenylistMatch, type PromptOpenedPayload, type PromptQuestion } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
@@ -8,9 +8,11 @@ import { currentQuestion, isQuestion, type CardState } from "../cards/prompt.js"
  * The permission, question and plan card on screen (docs/specs/tui.md,
  * "Cards"): a bordered box below
  * the transcript and above the composer, in the colour of its kind, with
- * what is asked, the call's input, a denylist prompt's matches, a plan's
- * text, the rows with the cursor, the note, and a hint line in the keys of
- * the map in force. A function of its props: the state is the app's.
+ * what is asked, the call's input, a denylist prompt's matches with what
+ * each protects and what the agent may do instead, and when the run asked
+ * about the same entry before (#1828), a plan's text, the rows with the
+ * cursor, the note, and a hint line in the keys of the map in force. A
+ * function of its props: the state is the app's.
  */
 
 /** Lines of a call's input or a plan drawn before the rest is counted. */
@@ -52,6 +54,8 @@ export interface PromptCardProps {
   readonly hint: string;
   /** The `e` and `s` keys, drawn dim with the reason they do nothing. */
   readonly absent: string | undefined;
+  /** A denylist prompt's `denylistRepeatWords`: that the run already asked about the same entry; none the first time. */
+  readonly repeat: string | undefined;
 }
 
 const Cursor = (props: { readonly selected: boolean }) => <Text color={TERMINAL_ROLES.machine}>{props.selected ? "❯ " : "  "}</Text>;
@@ -76,11 +80,25 @@ export const PromptCard = (props: PromptCardProps) => {
       {question ? <Text wrap="truncate-end">{question.question}</Text> : prompt.kind !== "plan" && <Text wrap="truncate-end">{oneLine(prompt.summary, 300)}</Text>}
       {prompt.reason !== null && <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">{oneLine(prompt.reason, 300)}</Text>}
       {prompt.blockedPath !== null && <Text dimColor wrap="truncate-end">path: {prompt.blockedPath}</Text>}
-      {prompt.denylist?.map((match, at) => (
-        <Text key={at} color={TERMINAL_ROLES.danger} wrap="truncate-end">
-          {describeDenylistMatch(match)}
+      {prompt.denylist?.map((match, at) => {
+        const words = denylistMatchWords(match);
+        return (
+          <Box key={at} flexDirection="column">
+            <Text color={TERMINAL_ROLES.danger} wrap="truncate-end">
+              {describeDenylistMatch(match)}
+            </Text>
+            <Box paddingLeft={2} flexDirection="column">
+              <Text>{words.protects}</Text>
+              <Text dimColor>{words.instead}</Text>
+            </Box>
+          </Box>
+        );
+      })}
+      {props.repeat !== undefined && (
+        <Text color={TERMINAL_ROLES.danger} bold>
+          {props.repeat}
         </Text>
-      ))}
+      )}
       {prompt.kind !== "question" &&
         inputLines(prompt.input).map((line, at) => (
           <Text key={at} dimColor wrap="truncate-end">

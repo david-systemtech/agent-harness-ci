@@ -24,7 +24,11 @@ it.each(["light", "dark"] as const)("shows the run-picker columns and geometry i
   const menu = await screen.findByRole("menu", { name: "Run choices" });
   for (const name of ["Accounts", "Models", "Effort"]) expect(await within(menu).findByRole("group", { name })).toBeDefined();
   expect(within(menu).getByRole("textbox", { name: "Search models" })).toBeDefined();
-  expect(within(menu).getAllByText("5-hour 80%")).toHaveLength(8);
+  // Accounts hold two plan windows, one or none in turn: each row draws its rings on one ring line (#1822).
+  const accounts = within(menu).getByRole("group", { name: "Accounts" });
+  expect(within(accounts).getAllByRole("img").map((ring) => ring.getAttribute("aria-label"))).toEqual(["5-hour 80%", "Weekly 35%", "5-hour 95%", "5-hour 80%", "Weekly 35%", "5-hour 95%", "5-hour 80%", "Weekly 35%", "5-hour 95%"]);
+  expect(accounts.querySelectorAll("[data-usage-rings]")).toHaveLength(8);
+  expect(within(accounts).queryByText("5-hour 80%")).toBeNull();
   expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("run-picker"));
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; width?: number; height?: number }[];
@@ -62,6 +66,7 @@ it.each(["accounts", "models", "effort"])("shows only the %s step in the phone g
       expect(within(sheet).queryByRole("group", { name }) !== null).toBe(name.toLowerCase() === stage);
     }
     expect(within(sheet).queryByText("desk")).toBeNull();
+    if (stage === "accounts") expect(within(sheet).getAllByRole("img").map((ring) => ring.getAttribute("aria-label"))).toEqual(["5-hour 80%", "Weekly 35%", "5-hour 95%"]);
     expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: "[data-run-sheet]", width: 344, visibleWithin: "[data-run-sheet]" });
   } finally {
     media.mockRestore();

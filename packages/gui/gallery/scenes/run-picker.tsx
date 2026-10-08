@@ -18,11 +18,13 @@ export const script: Script = { environments: [{ environmentId, name: "desk", re
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- Scripted environment fixtures supply the session summary.
   sessions: [{ id: sessionId, title: "Run choices", accountId: "account-1", model: "sample-model-1" }], models: [{ accountId: "account-1", live: true, models }],
 }] };
+const usageWindow = (window: string, utilisation: number) => ({ window, utilisation, observedAt: "2026-09-24T00:00:00.000Z", resetsAt: "2026-09-24T05:00:00.000Z", verdict: null });
+/** Accounts hold two plan windows, one or none in turn, so the rows show they keep one height (#1822). */
+const windowsOf = (index: number) => [[usageWindow("five_hour", 0.8), usageWindow("seven_day", 0.35)], [usageWindow("five_hour", 0.95)], []][index % 3] ?? [];
 export const arrange = (world: ScriptedWorld) => {
-  world.environment("desk").setUsage(accounts.map((account) => ({ accountId: account.id, identity: account.identity,
-    readAt: "2026-09-24T00:00:00.000Z", unavailableReason: null,
-    windows: [{ window: "five_hour", utilisation: 0.8, observedAt: "2026-09-24T00:00:00.000Z", resetsAt: "2026-09-24T05:00:00.000Z", verdict: null }],
-  })));
+  world.environment("desk").setUsage(accounts.flatMap((account, index) => windowsOf(index).length === 0 ? [] : [{ accountId: account.id, identity: account.identity,
+    readAt: "2026-09-24T00:00:00.000Z", unavailableReason: null, windows: windowsOf(index),
+  }]));
 };
 
 const Popup = ({ compact }: { readonly compact: boolean }) => {
@@ -54,4 +56,5 @@ export const geometry: readonly SceneGeometry[] = [
   { selector: '[data-run-column="Effort"]', width: 256 },
   { selector: '[data-run-column="Accounts"] [data-run-list]', height: 320 },
   { selector: '[data-run-column="Models"] [data-run-list]', height: 320 },
+  { selector: '[data-run-column="Accounts"] [data-usage-rings]', height: 16 },
 ];

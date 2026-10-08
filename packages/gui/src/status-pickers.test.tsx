@@ -43,6 +43,9 @@ const statusLine = () => screen.getByRole("region", { name: "Status line" });
 /** The pane's one line, under the composer. */
 const paneLine = () => within(screen.getByRole("region", { name: "Session pane" })).queryAllByRole("status").at(-1)?.textContent;
 
+/** What the transient lane says now, newest last (#1823): a mode set as asked is said there, once, not on the pane's line. */
+const feedback = () => [...document.querySelectorAll('[data-sonner-toast]:not([data-removed="true"]) [data-title]')].map((title) => title.textContent);
+
 /** Opens the picker whose button's name starts with `name` (`Mode`), as a person tabbing to it and pressing Enter does. */
 const openPicker = async (app: RenderedApp, name: string) => {
   const button = await within(statusLine()).findByRole("button", { name: new RegExp(`^${name}: `) });
@@ -85,11 +88,49 @@ describe("the mode picker", () => {
     expect(await within(statusLine()).findByRole("button", { name: "Mode: auto" })).toBeTruthy();
   });
 
-  it("sets a mode within the ceiling and says it", async () => {
+  it("sets a mode within the ceiling and says it once, as a transient notice, with no standing line under the composer", async () => {
     const { app } = await opened();
     await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
-    await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
+    expect(paneLine()).toBeUndefined();
     expect(await within(statusLine()).findByRole("button", { name: "Mode: plan" })).toBeTruthy();
+  });
+
+  it("says bypassPermissions once as it changes, with the permissions spec's sentence, and the mode control shows it from then on", async () => {
+    const { app } = await opened();
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(feedback()).toContain(`Mode: bypassPermissions. ${BYPASS}`));
+    expect(paneLine()).toBeUndefined();
+    expect(await within(statusLine()).findByRole("button", { name: "Mode: BYPASS" })).toBeTruthy();
+  });
+
+  it("shows a session in bypassPermissions by the mode control alone: its label and colour, the sentence in its tooltip", async () => {
+    await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4", mode: "bypassPermissions" }] })]);
+    const mode = await within(statusLine()).findByRole("button", { name: "Mode: BYPASS" });
+    expect(mode.querySelector(".text-signal")?.textContent).toBe("BYPASS");
+    expect(paneLine()).toBeUndefined();
+    act(() => mode.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain(`Mode: BYPASS · /mode · ${BYPASS}`);
+  });
+
+  it("keeps one mode notice: a later set replaces the earlier one's, and a clamp takes it away", async () => {
+    const { app } = await opened([desk({ hello: { ceiling: "auto" } })]);
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
+    await waitFor(() => expect(feedback()).toEqual(["Mode: plan."]));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^auto/ }));
+    await waitFor(() => expect(feedback()).toEqual(["Mode: auto."]));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(paneLine()).toBe("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto)."));
+    await waitFor(() => expect(feedback()).toEqual([]));
+  });
+
+  it("clears an earlier clamp's line once a mode is set as asked", async () => {
+    const { app } = await opened([desk({ hello: { ceiling: "auto" } })]);
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(paneLine()).toBe("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto)."));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
+    expect(paneLine()).toBeUndefined();
   });
 });
 
@@ -169,7 +210,7 @@ describe("the model picker", () => {
     expect(modes.className).toContain("w-72");
     act(() => within(modes).getByRole("menuitem", { name: /^plan/ }).focus());
     await app.user.keyboard("{Enter}");
-    await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
   });
 
   it("shows one dependency at a time at 360px and keeps model and effort choices when going back", async () => {
@@ -269,20 +310,43 @@ describe("the account picker", () => {
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(paneLine()).toContain("Cannot sign claude-max in"));
   });
-  it("lists the environment's accounts with their identity, sign-in status and plan reading, then Add an account", async () => {
+  it("lists the environment's accounts with their identity, sign-in status and one usage ring per plan window, the reading in the rings' tooltip, then Add an account (ticket 1822)", async () => {
     const { app, env } = await opened([
       desk({
         accounts: [
           { id: "account-1", label: "work", identity: WORK },
           { id: "account-2", label: "personal", identity: HOME, status: { state: "expired", checkedAt: null, detail: null } },
+          { id: "account-3", label: "spare", identity: { provider: "claude", email: "milo@spare.test", organisation: null } },
         ],
       }),
     ]);
-    env.setUsage([reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
+    env.setUsage([
+      reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.8)]),
+      reading("account-2", HOME, [], "Not signed in."),
+      reading("account-3", { provider: "claude", email: "milo@spare.test", organisation: null }, [window("five_hour", 0.95)]),
+    ]);
     await within(statusLine()).findByRole("group", { name: "Plan usage" });
     const menu = await openPicker(app, "Account");
-    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work milo@work.testsigned in · this session · claude5-hour 42% · Weekly 10%");
-    expect(within(menu).getByRole("menuitem", { name: /^personal/ }).textContent).toBe("personal milo@home.testsign-in expired · Sign in · claudeNot signed in.");
+    const work = within(menu).getByRole("menuitem", { name: /^work/ });
+    const personal = within(menu).getByRole("menuitem", { name: /^personal/ });
+    const spare = within(menu).getByRole("menuitem", { name: /^spare/ });
+    // The words are gone from the row: the rings draw them, and the tooltip says them.
+    expect(work.textContent).toBe("work milo@work.testsigned in · this session · claude");
+    expect(personal.textContent).toBe("personal milo@home.testsign-in expired · Sign in · claude");
+    const rings = (row: HTMLElement) => within(row).queryAllByRole("img").map((ring) => [ring.getAttribute("aria-label"), ring.getAttribute("class")?.match(/text-(mint|amber|signal)/)?.[1]]);
+    expect(rings(work)).toEqual([["5-hour 42%", "mint"], ["Weekly 80%", "amber"]]);
+    expect(rings(spare)).toEqual([["5-hour 95%", "signal"]]);
+    expect(rings(personal)).toEqual([]);
+    // The status line's own ring, drawn compact: the same arc, at 16px.
+    const ring = within(work).getByRole("img", { name: "5-hour 42%" });
+    expect([ring.getAttribute("width"), ring.querySelector("[data-usage-arc]")?.getAttribute("style")]).toEqual(["16", "stroke-dasharray: 42 100;"]);
+    // Every account row keeps its one fixed-height ring line, whether it holds two rings, one or none.
+    for (const row of [work, spare, personal]) expect(row.querySelectorAll("[data-usage-rings].h-4")).toHaveLength(1);
+    // The row's native title stops at the ring line, so it never draws over the rings' own tooltip.
+    expect([work.title.startsWith("work milo@work.test"), work.querySelector("[data-usage-rings]")?.getAttribute("title")]).toEqual([true, ""]);
+    expect(within(personal).getByRole("group", { name: "Not signed in." })).toBeTruthy();
+    await app.user.hover(within(work).getByRole("group", { name: "5-hour 42% · Weekly 80%" }));
+    expect((await screen.findByRole("tooltip")).textContent).toBe("5-hour 42% · Weekly 80%");
     expect(within(menu).getByRole("menuitem", { name: "Add an account…" })).toBeTruthy();
   });
 
