@@ -35,7 +35,8 @@ export const SetupPane = () => {
   const { open: openChecklist } = useChecklist();
   const { open: openRow } = useSettings();
   const details = useDetails();
-  const [checking, setChecking] = useState(false);
+  /** The environment a Check everything again is running on. */
+  const [checking, setChecking] = useState<string | undefined>(undefined);
   const [checked, setChecked] = useState<Checked | undefined>(undefined);
   if (picked === undefined || view === undefined) return null;
   const { environmentId } = picked;
@@ -45,15 +46,18 @@ export const SetupPane = () => {
   const said = (step: SetupStepView) => [stepLine(step, now), stepNote(step, now, name)].filter((words) => words !== undefined).join(" ");
   const refused = `${PRODUCT_NAME} could not check ${name}.`;
   const shown = checked?.environmentId === environmentId ? checked : undefined;
+  const busy = checking === environmentId;
 
   const checkEverything = async () => {
     setChecked(undefined);
-    setChecking(true);
-    const answer = await runtime.setup.check(environmentId).finally(() => setChecking(false));
+    setChecking(environmentId);
+    const answer = await runtime.setup.check(environmentId).finally(() => setChecking((running) => (running === environmentId ? undefined : running)));
     if (!answer.ok) return setChecked({ environmentId, passed: false, refusal: answer.error });
-    const first = runtime.projections.setup(environmentId).read().counts.attention[0];
-    if (first === undefined) setChecked({ environmentId, passed: true });
-    else openChecklist(first);
+    const { counts } = runtime.projections.setup(environmentId).read();
+    const first = counts.attention[0];
+    if (first !== undefined) openChecklist(first);
+    // All pass: each answer done, or skipped, which counts as fine; one still pending has not passed (setup-copy.md §4.5).
+    else if (counts.done + counts.skipped === counts.registered) setChecked({ environmentId, passed: true });
   };
 
   return (
@@ -61,8 +65,8 @@ export const SetupPane = () => {
       <ReachLine view={view} environment={picked} />
       <p className="text-sm text-ink">{countsWords(view.counts)}</p>
       <div className="flex flex-wrap gap-2">
-        <Button icon={RotateCw} variant="default" disabled={checking} aria-busy={checking} onClick={() => void checkEverything()}>
-          {checking ? "Checking…" : "Check everything again"}
+        <Button icon={RotateCw} variant="default" disabled={busy} aria-busy={busy} onClick={() => void checkEverything()}>
+          {busy ? "Checking…" : "Check everything again"}
         </Button>
         <Button onClick={() => openChecklist()}>Open Set up</Button>
         <Button onClick={() => openRow("environments.machines", undefined, "add-a-machine")}>Set up another computer</Button>

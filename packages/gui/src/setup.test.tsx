@@ -331,6 +331,14 @@ describe("the Set up pane", () => {
     expect(desk.requests("setup.check")).toHaveLength(2);
     expect(screen.queryByRole("navigation", { name: "Set up steps" })).toBeNull();
 
+    // A step still answering pending has not passed: no line, and nothing to open.
+    desk.setSetup({ "your-machines": { state: "pending", reason: "Waiting for the first release channel read." } });
+    await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
+    await waitFor(() => expect(desk.requests("setup.check")).toHaveLength(3));
+    await within(pane).findByRole("button", { name: "Check everything again" });
+    expect(within(pane).queryByText("Everything on desk is set up.")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Set up steps" })).toBeNull();
+
     desk.setSetup({
       permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] },
       appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
@@ -342,7 +350,22 @@ describe("the Set up pane", () => {
     expect(within(steps()).getByRole("button", { name: "Permissions" }).getAttribute("aria-current")).toBe("step");
   });
 
-  it("says a check that could not run as an alert naming the computer, with Details holding the refusal, and keeps it to the computer it was for", async () => {
+  it("keeps Check everything again busy only on the computer it is checking", async () => {
+    const app = await twoEnvironments();
+    const pane = await setupPane(app);
+    await within(pane).findByText("4 done · 1 needs a fix · 1 not set up");
+    const release = app.environment("desk").holdSetupChecks();
+    await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
+    expect(within(pane).getByRole("button", { name: "Checking…" }).hasAttribute("disabled")).toBe(true);
+
+    await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "laptop");
+    await within(pane).findByText("5 done · 1 needs a fix · 0 not set up");
+    expect(within(pane).getByRole("button", { name: "Check everything again" }).hasAttribute("disabled")).toBe(false);
+    expect(within(pane).queryByRole("button", { name: "Checking…" })).toBeNull();
+    release();
+  });
+
+  it("says a check that could not run as an alert naming the computer,with Details holding the refusal, and keeps it to the computer it was for", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");
     const pane = await setupPane(app);
