@@ -41,13 +41,13 @@ it("lets an admin add a named signed-webhook route and test a global webhook rou
   expect((screen.getByLabelText("Signing secret") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Signing secret") as HTMLInputElement).type).toBe("password");
   view.rerender(<AttentionSettingsPane targets={[
-    { id: "phone-attention", transport: "webhook", webhookEndpoint: "phone-attention", enabled: true, completion: false, global: true, state: "ready", failure: null },
+    { id: "phone-route", transport: "webhook", webhookEndpoint: "phone-attention", enabled: true, completion: false, global: true, state: "ready", failure: null },
     { id: "push-client-session-1", label: "Chrome on Android, enabled 6 Oct, 13:04", transport: "push", enabled: true, completion: false, global: false, state: "ready", failure: null },
   ]} admin busy={false} onConfigure={vi.fn()} onRemove={vi.fn()} onRefresh={vi.fn()} onAddRoute={add} onTest={test} />);
   expect(screen.getByText(/Signed webhook · Global route/)).toBeDefined();
-  expect(screen.getAllByRole("button", { name: /^Test / }).map(button => button.getAttribute("aria-label"))).toEqual(["Test phone-attention"]);
-  await user.click(screen.getByRole("button", { name: "Test phone-attention" }));
-  expect(test).toHaveBeenCalledWith("phone-attention");
+  expect(screen.getAllByRole("button", { name: /^Test / }).map(button => button.getAttribute("aria-label"))).toEqual(["Test phone-route"]);
+  await user.click(screen.getByRole("button", { name: "Test phone-route" }));
+  expect(test).toHaveBeenCalledWith("phone-route", "phone-attention");
 });
 
 it("keeps the typed route when the environment refuses it", async () => {
@@ -169,6 +169,11 @@ const openAdminSheet = async () => {
 };
 /** A delivery target's card text, found by its heading. */
 const card = (name: string) => screen.getByRole("heading", { name }).closest("article")?.textContent;
+/** The status line written beside the button just tapped: its next sibling, or the next sibling of the row of buttons it sits in. */
+const besideButton = (button: HTMLElement) => {
+  const after = button.nextElementSibling ?? button.parentElement?.nextElementSibling;
+  return after?.getAttribute("role") === "status" ? after.textContent : null;
+};
 const accepted = (result: Record<string, unknown>) => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result } });
 
 it("an admin client makes the named endpoint and its global route from Attention settings, then tests it, without replacing another endpoint", async () => {
@@ -187,6 +192,55 @@ it("an admin client makes the named endpoint and its global route from Attention
   await user.click(screen.getByRole("button", { name: "Test phone-attention" }));
   expect(await screen.findByText("phone-attention answered 204 in 120 ms.")).toBeDefined();
   expect(desk.requests("routines.endpoints.test").map(request => request.params)).toEqual([{ name: "phone-attention" }]);
+});
+
+it("writes a route's outcome beside the Add route button and a test's on its route row, where the admin tapped, and scrolls each into view", async () => {
+  const { desk, routes, user, fill } = await openAdminSheet();
+  /** A row another client adds after the outcome was written, read by a refresh this sheet's action did not start: it leaves the scroll alone. */
+  const elsewhere = async (id: string) => {
+    const before = scrolled.length;
+    routes.push({ id, label: id, transport: "push", enabled: true, completion: false, global: false, state: "ready", failure: null });
+    await user.click(screen.getByRole("button", { name: "Refresh status" }));
+    await screen.findByRole("heading", { name: id });
+    expect(scrolled.length).toBe(before);
+  };
+  // Each scroll is recorded with the rows on screen when it ran: a row rendered above the line after it scrolled pushes it out of view.
+  const scrolled: { readonly textContent: string | null; readonly rows: readonly (string | null)[] }[] = [];
+  vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+    scrolled.push({ textContent: this.textContent, rows: [...document.querySelectorAll("[data-attention-settings] article h3")].map(heading => heading.textContent) });
+  });
+  const addRoute = screen.getByRole("button", { name: "Add route" });
+  await fill("routine-hook");
+  await waitFor(() => expect(besideButton(addRoute)).toBe("An endpoint named routine-hook already exists on this environment. Choose another name."));
+  await fill("phone-attention");
+  await waitFor(() => expect(besideButton(addRoute)).toBe("Webhook route phone-attention saved. Test it to check that its receiver takes the signed post."));
+  await waitFor(() => expect(scrolled.at(-1)).toEqual({ textContent: expect.stringMatching(/^Webhook route phone-attention saved/), rows: expect.arrayContaining(["phone-attention"]) }));
+  await elsewhere("other-client-1");
+  // Nothing the admin did is written above the panes, out of view of the button tapped.
+  expect(screen.getAllByRole("status").filter(line => !line.closest("form, article"))).toEqual([]);
+  const test = await screen.findByRole("button", { name: "Test phone-attention" });
+  await user.click(test);
+  await waitFor(() => expect(besideButton(screen.getByRole("button", { name: "Test phone-attention" }))).toBe("phone-attention answered 204 in 120 ms."));
+  expect(scrolled.at(-1)?.textContent).toBe("phone-attention answered 204 in 120 ms.");
+  await elsewhere("other-client-2");
+  expect(besideButton(addRoute)).toBeNull();
+  desk.wire.answer("routines.endpoints.test", () => ({ result: { status: null, durationMs: 3000, error: "The receiver did not answer in time." } }));
+  await user.click(screen.getByRole("button", { name: "Test phone-attention" }));
+  await waitFor(() => expect(besideButton(screen.getByRole("button", { name: "Test phone-attention" }))).toBe("phone-attention did not take the test: The receiver did not answer in time."));
+  expect(screen.getAllByRole("status").filter(line => !line.closest("form, article"))).toEqual([]);
+});
+
+it("writes a refused route's reason, and a route saved but not enabled, beside the Add route button", async () => {
+  const { desk, fill } = await openAdminSheet();
+  const addRoute = screen.getByRole("button", { name: "Add route" });
+  desk.wire.answer("routines.endpoints.set", () => ({ result: { receipt: { status: "rejected", sequence: 2, changed: false, reason: "invalid_params", error: { code: "invalid_params", message: "Use https, or http only to a private address.", data: {} } } } }));
+  await fill("phone-attention");
+  await waitFor(() => expect(besideButton(addRoute)).toBe("Webhook route not saved: Use https, or http only to a private address."));
+  desk.wire.answer("routines.endpoints.set", params => accepted({ endpoint: { name: params["name"], url: params["url"], secretKind: "pasted", lastResult: null } }));
+  desk.wire.answer("attention.routes.configure", () => ({ error: { code: "unavailable", message: "The environment is busy.", data: {} } }));
+  await fill("phone-attention");
+  await waitFor(() => expect(besideButton(addRoute)).toBe("Webhook route phone-attention saved but not enabled: The environment is busy. Enable it on its row above."));
+  expect(screen.getAllByRole("status").filter(line => !line.closest("form, article"))).toEqual([]);
 });
 
 it("saves the route before its endpoint, so a refused route leaves no endpoint or secret behind", async () => {
