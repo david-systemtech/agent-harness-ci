@@ -129,7 +129,11 @@ it("joins a personal bank from another environment without presetting scope or a
 it("refuses invalid manifests before retaining a checkout or adding a bank", async () => {
   const { t, client, url } = await setup(true, changed(TEAM_BANK, { "BANK.md": null }));
   const before = t.env.log.head();
-  await expect(client.request("banks.join.preview", { url })).rejects.toMatchObject({ code: "validation_failed", data: { rules: ["manifest_missing"] } });
+  await expect(client.request("banks.join.preview", { url })).rejects.toMatchObject({
+    code: "validation_failed",
+    message: "This notebook's description has a problem, so it cannot be joined. Ask an owner to fix it.",
+    data: { rules: ["manifest_missing"] },
+  });
   await expect(client.request("banks.join", { commandId: randomUUID(), bankId: randomUUID(), url, accounts: ["work"], repositories: "all" })).rejects.toMatchObject({ code: "validation_failed" });
   expect((await client.request("banks.list", {})).banks).toEqual([]);
   expect(t.env.log.head()).toBe(before);
@@ -179,16 +183,55 @@ it("refuses an add over 8 KB for a selected account, retaining the registry and 
 
 it("refuses repository access denied by the matched account before cloning or attaching", async () => {
   const { t, client, forge, url } = await setup(false, TEAM_BANK, false);
-  await expect(client.request("banks.join.preview", { url })).rejects.toMatchObject({ code: "not_found" });
+  await expect(client.request("banks.join.preview", { url })).rejects.toMatchObject({ code: "not_found", message: "Your forge account cannot read this notebook. Ask an owner to add you." });
   await expect(client.request("banks.join", { commandId: randomUUID(), bankId: randomUUID(), url, accounts: ["work"], repositories: "all" })).rejects.toMatchObject({ code: "not_found" });
   expect(forge.gitRequests).toEqual([]);
   expect((await client.request("banks.list", {})).banks).toEqual([]);
   expect(existsSync(join(t.dataDir, "banks", "acme"))).toBe(false);
 });
 
+describe("a link that cannot be read (setup-copy.md §5.8; #1854)", () => {
+  it("tells a link with no repository behind it, read with a forge account, from one the forge would not show anonymously", async () => {
+    const { client, forge } = await setup();
+    forge.answer(TOKEN, "GET /api/v1/repos/acme/nothing", { status: 404, body: { message: "repository does not exist" } });
+    await expect(client.request("banks.join.preview", { url: `${forge.origin}/acme/nothing.git` })).rejects.toMatchObject({
+      code: "not_found",
+      message: "There is no notebook at this link. Check it with whoever shared it.",
+      data: { status: 404, details: [expect.stringContaining("HTTP 404: repository does not exist")] },
+    });
+  });
+
+  it("says a link it cannot see may be private, and to add a forge for its host, where no forge account here covers it", async () => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.gitRepository("acme/memory", { private: true, files: TEAM_BANK });
+    const t = await startTestEnvironment({ forgeFetch: (url, init) => forge.fetch(url, init) });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    const refusal = client.request("banks.join.preview", { url: `${forge.origin}/acme/memory.git` });
+    await expect(refusal).rejects.toMatchObject({
+      code: "forge_account_missing",
+      message: `agent-harness cannot see a notebook at this link. If it is private, add a forge for ${new URL(forge.origin).host} first.`,
+      data: { origin: forge.origin, step: "forges", details: [expect.stringMatching(/^No forge account on this environment covers /)] },
+    });
+  });
+
+  it("says a link that names no repository is not a notebook link", async () => {
+    const { client } = await setup();
+    await expect(client.request("banks.join.preview", { url: "not a link" })).rejects.toMatchObject({
+      code: "invalid_params",
+      message: "That is not a notebook link. Paste the link an owner shared with you.",
+    });
+  });
+});
+
 it("refuses an environment-held secret in a valid bank manifest without returning its value", async () => {
   const { client, url } = await setup(true, changed(TEAM_BANK, { "BANK.md": markdown(teamManifest({ purpose: TOKEN })) }));
-  await expect(client.request("banks.join.preview", { url })).rejects.toMatchObject({ code: "validation_failed", data: { rules: ["secret_shaped"] } });
+  await expect(client.request("banks.join.preview", { url })).rejects.toMatchObject({
+    code: "validation_failed",
+    message: "This notebook holds something that looks like a password, so it cannot be joined. Ask an owner to remove it.",
+    data: { rules: ["secret_shaped"] },
+  });
 });
 
 
@@ -248,7 +291,7 @@ it("bounds the whole preview by the git budget, including the forge capability r
   onCleanup(() => timer.mockRestore());
   const pending = client.request("banks.join.preview", { url });
   // Attach the rejection handler before ending the held budget.
-  const rejected = expect(pending).rejects.toMatchObject({ code: "unreachable" });
+  const rejected = expect(pending).rejects.toMatchObject({ code: "unreachable", message: "Reading the notebook took too long. Try again." });
   try {
     await reading;
     budget.abort();

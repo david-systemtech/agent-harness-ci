@@ -7,6 +7,8 @@ import type { ScrubRegistry } from "../scrub/registry.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { PreparedCommand } from "../serve/methods.js";
 import type { ForgeService } from "../forge/forge-service.js";
+import type { ForgeAnswer } from "../forge/operations.js";
+import type { ForgeRepositoryCapabilities } from "../forge/providers.js";
 import { readBankFiles } from "./bank-files.js";
 import { indexBank } from "./bank-index.js";
 import { renderFixedTiers } from "./index-renderer.js";
@@ -20,30 +22,60 @@ interface BankJoinOptions {
   readonly environmentId: string;
 }
 
+/** The refusal of a link that names no repository on a forge (setup-copy.md §5.8). */
+const NOT_A_NOTEBOOK_LINK = "That is not a notebook link. Paste the link an owner shared with you.";
+
+/** The refusal of a preview or join the git budget ran out on. */
+const tooSlow = (origin: string): ContractError =>
+  new ContractError({ code: "unreachable", message: "Reading the notebook took too long. Try again.", data: { origin, details: [`The preview passed the ${CHECK_BUDGET_SECONDS.git}-second budget.`] } });
+
+/**
+ * Why the forge did not let this link be read, in setup-copy.md §5.8's words, its own words in details (#1854): a
+ * forge that refused an anonymous read cannot say whether the repository is private or not there; one read with a
+ * forge account can.
+ */
+const unreadable = (origin: string, answer: Exclude<ForgeAnswer<ForgeRepositoryCapabilities>, { outcome: "done" }>): ContractError => {
+  const host = new URL(origin).host;
+  switch (answer.outcome) {
+    case "refused":
+      return answer.error.code === "forge_account_missing"
+        ? new ContractError({ ...answer.error, message: `agent-harness cannot see a notebook at this link. If it is private, add a forge for ${host} first.`, data: { ...answer.error.data, details: [answer.error.message] } })
+        : new ContractError(answer.error);
+    case "unreachable":
+      return new ContractError({ code: "unreachable", message: `agent-harness could not reach ${host}. Check the link and the internet connection.`, data: { origin, details: [answer.message] } });
+    case "failed":
+      return new ContractError({
+        code: "not_found",
+        message: answer.status === 404 ? "There is no notebook at this link. Check it with whoever shared it." : `${host} would not show this notebook to agent-harness. Try again in a moment.`,
+        data: { status: answer.status, details: [answer.message] },
+      });
+  }
+};
+
 /** A validated temporary clone, shallow and within the git budget for preview, full for joining. */
 const withBankClone = async <Value>(options: Pick<BankJoinOptions, "forge" | "scrub">, url: string, shallow: boolean, use: (checkout: string, preview: BankJoinPreview) => Promise<Value>, signal?: AbortSignal): Promise<Value> => {
   const { forge, scrub } = options;
   const purpose = shallow ? "preview a memory bank" : "join a memory bank";
   const remote = normaliseRemote(url);
-  if (remote?.path == null) throw new ContractError(invalidParams([], "The join URL must name a repository on a forge."));
+  if (remote?.path == null) throw new ContractError(invalidParams([], NOT_A_NOTEBOOK_LINK));
   const capabilities = await forge.repositories.capabilities({ origin: url, repository: remote.path, purpose, ...(signal !== undefined && { signal }) });
-  if (capabilities.outcome === "refused") throw new ContractError(capabilities.error);
-  if (capabilities.outcome === "unreachable") throw new ContractError({ code: "unreachable", message: capabilities.message, data: { origin: remote.origin } });
-  if (capabilities.outcome === "done" && !capabilities.value.canRead) throw new ContractError({ code: "not_found", message: "This forge account cannot read the bank repository.", data: {} });
-  if (capabilities.outcome === "failed") throw new ContractError({ code: "not_found", message: `The bank repository could not be read (HTTP ${capabilities.status}).`, data: {} });
+  if (capabilities.outcome !== "done") throw unreadable(remote.origin, capabilities);
+  if (!capabilities.value.canRead) throw new ContractError({ code: "not_found", message: "Your forge account cannot read this notebook. Ask an owner to add you.", data: {} });
   const directory = await mkdtemp(join(tmpdir(), "agent-harness-bank-preview-"));
   try {
     const cloned = await forge.git({ operation: "clone", repository: url, cwd: directory, directory: "bank", ...(shallow && { depth: 1, timeoutMs: CHECK_BUDGET_SECONDS.git * 1000 }), ...(signal !== undefined && { signal }), purpose });
     if (cloned.outcome === "refused") throw new ContractError(cloned.error);
-    if (!cloned.git.ok) throw new ContractError({ code: "unreachable", message: "The bank's temporary clone could not be read.", data: { origin: remote.origin } });
+    if (!cloned.git.ok) {
+      throw new ContractError({ code: "unreachable", message: `agent-harness could not copy this notebook from ${new URL(remote.origin).host}. Try again in a moment.`, data: { origin: remote.origin, details: [`git clone exited ${cloned.git.code ?? "without a code"}.`] } });
+    }
     const files = await readBankFiles(join(directory, "bank"), "HEAD", signal === undefined ? {} : { signal });
     const verdict = validateBank({ files });
-    if (!verdict.valid) throw new ContractError({ code: "validation_failed", message: "The bank does not pass validation.", data: { rules: [...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))], findings: verdict.findings } });
+    if (!verdict.valid) throw new ContractError({ code: "validation_failed", message: "This notebook's description has a problem, so it cannot be joined. Ask an owner to fix it.", data: { rules: [...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))], findings: verdict.findings } });
     const secrets = Object.entries(files).flatMap(([path, text]): BankFinding[] => {
       const secret = scrub.check(text);
       return secret === null ? [] : [{ rule: "secret_shaped", severity: "refusal", path, field: "contents", secret, message: "The file holds a secret: move it to the key manager and name its path." }];
     });
-    if (secrets.length > 0) throw new ContractError({ code: "validation_failed", message: "The bank holds a secret.", data: { rules: ["secret_shaped"], findings: secrets } });
+    if (secrets.length > 0) throw new ContractError({ code: "validation_failed", message: "This notebook holds something that looks like a password, so it cannot be joined. Ask an owner to remove it.", data: { rules: ["secret_shaped"], findings: secrets } });
     const markdown = readBankMarkdown(files["BANK.md"] ?? "");
     const manifest = BankManifest.parse(markdown.ok ? markdown.data : {});
     const index = indexBank({ name: manifest.name, kind: manifest.kind, role: capabilities.value.canPush ? "read-write" : "read-only", files });
@@ -56,7 +88,7 @@ const withBankClone = async <Value>(options: Pick<BankJoinOptions, "forge" | "sc
     };
     return await use(join(directory, "bank"), preview);
   } catch (error) {
-    if (signal?.aborted === true && !(error instanceof ContractError)) throw new ContractError({ code: "unreachable", message: "The bank preview exceeded the git budget.", data: { origin: remote.origin } });
+    if (signal?.aborted === true && !(error instanceof ContractError)) throw tooSlow(remote.origin);
     throw error;
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -66,9 +98,9 @@ const withBankClone = async <Value>(options: Pick<BankJoinOptions, "forge" | "sc
 /** A preview attaches nothing, and its temporary checkout is always removed. */
 export const previewBank = async (options: Pick<BankJoinOptions, "forge" | "scrub">, url: string): Promise<BankJoinPreview> => {
   const remote = normaliseRemote(url);
-  if (remote?.path == null) throw new ContractError(invalidParams([], "The join URL must name a repository on a forge."));
+  if (remote?.path == null) throw new ContractError(invalidParams([], NOT_A_NOTEBOOK_LINK));
   const signal = AbortSignal.timeout(CHECK_BUDGET_SECONDS.git * 1000);
-  const expired = new ContractError({ code: "unreachable", message: "The bank preview exceeded the git budget.", data: { origin: remote.origin } });
+  const expired = tooSlow(remote.origin);
   let stop!: () => void;
   const budget = new Promise<never>((_resolve, reject) => {
     stop = () => reject(expired);
@@ -93,7 +125,7 @@ export const joinBank = (options: BankJoinOptions): PreparedCommand<"banks.join"
       await mkdir(checkout);
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "EEXIST") {
-        return () => ({ aggregate: { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, rejected: { code: "conflict", message: `Another checkout is named ${preview.name}.`, data: { reason: "name_taken", name: preview.name } } });
+        return () => ({ aggregate: { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, rejected: { code: "conflict", message: `You already have a notebook named ${preview.name}.`, data: { reason: "name_taken", name: preview.name } } });
       }
       throw error;
     }
