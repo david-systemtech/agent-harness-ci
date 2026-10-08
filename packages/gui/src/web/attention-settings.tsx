@@ -23,27 +23,31 @@ export interface AttentionSettingsProps {
   /** What the admin's last action came to, written where they tapped: on the named target's row, or beside the route form's Add route button. */
   readonly outcome?: AttentionOutcome | undefined;
 }
-/** An action's outcome and where it shows: `target` names the row whose button was tapped; absent, the route form's. */
-export interface AttentionOutcome { readonly text: string; readonly target?: string }
+/**
+ * An action's outcome and where it shows: `target` names the row whose button was tapped; absent, the route form's.
+ * `row` names the target row the action's own refresh brings in (a route just saved), which renders above the line and moves it.
+ */
+export interface AttentionOutcome { readonly text: string; readonly target?: string; readonly row?: string }
 /** What an admin types to add a signed-webhook route: the endpoint's name, its URL and its signing secret. */
 export interface WebhookRouteInput { readonly name: string; readonly url: string; readonly secret: string }
 /** A target is named by its label; a push registration's id is an opaque client session id that means nothing to a person. */
 export const attentionTargetLabel = (target: AttentionTargetStatus): string => target.label ?? (target.transport === "push" ? "Web Push registration" : target.id);
 /**
  * An outcome line, announced, and scrolled into view: the sheet scrolls, and on a phone the button tapped may sit at its edge.
- * `rows` names the target rows on screen: a row that comes or goes above the line (a route just added) moves it, so it scrolls again.
+ * `arrived` turns true once the row the action brings in is on screen; the line scrolls once more then, and never for rows
+ * that come or go later (another client's registration, a poll), so an old outcome never pulls the sheet away from a newer one.
  */
-const OutcomeLine = ({ text, rows }: { readonly text: string; readonly rows: string }) => {
+const OutcomeLine = ({ text, arrived = false }: { readonly text: string; readonly arrived?: boolean }) => {
   const line = useRef<HTMLParagraphElement>(null);
-  useEffect(() => {
-    if (typeof line.current?.scrollIntoView === "function") line.current.scrollIntoView({ block: "nearest" });
-  }, [text, rows]);
+  const rowSeen = useRef(false);
+  const scroll = () => { if (typeof line.current?.scrollIntoView === "function") line.current.scrollIntoView({ block: "nearest" }); };
+  useEffect(() => { rowSeen.current = arrived; scroll(); }, [text]);
+  useEffect(() => { if (arrived && !rowSeen.current) { rowSeen.current = true; scroll(); } }, [arrived]);
   return <p ref={line} role="status" className="text-ink-muted">{text}</p>;
 };
 /** Status and preference controls never receive a transport's URL, keys or secrets; the route form sends a secret once and never reads it back. */
-export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRemove, onRefresh, onAddRoute, onTest, outcome }: AttentionSettingsProps) => {
-  const rows = targets.map(target => target.id).join("\n");
-  return <section data-attention-settings className="flex min-w-0 flex-col gap-3 break-words text-base">
+export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRemove, onRefresh, onAddRoute, onTest, outcome }: AttentionSettingsProps) => (
+  <section data-attention-settings className="flex min-w-0 flex-col gap-3 break-words text-base">
     <p className="text-ink-muted">A waiting ask is delivered after six seconds. No prompt, transcript, session title or secrets appear in the notification.</p>
     <p className="text-ink-muted">In-app Parked asks work while connected. Closed-phone delivery needs an enabled push subscription or a configured webhook fallback.</p>
     {!admin && <p className="text-ink-muted">Global routes require admin. Re-pair with an explicit admin grant to configure them.</p>}
@@ -63,19 +67,19 @@ export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRem
           <Button className="h-11" title={`Remove ${label}`} aria-label={`Remove ${label}`} disabled={locked} onClick={() => onRemove(target.id, target.global)}>Remove</Button>
           {testable && <Button className="h-11" title={`Post a signed test to ${testable}`} aria-label={`Test ${label}`} disabled={busy} onClick={() => onTest(target.id, testable)}>Test</Button>}
         </div>
-        {outcome?.target === target.id && <OutcomeLine text={outcome.text} rows={rows} />}
+        {outcome?.target === target.id && <OutcomeLine text={outcome.text} />}
         <label className="flex min-h-11 cursor-pointer items-center gap-3">
           <input type="checkbox" className="size-5 shrink-0" aria-label={`Routine completions for ${label}`} checked={target.completion} disabled={locked} onChange={event => onConfigure(target.id, target.enabled, event.target.checked, target.global)} />
           <span>Also deliver routine completions (silent outcomes stay quiet)</span>
         </label>
       </article>;
     })}
-    {admin && <WebhookRouteForm busy={busy} onAdd={onAddRoute} outcome={outcome && outcome.target === undefined ? outcome.text : undefined} rows={rows} />}
-  </section>;
-};
+    {admin && <WebhookRouteForm busy={busy} onAdd={onAddRoute} outcome={outcome && outcome.target === undefined ? outcome.text : undefined} arrived={outcome?.row !== undefined && targets.some(target => target.id === outcome.row)} />}
+  </section>
+);
 
 /** An admin's way to the closed-phone fallback: the named endpoint (URL and signing secret) and the global route that names it. */
-const WebhookRouteForm = ({ busy, onAdd, outcome, rows }: { readonly busy: boolean; readonly onAdd: (route: WebhookRouteInput) => Promise<boolean>; readonly outcome: string | undefined; readonly rows: string }) => {
+const WebhookRouteForm = ({ busy, onAdd, outcome, arrived }: { readonly busy: boolean; readonly onAdd: (route: WebhookRouteInput) => Promise<boolean>; readonly outcome: string | undefined; readonly arrived: boolean }) => {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState("");
@@ -96,7 +100,7 @@ const WebhookRouteForm = ({ busy, onAdd, outcome, rows }: { readonly busy: boole
     <label className={field}><span>Signing secret</span><Input className="h-11" type="password" autoComplete="off" value={secret} onChange={event => setSecret(event.target.value)} /></label>
     {problem && <p role="alert" className="text-signal">{problem}</p>}
     <Button type="submit" className="h-11 self-start" disabled={busy}>Add route</Button>
-    {outcome && <OutcomeLine text={outcome} rows={rows} />}
+    {outcome && <OutcomeLine text={outcome} arrived={arrived} />}
   </form>;
 };
 
@@ -173,7 +177,7 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
         if (listed !== true) return notSaved(refusedEndpoint);
       }
       const enabled = refusal(await runtime.requests.call(environmentId, "attention.routes.configure", { commandId: crypto.randomUUID(), id, enabled: true, completion: route?.completion ?? false }).catch(() => null));
-      setLine(enabled === null ? `Webhook route ${name} saved. Test it to check that its receiver takes the signed post.` : `Webhook route ${name} saved but not enabled: ${enabled} Enable it on its row above.`);
+      setOutcome({ text: enabled === null ? `Webhook route ${name} saved. Test it to check that its receiver takes the signed post.` : `Webhook route ${name} saved but not enabled: ${enabled} Enable it on its row above.`, row: id });
       refresh();
       return true;
     } catch { setLine("Could not save the webhook route. Check your connection and admin grant."); return false; }

@@ -195,7 +195,15 @@ it("an admin client makes the named endpoint and its global route from Attention
 });
 
 it("writes a route's outcome beside the Add route button and a test's on its route row, where the admin tapped, and scrolls each into view", async () => {
-  const { desk, user, fill } = await openAdminSheet();
+  const { desk, routes, user, fill } = await openAdminSheet();
+  /** A row another client adds after the outcome was written, read by a refresh this sheet's action did not start: it leaves the scroll alone. */
+  const elsewhere = async (id: string) => {
+    const before = scrolled.length;
+    routes.push({ id, label: id, transport: "push", enabled: true, completion: false, global: false, state: "ready", failure: null });
+    await user.click(screen.getByRole("button", { name: "Refresh status" }));
+    await screen.findByRole("heading", { name: id });
+    expect(scrolled.length).toBe(before);
+  };
   // Each scroll is recorded with the rows on screen when it ran: a row rendered above the line after it scrolled pushes it out of view.
   const scrolled: { readonly textContent: string | null; readonly rows: readonly (string | null)[] }[] = [];
   vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
@@ -207,12 +215,14 @@ it("writes a route's outcome beside the Add route button and a test's on its rou
   await fill("phone-attention");
   await waitFor(() => expect(besideButton(addRoute)).toBe("Webhook route phone-attention saved. Test it to check that its receiver takes the signed post."));
   await waitFor(() => expect(scrolled.at(-1)).toEqual({ textContent: expect.stringMatching(/^Webhook route phone-attention saved/), rows: expect.arrayContaining(["phone-attention"]) }));
+  await elsewhere("other-client-1");
   // Nothing the admin did is written above the panes, out of view of the button tapped.
   expect(screen.getAllByRole("status").filter(line => !line.closest("form, article"))).toEqual([]);
   const test = await screen.findByRole("button", { name: "Test phone-attention" });
   await user.click(test);
   await waitFor(() => expect(besideButton(screen.getByRole("button", { name: "Test phone-attention" }))).toBe("phone-attention answered 204 in 120 ms."));
   expect(scrolled.at(-1)?.textContent).toBe("phone-attention answered 204 in 120 ms.");
+  await elsewhere("other-client-2");
   expect(besideButton(addRoute)).toBeNull();
   desk.wire.answer("routines.endpoints.test", () => ({ result: { status: null, durationMs: 3000, error: "The receiver did not answer in time." } }));
   await user.click(screen.getByRole("button", { name: "Test phone-attention" }));
