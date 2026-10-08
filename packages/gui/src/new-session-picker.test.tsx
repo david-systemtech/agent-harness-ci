@@ -125,7 +125,8 @@ describe("the new-session model picker (ticket 1894)", () => {
     expect(chip("Model").getAttribute("aria-label")).toBe("Model: Fable 5.1");
     const menu = await openChip(app, "Model");
     const fable = within(within(menu).getByRole("group", { name: "Models" })).getByRole("menuitem", { name: "Fable 5.1 (fable)" });
-    expect(fable.textContent).toContain("Fable 5.1");
+    // The row's first line is the provider's name alone; the id sits on a line of its own under it.
+    expect([...fable.querySelectorAll(":scope > span > span")].map((line) => line.textContent).slice(0, 2)).toEqual(["Fable 5.1", "fable"]);
     await app.user.click(within(within(menu).getByRole("group", { name: "Effort" })).getByRole("menuitem", { name: "High" }));
     await waitFor(() => expect(chip("Model").getAttribute("aria-label")).toBe("Model: Fable 5.1 - High"));
   });
