@@ -364,6 +364,36 @@ describe("a step's pane", () => {
 });
 
 /** The full checklist opened from the Set up pane on the card of `step`, by its label. */
+describe("the window regaining focus", () => {
+  it("checks the step Set up shows again, at most once in ten seconds, and nothing once Set up is closed", async () => {
+    const app = await firstLaunch({ capabilities: ["setup"] });
+    const desk = app.environment("desk");
+    const asked = () => desk.requests("setup.check").map((request) => request.params);
+    const focused = async () => {
+      act(() => void window.dispatchEvent(new FocusEvent("focus")));
+      // The request is sent in the promises the focus starts; one flush carries it to the scripted environment.
+      await act(async () => {});
+    };
+    await waitFor(() => expect(asked()).toEqual([{}]));
+    await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
+
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }]);
+    act(() => app.clock.advance(9_999));
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }]);
+    act(() => app.clock.advance(1));
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }, { step: "forges" }]);
+
+    await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
+    act(() => app.clock.advance(10_000));
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }, { step: "forges" }]);
+  });
+});
+
 const cardOf = async (app: RenderedApp, step: string) => {
   await app.user.click(within(await setupPane(app)).getByRole("button", { name: "Open the full checklist" }));
   await app.user.click(within(steps()).getByRole("button", { name: step }));
