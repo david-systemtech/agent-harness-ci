@@ -39,7 +39,7 @@ export const LocalEnvironmentPane = ({ view }: { readonly view: EnvironmentView 
   const macOS = useMacOS();
   const failed = view.phase === "service-down" && !service.starting && service.failure !== undefined;
   return <section aria-label="This machine" className="flex min-h-0 flex-1 flex-col overflow-auto">
-    <LocalStartCard keyMap={keyMap} macOS={macOS} sentence={failed ? `The environment on this machine did not start: ${service.failure}` : phaseSentence(view, service.starting, service.installing, clock.now())}>
+    <LocalStartCard keyMap={keyMap} macOS={macOS} sentence={failed ? `The environment on this machine did not start: ${service.failure?.text}` : phaseSentence(view, service.starting, service.installing, clock.now())}>
       <div className="flex flex-wrap items-center gap-2">
         <ImmediateUpdate view={view} />
         <Remedy view={view} startLabel={failed ? "Try again" : "Start it"} />
