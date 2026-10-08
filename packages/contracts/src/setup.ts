@@ -19,7 +19,8 @@ import { REGISTERED_STEP_IDS, STEP_ORDER, StepId } from "./steps.js";
  * Reload, Set up this machine, Restore, Move, and the verbs the step
  * decisions named beside them (the Set up specification, "Actions"): Start
  * the service (ADR 0025), Import again (ADR 0021), and Try again, Write it
- * myself, Start over and Revise for an authoring session (ADR 0019). A
+ * myself, Start over and Revise for an authoring session (ADR 0019), and
+ * How to set it up for the host-side updater a container needs (#1883). A
  * step's state checks select their subset (`steps.ts`); a new verb is a
  * contracts change.
  */
@@ -41,6 +42,7 @@ export const SETUP_ACTIONS = [
   "write-it-myself",
   "start-over",
   "revise",
+  "how-to-set-up",
 ] as const;
 
 /** What a client does for each action (the Set up specification, "Actions"), the items it applies to being the result's targets that name it. */
@@ -63,6 +65,7 @@ const SETUP_ACTION_MEANINGS: { readonly [Action in (typeof SETUP_ACTIONS)[number
   "write-it-myself": "opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor",
   "start-over": "starts a new authoring session for the step, the old one staying",
   revise: "starts an authoring session that revises the step's artefact",
+  "how-to-set-up": "shows how to set up what the step needs outside the environment: on Your machines, the host-side updater on the Docker host",
 };
 
 export const SetupAction = z.enum(SETUP_ACTIONS).meta({

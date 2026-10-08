@@ -403,7 +403,8 @@ export const STEP_REGISTRY = [
       {
         id: "your-machines.host-updater",
         holds: "No host-side updater manages this environment's updates, or it polled in the last hour.",
-        actions: ["check-again"],
+        // How to set it up only before its first poll: once it has polled, it is set up (setup-copy.md §5.4; #1883).
+        actions: ["how-to-set-up", "check-again"],
       },
       { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
       { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
