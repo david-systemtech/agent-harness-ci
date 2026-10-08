@@ -50,7 +50,7 @@ interface AccountChoiceRowProps {
 /** An account's row: its label and identity, a note, and its identity's plan windows as usage rings, the reading in their tooltip (#1822). */
 export const AccountChoiceRow = ({ environmentId, account, icon, note, selected, dim = false, onSelect }: AccountChoiceRowProps) => {
   const usage = useObservable(useRuntime().projections.usage);
-  return <RunChoiceRow icon={icon} label={`${account.label} ${identityWords(account)}`} selected={selected} dim={dim} note={note}
+  return <RunChoiceRow icon={icon} label={`${account.label} ${identityWords(account)}`} primary={account.label} identity={identityWords(account)} selected={selected} dim={dim} note={note}
     usage={<UsageRings gauge={gaugeOf(usage.gauges, environmentId, account.id)} />} onSelect={onSelect} />;
 };
 

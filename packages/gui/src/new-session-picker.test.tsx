@@ -86,8 +86,10 @@ describe("the new-session account picker (ticket 1894)", () => {
     await waitFor(() => expect(rings(work)).toEqual(["5-hour 42%", "Weekly 80%"]));
     expect(rings(spare)).toEqual(["5-hour 95%"]);
     expect(rings(personal)).toEqual([]);
-    expect(work.textContent).toBe("work milo@work.testsigned in · claude");
-    expect(personal.textContent).toBe("personal milo@home.testsign-in expired · claude");
+    // The email is a line of its own under the label, as on the status line (#1895).
+    expect(work.textContent).toBe("workmilo@work.testsigned in · claude");
+    expect(personal.textContent).toBe("personalmilo@home.testsign-in expired · claude");
+    expect([work, personal].map((row) => row.querySelector("[data-run-identity]")?.textContent)).toEqual(["milo@work.test", "milo@home.test"]);
     for (const row of [work, spare, personal]) expect(row.querySelectorAll("[data-usage-rings]")).toHaveLength(1);
     await app.user.hover(within(work).getByRole("group", { name: "5-hour 42% · Weekly 80%" }));
     expect((await screen.findByRole("tooltip")).textContent).toBe("5-hour 42% · Weekly 80%");
