@@ -72,7 +72,7 @@ it("applies exact known names only to mapped Accounts and reports unknown and de
   for (const name of ["check", "write"]) await client.request("skills.own.create", { commandId: randomUUID(), name, description: "A fixture Skill." });
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview).toMatchObject({ result: { carried: { accounts: 2, alwaysOnSkills: 3 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("check-more"), message: expect.stringContaining("unknown") },
+    { label: expect.stringContaining("check-more"), message: "Skill check-more is missing.", step: "skills" },
     { label: 'Always-on Skill "missing" (profile "Later")', message: expect.stringContaining("mapped Account") },
     { label: 'Always-on Skill "missing" (an unnamed source profile)', message: expect.stringContaining("mapped Account") },
     { label: 'Always-on Skill "write" (Claude profile "Refused")', message: expect.stringContaining("mapped Account") },
@@ -109,8 +109,9 @@ it("keeps earlier successes, retries repaired sources and names, and preserves e
   const client = await t.client();
   const first = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(first).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 1 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("broken"), message: expect.stringContaining("no valid skill") },
-    { label: expect.stringContaining("repair"), message: expect.stringContaining("unknown") },
+    // The repository and folder wait under Details; the label names the collection alone (#1845).
+    { label: "Skill collection broken", message: expect.stringContaining("no valid skill"), details: ["Repository: https://skills.test/team/broken", "Folder: skills"] },
+    { label: expect.stringContaining("repair"), message: "Skill repair is missing.", step: "skills" },
   ]) } });
   expect(JSON.stringify(first)).not.toContain("token-for-tests");
   const view = await client.request("skills.get", {});
@@ -236,8 +237,8 @@ it("identifies each mapped Account when an always-on name is unknown or invalid"
     expect(answer.result?.failed).toEqual([
       { label: 'Always-on Skill "Invalid!" (Claude profile "Personal")', message: expect.stringContaining("validation") },
       { label: 'Always-on Skill "Invalid!" (Claude profile "Work")', message: expect.stringContaining("validation") },
-      { label: 'Always-on Skill "missing" (Claude profile "Personal")', message: expect.stringContaining("unknown") },
-      { label: 'Always-on Skill "missing" (Claude profile "Work")', message: expect.stringContaining("unknown") },
+      { label: 'Always-on Skill "missing" (Claude profile "Personal")', message: "Skill missing is missing.", step: "skills" },
+      { label: 'Always-on Skill "missing" (Claude profile "Work")', message: "Skill missing is missing.", step: "skills" },
     ]);
     expect(answer.result?.carried.alwaysOnSkills).toBe(0);
   }
@@ -261,7 +262,7 @@ it.each(["sources", "alwaysOn"])("reports malformed %s fields without blocking A
   for (const dryRun of [true, false]) {
     expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun })).toMatchObject({ result: {
       carried: { accounts: 1, skillSources: 0, alwaysOnSkills: 0 },
-      failed: [{ label: "Skills", message: expect.stringContaining(field) }],
+      failed: [{ label: "Skills", message: "agent-harness could not read this part of your earlier work.", details: [expect.stringContaining(field)] }],
     } });
   }
   expect(snapshotOf(source)).toEqual(bytes);
@@ -306,10 +307,13 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
   const run = (dryRun: boolean) => client.request("stateImport.run", { commandId: randomUUID(), dryRun });
   const sourceBytes = snapshotOf(source);
   const first = await run(false);
-  expect(first).toMatchObject({ result: { carried: { accounts: 1 }, reEnter: expect.arrayContaining([
-    { label: expect.stringContaining("https://skills.test"), step: "forges" },
-    { label: expect.stringContaining("missing"), step: "skills" },
+  // Each failed item says its own fix (#1845): the forge's token on the skill collection, the missing name on the always-on choice.
+  expect(first).toMatchObject({ result: { carried: { accounts: 1 }, failed: expect.arrayContaining([
+    { label: "Skill collection private", message: "Connect a forge for skills.test.", step: "forges", details: expect.arrayContaining([expect.stringContaining("team/private"), expect.stringContaining("Authentication failed")]) },
+    { label: expect.stringContaining('"missing"'), message: "Skill missing is missing.", step: "skills" },
   ]) } });
+  expect(first.result?.reEnter.filter((item) => item.step === "forges" || item.step === "skills")).toEqual([]);
+  expect(first.result?.failed.map((failure) => `${failure.label} ${failure.message}`).join(" ")).not.toMatch(/https:|team\/private/);
   const accounts = (await client.request("accounts.refresh", {})).accounts;
   expect(accounts).toHaveLength(1);
   expect(accounts[0]?.status.state).toBe("signed-in");
@@ -327,7 +331,7 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
   await run(true);
   expect((await client.request("setup.check", { step: "carry-over" })).results[0]?.state).toBe("needs-attention");
   expect(await run(false)).toMatchObject({ result: { carried: { accounts: 0 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("private"), message: expect.stringContaining("credential") },
+    { label: "Skill collection private", message: "Connect a forge for skills.test.", step: "forges", details: expect.any(Array) },
   ]) } });
   expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
   expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
@@ -369,11 +373,10 @@ it("names the serving forge account's canonical origin for SSH and verified alia
   const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
   onCleanup(() => logged.mockRestore());
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-  expect(imported.result?.failed).toEqual([
-    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
-    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
-  ]);
-  expect(imported.result?.reEnter).toEqual([{ label: `Forge credential for ${canonical}, then import again`, step: "forges" }]);
+  // A forge is connected for both, so the fix is its token; the git refusal waits under Details.
+  const fix = { message: "Your forge forge.skills.test could not open this skill collection. Check its token in Forges.", step: "forges", details: expect.arrayContaining([expect.stringContaining("Authentication failed")]) };
+  expect(imported.result?.failed).toEqual([{ label: expect.any(String), ...fix }, { label: expect.any(String), ...fix }]);
+  expect(imported.result?.reEnter).toEqual([]);
 });
 
 
@@ -393,6 +396,8 @@ it.each([
   const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
   onCleanup(() => logged.mockRestore());
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-  expect(imported.result?.failed).toEqual([{ label: expect.any(String), message: expect.stringContaining(`SSH keys and known-hosts entry for ${host}, using the source's SSH port`) }]);
+  expect(imported.result?.failed).toEqual([{ label: "Skill collection private",
+    message: `${host} did not let this computer in over SSH. Check this computer's SSH key and its known-hosts entry for ${host}.`,
+    details: expect.arrayContaining([expect.stringContaining("team/private"), expect.stringContaining(stderr)]) }]);
   expect(imported.result?.reEnter).toEqual([]);
 });

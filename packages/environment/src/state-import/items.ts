@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { ContractError, STATE_IMPORT_STREAM_KIND, type StateImportFailure, type StateImportItemCarriedPayload, type StateImportItemKind } from "@agent-harness/contracts";
 import type { EventLog, Projector, StreamRef } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodContext, PrepareContext, Undo } from "../serve/methods.js";
+import { ItemFailure } from "./failures.js";
 
 /**
  * The state import's item protocol (switch-over spec, "Preview, application
@@ -86,8 +87,10 @@ export const derivedUuid = (...parts: readonly string[]): string => {
 /** One item an import plans to carry: where it came from, what it is called on the report, and how its owning service applies it. */
 interface ImportItemKey extends ItemKey {
   readonly kind: StateImportItemKind;
-  /** The item as the report names it when it fails. */
+  /** The item as the report names it when it fails: plain words, no path or id. */
   readonly label: string;
+  /** The facts behind the label for Details when it fails (a repository, a folder): what the label leaves out. */
+  readonly details?: readonly string[];
   /** Whether this item adds a report count; aliases and reused targets do not. */
   readonly contributes?: () => boolean;
   readonly sourceDirectory?: string;
@@ -145,12 +148,16 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
   for (const item of items) {
     const commandId = itemCommandId(importId, item);
     let outcome: "carried" | "held" | StateImportFailure;
+    const failure = (said: Omit<StateImportFailure, "label">): StateImportFailure => {
+      const details = [...item.details ?? [], ...said.details ?? []];
+      return { label: item.label, ...said, ...(details.length > 0 && { details }) };
+    };
     if (mappedTarget(log, item) !== undefined) continue;
     const undos: Undo[] = [];
     let accepted = false;
     try {
       const refusal = item.validate === undefined ? null : await item.validate();
-      if (refusal != null) { failed.push({ label: item.label, message: refusal }); continue; }
+      if (refusal != null) { failed.push(failure({ message: refusal })); continue; }
       const preparation = { ...caller, commandId, onUndo: (undo: Undo) => void undos.push(undo) };
       const apply = item.apply === undefined ? await item.prepare(preparation) : await item.prepare?.(preparation) ?? item.apply;
       const run = log.command<{ readonly carried: boolean }>({ actor, commandId }, (tx) => {
@@ -167,12 +174,16 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
         return { aggregate: answer.aggregate, result: { carried: answer.result.carried !== false }, ...(answer.events !== undefined && { events: answer.events }) };
       });
       accepted = run.receipt.status === "accepted";
-      if (run.receipt.status === "rejected") outcome = { label: item.label, message: run.receipt.error.message };
+      if (run.receipt.status === "rejected") outcome = failure({ message: run.receipt.error.message });
       // A receipt from before (a retry of this import) answers for an item whose command already ran: it is held now.
       else outcome = !run.replayed && run.result?.carried === true ? "carried" : "held";
     } catch (thrown) {
-      console.error(`Carrying ${item.kind} ${item.sourceId} failed:`, thrown);
-      outcome = { label: item.label, message: thrown instanceof ContractError ? thrown.message : "The environment failed while carrying it: a re-run tries it again." };
+      // A failure the item names in full is the report's; anything else is logged as well.
+      if (thrown instanceof ItemFailure) outcome = failure(thrown.failure);
+      else {
+        console.error(`Carrying ${item.kind} ${item.sourceId} failed:`, thrown);
+        outcome = failure({ message: thrown instanceof ContractError ? thrown.message : "The environment failed while carrying it: a re-run tries it again." });
+      }
     }
     if (!accepted) for (const undo of undos.reverse()) {
       try { await undo(); }
