@@ -17,6 +17,8 @@ const models = Array.from({ length: 15 }, (_, index) => ({ id: `sample-model-${i
 export const script: Script = { environments: [{ environmentId, name: "desk", reach: "local", icon: "desktop", colour: "teal", accounts,
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- Scripted environment fixtures supply the session summary.
   sessions: [{ id: sessionId, title: "Run choices", accountId: "account-1", model: "sample-model-1" }], models: [{ accountId: "account-1", live: true, models }],
+  // Three favourites pinned (#1821): they head the models, the session's own model after them, the twelve others under Other models.
+  settings: { "accounts.favouriteModels": ["sample-model-3", "sample-model-7", "sample-model-12"] },
 }] };
 export const arrange = (world: ScriptedWorld) => {
   world.environment("desk").setUsage(accounts.map((account) => ({ accountId: account.id, identity: account.identity,
@@ -36,7 +38,7 @@ const Popup = ({ compact }: { readonly compact: boolean }) => {
   </Menu>;
 };
 
-/** Both scenes draw the production columns over the scripted runtime. */
+/** Each scene draws the production columns over the scripted runtime. */
 export const RunPickerScene = ({ compact = false }: { readonly compact?: boolean }) => {
   const environments = useObservable(useRuntime().projections.environments);
   return <main className="flex min-h-screen items-end bg-abyss p-6 text-ink">
