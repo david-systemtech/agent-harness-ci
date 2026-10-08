@@ -48,14 +48,14 @@ const check = async (client: WireClient, step: RegisteredStepId): Promise<StepRe
 };
 
 describe("setup.check", () => {
-  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, pending its first release channel read, and Carry over, Forges, Key manager, Memory bank, Skills and Browser, skipped with nothing to carry, no forge account, no connection, no bank and no paired Chrome, with its line and the environment's clock", async () => {
+  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose check reads the release channel again for a client and finds it unreachable here (#1848), and Carry over, Forges, Key manager, Memory bank, Skills and Browser, skipped with nothing to carry, no forge account, no connection, no bank and no paired Chrome, with its line and the environment's clock", async () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
     expect(results.map((result) => [result.step, result.state, result.failing, result.actions])).toEqual([
       ["account", "done", [], []],
       ["carry-over", "skipped", [], []],
-      ["your-machines", "pending", [], []],
+      ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
       ["forges", "skipped", [], []],
       ["key-manager", "skipped", [], []],
       ["memory-bank", "skipped", [], []],
