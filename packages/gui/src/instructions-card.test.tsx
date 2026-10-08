@@ -174,6 +174,16 @@ describe("the Instructions card in Set up", () => {
     await waitFor(() => expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: Not saved: instructions.orientation changed while it was being written."));
   });
 
+  it("shows a list the environment refused on first read as an error with a hidden Error prefix", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("instructions.list", () => ({ error: { code: "unavailable", message: "The instructions store is busy.", data: {} } }));
+    const card = await openCard(app);
+    await waitFor(() => expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: The instructions store is busy."));
+  });
+
   it("leaves a copy's newer version to Settings, where its comparison opens", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));

@@ -46,7 +46,7 @@ const SetupInstructions = ({ view, step }: { readonly view: EnvironmentView; rea
       <SetupSeed view={view} listed={listed} />
       <ListedReach view={view} listed={listed} />
       {result === null ? (
-        <p className="text-sm text-ink-muted">{listed.error?.message ?? "Reading the instructions…"}</p>
+        listed.error !== null ? <InstructionError>{listed.error.message}</InstructionError> : <p className="text-sm text-ink-muted">Reading the instructions…</p>
       ) : (
         <>
           {notes.length > 0 && (
