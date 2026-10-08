@@ -61,7 +61,7 @@ const openAdd = async (app: RenderedApp, environment = "desk") => {
 describe("the Forges step's card", () => {
   it("is registered for the Forges step: where it stands, then a row per forge account", async () => {
     await opened({ forges: { accounts: [{}] } });
-    expect(within(step()).getByRole("button", { name: "Open Forges" })).toBeDefined();
+    expect(within(step()).getByRole("button", { name: "Open in Settings" })).toBeDefined();
     expect(await row("https://github.com")).toBeDefined();
   });
 });

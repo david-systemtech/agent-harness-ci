@@ -275,7 +275,7 @@ describe("the minted session on its card", () => {
     const runId = env.liveRun(id);
     await closeAuthoring(app);
     await app.user.click(screen.getByRole("button", { name: "Permissions" }));
-    await app.user.click(screen.getByRole("button", { name: "Open Permissions" }));
+    await app.user.click(screen.getByRole("button", { name: "Open in Settings" }));
     expect(app.presentation.values.read().firstLaunchDone).toBe(false);
     const settings = await screen.findByRole("region", { name: "Settings" });
     await app.user.click(within(within(settings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Set up" }));
@@ -358,7 +358,7 @@ describe("the minted session on its card", () => {
     env.wire.answer("setup.mint", () => ({ error: { code: "conflict", message: "The bank checkout is missing.", data: { reason: "bank_missing" } } }));
     await closeAuthoring(app);
     await app.user.click(screen.getByRole("button", { name: "Start again" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("The bank checkout is missing.");
+    expect((await screen.findAllByRole("alert")).map((alert) => alert.textContent)).toContain("The bank checkout is missing.");
     expect(env.liveRun(id)).toBeDefined();
     await app.user.click(screen.getByRole("button", { name: "Continue authoring" }));
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
