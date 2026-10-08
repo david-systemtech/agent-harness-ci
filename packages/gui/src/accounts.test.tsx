@@ -563,7 +563,7 @@ describe("Default account and model", () => {
   });
 });
 
-describe("Favourite models (#1821)", () => {
+describe("Favourite models (ticket 1821)", () => {
   const favourites = (region: HTMLElement) => within(within(region).getByRole("list", { name: "Favourite models, in order" })).getAllByRole("listitem").map((item) => item.getAttribute("data-favourite"));
   const signedOut = { id: "account-2", label: "work", status: { state: "signed-out" as const, checkedAt: null, detail: null } };
 

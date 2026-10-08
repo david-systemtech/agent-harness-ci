@@ -246,7 +246,7 @@ describe("the model picker", () => {
   });
 });
 
-describe("the model picker's favourites (#1821)", () => {
+describe("the model picker's favourites (ticket 1821)", () => {
   const model = (id: string, family: string, label: string | null = null) => ({ id, family, tier: 1, efforts: [], label });
   const catalogue = (accountId: string, ...entries: ReturnType<typeof model>[]) => ({ accountId, live: true, models: entries });
   const FOUR = catalogue("account-1", model("claude-opus-4", "opus", "Opus"), model("claude-opus-4-1m", "opus"), model("claude-sonnet-4", "sonnet"), model("claude-haiku-4", "haiku"));
