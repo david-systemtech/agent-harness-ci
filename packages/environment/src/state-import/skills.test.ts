@@ -109,7 +109,7 @@ it("keeps earlier successes, retries repaired sources and names, and preserves e
   const client = await t.client();
   const first = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(first).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 1 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("broken"), message: expect.stringContaining("no valid skill") },
+    { label: expect.stringContaining("broken"), message: "There are no skills in the folder skills." },
     { label: expect.stringContaining("repair"), message: expect.stringContaining("unknown") },
   ]) } });
   expect(JSON.stringify(first)).not.toContain("token-for-tests");
@@ -327,7 +327,7 @@ it("keeps signed-in accounts and sessions while naming the forge and skill repai
   await run(true);
   expect((await client.request("setup.check", { step: "carry-over" })).results[0]?.state).toBe("needs-attention");
   expect(await run(false)).toMatchObject({ result: { carried: { accounts: 0 }, failed: expect.arrayContaining([
-    { label: expect.stringContaining("private"), message: expect.stringContaining("credential") },
+    { label: expect.stringContaining("private"), message: "This repository is private. Add a forge for skills.test first." },
   ]) } });
   expect((await client.request("accounts.list", {})).accounts.map((account) => account.id).sort()).toEqual(accountIds);
   expect(CarryOverInventory.parse(await client.request("carryOver.inventory", { accountId })).sessions).toEqual(before.sessions);
@@ -370,8 +370,8 @@ it("names the serving forge account's canonical origin for SSH and verified alia
   onCleanup(() => logged.mockRestore());
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect(imported.result?.failed).toEqual([
-    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
-    { label: expect.any(String), message: expect.stringContaining("Authentication failed") },
+    { label: expect.any(String), message: "This repository is private. Add a forge for forge.skills.test first." },
+    { label: expect.any(String), message: "This repository is private. Add a forge for alias.skills.test first." },
   ]);
   expect(imported.result?.reEnter).toEqual([{ label: `Forge credential for ${canonical}, then import again`, step: "forges" }]);
 });
