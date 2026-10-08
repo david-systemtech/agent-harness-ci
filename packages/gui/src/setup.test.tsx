@@ -450,6 +450,51 @@ describe("a step's named actions", () => {
     expect(within(settings()).getByRole("region", { name: "Accounts" })).toBeDefined();
     expect(pickedIn(within(settings()).getByRole("region", { name: "Accounts" }))).toBe("desk");
   });
+
+  // The line asked the person to set up the host's updater and gave them no way to find out how (#1883).
+  it("maps how-to-set-up on Your machines to the host updater's setup beside the line, its commands to copy, and offers it on the never-polled line alone", async () => {
+    const app = await renderApp({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          setup: {
+            "your-machines": {
+              state: "needs-attention",
+              reason: "This container is not kept up to date yet. Set up the updater on the host computer.",
+              failing: ["your-machines.host-updater"],
+              actions: ["how-to-set-up", "check-again"],
+            },
+          },
+        },
+      ],
+    });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("desk");
+    const machines = await cardOf(app, "Your machines");
+    expect(within(machines).queryByRole("region", { name: "Set up the updater on the host computer" })).toBeNull();
+
+    await app.user.click(within(machines).getByRole("button", { name: "How to set it up" }));
+    const sheet = within(machines).getByRole("region", { name: "Set up the updater on the host computer" });
+    expect(within(sheet).getByText(/^On the computer that runs Docker, put compose\.yaml and host-updater\.sh from the same agent-harness release in one folder/)).toBeDefined();
+    const commands = within(sheet).getAllByRole("region").map((command) => [within(command).getByRole("heading").textContent, command.querySelector("pre")?.textContent]);
+    expect(commands).toEqual([
+      ["Start agent-harness and make the updater runnable", "cd /opt/agent-harness && docker compose up -d && chmod +x host-updater.sh"],
+      ["Run the updater every five minutes: add this line with crontab -e, as the user that runs docker", "*/5 * * * * /opt/agent-harness/host-updater.sh >>/opt/agent-harness/host-updater.log 2>&1"],
+    ]);
+    expect(within(sheet).getByText("Once it has run, choose Check again. A systemd timer works too: docs/host-updater.md has both.")).toBeDefined();
+    // Showing how asks the environment nothing.
+    const asked = desk.requests("setup.check").length;
+    await app.user.click(within(sheet).getByRole("button", { name: "Close" }));
+    expect(within(machines).queryByRole("region", { name: "Set up the updater on the host computer" })).toBeNull();
+    expect(desk.requests("setup.check")).toHaveLength(asked);
+
+    // Once the updater has polled, the late line asks only that it still runs.
+    desk.setSetup({ "your-machines": { state: "needs-attention", reason: "The host-side updater last polled more than an hour ago.", failing: ["your-machines.host-updater"], actions: ["check-again"] } });
+    await app.user.click(within(machines).getByRole("button", { name: "Check again" }));
+    expect(await within(machines).findByText(/^The host-side updater last polled/)).toBeDefined();
+    expect(within(machines).queryByRole("button", { name: "How to set it up" })).toBeNull();
+  });
 });
 
 describe("a step's named actions on their targets", () => {
