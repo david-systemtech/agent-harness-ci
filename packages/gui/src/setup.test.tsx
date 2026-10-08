@@ -83,8 +83,8 @@ it("shows a pending scheduled read as neutral checking and leaves it out of the 
   expect(await within(pane).findByText("0 done · 1 needs a fix · 0 not set up · 1 checking")).toBeDefined();
 });
 
-it("counts a bank awaiting owner review as done and shows its review URL in the step's line", async () => {
-  const reason = "team-memory is landed and awaiting your review: https://git.example.test/team/memory/pulls/7.";
+it("counts a bank awaiting owner review as done and shows the step's line saying it waits for approval", async () => {
+  const reason = "team-memory's latest changes are waiting for your approval on git.example.test.";
   const app = await firstLaunch({ capabilities: ["setup"], setup: onlySteps({ "memory-bank": { state: "done", reason } }) });
   expect(await within(steps()).findByRole("img", { name: "Memory bank: Done" })).toBeDefined();
   await app.user.click(within(steps()).getByRole("button", { name: "Memory bank" }));
@@ -360,6 +360,36 @@ describe("a step's pane", () => {
     await app.user.click(rows.getByRole("button", { name: "Service" }));
     expect(asked(desk)).toHaveLength(count);
     release();
+  });
+});
+
+describe("the window regaining focus", () => {
+  it("checks the step Set up shows again, at most once in ten seconds, and nothing once Set up is closed", async () => {
+    const app = await firstLaunch({ capabilities: ["setup"] });
+    const desk = app.environment("desk");
+    const asked = () => desk.requests("setup.check").map((request) => request.params);
+    const focused = async () => {
+      act(() => void window.dispatchEvent(new FocusEvent("focus")));
+      // The request is sent in the promises the focus starts; one flush carries it to the scripted environment.
+      await act(async () => {});
+    };
+    await waitFor(() => expect(asked()).toEqual([{}]));
+    await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
+
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }]);
+    act(() => app.clock.advance(9_999));
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }]);
+    act(() => app.clock.advance(1));
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }, { step: "forges" }]);
+
+    await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
+    act(() => app.clock.advance(10_000));
+    await focused();
+    expect(asked()).toEqual([{}, { step: "forges" }, { step: "forges" }]);
   });
 });
 

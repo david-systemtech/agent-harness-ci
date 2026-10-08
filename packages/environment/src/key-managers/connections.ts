@@ -37,7 +37,7 @@ import { createDopplerProvider } from "./doppler.js";
 import { createOnePasswordProvider } from "./onepassword.js";
 import type { OnePasswordSdk } from "./onepassword-sdk.js";
 import { createOpenBaoProvider } from "./openbao.js";
-import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
+import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, providerUnavailableLine, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createRunTokens } from "./run-tokens.js";
 import { createVerificationSchedule } from "./verifier.js";
 
@@ -229,6 +229,20 @@ type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
 
 /** The wire error of a sign-in that could not ask the key manager: a key manager asking the harness to slow down could not answer now. */
 const FAILURE_CODES = { "provider-unavailable": "provider_unavailable", unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate_rejected", "rate-limited": "unreachable" } as const;
+
+/** A refusal's raw words as one line of details. */
+const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+/** A sign-in the key manager refused, as setup-copy.md §5.7 says it: a root login for that alone, any other the details it was given. */
+const refusedLine = (provider: KeyManagerProvider, reason: "rejected" | "root_token"): string =>
+  reason === "root_token" ? "Use a token that is not the root token. agent-harness never uses root." : `${PROVIDER_NAMES[provider]} did not accept these details. Check them and try again.`;
+
+/** A sign-in that could not ask the key manager at `address`, as setup-copy.md §5.7 says it: one asking the harness to slow down could not be reached now. */
+const couldNotAskLine = (provider: KeyManagerProvider, address: string, outcome: Exclude<CouldNotAsk, "provider-unavailable">): string => {
+  if (outcome === "sealed") return `${PROVIDER_NAMES[provider]} is locked (sealed). Unlock it, then connect.`;
+  if (outcome === "certificate-rejected") return "agent-harness does not trust this site's certificate.";
+  return `agent-harness could not reach ${address}. Check the address.`;
+};
 
 /** The status a connection the key manager could not be asked about stands in: one asking the harness to slow down is unreachable for now. */
 const STATUS_OF: Record<CouldNotAsk, KeyManagerStatus["kind"]> = { "provider-unavailable": "provider-unavailable", unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate-rejected", "rate-limited": "unreachable" };
@@ -432,21 +446,20 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     return addressTaken(provider, address);
   };
 
-  const verificationFailed = (connectionId: string, refused: Extract<SignInResult, { outcome: "refused" }>, nothing: string) =>
-    ({ code: "verification_failed", message: `${refused.message} ${nothing}`, data: { connectionId, reason: refused.reason } }) as const;
+  /** A sign-in the key manager refused, in setup-copy.md §5.7's words, what it said and that nothing was kept in details (#1852). */
+  const verificationFailed = (connectionId: string, provider: KeyManagerProvider, refused: Pick<Extract<SignInResult, { outcome: "refused" }>, "reason" | "message">, nothing: string) =>
+    ({ code: "verification_failed", message: refusedLine(provider, refused.reason), data: { connectionId, reason: refused.reason, details: [oneLine(refused.message), nothing] } }) as const;
 
-  /** The refusal of a sign-in that could not ask the key manager: `unreachable`, `sealed` or `certificate_rejected`. */
-  const couldNotAsk = (connectionId: string, result: Extract<SignInResult, { outcome: keyof typeof FAILURE_CODES }>, provider: KeyManagerProvider) => {
-    if (result.outcome === "provider-unavailable") return { code: "provider_unavailable", message: `${result.message} Nothing was changed.`, data: { connectionId, provider } } as const;
-    return { code: FAILURE_CODES[result.outcome], message: `${result.message} Nothing was changed.`, data: { connectionId } } as const;
+  /** The refusal of a sign-in that could not ask the key manager at `address`, in §5.7's words, what was met and that nothing changed in details. */
+  const couldNotAsk = (connectionId: string, provider: KeyManagerProvider, address: string, result: Extract<SignInResult, { outcome: keyof typeof FAILURE_CODES }>) => {
+    const details = [oneLine(result.message), "Nothing was changed."];
+    if (result.outcome === "provider-unavailable") return { code: "provider_unavailable", message: providerUnavailableLine(provider), data: { connectionId, provider, details } } as const;
+    return { code: FAILURE_CODES[result.outcome], message: couldNotAskLine(provider, address, result.outcome), data: { connectionId, details } } as const;
   };
 
+  /** This environment has no provider for the key manager: it says it cannot connect yet, never what to do instead (#1852). */
   const providerUnavailable = (provider: KeyManagerProvider) =>
-    ({
-      code: "provider_unavailable",
-      message: `This environment cannot sign in to ${PROVIDER_NAMES[provider]} yet: add the connection without a credential, and sign it in with a version that can. Nothing was stored.`,
-      data: { provider },
-    }) as const;
+    ({ code: "provider_unavailable", message: providerUnavailableLine(provider), data: { provider, details: [`No ${PROVIDER_NAMES[provider]} provider is loaded on this environment.`, "Nothing was stored."] } }) as const;
 
   /** A command's rejection, answered as the handler it prepares. */
   const rejecting =
@@ -528,7 +541,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   ): string | { readonly refused: CommandRejection<"verification_failed"> } | undefined => {
     if (provider?.addressOf === undefined || credential === undefined) return undefined;
     const named = provider.addressOf(credential);
-    const refuse = (message: string) => ({ refused: { code: "verification_failed" as const, message: `${message} ${nothing}`, data: { connectionId, reason: "rejected" } } });
+    const refuse = (message: string) => ({ refused: verificationFailed(connectionId, kind, { reason: "rejected", message }, nothing) });
     if (named === null) return refuse(`That is no ${PROVIDER_NAMES[kind]} credential that names its account.`);
     if (expected !== null && named !== expected) return refuse(`That token is for the ${PROVIDER_NAMES[kind]} account at ${named}, and this connection is for ${expected}: add a connection for that account.`);
     return named;
@@ -581,7 +594,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const target = targetOf({ provider: params.provider, address, ...settings });
       if (given !== undefined && provider !== undefined && target !== null) {
         const result = await signInWith(connectionId, provider, target, given);
-        if (result.outcome === "refused") return rejecting<"keyManagers.connections.add">(verificationFailed(connectionId, result, "Nothing was stored."));
+        if (result.outcome === "refused") return rejecting<"keyManagers.connections.add">(verificationFailed(connectionId, params.provider, result, "Nothing was stored."));
         if (result.outcome === "signed-in") {
           context.onUndo(() => letGo(connectionId, result.login));
           signed = result;
@@ -648,8 +661,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (target === null) throw new Error(`The key-manager connection ${connectionId} has no sign-in target for ${method}.`);
 
       const result = await signInWith(connectionId, provider, target, given);
-      if (result.outcome === "refused") return rejecting<"keyManagers.connections.signIn">(verificationFailed(connectionId, result, "Nothing was changed."));
-      if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.signIn">(couldNotAsk(connectionId, result, record.provider));
+      if (result.outcome === "refused") return rejecting<"keyManagers.connections.signIn">(verificationFailed(connectionId, record.provider, result, "Nothing was changed."));
+      if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.signIn">(couldNotAsk(connectionId, record.provider, target.address, result));
       context.onUndo(() => letGo(connectionId, result.login));
       const entry = await store(connectionId, given, context);
 
@@ -752,8 +765,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         const credential = await readCredential(entry);
         if (credential === null) return apply(null);
         const result = await signInWith(connectionId, provider, target, credential);
-        if (result.outcome === "refused") return rejecting<"keyManagers.connections.update">(verificationFailed(connectionId, result, "Nothing was changed."));
-        if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.update">(couldNotAsk(connectionId, result, record.provider));
+        if (result.outcome === "refused") return rejecting<"keyManagers.connections.update">(verificationFailed(connectionId, record.provider, result, "Nothing was changed."));
+        if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.update">(couldNotAsk(connectionId, record.provider, target.address, result));
         context.onUndo(() => letGo(connectionId, result.login));
         return apply(result);
       })();

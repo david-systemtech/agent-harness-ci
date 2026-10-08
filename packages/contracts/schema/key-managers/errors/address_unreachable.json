@@ -17,6 +17,15 @@
           "type": "string",
           "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
           "description": "The address the preview was asked of, as its origin."
+        },
+        "details": {
+          "description": "What the key manager or the environment said behind the plain message, one line each, for Details: addresses, paths, HTTP statuses and system error codes. Absent when there is nothing more.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]*$"
+          }
         }
       },
       "required": [
@@ -29,5 +38,5 @@
     "message",
     "data"
   ],
-  "description": "The address could not be reached, or completed no TLS handshake within ten seconds: no certificate was read. The message says what failed; data names the address."
+  "description": "The address could not be reached, or completed no TLS handshake within ten seconds: no certificate was read. The message says what failed in plain words; data names the address, and its details the raw words."
 }

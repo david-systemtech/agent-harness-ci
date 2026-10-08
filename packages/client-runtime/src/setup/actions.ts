@@ -19,9 +19,10 @@ import { isRegisteredStep } from "./checklist.js";
  * `update` on Your machines `updates.apply`; `install` and `update` of a
  * tool `tools.run` in a tool terminal; `pull-now` `skills.sources.pull` for
  * each source named (#733); `move` the Key manager step's Move card, on
- * Key managers. The authoring and import verbs are the step's card's
- * (`card`). Every other verb opens the step's home row; Browser's card
- * binds its verbs to the browser's methods (#548, #593).
+ * Key managers; `check-certificate` Key managers, where each connection's
+ * certificate check is (#1852). The authoring and import verbs are the
+ * step's card's (`card`). Every other verb opens the step's home row;
+ * Browser's card binds its verbs to the browser's methods (#548, #593).
  */
 
 /** Each action in words, as a button names it: ADR 0031's names and the step decisions' verbs, as setup-copy.md words them. */
@@ -43,6 +44,7 @@ export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = 
   "write-it-myself": "Write it myself",
   "start-over": "Start again",
   revise: "Fix the description",
+  "check-certificate": "Check certificate",
 };
 
 /** The steps with a restore of their own: the Permissions step's denylist presets and the Appearance step's preset theme. */
@@ -143,6 +145,7 @@ export const planSetupAction = (step: ActingStep, action: SetupAction, given: re
       }
       return action === "update" && step.id === "your-machines" ? { kind: "update" } : { kind: "row", row: step.home };
     case "move":
+    case "check-certificate":
       return { kind: "row", row: "access.key-managers" };
     default:
       return { kind: "row", row: step.home };

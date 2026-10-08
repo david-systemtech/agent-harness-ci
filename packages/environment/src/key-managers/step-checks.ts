@@ -3,6 +3,7 @@ import {
   type KeyManagerConnectionRecord,
   type KeyManagerStatusKind,
   type ManagedToolRow,
+  type ReasonTime,
   type SetupAction,
   type SetupTarget,
   type StateCheckId,
@@ -20,8 +21,9 @@ import { createPath } from "./openbao.js";
  * nothing else, so it is never forced. The checks that read what a
  * verification finds (#383) await one of every connection, which they
  * share: a verification asked for while one runs for the same connection
- * joins it (`verifier.ts`). A failing line names each connection, as its
- * label at its address's host, and the action that fixes it.
+ * joins it (`verifier.ts`). A failing line is setup-copy.md §5.7's, naming
+ * each connection by its label, with the action that fixes it; the
+ * connection's address, id and what its status says go in details (#1852).
  */
 
 /** The Key manager step's state checks, by id. */
@@ -36,9 +38,11 @@ export interface KeyManagerStateChecksOptions {
   readonly requiredConnections?: () => readonly string[];
   /** The Managed tools rows, once any probe under way has ended (`ManagedTools.list`). */
   readonly toolRows: () => Promise<readonly ManagedToolRow[]>;
+  /** This computer's name, which a line about a tool missing here names it by. */
+  readonly computer: () => string;
 }
 
-/** A connection as a person reads it: its label at its address's host. */
+/** A connection as an action's button names it: its label at its address's host, which tells two of one label apart. */
 const connectionLabel = (connection: KeyManagerConnectionRecord): string => `${connection.label} at ${connection.address.replace(/^https?:\/\//, "")}`;
 
 /** The connection `action` applies to. */
@@ -49,73 +53,110 @@ const connectionTarget = (action: SetupAction, connection: KeyManagerConnectionR
   label: connectionLabel(connection),
 });
 
-/** One connection's failure of a check: its line, and the connection or tool its action applies to. */
+/** A line of details naming `connection` as the environment holds it, its address and id, then `fact`. */
+const detailOf = (connection: KeyManagerConnectionRecord, fact: string): string => `${connection.label} at ${connection.address} (${connection.id}): ${fact}`;
+
+/** One connection's failure of a check: its line, its details, and the connection or tool its action applies to. */
 interface Finding {
   readonly line: string;
+  readonly details: readonly string[];
   readonly target: SetupTarget;
+  readonly times?: readonly ReasonTime[];
 }
 
-/** A check's answer from its findings: it holds with none, else one line naming each, with their targets. */
-const answerOf = (findings: readonly Finding[]): StateCheckAnswer =>
-  findings.length === 0 ? true : { reason: findings.map((finding) => finding.line).join(" "), targets: findings.map((finding) => finding.target) };
+/** A check's answer from its findings: it holds with none, else one line naming each, with their details, times, actions and targets. */
+const answerOf = (findings: readonly Finding[]): StateCheckAnswer => {
+  if (findings.length === 0) return true;
+  const times = findings.flatMap((finding) => finding.times ?? []);
+  return {
+    reason: findings.map((finding) => finding.line).join(" "),
+    details: findings.flatMap((finding) => finding.details),
+    ...(times.length > 0 && { times }),
+    actions: [...new Set(findings.map((finding) => finding.target.action))],
+    targets: findings.map((finding) => finding.target),
+  };
+};
 
 /** At least one connection is on the environment. */
 const connectionPresent = (connections: readonly KeyManagerConnectionRecord[]): StateCheckAnswer =>
-  connections.length > 0 || { reason: "No key-manager connection is on this environment." };
+  connections.length > 0 || { reason: "No key manager connected. Optional." };
 
-/** A line for each status a check names, saying what the action does for the connection standing in it. */
-type StatusLines = { readonly [Kind in KeyManagerStatusKind]?: (connection: KeyManagerConnectionRecord) => string };
+/** A connection's line in one status: its words, the action that fixes it, and the past time it names. */
+interface StatusLine {
+  readonly line: string;
+  readonly action: SetupAction;
+  readonly time?: ReasonTime;
+}
 
-/** A check that names each connection standing in one of `lines`' statuses with its line and `action`, and holds with none. */
+/** The line for each status a check names, for the connection standing in it. */
+type StatusLines = { readonly [Kind in KeyManagerStatusKind]?: (connection: KeyManagerConnectionRecord) => StatusLine };
+
+/** A check that names each connection standing in one of `lines`' statuses with its line, its status's own words in details, and holds with none. */
 const noneStanding =
-  (lines: StatusLines, action: SetupAction) =>
+  (lines: StatusLines) =>
   (connections: readonly KeyManagerConnectionRecord[]): StateCheckAnswer =>
     answerOf(
       connections.flatMap((connection) => {
-        const line = lines[connection.status.kind];
-        return line === undefined ? [] : [{ line: line(connection), target: connectionTarget(action, connection) }];
+        const status = lines[connection.status.kind]?.(connection);
+        if (status === undefined) return [];
+        const finding: Finding = { line: status.line, details: [detailOf(connection, connection.status.message)], target: connectionTarget(status.action, connection) };
+        return [status.time === undefined ? finding : { ...finding, times: [status.time] }];
       }),
     );
 
-/** Every connection is signed in: none awaiting its sign-in, its credential rejected or its token expired (`sign-in-again`). */
-const signedIn = noneStanding(
-  {
-    "awaiting-sign-in": (connection) => `${connectionLabel(connection)} has no credential on this environment: Sign in again to give it one.`,
-    "credential-rejected": (connection) => `The key manager refused the credential of ${connectionLabel(connection)}: Sign in again to give it a new one.`,
-    expired: (connection) => {
-      const expiresAt = connection.tokenInformation?.expiresAt ?? null;
-      return `The token of ${connectionLabel(connection)} ${expiresAt === null ? "has expired" : `expired at ${readableMinute(expiresAt)}`}: Sign in again with a new token.`;
-    },
-  },
-  "sign-in-again",
-);
+/** A connection still signing in, or whose provider cannot load here: not ready yet, which a check again finds settled. */
+const notReady = (connection: KeyManagerConnectionRecord): StatusLine => ({ line: `${connection.label} is not ready yet. Choose Check again.`, action: "check-again" });
 
-/** Every connection's key manager answers: none unreachable, sealed or presenting a certificate that does not verify, the line naming which (`check-again`). */
-const reachable = noneStanding(
-  {
-    unreachable: (connection) => `${connectionLabel(connection)} did not answer its verification: Check again once it is reachable.`,
-    sealed: (connection) => `${connectionLabel(connection)} is sealed: Check again once it is unsealed.`,
-    "certificate-rejected": (connection) =>
-      `The certificate of ${connectionLabel(connection)} does not verify against ${connection.ca === null ? "the system's trusted CAs" : "the CA it pins"}: Check again once it does.`,
+/**
+ * Every connection is signed in: none awaiting its sign-in, its credential
+ * rejected or its token expired (`sign-in-again`), and none still signing
+ * in or whose provider cannot load here (`check-again`), so the step is
+ * not done while one cannot fetch keys (#1852).
+ */
+const signedIn = noneStanding({
+  "awaiting-sign-in": (connection) => ({ line: `${connection.label} is not signed in yet.`, action: "sign-in-again" }),
+  "credential-rejected": (connection) => ({ line: `${connection.label} did not accept the sign-in. Sign in again with a working token.`, action: "sign-in-again" }),
+  expired: (connection) => {
+    const expiresAt = connection.tokenInformation?.expiresAt ?? null;
+    if (expiresAt === null) return { line: `${connection.label}'s token ran out. Sign in with a new token.`, action: "sign-in-again" };
+    // The expiry as data, which a client words where it is; the line's own words for it stand for one that does not (#1742).
+    const when = readableMinute(expiresAt);
+    return { line: `${connection.label}'s token ran out ${when}. Sign in with a new token.`, action: "sign-in-again", time: { text: when, at: expiresAt } };
   },
-  "check-again",
-);
+  "signing-in": notReady,
+  "provider-unavailable": notReady,
+});
+
+/** Every connection's key manager answers: none unreachable or sealed (`check-again`), nor presenting a certificate that does not verify (`check-certificate`). */
+const reachable = noneStanding({
+  unreachable: (connection) => ({ line: `${connection.label} did not answer. Check the address and the connection, then choose Check again.`, action: "check-again" }),
+  sealed: (connection) => ({ line: `${connection.label} is locked (sealed). Unlock it, then choose Check again.`, action: "check-again" }),
+  "certificate-rejected": (connection) => ({
+    line: `agent-harness does not trust ${connection.label}'s security certificate. Choose Check certificate to review it.`,
+    action: "check-certificate",
+  }),
+});
 
 /**
  * Every injecting OpenBao connection's login can mint run tokens: each
  * signed in whose verification found it lacks `update` on the path its run
- * tokens are created at is named with that capability (`check-again`). A
- * connection not signed in is the other checks' to name, and one never
- * asked is tried at each mint, as the runs' own minting does.
+ * tokens are created at is named, that path and the policy line that grants
+ * it in details (`check-again`). A connection not signed in is the other
+ * checks' to name, and one never asked is tried at each mint, as the runs'
+ * own minting does.
  */
 const runTokensMint = (connections: readonly KeyManagerConnectionRecord[]): StateCheckAnswer =>
   answerOf(
     connections
       .filter((connection) => connection.provider === "openbao" && connection.injects && connection.status.kind === "signed-in" && connection.canMint === false)
-      .map((connection) => ({
-        line: `The login of ${connectionLabel(connection)} lacks update on ${createPath(connection.tokenRole)}, which minting a run token needs: Check again once one of its policies grants it.`,
-        target: connectionTarget("check-again", connection),
-      })),
+      .map((connection) => {
+        const path = createPath(connection.tokenRole);
+        return {
+          line: `${connection.label} lets agent-harness sign in but not make keys for agents. Ask whoever runs ${connection.label} to allow it.`,
+          details: [detailOf(connection, `its login lacks update on ${path}, which making a run token needs.`), `Policy line: path "${path}" { capabilities = ["update"] }`],
+          target: connectionTarget("check-again", connection),
+        };
+      }),
   );
 
 /** A row whose tool is installed at its minimum or later: current, with a newer one known, or installed in a way that could not be told. */
@@ -124,27 +165,30 @@ const meetsMinimum = (row: ManagedToolRow): boolean => row.status !== "not-insta
 /** The tool a row names, as the action it serves applies to it. */
 const toolTarget = (action: SetupAction, row: ManagedToolRow): SetupTarget => ({ action, kind: "tool", id: row.tool, label: row.tool });
 
-/** What was found of a provider's CLIs, none of which meets its minimum: each installed one's version, else that none is installed. */
-const cliProblem = (rows: readonly ManagedToolRow[]): string => {
+/** What was found of a provider's CLIs, none of which meets its minimum, for details: each installed one's version, else that none is installed and what is needed. */
+const cliProblem = (rows: readonly ManagedToolRow[], first: ManagedToolRow): string => {
   const installed = rows.filter((row) => row.status !== "not-installed");
   const tools = rows.map((row) => row.tool);
-  if (installed.length === 0) return tools.length === 1 ? `${tools.join("")} is not installed on this environment` : `Neither ${tools.join(" nor ")} is installed on this environment`;
-  return installed
-    .map((row) =>
-      row.version === null ? `${row.tool} on this environment reports no version, so it may be older than ${row.minimum}` : `${row.tool} ${row.version} on this environment is older than ${row.minimum}`,
-    )
-    .join(" and ");
+  if (installed.length === 0) {
+    const missing = tools.length === 1 ? `${tools.join("")} is not installed on this environment` : `neither ${tools.join(" nor ")} is installed on this environment`;
+    return `${missing}; ${first.tool}${first.minimum === null ? " is" : ` ${first.minimum} or later is`} needed.`;
+  }
+  const found = installed.map((row) =>
+    row.version === null ? `${row.tool} on this environment reports no version, so it may be older than ${row.minimum}` : `${row.tool} ${row.version} on this environment is older than ${row.minimum}`,
+  );
+  return `${found.join(" and ")}.`;
 };
 
 /**
  * Each injecting connection's CLI is installed at its minimum or later
  * (ADR 0026: a key-manager CLI is required while its connection injects),
  * any of its provider's satisfying it. One that is not names the
- * connection, what was found, and the provider's first CLI to Install or,
- * found below its minimum, to Update: `bao` for OpenBao, since `vault` is
- * never installed. The rows are read only when a connection injects.
+ * provider's first CLI, this computer and the connection, what was found in
+ * details, and the CLI to Install or, found below its minimum, to Update:
+ * `bao` for OpenBao, since `vault` is never installed. The rows are read
+ * only when a connection injects.
  */
-const cliInstalled = async (connections: readonly KeyManagerConnectionRecord[], toolRows: () => Promise<readonly ManagedToolRow[]>): Promise<StateCheckAnswer> => {
+const cliInstalled = async (connections: readonly KeyManagerConnectionRecord[], toolRows: () => Promise<readonly ManagedToolRow[]>, computer: string): Promise<StateCheckAnswer> => {
   const injecting = connections.filter((connection) => connection.injects);
   if (injecting.length === 0) return true;
   const rows = await toolRows();
@@ -156,23 +200,48 @@ const cliInstalled = async (connections: readonly KeyManagerConnectionRecord[], 
       const [first] = own;
       if (first === undefined || own.some(meetsMinimum)) return [];
       const action = first.status === "below-minimum" ? "update" : "install";
-      const remedy = action === "update" ? `Update ${first.tool}.` : `Install ${first.tool}${first.minimum === null ? "" : ` ${first.minimum} or later`}.`;
-      return [{ line: `${cliProblem(own)} for ${connectionLabel(connection)}: ${remedy}`, target: toolTarget(action, first) }];
+      const line =
+        action === "update"
+          ? `The ${first.tool} tool on ${computer} is out of date. Update it so agents can use ${connection.label}.`
+          : `The ${first.tool} tool is not installed on ${computer}. Install it so agents can use ${connection.label}.`;
+      return [{ line, details: [detailOf(connection, cliProblem(own, first))], target: toolTarget(action, first) }];
     }),
   );
 };
 
-export const keyManagerStateChecks = ({ connections, verify, toolRows, requiredConnections = () => [] }: KeyManagerStateChecksOptions): { readonly [Id in KeyManagerStateCheckId]: StateChecker } => ({
+/** The line for Forge references to connections this computer does not hold, their ids in details; null for none. */
+const referencesMissing = (held: readonly KeyManagerConnectionRecord[], required: readonly string[]): { readonly reason: string; readonly details: readonly string[] } | null => {
+  const missing = [...new Set(required)].filter((id) => !held.some((connection) => connection.id === id));
+  if (missing.length === 0) return null;
+  return {
+    reason: "Some forge tokens are kept in a key manager that is not connected here. Connect it.",
+    details: [`Key-manager connections that forge accounts name and this computer does not hold: ${missing.join(", ")}`],
+  };
+};
+
+export const keyManagerStateChecks = ({
+  connections,
+  verify,
+  toolRows,
+  computer,
+  requiredConnections = () => [],
+}: KeyManagerStateChecksOptions): { readonly [Id in KeyManagerStateCheckId]: StateChecker } => ({
   "key-manager.present": () => requiredConnections().length > 0 || connectionPresent(connections()),
   "key-manager.signed-in": async () => {
     const held = await verify();
     const answer = signedIn(held);
-    const missing = [...new Set(requiredConnections())].filter((id) => !held.some((connection) => connection.id === id));
-    if (missing.length === 0) return answer;
-    const reason = `Preserved Forge references need Key-manager connections ${missing.join(", ")}: add their connection records and sign in on this step.`;
-    return answer === true ? { reason } : { reason: `${answer.reason} ${reason}`, targets: answer.targets ?? [] };
+    const missing = referencesMissing(held, requiredConnections());
+    if (missing === null) return answer;
+    // Connect it: the sign-in, on Key managers, where a connection is added.
+    if (answer === true || answer.holds === true) return { reason: missing.reason, details: missing.details, actions: ["sign-in-again"] };
+    return {
+      ...answer,
+      reason: `${answer.reason} ${missing.reason}`,
+      details: [...(answer.details ?? []), ...missing.details],
+      actions: [...new Set([...(answer.actions ?? []), "sign-in-again" as const])],
+    };
   },
   "key-manager.reachable": async () => reachable(await verify()),
   "key-manager.run-tokens": async () => runTokensMint(await verify()),
-  "key-manager.cli": async () => cliInstalled(await verify(), toolRows),
+  "key-manager.cli": async () => cliInstalled(await verify(), toolRows, computer()),
 });

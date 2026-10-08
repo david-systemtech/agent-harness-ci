@@ -197,7 +197,7 @@ describe("keyManagers.connections.add", () => {
     expect(await saidBack(t, [PASSWORD, PERSON_TOKEN])).toEqual([REDACTED, REDACTED]);
   });
 
-  it("refuses a credential OpenBao refuses as verification_failed reason rejected, and stores nothing", async () => {
+  it("refuses a credential OpenBao refuses as verification_failed reason rejected in setup-copy.md §5.7's words, what OpenBao said in details, and stores nothing", async () => {
     const { t, bao, client } = await withOpenBao();
     const from = t.env.log.head();
 
@@ -205,8 +205,8 @@ describe("keyManagers.connections.add", () => {
 
     expect(rejection(refused.receipt)).toEqual({
       reason: "verification_failed",
-      message: `OpenBao at ${bao.address} refused the credential (HTTP 400: invalid role or secret ID). Nothing was stored.`,
-      data: { connectionId: expect.any(String), reason: "rejected" },
+      message: "OpenBao did not accept these details. Check them and try again.",
+      data: { connectionId: expect.any(String), reason: "rejected", details: [`OpenBao at ${bao.address} refused the credential (HTTP 400: invalid role or secret ID).`, "Nothing was stored."] },
     });
     expect(await list(client)).toEqual([]);
     expect(await keyManagerEvents(client, from)).toEqual([]);
@@ -556,10 +556,14 @@ describe("keyManagers.connections.signIn", () => {
 
     const refused = await signIn(client, { connectionId: connection.id, credential: approle("wrong-secret-for-tests") });
     expect(rejection(refused.receipt)).toMatchObject({ reason: "verification_failed", data: { connectionId: connection.id, reason: "rejected" } });
-    expect(rejection(refused.receipt).message).toMatch(/Nothing was changed\.$/);
+    expect(rejection(refused.receipt).data?.["details"]).toContain("Nothing was changed.");
     bao.seal();
     const sealed = await signIn(client, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) });
-    expect(rejection(sealed.receipt)).toEqual({ reason: "sealed", message: `OpenBao at ${bao.address} is sealed: unseal it to sign in. Nothing was changed.`, data: { connectionId: connection.id } });
+    expect(rejection(sealed.receipt)).toEqual({
+      reason: "sealed",
+      message: "OpenBao is locked (sealed). Unlock it, then connect.",
+      data: { connectionId: connection.id, details: [`OpenBao at ${bao.address} is sealed: unseal it to sign in.`, "Nothing was changed."] },
+    });
     bao.unseal();
     expect(await list(client)).toEqual([connection]);
     expect(await saidBack(t, [SECRET_ID, OTHER_SECRET_ID, "wrong-secret-for-tests"])).toEqual([REDACTED, OTHER_SECRET_ID, "wrong-secret-for-tests"]);
@@ -635,9 +639,10 @@ describe("keyManagers.connections.update", () => {
 
     const otherCa = await update(client, { connectionId: connection.id, address: moved.address, ca: testCertificates().otherCa });
     expect(rejection(otherCa.receipt)).toMatchObject({ reason: "certificate_rejected", data: { connectionId: connection.id } });
-    expect(rejection(otherCa.receipt).message).toContain("does not verify against the pinned CA");
+    expect(rejection(otherCa.receipt).message).toBe("agent-harness does not trust this site's certificate.");
+    expect(rejection(otherCa.receipt).data?.["details"]).toEqual([expect.stringContaining("does not verify against the pinned CA"), "Nothing was changed."]);
     const away = await update(client, { connectionId: connection.id, address: nowhere });
-    expect(rejection(away.receipt)).toMatchObject({ reason: "unreachable", data: { connectionId: connection.id } });
+    expect(rejection(away.receipt)).toMatchObject({ reason: "unreachable", message: `agent-harness could not reach ${nowhere}. Check the address.`, data: { connectionId: connection.id } });
     expect(moved.requests).toEqual([]);
 
     const done = await update(client, { connectionId: connection.id, address: moved.address });
