@@ -89,9 +89,11 @@ export type { SkillsCopies, SkillsCopySelection, SkillsCopyItem, SkillsCopyItemR
 export type { BankCopyItemReport } from "./banks-copy.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
+  CONNECTION_FIX_WORDS,
   INJECTION_SWITCH_WORDS,
   INJECTION_WORDS,
   KEY_MANAGER_METHOD_WORDS,
+  KEY_MANAGER_PROVIDER_NAMES,
   KEY_MANAGER_PROVIDER_WORDS,
   KEY_MANAGER_STATUS_ADVICE,
   KEY_MANAGER_STATUS_WORDS,
@@ -101,6 +103,7 @@ export {
   certificateFacts,
   cliHealthWords,
   cliWords,
+  connectionHealth,
   copyLine,
   injectsWords,
   listWords,
@@ -109,14 +112,17 @@ export {
   originWords,
   overridesWith,
   policyWarning,
+  savedWords,
   statusWords,
   tokenWords,
+  type ConnectionFix,
 } from "./key-managers/words.js";
 export {
   KEY_MANAGER_ADDRESS_PRESETS,
   KEY_MANAGER_LABEL_PRESETS,
   addConnection,
   asksAddress,
+  connectWords,
   copyValue,
   moveItems,
   previewCertificate,
@@ -125,6 +131,7 @@ export {
   setInjected,
   setPolicies,
   signInAgain,
+  signInRefusal,
   signOutConnection,
   ticksWith,
   updateConnection,

@@ -8,6 +8,7 @@ import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import { addConnection, formProblem, type ConnectionForm } from "./key-managers/actions.js";
+import { connectionHealth } from "./key-managers/words.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
 import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
@@ -235,7 +236,6 @@ describe("the key-manager status rows", () => {
       noticeEvent(2, env, "key-manager.connection.added", keyManagerEventPayload("key-manager.connection.added", copy, { credential: null })),
       noticeEvent(3, env, "key-manager.connection.added", keyManagerEventPayload("key-manager.connection.added", unanswered)),
       noticeEvent(4, env, "key-manager.connection.signed-out", keyManagerEventPayload("key-manager.connection.signed-out", signedIn)),
-      noticeEvent(5, env, "key-manager.connection.removed", keyManagerEventPayload("key-manager.connection.removed", unanswered)),
     ];
     for (const event of events) environment.event(event);
     await flush();
@@ -243,6 +243,25 @@ describe("the key-manager status rows", () => {
       "Laptop's vault on desk: No credential is on this environment: sign in in Set up, Key manager.",
       "Doppler on desk: Doppler did not answer.",
     ]);
+  });
+
+  it("withdraw every row about a connection once it is removed, leaving the others' (#1851)", async () => {
+    const { runtime, env, environment } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    const kept = keyManagerRecord({ label: "Home vault", status: keyManagerStatus("sealed", "OpenBao is sealed.") });
+    const removed = keyManagerRecord({ label: "Old vault", address: "https://127.0.0.1:1", status: keyManagerStatus("unreachable", "OpenBao at https://127.0.0.1:1 did not answer.") });
+    const verified = (sequence: number, status: ReturnType<typeof keyManagerStatus>) =>
+      noticeEvent(sequence, env, "key-manager.connection.verified", keyManagerEventPayload("key-manager.connection.verified", removed, { status }));
+    for (const event of [
+      noticeEvent(1, env, "key-manager.connection.added", keyManagerEventPayload("key-manager.connection.added", kept)),
+      noticeEvent(2, env, "key-manager.connection.added", keyManagerEventPayload("key-manager.connection.added", removed)),
+      verified(3, keyManagerStatus("certificate-rejected", "OpenBao at https://127.0.0.1:1 presented a certificate no CA verifies.")),
+    ]) environment.event(event);
+    await flush();
+    expect(shown(runtime)).toHaveLength(3);
+
+    environment.event(noticeEvent(4, env, "key-manager.connection.removed", keyManagerEventPayload("key-manager.connection.removed", removed)));
+    await flush();
+    expect(shown(runtime).map((notice) => notice.message)).toEqual(["Home vault on desk: OpenBao is sealed."]);
   });
 
   it("raise none for what a replay onto an empty cache holds, which is history, and read it for the labels and statuses it names", async () => {
@@ -441,7 +460,7 @@ describe("the Key manager form (#1118)", () => {
     // An address typed for another provider before 1Password was chosen is not sent either.
     const added = await addConnection({ runtime, clock }, env, formFor("onepassword", "https://bao.example.com:8200"), token);
 
-    expect(added).toMatchObject({ ok: true, line: expect.stringMatching(/^Added /) });
+    expect(added).toMatchObject({ ok: true, line: expect.stringMatching(/^Saved\. /) });
     expect(asked).toHaveLength(1);
     expect(asked[0]).toMatchObject({ provider: "onepassword", label: "Mine", credential: token });
     expect(asked[0]).not.toHaveProperty("address");
@@ -456,5 +475,79 @@ describe("the Key manager form (#1118)", () => {
     }
     await addConnection({ runtime, clock }, env, formFor("doppler", " https://api.doppler.com "), token);
     expect(asked).toEqual([expect.objectContaining({ provider: "doppler", address: "https://api.doppler.com" })]);
+  });
+});
+
+describe("what Connect says (setup-copy.md §5.7; #1851)", () => {
+  const token = { method: "token", token: "token-for-tests" } as const;
+  const form: ConnectionForm = { provider: "openbao", label: "Home OpenBao", address: "https://127.0.0.1:1", method: "token", mount: "token", username: "", tokenRole: "", ca: null };
+
+  /** Answers every add with the connection standing in `kind`. */
+  const addingAs = (wire: FakeWire, kind: Parameters<typeof keyManagerStatus>[0]) =>
+    wire.answer("keyManagers.connections.add", (params) => {
+      const connection = keyManagerRecord({ id: params["connectionId"] as string, label: "Home OpenBao", address: "https://127.0.0.1:1", status: keyManagerStatus(kind, "connect ECONNREFUSED 127.0.0.1:1") });
+      return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { connection } } };
+    });
+
+  /** Rejects every add with `code`, its message and data. */
+  const refusingAs = (wire: FakeWire, code: string, message: string, data: Record<string, unknown>) =>
+    wire.answer("keyManagers.connections.add", () => ({ result: { receipt: { status: "rejected", sequence: 1, changed: false, reason: code, error: { code, message, data } } } }));
+
+  it("says a connection signed in is connected, and one saved that cannot be reached saved, never Added followed by what failed", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    addingAs(wire, "signed-in");
+    expect(await addConnection({ runtime, clock }, env, form, token)).toMatchObject({ ok: true, line: "Connected to Home OpenBao." });
+    addingAs(wire, "unreachable");
+    const unreachable = await addConnection({ runtime, clock }, env, form, token);
+    expect(unreachable).toMatchObject({ ok: true, line: "Saved, but agent-harness could not reach https://127.0.0.1:1. Check the address, then choose Check again." });
+    expect(unreachable.line).not.toMatch(/Added|ECONNREFUSED/);
+    addingAs(wire, "sealed");
+    expect(await addConnection({ runtime, clock }, env, form, token)).toMatchObject({ ok: true, line: "Saved, but Home OpenBao is not connected yet. Unlock it, then choose Check again." });
+    addingAs(wire, "awaiting-sign-in");
+    expect(await addConnection({ runtime, clock }, env, form, token)).toMatchObject({ ok: true, line: "Saved. Home OpenBao is not signed in yet." });
+  });
+
+  it("says each sign-in refusal in §5.7's words for the provider and address it was given, its raw words and data.details under Details", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    const cases: readonly (readonly [code: string, data: Record<string, unknown>, line: string])[] = [
+      ["verification_failed", { reason: "rejected", details: ["OpenBao answered HTTP 403: permission denied.", "Nothing was stored."] }, "OpenBao did not accept these details. Check them and try again."],
+      ["verification_failed", { reason: "root_token", details: [] }, "Use a token that is not the root token. agent-harness never uses root."],
+      ["unreachable", { details: ["connect ECONNREFUSED 127.0.0.1:1"] }, "agent-harness could not reach https://127.0.0.1:1. Check the address."],
+      ["sealed", {}, "OpenBao is locked (sealed). Unlock it, then connect."],
+      ["certificate_rejected", {}, "agent-harness does not trust this site's certificate."],
+      ["provider_unavailable", { provider: "openbao" }, "agent-harness cannot connect to OpenBao on this computer yet."],
+      ["conflict", { reason: "connection_exists" }, "OpenBao at https://127.0.0.1:1 is connected already."],
+    ];
+    for (const [code, data, line] of cases) {
+      refusingAs(wire, code, `The raw words for ${code}.`, data);
+      const refused = await addConnection({ runtime, clock }, env, form, token);
+      expect(refused, code).toEqual({ ok: false, code, line, details: [expect.stringContaining(`The raw words for ${code}.`), ...((data["details"] as string[] | undefined) ?? [])] });
+    }
+  });
+
+  it("says a refusal of this client's own, the computer not reached, as the request layer's plain line", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    wire.discovery("unreachable");
+    wire.server.drop();
+    await flush();
+    const refused = await addConnection({ runtime, clock }, env, form, token);
+    expect(refused).toMatchObject({ ok: false, line: "This app cannot reach that computer right now. Choose Connect OpenBao to try again." });
+  });
+});
+
+describe("a connection's health (setup-copy.md §5.7; #1851)", () => {
+  const now = new Date("2026-09-24T09:30:00");
+  const since = new Date("2026-09-24T09:14:00").toISOString();
+  it("is one line, its state since when, then the one thing to do, with the one button that does it", () => {
+    const health = (kind: Parameters<typeof keyManagerStatus>[0]) => connectionHealth({ kind, since, message: "The environment's own words." }, now);
+    expect(health("signed-in")).toEqual({ line: "Connected since 09:14.", fix: null });
+    expect(health("signing-in")).toEqual({ line: "Signing in since 09:14.", fix: null });
+    expect(health("awaiting-sign-in")).toEqual({ line: "Not signed in since 09:14. Sign in to use it.", fix: "sign-in" });
+    expect(health("credential-rejected")).toEqual({ line: "Not accepted since 09:14. Sign in again with a working token.", fix: "sign-in-again" });
+    expect(health("expired")).toEqual({ line: "Expired since 09:14. Sign in with a new token.", fix: "sign-in-again" });
+    expect(health("unreachable")).toEqual({ line: "Not answering since 09:14. Check the address and the connection, then choose Check again.", fix: "check-again" });
+    expect(health("sealed")).toEqual({ line: "Locked (sealed) since 09:14. Unlock it, then choose Check again.", fix: "check-again" });
+    expect(health("certificate-rejected")).toEqual({ line: "Certificate not trusted since 09:14. Choose Check certificate to review it.", fix: "check-certificate" });
+    expect(health("provider-unavailable")).toEqual({ line: "Not ready since 09:14. Choose Check again.", fix: "check-again" });
   });
 });

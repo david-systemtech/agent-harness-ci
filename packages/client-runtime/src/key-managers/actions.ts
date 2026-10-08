@@ -9,10 +9,13 @@ import type {
   KeyManagerMoveLocator,
   ParamsOf,
 } from "@agent-harness/contracts";
+import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { uuidv4, uuidv7 } from "../ids.js";
 import type { Clock } from "../platform.js";
 import type { Runtime } from "../runtime.js";
 import { adminCall, type AdminOutcome } from "../status/actions.js";
+import { plainRefusal, type RefusedAnswer } from "../words/refusal.js";
+import { KEY_MANAGER_PROVIDER_NAMES, savedWords } from "./words.js";
 
 /**
  * What a Key managers pane sends, as both renderers send it and say it
@@ -84,8 +87,42 @@ export interface ConnectionForm {
   readonly ca: string | null;
 }
 
-/** What a command a pane sends did: its one line, and the connection it answered with when it answered one. */
-export type KeyManagerOutcome = { readonly ok: true; readonly line: string; readonly connection: KeyManagerConnectionRecord | null } | { readonly ok: false; readonly line: string };
+/**
+ * What a command a pane sends did: its one line, and the connection it
+ * answered with when it answered one; or its refusal's line, with, where it
+ * is said plainly, the raw words for Details and the refusal's code.
+ */
+export type KeyManagerOutcome =
+  | { readonly ok: true; readonly line: string; readonly connection: KeyManagerConnectionRecord | null }
+  | { readonly ok: false; readonly line: string; readonly details?: readonly string[]; readonly code?: string };
+
+/** The button that connects a provider, and the verb a refusal of it names: `Connect OpenBao`. */
+export const connectWords = (provider: KeyManagerProvider): string => `Connect ${KEY_MANAGER_PROVIDER_NAMES[provider]}`;
+
+/** Each sign-in refusal the environment answers in setup-copy.md §5.7's words, by its code and then its reason, for the provider and address signed in to. */
+const SIGN_IN_REFUSALS: Readonly<Record<string, (name: string, address: string, reason: string | undefined) => string | undefined>> = {
+  verification_failed: (name, _address, reason) =>
+    reason === "root_token" ? `Use a token that is not the root token. ${PRODUCT_NAME} never uses root.` : `${name} did not accept these details. Check them and try again.`,
+  unreachable: (_name, address) => `${PRODUCT_NAME} could not reach ${address}. Check the address.`,
+  sealed: (name) => `${name} is locked (sealed). Unlock it, then connect.`,
+  certificate_rejected: () => `${PRODUCT_NAME} does not trust this site's certificate.`,
+  provider_unavailable: (name) => `${PRODUCT_NAME} cannot connect to ${name} on this computer yet.`,
+  conflict: (name, address, reason) => (reason === "connection_exists" ? `${name} at ${address} is connected already.` : undefined),
+};
+
+/**
+ * A sign-in's refusal (`keyManagers.connections.add`, `.signIn`, `.update`)
+ * as setup-copy.md §5.7 says it, naming the provider and the address signed
+ * in to, whatever words the environment used; any other refusal, and this
+ * client's own (no data: the computer not reached), as `plainRefusal` says it
+ * for the button `verb`. Details hold the raw words and `data.details`.
+ */
+export const signInRefusal = (refusal: RefusedAnswer, provider: KeyManagerProvider, address: string, verb: string): KeyManagerOutcome & { readonly ok: false } => {
+  const plain = plainRefusal(refusal, verb);
+  const reason = typeof refusal.data?.["reason"] === "string" ? refusal.data["reason"] : undefined;
+  const line = refusal.data === undefined ? undefined : SIGN_IN_REFUSALS[refusal.code]?.(KEY_MANAGER_PROVIDER_NAMES[provider], address, reason);
+  return { ok: false, line: line ?? plain.line, details: plain.details, code: refusal.code };
+};
 
 /** What a pane's commands are sent with: the runtime's requests, and its clock for their command ids. */
 export interface KeyManagerSender {
@@ -107,9 +144,9 @@ export const formProblem = (form: ConnectionForm, credential: KeyManagerCredenti
  * sent directly, never queued): the credential crosses the wire in this one
  * call and is kept nowhere on the client, and an OpenBao form's accepted CA
  * goes as the CA it pins. A 1Password form is sent without an address,
- * which its token names (`asksAddress`). A refusal (`verification_failed`,
- * a connection held already, the environment not reachable) is one line,
- * and so is where the connection stands once added.
+ * which its token names (`asksAddress`). A refusal is said as
+ * `signInRefusal` says it, and where the connection stands once saved as
+ * `savedWords` does (setup-copy.md §5.7).
  */
 export const addConnection = async ({ runtime, clock }: KeyManagerSender, environmentId: string, form: ConnectionForm, credential: KeyManagerCredential): Promise<KeyManagerOutcome> => {
   const openBao = form.provider === "openbao";
@@ -129,9 +166,9 @@ export const addConnection = async ({ runtime, clock }: KeyManagerSender, enviro
     credential,
   };
   const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.add", params));
-  if (!answer.ok) return { ok: false, line: `Not added: ${answer.line}` };
+  if (!answer.ok) return signInRefusal(answer.refusal, form.provider, params.address ?? "", connectWords(form.provider));
   const connection = answer.result?.connection ?? null;
-  return { ok: true, connection, line: connection === null ? `Added ${params.label}.` : `Added ${connection.label}: ${connection.status.message}` };
+  return { ok: true, connection, line: connection === null ? `Saved ${params.label}.` : savedWords(connection) };
 };
 
 /** The commands that answer the connection as it stands after them. */
@@ -183,7 +220,7 @@ export const previewCertificate = async (runtime: Pick<Runtime, "requests">, env
  * the environment keeps in place of the one it holds only once the key
  * manager takes it: its method from now on, at the mount the connection
  * holds for that method (else the method's name), with the username for
- * userpass.
+ * userpass. A refusal is said as `signInRefusal` says it.
  */
 export const signInAgain = async (
   { runtime, clock }: KeyManagerSender,
@@ -191,21 +228,19 @@ export const signInAgain = async (
   connection: KeyManagerConnectionRecord,
   credential: KeyManagerCredential,
   username: string,
-): Promise<KeyManagerOutcome> =>
-  connectionOutcome(
-    await adminCall(() =>
-      runtime.requests.call(environmentId, "keyManagers.connections.signIn", {
-        commandId: uuidv7(clock.now()),
-        connectionId: connection.id,
-        credential,
-        ...(connection.provider === "openbao" && { mount: connection.method === credential.method && connection.mount !== null ? connection.mount : credential.method }),
-        ...(credential.method === "userpass" && { username: username.trim() }),
-      }),
-    ),
-    "Signed in",
-    "Not signed in",
-    connection.label,
+): Promise<KeyManagerOutcome> => {
+  const answer = await adminCall(() =>
+    runtime.requests.call(environmentId, "keyManagers.connections.signIn", {
+      commandId: uuidv7(clock.now()),
+      connectionId: connection.id,
+      credential,
+      ...(connection.provider === "openbao" && { mount: connection.method === credential.method && connection.mount !== null ? connection.mount : credential.method }),
+      ...(credential.method === "userpass" && { username: username.trim() }),
+    }),
   );
+  if (!answer.ok) return signInRefusal(answer.refusal, connection.provider, connection.address, "Sign in");
+  return connectionOutcome(answer, "Signed in", "Not signed in", connection.label);
+};
 
 /** Signs the connection out (`keyManagers.connections.signOut`): its login revoked and its credential deleted, so it awaits a sign-in. */
 export const signOutConnection = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> =>
@@ -232,10 +267,10 @@ export const removeConnection = async ({ runtime, clock }: KeyManagerSender, env
   return { ok: true, line: `Removed ${connection.label}.` };
 };
 
-/** Verifies the connection now (`keyManagers.connections.verify`), which records what it finds: where it stands after, in one line. */
+/** Verifies the connection now (`keyManagers.connections.verify`), which records what it finds: where it stands after, in one line; a refusal in plain words (`plainRefusal`). */
 export const verifyConnection = async (runtime: Pick<Runtime, "requests">, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> => {
   const answer = await runtime.requests.call(environmentId, "keyManagers.connections.verify", { connectionId: connection.id });
-  if (!answer.ok) return { ok: false, line: `Not verified: ${answer.error.message}` };
+  if (!answer.ok) return { ok: false, ...plainRefusal(answer.error, "Check again"), code: answer.error.code };
   const verified = answer.result.connections.find((each) => each.id === connection.id) ?? null;
   return { ok: true, connection: verified, line: verified === null ? `${connection.label} is no longer on this environment.` : `Verified ${verified.label}: ${verified.status.message}` };
 };
