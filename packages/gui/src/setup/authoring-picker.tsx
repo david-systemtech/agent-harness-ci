@@ -1,3 +1,4 @@
+import { effortName, modelName } from "@agent-harness/client-runtime";
 import { useMemo } from "react";
 import { Select } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -32,13 +33,13 @@ export const AuthoringPicker = ({ picker }: { readonly picker: ReturnType<typeof
     <label className="flex flex-col gap-1 text-sm">Model
       <Select aria-label="Authoring model" value={view.model.value?.id ?? ""} onChange={(event) => chooseModel(event.target.value)}>
         <option value="" disabled>No model resolves</option>
-        {view.model.options.map((model) => <option key={model.id} value={model.id}>{model.label ?? model.id} ({model.family})</option>)}
+        {view.model.options.map((model) => <option key={model.id} value={model.id}>{modelName(model)}</option>)}
       </Select>
     </label>
     <label className="flex flex-col gap-1 text-sm">Effort
       <Select aria-label="Authoring effort" value={effort} onChange={(event) => chooseEffort(event.target.value)}>
         <option value="">Environment default effort</option>
-        {view.model.value?.efforts.map((value) => <option key={value} value={value}>{value}</option>)}
+        {view.model.value?.efforts.map((value) => <option key={value} value={value}>{effortName(value)}</option>)}
       </Select>
     </label>
   </div>;

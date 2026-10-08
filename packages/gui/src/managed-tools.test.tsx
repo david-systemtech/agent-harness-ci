@@ -42,9 +42,9 @@ const ROWS: NonNullable<NonNullable<ScriptedEnvironment["keyManagers"]>["tools"]
     version: "3.80.0",
     latest: "3.80.0",
     minimum: "3.76.0",
-    method: "mise",
-    status: "current",
-    action: "copy",
+    method: "unknown",
+    status: "method-unknown",
+    action: "terminal",
     command: "doppler update",
   },
   { tool: "op", version: "2.30.0", latest: null, minimum: "2.18.0", method: "unknown", status: "method-unknown", action: "copy", command: "brew install --cask 1password-cli" },
@@ -151,7 +151,7 @@ describe("About's Managed tools", () => {
     expect(buttons(bao)).toEqual(["Install", "Verify"]);
 
     expect(facts(await row("Vault CLI"))).toMatchObject({ Version: "1.13.2", "Install method": "By hand", Minimum: "1.14.0", Latest: "1.18.0", Status: "Below minimum" });
-    expect(facts(await row("Doppler CLI"))).toMatchObject({ "Install method": "mise", Status: "Current" });
+    expect(facts(await row("Doppler CLI"))).toMatchObject({ "Install method": "Not known", Status: "Method unknown" });
     expect(facts(await row("1Password CLI"))).toMatchObject({ "Install method": "Not known", Latest: "Not known yet", Status: "Method unknown" });
     const gh = await row("GitHub CLI");
     expect(facts(gh)).toMatchObject({ Version: "2.63.2", "Install method": "Homebrew", Status: "Current", Required: "While a forge account reads its token from this environment's gh." });
@@ -361,17 +361,24 @@ describe("About's Managed tools", () => {
     expect(within(await row("GitHub CLI")).getByText(/^The update of gh finished\./)).toBeDefined();
   });
 
-  it("copies a Copy-only row's command through the shell's clipboard, offering no run", async () => {
+  it("runs a row the table cannot drive in a tool terminal as Run in a terminal pane, showing the vendor's command and keeping Copy in the row's menu (issue 1833)", async () => {
     const app = await opened();
     await openAbout(app);
     const doppler = await row("Doppler CLI");
-    expect(buttons(doppler)).toEqual(["Verify", "Copy"]);
-    const command = within(doppler).getByRole("region", { name: "The vendor's command, to run yourself on desk" });
+    expect(buttons(doppler)).toEqual(["Run in a terminal pane", "", "Verify"]);
+    const command = within(doppler).getByRole("region", { name: "The vendor's command on desk" });
     expect(within(command).getByText("doppler update")).toBeDefined();
-    await app.user.click(within(command).getByRole("button", { name: "Copy" }));
+    expect(within(command).getByText(/Run in a terminal pane types out the vendor's command, which runs when you press Enter there\.$/)).toBeDefined();
+
+    await app.user.click(within(doppler).getByRole("button", { name: "More for doppler" }));
+    await app.user.click(await screen.findByRole("menuitem", { name: "Copy the vendor's command" }));
     expect(app.shell.calls.filter(([member]) => member === "clipboard.writeText")).toEqual([["clipboard.writeText", "doppler update"]]);
-    expect(within(await row("Vault CLI")).getByText("The harness has no command for the Vault CLI here: update it the way it was installed.")).toBeDefined();
     expect(app.environment("desk").requests("tools.run")).toEqual([]);
+
+    await app.user.click(within(doppler).getByRole("button", { name: "Run in a terminal pane" }));
+    expect(await toolTerminal("Updating Doppler CLI")).toBeDefined();
+    expect(app.environment("desk").requests("tools.run").map((request) => [request.params["tool"], request.params["action"]])).toEqual([["doppler", "terminal"]]);
+    expect(within(await row("Vault CLI")).getByText("The harness has no command for the Vault CLI here: update it the way it was installed.")).toBeDefined();
   });
 
   it("offers the vendor's command to copy when a run is refused tool_not_runnable", async () => {
@@ -406,7 +413,8 @@ describe("About's Managed tools", () => {
     ] as const) {
       expect(within(await row(label)).getByRole("button", { name }).hasAttribute("disabled"), `${label}: ${name}`).toBe(true);
     }
-    expect(within(await row("Doppler CLI")).getByRole("button", { name: "Copy" }).hasAttribute("disabled")).toBe(false);
+    expect(within(await row("Doppler CLI")).getByRole("button", { name: "Run in a terminal pane" }).hasAttribute("disabled")).toBe(true);
+    expect(within(await row("Doppler CLI")).getByRole("button", { name: "More for doppler" }).hasAttribute("disabled")).toBe(false);
     const claude = await row("claude in your terminal");
     await app.user.click(within(claude).getByRole("button", { name: "Details" }));
     expect(await within(claude).findByRole("region", { name: "What claude doctor says" })).toBeDefined();

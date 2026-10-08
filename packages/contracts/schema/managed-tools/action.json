@@ -5,7 +5,8 @@
   "enum": [
     "install",
     "update",
+    "terminal",
     "copy"
   ],
-  "description": "A managed tool's one action: install (it is not installed), update (installed by a method the harness can drive), or copy (the command, for a method it cannot: manual, unknown, mise, asdf, Scoop)."
+  "description": "A managed tool's one action: install (it is not installed); update (installed by a method the harness can drive); terminal (Run in a terminal pane: installed by a method it cannot drive, such as one that could not be told, so the row's command runs in a tool terminal once a person presses Enter there, and can be copied besides); or copy (nothing the harness runs: vault, which it never installs or updates, and rows recorded before terminal existed)."
 }
