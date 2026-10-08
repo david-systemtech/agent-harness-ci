@@ -393,7 +393,6 @@ describe("the window regaining focus", () => {
   });
 });
 
-/** The full checklist opened from the Set up pane on the card of `step`, by its label. */
 /** The lines under Details of the notice on `scope` that says `line`, opened. */
 const detailsOf = async (app: RenderedApp, scope: HTMLElement, line: string) => {
   const notice = (await within(scope).findByText(line)).closest<HTMLElement>("[data-notice-tone]") as HTMLElement;
@@ -401,6 +400,7 @@ const detailsOf = async (app: RenderedApp, scope: HTMLElement, line: string) => 
   return notice.querySelector("pre")?.textContent ?? "";
 };
 
+/** The full checklist opened from the Set up pane on the card of `step`, by its label. */
 const cardOf = async (app: RenderedApp, step: string) => {
   await app.user.click(within(await setupPane(app)).getByRole("button", { name: "Open the full checklist" }));
   await app.user.click(within(steps()).getByRole("button", { name: step }));

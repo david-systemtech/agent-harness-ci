@@ -10,11 +10,17 @@ export const useSetupView = (environmentId: string | undefined): SetupView | und
   return useFollowed(useMemo(() => (environmentId === undefined ? undefined : runtime.projections.setup(environmentId)), [runtime, environmentId]));
 };
 
-/** The refusal of this window's last `setup.check` of each step, by `${environmentId} ${step}`, held per runtime. */
-const REFUSALS = new WeakMap<Runtime, Writable<ReadonlyMap<string, RefusedAnswer>>>();
-const refusalsOf = (runtime: Runtime): Writable<ReadonlyMap<string, RefusedAnswer>> => {
-  const held = REFUSALS.get(runtime) ?? writable<ReadonlyMap<string, RefusedAnswer>>(new Map());
-  REFUSALS.set(runtime, held);
+/** This window's last `setup.check` of a step: when it was asked, on the environment's clock, and its refusal if it did not run. */
+interface AskedCheck {
+  readonly askedAt: number;
+  readonly refusal: RefusedAnswer | undefined;
+}
+
+/** This window's last check of each step, by `${environmentId} ${step}`, held per runtime. */
+const ASKED = new WeakMap<Runtime, Writable<ReadonlyMap<string, AskedCheck>>>();
+const askedOf = (runtime: Runtime): Writable<ReadonlyMap<string, AskedCheck>> => {
+  const held = ASKED.get(runtime) ?? writable<ReadonlyMap<string, AskedCheck>>(new Map());
+  ASKED.set(runtime, held);
   return held;
 };
 
@@ -22,25 +28,35 @@ const refusalsOf = (runtime: Runtime): Writable<ReadonlyMap<string, RefusedAnswe
  * `setup.check` of `step`, or of every step, as this window asks it
  * (setup-copy.md §3: a failed check is said, never silent; #1840): a
  * refusal is kept for each step it asked about, which that step's status
- * says until a check of it runs.
+ * says until a check of it runs. An answer never overwrites one to a
+ * check asked after it, so a slow refusal leaves a newer success standing.
  */
 export const checkSetup = async (runtime: Runtime, environmentId: string, step?: RegisteredStepId): Promise<RequestAnswer<"setup.check">> => {
+  const askedAt = runtime.environmentNow(environmentId).getTime();
   const answer = await runtime.setup.check(environmentId, step);
   const keys = (step === undefined ? STEP_ORDER : [step]).map((id) => `${environmentId} ${id}`);
-  refusalsOf(runtime).update((held) => {
+  askedOf(runtime).update((held) => {
     const next = new Map(held);
     for (const key of keys) {
-      if (answer.ok) next.delete(key);
-      else next.set(key, answer.error);
+      if ((next.get(key)?.askedAt ?? -Infinity) > askedAt) continue;
+      next.set(key, { askedAt, refusal: answer.ok ? undefined : answer.error });
     }
     return next;
   });
   return answer;
 };
 
-/** Why this window's last check of `step` on the environment did not run; undefined once one has. */
-export const useCheckRefusal = (environmentId: string, step: StepId): RefusedAnswer | undefined =>
-  useObservable(refusalsOf(useRuntime())).get(`${environmentId} ${step}`);
+/**
+ * Why this window's last check of `step` on the environment did not run;
+ * undefined once one has, or once the step's result, `checkedAt`, was
+ * checked after it was asked (the environment's own pass, or another
+ * client's check).
+ */
+export const useCheckRefusal = (environmentId: string, step: StepId, checkedAt: string | undefined): RefusedAnswer | undefined => {
+  const asked = useObservable(askedOf(useRuntime())).get(`${environmentId} ${step}`);
+  if (asked?.refusal === undefined) return undefined;
+  return checkedAt !== undefined && Date.parse(checkedAt) > asked.askedAt ? undefined : asked.refusal;
+};
 
 /**
  * Checks every step of the environment as Set up opens on it, and again as

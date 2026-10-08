@@ -190,7 +190,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
   const note = stepNote(step, now, name);
   const line = stepLine(step, now);
   const state: SetupState = step.pending ? "pending" : result?.state ?? "unchecked";
-  const refused = useCheckRefusal(environmentId, step.id);
+  const refused = useCheckRefusal(environmentId, step.id, result?.checkedAt);
   const refusal = refused === undefined || unreachable(refused) ? undefined : refused;
   const fix = !step.pending && result?.state === "needs-attention";
   const report = {
@@ -276,7 +276,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
       </div>
       {hostUpdater && offered.some(({ plan }) => plan.kind === "host-updater-setup") && <HostUpdaterSetup close={() => showHostUpdater(false)} />}
       {drawn !== null && <ToolTerminal key={drawn.terminal.id} environmentId={environmentId} run={drawn} label={managedTool(drawn.tool).label} close={() => started(null)} />}
-      {signingIn !== null && <SignInCard environmentId={environmentId} account={signingIn} close={() => signIn(null)} say={(line) => say({ ok: true, line })} />}
+      {signingIn !== null && <SignInCard environmentId={environmentId} account={signingIn} close={() => signIn(null)} say={(line, ok) => say({ ok, line })} />}
     </>
   );
 };

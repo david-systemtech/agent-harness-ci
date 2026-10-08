@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { STEP_ORDER } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment, type ScriptedSetup } from "../../test/harness.js";
@@ -110,6 +110,21 @@ describe("a step's status", () => {
     expect(app.environment("desk").requests("setup.check").at(-1)?.params).toEqual({ step: "skills" });
   });
 
+  it("drops a check that could not run once a result the environment checked after it comes in", async () => {
+    const app = await firstLaunch({ capabilities: ["setup"], setup: onlySteps({ skills: {} }) },
+      (app) => app.environment("desk").refuseSetupChecks({ code: "unavailable", message: "Draining.", data: { readiness: "draining" } }));
+    const skills = await cardOf(app, "Skills");
+    expect(await within(skills).findByText("agent-harness could not run the check.")).toBeDefined();
+
+    act(() => {
+      app.clock.advance(1_000);
+      app.environment("desk").setSetup({ skills: { reason: "Your skills are ready." } });
+      app.environment("desk").passSetup(["skills"]);
+    });
+    expect(await within(skills).findByText("Your skills are ready.")).toBeDefined();
+    expect(within(skills).queryByText("agent-harness could not run the check.")).toBeNull();
+  });
+
   it("says a Check again that could not run, with its refusal under Details", async () => {
     const app = await firstLaunch({ setup: onlySteps({ skills: {} }) });
     const skills = await cardOf(app, "Skills");
@@ -146,6 +161,24 @@ describe("a step's status", () => {
     const command = within(refused).getByRole("region", { name: "Or run this yourself on desk:" });
     expect(within(command).getByText("brew install gh")).toBeDefined();
     expect(within(refused).getByText(/tool_not_runnable: No supported install method\./)).toBeDefined();
+  });
+
+  it("says a sign-in it opened that failed as an error", async () => {
+    const app = await firstLaunch({
+      accounts: [{ id: "account-1", label: "work", status: { state: "signed-out", checkedAt: null, detail: null } }],
+      setup: onlySteps({ skills: {
+        state: "needs-attention", reason: "work is signed out.", failing: ["skills.account"], actions: ["sign-in-again"],
+        targets: [{ action: "sign-in-again", kind: "account", id: "account-1", label: "work" }],
+      } }),
+    });
+    const skills = await cardOf(app, "Skills");
+    await app.user.click(await within(skills).findByRole("button", { name: "Sign in again: work" }));
+    await screen.findByRole("dialog", { name: "Sign in: work on desk" });
+    await waitFor(() => expect(app.environment("desk").requests("accounts.signin.start")).toHaveLength(1));
+    act(() => app.environment("desk").signIn("failed", { error: "the provider's CLI exited 1" }));
+    const said = (await within(skills).findByText("The sign-in of work failed: the provider's CLI exited 1.")).closest<HTMLElement>("[data-notice-tone]") as HTMLElement;
+    expect(said.dataset["noticeTone"]).toBe("error");
+    expect(said.getAttribute("role")).toBe("alert");
   });
 
   it("says a done action's outcome as information", async () => {
