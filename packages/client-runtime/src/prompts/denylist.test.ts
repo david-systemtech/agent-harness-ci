@@ -92,6 +92,16 @@ describe("a card that says each thing once (#1905)", () => {
     expect(card?.entries.map((entry) => entry.heading)).toEqual([describeDenylistMatch(data), describeDenylistMatch(sudo)]);
   });
 
+  it("names a long or many-line thing the call touched on one short line, as the entry's sentence quotes it", () => {
+    const heredoc = `sudo tee /etc/x <<EOF\n${"a line of the heredoc\n".repeat(200)}EOF`;
+    const sudo = match({ id: "preset:sudo *", pattern: "sudo *", note: "Runs a command as another user.", section: "commandPatterns", matched: heredoc });
+    expect(denylistCardWords(gated("Bash", [sudo]))?.asked).toBe("Bash: sudo tee /etc/x <<EOF");
+    const long = match({ id: "preset:sudo *", pattern: "sudo *", note: "Runs a command as another user.", section: "commandPatterns", matched: `sudo ${"x".repeat(100)}` });
+    const asked = denylistCardWords(gated("Bash", [long]))?.asked;
+    expect(asked).toBe(`Bash: sudo ${"x".repeat(54)}…`);
+    expect(describeDenylistMatch(long)).toContain(asked?.slice("Bash: ".length));
+  });
+
   it("leaves a prompt with no match, or of another kind, to its summary and reason", () => {
     expect(denylistCardWords(gated("Read", []))).toBeUndefined();
     expect(denylistCardWords({ ...gated("Read", [match()]), kind: "permission" })).toBeUndefined();

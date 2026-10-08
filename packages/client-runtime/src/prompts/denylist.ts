@@ -1,4 +1,4 @@
-import { DATA_DIRECTORY_PRESET_ID, describeDenylistMatch, type DenylistMatch, type DenylistSection, type PromptAnsweredPayload, type PromptOpenedPayload } from "@agent-harness/contracts";
+import { DATA_DIRECTORY_PRESET_ID, describeDenylistMatch, quoteDenylistMatched, type DenylistMatch, type DenylistSection, type PromptAnsweredPayload, type PromptOpenedPayload } from "@agent-harness/contracts";
 
 /**
  * What a denylist prompt's card says beside its answers (ADR 0006: the
@@ -59,7 +59,7 @@ export interface DenylistCardEntry extends DenylistMatchWords {
 
 /** A denylist prompt's card in words, each thing once: what was asked, then each distinct match. */
 export interface DenylistCardWords {
-  /** The tool and what the call touched, e.g. "Read: /srv/harness/events.db". */
+  /** The tool and what the call touched, each on one short line, e.g. "Read: /srv/harness/events.db". */
   readonly asked: string;
   readonly entries: readonly DenylistCardEntry[];
 }
@@ -75,8 +75,10 @@ export const denylistCardWords = (prompt: PromptOpenedPayload): DenylistCardWord
   });
   if (prompt.kind !== "denylist" || matches.length === 0) return undefined;
   const touched = [...new Set(matches.map((match) => match.matched))];
+  // Each on one short line, as the entry's sentence quotes it, so a long command or a heredoc is never repeated whole.
+  const named = [...new Set(touched.map(quoteDenylistMatched))];
   return {
-    asked: `${prompt.toolName === null ? "" : `${prompt.toolName}: `}${touched.join(", ")}`,
+    asked: `${prompt.toolName === null ? "" : `${prompt.toolName}: `}${named.join(", ")}`,
     entries: matches.map((match) => ({ ...denylistMatchWords(match), heading: touched.length > 1 ? describeDenylistMatch(match) : undefined })),
   };
 };
