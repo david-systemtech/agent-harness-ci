@@ -38,12 +38,10 @@ export const RunPickerContent = ({ sheet, ...props }: Omit<ComponentProps<typeof
 };
 
 /** Rows keep the popup open while a dependent choice is made. */
-export const RunChoiceRow = ({ label, note, under, selected, dim, primary, machine, expanded, icon: Icon, onSelect }: {
+export const RunChoiceRow = ({ label, note, under, selected, dim, primary, machine, icon: Icon, onSelect }: {
   readonly label: string; readonly primary?: string; readonly machine?: string | undefined; readonly note?: string | undefined; readonly under?: string | undefined;
   readonly selected?: boolean; readonly dim?: boolean; readonly icon: typeof Cpu; readonly onSelect: () => void;
-  /** A row that shows or hides the rows under it: whether they are shown. */
-  readonly expanded?: boolean;
-}) => <MenuItem title={`${label} · Enter to choose · ↑ ↓ Home End · Tab next column${note ? ` · ${note}` : ""}`} aria-label={label} aria-disabled={dim || undefined} aria-expanded={expanded} data-selected={selected || undefined} onSelect={(event) => { event.preventDefault(); onSelect(); }}
+}) => <MenuItem title={`${label} · Enter to choose · ↑ ↓ Home End · Tab next column${note ? ` · ${note}` : ""}`} aria-label={label} aria-disabled={dim || undefined} data-selected={selected || undefined} onSelect={(event) => { event.preventDefault(); onSelect(); }}
     className={classes("items-start gap-2 px-2.5 py-2 text-xs [overflow-wrap:anywhere] [&_svg]:size-3", selected && "bg-wash", dim && "opacity-50")}>
     <Icon aria-hidden="true" className="mt-0.5 size-3" />
     <span className="min-w-0 flex-1">

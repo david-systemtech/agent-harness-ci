@@ -312,22 +312,28 @@ describe("the model picker's favourites (ticket 1821)", () => {
     expect(rows(within(others).getByRole("group", { name: "personal" }))).toEqual(["claude-sonnet-3"]);
   });
 
-  it("shows Other models under its row with a tap on a phone, where a flyout has no room", async () => {
+  it("opens Other models as a page of the list with a tap on a phone, where a flyout has no room, with a row back", async () => {
     const previousWidth = globalThis.window.innerWidth;
     Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 360 });
     onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: previousWidth }); });
     const { app } = await opened([desk({ models: [FOUR] })]);
     await app.user.click(within(statusLine()).getByRole("button", { name: /^Model:/ }));
     const dialog = await screen.findByRole("dialog", { name: "Run choices" });
-    const trigger = within(dialog).getByRole("menuitem", { name: "Other models" });
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    await app.user.pointer({ keys: "[TouchA]", target: trigger });
+    const list = () => within(dialog).getByRole("group", { name: "Models" });
+    await app.user.pointer({ keys: "[TouchA]", target: within(list()).getByRole("menuitem", { name: "Other models" }) });
     const others = await within(dialog).findByRole("group", { name: "Other models" });
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(screen.queryByRole("menu", { name: "Other models" })).toBeNull();
-    await app.user.pointer({ keys: "[TouchA]", target: within(others).getByRole("menuitem", { name: "claude-opus-4-1m" }) });
+    expect(rows(list())).toEqual(["Back to the quick picks", "claude-opus-4-1m"]);
+    await waitFor(() => expect(document.activeElement).toBe(within(others).getByRole("menuitem", { name: "claude-opus-4-1m" })));
+    await app.user.pointer({ keys: "[TouchA]", target: within(list()).getByRole("menuitem", { name: "Back to the quick picks" }) });
+    await waitFor(() => expect(document.activeElement).toBe(within(list()).getByRole("menuitem", { name: "Other models" })));
+    expect(rows(list())).toEqual(["Opus (claude-opus-4)", "claude-sonnet-4", "claude-haiku-4", "Other models", "Pin favourites…"]);
+    await app.user.pointer({ keys: "[TouchA]", target: within(list()).getByRole("menuitem", { name: "Other models" }) });
+    await app.user.pointer({ keys: "[TouchA]", target: await within(dialog).findByRole("menuitem", { name: "claude-opus-4-1m" }) });
     await waitFor(() => expect(screen.getByRole("button", { name: "Model: claude-opus-4-1m", hidden: true })).toBeTruthy());
+    expect(within(dialog).queryByRole("group", { name: "Other models" })).toBeNull();
   });
+
 });
 
 describe("the account picker", () => {

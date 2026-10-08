@@ -18,7 +18,7 @@ import {
   type ContainmentBadge,
   type RunChoice,
 } from "@agent-harness/client-runtime";
-import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Layers, Plus, RefreshCw, Search, Shield, SlidersHorizontal, Star } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Box, Check, Cpu, KeyRound, Layers, Plus, RefreshCw, Search, Shield, SlidersHorizontal, Star } from "lucide-react";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type ModelEntry } from "@agent-harness/contracts";
 import { createContext, Fragment, use, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
@@ -59,8 +59,9 @@ import { useHandedOnto, useModelChoice } from "./run-choices.js";
  *   (`accounts.favouriteModels`, #1821) the account lists come first as
  *   one-click picks, else the provider's recommended models with how to pin
  *   favourites; every other model is under Other models, a flyout opened on
- *   hover, a click or the right arrow (shown under its row by a tap where the
- *   picker shows one column at a time, as on a phone), grouped by account
+ *   hover, a click or the right arrow (where the picker shows one column at
+ *   a time, as on a phone, a tap opens it as the list's page, with a row
+ *   back to the quick picks), grouped by account
  *   while the session has none. A search typed lists every model that matches.
  * - **Modes**: the four, one above the connection's ceiling greyed with the
  *   ceiling named. It can still be chosen: the environment's clamp answers
@@ -231,8 +232,19 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   const [query, setQuery] = useState("");
   const [othersOpen, setOthersOpen] = useState(false);
   const othersList = useRef<HTMLDivElement>(null);
-  // Rows shown under Other models come into view in the list, which scrolls.
-  useEffect(() => { if (othersOpen) othersList.current?.scrollIntoView?.({ block: "nearest" }); }, [othersOpen]);
+  // Other models drilled into from the top of the list, the keyboard on its first row; back out, on its row.
+  const drilled = useRef(false);
+  useEffect(() => {
+    const list = othersList.current;
+    if (list !== null) {
+      drilled.current = true;
+      list.closest("[data-run-list]")?.scrollTo?.({ top: 0 });
+      list.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    } else if (drilled.current) {
+      drilled.current = false;
+      document.querySelector<HTMLElement>('[data-run-column="Models"] [role="menuitem"][aria-label="Other models"]')?.focus();
+    }
+  }, [othersOpen, narrow]);
   const favourites = useFavouriteModels(environmentId);
   const settingsWindow = useSettingsIfHeld();
   const models = catalogues.value === null ? [] : modelsOf(catalogues.value, accountId);
@@ -266,7 +278,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   const modelRow = (entry: ModelEntry) => <RunChoiceRow key={entry.id} icon={favourites.includes(entry.id) ? Star : Cpu} label={modelName(entry)} primary={entry.label ?? entry.id} machine={entry.label === null ? undefined : entry.id}
     selected={model?.model === entry.id} dim={live || listingModels.status === "absent"} note={entry.efforts.length > 0 ? "Supports effort" : "Uses its own effort"}
     onSelect={() => { setOthersOpen(false); chosen(entry.id, model?.model === entry.id && (model.effort === null || entry.efforts.includes(model.effort)) ? model.effort : null); }} />;
-  // Other models: a flyout beside the column; in one column at a time (a phone's sheet), rows shown under their row, where a flyout has no room.
+  // Other models: a flyout beside the column; in one column at a time (a phone's sheet), where a flyout has no room, a page of the list.
   const othersNote = `${picked.others.reduce((count, group) => count + group.models.length, 0)} more`;
   const otherGroups = picked.others.map((group) => <MenuGroup key={group.accountId} aria-label={picked.grouped ? accountLabel(group.accountId) : undefined}>
     {picked.grouped && <MenuLabel className="px-2.5 py-1.5">{accountLabel(group.accountId)}</MenuLabel>}
@@ -295,13 +307,13 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
       {column("Models", <>
         {catalogues.value === null ? <Waiting>{catalogues.error ? `The models could not be read: ${catalogues.error.message}` : "Reading the models…"}</Waiting> : <>
           {models.length > 12 && <label title="Search models · Type to filter · Tab next column" className="mb-1 flex items-center gap-2 rounded-md bg-wash px-2"><Search aria-hidden="true" className="size-3" /><input aria-label="Search models" value={query} onChange={(event) => setQuery(event.target.value)} className="h-8 min-w-0 w-full bg-transparent text-xs outline-none" /></label>}
-          {query !== "" ? visible.map(modelRow) : <>
+          {query !== "" ? visible.map(modelRow) : narrow && othersOpen && picked.others.length > 0 ? <>
+            <RunChoiceRow icon={ArrowLeft} label="Back to the quick picks" onSelect={() => setOthersOpen(false)} />
+            <div ref={othersList} role="group" aria-label="Other models" data-other-models-list>{otherGroups}</div>
+          </> : <>
             {pin !== undefined && models.length > 0 && <Waiting>{pin}</Waiting>}
             {picked.quick.map(modelRow)}
-            {picked.others.length > 0 && (narrow ? <>
-              <RunChoiceRow icon={Layers} label="Other models" note={othersNote} expanded={othersOpen} onSelect={() => setOthersOpen(!othersOpen)} />
-              {othersOpen && <div ref={othersList} role="group" aria-label="Other models" data-other-models-list className="ml-3 border-l border-hairline pl-1">{otherGroups}</div>}
-            </> : <MenuSub open={othersOpen} onOpenChange={setOthersOpen}>
+            {picked.others.length > 0 && (narrow ? <RunChoiceRow icon={Layers} label="Other models" note={othersNote} onSelect={() => setOthersOpen(true)} /> : <MenuSub open={othersOpen} onOpenChange={setOthersOpen}>
               <MenuSubTrigger aria-label="Other models" title="Other models · Right arrow to open · ↑ ↓ Home End" data-other-models className="items-start gap-2 px-2.5 py-2 text-xs [&_svg]:size-3">
                 <Layers aria-hidden="true" className="mt-0.5" /><span className="min-w-0 flex-1"><span className="block font-medium">Other models</span><span className="block text-2xs text-ink-muted">{othersNote}</span></span>
               </MenuSubTrigger>

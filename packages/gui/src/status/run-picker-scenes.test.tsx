@@ -24,7 +24,7 @@ it("opens Other models beside the favourites on the desktop", async () => {
   expect(rows(others)[0]).toBe("Sample model 2 (sample-model-2)");
 });
 
-it("shows Other models under its row with a tap in the phone's run sheet", async () => {
+it("opens Other models as a page of the phone's run sheet with a tap", async () => {
   const previousWidth = window.innerWidth;
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
   onTestFinished(() => { Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth }); });
@@ -38,5 +38,5 @@ it("shows Other models under its row with a tap in the phone's run sheet", async
   const others = await within(sheet).findByRole("group", { name: "Other models" });
   const wider = ["Sample model with a wide context (sample-model-wide-context)", "Sample previous model (sample-model-previous)"];
   expect(rows(others)).toEqual(wider);
-  expect(rows(within(sheet).getByRole("group", { name: "Models" }))).toEqual(["Sample quick model (sample-model-quick)", "Sample model with a long descriptive name (sample-model-with-a-long-identifier)", "Other models", ...wider, "Edit favourites…"]);
+  expect(rows(within(sheet).getByRole("group", { name: "Models" }))).toEqual(["Back to the quick picks", ...wider]);
 });
