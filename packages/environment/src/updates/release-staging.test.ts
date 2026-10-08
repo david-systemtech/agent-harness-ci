@@ -748,17 +748,39 @@ describe("the Your machines step's updates check", () => {
     }
   });
 
-  it("needs attention while a pin that does not run is neither staging nor pending, its install refused", async () => {
+  it("needs attention while a pin that does not run is neither staging nor pending, its install refused, naming the pin and offering no Update now", async () => {
     const { fake, client } = await withReleases({ launch: { install: () => ({ type: "refused", reason: "preflight" }) } });
     fake.publish(release("0.4.9"), release("0.5.0"));
     await setUpdates(client, { "updates.pinnedVersion": "0.4.9" });
     // The check the pin began, which staged 0.4.9 and was refused; Set up's ask within its minute reads nothing again.
     await check(client);
+    await rename(client, "Desk");
     expect(await machines(client)).toEqual({
       failing: ["your-machines.updates"],
+      actions: [],
+      reason: "Desk is pinned to 0.4.9, which could not be installed. Unpin it or pin another version.",
+      details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: pinned to 0.4.9", "To unpin: agent-harness update settings --pinned-version none"],
+    });
+  });
+
+  it("says nothing of the newest while the pin is reached through its stepping stone", async () => {
+    const { fake, t, client } = await withReleases({ launch: launcherSpeaking(1) });
+    busy(t);
+    fake.publish(release("0.5.0"), release("0.6.0", { manifest: { launcherProtocol: 2 } }), release("0.7.0"));
+    await setUpdates(client, { "updates.pinnedVersion": "0.6.0" });
+    expect((await check(client)).pending).toMatchObject({ state: "waiting", toVersion: "0.5.0", source: "pin" });
+    expect((await machines(client)).failing).toEqual([]);
+  });
+
+  it("says only what unblocks a pin the launcher blocks", async () => {
+    const { fake, client } = await withReleases();
+    fake.publish(release("0.7.0", { manifest: { launcherProtocol: 2 } }), release("0.8.0", { manifest: { launcherProtocol: 2 } }));
+    await setUpdates(client, { "updates.pinnedVersion": "0.7.0" });
+    await check(client);
+    expect(await machines(client)).toMatchObject({
+      failing: ["your-machines.updates"],
       actions: ["update"],
-      reason: "Version 0.5.0 is available. Choose Update now.",
-      details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: pinned to 0.4.9"],
+      reason: "Version 0.7.0 needs a newer installer. Reinstall agent-harness from the 0.7.0 download.",
     });
   });
 

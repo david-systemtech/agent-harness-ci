@@ -4,6 +4,7 @@ import {
   ContractError,
   DRAIN_CAP_MS,
   ENVIRONMENT_STREAM_KIND,
+  PRODUCT_NAME,
   ReleaseVersion,
   UpdateCancelledPayload,
   UpdatePendingPayload,
@@ -814,25 +815,35 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     machineHolds(newest, name) {
       const { autoUpdate, pinnedVersion } = options.settings();
       const running = `Running: ${harnessVersion}`;
+      const { outcomes } = readUpdateHistory(log);
+      const failed = outcomes.failedVersions.filter((version) => newer(version, harnessVersion)).sort(compareReleaseVersions);
       const findings: Finding[] = [];
+      // A pin that does not run and that nothing below speaks for: Update now would install the pin again, so it is the pin to change.
+      let stuckPin: Finding | undefined;
       // A newest no check has read yet is not behind: whether the channel is read is the release channel's check.
-      // It stays on a pin only while the pin runs. A pin staging or held is an update on its way, which the lines below speak for;
-      // one that is neither (withdrawn, passed over, failed, its install refused) leaves the machine plainly behind.
-      const pinRuns = pinnedVersion === harnessVersion;
-      const pinOnItsWay = pinnedVersion !== null && ((held.state !== "current" && held.update.toVersion === pinnedVersion) || staging?.toVersion === pinnedVersion);
-      if ((pinnedVersion === null ? !autoUpdate : !pinOnItsWay) && newest !== null && newer(newest, harnessVersion)) {
-        findings.push({
-          reason: pinRuns ? `${name} stays on ${harnessVersion} because it is pinned. ${newest} is available.` : `Version ${newest} is available. Choose Update now.`,
-          details: [running, `Newest on the channel: ${newest}`, `Updates: ${pinnedVersion === null ? "off" : `pinned to ${pinnedVersion}`}`],
-        });
+      if (newest !== null && newer(newest, harnessVersion)) {
+        const updates = `Updates: ${pinnedVersion === null ? "off" : `pinned to ${pinnedVersion}`}`;
+        // It stays on a pin only while the pin runs. An update toward the pin (through a stepping stone too) staging or held,
+        // a pin the launcher blocks and a pin whose update failed are spoken for by the lines below.
+        const towardPin = (update: Omit<Update, "since"> | undefined): boolean => update !== undefined && (update.source === "pin" || update.toVersion === pinnedVersion);
+        const pinSpokenFor =
+          towardPin(held.state === "current" ? undefined : held.update) || towardPin(staging) || blocked?.toVersion === pinnedVersion || failed.includes(pinnedVersion ?? "");
+        if (pinnedVersion === harnessVersion) {
+          findings.push({ reason: `${name} stays on ${harnessVersion} because it is pinned. ${newest} is available.`, details: [running, `Newest on the channel: ${newest}`, updates] });
+        } else if (pinnedVersion === null && !autoUpdate) {
+          findings.push({ reason: `Version ${newest} is available. Choose Update now.`, details: [running, `Newest on the channel: ${newest}`, updates] });
+        } else if (pinnedVersion !== null && !pinSpokenFor) {
+          stuckPin = {
+            reason: `${name} is pinned to ${pinnedVersion}, which could not be installed. Unpin it or pin another version.`,
+            details: [running, `Newest on the channel: ${newest}`, updates, `To unpin: ${PRODUCT_NAME} update settings --pinned-version none`],
+          };
+        }
       }
       const overdue = pastCap();
       if (overdue !== undefined) findings.push(overdue);
       if (blocked !== null) {
         findings.push({ reason: `Version ${blocked.toVersion} needs a newer installer. Reinstall agent-harness from the ${blocked.installVersion} download.`, details: [blocked.message] });
       }
-      const { outcomes } = readUpdateHistory(log);
-      const failed = outcomes.failedVersions.filter((version) => newer(version, harnessVersion)).sort(compareReleaseVersions);
       const lastFailed = failed.at(-1);
       if (lastFailed !== undefined) {
         const last = outcomes.lastOutcome;
@@ -845,8 +856,14 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
           ],
         });
       }
-      if (findings.length === 0) return true;
-      return { reason: findings.map((finding) => finding.reason).join(" "), details: findings.flatMap((finding) => finding.details ?? []) };
+      const said = stuckPin === undefined ? findings : [stuckPin, ...findings];
+      if (said.length === 0) return true;
+      return {
+        reason: said.map((finding) => finding.reason).join(" "),
+        details: said.flatMap((finding) => finding.details ?? []),
+        // Update now offered only for a line it answers.
+        ...(findings.length === 0 && { actions: [] }),
+      };
     },
 
     start() {
