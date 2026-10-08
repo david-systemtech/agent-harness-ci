@@ -76,7 +76,8 @@ describe("the harness's git on an origin no forge account covers", () => {
       outcome: "refused",
       error: { code: "forge_account_missing", data: { origin: forge.origin, step: "forges" } },
     });
-    if (answer.outcome === "refused") expect(answer.error.message).toContain("Set up, Forges");
+    const host = forge.origin.replace("http://", "");
+    if (answer.outcome === "refused") expect(answer.error.message).toBe(`agent-harness needed a forge for ${host} and found none. Add ${host}.`);
     expect(hostile.asked()).toEqual([]);
     expect(forge.gitRequests.map((request) => request.status)).toEqual([401]);
 

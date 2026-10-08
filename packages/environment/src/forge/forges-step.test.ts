@@ -1,4 +1,4 @@
-import { EnvironmentNotice, registry, type Frame, type SnapshotFrame, type StepResult } from "@agent-harness/contracts";
+import { EnvironmentNotice, UNKNOWN_FORGE_CAPABILITIES, registry, type Frame, type SnapshotFrame, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -57,6 +57,9 @@ const hold = (): { readonly held: Promise<void>; readonly release: () => void } 
 /** How a check's line and targets name a forge account on `forge` answering as David. */
 const davidOn = (forge: FakeForge): string => `david on ${forge.origin.replace("http://", "")}`;
 
+/** A fake forge's origin without its scheme: how a line names its site (setup-copy.md §5.6). */
+const hostOf = (forge: FakeForge): string => forge.origin.replace("http://", "");
+
 /** The step's line when every check holds on one forge account answering as David: what was found, never its checks' conditions (#1698; setup-copy.md §5.6). */
 const holds = (forge: FakeForge): string => `${davidOn(forge)} is connected.`;
 
@@ -93,7 +96,7 @@ describe("the Forges step with no forge account", () => {
     expect(await checkForges(client)).toEqual({
       step: "forges",
       state: "skipped",
-      reason: "No forge account is on this environment.",
+      reason: "No forge connected. Optional.",
       failing: [],
       actions: [],
       checkedAt: MANUAL_CLOCK_START,
@@ -118,7 +121,7 @@ describe("the Forges step with forge accounts", () => {
 });
 
 describe("forges.identity", () => {
-  it("names each forge account that does not answer as its identity with its action: Sign in again for a refused credential, Check again for a forge that did not answer", async () => {
+  it("names each forge account that does not answer as its identity with its action, its statuses in details: Sign in again for a refused token, Check again for a forge with a server error", async () => {
     const { forge: refusing, client } = await withForge();
     const silent = await fakeForge();
     silent.user(TOKEN, DAVID);
@@ -130,7 +133,8 @@ describe("forges.identity", () => {
     expect(await checkForges(client)).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: `The forge refused the credential of ${davidOn(refusing)}: Sign in again to give it a new one. ${davidOn(silent)} did not answer its verification: Check again once its forge is reachable.`,
+      reason: `${hostOf(refusing)} did not accept the token for david. Create a new token and add it. ${hostOf(silent)} is not answering properly right now. Choose Check again later.`,
+      details: [`The forge at ${refusing.origin} refused the token (HTTP 401).`, `The forge at ${silent.origin} answered HTTP 502; it could not say who the token is now.`],
       failing: ["forges.identity"],
       actions: ["sign-in-again", "check-again"],
       targets: [
@@ -152,7 +156,8 @@ describe("forges.identity", () => {
     const result = await checkForges(client);
     expect(result).toMatchObject({
       state: "needs-attention",
-      reason: `The credential of ${davidOn(forge)} now answers as another user: Sign in again as david. ${host} has no credential on this environment: Sign in again to give it one.`,
+      reason: `The token for ${hostOf(forge)} belongs to eve, not david. Add a token for david. ${host} has no token yet. Add one.`,
+      details: ["The token answers as eve (user 7), not david (user 42)."],
       failing: ["forges.identity"],
       targets: [
         { action: "sign-in-again", kind: "forge-account", id: forge.origin, label: davidOn(forge) },
@@ -161,10 +166,39 @@ describe("forges.identity", () => {
     });
     expect(copy.requests).toEqual([]);
   });
+
+  it("says a credential recorded as answering as another user by an older build in today's words, its old line in details, since such an account is never verified again (#1850)", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    const old = "The credential now answers as eve (user 7), not david (user 42): replace it in Set up, Forges.";
+    t.env.log.append(
+      { kind: "environment", id: t.env.id },
+      [
+        {
+          type: "forge.account.verified",
+          payload: {
+            forgeAccountId: account.id,
+            identity: { login: "david", userId: "42" },
+            capabilities: UNKNOWN_FORGE_CAPABILITIES,
+            tokenInformation: null,
+            problem: { kind: "identity-changed", since: MANUAL_CLOCK_START, message: old },
+          },
+        },
+      ],
+      { actor: "system:forge" },
+    );
+
+    expect(await checkForges(client)).toMatchObject({
+      state: "needs-attention",
+      reason: `The token for ${hostOf(forge)} belongs to another user, not david. Add a token for david.`,
+      details: [old],
+      failing: ["forges.identity"],
+    });
+  });
 });
 
 describe("forges.reads", () => {
-  it("names each forge account a read did not pass for, refused with the status it answered or not answered yet, with Check again", async () => {
+  it("names each token a read was refused for, its statuses in details, and a forge whose read met a server error as not answering properly, never done (#1850)", async () => {
     const { forge: refusing, client } = await withForge();
     const silent = await fakeForge();
     silent.user(TOKEN, DAVID);
@@ -173,19 +207,64 @@ describe("forges.reads", () => {
     refusing.answer(TOKEN, "GET /api/v1/user/repos", { status: 403, body: { message: "token does not have at least one of required scope(s): [read:repository]" } });
     silent.answer(TOKEN, "GET /api/v1/user/repos", { status: 502 });
 
-    expect(await checkForges(client)).toEqual({
+    const result = await checkForges(client);
+    // The statuses are in details, never the line (#1836's evidence: forges.reads worded a refused read "(HTTP 403)").
+    expect(result.reason).not.toContain("HTTP");
+    expect(result).toEqual({
       step: "forges",
       state: "needs-attention",
       reason:
-        `${davidOn(refusing)} was refused reading repositories (HTTP 403) and releases (HTTP 403): Check again once its token may read them. ` +
-        `${davidOn(silent)} has no answer yet reading repositories and releases: Check again once its forge answers.`,
-      failing: ["forges.reads"],
+        `${hostOf(silent)} is not answering properly right now. Choose Check again later. ` +
+        `The token for ${hostOf(refusing)} cannot read code or read releases. Create a new token with those permissions and add it.`,
+      details: [`The forge at ${silent.origin} answered HTTP 502.`, `${davidOn(refusing)}: readRepository answered HTTP 403`, `${davidOn(refusing)}: readReleases answered HTTP 403`],
+      failing: ["forges.identity", "forges.reads"],
       actions: ["check-again"],
       targets: [
-        { action: "check-again", kind: "forge-account", id: refusing.origin, label: davidOn(refusing) },
         { action: "check-again", kind: "forge-account", id: silent.origin, label: davidOn(silent) },
+        { action: "check-again", kind: "forge-account", id: refusing.origin, label: davidOn(refusing) },
       ],
       checkedAt: MANUAL_CLOCK_START,
+    });
+  });
+});
+
+describe("a forge whose last verification met a server error (#1850)", () => {
+  it("is not done once a read answers HTTP 502 after it was, and is done again once the forge answers", async () => {
+    const { forge, client } = await withForge();
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    expect(await checkForges(client)).toMatchObject({ state: "done", reason: holds(forge) });
+
+    forge.answer(TOKEN, "GET /api/v1/user/repos", { status: 502 });
+    const result = await checkForges(client);
+    expect(result).toEqual({
+      step: "forges",
+      state: "needs-attention",
+      reason: `${hostOf(forge)} is not answering properly right now. Choose Check again later.`,
+      details: [`The forge at ${forge.origin} answered HTTP 502.`],
+      failing: ["forges.identity"],
+      actions: ["check-again"],
+      targets: [{ action: "check-again", kind: "forge-account", id: forge.origin, label: davidOn(forge) }],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+    expect(result.reason).not.toContain("HTTP");
+
+    forge.repositories(TOKEN, []);
+    expect(await checkForges(client)).toMatchObject({ state: "done", reason: holds(forge) });
+  });
+
+  it("says a forge that gave no answer did not answer, and asks to check the internet connection", async () => {
+    const forge = await fakeForge();
+    forge.user(TOKEN, DAVID);
+    forge.repositories(TOKEN, []);
+    let lost = false;
+    const t = await start({ forgeFetch: (input, init) => (lost ? Promise.reject(new TypeError("fetch failed")) : forge.fetch(input, init)) });
+    const client = await t.client();
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    lost = true;
+    expect(await checkForges(client)).toMatchObject({
+      state: "needs-attention",
+      reason: `${hostOf(forge)} did not answer. Check the internet connection, then choose Check again.`,
+      failing: ["forges.identity"],
     });
   });
 });
@@ -207,7 +286,8 @@ describe("forges.primary", () => {
     expect(await checkForges(client)).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: `No forge account is primary: choose ${davidOn(second)} or ${davidOn(third)} with Make primary.`,
+      reason: "Choose your main forge. New notebooks go there.",
+      details: [`Forges to choose from: ${davidOn(second)}, ${davidOn(third)}`],
       failing: ["forges.primary"],
       actions: [],
       checkedAt: MANUAL_CLOCK_START,
@@ -242,7 +322,7 @@ describe("forges.gh", () => {
     expect(gh.calls().map((call) => call.argv.slice(0, 2))).toContainEqual(["auth", "status"]);
   });
 
-  it("names a gh signed out of the forge account's host and login with Sign in again, and a gh older than 2.40 with Update, gh the tool it applies to", async () => {
+  it("names a gh signed out of the forge account's host with Sign in again alone, and a gh older than 2.40 with Update, gh the tool it applies to", async () => {
     const { t, forge, gh, host, client } = await withGhSource(`${tempDir()}/data`);
     onCleanup(() => t.close());
     const account = { kind: "forge-account", id: forge.origin, label: `david on ${host}` } as const;
@@ -251,9 +331,10 @@ describe("forges.gh", () => {
     expect(await checkForges(client)).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: `The credential of david on ${host} could not be read: Sign in again to give it a new one. gh on this environment is not signed in to ${host} as david: Sign in again.`,
+      reason: `agent-harness cannot get the token for david on ${host} from the gh tool. The gh tool is not signed in to ${host}. Run gh auth login on this computer, or add a token instead.`,
+      details: [`The gh tool is not signed in to ${host}.`, `gh auth login --hostname ${host} (as david)`],
       failing: ["forges.identity", "forges.gh"],
-      actions: ["sign-in-again", "check-again", "install", "update"],
+      actions: ["sign-in-again"],
       targets: [{ action: "sign-in-again", ...account }],
       checkedAt: MANUAL_CLOCK_START,
     });
@@ -263,7 +344,8 @@ describe("forges.gh", () => {
     t.clock.advance(15 * 60_000);
     await client.request("tools.list", { refresh: true });
     expect(await checkForges(client)).toMatchObject({
-      reason: `The credential of david on ${host} could not be read: Sign in again to give it a new one. gh 2.39.1 on this environment is older than 2.40.0 for david on ${host}: Update gh.`,
+      reason: `agent-harness cannot get the token for david on ${host} from the gh tool. The gh tool is out of date.`,
+      details: ["The gh tool is out of date.", "gh 2.39.1 is older than 2.40.0, the first that gives a token per account.", "gh 2.39.1 (needs 2.40.0 or later), used by david on " + host],
       failing: ["forges.identity", "forges.gh"],
       targets: [
         { action: "sign-in-again", ...account },
@@ -280,7 +362,8 @@ describe("forges.gh", () => {
     const t = await start({ dataDir });
     const result = await checkForges(await t.client());
     expect(result).toMatchObject({ state: "needs-attention", failing: ["forges.identity", "forges.gh"] });
-    expect(result.reason).toContain(`gh is not installed on this environment for david on ${first.host}: Install gh 2.40.0 or later.`);
+    expect(result.reason).toContain("The gh tool is not installed. Install it to use your GitHub sign-in.");
+    expect(result.details).toContain(`Needs gh 2.40.0 or later, used by david on ${first.host}`);
     expect(result.targets).toContainEqual({ action: "install", kind: "tool", id: "gh", label: "gh" });
   });
 
@@ -308,9 +391,10 @@ describe("forges.gh", () => {
     expect(before).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: `The credential of ${host} could not be read: Sign in again to give it a new one. gh 2.39.1 on this environment is older than 2.40.0 for ${host}: Update gh.`,
+      reason: `agent-harness cannot get the token for ${host} from the gh tool. The gh tool is out of date.`,
+      details: ["The gh tool is out of date.", "gh 2.39.1 is older than 2.40.0, the first that gives a token per account.", `gh 2.39.1 (needs 2.40.0 or later), used by ${host}`],
       failing: ["forges.identity", "forges.gh"],
-      actions: ["sign-in-again", "check-again", "install", "update"],
+      actions: ["sign-in-again", "update"],
       targets: [
         { action: "sign-in-again", kind: "forge-account", id: forge.origin, label: host },
         { action: "update", kind: "tool", id: "gh", label: "gh" },
@@ -327,9 +411,10 @@ describe("forges.gh", () => {
     expect(await nextForgesResult(client, subscription)).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: `The credential of ${host} could not be read: Sign in again to give it a new one.`,
+      reason: `agent-harness cannot get the token for ${host} from the gh tool.`,
+      details: ["The gh tool is out of date.", "gh 2.39.1 is older than 2.40.0, the first that gives a token per account."],
       failing: ["forges.identity"],
-      actions: ["sign-in-again", "check-again"],
+      actions: ["sign-in-again"],
       targets: [{ action: "sign-in-again", kind: "forge-account", id: forge.origin, label: host }],
       checkedAt: after(15 * 60_000 + 2_000),
     });
@@ -349,7 +434,7 @@ describe("forges.gh", () => {
 });
 
 describe("forges.expiry", () => {
-  it("names a forge account whose token expires within thirty days of the environment's clock, or has expired, with the time and Sign in again, and holds for one that lasts longer", async () => {
+  it("names a forge whose token runs out within thirty days of the environment's clock, or has run out, with Sign in again and the exact time in details, and holds for one that lasts longer", async () => {
     const forge = await fakeForge();
     const t = await start();
     const client = await t.client();
@@ -365,7 +450,8 @@ describe("forges.expiry", () => {
     expect(await checkForges(client)).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: `The token of ${davidOn(forge)} expires at 2026-10-20 12:00 UTC: Sign in again to give it a new one before then.`,
+      reason: `The token for ${hostOf(forge)} runs out in 27 days. Add a new one before then.`,
+      details: ["Runs out at: 2026-10-20T12:00:00.000Z"],
       failing: ["forges.expiry"],
       actions: ["sign-in-again"],
       targets: [{ action: "sign-in-again", kind: "forge-account", id: forge.origin, label: davidOn(forge) }],
@@ -378,9 +464,7 @@ describe("forges.expiry", () => {
     t.clock.advance(60_000);
     forge.answer(token, "GET /api/v3/user", { status: 401, body: { message: "Bad credentials" } });
     expect(await checkForges(client)).toMatchObject({
-      reason:
-        `The forge refused the credential of ${davidOn(forge)}: Sign in again to give it a new one. ` +
-        `The token of ${davidOn(forge)} expired at 2026-09-24 00:00 UTC: Sign in again to give it a new one.`,
+      reason: `${hostOf(forge)} did not accept the token for david. Create a new token and add it. The token for ${hostOf(forge)} has run out. Add a new one.`,
       failing: ["forges.identity", "forges.expiry"],
       targets: [{ action: "sign-in-again", kind: "forge-account", id: forge.origin, label: davidOn(forge) }],
     });
@@ -401,7 +485,8 @@ describe("forges.coverage", () => {
     expect(await checkForges(client)).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: `No forge account covers ${uncovered.origin}, where the harness could not read the release channel at 2026-09-24 00:00 UTC: add a forge account for it.`,
+      reason: `agent-harness needed a forge for ${hostOf(uncovered)} and found none. Add ${hostOf(uncovered)}.`,
+      details: [`${uncovered.origin}: could not read the release channel at 2026-09-24T00:00:00.000Z`],
       failing: ["forges.coverage"],
       actions: [],
       checkedAt: MANUAL_CLOCK_START,
@@ -473,7 +558,7 @@ describe("the Forges step beside the verifier's own schedule (#680)", () => {
     // Its verification, a forge.account.* event, checks the step a second on, as the step's cadence falls due then too: it reads what was found.
     expect(await checkedASecondOn(t, client)).toMatchObject({
       state: "needs-attention",
-      reason: `${davidOn(limited)} did not answer its verification: Check again once its forge is reachable.`,
+      reason: `${hostOf(limited)} is not answering properly right now. Choose Check again later.`,
       failing: ["forges.identity"],
     });
     expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([1, 1]);
@@ -503,7 +588,7 @@ describe("the Forges step beside the verifier's own schedule (#680)", () => {
     const asked = askedWho(forge);
     forge.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(60 * 60) } });
 
-    const unreachable = { state: "needs-attention", reason: `${davidOn(forge)} did not answer its verification: Check again once its forge is reachable.`, failing: ["forges.identity"] };
+    const unreachable = { state: "needs-attention", reason: `${hostOf(forge)} is not answering properly right now. Choose Check again later.`, failing: ["forges.identity"] };
     expect(await checkForges(client)).toMatchObject(unreachable);
     expect(askedWho(forge)).toBe(asked + 1);
 

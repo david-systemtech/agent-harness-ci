@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { GH_MINIMUM_VERSION, GhLogin, ForgeToken, compareToolVersions, type ForgeTokenKind, type GhProbe, type GhSignedInAccount, type ManagedToolRow } from "@agent-harness/contracts";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
+import { GH_MISSING, GH_OLD, ghLoginCommand, ghSignedOut } from "./lines.js";
 import { githubTokenKind } from "./providers.js";
 
 /**
@@ -28,8 +29,13 @@ export const GH_TIMEOUT_MS = 10_000;
 export type GhTokenAnswer =
   /** The token `gh` holds for them. */
   | { readonly outcome: "token"; readonly token: string }
-  /** No token, and one line saying why and what to do: `gh` missing, older than 2.40, not signed in to the host as the login, or failing. */
-  | { readonly outcome: "unavailable"; readonly message: string };
+  /**
+   * No token: one plain line saying why (setup-copy.md §5.6), `gh` missing,
+   * older than 2.40, not signed in to the host as the login, or failing; and
+   * the raw facts behind it, its version, the command that signs it in or
+   * what it said.
+   */
+  | { readonly outcome: "unavailable"; readonly message: string; readonly details: readonly string[] };
 
 /** The forge's view of the environment's `gh`, over the Managed tools registry's row. */
 export interface ManagedGh {
@@ -158,7 +164,11 @@ export const managedGh = (options: ManagedGhOptions): ManagedGh => {
       });
     });
 
-  const notInstalled = (host: string): string => `gh is not installed on this environment: install the GitHub CLI ${GH_MINIMUM_VERSION} or later, then run gh auth login --hostname ${host}.`;
+  const notInstalled = (host: string, login: string): GhTokenAnswer => ({
+    outcome: "unavailable",
+    message: GH_MISSING,
+    details: [`Needs gh ${GH_MINIMUM_VERSION} or later, then ${ghLoginCommand(host, login)}`],
+  });
 
   /** The row, or null when the registry has none to give: it never probed, the environment closing first. */
   const rowNow = async (): Promise<ManagedToolRow | null> => {
@@ -186,18 +196,18 @@ export const managedGh = (options: ManagedGhOptions): ManagedGh => {
 
     async token(host, login) {
       const row = await rowNow();
-      if (row === null) return { outcome: "unavailable", message: `gh on this environment could not be found: its managed tools have not been probed.` };
-      if (row.path === null) return { outcome: "unavailable", message: notInstalled(host) };
+      if (row === null) return { outcome: "unavailable", message: "agent-harness has not looked for the gh tool yet. Choose Check again.", details: ["The Managed tools registry has not probed gh."] };
+      if (row.path === null) return notInstalled(host, login);
       const answer = await run(row.path, ["auth", "token", "--hostname", host, "--user", login]);
-      if (answer.outcome === "missing") return { outcome: "unavailable", message: notInstalled(host) };
-      if (answer.outcome === "failed") return { outcome: "unavailable", message: `gh on this environment did not give a token for ${login} on ${host}: ${answer.why}.` };
+      if (answer.outcome === "missing") return notInstalled(host, login);
+      if (answer.outcome === "failed") return { outcome: "unavailable", message: `The gh tool did not give a token for ${login} on ${host}.`, details: [`gh auth token: ${answer.why}`] };
       const token = answer.stdout.trim();
       if (answer.code === 0 && ForgeToken.safeParse(token).success) return { outcome: "token", token };
       // Why not: a gh older than 2.40 refuses --user; otherwise it holds no token for the host and login.
       if (row.version !== null && !meetsMinimum(row.version)) {
-        return { outcome: "unavailable", message: `gh ${row.version} on this environment is older than ${GH_MINIMUM_VERSION}, the first that reads a token per account: update gh.` };
+        return { outcome: "unavailable", message: GH_OLD, details: [`gh ${row.version} is older than ${GH_MINIMUM_VERSION}, the first that gives a token per account.`] };
       }
-      return { outcome: "unavailable", message: `gh on this environment is not signed in to ${host} as ${login}: run gh auth login --hostname ${host} as ${login} here.` };
+      return { outcome: "unavailable", message: ghSignedOut(host), details: [ghLoginCommand(host, login)] };
     },
   };
 };

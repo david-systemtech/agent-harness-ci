@@ -76,6 +76,41 @@ it("searches and switches sessions while retaining both drafts and running work"
   expect(env.requests("runs.cancel")).toHaveLength(0);
 });
 
+it("closes the drawer on either New session control and gives the new session's composer the focus", async () => {
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)" ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+  onTestFinished(() => { vi.restoreAllMocks(); });
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipt review" }] }] });
+  app.open("desk");
+  await screen.findByRole("textbox", { name: "Message" });
+  const startFromDrawer = async (control: (drawer: HTMLElement) => HTMLElement) => {
+    const trigger = screen.getByRole("button", { name: "Show sessions" });
+    await app.user.click(trigger);
+    await app.user.click(control(screen.getByRole("dialog", { name: "Sessions" })));
+    expect(screen.queryByRole("dialog", { name: "Sessions" })).toBeNull();
+    // Radix hands focus back once the drawer has unmounted, a macrotask later.
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+    const surface = screen.getByRole("region", { name: "New session" });
+    expect(document.activeElement).toBe(within(surface).getByRole("textbox", { name: "Message" }));
+  };
+  await startFromDrawer(drawer => within(drawer).getByRole("button", { name: "New session" }));
+  await startFromDrawer(drawer => within(drawer).getByRole("button", { name: "New session on desk" }));
+  await app.user.click(screen.getByRole("button", { name: "Show sessions" }));
+  await app.user.click(within(screen.getByRole("dialog", { name: "Sessions" })).getByRole("button", { name: /desk Receipt review/ }));
+  expect(screen.queryByRole("region", { name: "New session" })).toBeNull();
+});
+
+it("keeps the desktop sidebar shown on its New session control", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipt review" }] }] });
+  app.open("desk");
+  const sidebar = await screen.findByRole("navigation", { name: "Sessions" });
+  await app.user.click(within(sidebar).getByRole("button", { name: "New session" }));
+  const surface = await screen.findByRole("region", { name: "New session" });
+  expect(document.activeElement).toBe(within(surface).getByRole("textbox", { name: "Message" }));
+  expect(screen.getByRole("navigation", { name: "Sessions" })).toBe(sidebar);
+  expect(screen.queryByRole("button", { name: "Show sessions" })).toBeNull();
+});
+
 it("keeps a session row usable while the landscape drawer footer scrolls independently", async () => {
   vi.stubGlobal("innerWidth", 844); vi.stubGlobal("innerHeight", 390);
   vi.stubGlobal("matchMedia", (query: string) => Object.assign(new EventTarget(), { matches: query.includes("pointer: coarse"), media: query, onchange: null }));

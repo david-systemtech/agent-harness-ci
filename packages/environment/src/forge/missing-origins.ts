@@ -3,6 +3,7 @@ import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { missingOn, missingOrigins, type MissingOrigin } from "./forge-store.js";
+import { neededElsewhere, siteOf } from "./lines.js";
 import { servedOrigins } from "./git-helper.js";
 import { FORGE_ACTOR } from "./verifier.js";
 
@@ -22,18 +23,19 @@ import { FORGE_ACTOR } from "./verifier.js";
  * repository is never answered.
  */
 
-/** How the refusal's message for `origin` begins, whatever the reason. */
-const missingOpening = (origin: ForgeOrigin): string => `No forge account on this environment covers ${origin}, and `;
-
-/** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the origin and the Forges step. */
+/** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the site plainly, `why` in details and the Forges step in data. */
 export const forgeAccountMissing = (origin: ForgeOrigin, why: string): ForgeAccountMissingError => ({
   code: "forge_account_missing",
-  message: `${missingOpening(origin)}${why}: add one in Set up, Forges.`,
-  data: { origin, step: "forges" },
+  message: neededElsewhere(siteOf(origin)),
+  data: { origin, step: "forges", details: [`${origin}: ${why}`] },
 });
 
-/** Whether `message` is that refusal's on `origin`: a record that kept only the message, as a failed landing's reason does, still names its cause (#1900). */
-export const isForgeAccountMissingOn = (message: string, origin: ForgeOrigin): boolean => message.startsWith(missingOpening(origin));
+/** How that refusal's message on `origin` began before #1850 reworded it, which a failed landing stored then still carries. */
+const earlierOpening = (origin: ForgeOrigin): string => `No forge account on this environment covers ${origin}, and `;
+
+/** Whether `message` is that refusal's on `origin`, in its wording now or before #1850: a record that kept only the message, as a failed landing's reason does, still names its cause (#1900). */
+export const isForgeAccountMissingOn = (message: string, origin: ForgeOrigin): boolean =>
+  message.startsWith(neededElsewhere(siteOf(origin))) || message.startsWith(earlierOpening(origin));
 
 /** Whether a forge account among `accounts` serves `origin`, at its own origin or a verified alias. */
 export const coversOrigin = (accounts: readonly Pick<ForgeAccountRecord, "origin" | "aliases">[], origin: ForgeOrigin): boolean =>

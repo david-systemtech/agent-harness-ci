@@ -30,6 +30,7 @@ import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { coversOrigin, isForgeAccountMissingOn } from "../forge/missing-origins.js";
+import { refusalReason } from "../forge/operations.js";
 import { joinBank, previewBank } from "./join.js";
 import { prepareBankPublication } from "./publish.js";
 import { createBankCommand } from "./create.js";
@@ -347,7 +348,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
           ? { reason: `${location.origin} has no repository ${location.repository}`, cause: "repository-missing" }
           : { reason: `${location.origin} answered HTTP ${answer.status}: ${answer.message}` };
       case "refused":
-        return { reason: answer.error.message, ...(answer.error.code === "forge_account_missing" && { cause: "no-forge-account" }) };
+        return { reason: refusalReason(answer.error), ...(answer.error.code === "forge_account_missing" && { cause: "no-forge-account" }) };
     }
   };
 

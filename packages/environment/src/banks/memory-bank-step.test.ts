@@ -260,7 +260,7 @@ describe("the Memory bank step's checks", () => {
     expect(await checkMemoryBank(client)).toMatchObject({
       state: "needs-attention",
       reason: `acme needs a forge account for ${host} on this computer.`,
-      details: [expect.stringMatching(/^acme: No forge account on this environment covers /)],
+      details: [`acme: agent-harness needed a forge for ${host} and found none. Add ${host}. (${forge.origin}: it refused an anonymous read (HTTP 401))`],
       failing: ["memory-bank.reachable"],
       targets: [target("check-again", bank)],
     });

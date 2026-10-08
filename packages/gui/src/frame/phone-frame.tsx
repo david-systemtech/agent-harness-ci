@@ -43,16 +43,23 @@ export const PhoneFrameProvider = ({ children }: { readonly children: ReactNode 
   return <PhoneContext value={value}><Dialog.Root open={narrow && drawerShown} onOpenChange={showDrawer}>{children}</Dialog.Root></PhoneContext>;
 };
 
-/** Radix owns modal trapping and dismissal; focus changes never scroll the document. */
+/** Radix owns modal trapping and dismissal; focus changes never scroll the document.
+ * Closing hands focus back to what opened the drawer, unless what closed it already gave it
+ * to something outside, as a new session's message box takes it (#1902). */
 export const SessionDrawer = () => {
   const { narrow, drawerTrigger, drawerOpener } = usePhoneFrame();
   const content = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   if (!narrow) return null;
+  const handBack = () => {
+    const held = document.activeElement;
+    if (held !== null && held !== document.body && !content.current?.contains(held)) return;
+    (drawerOpener.current?.isConnected ? drawerOpener.current : drawerTrigger.current)?.focus({ preventScroll: true });
+  };
   // Portal into the viewport owner so absolute bounds follow its height and top.
   return <><span hidden ref={setAnchor} /><Dialog.Portal container={anchor?.closest<HTMLElement>("[data-web-client]") ?? undefined}>
     <Dialog.Overlay className="phone-frame-scrim fixed inset-0 z-40 bg-scrim/30" />
-    <Dialog.Content ref={content} onOpenAutoFocus={event => { event.preventDefault(); content.current?.focus({ preventScroll: true }); }} onCloseAutoFocus={event => { event.preventDefault(); (drawerOpener.current?.isConnected ? drawerOpener.current : drawerTrigger.current)?.focus({ preventScroll: true }); }} onKeyDown={event => event.stopPropagation()} aria-describedby={undefined} className="phone-frame-drawer fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden rounded-r-xl border-r border-hairline bg-float text-ink outline-none">
+    <Dialog.Content ref={content} onOpenAutoFocus={event => { event.preventDefault(); content.current?.focus({ preventScroll: true }); }} onCloseAutoFocus={event => { event.preventDefault(); handBack(); }} onKeyDown={event => event.stopPropagation()} aria-describedby={undefined} className="phone-frame-drawer fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden rounded-r-xl border-r border-hairline bg-float text-ink outline-none">
       <Dialog.Title className="sr-only">Sessions</Dialog.Title>
       <Sidebar />
     </Dialog.Content>

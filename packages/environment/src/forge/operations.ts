@@ -22,6 +22,7 @@ import { kindUnsupported, type Detection } from "./detection.js";
 import type { CallOptions } from "./forge-http.js";
 import { listForgeAccounts, liveForgeAccount } from "./forge-store.js";
 import { servingAccount } from "./git-helper.js";
+import { adviceLine, belongsToOther, identityChangedLine, siteOf } from "./lines.js";
 import { forgeAccountMissing } from "./missing-origins.js";
 import type {
   DownloadedAsset,
@@ -131,6 +132,16 @@ export interface NoPrimaryForgeRefusal {
 
 /** Why an operation did not reach the forge. */
 export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | KindUnsupportedError;
+
+/**
+ * A refusal as a record that keeps one line of it says it: its plain line, then its details in brackets where it has
+ * them (the origin and the forge's answer behind `forge_account_missing`, #1850), so a client showing the line leads
+ * with the plain words and a step's Details keep the cause.
+ */
+export const refusalReason = (error: ForgeRefusal): string => {
+  const details = "details" in error.data ? (error.data.details ?? []) : [];
+  return details.length > 0 ? `${error.message} (${details.join(" ")})` : error.message;
+};
 
 /** What an operation came to: the forge's reply, or a refusal before it reached the forge. */
 export type ForgeAnswer<T> = ForgeReply<T> | { readonly outcome: "refused"; readonly error: ForgeRefusal };
@@ -290,7 +301,9 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
   const withCredential = async <T>(account: ForgeAccountRecord, target: ForgeTarget, work: (reached: Writing) => Promise<ForgeAnswer<T>>): Promise<ForgeAnswer<T>> => {
     const { origin } = account;
     // A credential answering as another user is unused until it is replaced (forge spec, "Problem").
-    if (account.problem?.kind === "identity-changed") return refused({ code: "credential_unavailable", message: account.problem.message, data: { origin } });
+    if (account.problem?.kind === "identity-changed") {
+      return refused({ code: "credential_unavailable", message: identityChangedLine(siteOf(origin), account.identity?.login ?? null, account.problem.message), data: { origin } });
+    }
     const credential = await options.readCredential(account, target.purpose);
     if (credential.outcome === "unavailable") return refused({ code: "credential_unavailable", message: credential.problem.message, data: { origin } });
     try {
@@ -424,8 +437,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
           // Another user's owners are not the forge account's: refused as a credential answering as another user is everywhere.
           const held = account.identity;
           if (held !== null && user.identity.userId !== held.userId) {
-            const message = `The credential of the forge account on ${origin} answers as ${user.identity.login}, not ${held.login}: give it a credential of its own in Set up, Forges.`;
-            return refused({ code: "credential_unavailable", message, data: { origin } });
+            return refused({ code: "credential_unavailable", message: adviceLine(belongsToOther(siteOf(origin), user.identity.login, held.login)), data: { origin } });
           }
           const organisations = await forge.organisations(origin, token, MAX_OWNER_ORGANISATIONS, call);
           if (organisations.outcome !== "done") return organisations;

@@ -16,7 +16,7 @@ export async function sceneFiles(directory: string): Promise<readonly string[]> 
 
 /** look.md §16 names the light subset; every other scene still gets the dark ladder. */
 export function captureCases(scenes: readonly string[]) {
-  const light = (scene: string) => /^(window-empty|window-not-ready|window-start-failed|primitives|session-conversation|session-tools|dock-diff|prompt-.*|composer-.*|status-line|context-usage|run-picker.*|palette-.*|dialogs|dialog-.*|notices|settings-accounts|settings-permissions|settings-theme|setup-introduction.*|setup-account|setup-appearance|setup-close-confirmation)$/.test(scene);
+  const light = (scene: string) => /^(window-empty|window-not-ready|window-start-failed|primitives|session-conversation|session-tools|dock-diff|prompt-.*|composer-.*|status-line|context-usage|run-picker.*|palette-.*|dialogs|dialog-.*|notices|settings-accounts|settings-permissions|settings-theme|settings-usage|setup-introduction.*|setup-account|setup-appearance|setup-close-confirmation)$/.test(scene);
   return scenes.filter(scene => !scene.startsWith("phone-")).flatMap((scene) => (light(scene) ? ["light", "dark"] as const : ["dark"] as const).map((ladder) => ({ scene, ladder, name: `${scene}.${ladder}` })));
 }
 
@@ -33,10 +33,11 @@ export const PHONE_PROFILES = [
  * window (look.md §11.1; #1690 measured the sign-in dialog off-screen at 1280 × 800 and 1280 × 700). The
  * scene is mounted again in each and its geometry measured without a screenshot, so the published captures
  * keep their two sizes; the probes run once per scene, with its wide dark capture. The header's breadcrumb
- * is measured there too, where #1790 saw a scratch folder's identifier squeeze the session title.
+ * is measured there too, where #1790 saw a scratch folder's identifier squeeze the session title, and the
+ * status line beside a docked side pane, where #1892 saw a session column of about 640px cut the run's spend.
  */
 export const LAPTOP_PROBES = [{ width: 1280, height: 800 }, { width: 1280, height: 700 }] as const;
-const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "window-session"]);
+const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "window-session", "status-line-docked"]);
 
 export interface CaptureCase {
   readonly scene: string;

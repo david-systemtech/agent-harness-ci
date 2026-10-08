@@ -553,9 +553,11 @@ export {
   nextRunWords,
   percent,
   pressureOf,
+  listedReadingsOf,
   readingWords,
   readingsOf,
   meterReadingsOf,
+  silentLimitsWords,
   spendOf,
   startingAccount,
   windowLabel,
@@ -692,6 +694,7 @@ export {
   updatesUnreadWords,
   type WaitingUpdate,
 } from "./updates/words.js";
+export { HOST_UPDATER_SETUP, type HostUpdaterSetup } from "./updates/host-updater-setup.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";
 export {
   INSTALL_METHOD_WORDS,

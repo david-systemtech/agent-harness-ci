@@ -274,7 +274,7 @@ describe("a failed check", () => {
       at: MANUAL_CLOCK_START,
       result: "failed",
       reason: "no_release_access",
-      message: expect.stringContaining("it refused an anonymous read (HTTP 401)") as unknown as string,
+      message: expect.stringContaining(`needed a forge for ${fake.forge.origin.replace("http://", "")} and found none.`) as unknown as string,
     });
     expect(target).toBeNull();
     expect(fake.reads()).toEqual([{ method: "GET", path: "/api/v1/repos/david/agent-harness/releases", query: "limit=50", scheme: null }]);
