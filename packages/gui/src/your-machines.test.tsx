@@ -441,7 +441,7 @@ describe("Your machines' update controls", () => {
 
     await app.user.click(drain()!);
     await app.user.click(within(await screen.findByRole("dialog", { name: "Drain laptop and update it to 0.6.0 now?" })).getByRole("button", { name: "Drain and update" }));
-    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "An update is under way already. Wait for it to finish.");
+    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "An update is under way already. Wait for it to finish. Details: conflict (in_progress): laptop's update to 0.6.0 is draining already.");
     expect(scripted.requests("updates.apply").map((request) => request.params["when"])).toEqual(["now"]);
 
     // Asked, then the update stops waiting on work before an answer: the question goes, and does not come back with the work.
@@ -646,6 +646,6 @@ describe("Your machines' update controls", () => {
     expect(within(laptop).getByRole("button", { name: "Drain and update now…" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Update now" }));
-    expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "This version is running already, or there is nothing newer.");
+    expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "This version is running already, or there is nothing newer. Details: conflict (current): desk runs 0.0.0-fake already.");
   });
 });

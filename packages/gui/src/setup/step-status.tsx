@@ -1,6 +1,7 @@
 import {
   RESTORE_METHODS,
   lastGoodWords,
+  outcomeWords,
   planSetupAction,
   pullSetupSources,
   restoreStep,
@@ -64,7 +65,7 @@ const useSetupActions = (environmentId: string, say: (line: string | undefined) 
       case "restore": {
         const restored = restore === undefined ? await restoreStep(runtime, environmentId, plan.step, uuidv7(clock.now()), plan.sections) : await restore(plan);
         if (restored === null) return;
-        say(restored.line);
+        say(outcomeWords(restored));
         if (restored.ok) void runtime.setup.check(environmentId, plan.step);
         return;
       }
@@ -75,10 +76,10 @@ const useSetupActions = (environmentId: string, say: (line: string | undefined) 
       case "sign-in":
         return signIn(plan.account);
       case "update":
-        return say((await updateEnvironment(runtime, environmentId, environment === undefined ? "the environment" : nameOf(environment), uuidv7(clock.now()))).line);
+        return say(outcomeWords(await updateEnvironment(runtime, environmentId, environment === undefined ? "the environment" : nameOf(environment), uuidv7(clock.now()))));
       case "pull-sources":
         say(undefined);
-        return say((await pullSetupSources(runtime, environmentId, plan.sources, () => clock.now())).line);
+        return say(outcomeWords(await pullSetupSources(runtime, environmentId, plan.sources, () => clock.now())));
       case "run-tool": {
         say(undefined);
         refused(null);

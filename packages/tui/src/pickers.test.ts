@@ -772,6 +772,22 @@ describe("/setup", () => {
     expect(env.requests("setup.check").map((r) => r.params)).toEqual([{ step: "account" }]);
   });
 
+  it("says a refused Check again as the card's refused check, with the refusal in Details, and clears it once a check answers", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      account: { state: "needs-attention", reason: "Account needs a check.", actions: ["check-again"] },
+    } })]);
+    await command(app, "/setup");
+    await app.waitFor("Check again");
+    env.wire.answer("setup.check", () => ({ error: { code: "internal", message: "The check store is locked.", data: {} } }));
+    await app.press(KEY.enter);
+    await app.waitFor("agent-harness could not check desk. Run /setup to try again.");
+    await app.waitFor("Details: The check store is locked.");
+    expect(app.frame()).not.toContain("Set up could not be checked");
+    env.wire.answer("setup.check", () => ({ result: { results: [] } }));
+    await app.press(KEY.enter);
+    await app.waitUntil(() => !app.frame().includes("could not check desk"), "the refused check cleared");
+  });
+
   it("pulls both sources named by the line, even after a refusal", async () => {
     const ids = ["0f8fad5b-d9cb-469f-a165-70867728950e", "0f8fad5b-d9cb-469f-a165-70867728950f"];
     const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
@@ -793,6 +809,7 @@ describe("/setup", () => {
     await app.waitFor("Update now: team-skills, house-skills");
     await app.press(KEY.enter);
     await app.waitFor("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills is up to date.");
+    await app.waitFor("Details: not_found: The source was removed.");
     expect(env.requests("skills.sources.pull").map((r) => r.params?.sourceId)).toEqual(ids);
   });
 

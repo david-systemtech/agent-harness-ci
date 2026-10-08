@@ -249,6 +249,7 @@ export {
 export {
   RESTORE_METHODS,
   SETUP_ACTION_WORDS,
+  outcomeWords,
   planSetupAction,
   pullSetupSources,
   restoreStep,

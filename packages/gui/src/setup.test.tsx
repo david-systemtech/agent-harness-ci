@@ -565,7 +565,7 @@ describe("a step's named actions on their targets", () => {
     });
     const skills = await cardOf(app, "Skills");
     await app.user.click(within(skills).getByRole("button", { name: "Update now: team-skills, house-skills, work-skills" }));
-    expect(await within(skills).findByText("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills could not update. Choose Update now. work-skills is up to date.")).toBeDefined();
+    expect(await within(skills).findByText("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills could not update. Choose Update now. work-skills is up to date. Details: not_found: The source was removed.; Could not reach the repository.")).toBeDefined();
     expect(desk.requests("skills.sources.pull").map((request) => request.params.sourceId)).toEqual(ids);
     expect(new Set(desk.requests("skills.sources.pull").map((request) => request.params.commandId)).size).toBe(3);
     expect(checklist()).not.toBeNull();

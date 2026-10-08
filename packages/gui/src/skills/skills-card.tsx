@@ -1,4 +1,4 @@
-import { oneLine, pullSetupSources } from "@agent-harness/client-runtime";
+import { oneLine, outcomeWords, pullSetupSources } from "@agent-harness/client-runtime";
 import { CATALOGUE, catalogueTickStates, SKILL_SOURCE_LIMIT, type CatalogueSkillEntry, type CatalogueTickState } from "@agent-harness/contracts";
 import { TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -45,7 +45,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
                 setPulling(true);
                 try {
                   const outcome = await pullSetupSources(runtime, environmentId, sources.map((source) => ({ id: source.id, label: `${source.identity} — ${source.folder}` })), () => clock.now());
-                  say(sources.length === 0 ? "No unpinned source to pull." : outcome.line);
+                  say(sources.length === 0 ? "No unpinned source to pull." : outcomeWords(outcome));
                 } finally {
                   setPulling(false);
                 }

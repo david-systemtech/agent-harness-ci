@@ -7,6 +7,7 @@ import {
   drainableUpdate,
   environmentVersionWords,
   offersClientVersion,
+  outcomeWords,
   pendingUpdateWords,
   updateEnvironment,
   updatesUnreadWords,
@@ -86,7 +87,7 @@ export const updateRefusal = (runtime: Runtime, view: EnvironmentView): string |
  * line to show, or why it was not taken.
  */
 export const updateNow = async (runtime: Runtime, view: EnvironmentView, commandId: string, when: UpdateWhen = "idle"): Promise<string> =>
-  (await updateEnvironment(runtime, view.environmentId, nameOf(view), commandId, when)).line;
+  outcomeWords(await updateEnvironment(runtime, view.environmentId, nameOf(view), commandId, when));
 
 /**
  * What Drain and update now asks on the confirm line before it drains

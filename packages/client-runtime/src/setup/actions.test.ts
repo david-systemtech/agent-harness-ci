@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Runtime } from "../runtime.js";
-import { SETUP_ACTION_WORDS, planSetupAction, pullSetupSources, restoreStep, setupActions, updateEnvironment } from "./actions.js";
+import { SETUP_ACTION_WORDS, outcomeWords, planSetupAction, pullSetupSources, restoreStep, setupActions, updateEnvironment } from "./actions.js";
 
 const skills = { id: "skills", home: "knowledge.skills" } as const;
 const sources = [
@@ -86,5 +86,13 @@ describe("Set up actions' refusals, in plain words", () => {
     });
     expect((await pullSetupSources(synced({ outcome: "layout_moved" }), "env-a", team, NOW)).line).toBe("team-skills no longer has skills where they were. Choose its folders again.");
     expect(await pullSetupSources(synced({ outcome: "ok" }), "env-a", team, NOW)).toEqual({ ok: true, line: "team-skills is up to date.", details: [] });
+  });
+
+  it("says an outcome on one line with its raw words after it as Details, and a line alone when it has none", () => {
+    expect(outcomeWords({ ok: false, line: "team-skills could not update. Choose Update now.", details: ["git: could not resolve host", "internal: The disk is full."] })).toBe(
+      "team-skills could not update. Choose Update now. Details: git: could not resolve host; internal: The disk is full.",
+    );
+    expect(outcomeWords({ ok: true, line: "team-skills is up to date.", details: [] })).toBe("team-skills is up to date.");
+    expect(outcomeWords({ ok: true, line: "Restored the Default theme." })).toBe("Restored the Default theme.");
   });
 });

@@ -4,6 +4,7 @@ import {
   drainAndUpdateQuestion,
   drainableUpdate,
   environmentVersionWords,
+  outcomeWords,
   pendingUpdateId,
   pendingUpdateWords,
   pinnedWords,
@@ -158,7 +159,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
           </Button></Tooltip>
         )}
       </div>
-      {shown !== undefined && <p role="status" className={shown.ok ? "text-ink-muted" : "text-signal"}>{shown.line}</p>}
+      {shown !== undefined && <p role="status" className={shown.ok ? "text-ink-muted" : "text-signal"}>{outcomeWords(shown)}</p>}
       <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
         {drainable !== null && (
           <DialogContent showClose={false} title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>

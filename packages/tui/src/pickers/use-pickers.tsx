@@ -15,6 +15,7 @@ import {
   nextRunWords,
   noKeysLine,
   oneLine,
+  outcomeWords,
   parseTyped,
   pullSetupSources,
   runTool,
@@ -629,10 +630,10 @@ export const usePickers = (host: PickersHost): Pickers => {
               case "start-service":
                 return host.startService(card.environmentId);
               case "update":
-                return host.say((await updateEnvironment(runtime, card.environmentId, nameFor(card.environmentId), host.newCommandId())).line);
+                return host.say(outcomeWords(await updateEnvironment(runtime, card.environmentId, nameFor(card.environmentId), host.newCommandId())));
               case "restore": {
                 const outcome = await restoreStep(runtime, card.environmentId, plan.step, host.newCommandId(), plan.sections);
-                host.say(outcome.line);
+                host.say(outcomeWords(outcome));
                 if (outcome.ok) await runtime.setup.check(card.environmentId, plan.step);
                 return;
               }
@@ -644,11 +645,10 @@ export const usePickers = (host: PickersHost): Pickers => {
                 return;
               }
               case "pull-sources":
-                return host.say((await pullSetupSources(runtime, card.environmentId, plan.sources, () => runtime.environmentNow(card.environmentId))).line);
+                return host.say(outcomeWords(await pullSetupSources(runtime, card.environmentId, plan.sources, () => runtime.environmentNow(card.environmentId))));
               case "check": {
                 const answer = await runtime.setup.check(card.environmentId, plan.step);
-                if (!answer.ok) host.say(`Set up could not be checked: ${answer.error.message}`);
-                return;
+                return host.change((held) => (held.kind === "setup" && held.environmentId === card.environmentId ? { ...held, failed: answer.ok ? null : answer.error.message } : held));
               }
             }
             host.say(`${offer.words} runs in the desktop window.`);

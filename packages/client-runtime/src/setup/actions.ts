@@ -192,6 +192,9 @@ export interface ActionOutcome {
   readonly details?: readonly string[];
 }
 
+/** An outcome where a surface says one line: its line, then its raw words as Details (setup-copy.md §3). */
+export const outcomeWords = ({ line, details = [] }: ActionOutcome): string => (details.length === 0 ? line : `${line} Details: ${details.join("; ")}`);
+
 /** A refused action's outcome: the refusal in plain words (setup-copy.md §3), for the button `action` names. */
 const refusedOutcome = ({ line, details }: PlainRefusal): ActionOutcome & { readonly ok: false } => ({ ok: false, line, details });
 
