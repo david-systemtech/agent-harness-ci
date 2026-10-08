@@ -67,15 +67,16 @@ it.each(["admin", "own-client"])("completes scripted sign-in and persists a sett
   expect(link.getAttribute("rel")).toContain("noopener");
   if (grant === "own-client") {
     const readText = vi.fn(async () => " code-for-tests#state-for-tests\n");
-    vi.stubGlobal("navigator", Object.create(navigator, { clipboard: { value: { readText } } }));
-    await app.user.click(screen.getByRole("button", { name: "Paste code from clipboard" }));
+    // A stand-in navigator answers what a real one does that Details reads: its user agent and touch points.
+    vi.stubGlobal("navigator", Object.create(navigator, { clipboard: { value: { readText } }, userAgent: { value: navigator.userAgent }, maxTouchPoints: { value: navigator.maxTouchPoints } }));
+    await app.user.click(screen.getByRole("button", { name: "Paste from clipboard" }));
     expect(readText).toHaveBeenCalledOnce();
   } else {
-    await app.user.type(screen.getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#state-for-tests{Enter}");
+    await app.user.type(screen.getByRole("textbox", { name: "Code" }), "code-for-tests#state-for-tests{Enter}");
   }
   await waitFor(() => expect(app.environment.requests("accounts.signin.code")).toHaveLength(1));
   act(() => app.environment.signIn("done"));
-  expect(await screen.findByText("Test account is signed in on desk.")).toBeDefined();
+  expect(await screen.findByText("Test account is signed in.")).toBeDefined();
   await app.user.click(screen.getByRole("button", { name: "Done" }));
   await app.user.click(screen.getByRole("button", { name: "Settings rows" }));
   await app.user.click(screen.getByRole("button", { name: "Service" }));
@@ -118,7 +119,7 @@ it("resumes provider status when returning to a tab without restarting the flow"
   const signIn = app.runtime.requests.cached(app.environment.environmentId, "accounts.signin.get", {}).read().result?.signIn;
   app.environment.wire.answer("accounts.signin.get", () => ({ result: { signIn: signIn && { ...signIn, state: "done" } } }));
   act(() => window.dispatchEvent(new Event("focus")));
-  expect(await screen.findByText("Visit account is signed in on desk.")).toBeDefined();
+  expect(await screen.findByText("Visit account is signed in.")).toBeDefined();
   expect(app.environment.requests("accounts.add")).toHaveLength(1);
   expect(app.environment.requests("accounts.signin.start")).toHaveLength(0);
 });

@@ -567,7 +567,7 @@ describe("a step's named actions on their targets", () => {
     const account = await cardOf(app, "Account");
     expect(await within(account).findByRole("button", { name: "Sign in again: Home" })).toBeDefined();
     await app.user.click(within(account).getByRole("button", { name: "Sign in again: Work" }));
-    expect(await screen.findByRole("dialog", { name: "Sign in: Work on desk" })).toBeDefined();
+    expect(await screen.findByRole("dialog", { name: "Sign in to Claude" })).toBeDefined();
     await waitFor(() => expect(desk.requests("accounts.signin.start").map((request) => request.params["accountId"])).toEqual(["account-work"]));
 
     await app.user.click(screen.getByRole("button", { name: "Cancel the sign-in" }));

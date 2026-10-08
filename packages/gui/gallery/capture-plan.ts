@@ -37,7 +37,7 @@ export const PHONE_PROFILES = [
  * status line beside a docked side pane, where #1892 saw a session column of about 640px cut the run's spend.
  */
 export const LAPTOP_PROBES = [{ width: 1280, height: 800 }, { width: 1280, height: 700 }] as const;
-const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "window-session", "status-line-docked"]);
+const LAPTOP_SCENES: ReadonlySet<string> = new Set(["dialog-sign-in", "dialog-sign-in-refused", "window-session", "status-line-docked"]);
 
 export interface CaptureCase {
   readonly scene: string;

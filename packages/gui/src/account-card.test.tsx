@@ -95,12 +95,13 @@ describe("the Account card in Set up", () => {
     expect(within(step()).getByRole("button", { name: "Skip for now" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(work).getByRole("button", { name: "Sign in again" }));
-    const signing = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
+    const signing = await screen.findByRole("dialog", { name: "Sign in to Claude" });
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
-    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
+    await app.user.click(await within(signing).findByRole("button", { name: "The page did not open?" }));
+    await app.user.type(within(signing).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
     desk.signIn("done");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(within(step()).getByText("work is signed in on desk.")).toBeDefined();
+    expect(within(step()).getByText("work is signed in.")).toBeDefined();
     await waitFor(() => expect(next().hasAttribute("disabled")).toBe(false));
     expect(within(step()).queryByText("Continue once an account is signed in.")).toBeNull();
     await app.user.click(next());
@@ -142,28 +143,32 @@ describe("the Account card in Set up", () => {
     expect(within(card).getAllByText(/^Read-only:/)).toHaveLength(1);
   });
 
-  it("signs in another account: a label, accounts.add, then the URL, the code and the fallback command, with the sign-in's ten-minute countdown", async () => {
+  it("signs in another account: a label, accounts.add, then the steps, the code and the terminal command, with the sign-in's ten-minute countdown", async () => {
     const app = await opened({ accounts: [{ label: "personal", identity: MILO }] });
     const desk = app.environment("desk");
     const card = step();
     await app.user.click(within(card).getByRole("button", { name: "Sign in another account" }));
     const adding = await screen.findByRole("dialog", { name: "Add an account on desk" });
     await app.user.type(within(adding).getByRole("textbox", { name: "Label for the new account" }), "work{Enter}");
-    const signing = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
+    const signing = await screen.findByRole("dialog", { name: "Sign in to Claude" });
     expect(desk.requests("accounts.add").map((request) => request.params)).toEqual([expect.objectContaining({ label: "work" })]);
 
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
-    expect(await within(signing).findByText("https://claude.test/oauth/authorize?state=for-tests")).toBeDefined();
+    await app.user.click(await within(signing).findByRole("button", { name: "The page did not open?" }));
+    expect(signing.textContent).not.toContain("https://claude.test/oauth/authorize?state=for-tests");
+    await app.user.click(within(signing).getByRole("button", { name: "Sign in from a terminal instead" }));
     expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/2' claude auth login")).toBeDefined();
-    expect(within(signing).getByRole("timer").textContent).toBe("10m 0s left to sign in.");
+    expect(within(signing).getByRole("timer").textContent).toBe("10 min left");
     act(() => app.clock.advance(61_000));
-    await waitFor(() => expect(within(signing).getByRole("timer").textContent).toBe("8m 59s left to sign in."));
+    await waitFor(() => expect(within(signing).getByRole("timer").textContent).toBe("9 min left"));
+    act(() => app.clock.advance(8 * 60_000));
+    await waitFor(() => expect(within(signing).getByRole("timer").textContent).toBe("Less than a minute left."));
 
-    await app.user.type(within(signing).getByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
+    await app.user.type(within(signing).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
     await waitFor(() => expect(desk.requests("accounts.signin.code").map((request) => request.params)).toEqual([expect.objectContaining({ accountId: "account-2", code: "code-for-tests#for-tests" })]));
     desk.signIn("done");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(within(step()).getByText("work is signed in on desk.")).toBeDefined();
+    expect(within(step()).getByText("work is signed in.")).toBeDefined();
     await waitFor(() => expect(facts(within(step()).getByRole("region", { name: "work" }))["Status"]).toBe("signed in"));
   });
 
@@ -180,17 +185,17 @@ describe("the Account card in Set up", () => {
     await app.runtime.requests.call(desk.environmentId, "accounts.signin.start", { commandId: uuidv7(app.clock.now()), accountId: "account-1" });
 
     await app.user.click(within(within(card).getByRole("region", { name: "home" })).getByRole("button", { name: "Sign in again" }));
-    expect(await within(card).findByText("home was not signed in: A sign-in is already running for work; cancel it, or wait for it to end.")).toBeDefined();
+    expect(await within(card).findByText("Another sign-in is running for work. Finish or cancel it first.")).toBeDefined();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     // Once it has ended, home's runs, until its Cancel.
     desk.signIn("cancelled");
     await app.user.click(within(within(step()).getByRole("region", { name: "home" })).getByRole("button", { name: "Sign in again" }));
-    const signing = await screen.findByRole("dialog", { name: "Sign in: home on desk" });
+    const signing = await screen.findByRole("dialog", { name: "Sign in to Claude" });
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=home" });
     expect(await within(signing).findByRole("timer")).toBeDefined();
     await app.user.click(within(signing).getByRole("button", { name: "Cancel the sign-in" }));
-    expect(await within(card).findByText("The sign-in of home was cancelled.")).toBeDefined();
+    expect(await within(card).findByText("The sign-in was cancelled.")).toBeDefined();
     expect(desk.requests("accounts.signin.cancel").map((request) => request.params["accountId"])).toEqual(["account-2"]);
   });
 });
@@ -229,12 +234,13 @@ describe("the Account card's defaults", () => {
     await waitFor(() => expect(desk.settings()["accounts.defaultEffort"]).toBeNull());
     await app.user.click(within(step()).getByRole("button", { name: "Sign in another account" }));
     await app.user.type(within(await screen.findByRole("dialog", { name: "Add an account on desk" })).getByRole("textbox", { name: "Label for the new account" }), "work{Enter}");
-    const signing = await screen.findByRole("dialog", { name: "Sign in: work on desk" });
+    const signing = await screen.findByRole("dialog", { name: "Sign in to Claude" });
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
-    await app.user.type(await within(signing).findByRole("textbox", { name: "Then paste the code it shows" }), "code-for-tests#for-tests{Enter}");
+    await app.user.click(await within(signing).findByRole("button", { name: "The page did not open?" }));
+    await app.user.type(within(signing).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
     desk.signIn("done");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(within(step()).getByText("work is signed in on desk.")).toBeDefined();
+    expect(within(step()).getByText("work is signed in.")).toBeDefined();
     expect(writes(app)).toHaveLength(3);
   });
 

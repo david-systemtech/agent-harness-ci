@@ -25,16 +25,17 @@ it.each([
   if (scene === "dialog-hand-off") expect(await within(dialog).findByRole("button", { name: /^spare/ })).toBeTruthy();
 });
 
-it("opens the sign-in dialog from Set up's Account step at the code, with its title and actions measured inside the window (ticket 1690)", async () => {
+it("opens the sign-in dialog from Set up's Account step at the code, its steps unfolded and the link never drawn, with its title and actions measured inside the window (tickets 1690, 1843)", async () => {
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, "dialog-sign-in");
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
-  const dialog = screen.getByRole("dialog", { name: "Sign in: Project on desk" });
-  expect(within(dialog).getByRole("textbox", { name: "Then paste the code it shows" })).toBeTruthy();
-  expect(within(dialog).getByText(SIGN_IN_URL)).toBeTruthy();
-  expect([...dialog.querySelectorAll("[data-sign-in-footer] button")].map((button) => button.textContent)).toEqual(["Cancel the sign-in", "Send the code"]);
+  const dialog = screen.getByRole("dialog", { name: "Sign in to Claude" });
+  expect(within(dialog).getByRole("textbox", { name: "Code" })).toBeTruthy();
+  expect(within(dialog).getByRole("button", { name: "The page did not open?" }).getAttribute("aria-expanded")).toBe("true");
+  expect(dialog.textContent).not.toContain(SIGN_IN_URL);
+  expect([...dialog.querySelectorAll("[data-sign-in-footer] button")].map((button) => button.textContent)).toEqual(["Cancel the sign-in", "Sign in"]);
   const geometry = scenes["dialog-sign-in"]!.geometry as (viewport: { width: number; height: number }) => readonly object[];
   const kept = [
     { selector: '[role="dialog"]', width: 512 },
@@ -43,8 +44,22 @@ it("opens the sign-in dialog from Set up's Account step at the code, with its ti
     { selector: '[role="dialog"] button[aria-label="Close dialog"]', visibleWithin: '[role="dialog"]' },
     { selector: "[data-sign-in-footer] button", visibleWithin: '[role="dialog"]' },
   ];
-  const fits = { selector: "[data-sign-in-body]", contentFits: true };
   expect(geometry({ width: 1280, height: 700 })).toEqual(expect.arrayContaining(kept));
-  expect(geometry({ width: 1280, height: 700 })).not.toContainEqual(fits);
-  expect(geometry({ width: 1280, height: 800 })).toEqual(expect.arrayContaining([...kept, fits]));
+  expect(geometry({ width: 1280, height: 800 })).toEqual(expect.arrayContaining(kept));
+});
+
+it("keeps the sign-in dialog open after Claude refused the code, with Start again and the CLI's words only in Details (ticket 1843)", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "dialog-sign-in-refused");
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  const dialog = screen.getByRole("dialog", { name: "Sign in to Claude" });
+  const notice = within(dialog).getByRole("alert");
+  expect(notice.textContent).toContain("Claude did not accept this code.");
+  expect(within(notice).getByRole("button", { name: "Start again" })).toBeTruthy();
+  expect(dialog.textContent).not.toContain("status code 400");
+  expect([...dialog.querySelectorAll("[data-sign-in-footer] button")].map((button) => button.textContent)).toEqual(["Close"]);
+  const geometry = scenes["dialog-sign-in-refused"]!.geometry as (viewport: { width: number; height: number }) => readonly object[];
+  expect(geometry({ width: 1280, height: 700 })).toContainEqual({ selector: '[role="dialog"] [data-notice-tone="error"]', visibleWithin: '[role="dialog"]' });
 });
