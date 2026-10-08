@@ -193,7 +193,7 @@ describe("a blocked connection", () => {
     const laptop = app.environment("laptop");
     await within(sidebar()).findByRole("heading", { name: "laptop" });
     laptop.bye(reason);
-    const line = reason === "revoked" ? "This client's access to laptop was revoked: pair it again." : "This client's access to laptop expired: pair it again.";
+    const line = reason === "revoked" ? "This app's access to laptop was taken away. Pair again." : "This app's access to laptop has run out. Pair again.";
     expect(await within(sidebar()).findByText(line)).toBeDefined();
 
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pair again" }));
@@ -208,11 +208,11 @@ describe("a blocked connection", () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired" }] });
     await within(sidebar()).findByRole("heading", { name: "laptop" });
     app.environment("laptop").bye("protocol", { protocolVersion: PROTOCOL_VERSION + 1 });
-    expect(await within(sidebar()).findByText("laptop is newer than this client: update this client.")).toBeDefined();
+    expect(await within(sidebar()).findByText("laptop runs a newer agent-harness than this app. Update this app.")).toBeDefined();
   });
 
   it("says an older environment's action: update it to this client's version, when it can update itself", async () => {
     await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { protocolVersion: PROTOCOL_VERSION + 1 });
-    expect(await within(sidebar()).findByText("desk is older than this client: update desk to this client's version.")).toBeDefined();
+    expect(await within(sidebar()).findByText("desk runs an older agent-harness than this app. Update desk.")).toBeDefined();
   });
 });

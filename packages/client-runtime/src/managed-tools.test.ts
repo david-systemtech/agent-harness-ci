@@ -85,7 +85,7 @@ describe("a tool run", () => {
     const { runtime, env } = await paired({ capabilities: [] });
     expect(await runTool(runtime, env, "gh", "install", new Date(MANUAL_CLOCK_START))).toEqual({
       ok: false,
-      line: "Not run: desk does not offer managedTools; a version that does is needed.",
+      line: "Not run: desk runs an older agent-harness without this. Update desk to use it.",
       command: null,
     });
   });

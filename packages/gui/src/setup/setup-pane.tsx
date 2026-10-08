@@ -1,4 +1,4 @@
-import { countsWords, stepLine } from "@agent-harness/client-runtime";
+import { countsWords, stepLine, stepNote, type SetupStepView } from "@agent-harness/client-runtime";
 import { useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { usePickedEnvironment, useSettings } from "../settings/settings-window.js";
@@ -33,6 +33,8 @@ export const SetupPane = () => {
   if (picked === undefined || view === undefined) return null;
   const { environmentId } = picked;
   const now = runtime.environmentNow(environmentId);
+  /** A step's line and, after it, when it was checked or that it may be out of date. */
+  const said = (step: SetupStepView) => [stepLine(step, now), stepNote(step, now, nameOf(picked))].filter((words) => words !== undefined).join(" ");
 
   const rerun = async () => {
     setLine(undefined);
@@ -66,8 +68,8 @@ export const SetupPane = () => {
               {step.label}
             </Button>
             {/* Cut short at a narrow width: the whole line on hover, and on keyboard focus (#1698). */}
-            <Tooltip content={stepLine(step, now)}>
-              <span tabIndex={0} className="min-w-0 truncate rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-beam">{stepLine(step, now)}</span>
+            <Tooltip content={said(step)}>
+              <span tabIndex={0} className="min-w-0 truncate rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-beam">{said(step)}</span>
             </Tooltip>
           </li>
         ))}

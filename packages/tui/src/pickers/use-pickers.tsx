@@ -15,13 +15,13 @@ import {
   nextRunWords,
   noKeysLine,
   oneLine,
+  outcomeWords,
   parseTyped,
   pullSetupSources,
   runTool,
   restoreStep,
   saveSetting,
   setupActions,
-  stepLine,
   sendSignInCode,
   sessionModeOf,
   setSessionContainment,
@@ -62,7 +62,7 @@ import { wrap, type Line, type Span } from "../transcript/lines.js";
 import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Question } from "../view.js";
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
-import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, setupRows, usageLines, type Panel, type PanelRow } from "./panel.js";
+import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, setupRows, setupStepWords, usageLines, type Panel, type PanelRow } from "./panel.js";
 import { editorKeys, editorRows, noRowLine, settingLabel } from "./settings.js";
 
 /**
@@ -426,7 +426,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         return containmentRows(report, own, fallback);
       }
       case "setup":
-        return setup ? setupRows(setup.read(), runtime.environmentNow(card.environmentId)) : [];
+        return setup ? setupRows(setup.read(), runtime.environmentNow(card.environmentId), nameFor(card.environmentId)) : [];
       case "settings":
         return settingsRows(card);
       default:
@@ -630,10 +630,10 @@ export const usePickers = (host: PickersHost): Pickers => {
               case "start-service":
                 return host.startService(card.environmentId);
               case "update":
-                return host.say((await updateEnvironment(runtime, card.environmentId, nameFor(card.environmentId), host.newCommandId())).line);
+                return host.say(outcomeWords(await updateEnvironment(runtime, card.environmentId, nameFor(card.environmentId), host.newCommandId())));
               case "restore": {
                 const outcome = await restoreStep(runtime, card.environmentId, plan.step, host.newCommandId(), plan.sections);
-                host.say(outcome.line);
+                host.say(outcomeWords(outcome));
                 if (outcome.ok) await runtime.setup.check(card.environmentId, plan.step);
                 return;
               }
@@ -645,11 +645,10 @@ export const usePickers = (host: PickersHost): Pickers => {
                 return;
               }
               case "pull-sources":
-                return host.say((await pullSetupSources(runtime, card.environmentId, plan.sources, () => runtime.environmentNow(card.environmentId))).line);
+                return host.say(outcomeWords(await pullSetupSources(runtime, card.environmentId, plan.sources, () => runtime.environmentNow(card.environmentId))));
               case "check": {
                 const answer = await runtime.setup.check(card.environmentId, plan.step);
-                if (!answer.ok) host.say(`Set up could not be checked: ${answer.error.message}`);
-                return;
+                return host.change((held) => (held.kind === "setup" && held.environmentId === card.environmentId && setupCheck.current === generation ? { ...held, failed: answer.ok ? null : answer.error.message } : held));
               }
             }
             host.say(`${offer.words} runs in the desktop window.`);
@@ -878,7 +877,7 @@ export const usePickers = (host: PickersHost): Pickers => {
               cursor={clamp(card.cursor, rows.length)} height={size.height} width={size.width}
               footer={[
                 ...footer,
-                ...(step ? [[{ text: stepLine(step, runtime.environmentNow(card.environmentId)), dim: true }]] : []),
+                ...(step ? [[{ text: setupStepWords(step, runtime.environmentNow(card.environmentId), nameFor(card.environmentId)), dim: true }]] : []),
                 ...reasons,
                 [{ text: card.sending ? "Running the action…" : offer ? `Action: ${offer.words}` : loadingTools ? "Waiting for managed tools before offering Update." : "No action offered.", dim: true }],
               ]}

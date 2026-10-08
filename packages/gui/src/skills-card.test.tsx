@@ -85,11 +85,11 @@ it("pulls the sources named by the health result without leaving Set up", async 
     update({ ...initial(), sources: [{ ...source, commit: "d".repeat(40) }] });
     return accepted({ source, layoutMoved: false });
   });
-  const pull = await within(card()).findByRole("button", { name: "Pull now: Unslop" });
+  const pull = await within(card()).findByRole("button", { name: "Update now: Unslop" });
   await app.user.click(pull);
   expect(await within(card()).findByText("d".repeat(40))).toBeDefined();
   expect(screen.getByRole("navigation", { name: "Set up steps" })).toBeDefined();
-  expect(await within(card()).findByText("Unslop: Source pulled.")).toBeDefined();
+  expect(await within(card()).findByText("Unslop is up to date.")).toBeDefined();
   await app.user.click(within(card()).getByRole("button", { name: "Pull now" }));
   await waitFor(() => expect(desk.requests("skills.sources.pull")).toHaveLength(2));
 });
@@ -178,7 +178,7 @@ it("keeps catalogue ticks read-only with the capability reason and shows cached 
   const tick = await within(card()).findByRole("checkbox", { name: "Track Unslop" });
   await waitFor(() => expect((tick as HTMLInputElement).checked).toBe(true));
   expect((tick as HTMLInputElement).disabled).toBe(true);
-  expect(within(card()).getAllByText(/admin/).length).toBeGreaterThan(0);
+  expect(within(card()).getAllByText(/change settings or sign in accounts/).length).toBeGreaterThan(0);
   desk.discovery("nothing");
   desk.server.drop();
   expect(await within(card()).findByText(/^Stale:/)).toBeDefined();

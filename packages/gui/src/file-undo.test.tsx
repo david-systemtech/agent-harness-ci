@@ -64,8 +64,8 @@ describe("GUI file undo", () => {
   });
 
   it.each([
-    [{ capabilities: [] }, "desk does not offer fileUndo; a version that does is needed."],
-    [{ scopes: ["read", "sessions:write", "runs:drive"] }, "This client was paired with desk without the terminal scope."],
+    [{ capabilities: [] }, "desk runs an older agent-harness without this. Update desk to use it."],
+    [{ scopes: ["read", "sessions:write", "runs:drive"] }, "This app has limited access to desk, so it cannot use terminals or files. Pair again with full access to change this."],
   ] satisfies [Partial<ScriptedEnvironment>, string][])("dims unavailable undo with the shared capability reason", async (options, reason) => {
     const { app, env } = await opened(options);
     await write(app, "/undo");

@@ -125,12 +125,12 @@ describe("An environment's update on its card in /environment", () => {
     });
     await openCard(app, 0);
     await choose(app, "Update now");
-    await app.waitFor("Not updated: desk runs 0.0.0-fake already.");
+    await app.waitFor("This version is running already, or there is nothing newer.");
 
     await app.press(KEY.esc, KEY.down, KEY.enter);
     await app.waitFor("Set primary");
     await choose(app, "Update now");
-    await app.waitFor("Not updated: This client was paired with laptop without the admin scope.");
+    await app.waitFor("This app has limited access to laptop, so it cannot change settings or sign in accounts.");
     expect(app.environment("laptop").requests("updates.apply")).toEqual([]);
   });
 
@@ -222,13 +222,13 @@ describe("Drain and update now on an environment's card", () => {
     await choose(app, "Drain and update now");
     await cardShows(app, "Drain desk and update it to 0.6.0 now?");
     await app.press("y");
-    await app.waitFor("Not updated: desk's update to 0.6.0 is draining already.");
+    await app.waitFor("An update is under way already. Wait for it to finish.");
     expect(app.environment("desk").requests("updates.apply").map((request) => request.params["when"])).toEqual(["now"]);
 
     await app.press(KEY.esc, KEY.down, KEY.enter);
     await app.waitFor("Set primary");
     await choose(app, "Drain and update now");
-    await app.waitFor("Not updated: This client was paired with laptop without the admin scope.");
+    await app.waitFor("Not updated: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     expect(card(app)).not.toContain("Drain laptop and update it");
     expect(app.environment("laptop").requests("updates.apply")).toEqual([]);
   });
@@ -297,7 +297,7 @@ describe("The newer client's offer on an environment's card", () => {
     await openCard(app, 1);
     await cardShows(app, "This client runs 0.6.0, newer than laptop's 0.5.0.");
     await choose(app, "Update laptop to 0.6.0");
-    await app.waitFor("Not updated: This client was paired with laptop without the admin scope.");
+    await app.waitFor("Not updated: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     expect(app.environment("laptop").requests("updates.apply")).toEqual([]);
   });
 
