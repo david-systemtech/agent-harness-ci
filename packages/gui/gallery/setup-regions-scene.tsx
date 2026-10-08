@@ -1,5 +1,6 @@
 import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
-import type { ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
+import type { ScriptedEnvironment, ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -21,7 +22,31 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | KeyManagerRegion;
+
+/** setup-copy.md §5.7's Key manager states beyond none chosen (#1851): OpenBao's form chosen, a key manager connected, and one that does not answer. */
+type KeyManagerRegion = "key-manager-openbao" | "key-manager-connected" | "key-manager-unreachable";
+
+type ScriptedKeyManagers = NonNullable<ScriptedEnvironment["keyManagers"]>;
+
+/** Whether a region draws the Key manager card on a computer holding key managers. */
+const showsKeyManagers = (kind: SetupRegion): kind is "key-manager" | KeyManagerRegion => kind === "key-manager" || kind.startsWith("key-manager-");
+
+/** The key managers a Key manager region's computer holds, with the step's result for them; every value is invented. */
+const keyManagersOf = (kind: SetupRegion): { readonly keyManagers?: ScriptedKeyManagers; readonly setup?: ScriptedSetup } => {
+  const items = [{ name: "https://github.com", slug: "github" }, { name: "https://git.example.test", slug: "git-example" }];
+  if (kind === "key-manager-connected") return {
+    keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test:8200" }], items },
+    setup: { "key-manager": { state: "done", reason: "Connected to Home OpenBao." } },
+  };
+  if (kind === "key-manager-unreachable") return {
+    keyManagers: {
+      connections: [{ label: "Home OpenBao", address: "https://bao.home.test:8200", injects: false, status: { kind: "unreachable", since: MANUAL_CLOCK_START, message: "OpenBao at https://bao.home.test:8200 did not answer." } }],
+    },
+    setup: { "key-manager": { state: "needs-attention", reason: "Home OpenBao did not answer. Check the address and the connection, then choose Check again.", failing: ["key-manager.reachable"], actions: ["check-again"] } },
+  };
+  return { keyManagers: {} };
+};
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
@@ -47,15 +72,17 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" || showsKeyManagers(kind) ? "key-manager" : kind;
+  const keyManagerRegion = showsKeyManagers(kind);
   const prepared = await prepareWorld({ environments: [{
-    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
+    name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks", ...(keyManagerRegion ? ["keyManagers", "managedTools"] as const : [])],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
+    ...(keyManagerRegion && keyManagersOf(kind)),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   desk.wire.answer("browser.status", () => ({ result: {
@@ -121,6 +148,11 @@ export function setupRegionScene(kind: SetupRegion) {
             signed = true;
             scene.prepared.world.environment("desk").signIn("awaiting-code", { url: SIGN_IN_URL });
           }
+          return;
+        }
+        if (kind === "key-manager-openbao") {
+          const openBao = document.querySelector<HTMLButtonElement>('[data-setup-scroll] button[role="radio"][aria-label="OpenBao or Vault"]');
+          if (!finished && openBao !== null && !openBao.disabled) { finished = true; openBao.click(); }
           return;
         }
         if (kind === "host-updater") {
