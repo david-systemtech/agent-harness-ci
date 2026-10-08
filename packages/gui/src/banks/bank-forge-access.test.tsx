@@ -30,7 +30,7 @@ it("explains an account held on another environment and opens Forges on the bank
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   expect(await within(card).findByText("Your forge.example.test:5526 account is connected on server, not here. Connect it here too.")).toBeDefined();
-  expect(within(card).getByText(/^agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
+  expect(within(card).getByText(`project-memory: ${bank.status.reachable.state === "unreachable" ? bank.status.reachable.reason : ""}`)).toBeDefined();
   expect(within(card).getByText("Description: has a problem")).toBeDefined();
   expect(app.environment("desk").requests("forge.accounts.add")).toHaveLength(0);
   await app.user.click(within(card).getByRole("button", { name: "Go to Forges" }));
@@ -66,7 +66,7 @@ it.each([
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   expect(await within(card).findByText(/is connected on server, not here\./)).toBeDefined();
-  expect(within(card).getByText(reason)).toBeDefined();
+  expect(within(card).getByText(`project-memory: ${reason}`)).toBeDefined();
   expect(within(card).queryByText(/to reach it/)).toBeNull();
   expect(within(card).getByText("Description: has a problem")).toBeDefined();
   expect(within(card).getByRole("button", { name: "Go to Forges" })).toBeDefined();
@@ -95,8 +95,28 @@ it.each(cases)("compares another environment's account with %s", async (_, accou
   if (!local) await waitFor(() => expect(app.environment("server").requests("forge.accounts.list").length).toBeGreaterThan(0));
   if (matches) expect(await within(card).findByText(/is connected on server, not here\./)).toBeDefined();
   else {
-    expect(await within(card).findByText(/agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
+    expect(await within(card).findByText(local ? "agent-harness cannot reach project-memory. Choose Check again." : "project-memory needs a forge account for forge.example.test:5526 on this computer.")).toBeDefined();
+    expect(within(card).getByText(/^project-memory: agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
     expect(within(card).queryByText(/is connected on server/)).toBeNull();
     if (local) expect(within(card).queryByRole("button", { name: "Go to Forges" })).toBeNull();
   }
+});
+
+it.each([
+  [undefined, "https://forge.example.test:5526 answered HTTP 502: <html>\n<body>Bad gateway</body>\n</html>", "agent-harness cannot reach project-memory. Choose Check again."],
+  ["repository-missing", "https://forge.example.test:5526 answered HTTP 404: Not Found", "The repository for project-memory is missing on forge.example.test:5526."],
+  ["folder-missing", "its repository at /banks/project-memory is not there", "project-memory's folder on this computer is missing."],
+] as const)("says why a notebook it has a forge account for cannot be reached in a plain line, what the check saw (%s) in Details", async (cause, reason, line) => {
+  const app = await renderApp({ environments: [
+    { name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"], accounts: [{ label: "Project" }], forges: { accounts: [{ origin, kind: "forgejo" }] } },
+  ] }, {}, (world) => {
+    world.environment("desk").wire.answer("banks.list", () => ({ result: { banks: [{ ...bank, status: { ...bank.status, reachable: { state: "unreachable", since, reason, ...(cause !== undefined && { cause }) } } }] } }));
+  });
+  await app.user.click(screen.getByRole("button", { name: "Settings" }));
+  await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
+  const card = await screen.findByRole("region", { name: bank.name });
+  expect((await within(card).findByRole("alert")).textContent).toBe(`Error: ${line}`);
+  const details = within(card).getByRole("region", { name: "Details" });
+  expect(details.querySelector("pre")?.textContent).toBe(`project-memory: ${reason}`);
+  expect(within(card).queryByText((_, element) => element?.tagName === "P" && element.textContent?.includes("HTTP") === true)).toBeNull();
 });

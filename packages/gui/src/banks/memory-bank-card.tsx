@@ -42,16 +42,17 @@ const DESCRIBE_LINE = "Now describe your notebook. An agent asks a few questions
 
 /**
  * setup-copy.md §5.8's ready-to-go row, visible text: the main forge a new own
- * notebook goes to, or what is missing with Go to Forges (the own notebook can
+ * notebook goes to, or what is missing or needs a fix with Go to Forges (the own notebook can
  * still be kept on this computer). A team notebook names its forge in its own
  * form, so its row shows only while there is none.
  */
-const ReadyRow = ({ environmentId, mode, forges }: { readonly environmentId: string; readonly mode: Exclude<BankMode, "join">; readonly forges: readonly ForgeAccountRecord[] }) => {
+const ReadyRow = ({ environmentId, mode, accounts, forges }: { readonly environmentId: string; readonly mode: Exclude<BankMode, "join">; readonly accounts: readonly ForgeAccountRecord[]; readonly forges: readonly ForgeAccountRecord[] }) => {
   const forge = forges.find((forge) => forge.primary);
   if (mode === "team" && forges.length > 0) return null;
   if (forge?.identity != null) return <p data-bank-ready className="flex flex-wrap items-center gap-2 text-sm text-ink">Forge: {forge.identity.login} on {hostOf(forge.origin)}<Badge variant="secondary">Ready</Badge></p>;
+  const needsFix = accounts.find((account) => account.primary && account.problem !== null) ?? (forges.length === 0 ? accounts.find((account) => account.problem !== null) : undefined);
   return <div data-bank-ready className="flex flex-wrap items-center gap-2 text-sm text-ink">
-    <p>{forges.length > 0 ? "Choose your main forge. New notebooks go there." : "No forge yet."}</p>
+    <p>{needsFix !== undefined ? `Your account on ${hostOf(needsFix.origin)} needs a fix first.` : forges.length > 0 ? "Choose your main forge. New notebooks go there." : "No forge yet."}</p>
     <GoToForges environmentId={environmentId} />
   </div>;
 };
@@ -190,7 +191,7 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
     <BankChoices value={mode} choose={(next) => { say(undefined); setMode(next); }} />
     {command.status === "absent" && <AccessUnavailable environmentId={environmentId} answer={command}><p>You can look but not change this. {command.message}</p></AccessUnavailable>}
     {forges.error !== null && <BankRefusal refusal={plainRefusal(forges.error, "Check again")} />}
-    {mode !== "join" && forges.result !== null && <ReadyRow environmentId={environmentId} mode={mode} forges={verified} />}
+    {mode !== "join" && forges.result !== null && <ReadyRow environmentId={environmentId} mode={mode} accounts={forges.result.accounts} forges={verified} />}
     <div data-bank-form className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-4">
     {read.result !== null && (mode === "personal"
       ? <PersonalBankForm key={environmentId} environmentId={environmentId} forges={verified} busy={disabled} create={create} firstProject={repository?.split("/").at(-1)?.replace(/\.git$/, "") ?? ""} />

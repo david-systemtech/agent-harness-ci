@@ -292,6 +292,38 @@ describe("the Memory bank card", () => {
     expect(within(card).queryByText("Enter a name.")).toBeNull();
   });
 
+  it("keeps Preview enabled and says Enter a notebook link beside an empty link, reading nothing", async () => {
+    const { app, desk, card } = await open();
+    await app.user.click(await within(card).findByRole("radio", { name: "Join my team's notebook" }));
+    const preview = within(card).getByRole("button", { name: "Preview" }) as HTMLButtonElement;
+    expect(preview.disabled).toBe(false);
+    await app.user.click(preview);
+    expect((await within(card).findByRole("alert")).textContent).toBe("Error: Enter a notebook link.");
+    const link = within(card).getByRole("textbox", { name: "Notebook link" });
+    expect(link.getAttribute("aria-invalid")).toBe("true");
+    expect(desk.requests("banks.join.preview")).toHaveLength(0);
+  });
+
+  it("puts Choose a forge on the Forge field when there is none, not on Owner", async () => {
+    const { app, desk, card } = await open({ forges: { accounts: [] } });
+    await app.user.click(await within(card).findByRole("radio", { name: "Create a notebook for my team" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Team name" }), "Platform");
+    await app.user.type(within(card).getByRole("textbox", { name: "First projects (one per line)" }), "harness");
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    expect((await within(card).findByRole("alert")).textContent).toBe("Error: Choose a forge.");
+    expect(within(card).getByRole("combobox", { name: "Forge" }).getAttribute("aria-invalid")).toBe("true");
+    expect(within(card).getByRole("combobox", { name: "Owner" }).hasAttribute("aria-invalid")).toBe(false);
+    expect(desk.requests("banks.create")).toHaveLength(0);
+  });
+
+  it("says the main forge's account needs a fix first, with Go to Forges, not No forge yet", async () => {
+    const { card } = await open({ forges: { accounts: [{ problem: { kind: "credential-rejected", since, message: "Sign in again." } }] } });
+    const row = await waitFor(() => card.querySelector<HTMLElement>("[data-bank-ready]")!);
+    expect(within(row).getByText("Your account on github.com needs a fix first.")).toBeDefined();
+    expect(within(row).getByRole("button", { name: "Go to Forges" })).toBeDefined();
+    expect(within(card).queryByText("No forge yet.")).toBeNull();
+  });
+
   it("shows a notebook's badges and its description's state in words, the rest in Details", async () => {
     const team = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "team-memory", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } }), kind: "team" as const, enabled: false };
     const broken = { ...team, id: "0199aa00-0000-4000-8000-000000000003", name: "broken", status: { ...team.status, manifest: { state: "invalid" as const, rule: "retired_key", message: "BANK.md uses description.", since } } };

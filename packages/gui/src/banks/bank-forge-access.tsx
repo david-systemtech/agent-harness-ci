@@ -3,8 +3,8 @@ import { matchForgeAccount, normaliseRemote, type BankRecord, type ForgeAccountR
 import { useMemo } from "react";
 import { nameOf } from "../connections/words.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { GoToForges } from "./bank-controls.js";
-import { hostOf } from "./bank-words.js";
+import { BankRefusal, GoToForges } from "./bank-controls.js";
+import { hostOf, unreachableLine } from "./bank-words.js";
 
 /** HTTPS origins include their port; only verified aliases serve bank reads (ADR 0020). */
 const accountFor = (origin: string, accounts: readonly ForgeAccountRecord[]) => {
@@ -16,25 +16,26 @@ const accountFor = (origin: string, accounts: readonly ForgeAccountRecord[]) => 
 };
 
 /**
- * Why a notebook cannot be reached, in one plain line, never cut (setup-copy.md
- * §5.8): the environment's line and, when no forge account here covers its
- * forge but another computer's does, that it is connected there, not here,
- * with Go to Forges. A bank's forge access belongs to its own environment.
+ * Why a notebook cannot be reached, in one plain line by its cause, never cut,
+ * what the check saw in Details (setup-copy.md §5.8): when no forge account
+ * here covers its forge, that it needs one here, or that another computer's
+ * is connected there, not here, with Go to Forges. A bank's forge access
+ * belongs to its own environment.
  */
 export const BankForgeAccess = ({ environmentId, bank, accounts }: {
   readonly environmentId: string;
   readonly bank: BankRecord;
   readonly accounts: readonly ForgeAccountRecord[] | undefined;
 }) => {
-  const { location, status: { reachable } } = bank;
+  const { name, location, status: { reachable } } = bank;
   if (reachable.state !== "unreachable") return null;
-  const missing = accounts !== undefined && location.kind === "remote" && accountFor(location.origin, accounts) === null;
-  return missing && location.kind === "remote"
-    ? <MissingBankForge environmentId={environmentId} origin={location.origin} reason={reachable.reason} />
-    : <p className="text-xs text-ink">{reachable.reason}</p>;
+  const details = [`${name}: ${reachable.reason}`];
+  return accounts !== undefined && location.kind === "remote" && accountFor(location.origin, accounts) === null
+    ? <MissingBankForge environmentId={environmentId} name={name} origin={location.origin} details={details} />
+    : <BankRefusal refusal={{ line: unreachableLine(bank), details }} />;
 };
 
-const MissingBankForge = ({ environmentId, origin, reason }: { readonly environmentId: string; readonly origin: string; readonly reason: string }) => {
+const MissingBankForge = ({ environmentId, name, origin, details }: { readonly environmentId: string; readonly name: string; readonly origin: string; readonly details: readonly string[] }) => {
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
   const sources = useObservable(useMemo(() => {
@@ -47,8 +48,7 @@ const MissingBankForge = ({ environmentId, origin, reason }: { readonly environm
       }));
   }, [runtime, environments, environmentId, origin]));
   return <>
-    <p className="text-xs text-ink">{reason}</p>
-    {sources.length > 0 && <p className="text-xs text-ink">Your {hostOf(origin)} account is connected on {sources.map(nameOf).join(", ")}, not here. Connect it here too.</p>}
+    <BankRefusal refusal={{ line: sources.length > 0 ? `Your ${hostOf(origin)} account is connected on ${sources.map(nameOf).join(", ")}, not here. Connect it here too.` : `${name} needs a forge account for ${hostOf(origin)} on this computer.`, details }} />
     <GoToForges environmentId={environmentId} />
   </>;
 };

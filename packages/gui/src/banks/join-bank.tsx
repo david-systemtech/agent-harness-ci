@@ -1,10 +1,10 @@
 import type { BankJoinPreview } from "@agent-harness/contracts";
-import { Eye, LogIn } from "lucide-react";
+import { Eye, Link, LogIn } from "lucide-react";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { Button, Field, Fold, Input } from "../ui/index.js";
+import { Button, Fold, Input } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime } from "../window-context.js";
-import { BankRefusal } from "./bank-controls.js";
+import { BankField, BankRefusal, useFieldCheck } from "./bank-controls.js";
 import { bankRefusal } from "./bank-words.js";
 
 /** setup-copy.md §5.8's line for a preview whose forge account cannot read the notebook. */
@@ -20,17 +20,18 @@ export const JoinBankForm = ({ environmentId, busy, join }: {
   const [previewUrl, preview] = useState<string>();
   /** The accounts unticked; every account uses the notebook unless the person unticks it (setup-copy.md §5.8). */
   const [unticked, untick] = useState<readonly string[]>([]);
+  const { missing, press } = useFieldCheck<"url">();
   const accounts = useObservable(useMemo(() => runtime.requests.cached(environmentId, "accounts.list", {}), [runtime, environmentId]));
   const read = useFollowed(useMemo(() => previewUrl === undefined ? undefined : runtime.requests.cached(environmentId, "banks.join.preview", { url: previewUrl }), [runtime, environmentId, previewUrl]));
   const result = read?.error === null ? read.result : null;
   const ticked = accounts.result?.accounts.filter((account) => !unticked.includes(account.id)).map((account) => account.id) ?? [];
   return <>
-    <div className="max-w-[320px]"><Field label="Notebook link"><Input title="Notebook link · Tab, type a link" value={url} onChange={(event) => { setUrl(event.target.value); preview(undefined); untick([]); }} /></Field></div>
-    <Button variant="outline" title="Preview · Tab, Enter or Space" className="self-start" disabled={busy || url.trim() === "" || read?.loading === true} onClick={() => {
+    <BankField wide icon={Link} label="Notebook link" error={missing.url}><Input value={url} onChange={(event) => { setUrl(event.target.value); preview(undefined); untick([]); }} /></BankField>
+    <Button variant="outline" title="Preview · Tab, Enter or Space" className="self-start" disabled={busy || read?.loading === true} onClick={() => press({ url: [url, "a notebook link"] }, () => {
       const next = url.trim();
       preview(next);
       runtime.requests.refresh(environmentId, "banks.join.preview", { url: next });
-    }}><Eye aria-hidden="true" />Preview</Button>
+    })}><Eye aria-hidden="true" />Preview</Button>
     {read?.loading === true && read.result === null && <p role="status" className="text-xs text-ink-muted">Reading the notebook…</p>}
     {read?.error != null && <BankRefusal refusal={bankRefusal(read.error, "Preview")} />}
     {result != null && <>

@@ -1,6 +1,6 @@
 import type { PlainRefusal } from "@agent-harness/client-runtime";
 import { ArrowUpRight, Link, UserRound, UsersRound, type LucideIcon } from "lucide-react";
-import { cloneElement, useId, type ReactElement } from "react";
+import { cloneElement, useId, useState, type ReactElement } from "react";
 import { CopyLine } from "../settings/copy-line.js";
 import { useSettings } from "../settings/settings-window.js";
 import { useChecklist } from "../setup/checklist-window.js";
@@ -50,6 +50,21 @@ export const BankField = ({ label, icon: Icon, children, wide = false, hint, err
     <div className="flex items-start gap-2"><Icon aria-hidden="true" className="mt-1 size-4 shrink-0 text-ink-muted" /><Tooltip content={label} keys="Tab to focus, type to edit"><div className="min-w-0 flex-1"><Field label={label} {...(hint !== undefined && { description: hint })}>{control}</Field></div></Tooltip></div>
     {error !== undefined && <p id={errorId} role="alert" className="mt-1 pl-6 text-sm text-signal"><span className="sr-only">Error: </span>{error}</p>}
   </div>;
+};
+
+/** `Enter {field}.` for each field a press found empty (setup-copy.md §5.8), by the field's name. */
+const empties = <Field extends string>(fields: Readonly<Record<Field, readonly [value: string, words: string]>>): Partial<Record<Field, string>> =>
+  Object.fromEntries(Object.entries<readonly [string, string]>(fields).filter(([, [value]]) => value.trim() === "").map(([field, [, words]]) => [field, `Enter ${words}.`])) as Partial<Record<Field, string>>;
+
+/** A press with an empty field says so beside it and sends nothing; one with every field filled sends. */
+export const useFieldCheck = <Field extends string>() => {
+  const [missing, setMissing] = useState<Partial<Record<Field, string>>>({});
+  const press = (fields: Readonly<Record<Field, readonly [string, string]>>, send: () => void) => {
+    const found = empties(fields);
+    setMissing(found);
+    if (Object.keys(found).length === 0) send();
+  };
+  return { missing, press };
 };
 
 /** A refusal's plain line, never cut, its raw facts under Details with Copy details (setup-copy.md §3). */

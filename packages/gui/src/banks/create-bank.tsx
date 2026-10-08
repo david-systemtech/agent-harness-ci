@@ -1,7 +1,7 @@
 import type { ForgeAccountRecord, ParamsOf } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { Folder, GitBranch, GitFork, Plus, Server, UserRound, UsersRound } from "lucide-react";
-import { BankButton, BankField, BankRefusal } from "./bank-controls.js";
+import { BankButton, BankField, BankRefusal, useFieldCheck } from "./bank-controls.js";
 import { bankRefusal } from "./bank-words.js";
 import { Input, Select, Textarea } from "../ui/index.js";
 import { useFollowed, useRuntime } from "../window-context.js";
@@ -16,21 +16,6 @@ interface CreateProps {
 
 /** Bank and folder names follow the bank contract; display names keep their spelling. */
 const slug = (name: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40).replace(/-$/, "");
-
-/** `Enter {field}.` for each field a press found empty (setup-copy.md §5.8), by the field's name. */
-const empties = <Field extends string>(fields: Readonly<Record<Field, readonly [value: string, words: string]>>): Partial<Record<Field, string>> =>
-  Object.fromEntries(Object.entries<readonly [string, string]>(fields).filter(([, [value]]) => value.trim() === "").map(([field, [, words]]) => [field, `Enter ${words}.`])) as Partial<Record<Field, string>>;
-
-/** A press with an empty field says so beside it and sends nothing; one with every field filled sends. */
-const useFieldCheck = <Field extends string>() => {
-  const [missing, setMissing] = useState<Partial<Record<Field, string>>>({});
-  const press = (fields: Readonly<Record<Field, readonly [string, string]>>, send: () => void) => {
-    const found = empties(fields);
-    setMissing(found);
-    if (Object.keys(found).length === 0) send();
-  };
-  return { missing, press };
-};
 
 export const PersonalBankForm = ({ forges, busy, create, firstProject }: CreateProps & { readonly firstProject: string }) => {
   const primary = forges.find((forge) => forge.primary);
@@ -67,22 +52,22 @@ export const TeamBankForm = ({ environmentId, forges, busy, create }: CreateProp
   const [org, setOrg] = useState<string>();
   const [projects, setProjects] = useState("");
   const { missing, press } = useFieldCheck<"team" | "name" | "org" | "projects">();
-  const [unchosen, setUnchosen] = useState<string>();
+  const [unchosen, setUnchosen] = useState<{ readonly forge?: string; readonly owner?: string }>({});
   const repositoryName = name ?? slug(team);
   const firstOrg = org ?? slug(team);
   const firstProjects = projects.split("\n").map((name) => name.trim()).filter(Boolean).map((name) => ({ name, folder: slug(name) }));
   const send = () => {
-    setUnchosen(forge === undefined ? "Choose a forge." : owner === undefined ? "Choose the owner from the list." : undefined);
+    setUnchosen(forge === undefined ? { forge: "Choose a forge." } : owner === undefined ? { owner: "Choose the owner from the list." } : {});
     press({ team: [team, "a team name"], name: [repositoryName, "a repository name"], org: [firstOrg, "a first organisation"], projects: [projects, "the first projects"] }, () => {
       if (forge !== undefined && owner !== undefined) void create(repositoryName, { kind: "team", forgeAccountId: forge.id, owner, repositoryName, teamName: team, org: firstOrg, projects: firstProjects });
     });
   };
   return <>
-    <BankField icon={GitFork} label="Forge"><Select value={forge?.id ?? ""} onChange={(event) => { pick(event.target.value); setOwner(undefined); }}>
+    <BankField icon={GitFork} label="Forge" error={unchosen.forge}><Select value={forge?.id ?? ""} onChange={(event) => { pick(event.target.value); setOwner(undefined); }}>
       <option value="" disabled>Choose a forge</option>
       {forges.map((forge) => <option key={forge.id} value={forge.id}>{new URL(forge.origin).host} — {forge.identity?.login}</option>)}
     </Select></BankField>
-    <BankField icon={UserRound} label="Owner" error={unchosen}><Select value={owner?.login ?? ""} disabled={owners?.result === null || owners?.error !== null} onChange={(event) => setOwner(event.target.value)}>
+    <BankField icon={UserRound} label="Owner" error={unchosen.owner}><Select value={owner?.login ?? ""} disabled={owners?.result === null || owners?.error !== null} onChange={(event) => setOwner(event.target.value)}>
       <option value="" disabled>Choose an owner</option>
       {owners?.result?.owners.map((owner) => <option key={owner.login} value={owner.login}>{owner.login}</option>)}
     </Select></BankField>

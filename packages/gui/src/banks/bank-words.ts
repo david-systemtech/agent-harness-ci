@@ -28,6 +28,22 @@ export const hostOf = (url: string): string => {
   try { return new URL(url).host; } catch { return url; }
 };
 
+/**
+ * Why a notebook cannot be reached, by the cause the environment found, in
+ * setup-copy.md §5.8's line (the Set up check words it the same way); what
+ * the check saw goes in Details.
+ */
+export const unreachableLine = ({ name, copiedFrom, location, status: { reachable } }: BankRecord): string => {
+  const cause = reachable.state === "unreachable" ? reachable.cause : undefined;
+  const host = location.kind === "remote" ? hostOf(location.origin) : null;
+  if (cause === "folder-missing") return `${name}'s folder on this computer is missing.`;
+  if (cause === "no-forge-account" && host !== null) {
+    return copiedFrom === null ? `${name} needs a forge account for ${host} on this computer.` : `Your ${host} account is connected on ${copiedFrom.environmentName}, not here. Connect it here too.`;
+  }
+  if (cause === "repository-missing" && host !== null) return `The repository for ${name} is missing on ${host}.`;
+  return `agent-harness cannot reach ${name}. Choose Check again.`;
+};
+
 /** A notebook's badges (setup-copy.md §5.8): Personal or Team, On or Off, and where it is kept; the rest is in Details. */
 export const bankBadges = (bank: BankRecord): readonly string[] => [
   ...(bank.kind === null ? [] : [bank.kind === "team" ? "Team" : "Personal"]),
