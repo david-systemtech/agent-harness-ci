@@ -167,6 +167,23 @@ it("offers Start when a ready environment stops while the introduction is still 
   expect(await screen.findByText("agent-harness is ready on this computer.")).toBeDefined();
 });
 
+it("says an update another client started as restarting for an update, not stopping", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+  expect(statusLine()).toBe("agent-harness is ready on this computer.");
+  app.environment("desk").discovery("nothing");
+  app.environment("desk").bye("updating");
+  expect(await within(panel()).findByText("desk is restarting for an update…")).toBeDefined();
+  expect(within(panel()).queryByText(/stopping|Choose Start/)).toBeNull();
+  expect(within(panel()).queryByRole("button", { name: "Start" })).toBeNull();
+});
+
+it("says a local connection disabled on this client as disabled", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+  await act(() => app.runtime.connections.setEnabled(app.environment("desk").environmentId, false));
+  expect(await within(panel()).findByText("desk is disabled on this client.")).toBeDefined();
+  expect(within(panel()).queryByText("This app cannot connect to this computer.")).toBeNull();
+});
+
 it("says a block on this computer in its plain line, with its fix", async () => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
   app.environment("desk").bye("revoked");

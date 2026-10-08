@@ -137,9 +137,10 @@ The welcome block ("Welcome to agent-harness", the lede and the two intro cards)
 | unavailable (no service in this app, e.g. a browser tab) | `This app cannot run agent-harness itself.` | `Connect it to a computer that runs agent-harness.` | **Connect to another computer** (replaces the raw `no-shell`) |
 | stopped | `agent-harness is not running on this computer.` | `Choose Start.` | **Start** |
 | reconnecting | `Reconnecting to agent-harness on this computer…` | `This happens by itself.` | — |
-| stopping (no update under way) | `agent-harness is stopping on this computer…` | `Choose Start once it has stopped.` | — (today this reads "restarting for an update") |
-| restarting for an update this app knows of, or waiting on macOS's prompt for the saved key | the connection's own line (the update's progress, or the prompt's) | — | — |
-| blocked / disabled | the block's plain line (§3 patterns) | its one fix | its fix button |
+| stopping (draining, no update under way) | `agent-harness is stopping on this computer…` | `Choose Start once it has stopped.` | — (today this reads "restarting for an update") |
+| restarting for an update this app knows of or the environment announced (`bye: updating`, from any client), or waiting on macOS's prompt for the saved key | the connection's own line (the update's progress, the prompt's, or `{name} is restarting for an update…`) | — | — |
+| disabled on this client | the connection's own line, `{name} is disabled on this client.` | — | — |
+| blocked | the block's plain line (§3 patterns) | its one fix | its fix button |
 
 - "Begin set up" keeps its label in every state; while disabled the visible line beneath says `Available once agent-harness is ready.`
 - "Pair instead" becomes **Connect to another computer**; "I'll set up later" stays. It is the one Connect to another computer

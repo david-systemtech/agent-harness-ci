@@ -13,11 +13,17 @@ const desk = (phase: ConnectionPhase, update?: EnvironmentView["update"]): Envir
 
 const RESTARTING = { pending: null, error: null, restarting: true, canUpdateNow: false };
 
-// A service stopped by hand drains like one restarting for an update: only an update the runtime knows of is said as one (#1838).
+// A service stopped by hand drains like one restarting for an update; `updating` follows the environment's bye: updating,
+// an update under way whether or not this window started it (#1838).
 describe("a draining or updating environment", () => {
-  it.each(["draining", "updating"] as const)("is stopping while %s with no update under way", (phase) => {
-    expect(phaseSentence(desk(phase), false, false, NOW)).toBe("desk is stopping…");
-    expect(phaseWords(desk(phase), false, false, NOW)).toBe("Stopping…");
+  it("is stopping while draining with no update under way", () => {
+    expect(phaseSentence(desk("draining"), false, false, NOW)).toBe("desk is stopping…");
+    expect(phaseWords(desk("draining"), false, false, NOW)).toBe("Stopping…");
+  });
+
+  it("is restarting for an update while updating for an update another client started", () => {
+    expect(phaseSentence(desk("updating"), false, false, NOW)).toBe("desk is restarting for an update…");
+    expect(phaseWords(desk("updating"), false, false, NOW)).toBe("Restarting for an update…");
   });
 
   it.each(["draining", "updating"] as const)("is restarting for an update while %s with one under way", (phase) => {

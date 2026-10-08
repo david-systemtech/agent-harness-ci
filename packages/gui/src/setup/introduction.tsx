@@ -14,13 +14,14 @@ import { TechnicalDetails } from "./details.js";
 
 /**
  * This computer's service as the introduction says it (setup-copy.md §4.1):
- * `waiting` is a drain or an update the runtime knows of, or macOS's prompt
- * for the stored key, said in the connection's own sentence; `blocked` is a
- * block or a disabled connection, said in the block's plain line.
+ * `waiting` is an update (one the runtime knows of, or the environment's
+ * bye: updating) or macOS's prompt for the stored key, and `disabled` a
+ * connection disabled on this client, both said in the connection's own
+ * sentence; `blocked` is a block, said in its plain line.
  */
-type ServiceState = "ready" | "installing" | "starting" | "failed" | "off" | "unavailable" | "stopped" | "reconnecting" | "halting" | "waiting" | "blocked";
+type ServiceState = "ready" | "installing" | "starting" | "failed" | "off" | "unavailable" | "stopped" | "reconnecting" | "halting" | "waiting" | "disabled" | "blocked";
 
-const WORDS: { readonly [State in Exclude<ServiceState, "failed" | "waiting" | "blocked">]: readonly [status: string, description: string] } = {
+const WORDS: { readonly [State in Exclude<ServiceState, "failed" | "waiting" | "disabled" | "blocked">]: readonly [status: string, description: string] } = {
   ready: ["agent-harness is ready on this computer.", "Choose Begin set up."],
   installing: ["Installing agent-harness on this computer…", "This happens once and takes about a minute."],
   starting: ["Starting agent-harness on this computer…", "This takes a few seconds."],
@@ -65,10 +66,12 @@ const stateOf = (local: EnvironmentView | undefined, service: LocalService, runH
     case "backoff":
       return "reconnecting";
     case "draining":
-    case "updating":
       return local.update === undefined ? "halting" : "waiting";
-    case "blocked":
+    case "updating":
+      return "waiting";
     case "disabled":
+      return "disabled";
+    case "blocked":
       return "blocked";
   }
 };
@@ -96,7 +99,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
   const state = stateOf(local, service, runHere);
   const failure = state === "failed" ? service.failure : undefined;
   const [status, description] = failure !== undefined ? [FAILED, FAILURE_WORDS[failure.kind]]
-    : state === "waiting" ? [phaseSentence(local!, false, false, clock.now()), undefined]
+    : state === "waiting" || state === "disabled" ? [phaseSentence(local!, false, false, clock.now()), undefined]
     : state === "blocked" ? [blockWords({ ...local!, name: null }), undefined]
     : WORDS[state as keyof typeof WORDS];
   const StateIcon = state === "ready" ? Check : failure !== undefined ? CircleAlert : BUSY.has(state) ? LoaderCircle : Monitor;
