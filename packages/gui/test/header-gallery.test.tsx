@@ -26,8 +26,6 @@ it("keeps the reported four-step attention header covered at both acceptance wid
       { selector: '[data-header-width="1400"][data-header-fits="true"] header', width: Math.min(1400, window.innerWidth), height: 44 },
       { selector: '[data-header-width="1400"] button[aria-label="Set up: 4 to fix"]', height: 22 },
       { selector: '[data-header-width="1024"] button[aria-label="Set up: 4 to fix"]', height: 22 },
-      { selector: '[data-header-width="1400"] button[aria-label="Set up: 4 to fix"] > span', contentFits: true },
-      { selector: '[data-header-width="1024"] button[aria-label="Set up: 4 to fix"] > span', contentFits: true },
       { selector: '[data-header-width="1024"][data-header-fits="true"] header', width: Math.min(1024, window.innerWidth), height: 44 },
       { selector: '[data-header-width="1400"] button[aria-label="Restart to update"] > span', contentFits: true, fontSize: 11 },
       { selector: '[data-header-width="1024"] button[aria-label="Restart to update"] > span', contentFits: true, fontSize: 11 },

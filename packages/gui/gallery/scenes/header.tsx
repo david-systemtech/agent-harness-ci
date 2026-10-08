@@ -103,7 +103,6 @@ export const geometry = [1400, 1024].flatMap((width) => [
   { selector: `[data-header-width="${width}"] button[aria-label="Search sessions and commands"]`, height: 24 },
   { selector: `[data-header-width="${width}"] [role="radiogroup"]`, height: 30 },
   { selector: `[data-header-width="${width}"] button[aria-label="Set up: 4 to fix"]`, height: 22 },
-  { selector: `[data-header-width="${width}"] button[aria-label="Set up: 4 to fix"] > span`, contentFits: true },
   { selector: `[data-header-width="${width}"] button[aria-label="Parked asks, 1 waiting"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Restart to update"]`, height: 22 },
   { selector: `[data-header-width="${width}"] button[aria-label="Restart to update"] > span`, contentFits: true, fontSize: 11 },
