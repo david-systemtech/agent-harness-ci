@@ -14,6 +14,7 @@ import { create, workspace } from "../../test/sessions.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
 import { autoMemoryName } from "../workspace/auto-memory.js";
 import type { ForgeGitRequest } from "../forge/harness-git.js";
+import { forgeAccountMissing } from "../forge/missing-origins.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { composeInstructions } from "../instructions/composer.js";
 import { git } from "../../test/workspaces.js";
@@ -414,6 +415,22 @@ describe("banks.sync", () => {
     t.clock.jump(1_000);
     expect((await pull(client, bank))?.status).toEqual(after?.status);
     expect(events(t, failedAt)).toEqual([]);
+  });
+});
+
+describe("a fetch the forge asked a credential for", () => {
+  it("records why, the origin and the cause, not only the line that a forge is needed (#1850)", async () => {
+    let refuse = false;
+    const { t, client, bank } = await start({ banksGit: async (request, git) => {
+      if (!refuse) return git(request);
+      const { origin } = new URL(request.repository);
+      return { outcome: "refused", error: forgeAccountMissing(origin, "it asked for a credential") };
+    } });
+    await pull(client, bank);
+    refuse = true;
+    t.clock.jump(1_000);
+    const after = await pull(client, bank);
+    expect(after?.status.reachable).toMatchObject({ state: "unreachable", reason: expect.stringMatching(/^[a-z]+:\/\/[^ ]+: it asked for a credential$/) });
   });
 });
 
