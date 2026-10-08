@@ -1,4 +1,4 @@
-import type { BankJoinPreview, CarryOverInventory, StepId } from "@agent-harness/contracts";
+import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -20,7 +20,13 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater";
+
+/** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
+const NEVER_POLLED: Partial<StepResult> = {
+  state: "needs-attention", reason: "This container is not kept up to date yet. Set up the updater on the host computer.",
+  failing: ["your-machines.host-updater"], actions: ["how-to-set-up", "check-again"],
+};
 
 /** A provider's authorize link at its real length, which once printed over eight lines (#1690); every value is invented. */
 export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=true&client_id=client-for-gallery&response_type=code"
@@ -29,13 +35,14 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
+    ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   desk.wire.answer("browser.status", () => ({ result: {
@@ -101,6 +108,11 @@ export function setupRegionScene(kind: SetupRegion) {
             signed = true;
             scene.prepared.world.environment("desk").signIn("awaiting-code", { url: SIGN_IN_URL });
           }
+          return;
+        }
+        if (kind === "host-updater") {
+          const how = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "How to set it up");
+          if (!finished && how !== undefined) { finished = true; how.click(); }
           return;
         }
         if (kind !== "browser" || finished) return;
