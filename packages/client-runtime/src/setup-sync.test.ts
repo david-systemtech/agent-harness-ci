@@ -4,7 +4,7 @@ import type { SetupSteps } from "../../environment/src/setup/service.js";
 import { answeringCheck, scriptedStep } from "../../environment/test/setup-steps.js";
 import { holds, useHarness } from "../test/harness.js";
 import type { SetupView } from "./projections/setup.js";
-import { stepLine } from "./setup/checklist.js";
+import { stepLine, stepNote } from "./setup/checklist.js";
 import { MANUAL_CLOCK_START, inMemoryPlatform } from "./testing/in-memory-platform.js";
 import { whenWords } from "./transcript/format.js";
 
@@ -119,6 +119,6 @@ describe("projections.setup over the in-process environment", () => {
     const signedIn = view.steps.find((step) => step.id === "account");
     expect(signedIn?.result).toMatchObject({ checkedAt: MANUAL_CLOCK_START, asked: false, olderThanCadence: false, stale: false });
     const now = runtime.environmentNow(t.env.id);
-    expect(signedIn === undefined ? undefined : stepLine(signedIn, now)).toBe(`Every account is signed in. (unchanged since ${whenWords(MANUAL_CLOCK_START, now)})`);
+    expect(signedIn === undefined ? undefined : [stepLine(signedIn, now), stepNote(signedIn, now, "desk")]).toEqual(["Every account is signed in.", `No change since ${whenWords(MANUAL_CLOCK_START, now)}.`]);
   });
 });

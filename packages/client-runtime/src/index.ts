@@ -265,17 +265,19 @@ export {
 } from "./setup/actions.js";
 export {
   STEP_STATE_WORDS,
-  checkedAgoWords,
   countsWords,
   homedChecks,
   isRegisteredStep,
   lastGoodWords,
+  needsWord,
   rowHealth,
   setupReachWords,
   stepLine,
+  stepNote,
   worstState,
 } from "./setup/checklist.js";
 export { installLines, type InstallLines, type InstallTarget } from "./setup/install-lines.js";
+export { plainRefusal, type PlainRefusal, type Refusal } from "./words/refusal.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
