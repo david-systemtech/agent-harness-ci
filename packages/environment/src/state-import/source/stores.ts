@@ -74,6 +74,8 @@ export interface SourcePreferences {
   readonly clientLocal: StateImportClientLocal;
   /** Model choices kept per session. */
   readonly modelChoices: number;
+  /** The models chosen: the composer's first, then each per-session choice by how many sessions made it, the first made first among equals. */
+  readonly models: readonly string[];
   /** Dock layouts: the window's and each session's. */
   readonly layouts: number;
   readonly composerSeeds: number;
@@ -268,10 +270,27 @@ const parsePreferences = (value: unknown): SourcePreferences | Refusal => {
     ...(isSettingsAddress(section) && { settingsRow: rowOfAddress(section) }),
   };
   const composerSeeds = ["cwd", "permissionMode", "model", "effort", "fastMode", "ultracode"].filter((key) => value[key] !== undefined && value[key] !== null).length;
-  return { ...(typeof value["activeProfileId"] === "string" && { activeProfileId: value["activeProfileId"] }), clientLocal, modelChoices: entries(value["modelBySession"]), layouts: (value["dockLayout"] === undefined ? 0 : 1) + entries(value["dockLayouts"]), composerSeeds };
+  return { ...(typeof value["activeProfileId"] === "string" && { activeProfileId: value["activeProfileId"] }), clientLocal, modelChoices: entries(value["modelBySession"]), models: chosenModels(value), layouts: (value["dockLayout"] === undefined ? 0 : 1) + entries(value["dockLayouts"]), composerSeeds };
 };
 
-const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, layouts: 0, composerSeeds: 0 };
+/** A model a choice names: a non-empty string; null, the provider's default, names none. */
+const modelOf = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? value.trim() : undefined);
+
+/** The models the preferences chose: the composer's, then each session's choice by how many sessions made it, each once. */
+const chosenModels = (value: Record<string, unknown>): readonly string[] => {
+  const counts = new Map<string, number>();
+  const sessions = isRecord(value["modelBySession"]) ? Object.values(value["modelBySession"]) : [];
+  for (const choice of sessions) {
+    const model = isRecord(choice) ? modelOf(choice["model"]) : undefined;
+    if (model !== undefined) counts.set(model, (counts.get(model) ?? 0) + 1);
+  }
+  const composer = modelOf(value["model"]);
+  // A stable sort: among equal counts, the first chosen stays first.
+  const bySessions = [...counts].sort((a, b) => b[1] - a[1]).map(([model]) => model);
+  return [...new Set([...(composer === undefined ? [] : [composer]), ...bySessions])];
+};
+
+const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, models: [], layouts: 0, composerSeeds: 0 };
 
 /** Reads the stores of the source data folder `folder`, each on its own. */
 export const readSourceStores = async (folder: string): Promise<SourceStores> => {

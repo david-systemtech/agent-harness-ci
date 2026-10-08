@@ -16,7 +16,6 @@ export async function phoneRunPickerSmoke(page: Page, engine: string): Promise<v
   const models = choices.getByRole("group", { name: "Models", exact: true });
   const search = models.getByRole("textbox", { name: "Search models" });
   await expect(search).toBeVisible();
-  await models.getByRole("menuitem", { name: "All models", exact: true }).click();
   await search.focus();
   await page.evaluate(`(() => {
     const viewport = window.visualViewport;

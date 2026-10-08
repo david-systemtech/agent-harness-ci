@@ -877,8 +877,8 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...account, writesState: [{ method: "permissions.denylist.set", parts: ["containment"] }] }, permissions])).toEqual([]);
   });
 
-  it("puts the default account, model family and effort and providers.processIdleMinutes under the Account entry, on accounts.default-model, each checked done on any valid value", () => {
-    const keys = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"] as const;
+  it("puts the default account, model family and effort, the favourite models and providers.processIdleMinutes under the Account entry, on accounts.default-model, each checked done on any valid value", () => {
+    const keys = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "accounts.favouriteModels", "providers.processIdleMinutes"] as const;
     expect(account.writes).toEqual(keys);
     expect(account.links).toEqual([{ row: "accounts.default-model" }]);
     for (const key of keys) expect(SETTINGS[key].step, key).toEqual({ id: "account", row: "accounts.default-model" });
@@ -888,6 +888,9 @@ describe("the step registry", () => {
       expect(checkOf(key)("opus"), key).toBe(true);
       expect(checkOf(key)(""), key).toMatch(key);
     }
+    expect(checkOf("accounts.favouriteModels")([])).toBe(true);
+    expect(checkOf("accounts.favouriteModels")(["opus", "sonnet"])).toBe(true);
+    expect(checkOf("accounts.favouriteModels")(["opus", "opus"])).toMatch(/accounts\.favouriteModels/);
     const check = checkOf("providers.processIdleMinutes");
     expect(check(presetSettings()["providers.processIdleMinutes"])).toBe(true);
     expect(check(1440)).toBe(true);

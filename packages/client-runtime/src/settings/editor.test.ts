@@ -11,7 +11,7 @@ import { confirmationOf, describeKey, noKeysLine, parseTyped, rowKeys, saveSetti
 
 describe("a row's keys", () => {
   it("are the keys the table places on it, in the table's order, and a row holding none says so", () => {
-    expect(rowKeys("accounts.default-model")).toEqual(["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"]);
+    expect(rowKeys("accounts.default-model")).toEqual(["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "accounts.favouriteModels", "providers.processIdleMinutes"]);
     expect(rowKeys("environments.service")).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
     expect(rowKeys("knowledge.banks")).toEqual([]);
     expect(noKeysLine("knowledge.banks")).toBe("Memory banks holds no settings key.");

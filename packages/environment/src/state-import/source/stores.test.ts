@@ -110,6 +110,7 @@ describe("the preferences", () => {
       records: {
         clientLocal: { mode: "light", fontSize: 20, conversationWidth: "wide", showThinking: false, settingsRow: "knowledge.instructions" },
         modelChoices: 2,
+        models: ["opus", "sonnet"],
         layouts: 4,
       },
     });
