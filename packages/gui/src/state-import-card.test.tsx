@@ -32,16 +32,16 @@ const answerRun = (app: Awaited<ReturnType<typeof opened>>) => app.environment("
 const section = () => within(screen.getByRole("region", { name: "State import" }));
 
 describe("State import on Carry over", () => {
-  it("explains how to repair a retained state import after provider sign-in, without treating a dry run as a repair", async () => {
-    const reason = "The last state import failed part way: Skill source: The repository needs a credential. Import again to retry what failed.";
+  it("offers Continue bringing it over for a retained state import, without the blanket repair paragraph, and without treating a dry run as a repair", async () => {
+    const reason = "1 item from your earlier work did not come over. See what to do below each one.";
     const app = await opened({ accounts: [{ label: "Work" }], setup: { "carry-over": {
       state: "needs-attention", reason, actions: ["import-again"], failing: ["carry-over.last-import"],
-      targets: [{ action: "import-again", kind: "environment", id: "desk", label: "The state import" }],
+      targets: [{ action: "import-again", kind: "environment", id: "desk", label: "Your earlier work" }],
     } } });
-    expect(await screen.findByText(/Provider sign-in does not grant access to private skill repositories/)).toBeDefined();
-    expect(section().getByText(/SSH keys and known-hosts entry/)).toBeDefined();
-    expect(section().getByRole("button", { name: "Open Forges" })).toBeDefined();
-    expect(section().getByRole("button", { name: "Open Skills" })).toBeDefined();
+    await screen.findByRole("region", { name: "State import" });
+    // The 50-word paragraph is no longer drawn by the Carry over card (#1844): each failed item says its own fix (#1845).
+    expect(screen.queryByText(/Provider sign-in does not grant access to private skill repositories/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bring them over: Your earlier work" })).toBeNull();
     const preview = report(true);
     preview.failed = [];
     preview.reEnter = [];
@@ -49,19 +49,22 @@ describe("State import on Carry over", () => {
     await app.user.click(section().getByRole("button", { name: "Dry run" }));
     expect(await section().findByText(/A dry run does not test repository access or clear a failed import/)).toBeDefined();
     expect(screen.getByText(reason)).toBeDefined();
-    await app.user.click(section().getByRole("button", { name: "Open Forges" }));
-    expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Forges" }).getAttribute("aria-current")).toBe("step");
+    answerRun(app);
+    await app.user.click(await screen.findByRole("button", { name: "Continue bringing it over" }));
+    await waitFor(() => expect(app.environment("desk").requests("stateImport.run")).toHaveLength(2));
+    expect(app.environment("desk").requests("stateImport.run")[1]?.params).toMatchObject({ dryRun: false });
   });
 
   it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {
-    const reason = "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.";
+    const reason = "Nothing to bring over from this computer.";
     const app = await opened({ reach: "paired", accounts: [{ label: "Server", directory: { kind: "owned", path: "/data/owned" } }],
       setup: { "carry-over": { state: "skipped", reason, failing: [], actions: [] } },
     }, { dataFolder: null, terminalFolder: null });
     expect(screen.getByText(reason)).toBeDefined();
-    expect(screen.queryByText(/Not carried from your Claude Code directory/)).toBeNull();
-    expect(screen.queryByRole("region", { name: "Server" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Import" })).toBeNull();
+    expect(screen.getByText("You can continue.")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "What will not come over" })).toBeNull();
+    expect(screen.queryByText(/^Server:/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bring them over" })).toBeNull();
     await app.user.click(screen.getByRole("button", { name: "Continue" }));
     expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Your machines" }).getAttribute("aria-current")).toBe("step");
     expect(app.environment("desk").requests("stateImport.run")).toHaveLength(0);
@@ -246,15 +249,14 @@ describe("State import on Carry over", () => {
         return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: report() } };
       });
     });
-    const personal = within(await screen.findByRole("region", { name: "Personal" }));
-    expect(within(await personal.findByLabelText("Sessions")).getByText("Sessions").nextElementSibling?.textContent).toBe("5");
+    expect(await screen.findByText("Personal: 5 past chats, 0 notes folders, 0 skills.")).toBeDefined();
     await screen.findByRole("region", { name: "State import" });
     await app.user.click(section().getByRole("button", { name: "Import" }));
     await section().findByRole("heading", { name: "Import report" });
     const finished = StateImportFinishedPayload.parse(report());
     await act(async () => app.environment("desk").notice("state-import.finished", finished));
-    expect(await screen.findByRole("region", { name: "Imported profile" })).toBeDefined();
-    expect(await personal.findByRole("button", { name: "Import 1 new sessions" })).toBeDefined();
+    expect(await screen.findByText("Imported profile: 5 past chats, 0 notes folders, 0 skills.")).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Bring over 2 new chats" })).toBeDefined();
     expect(within(await section().findByLabelText("Source holdings")).getByText("Profiles").nextElementSibling?.textContent).toBe("1");
     expect(section().queryByText("Terminal-client state folder: /data/terminal")).toBeNull();
     expect(app.environment("desk").requests("carryOver.run")).toHaveLength(0);

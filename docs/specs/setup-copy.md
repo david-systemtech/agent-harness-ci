@@ -266,17 +266,24 @@ quoted from the files named; a builder greps for them.
 - Title `Bring over your past work`. Why `Your old Claude Code chats and notes can come with you.`
 - What is this? `agent-harness can copy your past Claude Code chats, notes and skills from this computer. Nothing is deleted or changed where they came from.`
 - Nothing found: `Nothing to bring over from this computer.` + `You can continue.` (state Not set up; no other text on the card).
-- Found: one summary sentence per Claude Code sign-in: `{label}: {n} past chats, {m} notes folders, {k} skills.` and one primary
-  **Bring them over** (all accounts and the earlier-work import together; skills ticked). Counts per kind sit in fold `What will come over`.
+- Found: one summary sentence per Claude Code sign-in: `{label}: {n} past chats, {m} notes folders, {k} skills.` (singular for 1; skills
+  counts skill folders and command files) and one primary **Bring them over** (all accounts, and the earlier-work import the first time or
+  after it stopped; a re-run would apply its window preferences again). The tick beside it, shown while there are skills, reads
+  `Bring over skills too`, on. Counts per kind sit in fold `What will come over`, per account: `Past chats`, `New chats`, `Notes folders`,
+  `Skills`. While reading: `Looking for past work…`.
 - Fold `What will not come over` holds the list: `Your Claude Code settings, hooks and plugins`, `Personal MCP servers and permission rules`,
   `Subagents`, `Prompt history`, `Repository trust` and the line `Claude Code keeps all of these. You can set them up again in agent-harness when you need them.`
-- After: `Brought over {n} chats and {m} notes folders.`; nothing new: `Everything is already here.`; later new chats: **Bring over {n} new chat(s)** (singular for 1).
+- After: `Brought over {n} chats and {m} notes folders.`; nothing new: `Everything is already here.` (said once: not when the step's line
+  already says it); later new chats: **Bring over {n} new chat(s)** (singular for 1). What did not come over from an account is a notice
+  `{n} items from {label} did not come over.` `Choose Try again.` with the list in Details, and the one primary reads **Try again** until a
+  run brings the rest (also when the step names an account whose last import failed part way). A refusal is the mapper's line (§3).
 - Earlier work found in a folder (state import): `Earlier work found in {folder name}: {counts in words}.` **Preview** (was Dry run) and **Bring it over**.
   Preview result: `This would bring over: {counts}. Nothing has been changed yet.` + **Bring it over**.
 - Lines: skip `Nothing to bring over from this computer.`; found `Found earlier work you can bring over: {counts}.`; done `Brought over {when}.`;
   never imported `{label} has past chats to bring over. Choose Bring them over.`; unreadable `agent-harness cannot open {label}'s Claude Code folder.
   Check that it still exists, then choose Check again.` Details: path and error; part failed `{n} items from {label} did not come over. Choose Try again.`
-  Details: the list; earlier-work stopped `Bringing over your earlier work stopped before the end. Choose Continue bringing it over.`;
+  (`1 item` for one) Details: the list; earlier-work stopped `Bringing over your earlier work stopped before the end. Choose Continue bringing it over.`
+  (the card's **Continue bringing it over**; Details: the folder; the step's target for it is labelled `Your earlier work`);
   earlier-work partial `{n} items from your earlier work did not come over. See what to do below each one.`;
   default waits `Your default account waits for {label} to sign in. Choose Sign in {label}.` (opens §5.2 in place); running `Bringing your earlier work over now…`.
 
@@ -286,11 +293,12 @@ quoted from the files named; a builder greps for them.
 | `Past work found in {path}: … Not brought over yet.` | `Found earlier work you can bring over: {counts}.` |
 | `Import` / `Import {n} new sessions` / `Import again: {label}` | **Bring them over** / **Bring over {n} new chat(s)** / (one button only) |
 | `No new sessions.` | `Everything is already here.` |
-| `The inventory could not be read: {msg}` / `The accounts could not be read: {msg}` | `agent-harness could not look at {label}'s past work. Choose Check again.` Details |
+| `The inventory could not be read: {msg}` / `The accounts could not be read: {msg}` | `agent-harness could not look at {label}'s past work. Choose Check again.` Details (the accounts: `agent-harness could not look at your past work.`) |
+| `No account {id} is on this environment.` / `The account {id} has a directory of the environment's own, …` / `An import of the account {id} is under way.` (refusals) | `This account is not on this computer.` / `This account has no Claude Code folder to bring over.` / `Bringing over past work is under way already. Wait for it to finish.` (the id in the refusal's data) |
 | (nothing while loading) | `Looking for past work…` |
-| `Unmappable memory: {path}` + `Choose a repository` + `Assign memory: …` | `Notes from {project folder name} do not match a project here. Choose the project they belong to:` select · **Use for these notes** |
+| `Unmappable memory: {path}` + `Choose a repository` + `Assign memory: …` | `Notes from {project folder name} do not match a project here. Choose the project they belong to:` select (`Choose a project`) · **Use for these notes**; then `These notes now belong to {project}.` |
 | `No repository identities on this environment yet.` | `Bring your chats over first. Then you can choose a project for these notes.` |
-| `{name}: {url}, {folder}; branch …` + `Track as a source` | `{name} is a skills folder from {host}.` **Keep it up to date** Details: url, branch |
+| `{name}: {url}, {folder}; branch …` + `Track as a source` | `{name} is a skills folder from {host}.` **Keep it up to date** Details: url, branch; then `agent-harness keeps {name} up to date now.` |
 | `The harness copy of the skills is now the one to edit.` | only after skills came over: `Your skills now live in agent-harness. Edit them there.` |
 | `Provider sign-in does not grant access to private skill repositories. …` (50 words, every failure) | per failed item, its own fix: `Connect a forge for {host}` → **Go to Forges**; `Skill {name} is missing` → **Go to Skills**; else Details |
 | report headings `Carried`, `Re-enter`, `Arriving in milestone 2`, `Not carried` | `Brought over`, `Needs you`, `Not supported yet`, `Not brought over` |

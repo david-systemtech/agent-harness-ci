@@ -1,4 +1,4 @@
-import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
+import type { BankJoinPreview, CarryOverInventory, CarryOverReport, StepId, StepResult } from "@agent-harness/contracts";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -20,13 +20,25 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "carry-over-nothing" | "carry-over-after";
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
   state: "needs-attention", reason: "This container is not kept up to date yet. Set up the updater on the host computer.",
   failing: ["your-machines.host-updater"], actions: ["how-to-set-up", "check-again"],
 };
+
+/** setup-copy.md §5.3: a computer with nothing to bring over (#1844). */
+const NOTHING_TO_BRING: Partial<StepResult> = { state: "skipped", reason: "Nothing to bring over from this computer.", failing: [], actions: [] };
+
+/** What Bring them over reports in the after scene: the chats and notes it brought, one chat left behind, and skills copied. */
+const broughtOver = (accountId: string): CarryOverReport => ({
+  accountId, dryRun: false,
+  sessions: { listed: 24, imported: 23, archived: 6, missingDirectory: 2, held: 0 },
+  memory: { folders: [{ folder: "-work-project", path: "/accounts/project/projects/-work-project/memory", key: "https://forge.example.test/team/project", outcome: "copied", under: null, digest: `sha256:${"0".repeat(64)}` }], unmappable: [] },
+  skills: { accountId, dryRun: false, copied: [{ kind: "skill", name: "review", from: "/accounts/project/skills/review", path: "skills/review" }], kept: [], offered: [], invalid: [], notCarried: [] },
+  failed: [{ providerSessionId: "0199aa00-0000-4000-8000-000000000051", message: "Its working directory relative/work is not an absolute path on this environment." }],
+});
 
 /** A provider's authorize link at its real length, which once printed over eight lines (#1690); every value is invented. */
 export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=true&client_id=client-for-gallery&response_type=code"
@@ -35,14 +47,16 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "carry-over-nothing" || kind === "carry-over-after" ? "carry-over" : kind;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
       ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" }, status: { state: "expired", checkedAt: null, detail: null } }]
+      : kind === "carry-over-nothing" ? [{ label: "Project", directory: { kind: "owned", path: "/accounts/project" } }]
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
+    ...(kind === "carry-over-nothing" && { setup: { "carry-over": NOTHING_TO_BRING } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   desk.wire.answer("browser.status", () => ({ result: {
@@ -52,14 +66,19 @@ async function prepareRegion(kind: SetupRegion) {
   const since = prepared.clock.now().toISOString();
   desk.wire.answer("browser.chromes.list", () => ({ result: { chromes: [{ id: "0199aa00-0000-4000-8000-000000000041", name: "Project Chrome", pairedAt: since, lastConnectedAt: since, lastReportedVersion: "0.1.0", connected: true, outdated: false }] } }));
   desk.wire.answer("browser.pairing.code", () => ({ result: { code: "TEST2345", expiresAt: new Date(prepared.clock.now().getTime() + 300_000).toISOString() } }));
+  let brought = false;
   desk.wire.answer("carryOver.inventory", (params) => {
     const inventory: CarryOverInventory = {
-      accountId: String(params["accountId"]), sessions: { total: 24, archived: 6, missingDirectory: 2, new: 8 },
-      memory: { folders: 7, repositories: 3, unmappable: [], new: 2 },
-      skills: { skills: 5, commands: 2, new: 3, offered: [], invalid: 1 },
+      accountId: String(params["accountId"]), sessions: { total: 24, archived: 6, missingDirectory: 2, new: brought ? 1 : 24 },
+      memory: { folders: 7, repositories: 3, unmappable: [], new: brought ? 0 : 7 },
+      skills: { skills: 5, commands: 2, new: brought ? 0 : 7, offered: [], invalid: 1 },
       notCarried: [{ kind: "subagent", name: "helper" }], doesNotCarry: { hooks: 2, mcpServers: 1, permissionRules: 3 },
     };
     return { result: inventory };
+  });
+  desk.wire.answer("carryOver.run", (params) => {
+    brought = true;
+    return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: broughtOver(String(params["accountId"])) } };
   });
   const holders = await startWorld(prepared, prepared.paired);
   const sessionId = kind === "authoring" ? desk.sessionId() : undefined;
@@ -108,6 +127,11 @@ export function setupRegionScene(kind: SetupRegion) {
             signed = true;
             scene.prepared.world.environment("desk").signIn("awaiting-code", { url: SIGN_IN_URL });
           }
+          return;
+        }
+        if (kind === "carry-over-after") {
+          const bring = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-scroll] button")].find((button) => button.textContent === "Bring them over");
+          if (!finished && bring !== undefined && !bring.disabled) { finished = true; bring.click(); }
           return;
         }
         if (kind === "host-updater") {
