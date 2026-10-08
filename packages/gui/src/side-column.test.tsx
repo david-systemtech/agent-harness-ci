@@ -116,7 +116,7 @@ describe("the side column", () => {
     expect(screen.queryByRole("button", { name: "Close side sheet" })).toBeNull();
   });
 
-  it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, uncovering its waiting card, focus left in the session and the edge handle bringing back the pane it showed", async () => {
+  it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, uncovering its waiting card, focus kept off the sheet and off the edge handle that brings back the pane it showed", async () => {
     phoneLayout();
     narrowSheet();
     const app = await opened();
