@@ -299,7 +299,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
         {accounts.value === null ? <Waiting>{accounts.error ? `The accounts could not be read: ${accounts.error.message}` : "Reading the accounts…"}</Waiting> : <>
           {accounts.value.length === 0 && <Waiting>No accounts yet. Add an account to sign in.</Waiting>}
           {accounts.value.map((candidate) => <RunChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
-            label={`${candidate.label} ${identityWords(candidate)}`} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
+            label={`${candidate.label} ${identityWords(candidate)}`} primary={candidate.label} identity={identityWords(candidate)} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
             note={[ACCOUNT_STATUS_WORDS[candidate.status.state], candidate.id === accountId ? "this session" : candidate.status.state === "signed-in" ? "Fork onto this account" : "Sign in", candidate.provider].join(" · ")}
             usage={<UsageRings gauge={gaugeOf(usage.gauges, environmentId, candidate.id)} />} onSelect={() => pickAccount(candidate)} />)}
         </>}

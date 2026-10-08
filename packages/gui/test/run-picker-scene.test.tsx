@@ -2,6 +2,9 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../gallery/mount.js";
 
+/** The run-picker scene's second account, long enough to break mid-word in the 224px column before #1895. */
+const LONG_EMAIL = "account-2.with-a-long-address@example.test";
+
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
   await close?.();
@@ -29,11 +32,20 @@ it.each(["light", "dark"] as const)("shows the run-picker columns and geometry i
   expect(within(accounts).getAllByRole("img").map((ring) => ring.getAttribute("aria-label"))).toEqual(["5-hour 80%", "Weekly 35%", "5-hour 95%", "5-hour 80%", "Weekly 35%", "5-hour 95%", "5-hour 80%", "Weekly 35%", "5-hour 95%"]);
   expect(accounts.querySelectorAll("[data-usage-rings]")).toHaveLength(8);
   expect(within(accounts).queryByText("5-hour 80%")).toBeNull();
+  // An email sits on its own line under the label, cut with an ellipsis and whole in the tooltip, never broken mid-word (#1895).
+  const long = within(accounts).getByRole("menuitem", { name: `Account 2 ${LONG_EMAIL}` });
+  expect(LONG_EMAIL.length).toBeGreaterThanOrEqual(28);
+  expect(long.querySelector("[data-run-identity]")?.textContent).toBe(LONG_EMAIL);
+  expect(long.querySelector("[data-run-identity]")?.className).toContain("truncate");
+  expect(long.getAttribute("title")).toContain(LONG_EMAIL);
+  expect(within(long).getByText("Account 2").className).toContain("font-medium");
   expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("run-picker"));
   const geometry = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; width?: number; height?: number }[];
   expect(geometry.map((check) => check.width).filter(Boolean)).toEqual([224, 256, 256]);
   expect(geometry.some((check) => check.height === 320)).toBe(true);
+  expect(geometry).toContainEqual({ selector: '[data-run-column="Accounts"] [data-run-identity]', unbroken: true });
+  expect(geometry).toContainEqual({ selector: '[data-run-column="Accounts"] [role="menuitem"]:has([data-run-identity]):not([data-selected])', sameHeight: true });
   for (const check of geometry) expect(document.querySelector(check.selector)).not.toBeNull();
 });
 
@@ -66,7 +78,11 @@ it.each(["accounts", "models", "effort"])("shows only the %s step in the phone g
       expect(within(sheet).queryByRole("group", { name }) !== null).toBe(name.toLowerCase() === stage);
     }
     expect(within(sheet).queryByText("desk")).toBeNull();
-    if (stage === "accounts") expect(within(sheet).getAllByRole("img").map((ring) => ring.getAttribute("aria-label"))).toEqual(["5-hour 80%", "Weekly 35%", "5-hour 95%"]);
+    if (stage === "accounts") {
+      expect(within(sheet).getAllByRole("img").map((ring) => ring.getAttribute("aria-label"))).toEqual(["5-hour 80%", "Weekly 35%", "5-hour 95%"]);
+      expect([...sheet.querySelectorAll("[data-run-identity]")].map((line) => line.textContent)).toEqual(["project-account@example.test", "personal@example.test"]);
+      expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: "[data-run-sheet] [data-run-identity]", renderedOnly: true, unbroken: true });
+    }
     expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toContainEqual({ selector: "[data-run-sheet]", width: 344, visibleWithin: "[data-run-sheet]" });
   } finally {
     media.mockRestore();
