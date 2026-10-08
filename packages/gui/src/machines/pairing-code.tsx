@@ -61,7 +61,12 @@ interface PairingCodeProps {
   readonly warning?: ReactNode;
   /** Whether the code made says what it grants as the environment answered it, in scope and mode ids: Settings' Access pane does, Add a device does not. */
   readonly grantShown?: boolean;
+  /** Whether the code made says how to use it on another device's agent-harness: Add a device's does, a program's code does not, as a program has no Connect to another computer. */
+  readonly forDevice?: boolean;
 }
+
+/** How a code reaching another device is used there (setup-copy.md §5.5). */
+export const HOW_TO_USE = "On the new device, open agent-harness and choose Connect to another computer. Scan this code or paste the link.";
 
 const MINUTE_MS = 60_000;
 
@@ -97,7 +102,7 @@ const useMinutesLeft = (until: Date | undefined): number | undefined => {
  * reachable only from itself, is never offered to another device: it says
  * so, with no QR (#1847).
  */
-export const PairingCode = ({ view, writable, grant, action = "Make a pairing code", warning, grantShown = false }: PairingCodeProps) => {
+export const PairingCode = ({ view, writable, grant, action = "Make a pairing code", warning, grantShown = false, forDevice = false }: PairingCodeProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const [minted, setMinted] = useState<Minted | undefined>(undefined);
@@ -132,7 +137,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
         <div role="group" aria-label="Pairing code" className="flex flex-wrap items-start gap-4">
           {!local && <PairingQr link={live.pairing.link} />}
           <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm text-ink">
-            <p className={local ? "text-amber" : "text-ink"}>{local ? ONLY_HERE : "On the new device, open agent-harness and choose Connect to another computer. Scan this code or paste the link."}</p>
+            {local ? <p className="text-amber">{ONLY_HERE}</p> : forDevice && <p className="text-ink">{HOW_TO_USE}</p>}
             <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />
             <Fold summary="Type it instead" open={manual} onOpenChange={setManual}>
               <div className="flex flex-col gap-1">

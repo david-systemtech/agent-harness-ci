@@ -71,7 +71,7 @@ export const PresetPairing = ({ view, writable, warning }: { readonly view: Envi
       </Fold>
       {!grant.ok && <p className="text-xs text-ink-faint">Tick at least one thing it can do.</p>}
       {(above !== null || missing) && <p className="text-xs text-ink-faint">{CANNOT_GIVE_MORE}</p>}
-      <PairingCode view={view} writable={writable && grant.ok && above === null && !missing} grant={grant.ok ? grant : preset} warning={warning} />
+      <PairingCode view={view} writable={writable && grant.ok && above === null && !missing} grant={grant.ok ? grant : preset} warning={warning} forDevice />
     </div>
   );
 };

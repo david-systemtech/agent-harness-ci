@@ -218,6 +218,8 @@ describe("a program pairing", () => {
 
     expect(await within(form).findByText(/\/pair#K7Q2MXH4RV$/)).toBeDefined();
     expect(within(form).getByText("Grants read and sessions:write, up to plan.")).toBeDefined();
+    // A program has no Connect to another computer to choose.
+    expect(within(form).queryByText(/^On the new device/)).toBeNull();
     expect(within(form).getByRole("timer").textContent).toBe("This code works once, for 10 minutes. 10 min left.");
     expect(desk.requests("access.pairings.create").map((request) => request.params)).toEqual([expect.objectContaining({ scopes: ["read", "sessions:write"], ceiling: "plan" })]);
 
