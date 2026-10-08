@@ -177,6 +177,9 @@ Field `Pairing link` (no example value as placeholder), button **Pair**; **Scan 
 | `Not paired: macOS asked … then Try again.` / `… this one was used.` | `Your Mac's question was not answered, so pairing stopped. Choose Always Allow, then Try again.` / `… then make a new code: this one was used.` |
 | `Not paired: {thrown}` / `Not scanned: {thrown}` | `Pairing did not work. Try again.` / `The QR code could not be read. Paste the link instead.` Details |
 | `{name} is this machine's local environment: it connects through its grant, with no code.` | `That link is for this computer. This app is already connected to it.` |
+| `That code is for {x}, not {y}.` (pairing {y} again) | `That code is for {x}, not {y}. Make a new code on {y}.` |
+| `This device cannot keep a client session token: the OS keeps no key for it now. Unlock or set up the system keychain, then pair again.` | `This device has no safe place to keep the connection. Unlock or set up its keychain, then pair again.` Details |
+| `Full access could not be confirmed. Use a full-access code made for Me. …` (Give this phone full access) | Unchanged. Details: what the code granted and what the new connection holds |
 | `The environment that answered is {x}, not the one its address named.` | `That address reaches a different computer than the one that made the code. Make a new code and try again.` Details |
 | `Use the environment's HTTPS pairing link or HTTPS address. HTTP connections are unavailable in the browser.` | `Use the other computer's HTTPS pairing link or HTTPS address. This page cannot connect over HTTP.` Details: the address |
 

@@ -160,7 +160,7 @@ describe("pairing with an environment", () => {
     await runtime.start();
     const { link } = await t.createPairing();
 
-    expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "refused", message: expect.stringContaining("cannot keep a client session token") } });
+    expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "refused", message: "This device has no safe place to keep the connection. Unlock or set up its keychain, then pair again.", details: [expect.stringContaining("client session token")] } });
     answer = () => Promise.reject(new CredentialAccessUnansweredError(30));
     await expect(runtime.connections.add({ link })).rejects.toThrow(CredentialAccessUnansweredError);
     expect(runtime.connections.list.read()).toEqual([]);
@@ -260,7 +260,7 @@ describe("pairing with an environment", () => {
     const link = (await t.createPairing({ scopes: [...grant.scopes], ceiling: grant.ceiling })).link;
 
     expect(await runtime.connections.add({ link }, { rePair: t.env.id, fullAccess: true })).toMatchObject({
-      status: "failed", failure: { reason: "refused", message: expect.stringContaining("full-access code") },
+      status: "failed", failure: { reason: "refused", message: "Full access could not be confirmed. Use a full-access code made for Me. This phone's pairing has not changed.", details: [expect.stringMatching(new RegExp(`^The code granted .+ with ceiling ${grant.ceiling}\\.$`)), expect.stringContaining("The new connection holds")] },
     });
     expect(runtime.connections.list.read()).toEqual(before);
     expect(await platform.secrets.get(t.env.id)).toBe(token);
@@ -448,7 +448,7 @@ describe("pairing with an environment", () => {
 
       expect(await runtime.connections.add({ link: (await b.createPairing()).link }, { rePair: a.env.id })).toMatchObject({
         status: "failed",
-        failure: { reason: "different-environment" },
+        failure: { reason: "different-environment", message: "That code is for laptop, not desk. Make a new code on desk." },
       });
       expect(runtime.connections.list.read().map((r) => r.environmentId)).toEqual([a.env.id]);
     });

@@ -1084,7 +1084,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       const id = document.environmentId;
       if (options.rePair !== undefined && options.rePair !== id) {
         const saved = entries.get(options.rePair)?.saved.descriptor.name ?? options.rePair;
-        return pairingFailed("different-environment", `That code is for ${document.environmentName}, not ${saved}.`);
+        return pairingFailed("different-environment", `That code is for ${document.environmentName}, not ${saved}. Make a new code on ${saved}.`);
       }
       const existing = entries.get(id);
       if (existing?.saved.kind === "local") {
@@ -1097,7 +1097,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // The exchange spends the one-use code, so the store is asked first whether it can keep the token: a store that keeps none, or
       // an OS prompt answered late or not at all (macOS's Keychain), leaves the code to pair with again (#1693).
       if ((await platform.secrets.protection?.()) === "none") {
-        return pairingFailed("refused", "This device cannot keep a client session token: the OS keeps no key for it now. Unlock or set up the system keychain, then pair again.");
+        return pairingFailed("refused", "This device has no safe place to keep the connection. Unlock or set up its keychain, then pair again.", ["The secret store keeps no key for a client session token now: its protection is none."]);
       }
       const exchanged = await exchangeCode(platform.fetch, origin, code, platform.client, protocolVersion, document.environmentName);
       if (!exchanged.ok) return { status: "failed", failure: exchanged.failure };
@@ -1124,11 +1124,17 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         credential.ceiling !== "bypassPermissions" || SCOPES.some(scope => !credential.scopes.includes(scope)) ||
         answer.socket.hello.ceiling !== "bypassPermissions" || SCOPES.some(scope => !answer.socket.hello.scopes.includes(scope))
       )) {
+        const details = [
+          `The code granted ${credential.scopes.join(", ")} with ceiling ${credential.ceiling}.`,
+          answer.ok
+            ? `The new connection holds ${answer.socket.hello.scopes.join(", ")} with ceiling ${answer.socket.hello.ceiling}.`
+            : `The new connection closed before it said what it holds: ${answer.closed.code} ${answer.closed.reason}`.trimEnd(),
+        ];
         if (answer.ok) {
           await revokeNew(answer.socket);
           answer.socket.close();
         }
-        return pairingFailed("refused", "Full access could not be confirmed. Use a full-access code made for Me. This phone's pairing has not changed.");
+        return pairingFailed("refused", "Full access could not be confirmed. Use a full-access code made for Me. This phone's pairing has not changed.", details);
       }
 
       // Re-pairing in place gives up the client session the connection held: it is revoked before the new token is kept, over the
