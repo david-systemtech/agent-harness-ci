@@ -70,7 +70,11 @@ export const AddForge = ({ environmentId, environmentName, computer, close, say 
   const [refused, setRefused] = useState<Pick<ForgeRefused, "line" | "details"> | undefined>(undefined);
   const [sending, setSending] = useState(false);
 
+  // The pause the last keystroke started, cancelled by any check: an address checked at once is not asked again.
+  const pause = useRef<{ readonly cancel: () => void } | undefined>(undefined);
+
   const check = (asked: string) => {
+    pause.current?.cancel();
     setLookup({ state: "checking" });
     void detectForge(runtime, environmentId, asked).then((detection) => {
       // An answer for an address edited since is for none in the form: it is dropped.
@@ -82,6 +86,7 @@ export const AddForge = ({ environmentId, environmentName, computer, close, say 
   useEffect(() => {
     if (url.trim() === "") return;
     const timer = clock.setTimeout(() => check(url), DETECT_PAUSE_MS);
+    pause.current = timer;
     return () => timer.cancel();
     // `check` reads only the runtime, the environment, refs and setters beside the address.
   }, [clock, url]);

@@ -272,6 +272,11 @@ describe("Add a forge", () => {
     await app.user.clear(field);
     await app.user.type(field, "https://git.example.test/team/project{Enter}");
     expect(await within(add).findByText("1. Create a token on git.example.test.")).toBeDefined();
+    // The pause the last keystroke started asks nothing more: the address is already checked, and the token steps stay as they are.
+    const token = within(add).getByLabelText("Token");
+    act(() => app.clock.advance(DETECT_PAUSE_MS));
+    expect(within(add).queryByText("Checking…")).toBeNull();
+    expect(within(add).getByLabelText("Token")).toBe(token);
     expect(app.environment("desk").requests("forge.detect").map((request) => request.params)).toEqual([{ url: "https://git.example.test/team/project" }]);
   });
 
