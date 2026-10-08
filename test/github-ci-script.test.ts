@@ -467,7 +467,7 @@ jobs:
     ["a shard", passed("checks", "root-user", "test (1)", "test (2)"), "test (3)"],
     ["the whole matrix", passed("checks", "root-user"), "test (1), test (2), test (3)"],
     ["a job", passed("checks", "test (1)", "test (2)", "test (3)"), "root-user"],
-  ])("fails ci and names GitHub as the cause when %s the verdict needs never appeared", async (_, jobs, missing) => {
+  ])("fails ci and lists %s the verdict needs that never appeared", async (_, jobs, missing) => {
     const { result, errors } = await failedRun(jobs);
     expect(result.code).toBe(1);
     expect(errors).toEqual([expect.stringContaining("GitHub ended the run as failed although none of its jobs failed")]);
