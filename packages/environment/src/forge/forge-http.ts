@@ -14,7 +14,9 @@ import { pipeline } from "node:stream/promises";
  *   limit (`X-RateLimit-Remaining: 0` with its `X-RateLimit-Reset`) are told
  *   to the caller as a pause, which holds a forge account's background work
  *   until then; an answer they come with that is no answer (429, or GitHub's
- *   403) is a forge that cannot answer now, never a refusal of the token.
+ *   403) is a forge that cannot answer now, never a refusal of the token. So
+ *   is a 403 whose message names a rate limit or abuse detection, which
+ *   GitHub sends for its secondary limits with neither header (#1891).
  * - **Entity tags.** A read (a GET) that came with an `ETag` is kept, and
  *   read again with `If-None-Match`: a 304 answers what the forge answered
  *   before, and costs GitHub's limit nothing. Kept by the token's hash and
@@ -124,6 +126,16 @@ const pauseOf = (headers: Headers, now: Date): Date | null => {
   return Number.isFinite(until) && until > now.getTime() ? new Date(until) : null;
 };
 
+/** GitHub's words for a limit it may answer 403 with and no header: its own limit, a secondary one, its abuse detection. */
+const RATE_LIMITED = /\brate limit\b|\babuse detection\b/i;
+
+/** Whether a 403's body is GitHub's message that a limit was met, rather than a refusal. */
+const saysRateLimited = (text: string): boolean => {
+  const body = parseJson(text);
+  const message = typeof body === "object" && body !== null && "message" in body ? body.message : null;
+  return typeof message === "string" && RATE_LIMITED.test(message);
+};
+
 /** The key a read is kept under: the token's hash, never the token, and the URL; an anonymous read's apart from every token's. */
 const tagKey = (token: string | null, url: string): string => `${token === null ? "anonymous" : createHash("sha256").update(token).digest("hex")} ${url}`;
 
@@ -141,14 +153,17 @@ export interface ForgeRequest {
 
 /**
  * When the forge asks for no call before: told to `onPause`. A spent
- * limit's 403 or 429 is unanswered, as is a server error; null for every
- * other status, which the caller reads.
+ * limit's 403 or 429 is unanswered, as is a 403 whose body (`text`) says a
+ * limit was met, and a server error; null for every other status, which the
+ * caller reads.
  */
-const unansweredStatus = (response: Response, http: ForgeHttpOptions, call: CallOptions, anonymous: boolean): Extract<Reply, { outcome: "unanswered" }> | null => {
+const unansweredStatus = (response: Response, text: string, http: ForgeHttpOptions, call: CallOptions, anonymous: boolean): Extract<Reply, { outcome: "unanswered" }> | null => {
   const { status } = response;
   const pause = pauseOf(response.headers, http.now());
   if (pause !== null) call.onPause?.(pause);
-  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `is rate-limiting ${anonymous ? `anonymous reads (HTTP ${status})` : "this token"} until ${pause.toISOString()}` };
+  const limiting = `is rate-limiting ${anonymous ? `anonymous reads (HTTP ${status})` : "this token"}`;
+  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `${limiting} until ${pause.toISOString()}` };
+  if (status === 403 && saysRateLimited(text)) return { outcome: "unanswered", message: anonymous ? limiting : `${limiting} (HTTP 403)` };
   return isTransient(status) ? { outcome: "unanswered", message: `answered HTTP ${status}` } : null;
 };
 
@@ -179,7 +194,7 @@ export const forgeCall = async (http: ForgeHttpOptions, request: ForgeRequest, c
   } catch (error) {
     return { outcome: "unanswered", message: `could not be reached: ${whyUnanswered(error, http.timeoutMs)}` };
   }
-  const unanswered = unansweredStatus(response, http, call, request.token === null);
+  const unanswered = unansweredStatus(response, text, http, call, request.token === null);
   if (unanswered !== null) return unanswered;
   const { status } = response;
   if (status === 304 && kept !== undefined) return { outcome: "answered", status: kept.status, headers: kept.headers, body: parseJson(kept.text) };
@@ -298,11 +313,10 @@ export const forgeDownload = async (
       target = new URL(response.headers.get("location") ?? "", target).href;
       response = await http.fetch(target, { headers: sameOrigin(target, url) ? headers : withoutAuthorization(headers), redirect: "manual", signal });
     }
-    const unanswered = unansweredStatus(response, http, call, !sameOrigin(target, url) || new Headers(headers).get("authorization") === null);
-    if (unanswered !== null || !response.ok || response.body === null) {
-      const text = await response.text();
-      return unanswered ?? { outcome: "failed", status: response.status, body: parseJson(text) };
-    }
+    // Only an answer with no bytes to stream is read whole: its body may say a limit was met.
+    const text = response.ok && response.body !== null ? "" : await response.text();
+    const unanswered = unansweredStatus(response, text, http, call, !sameOrigin(target, url) || new Headers(headers).get("authorization") === null);
+    if (unanswered !== null || !response.ok || response.body === null) return unanswered ?? { outcome: "failed", status: response.status, body: parseJson(text) };
     clearTimeout(timer);
     finishing = true;
     timer = setTimeout(() => controller.abort(new DOMException("The download did not finish in time.", "TimeoutError")), downloadTimeoutMs);
