@@ -17,7 +17,8 @@ import { isRegisteredStep } from "./checklist.js";
  * `connections.startService`; `set-up-this-machine` the checklist switched
  * to the environment it names; `sign-in-again` the sign-in of the account it
  * names (a forge account's Forges, a key-manager connection's Key managers);
- * `update` on Your machines `updates.apply`; `install` and `update` of a
+ * `update` on Your machines `updates.apply`, and `how-to-set-up` there the
+ * host-side updater's setup (#1883); `install` and `update` of a
  * tool `tools.run` in a tool terminal; `pull-now` `skills.sources.pull` for
  * each source named (#733); `move` the Key manager step's Move card, on
  * Key managers. The authoring and import verbs are the step's card's
@@ -44,6 +45,7 @@ export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = 
   "write-it-myself": "Write it myself",
   "start-over": "Start over",
   revise: "Revise",
+  "how-to-set-up": "How to set it up",
 };
 
 /** The steps with a restore of their own: the Permissions step's denylist presets and the Appearance step's preset theme. */
@@ -87,6 +89,8 @@ export type SetupActionPlan =
   | { readonly kind: "run-tool"; readonly tool: ManagedToolName; readonly action: RunnableToolAction }
   /** About's Managed tools on the environment checked, where a tool's Install or Update runs in a tool terminal (#426). */
   | { readonly kind: "managed-tools" }
+  /** How to set up the host-side updater, which a container no updater has polled needs (`HOST_UPDATER_SETUP`, #1883). */
+  | { readonly kind: "host-updater-setup" }
   /** A verb the step's card carries out on the items named; on a step with no card of its own, its home row. */
   | { readonly kind: "card"; readonly action: CardAction; readonly targets: readonly SetupTarget[]; readonly home: SettingsRowId }
   /** A row of Settings opened on the environment checked. */
@@ -145,6 +149,8 @@ export const planSetupAction = (step: ActingStep, action: SetupAction, given: re
       return action === "update" && step.id === "your-machines" ? { kind: "update" } : { kind: "row", row: step.home };
     case "move":
       return { kind: "row", row: "access.key-managers" };
+    case "how-to-set-up":
+      return step.id === "your-machines" ? { kind: "host-updater-setup" } : { kind: "row", row: step.home };
     default:
       return { kind: "row", row: step.home };
   }
