@@ -396,6 +396,16 @@ quoted from the files named; a builder greps for them.
   `The token for {host} cannot list organisations. Create a new token with that permission and add it.` (a refused token, a server error and no answer read as above, what the forge answered in Details);
   a token an older build recorded as another user's reads `The token for {host} belongs to another user, not {login}. Add a token for {login}.`, its old line in Details.
 - **Move to your key manager** shows only while a key manager is connected, as **Keep this token in your key manager**.
+- Words the card needs beyond these (#1849): looking the site up again is **Check address**, `Checking…` while it is on its way, and a site found
+  reads `{site} runs {kind}.`; the field's hint is `For example https://github.com/you/project`; Add with no token says `Paste the token here.`, and
+  an address that names no site `Enter an address like https://github.com/you/project.`; the plain list names what the token page shows: a fine-grained
+  GitHub token `All repositories, with Contents: Read and write, …`, a classic one its scopes (`repo and read:org`), Forgejo and Gitea each area
+  with `Read` or `Read and write`; an add answers `{login} on {host} is connected.`, or `{login} on {host} is added.` when the row then shows a problem;
+  **Make main** answers `{login} on {host} is your main forge. New notebooks go there.`; a problem's button is **Add token** for a forge copied with
+  no token and **Add a new token** for the rest; the capability list is `What the token can do`; under `Other addresses for this site` the field is
+  `Another address for this site` with **Add address**, answering `{alias} is another address for {login} on {host}.` or `{alias} did not answer. It is
+  used once it answers as {login}.`, and refusing `{alias} is this site's own address.`, `{alias} is already another address for this site.` or, empty,
+  `Enter the other address.`; gh signed out shows its command in mono with Copy (`The command to run there`).
 
 ### 5.7 Key manager (gui/src/key-managers/*; environment/src/key-managers/*)
 - Title `Use a key manager?` Why `If you keep passwords and keys in one, agents can fetch them when they need them.`
