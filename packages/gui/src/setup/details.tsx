@@ -1,5 +1,5 @@
 import { Copy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Fold } from "../ui/index.js";
 import { STATE_WORDS, type SetupState } from "./health-dot.js";
 
@@ -37,6 +37,8 @@ export interface TechnicalDetailsProps {
   copy(text: string): Promise<void>;
   /** Open from the start (the gallery's open state); otherwise it opens when chosen. */
   readonly defaultOpen?: boolean;
+  /** What else the fold holds beneath the lines, such as a command to copy and run (setup-copy.md §1 rule 7). */
+  readonly children?: ReactNode;
 }
 
 /**
@@ -44,7 +46,7 @@ export interface TechnicalDetailsProps {
  * mono and Copy details, which copies the same lines, so a refused copy leaves
  * the person the text to select.
  */
-export const TechnicalDetails = ({ report, copy, defaultOpen = false }: TechnicalDetailsProps) => {
+export const TechnicalDetails = ({ report, copy, defaultOpen = false, children }: TechnicalDetailsProps) => {
   const [open, setOpen] = useState(defaultOpen);
   const [status, setStatus] = useState<"ready" | "copied" | "refused">("ready");
   const [copies, setCopies] = useState(0);
@@ -71,6 +73,7 @@ export const TechnicalDetails = ({ report, copy, defaultOpen = false }: Technica
             {status === "copied" ? "Copied." : status === "refused" ? "Could not copy. Select the text instead." : ""}
           </span>
         </span>
+        {children}
       </div>
     </Fold>
   );
