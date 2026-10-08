@@ -3,6 +3,7 @@ import { CAPABILITY_FLAG_LIST, type MethodName } from "@agent-harness/contracts"
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { useHarness } from "../test/harness.js";
 import { METHOD_FLAGS, answerCapability, type CapabilityName } from "./capabilities.js";
+import { blockWords } from "./connections/block-words.js";
 import { BLOCKED_REASONS, type BlockedReason, type ConnectionRecord } from "./connections/records.js";
 import type { ConnectionAction } from "./connections/state-machine.js";
 import type { Shell } from "./shell.js";
@@ -10,7 +11,7 @@ import { fakeShell, inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
 
-const absent = (reason: string) => ({ status: "absent", reason, message: expect.stringMatching(/\S/) });
+const absent = (reason: string, ...details: readonly string[]) => ({ status: "absent", reason, message: expect.stringMatching(/\S/), ...(details.length > 0 && { details }) });
 
 describe("capability answers", () => {
   it("answers present for a method the client session's scopes allow", async () => {
@@ -28,8 +29,8 @@ describe("capability answers", () => {
     await runtime.start();
     await runtime.connections.add({ link: (await t.createPairing()).link });
 
-    expect(runtime.capability(t.env.id, "self-update")).toEqual(absent("unsupported"));
-    expect(runtime.capability(t.env.id, "self-update")).toMatchObject({ message: expect.stringContaining("desk") });
+    expect(runtime.capability(t.env.id, "self-update")).toEqual(absent("unsupported", "self-update"));
+    expect(runtime.capability(t.env.id, "self-update")).toMatchObject({ message: "desk runs an older agent-harness without this. Update desk to use it." });
   });
 
   it("answers absent with reason scope for a method the client session's scopes do not allow", async () => {
@@ -38,8 +39,8 @@ describe("capability answers", () => {
     await runtime.start();
     await runtime.connections.add({ link: (await t.createPairing({ scopes: ["read"] })).link });
 
-    expect(runtime.capability(t.env.id, "access.pairings.create")).toEqual(absent("scope"));
-    expect(runtime.capability(t.env.id, "access.pairings.create")).toMatchObject({ message: expect.stringContaining("admin") });
+    expect(runtime.capability(t.env.id, "access.pairings.create")).toEqual(absent("scope", "admin"));
+    expect(runtime.capability(t.env.id, "access.pairings.create")).toMatchObject({ message: expect.stringMatching(/^This app has limited access to .+, so it cannot change settings or sign in accounts\. Pair again with full access to change this\.$/) });
   });
 
   it("answers absent with reason no-shell for a shell member the platform does not provide", async () => {
@@ -51,12 +52,12 @@ describe("capability answers", () => {
     const desktop = harness.runtime(inMemoryPlatform({ kind: "desktop", shell: partial }));
     for (const runtime of [bare, desktop]) await runtime.start();
 
-    expect(bare.capability(t.env.id, "shell.dialogs")).toEqual(absent("no-shell"));
-    expect(desktop.capability(t.env.id, "shell.dialogs")).toEqual(absent("no-shell"));
-    // A desktop can lack a member too: the line says what this client's shell is missing, not that only a desktop can.
-    expect(desktop.capability(t.env.id, "shell.dialogs")).toMatchObject({ message: expect.stringContaining("its shell has no shell.dialogs") });
+    expect(bare.capability(t.env.id, "shell.dialogs")).toEqual(absent("no-shell", "shell.dialogs"));
+    expect(desktop.capability(t.env.id, "shell.dialogs")).toEqual(absent("no-shell", "shell.dialogs"));
+    // A desktop can lack a member too: the line says what this app cannot do here, with the alternative, the member only in details.
+    expect(desktop.capability(t.env.id, "shell.dialogs")).toMatchObject({ message: "This app cannot open the system's file dialogs here. Type the folder's path instead." });
     expect(desktop.capability(t.env.id, "shell.dialogs")).toMatchObject({ message: expect.not.stringContaining("desktop") });
-    expect(desktop.capability(t.env.id, "shell.notifications.show")).toEqual(absent("no-shell"));
+    expect(desktop.capability(t.env.id, "shell.notifications.show")).toEqual(absent("no-shell", "shell.notifications.show"));
     expect(desktop.capability(t.env.id, "shell.window")).toEqual({ status: "present" });
   });
 
@@ -108,9 +109,9 @@ describe("the desktop's added shell members as capabilities", () => {
       const bare = harness.runtime(inMemoryPlatform());
 
       expect(whole.capability("any", name)).toEqual({ status: "present" });
-      expect(lacking.capability("any", name)).toEqual(absent("no-shell"));
-      expect(lacking.capability("any", name)).toMatchObject({ message: expect.stringContaining(`its shell has no ${name}`) });
-      expect(bare.capability("any", name)).toEqual(absent("no-shell"));
+      expect(lacking.capability("any", name)).toEqual(absent("no-shell", name));
+      expect(lacking.capability("any", name)).toMatchObject({ message: expect.stringMatching(/^This app cannot .+ here\./), details: [name] });
+      expect(bare.capability("any", name)).toEqual(absent("no-shell", name));
     },
   );
 
@@ -120,7 +121,7 @@ describe("the desktop's added shell members as capabilities", () => {
     const activateOnly = harness.runtime(inMemoryPlatform({ kind: "desktop", shell: without(shell, "shell.notifications.show") }));
 
     expect(showOnly.capability("any", "shell.notifications.show")).toEqual({ status: "present" });
-    expect(activateOnly.capability("any", "shell.notifications.show")).toEqual(absent("no-shell"));
+    expect(activateOnly.capability("any", "shell.notifications.show")).toEqual(absent("no-shell", "shell.notifications.show"));
     expect(activateOnly.capability("any", "shell.notifications.onActivate")).toEqual({ status: "present" });
   });
 });
@@ -142,24 +143,26 @@ describe("a blocked environment's capability line (#1772)", () => {
     ({ environmentId: "env-desk", kind, enabled: true, phase: "blocked", blocked: reason, action, scopes: [], descriptor: { name: "desk", capabilities: [] } }) as unknown as ConnectionRecord;
 
   const lines: Record<BlockedReason, readonly [ConnectionAction | null, string]> = {
-    "protocol-mismatch": ["update-environment", "desk is older than this client: update desk to this client's version."],
-    "unsupported-client": ["update-client", "desk is newer than this client: update this client."],
-    revoked: ["re-pair", "This client's access to desk was revoked: pair it again."],
-    expired: ["re-pair", "This client's access to desk expired: pair it again."],
-    "credential-unavailable": ["re-pair", "Stored credentials for desk could not be read: pair it again."],
-    "different-environment": [null, "The address kept for desk now reaches another environment."],
+    "protocol-mismatch": ["update-environment", "desk runs an older agent-harness than this app. Update desk."],
+    "unsupported-client": ["update-client", "desk runs a newer agent-harness than this app. Update this app."],
+    revoked: ["re-pair", "This app's access to desk was taken away. Pair again."],
+    expired: ["re-pair", "This app's access to desk has run out. Pair again."],
+    "credential-unavailable": ["re-pair", "This app cannot read its saved key for desk. Pair again."],
+    "different-environment": [null, "The address saved for desk now reaches a different computer."],
   };
 
   it.each(BLOCKED_REASONS)("says %s as a sentence with what to do, never its id", (reason) => {
     const [action, line] = lines[reason];
     const answer = answerCapability("terminals.open", blocked(reason, action), undefined);
     expect(answer).toEqual({ status: "absent", reason: "unreachable", message: line });
-    // A one-word id is also a word of its sentence ("was revoked"); its raw form is the parenthesised code.
-    expect(answer.status === "absent" && answer.message).not.toContain(reason.includes("-") ? reason : `(${reason})`);
+    expect(answer.status === "absent" && answer.message).not.toContain(reason);
   });
 
   it("says a protocol mismatch the environment cannot update itself from as such, and a local block as one to try again", () => {
-    expect(answerCapability("runs.start", blocked("protocol-mismatch", null), undefined)).toMatchObject({ message: "desk is older than this client, and cannot update itself from here." });
-    expect(answerCapability("runs.start", blocked("revoked", null, "local"), undefined)).toMatchObject({ message: "This client's access to desk was revoked: try again." });
+    expect(answerCapability("runs.start", blocked("protocol-mismatch", null), undefined)).toMatchObject({ message: "desk runs an older agent-harness than this app. Update it on that computer." });
+    expect(answerCapability("runs.start", blocked("revoked", null, "local"), undefined)).toMatchObject({ message: "This app's access to desk was taken away. Try again." });
+    expect(blockWords({ name: null, kind: "local", blocked: "expired", action: "re-pair" })).toBe("This app's access to this computer has run out. Try again.");
+    expect(blockWords({ name: null, kind: "local", blocked: "unsupported-client", action: "update-client" })).toBe("This computer runs a newer agent-harness than this app. Update this app.");
+    expect(blockWords({ name: "desk", kind: "paired", blocked: null, action: null })).toBe("This app cannot connect to desk.");
   });
 });

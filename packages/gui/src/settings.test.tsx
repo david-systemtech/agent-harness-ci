@@ -374,7 +374,7 @@ describe("built and unbuilt row controls", () => {
   it("is read-only without admin, with the capability's line", async () => {
     const app = await opened({}, { scopes: ["read", "sessions:write", "runs:drive", "terminal"] });
     const service = await serviceOn(app, "laptop");
-    expect(await within(service).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(service).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect((await within(field(service, "sessions.autoSettleOnMerge")).findByRole("switch")).hasAttribute("disabled")).toBe(true);
     expect(within(field(service, "sessions.autoSettleAfterIdle")).getByRole("textbox").hasAttribute("disabled")).toBe(true);
   });

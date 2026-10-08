@@ -147,7 +147,7 @@ describe("a command the connection cannot send", () => {
   it("is dim with the capability's reason, and sends nothing", async () => {
     const app = await settled(await two({ laptop: { scopes: ["read", "runs:drive"] } }));
     const menu = await menuOf(app, "Train tidy");
-    const reason = "This client was paired with laptop without the sessions:write scope.";
+    const reason = "This app has limited access to laptop, so it cannot start sessions. Pair again with full access to change this.";
     for (const name of ["Rename", "Pin", "Archive", "Settle", "Snooze", "Tags…", "Move to group", "Fork", "Delete…"]) {
       const item = within(menu).getByRole("menuitem", { name: new RegExp(`^${name}`) });
       expect(item.getAttribute("aria-disabled"), name).toBe("true");

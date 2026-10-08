@@ -72,11 +72,11 @@ describe("the forge methods without the forge flag", () => {
       return { result: { accounts: [] } };
     });
     for (const method of ["forge.accounts.list", "forge.accounts.add", "forge.accounts.verify", "forge.gh.probe"] as const) {
-      expect(runtime.capability(env, method), method).toEqual({ status: "absent", reason: "unsupported", message: "desk does not offer forge; a version that does is needed." });
+      expect(runtime.capability(env, method), method).toEqual({ status: "absent", reason: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it.", details: ["forge"] });
     }
     expect(await runtime.requests.call(env, "forge.accounts.list", {})).toEqual({
       ok: false,
-      error: { code: "unsupported", message: "desk does not offer forge; a version that does is needed." },
+      error: { code: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it." },
     });
     const cached = runtime.requests.cached(env, "forge.accounts.list", {});
     cached.subscribe(() => undefined);
@@ -414,10 +414,10 @@ describe("handing this computer's gh over", () => {
   it("is absent with its reason where the shell has no gh, as in the terminal UI and a browser tab, reading and sending nothing", async () => {
     const { runtime, wire, env } = await paired();
     accepting(wire);
-    expect(runtime.capability(env, "shell.gh")).toEqual({ status: "absent", reason: "no-shell", message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh." });
+    expect(runtime.capability(env, "shell.gh")).toEqual({ status: "absent", reason: "no-shell", message: "This app cannot use the gh tool signed in on this computer here. Add a token instead.", details: ["shell.gh"] });
     expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toEqual({
       ok: false,
-      error: { code: "no-shell", message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh." },
+      error: { code: "no-shell", message: "This app cannot use the gh tool signed in on this computer here. Add a token instead." },
     });
     expect(forgeRequests(wire)).toEqual([]);
   });
@@ -616,7 +616,7 @@ describe("copying a forge account to other environments", () => {
     const [copied, conflict, scope, unreachable, unknown] = reports;
     expect(copied).toMatchObject({ status: "copied", result: { id: expect.any(String), origin: "https://github.com" } });
     expect(conflict).toMatchObject({ error: { code: "conflict", message: "https://github.com is held by another forge account.", data: { reason: "origin_held" } } });
-    expect(scope).toMatchObject({ error: { code: "scope", message: "This client was paired with phone without the admin scope." } });
+    expect(scope).toMatchObject({ error: { code: "scope", message: "This app has limited access to phone, so it cannot change settings or sign in accounts. Pair again with full access to change this." } });
     expect(unreachable).toMatchObject({ error: { code: "unreachable" } });
     expect(unknown).toMatchObject({ error: { code: "unreachable" } });
   });

@@ -660,9 +660,9 @@ describe("sign-in", () => {
     const { app, env } = await opened([desk({ scopes: ["read", "sessions:write", "runs:drive"] })]);
     const menu = await openPicker(app, "Account");
     const add = within(menu).getByRole("menuitem", { name: /^Add an account…/ });
-    expect(add.textContent).toContain("This client was paired with desk without the admin scope.");
+    expect(add.textContent).toContain("This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     await app.user.click(add);
-    await waitFor(() => expect(paneLine()).toBe("Cannot add an account on desk: This client was paired with desk without the admin scope."));
+    await waitFor(() => expect(paneLine()).toBe("Cannot add an account on desk: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this."));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(sent(env, "accounts.add")).toEqual([]);
   });
@@ -674,9 +674,9 @@ describe("a picker the connection cannot use", () => {
     const mode = await within(statusLine()).findByRole("button", { name: /^Mode: / });
     expect(mode.getAttribute("aria-disabled")).toBe("true");
     act(() => mode.focus());
-    expect((await screen.findByRole("tooltip")).textContent).toBe("Mode: accept edits · /mode · This client was paired with desk without the runs:drive scope.");
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Mode: accept edits · /mode · This app has limited access to desk, so it cannot run agents. Pair again with full access to change this.");
     await app.user.click(mode);
-    await waitFor(() => expect(paneLine()).toBe("This client was paired with desk without the runs:drive scope."));
+    await waitFor(() => expect(paneLine()).toBe("This app has limited access to desk, so it cannot run agents. Pair again with full access to change this."));
     expect(screen.queryByRole("menu")).toBeNull();
     expect(within(statusLine()).getByRole("button", { name: /^Containment: / }).getAttribute("aria-disabled")).toBe("true");
     expect(sent(env, "permissions.mode.set")).toEqual([]);

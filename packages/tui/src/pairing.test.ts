@@ -158,7 +158,7 @@ describe("/pair create", () => {
     const app = await launch({ script: { environments: [{ name: "desk", reach: "local", scopes }] } });
     await app.waitFor("● desk ready");
     await run(app, "/pair create");
-    await app.waitFor("Cannot create a pairing code on desk: This client was paired with desk without the admin scope.");
+    await app.waitFor("Cannot create a pairing code on desk: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     expect(app.environment("desk").requests("access.pairings.create")).toHaveLength(0);
   });
 

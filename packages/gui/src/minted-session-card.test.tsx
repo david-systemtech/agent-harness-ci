@@ -34,7 +34,7 @@ const closeAuthoring = async (app: RenderedApp) => {
 
 const mint = async (app: RenderedApp) => {
   await closeAuthoring(app);
-  await app.user.click(screen.getByRole("button", { name: "Start over" }));
+  await app.user.click(screen.getByRole("button", { name: "Start again" }));
   await screen.findByRole("textbox", { name: "Message" });
   return app.environment("desk").requests("setup.mint").at(-1);
 };
@@ -182,7 +182,7 @@ describe("the minted session on its card", () => {
       env.passSetup(["memory-bank"]);
     });
     await closeAuthoring(app);
-    await app.user.click(await screen.findByRole("button", { name: "Try again: the describe session" }));
+    await app.user.click(await screen.findByRole("button", { name: "Continue it: the describe session" }));
     await waitFor(() => expect(env.requests("runs.send").at(-1)?.params).toMatchObject({ sessionId: id, text: "Continue where you stopped." }));
     await mint(app);
     await waitFor(() => expect(app.runtime.projections.sessionList.read().rows).toHaveLength(2));
@@ -200,7 +200,7 @@ describe("the minted session on its card", () => {
       env.passSetup(["memory-bank"]);
     });
     await closeAuthoring(app);
-    await app.user.click(await screen.findByRole("button", { name: "Revise: Invoices" }));
+    await app.user.click(await screen.findByRole("button", { name: "Fix the description: Invoices" }));
     await waitFor(() => expect(env.requests("setup.mint").at(-1)?.params).toMatchObject({ subject: "bank-2", variant: "revise" }));
   });
 
@@ -357,7 +357,7 @@ describe("the minted session on its card", () => {
     const id = env.sessionId();
     env.wire.answer("setup.mint", () => ({ error: { code: "conflict", message: "The bank checkout is missing.", data: { reason: "bank_missing" } } }));
     await closeAuthoring(app);
-    await app.user.click(screen.getByRole("button", { name: "Start over" }));
+    await app.user.click(screen.getByRole("button", { name: "Start again" }));
     expect((await screen.findByRole("alert")).textContent).toBe("The bank checkout is missing.");
     expect(env.liveRun(id)).toBeDefined();
     await app.user.click(screen.getByRole("button", { name: "Continue authoring" }));
