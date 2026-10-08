@@ -69,8 +69,8 @@ describe("the Memory bank card", () => {
     const second = { ...first, id: "0199aa00-0000-4000-8000-000000000003", name: "second" };
     const { card } = await open({ setup: { "memory-bank": { state: "done", actions: ["revise"], targets: [{ action: "revise", kind: "bank", id: first.id, label: "First" }, { action: "revise", kind: "bank", id: second.id, label: "Second" }] } } }, [first, second]);
     const firstCard = await within(card).findByRole("region", { name: "first" });
-    expect(within(firstCard).getByRole("button", { name: "Revise: First" })).toBeDefined();
-    expect(within(firstCard).queryByRole("button", { name: "Revise: Second" })).toBeNull();
+    expect(within(firstCard).getByRole("button", { name: "Fix the description: First" })).toBeDefined();
+    expect(within(firstCard).queryByRole("button", { name: "Fix the description: Second" })).toBeNull();
   });
 
   it("names the accounts a bank is the default for and is scoped to by their labels, never their ids (ticket 1752)", async () => {

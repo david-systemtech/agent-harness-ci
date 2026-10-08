@@ -1,4 +1,4 @@
-import { FIRST_ROW, REGISTERED_STEP_IDS, agoWords, pastTimeWords, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepResult, type StepState } from "@agent-harness/contracts";
+import { FIRST_ROW, PRODUCT_NAME, REGISTERED_STEP_IDS, agoWords, pastTimeWords, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepResult, type StepState } from "@agent-harness/contracts";
 import type { SetupCounts, SetupReach, SetupStepView, SetupView } from "../projections/setup.js";
 import { clockTime, whenWords } from "../transcript/format.js";
 
@@ -24,8 +24,8 @@ export const homedChecks = (row: SettingsRowId): readonly RegisteredStepId[] => 
   return typeof homeOf === "string" ? [] : homeOf.filter(isRegisteredStep);
 };
 
-/** Each state in words, as a dot is named and a line says it. */
-export const STEP_STATE_WORDS: { readonly [State in StepState]: string } = { done: "done", "needs-attention": "needs attention", skipped: "skipped", pending: "checking" };
+/** Each state in words, as a dot is named and a line says it (setup-copy.md §3, "State words"). */
+export const STEP_STATE_WORDS: { readonly [State in StepState]: string } = { done: "Done", "needs-attention": "Needs a fix", skipped: "Not set up", pending: "Checking" };
 
 /**
  * How bad each state is, the worst last: a step that needs attention is
@@ -52,14 +52,6 @@ export const rowHealth = (view: SetupView, row: SettingsRowId): StepState | null
   worstState(view.steps.flatMap((step) => ((row === FIRST_ROW || step.home === row) && step.result !== null ? [step.result.state] : [])));
 
 /**
- * How long ago a check ran: `checked just now` under a minute, then whole
- * minutes under an hour (`checked 5 min ago`), whole hours under two days
- * (`checked 30 h ago`, which a day would round to half its size), else whole
- * days (`checked 2 d ago`).
- */
-export const checkedAgoWords = (ageMs: number): string => `checked ${agoWords(ageMs)}`;
-
-/**
  * A result's reason with each past time it names worded as this client
  * words one, "2 h ago, at 16:24" where it is, in place of the environment's
  * words for it (#1742); as it is when it names none.
@@ -68,60 +60,73 @@ const reasonWords = ({ reason, times }: StepResult, now: Date): string =>
   (times ?? []).reduce((words, { text, at }) => words.replace(text, () => pastTimeWords(at, now)), reason);
 
 /**
- * A step's line: "Checking…" while this client's own check of it is pending
- * (ADR 0031's half second), else its result's reason, the times it names
- * worded where this client is, dated. A result this
- * client follows says since when it is unchanged, "(unchanged since 09:14)",
- * for a re-check that finds nothing new is never heard (#671); one it asked
- * for says its age once older than its step's cadence, "(checked 3 h ago)".
- * Either is marked stale while it is not known to hold now (the Set up
- * specification, "Running checks": an unreachable environment's cached
- * results beneath its line, #573), "(stale, checked 10 min ago)". "Not
- * checked yet." with no result. `now` is the environment's time as this
- * client reckons it, which says whether a time was today.
+ * A step's line (setup-copy.md §3): "Checking…" while this client's own
+ * check of it is pending (ADR 0031's half second), else its result's reason,
+ * the times it names worded where this client is; "Not checked yet. Choose
+ * Check again." with no result. When it was checked is `stepNote`'s, beneath.
+ * `now` is the environment's time as this client reckons it, which says
+ * whether a time was today.
  */
 export const stepLine = (step: SetupStepView, now: Date): string => {
   if (step.pending) return "Checking…";
-  const { result } = step;
-  if (result === null) return "Not checked yet.";
-  const reason = reasonWords(result, now);
-  if (result.asked && !result.olderThanCadence && !result.stale) return reason;
-  const when = result.asked ? checkedAgoWords(result.ageMs) : `unchanged since ${whenWords(result.checkedAt, now)}`;
-  return `${reason} (${result.stale ? "stale, " : ""}${when})`;
+  if (step.result === null) return "Not checked yet. Choose Check again.";
+  return reasonWords(step.result, now);
 };
 
 /**
- * The counts, as the Set up pane says them (the Set up specification's
- * chosen wording, #573): `8 done, 1 needs attention, 2 skipped`, over the
- * steps the environment registers; a step it does not register is counted
- * nowhere, its name drawn dim instead. The remainder of registered results
- * are pending scheduled reads and counted as checking only while present.
+ * The muted second line beneath a step's line (setup-copy.md §3), or none.
+ * A result not known to hold now says it may be out of date, naming the
+ * environment `name` that cannot be reached (the Set up specification,
+ * "Running checks": an unreachable environment's cached results, #573). A
+ * result this client follows says since when nothing changed, "No change
+ * since 09:14.", for a re-check that finds nothing new is never heard
+ * (#671); one it asked for says its age once older than its step's cadence,
+ * "Last checked 3 h ago.". None while it is checked, never was, or is fresh.
+ */
+export const stepNote = (step: SetupStepView, now: Date, name: string): string | undefined => {
+  const { result } = step;
+  if (step.pending || result === null) return undefined;
+  if (result.stale) return `This may be out of date: ${name} cannot be reached.`;
+  if (!result.asked) return `No change since ${whenWords(result.checkedAt, now)}.`;
+  return result.olderThanCadence ? `Last checked ${agoWords(result.ageMs)}.` : undefined;
+};
+
+/** "needs" for one step, "need" for any other count: `1 needs a fix`, `2 need a fix`. */
+export const needsWord = (count: number): string => (count === 1 ? "needs" : "need");
+
+/**
+ * The counts, as the Set up pane says them (setup-copy.md §4.5):
+ * `8 done · 1 needs a fix · 2 not set up`, over the steps the environment
+ * registers; a step it does not register is counted nowhere, its name drawn
+ * dim instead. The remainder of registered results are pending scheduled
+ * reads and counted as checking only while present.
  */
 export const countsWords = (counts: SetupCounts): string => {
   const pending = counts.registered - counts.done - counts.needsAttention - counts.skipped;
-  return `${counts.done} done, ${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention, ${counts.skipped} skipped${pending > 0 ? `, ${pending} checking` : ""}`;
+  return `${counts.done} done · ${counts.needsAttention} ${needsWord(counts.needsAttention)} a fix · ${counts.skipped} not set up${pending > 0 ? ` · ${pending} checking` : ""}`;
 };
 
 /**
  * The result that passed before one that could not check, beneath it,
- * dated (ADR 0031): `Last good, checked 2 h ago: <its line>`, its age counted
- * against `now`, the environment's time as this client reckons it.
+ * dated (ADR 0031; setup-copy.md §3): `Last time it worked (2 h ago): <its
+ * line>`, its age counted against `now`, the environment's time as this
+ * client reckons it.
  */
 export const lastGoodWords = (lastGood: LastGood, now: Date): string =>
-  `Last good, ${checkedAgoWords(Math.max(0, now.getTime() - Date.parse(lastGood.checkedAt)))}: ${lastGood.reason}`;
+  `Last time it worked (${agoWords(Math.max(0, now.getTime() - Date.parse(lastGood.checkedAt)))}): ${lastGood.reason}`;
 
 /**
  * Why the results are not known to hold now (the Set up specification,
- * "Running checks": unreachable is the client's to see), naming the
- * environment; undefined while it can be reached.
+ * "Running checks": unreachable is the client's to see; setup-copy.md §3),
+ * naming the environment; undefined while it can be reached.
  */
 export const setupReachWords = (reach: SetupReach, name: string): string | undefined => {
   switch (reach.status) {
     case "reachable":
       return undefined;
     case "service-down":
-      return `${name} is not running: its results are from before it stopped.`;
+      return `${PRODUCT_NAME} is not running on ${name}. These results are from before it stopped.`;
     case "unreachable":
-      return reach.since === null ? `${name} has not been reached yet.` : `${name} has not been reached since ${clockTime(reach.since)}: its results are from before.`;
+      return reach.since === null ? `This app has not reached ${name} yet.` : `This app cannot reach ${name} (since ${clockTime(reach.since)}). These results may be out of date.`;
   }
 };

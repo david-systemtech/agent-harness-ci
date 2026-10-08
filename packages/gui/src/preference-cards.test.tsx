@@ -234,7 +234,7 @@ describe("without admin", () => {
     );
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     await screen.findByRole("region", { name: "Set up" });
-    const line = "Read-only: This client was paired with laptop without the admin scope.";
+    const line = "Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.";
 
     const permissions = await cardOf(app, "Permissions");
     expect(await within(permissions).findByText(line)).toBeDefined();

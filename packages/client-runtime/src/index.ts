@@ -249,9 +249,11 @@ export {
 export {
   RESTORE_METHODS,
   SETUP_ACTION_WORDS,
+  outcomeWords,
   planSetupAction,
   pullSetupSources,
   restoreStep,
+  restoredOutcome,
   setupActions,
   updateEnvironment,
   type ActingStep,
@@ -265,17 +267,19 @@ export {
 } from "./setup/actions.js";
 export {
   STEP_STATE_WORDS,
-  checkedAgoWords,
   countsWords,
   homedChecks,
   isRegisteredStep,
   lastGoodWords,
+  needsWord,
   rowHealth,
   setupReachWords,
   stepLine,
+  stepNote,
   worstState,
 } from "./setup/checklist.js";
 export { installLines, type InstallLines, type InstallTarget } from "./setup/install-lines.js";
+export { plainRefusal, type PlainRefusal, type RefusedAnswer } from "./words/refusal.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,

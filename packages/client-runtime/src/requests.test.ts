@@ -103,7 +103,7 @@ describe("requests.call", () => {
   it("refuses a method whose scope the client session lacks, with the capability's line", async () => {
     const { runtime, id } = await paired({ scopes: ["read"] });
     const answer = await runtime.requests.call(id, "access.sessions.list", {});
-    expect(answer).toEqual({ ok: false, error: { code: "scope", message: expect.stringContaining("admin") } });
+    expect(answer).toEqual({ ok: false, error: { code: "scope", message: expect.stringContaining("cannot change settings or sign in accounts") } });
   });
 
   it("refuses params that are not the method's, sending nothing", async () => {
