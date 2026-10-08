@@ -131,7 +131,7 @@ export async function phoneRefusalSmoke(page: Page, engine: string, output: stri
       await expect(runSettings).toBeHidden();
       await expect(settings).toBeFocused();
       const remedy = column.locator('p[role="status"]').filter({ hasText: "Cannot sign" });
-      await expect(remedy).toContainText("admin");
+      await expect(remedy).toContainText("cannot change settings or sign in accounts");
       await fits(remedy);
       await fits(page.getByRole("button", { name: /^Send/ }));
       await expect.poll(readDraft, { timeout: 60_000, message: "The refused draft reaches the environment before reload." }).toBe(message);
