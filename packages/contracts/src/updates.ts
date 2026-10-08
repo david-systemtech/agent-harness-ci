@@ -352,7 +352,7 @@ export const UpdatesStatus = z
       .optional()
       .meta({
         description:
-          "Whether a check since the environment started read the channel, whatever it found and however later checks ended: with newest null, it found no newest; else lastReadAt is from before the start. Absent from an environment that predates it (#1818).",
+          "Whether a check since the environment started read the channel, whatever it found and however later checks ended. When true with newest null, that read found no newest; when false, lastReadAt is from before the start. Absent from an environment that predates it (#1818).",
       }),
     target: UpdateTarget.nullable().meta({
       description:
