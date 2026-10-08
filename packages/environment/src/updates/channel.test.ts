@@ -435,13 +435,20 @@ describe("the Your machines step's release channel check", () => {
     });
   });
 
-  it("holds with auto-update off, or a version pinned", async () => {
+  it("holds with auto-update off, or a version pinned, naming the version that runs while the pin does not (#1890)", async () => {
     const { fake, client } = await withChannel("0.5.0");
     fake.publish({ version: "0.4.2" });
+    fake.publish({ version: "0.5.0" });
     await setUpdates(client, { "updates.autoUpdate": false });
     expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. Automatic updates are off\.$/), details: expect.arrayContaining(["Updates: off"]) });
     await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": "0.4.2" });
-    expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. It stays on version 0\.4\.2\.$/), details: expect.arrayContaining(["Updates: pinned to 0.4.2"]) });
+    expect(await result(client)).toMatchObject({
+      state: "done",
+      reason: expect.stringMatching(/ is ready\. It runs version 0\.5\.0 and is pinned to 0\.4\.2\.$/),
+      details: expect.arrayContaining(["Version: 0.5.0", "Updates: pinned to 0.4.2"]),
+    });
+    await setUpdates(client, { "updates.pinnedVersion": "0.5.0" });
+    expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. It stays on version 0\.5\.0\.$/), details: expect.arrayContaining(["Updates: pinned to 0.5.0"]) });
   });
 
   it("holds for 24 hours after a check succeeded, across a restart, and then needs attention with the last failure", async () => {
