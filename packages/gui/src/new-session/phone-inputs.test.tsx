@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
@@ -207,4 +207,36 @@ it("chooses account, model and effort in separate phone steps and sends the chos
   await user.type(box, "Check the receipts");
   await user.click(within(surface).getByRole("button", { name: "Send" }));
   await waitFor(() => expect(env.requests("runs.start")[0]?.params).toEqual(expect.objectContaining({ model: "claude-opus-5", effort: "high" })));
+});
+
+it("resizes the first message after width delivery without resizing it inside the observer cycle", async () => {
+  const Original = globalThis.ResizeObserver;
+  const deliveries = new Map<Element, (width: number) => void>();
+  vi.stubGlobal("ResizeObserver", class extends Original {
+    constructor(callback: ResizeObserverCallback) {
+      super(callback);
+      this.callback = callback;
+    }
+    private readonly callback: ResizeObserverCallback;
+    override observe(target: Element) {
+      if (target.getAttribute("aria-label") !== "Message") return super.observe(target);
+      deliveries.set(target, width => this.callback([{ target, contentRect: new DOMRect(0, 0, width, 44), borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [] }], this));
+    }
+  });
+  onTestFinished(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  const { box } = await open();
+  const deliver = deliveries.get(box);
+  if (deliver === undefined) throw new Error("the first message box is not observed");
+  const frames = new Map<number, FrameRequestCallback>(); let next = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++next, callback); return next; });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => { frames.delete(id); });
+  const draw = () => act(() => { const due = [...frames.values()]; frames.clear(); due.forEach(callback => callback(0)); });
+  vi.spyOn(box, "scrollHeight", "get").mockReturnValue(96);
+  const height = box.style.height;
+  act(() => deliver(318));
+  expect(box.style.height).toBe(height);
+  act(() => deliver(288));
+  expect(box.style.height).toBe(height);
+  draw();
+  expect(box.style.height).toBe("96px");
 });

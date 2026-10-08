@@ -81,14 +81,23 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     const editor = field.current;
     if (editor === null) return;
     let width = -1;
+    let frame: number | undefined;
     const observer = new ResizeObserver(([entry]) => {
       if (entry === undefined || entry.contentRect.width === width) return;
       width = entry.contentRect.width;
-      editor.style.height = "0px";
-      editor.style.height = `${Math.max(44, editor.scrollHeight)}px`;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      // Changing an observed height during delivery leaves notifications undelivered.
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        editor.style.height = "0px";
+        editor.style.height = `${Math.max(44, editor.scrollHeight)}px`;
+      });
     });
     observer.observe(editor);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
   }, []);
 
   useEffect(() => {
