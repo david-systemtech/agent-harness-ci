@@ -148,12 +148,12 @@ const managerLine = (manager: UpdateManager, now: Date): string => {
 };
 
 /**
- * Whether a check since the start read the channel: only such a read shows a newest, a target or a release passed
- * over, and one that found none of them ended ok. A pin it stages while the channel has no newest shows as its
- * target alone (#1818).
+ * Whether a check since the start read the channel, as the environment says it (#1818). One that predates saying it
+ * is answered from what such a read shows, a newest, a target or a release passed over, or from a last check that
+ * ended ok; a read that found none of them is missed once a later check fails.
  */
-const readSinceStart = ({ newest, target, passedOver, lastCheck }: UpdatesStatus): boolean =>
-  newest !== null || target !== null || passedOver !== null || lastCheck?.result === "ok";
+const readSinceStart = ({ readSinceStart: said, newest, target, passedOver, lastCheck }: UpdatesStatus): boolean =>
+  said ?? (newest !== null || target !== null || passedOver !== null || lastCheck?.result === "ok");
 
 /** The channel's newest; with none since the start though the channel was read before it, that the read is due and when it last was (#1812). */
 const newestLine = (status: UpdatesStatus): string => {
@@ -166,7 +166,7 @@ const newestLine = (status: UpdatesStatus): string => {
 
 /**
  * The last check. With none ended since the start though the channel was read (#1812): when it last was, before the
- * start while nothing a read since shows is, else by the first check since, which is still staging what it found.
+ * start while no check since read it, else by the first check since, which is still staging what it found.
  */
 const checkLine = (status: UpdatesStatus): string => {
   const { lastCheck: check, lastReadAt = null } = status;
