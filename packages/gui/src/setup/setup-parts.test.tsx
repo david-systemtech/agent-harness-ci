@@ -79,6 +79,21 @@ describe("TechnicalDetails", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("says Copied. for 1.5 seconds from the latest copy when copied again", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<TechnicalDetails report={report} copy={copy} defaultOpen />);
+      const button = screen.getByRole("button", { name: "Copy details" });
+      await act(async () => { button.click(); });
+      act(() => vi.advanceTimersByTime(1400));
+      await act(async () => { button.click(); });
+      act(() => vi.advanceTimersByTime(1499));
+      expect(screen.getByRole("status").textContent).toBe("Copied.");
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("status").textContent).toBe("");
+    } finally { vi.useRealTimers(); }
+  });
+
   it("says a refused copy in visible words and leaves the text to select", async () => {
     const user = userEvent.setup();
     render(<TechnicalDetails report={report} copy={() => Promise.reject(new Error("denied"))} defaultOpen />);

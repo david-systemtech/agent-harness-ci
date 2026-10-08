@@ -47,17 +47,18 @@ export interface TechnicalDetailsProps {
 export const TechnicalDetails = ({ report, copy, defaultOpen = false }: TechnicalDetailsProps) => {
   const [open, setOpen] = useState(defaultOpen);
   const [status, setStatus] = useState<"ready" | "copied" | "refused">("ready");
+  const [copies, setCopies] = useState(0);
   const request = useRef(0);
   const text = detailsText(report).join("\n");
   useEffect(() => {
     if (status !== "copied") return;
     const timer = setTimeout(() => setStatus("ready"), 1500);
     return () => clearTimeout(timer);
-  }, [status]);
+  }, [status, copies]);
   useEffect(() => () => { request.current += 1; }, []);
   const run = async () => {
     const current = ++request.current;
-    try { await copy(text); if (current === request.current) setStatus("copied"); }
+    try { await copy(text); if (current === request.current) { setStatus("copied"); setCopies((count) => count + 1); } }
     catch { if (current === request.current) setStatus("refused"); }
   };
   return (
