@@ -4,7 +4,7 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
 import { useLocalService } from "./local-service.js";
 
 /**
- * "Run an environment on this machine" (docs/specs/gui.md, "The local
+ * "Run agent-harness on this computer" (docs/specs/gui.md, "The local
  * environment, pairing and updates"), the window's presentation preset on:
  * turned off, the window opens on pairing; turned on, it starts this
  * machine's environment when its service is down.
@@ -20,9 +20,9 @@ export const RunHereSwitch = () => {
   };
   return (
     <label className="flex items-center gap-2 text-sm text-ink">
-      <Tooltip content="Run an environment on this machine"><Switch checked={runHere} onCheckedChange={change} aria-label="Run an environment on this machine" /></Tooltip>
+      <Tooltip content="Run agent-harness on this computer"><Switch checked={runHere} onCheckedChange={change} aria-label="Run agent-harness on this computer" /></Tooltip>
       <Monitor aria-hidden="true" className="size-4 shrink-0" />
-      <span>Run an environment on this machine</span>
+      <span>Run agent-harness on this computer</span>
     </label>
   );
 };

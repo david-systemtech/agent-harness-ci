@@ -36,9 +36,12 @@ export const phonePaneScene = (kind: PhonePaneScene): SceneModule => {
       env.endRun(session.sessionId, runId);
     },
     activate: () => {
-      let clicked = false;
+      let reopened = false, clicked = false;
       const observer = new MutationObserver(() => click());
       const click = () => {
+        // A phone opens the session with the sheet it left open hidden (#1903): the scene opens it again from its edge handle.
+        const handle = document.querySelector<HTMLButtonElement>("[data-dock-reopen]");
+        if (!reopened && handle) { reopened = true; handle.click(); }
         if (clicked) return;
         const selector = kind === "file" ? '[data-file-row]' : kind === "agent" ? '[aria-label="Explore: Find the parser"] button' : kind === "preview" ? '[aria-label="site/index.html"] button' : kind === "markdown" ? '[aria-label="notes.md"] button' : null;
         if (!selector) return;

@@ -26,3 +26,21 @@ it("a worker with no page displays only the safe payload and opens the waiting s
   await emit("notificationclick", { notification: { data: { url: "https://evil.test/" }, close: () => undefined } });
   expect(opened).toHaveLength(1);
 });
+
+it("a tap on a notification whose session a window already shows focuses that window and tells it the session was opened", async () => {
+  const listeners = new Map<string, (event: never) => void>();
+  const url = "https://example.test:8443/#/session/env-1/session-1";
+  const told: unknown[] = [], opened: string[] = [];
+  let focused = 0;
+  const scope: PushWorkerScope = {
+    location: { origin: "https://example.test:8443" },
+    registration: { showNotification: async () => undefined },
+    clients: { openWindow: async link => { opened.push(link); }, matchAll: async () => [{ url, focus: async () => { focused += 1; }, postMessage: message => { told.push(message); } }] },
+    addEventListener: (type, listener) => { listeners.set(type, listener as (event: never) => void); },
+  };
+  installPushWorker(scope);
+  let work: Promise<unknown> | undefined;
+  listeners.get("notificationclick")!({ notification: { data: { url }, close: () => undefined }, waitUntil: (pending: Promise<unknown>) => { work = pending; } } as never);
+  await work;
+  expect({ told, focused, opened }).toEqual({ told: [{ type: "attention-opened", url }], focused: 1, opened: [] });
+});
