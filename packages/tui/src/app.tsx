@@ -10,6 +10,7 @@ import {
   bulkAsks,
   bulkQuestion,
   decidable,
+  denylistRepeatWords,
   directoryOf,
   followDraft,
   inWorkspace,
@@ -47,6 +48,7 @@ import {
   type Notice,
   type Observable,
   type PairingInput,
+  type PromptEntry,
   type SessionRow,
   type TranscriptEntry,
   type TranscriptRow as Row,
@@ -2742,6 +2744,11 @@ export const App = (props: AppProps) => {
               }
               hint={cardHint(shownPrompt.prompt.kind, promptState.line !== null)}
               absent={shownPrompt.prompt.kind === "permission" || shownPrompt.prompt.kind === "denylist" ? `${keys("permission.rule.edit")} ${keys("permission.scope.walk")}: rules are per session on the harness` : undefined}
+              repeat={
+                shownPrompt.prompt.kind === "denylist" && projection
+                  ? denylistRepeatWords(shownPrompt.prompt, projection.items.filter((item): item is PromptEntry => item.kind === "prompt"))
+                  : undefined
+              }
             />
           )}
           {card.kind === "none" && !opened && !railInPane && started && known.length === 0 && <PairingPrompt />}
