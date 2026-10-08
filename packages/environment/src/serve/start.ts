@@ -1578,7 +1578,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
     startedAt: () => startedAt,
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, tailnetFound, ...(interfaces.tailscaleInstalled !== undefined && { tailscaleInstalled: interfaces.tailscaleInstalled() }), lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({
+      ...boundBeside,
+      tailnetFound,
+      ...(interfaces.tailscaleInstalled !== undefined && { tailscaleInstalled: interfaces.tailscaleInstalled() }),
+      // Windows Firewall asks once whether the environment's Node may accept connections (#1910); the Reachability section says so beforehand.
+      ...((options.platform ?? process.platform) === "win32" && { firewallAsksOnce: true as const }),
+      lanAddresses: [...interfaces.lanAddresses()],
+    }),
     lookAgain: async () => {
       if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
     },

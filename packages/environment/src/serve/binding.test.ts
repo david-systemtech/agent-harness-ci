@@ -130,6 +130,11 @@ describe("binding", () => {
     expect(snapshot.payload).toMatchObject({ status: { binding: { tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] } } });
   });
 
+  it("says on Windows that its firewall asks once, at the first start that binds beside loopback, and says nothing of it elsewhere (#1910)", async () => {
+    expect(await binding(await start({ interfaces: detector(undefined), platform: "win32" }))).toMatchObject({ firewallAsksOnce: true });
+    for (const platform of ["linux", "darwin"] as const) expect(await binding(await start({ interfaces: detector(undefined), platform }))).not.toHaveProperty("firewallAsksOnce");
+  });
+
   it("reports an installed but unreadable Tailscale and refreshes installation on Check again", async () => {
     let installed = true;
     const t = await start({ interfaces: { ...detector(undefined), tailscaleInstalled: () => installed } });
