@@ -43,7 +43,7 @@ describe("run info", () => {
     await app.waitFor("The latest run");
     for (const fact of [
       "Started by: client, attended", "Account: work (milo@work.test)",
-      "Model: claude-opus-4", "Effort: high",
+      "Model: claude-opus-4", "Effort: High",
       "Mode: auto, clamped from bypassPermissions to the ceiling auto",
       "Containment: workspace (asked for workspace-no-network), enforced by bubblewrap: Network containment unavailable",
       "Tokens: 4.0k (1.5k in, 2.0k cache read, 0 cache write, 500 out)",

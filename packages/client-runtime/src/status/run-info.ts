@@ -1,6 +1,6 @@
 import type { AccountRecord, RunPolicy, RunSummary } from "@agent-harness/contracts";
 import { endWords, formatTokens, formatUsd } from "../transcript/format.js";
-import { identityWords, spendOf } from "./words.js";
+import { effortName, identityWords, modelDisplayName, spendOf } from "./words.js";
 
 export const NO_RUN_YET = "No run yet: the session's first message starts one.";
 const POLICY_NOT_HEARD = "not heard by this client: the run's policy was resolved before it caught up";
@@ -11,8 +11,8 @@ export const runInfoFacts = (run: RunSummary, policy: RunPolicy | undefined, acc
   return [
     { term: "Started by", words: policy ? startedBy(policy) : run.origin },
     { term: "Account", words: account ? `${account.label} (${identityWords(account)})` : run.accountId },
-    { term: "Model", words: run.model },
-    { term: "Effort", words: run.effort ?? "the model's own" },
+    { term: "Model", words: modelDisplayName(run.model) },
+    { term: "Effort", words: run.effort !== null ? effortName(run.effort) : "the model's own" },
     { term: "Mode", words: modeWords(run, policy) },
     { term: "Containment", words: policy ? containmentWords(policy) : POLICY_NOT_HEARD },
     { term: "Tokens", words: spend ? `${formatTokens(spend.tokens)} (${usageWords(run)})` : "none reported yet" },

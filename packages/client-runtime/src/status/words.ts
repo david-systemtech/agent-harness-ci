@@ -183,8 +183,47 @@ export const startingAccount = (accounts: readonly AccountRecord[], recommended:
   return Math.max(0, accounts.findIndex((a) => a.id === sessionAccount));
 };
 
-/** A model's name as a list says it: its label with its id, or its id. */
-export const modelName = (model: ModelEntry): string => (model.label !== null ? `${model.label} (${model.id})` : model.id);
+/**
+ * The models' display names as their provider names them, the one table every
+ * client reads (#1824): an alias and the full id it stands for name the same
+ * model. Keys are lower case, without a dated snapshot's suffix.
+ */
+const MODEL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  fable: "Fable 5.1",
+  "claude-fable-5-1": "Fable 5.1",
+  opus: "Opus 5.5",
+  "claude-opus-5-5": "Opus 5.5",
+  sonnet: "Sonnet 5.5",
+  "claude-sonnet-5-5": "Sonnet 5.5",
+  haiku: "Haiku 4.5",
+  "claude-haiku-4-5": "Haiku 4.5",
+};
+
+/** The efforts whose name is more than the word capitalised. */
+const EFFORT_NAMES: Readonly<Record<string, string>> = { xhigh: "Extra high" };
+
+/** A model's display name: the table's, else the provider's own label, else its id, never a blank. */
+export const modelDisplayName = (id: string, label: string | null = null): string =>
+  MODEL_DISPLAY_NAMES[id.trim().toLowerCase().replace(/-\d{8}$/, "")] ?? label ?? id;
+
+/** An effort as a person reads it: "high" is "High". */
+export const effortName = (effort: string): string => EFFORT_NAMES[effort] ?? effort.charAt(0).toUpperCase() + effort.slice(1);
+
+/** The model and effort a session runs on, as the status line and the picker say them: "Fable 5.1 - High", or the model alone on its own effort. */
+export const modelChoiceWords = (choice: { readonly model: string; readonly effort: string | null }, label: string | null = null): string => {
+  const name = modelDisplayName(choice.model, label);
+  return choice.effort === null ? name : `${name} - ${effortName(choice.effort)}`;
+};
+
+/** The line a picker says when a model is chosen for the session's next run. */
+export const nextRunWords = (session: string, choice: { readonly model: string; readonly effort: string | null }, label: string | null = null): string =>
+  `The next run of ${session} goes out on ${modelChoiceWords(choice, label)}${choice.effort === null ? " at its own effort" : ""}.`;
+
+/** A model's name as a list says it: its display name with its id, or its id when the two are the same. */
+export const modelName = (model: ModelEntry): string => {
+  const name = modelDisplayName(model.id, model.label);
+  return name === model.id ? model.id : `${name} (${model.id})`;
+};
 
 /** The models a picker lists: the account's catalogue; with no account, every account's models once each. */
 export const modelsOf = (catalogues: readonly AccountCatalogue[], accountId: string | null): readonly ModelEntry[] => {

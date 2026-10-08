@@ -66,13 +66,13 @@ const statusLines = (app: RenderedApp): readonly [string, string] => {
 describe("status line one", () => {
   it("names the environment, the session's account, model and effort, mode and containment, and the plan windows of its identity pooled across environments at the right", async () => {
     const { app, env } = await opened([desk(), { name: "laptop", reach: "paired", accounts: [{ id: "account-9", label: "work", identity: MILO }] }]);
-    const { runId } = env.startRun(SESSION, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    const { runId } = env.startRun(SESSION, "Fix the receipts", [], { model: "fable", effort: "high" });
     env.endRun(SESSION, runId);
     env.setUsage([reading("account-1", [window("five_hour", 0.42, "2026-09-25T09:00:00.000Z")])]);
     app.environment("laptop").setUsage([reading("account-9", [window("five_hour", 0.61, "2026-09-25T09:05:00.000Z"), window("seven_day", 0.12, "2026-09-25T09:05:00.000Z")])]);
     await app.waitFor("5-hour ██░░ 61% · Weekly █░░░ 12%");
     const [one] = statusLines(app);
-    expect(one).toMatch(/^DE desk · work · claude-opus-4 high · ⏸ auto · ◐ workspace \(defau…\s+5-hour ██░░ 61% · Weekly █░░░ 12%$/);
+    expect(one).toMatch(/^DE desk · work · Fable 5.1 - High · ⏸ auto · ◐ workspace \(default\)\s+5-hour ██░░ 61% · Weekly █░░░ 12%$/);
   });
 
   it("says what a session with no run yet goes out as: the default account and model, the default mode, and no plan windows", async () => {

@@ -5,6 +5,8 @@ import {
   formatTokens,
   formatUsd,
   gaugeOf,
+  modelChoiceWords,
+  modelsOf,
   statusOf,
   type Clock,
   type EnvironmentView,
@@ -138,12 +140,14 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
 
   const label = facts.accountId === null ? undefined : (accounts?.read().value?.find((account) => account.id === facts.accountId)?.label ?? facts.accountId);
   const { model, mode, containment } = facts;
+  // The provider's name for a model the display table does not know, from the catalogue a picker last read; reading it never fetches.
+  const listed = model && modelsOf(runtime.projections.models(environmentId).read().value ?? [], facts.accountId).find((entry) => entry.id === model.model);
   const modeBadge = MODE_BADGES[mode.mode];
   const one: StatusLineOne = {
     parts: [
       badge,
       label !== undefined ? { text: label, bold: true } : { text: "default account", dim: true },
-      model ? { text: model.effort !== null ? `${model.model} ${model.effort}` : model.model } : { text: "default model", dim: true },
+      model ? { text: modelChoiceWords(model, listed?.label) } : { text: "default model", dim: true },
       mode.clampedFrom === null ? modeBadge : { ...modeBadge, text: `${modeBadge.text} ${clampWords(mode.clampedFrom)}` },
       ...(containment ? [containmentBadge(containment.level, containment.isDefault)] : []),
     ],
