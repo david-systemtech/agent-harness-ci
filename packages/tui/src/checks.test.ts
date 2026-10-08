@@ -30,17 +30,19 @@ describe("/check", () => {
     env.wire.answer("checks.run", () => ({ result: { receipt: { status: "rejected", sequence: 2, changed: false, reason: "conflict", error: { code: "conflict", message: "The check cannot run.", data: { reason } } } } }));
     const enter = async (text: string) => { await app.type(text); await app.press(KEY.enter); };
     await enter("/check");
-    await app.waitFor("Check is off");
+    await app.waitFor("After-edit check: off for /repo.");
     await enter("/check now");
     await app.waitFor("check_unset");
     await enter("/check pnpm test  ");
-    await app.waitFor("Check saved");
+    await app.waitFor("After-edit check saved");
     expect(command).toBe("pnpm test  ");
+    await enter("/check");
+    await app.waitFor("After-edit check: $ pnpm test");
     reason = "check_running";
     await enter("/check now");
     await app.waitFor("check_running");
     await enter("/check off");
-    await app.waitFor("Check is off");
+    await app.waitFor("After-edit check: off.");
     expect(command).toBeNull();
     expect(env.wire.server.received().filter((f) => f.type === "request" && f.method === "runs.start")).toHaveLength(0);
   });
@@ -122,4 +124,11 @@ it("Send failure on a check row preserves a nonempty composer", async () => {
   await app.waitFor("Check failure; exit 2");
   expect(app.frame()).toContain("keep this draft");
   expect(env.requests("runs.start")).toContainEqual(expect.objectContaining({ params: expect.objectContaining({ text: expect.stringContaining("assertion failed") }) }));
+});
+
+it("names the after-edit check in the line above the composer when the Environment cannot run it (#1826)", async () => {
+  const app = await renderApp({ script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Checks", workspace: { kind: "directory", path: "/repo" } }] }] }, flags: { session: SESSION } });
+  onTestFinished(() => app.unmount());
+  await app.waitFor("After-edit check: ");
+  expect(app.frame()).not.toMatch(/(^|\s)Check: /m);
 });

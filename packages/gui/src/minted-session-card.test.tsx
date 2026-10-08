@@ -164,7 +164,7 @@ describe("the minted session on its card", () => {
       env.setSetup({ "memory-bank": { state: "done", reason: "BANK.md landed.", actions: ["revise"] } });
       env.passSetup(["memory-bank"]);
     });
-    await waitFor(() => expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("img", { name: "Memory bank: done" })).toBeDefined());
+    await waitFor(() => expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("img", { name: "Memory bank: Done" })).toBeDefined());
     await app.user.click(screen.getByRole("button", { name: "Memory bank" }));
     await app.user.click(await screen.findByRole("button", { name: "Continue authoring" }));
     expect(await screen.findByRole("textbox", { name: "Message" })).toBeDefined();

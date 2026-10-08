@@ -89,7 +89,7 @@ async function phoneComposerSheetsSmoke(page: Page, engine: string): Promise<voi
   try {
     for (const { trigger, title } of [
       { trigger: toolbar.getByRole("button", { name: /^Workspace:/ }), title: "Workspace" },
-      { trigger: toolbar.getByRole("button", { name: /^Workspace check:/ }), title: "Workspace check" },
+      { trigger: toolbar.getByRole("button", { name: /^After-edit check:/ }), title: "After-edit check" },
       { trigger: toolbar.getByRole("button", { name: "Run settings", exact: true }), title: "Run settings" },
     ]) {
       await trigger.click();

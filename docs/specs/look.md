@@ -1306,8 +1306,9 @@ touch target and accessible name. Workspace opens a sheet with the full path,
 branch and recent folders; check state opens its configuration, availability
 reason and Send failure offer. Run settings opens the existing account,
 model/effort, mode, containment, usage and spend controls in a sheet. Browser
-choice keeps its existing picker. The raw path and “Check is off.” consume no
-separate dock rows. Sheets trap and restore focus; closing them preserves drafts.
+choice keeps its existing picker. The check state is named “After-edit check”
+and its sheet gives the Workspace path, labelled, and what the check does; neither
+consumes a separate dock row. Sheets trap and restore focus; closing them preserves drafts.
 Keep the textarea's autosizing rules and Attach/Send controls. The empty composer
 area at 390×844 uses at most 169px (about one fifth); space freed belongs to the
 transcript, retaining three readable lines at keyboard height. Dedicated compact

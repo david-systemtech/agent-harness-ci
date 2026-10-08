@@ -57,7 +57,7 @@ describe("the Instructions card in Set up", () => {
     });
     await app.user.click(within(card).getByRole("button", { name: "Check again" }));
     expect(await within(card).findByText("The orientation block renders.")).toBeDefined();
-    expect(within(card).getByRole("img", { name: "Instructions: done" })).toBeDefined();
+    expect(within(card).getByRole("img", { name: "Instructions: Done" })).toBeDefined();
   });
 
   it("creates Custom text without an origin, with all account chips on", async () => {
