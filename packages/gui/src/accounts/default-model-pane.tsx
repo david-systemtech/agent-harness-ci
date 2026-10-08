@@ -1,5 +1,5 @@
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { DEFAULT_CHOICE_WORDS, accountChoiceWords, addFavourite, effortChoices, familyChoices, favouriteCandidates, identityWords, modelName, moveFavourite, removeFavourite, type EnvironmentView } from "@agent-harness/client-runtime";
+import { DEFAULT_CHOICE_WORDS, accountChoiceWords, addFavourite, effortChoices, familyChoices, favouriteCandidates, identityWords, modelDisplayName, modelName, moveFavourite, removeFavourite, type EnvironmentView } from "@agent-harness/client-runtime";
 import { FAVOURITE_MODELS_MAX, settingsRow, type ModelEntry } from "@agent-harness/contracts";
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Cpu, Gauge, KeyRound, Plus, RefreshCw, Search, Star, X } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -264,7 +264,8 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
   const candidates = favouriteCandidates(catalogues, accounts, favourites);
   const full = favourites.length >= FAVOURITE_MODELS_MAX;
   const accountLabel = (id: string) => accounts.find((account) => account.id === id)?.label ?? id;
-  const nameOf = (id: string) => listed.get(id)?.label ?? id;
+  // Named as the model picker names it: the display table's name, else the provider's label, else the id.
+  const nameOf = (id: string) => modelDisplayName(id, listed.get(id)?.label ?? null);
   // A refused edit leaves the list as it was, so the keyboard goes back to the button pressed.
   const save = async (next: readonly string[], after?: Touched, pressed: Touched | undefined = after) => {
     setLine(undefined);
@@ -284,7 +285,7 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
   const afterRemoving = (index: number): Touched => ({ id: favourites[index + 1] ?? favourites[index - 1], edit: "remove" });
   const candidate = (entry: ModelEntry) => <MenuItem key={entry.id} aria-label={modelName(entry)} onSelect={() => void save(addFavourite(favourites, entry.id), { id: undefined })} className="items-start text-xs">
     <Cpu aria-hidden="true" className="mt-0.5 size-3" />
-    <span className="min-w-0 flex-1"><span className="block">{entry.label ?? entry.id}</span>{entry.label !== null && <span className="block font-mono text-2xs text-ink-muted">{entry.id}</span>}</span>
+    <span className="min-w-0 flex-1"><span className="block">{modelDisplayName(entry.id, entry.label)}</span>{modelDisplayName(entry.id, entry.label) !== entry.id && <span className="block font-mono text-2xs text-ink-muted">{entry.id}</span>}</span>
   </MenuItem>;
   return (
     <SettingsGroup title="Favourite models">
@@ -297,8 +298,8 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
               return <li key={id} data-favourite={id} className="flex items-center gap-2 rounded-md bg-wash px-2 py-1.5">
                 <Star aria-hidden="true" className="size-3 shrink-0 text-ink-muted" />
                 <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-                  <span className="block">{entry?.label ?? id}</span>
-                  {entry?.label != null && <span className="block font-mono text-2xs text-ink-muted">{id}</span>}
+                  <span className="block">{nameOf(id)}</span>
+                  {nameOf(id) !== id && <span className="block font-mono text-2xs text-ink-muted">{id}</span>}
                   {entry === undefined && <span className="block text-2xs text-ink-faint">No signed-in account lists it: the picker passes it over.</span>}
                 </span>
                 <IconButton label={`Move ${nameOf(id)} up`} data-edit="up" disabled={!writable || index === 0} onClick={() => void save(moveFavourite(favourites, id, -1), { id, edit: "up" })}><ArrowUp aria-hidden="true" /></IconButton>

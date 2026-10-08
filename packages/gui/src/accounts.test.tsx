@@ -650,6 +650,22 @@ describe("Favourite models (ticket 1821)", () => {
     for (const button of within(readOnly).getAllByRole("button")) expect(button.hasAttribute("disabled"), button.getAttribute("aria-label") ?? "").toBe(true);
   });
 
+  it("names a favourite as the model picker does, the display table's name over the provider's label", async () => {
+    const models: ScriptedEnvironment["models"] = [{ accountId: "account-1", models: [
+      { id: "opus", family: "opus", tier: 2, efforts: ["low", "high"], label: "Opus" },
+      { id: "haiku", family: "haiku", tier: 1, efforts: [], label: "Haiku" },
+    ] }];
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models, settings: { "accounts.favouriteModels": ["opus"] } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    const item = await within(section).findByRole("listitem");
+    await waitFor(() => expect(item.textContent).toBe("Opus 5.5opus"));
+    expect(within(section).getByRole("button", { name: "Remove Opus 5.5" })).toBeDefined();
+    await app.user.click(within(section).getByRole("button", { name: "Add a favourite" }));
+    const menu = await screen.findByRole("menu", { name: "Models to add" });
+    expect(within(menu).getAllByRole("menuitem").map((entry) => entry.textContent)).toEqual(["Haiku 4.5haiku"]);
+  });
+
   it("leaves the keyboard where the person took it before the write was answered", async () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5", "claude-sonnet-5"] } } });
     const row = await openRow(app, "Default account and model");
