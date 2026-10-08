@@ -213,6 +213,6 @@ describe("a blocked connection", () => {
 
   it("says an older environment's action: update it to this client's version, when it can update itself", async () => {
     await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { protocolVersion: PROTOCOL_VERSION + 1 });
-    expect(await within(sidebar()).findByText("desk runs an older agent-harness than this app. Update within(sidebar()).findByText("desk.")).toBeDefined();
+    expect(await within(sidebar()).findByText("desk runs an older agent-harness than this app. Update desk.")).toBeDefined();
   });
 });

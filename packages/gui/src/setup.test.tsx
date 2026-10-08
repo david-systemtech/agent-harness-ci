@@ -74,24 +74,24 @@ it("shows a pending scheduled read as neutral checking and leaves it out of the 
     "your-machines": { state: "pending", reason: "Waiting for the first release channel read." },
     permissions: { state: "needs-attention", reason: "Containment is unavailable." },
   }) });
-  const dot = await within(steps()).findByRole("img", { name: "Your machines: checking" });
+  const dot = await within(steps()).findByRole("img", { name: "Your machines: Checking" });
   expect(dot.className).toContain("bg-ink-faint");
   await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
   await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
   expect(await screen.findByRole("button", { name: "Set up: 1 needs attention" })).toBeDefined();
   const pane = await setupPane(app);
-  expect(await within(pane).findByText("0 done, 1 needs attention, 0 skipped, 1 checking")).toBeDefined();
+  expect(await within(pane).findByText("0 done · 1 needs a fix · 0 not set up · 1 checking")).toBeDefined();
 });
 
 it("counts a bank awaiting owner review as done and shows its review URL in the step's line", async () => {
   const reason = "team-memory is landed and awaiting your review: https://git.example.test/team/memory/pulls/7.";
   const app = await firstLaunch({ capabilities: ["setup"], setup: onlySteps({ "memory-bank": { state: "done", reason } }) });
-  expect(await within(steps()).findByRole("img", { name: "Memory bank: done" })).toBeDefined();
+  expect(await within(steps()).findByRole("img", { name: "Memory bank: Done" })).toBeDefined();
   await app.user.click(within(steps()).getByRole("button", { name: "Memory bank" }));
   expect(await within(checklist() as HTMLElement).findByText(reason)).toBeDefined();
   await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
   await app.user.click(screen.getByRole("button", { name: "Leave for now" }));
-  expect(await within(await setupPane(app)).findByText("1 done, 0 need attention, 0 skipped")).toBeDefined();
+  expect(await within(await setupPane(app)).findByText("1 done · 0 need a fix · 0 not set up")).toBeDefined();
 });
 
 describe("the first-launch mark", () => {
@@ -141,7 +141,7 @@ describe("the first-launch mark", () => {
     const again = await app.remount();
     await again.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     expect(await screen.findByRole("region", { name: "Set up" })).toBeDefined();
-    await waitFor(() => expect(within(steps()).getByRole("img", { name: "Account: done" })).toBeDefined());
+    await waitFor(() => expect(within(steps()).getByRole("img", { name: "Account: Done" })).toBeDefined());
   });
 });
 
@@ -249,7 +249,7 @@ describe("the Set up pane", () => {
   it("shows a step's whole line on keyboard focus as well as on hover, for a line the list cuts short at a narrow width", async () => {
     const app = await twoEnvironments();
     const pane = await setupPane(app);
-    await within(pane).findByText("4 done, 1 needs attention, 1 skipped");
+    await within(pane).findByText("4 done · 1 needs a fix · 1 not set up");
     const permissions = within(within(pane).getByRole("list", { name: "Steps" })).getAllByRole("listitem").find((item) => within(item).getByRole("button").textContent === "Permissions");
     const line = permissions?.lastElementChild as HTMLElement;
     expect(line.className.split(" ")).toContain("truncate");
@@ -262,19 +262,19 @@ describe("the Set up pane", () => {
     const app = await twoEnvironments();
     const pane = await setupPane(app);
     expect(pickedIn(pane)).toBe("desk");
-    expect(await within(pane).findByText("4 done, 1 needs attention, 1 skipped")).toBeDefined();
+    expect(await within(pane).findByText("4 done · 1 needs a fix · 1 not set up")).toBeDefined();
     expect(paneSteps(pane)).toEqual([
-      ["Account", "done", "Every account is signed in."],
-      ["Carry over", null, "Not checked yet."],
-      ["Your machines", "done", "This machine is ready."],
-      ["Forges", "done", "Every forge account is signed in and answering."],
-      ["Key manager", null, "Not checked yet."],
-      ["Memory bank", null, "Not checked yet."],
-      ["Skills", null, "Not checked yet."],
-      ["Instructions", null, "Not checked yet."],
-      ["Browser", "skipped", "No Chrome is paired."],
-      ["Permissions", "needs attention", "The denylist lost 2 presets."],
-      ["Appearance", "done", "The theme meets the contrast rules."],
+      ["Account", "Done", "Every account is signed in."],
+      ["Carry over", null, "Not checked yet. Choose Check again."],
+      ["Your machines", "Done", "This machine is ready."],
+      ["Forges", "Done", "Every forge account is signed in and answering."],
+      ["Key manager", null, "Not checked yet. Choose Check again."],
+      ["Memory bank", null, "Not checked yet. Choose Check again."],
+      ["Skills", null, "Not checked yet. Choose Check again."],
+      ["Instructions", null, "Not checked yet. Choose Check again."],
+      ["Browser", "Not set up", "No Chrome is paired."],
+      ["Permissions", "Needs a fix", "The denylist lost 2 presets."],
+      ["Appearance", "Done", "The theme meets the contrast rules."],
     ]);
 
     // The steps desk gives no result for are ones it does not register: their names dim, with no dot, and uncounted.
@@ -285,7 +285,7 @@ describe("the Set up pane", () => {
     const laptop = app.environment("laptop");
     const asked = laptop.requests("setup.check").length;
     await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "laptop");
-    expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
+    expect(await within(pane).findByText("5 done · 1 needs a fix · 0 not set up")).toBeDefined();
     expect(laptop.requests("setup.check").length).toBe(asked + 1);
 
     await app.user.click(within(within(pane).getByRole("list", { name: "Steps" })).getByRole("button", { name: "Appearance" }));
@@ -336,7 +336,7 @@ describe("a step's pane", () => {
     const desk = app.environment("desk");
     const laptop = app.environment("laptop");
     await openSettings(app);
-    await waitFor(() => expect(railDots()).toContain("Permissions: needs attention"));
+    await waitFor(() => expect(railDots()).toContain("Permissions: Needs a fix"));
     const rows = within(within(settings()).getByRole("navigation", { name: "Settings rows" }));
     const asked = (environment: typeof desk) => environment.requests("setup.check").map((request) => request.params);
     const before = { desk: asked(desk).length, laptop: asked(laptop).length };
@@ -345,7 +345,7 @@ describe("a step's pane", () => {
     // An environment row, on the environment picked: its step alone, its dot held meanwhile.
     await app.user.click(rows.getByRole("button", { name: "Permissions" }));
     await waitFor(() => expect(asked(desk).slice(before.desk)).toEqual([{ step: "permissions" }]));
-    expect(railDots()).toContain("Permissions: needs attention");
+    expect(railDots()).toContain("Permissions: Needs a fix");
     // Accounts is home to Account and Carry over: both.
     await app.user.click(rows.getByRole("button", { name: "Accounts" }));
     await waitFor(() => expect(asked(desk).slice(before.desk)).toEqual([{ step: "permissions" }, { step: "account" }, { step: "carry-over" }]));
@@ -395,7 +395,7 @@ describe("a step's named actions", () => {
     // The Permissions card asks once, as a section's Restore presets does (#594).
     await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets the denylist lost?" })).getByRole("button", { name: "Restore" }));
     expect(await within(permissions).findByText("Restored the denylist's presets: 2 put back.")).toBeDefined();
-    expect(await within(steps()).findByRole("img", { name: "Permissions: done" })).toBeDefined();
+    expect(await within(steps()).findByRole("img", { name: "Permissions: Done" })).toBeDefined();
     expect(within(permissions).getByText(/^Containment and the denylist are set\./)).toBeDefined();
     expect(desk.requests("permissions.denylist.restorePresets")).toHaveLength(1);
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "permissions" });
@@ -432,7 +432,7 @@ describe("a step's named actions", () => {
 
     const machines = await cardOf(app, "Your machines");
     expect(await within(machines).findByText("could not check: timed out after 10 s")).toBeDefined();
-    expect(within(machines).getByText("Last good, checked 2 h ago: The release channel was read.")).toBeDefined();
+    expect(within(machines).getByText("Last time it worked (2 h ago): The release channel was read.")).toBeDefined();
     expect(within(machines).queryByRole("button", { name: "Check now" })).toBeNull();
     const asked = desk.requests("setup.check").length;
     await app.user.click(within(machines).getByRole("button", { name: "Check again" }));
@@ -564,8 +564,8 @@ describe("a step's named actions on their targets", () => {
       } } } };
     });
     const skills = await cardOf(app, "Skills");
-    await app.user.click(within(skills).getByRole("button", { name: "Pull now: team-skills, house-skills, work-skills" }));
-    expect(await within(skills).findByText("team-skills: Not pulled: The source was removed. house-skills: Not pulled: Could not reach the repository. work-skills: Source pulled.")).toBeDefined();
+    await app.user.click(within(skills).getByRole("button", { name: "Update now: team-skills, house-skills, work-skills" }));
+    expect(await within(skills).findByText("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills could not update. Choose Update now. work-skills is up to date.")).toBeDefined();
     expect(desk.requests("skills.sources.pull").map((request) => request.params.sourceId)).toEqual(ids);
     expect(new Set(desk.requests("skills.sources.pull").map((request) => request.params.commandId)).size).toBe(3);
     expect(checklist()).not.toBeNull();
@@ -623,15 +623,15 @@ describe("a step's named actions on their targets", () => {
     } }] }, { stepCards: { skills: StepStatus } });
     await screen.findByText(NO_SESSION);
     const skills = await cardOf(app, "Skills");
-    const pull = within(skills).getByRole("button", { name: "Pull now: team-skills" });
+    const pull = within(skills).getByRole("button", { name: "Update now: team-skills" });
     expect(pull).toHaveProperty("disabled", true);
-    expect(within(skills).getByText(/admin/)).toBeDefined();
+    expect(within(skills).getByText(/change settings or sign in accounts/)).toBeDefined();
     await app.user.click(pull);
     await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
     const forges = within(checklist() as HTMLElement).getByRole("region", { name: "Forges" });
     const install = within(forges).getByRole("button", { name: "Install gh in a tool terminal" });
     expect(install).toHaveProperty("disabled", true);
-    expect(within(forges).getByText(/admin/)).toBeDefined();
+    expect(within(forges).getByText(/change settings or sign in accounts/)).toBeDefined();
     await app.user.click(install);
     expect(app.environment("desk").requests("skills.sources.pull")).toHaveLength(0);
     expect(app.environment("desk").requests("tools.run")).toHaveLength(0);
@@ -658,8 +658,8 @@ describe("a step's named actions on their targets", () => {
     await screen.findByText(NO_SESSION);
 
     const bank = await cardOf(app, "Memory bank");
-    expect(within(bank).getByRole("button", { name: "Start over" })).toBeDefined();
-    await app.user.click(within(bank).getByRole("button", { name: "Try again: Describe work-memory" }));
+    expect(within(bank).getByRole("button", { name: "Start again" })).toBeDefined();
+    await app.user.click(within(bank).getByRole("button", { name: "Continue it: Describe work-memory" }));
     expect(within(settings()).getByRole("region", { name: "Memory banks" })).toBeDefined();
   });
 });
@@ -677,7 +677,7 @@ describe("a card registered for a step", () => {
     const desk = app.environment("desk").environmentId;
     expect(await within(permissions).findByText(new RegExp(`^The Permissions card on ${desk}: Containment and the denylist are set\\.`))).toBeDefined();
     expect(within(permissions).queryByRole("button", { name: "Check now" })).toBeNull();
-    expect(within(permissions).getByRole("img", { name: "Permissions: done" })).toBeDefined();
+    expect(within(permissions).getByRole("img", { name: "Permissions: Done" })).toBeDefined();
     expect(within(permissions).getByRole("button", { name: "Continue" })).toBeDefined();
 
     await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
@@ -700,7 +700,7 @@ describe("a check's time", () => {
       },
     });
     const machines = await cardOf(app, "Your machines");
-    expect(await within(machines).findByText("Last good, checked just now: The release channel was read.")).toBeDefined();
+    expect(await within(machines).findByText("Last time it worked (just now): The release channel was read.")).toBeDefined();
   });
 
   // A poll time read on a phone broke inside its date and said milliseconds in UTC (#1742).
@@ -736,7 +736,7 @@ describe("a check's time", () => {
     expect(await within(pane).findAllByText("Checking…")).toHaveLength(11);
 
     release();
-    expect(await within(pane).findByText("Every account is signed in. (checked 3 h ago)")).toBeDefined();
+    expect(await within(pane).findByText("Every account is signed in. Last checked 3 h ago.")).toBeDefined();
     expect(within(pane).queryByText("Checking…")).toBeNull();
     expect(within(pane).getByText("Containment and the denylist are set.")).toBeDefined();
   });
@@ -754,13 +754,13 @@ describe("health dots", () => {
     await openSettings(app);
     await waitFor(() =>
       expect(railDots()).toEqual([
-        "Set up: needs attention",
-        "Accounts: done",
-        "Permissions: needs attention",
-        "Browser: skipped",
-        "Forges: done",
-        "Your machines: done",
-        "Theme: done",
+        "Set up: Needs a fix",
+        "Accounts: Done",
+        "Permissions: Needs a fix",
+        "Browser: Not set up",
+        "Forges: Done",
+        "Your machines: Done",
+        "Theme: Done",
       ]),
     );
 
@@ -769,13 +769,13 @@ describe("health dots", () => {
     await app.user.selectOptions(within(accounts).getByRole("combobox", { name: "Environment" }), "laptop");
     await waitFor(() =>
       expect(railDots()).toEqual([
-        "Set up: needs attention",
-        "Accounts: done",
-        "Permissions: done",
-        "Browser: done",
-        "Forges: done",
-        "Your machines: done",
-        "Theme: needs attention",
+        "Set up: Needs a fix",
+        "Accounts: Done",
+        "Permissions: Done",
+        "Browser: Done",
+        "Forges: Done",
+        "Your machines: Done",
+        "Theme: Needs a fix",
       ]),
     );
     expect(within(within(settings()).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Theme" })).toBeDefined();
@@ -788,8 +788,8 @@ describe("a result this window did not ask for", () => {
     await screen.findByText(NO_SESSION);
     const desk = app.environment("desk");
     const pane = await setupPane(app);
-    await waitFor(() => expect(railDots()).toContain("Permissions: done"));
-    expect(await within(pane).findByText("6 done, 0 need attention, 0 skipped")).toBeDefined();
+    await waitFor(() => expect(railDots()).toContain("Permissions: Done"));
+    expect(await within(pane).findByText("6 done · 0 need a fix · 0 not set up")).toBeDefined();
     const asked = desk.requests("setup.check").length;
 
     // Another client's check, or the environment's own pass: its result arrives as a notice.
@@ -797,11 +797,11 @@ describe("a result this window did not ask for", () => {
     act(() => app.clock.advance(SETUP_PENDING_MS));
     desk.passSetup(["permissions"]);
     const passed = clockTime(app.clock.now().toISOString());
-    await waitFor(() => expect(railDots()).toContain("Permissions: needs attention"));
-    expect(railDots()[0]).toBe("Set up: needs attention");
-    expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
+    await waitFor(() => expect(railDots()).toContain("Permissions: Needs a fix"));
+    expect(railDots()[0]).toBe("Set up: Needs a fix");
+    expect(await within(pane).findByText("5 done · 1 needs a fix · 0 not set up")).toBeDefined();
     // A re-check that finds nothing new is never heard, so the line says since when it is unchanged rather than how old it is.
-    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", `The denylist lost 2 presets. (unchanged since ${passed})`]);
+    expect(paneSteps(pane)).toContainEqual(["Permissions", "Needs a fix", `The denylist lost 2 presets. No change since ${passed}.`]);
     // The header continues to update behind Settings, which hides background controls from assistive technology.
     expect(screen.getByText("Set up: 1 needs attention")).toBeDefined();
     expect(screen.queryByText("Checking…")).toBeNull();
@@ -873,28 +873,29 @@ describe("an environment the checklist cannot reach", () => {
     await screen.findByText(NO_SESSION);
     const pane = await setupPane(app);
     await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "laptop");
-    expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
-    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", "The denylist lost 2 presets."]);
+    expect(await within(pane).findByText("5 done · 1 needs a fix · 0 not set up")).toBeDefined();
+    expect(paneSteps(pane)).toContainEqual(["Permissions", "Needs a fix", "The denylist lost 2 presets."]);
 
     const laptop = app.environment("laptop");
     laptop.discovery("nothing");
     laptop.server.drop();
-    expect(await within(pane).findByText(/^laptop has not been reached since \d\d:\d\d: its results are from before\.$/)).toBeDefined();
-    expect(within(pane).getByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
+    expect(await within(pane).findByText(/^This app cannot reach laptop \(since \d\d:\d\d\)\. These results may be out of date\.$/)).toBeDefined();
+    expect(within(pane).getByText("5 done · 1 needs a fix · 0 not set up")).toBeDefined();
     expect(paneSteps(pane).filter(([, state]) => state !== null)).toEqual([
-      ["Account", "done", "Every account is signed in. (stale, checked just now)"],
-      ["Your machines", "done", "This machine is ready. (stale, checked just now)"],
-      ["Forges", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
-      ["Browser", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
-      ["Permissions", "needs attention", "The denylist lost 2 presets. (stale, checked 10 min ago)"],
-      ["Appearance", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
+      ["Account", "Done", "Every account is signed in. This may be out of date: laptop cannot be reached."],
+      ["Your machines", "Done", "This machine is ready. This may be out of date: laptop cannot be reached."],
+      ["Forges", "Done", expect.stringMatching(/ This may be out of date: laptop cannot be reached\.$/)],
+      ["Browser", "Done", expect.stringMatching(/ This may be out of date: laptop cannot be reached\.$/)],
+      ["Permissions", "Needs a fix", "The denylist lost 2 presets. This may be out of date: laptop cannot be reached."],
+      ["Appearance", "Done", expect.stringMatching(/ This may be out of date: laptop cannot be reached\.$/)],
     ]);
 
     await app.user.click(within(pane).getByRole("button", { name: "Open the full checklist" }));
     await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
     const shown = checklist() as HTMLElement;
-    expect(within(shown).getByText(/^laptop has not been reached since \d\d:\d\d: its results are from before\.$/)).toBeDefined();
-    expect(within(within(shown).getByRole("region", { name: "Permissions" })).getByText("The denylist lost 2 presets. (stale, checked 10 min ago)")).toBeDefined();
+    expect(within(shown).getByText(/^This app cannot reach laptop \(since \d\d:\d\d\)\. These results may be out of date\.$/)).toBeDefined();
+    expect(within(within(shown).getByRole("region", { name: "Permissions" })).getByText("The denylist lost 2 presets.")).toBeDefined();
+    expect(within(within(shown).getByRole("region", { name: "Permissions" })).getByText("This may be out of date: laptop cannot be reached.")).toBeDefined();
   });
 
   it("says since when, its results kept beneath, and offers this machine's environment, its service down, a start", async () => {
@@ -904,14 +905,14 @@ describe("an environment the checklist cannot reach", () => {
     });
     await screen.findByText(NO_SESSION);
     await openSettings(first);
-    await waitFor(() => expect(railDots()).toContain("Permissions: done"));
+    await waitFor(() => expect(railDots()).toContain("Permissions: Done"));
     first.environment("desk").discovery("nothing");
     const app = await first.remount();
     app.shell.answer("service.start", async () => app.environment("desk").discovery("ready"));
 
     const pane = await setupPane(app);
-    expect(await within(pane).findByText("desk is not running: its results are from before it stopped.")).toBeDefined();
-    expect(within(pane).getByText("6 done, 0 need attention, 0 skipped")).toBeDefined();
+    expect(await within(pane).findByText("agent-harness is not running on desk. These results are from before it stopped.")).toBeDefined();
+    expect(within(pane).getByText("6 done · 0 need a fix · 0 not set up")).toBeDefined();
     await app.user.click(within(pane).getByRole("button", { name: "Start" }));
     await waitFor(() => expect(within(pane).queryByText(/is not running/)).toBeNull());
     expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1);

@@ -7,6 +7,7 @@ import {
   runTool,
   setupActions,
   stepLine,
+  stepNote,
   updateEnvironment,
   uuidv7,
   type ActionOutcome,
@@ -153,9 +154,12 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
     return capability?.status === "absent" ? [capability.message] : [];
   }))];
   const now = runtime.environmentNow(environmentId);
+  const environment = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
+  const note = stepNote(step, now, environment === undefined ? "this computer" : nameOf(environment));
   return (
     <>
       <p className="text-sm text-ink">{stepLine(step, now)}</p>
+      {note !== undefined && <p className="text-xs text-ink-muted">{note}</p>}
       {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, now)}</p>}
       <div className="flex flex-wrap gap-2">
         {offered.map((action) => (

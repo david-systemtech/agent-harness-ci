@@ -92,6 +92,7 @@ describe("the bundle's platform", () => {
       status: "absent",
       reason: "no-shell",
       message: "This app cannot use the gh tool signed in on this computer here. Add a token instead.",
+      details: ["shell.gh"],
     });
   });
 });

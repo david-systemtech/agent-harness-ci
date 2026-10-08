@@ -106,6 +106,7 @@ const REASONS: Readonly<Record<string, Readonly<Record<string, Words>>>> = {
   },
   conflict: {
     // An update's (updates.apply, the update route).
+    // eslint-disable-next-line agent-harness/no-client-organisation-state -- An update conflict's reason on the wire (a pinned version), not session organisation.
     pinned: (verb) => `This computer is pinned to another version. Change or clear the pin, then choose ${verb}.`,
     current: said("This version is running already, or there is nothing newer."),
     schema: said("This version is older than the saved data. Choose a newer version."),

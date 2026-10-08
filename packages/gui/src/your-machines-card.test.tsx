@@ -76,7 +76,7 @@ describe("the Your machines card in Set up", () => {
 
     // Loopback alone is a standing notice on the card, never a failure: the step stays done.
     expect(await within(part("laptop", "Reachability")).findByText(TAILSCALE_WARNING)).toBeDefined();
-    expect(within(rail()).getByRole("img", { name: "Your machines: done" })).toBeDefined();
+    expect(within(rail()).getByRole("img", { name: "Your machines: Done" })).toBeDefined();
 
     // Check again reads again how laptop is reached: Tailscale installed and laptop started again since.
     const laptop = app.environment("laptop");
@@ -115,7 +115,7 @@ describe("the Your machines card in Set up", () => {
     await app.user.click(within(reachability()).getByRole("button", { name: "Check again" }));
     expect(await within(reachability()).findByText("Tailscale address 100.64.0.9 found: laptop binds it at its next start.")).toBeDefined();
     expect(within(reachability()).queryByText(TAILSCALE_WARNING)).toBeNull();
-    expect(within(rail()).getByRole("img", { name: "Your machines: done" })).toBeDefined();
+    expect(within(rail()).getByRole("img", { name: "Your machines: Done" })).toBeDefined();
 
     // laptop started again: Check again finds the address bound.
     statusSays({ ...LOOPBACK_ONLY, tailnet: { address: "100.64.0.9", name: null } });

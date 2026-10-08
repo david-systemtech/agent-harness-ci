@@ -441,7 +441,7 @@ describe("Your machines' update controls", () => {
 
     await app.user.click(drain()!);
     await app.user.click(within(await screen.findByRole("dialog", { name: "Drain laptop and update it to 0.6.0 now?" })).getByRole("button", { name: "Drain and update" }));
-    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "Not updated: laptop's update to 0.6.0 is draining already.");
+    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "An update is under way already. Wait for it to finish.");
     expect(scripted.requests("updates.apply").map((request) => request.params["when"])).toEqual(["now"]);
 
     // Asked, then the update stops waiting on work before an answer: the question goes, and does not come back with the work.
@@ -485,7 +485,7 @@ describe("Your machines' update controls", () => {
     const scripted = app.environment("laptop");
     scripted.discovery({ protocolVersion: PROTOCOL_VERSION, capabilities: ["self-update"] });
     scripted.bye("protocol", { protocolVersion: PROTOCOL_VERSION });
-    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("laptop runs an older agent-harness than this app. Update })).findByText("laptop.");
+    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("laptop runs an older agent-harness than this app. Update laptop.");
     const pane = await openMachines(app);
     const laptop = card(pane, "laptop");
     expect(within(laptop).getByText("This client runs 0.6.0, newer than laptop's 0.0.0-fake.")).toBeDefined();
@@ -498,7 +498,7 @@ describe("Your machines' update controls", () => {
     // desk speaks this build's protocol and the client one more, from the start on: the start's exchange refused before sending the secret.
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { protocolVersion: PROTOCOL_VERSION + 1, version: "0.6.0" });
     const scripted = app.environment("desk");
-    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("desk runs an older agent-harness than this app. Update })).findByText("desk.");
+    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("desk runs an older agent-harness than this app. Update desk.");
     expect(scripted.wire.credential()).toBeUndefined();
     const pane = await openMachines(app);
     const desk = card(pane, "desk");
@@ -646,6 +646,6 @@ describe("Your machines' update controls", () => {
     expect(within(laptop).getByRole("button", { name: "Drain and update now…" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Update now" }));
-    expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "Not updated: desk runs 0.0.0-fake already.");
+    expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "This version is running already, or there is nothing newer.");
   });
 });

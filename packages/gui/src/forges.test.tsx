@@ -313,7 +313,7 @@ describe("the row's reach", () => {
       { name: "laptop", reach: "paired", capabilities: ["forge"], scopes: ["read", "sessions:write", "runs:drive", "terminal"], forges: { accounts: [{}, { origin: "https://git.example.test" }] } },
     ]);
     const desk = await openForges(app);
-    expect(within(desk).getByText("desk runs an older agent-harness without this. Update expect(within(desk).getByText("desk to use it.")).toBeDefined();
+    expect(within(desk).getByText("desk runs an older agent-harness without this. Update desk to use it.")).toBeDefined();
     expect(within(desk).queryByRole("button", { name: "Add a forge" })).toBeNull();
 
     const laptop = await openForges(app, "laptop");

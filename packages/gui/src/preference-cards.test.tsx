@@ -62,7 +62,7 @@ describe("on a fresh environment", () => {
     const app = await firstLaunch();
 
     const permissions = await cardOf(app, "Permissions");
-    expect(within(permissions).getByRole("img", { name: "Permissions: done" })).toBeDefined();
+    expect(within(permissions).getByRole("img", { name: "Permissions: Done" })).toBeDefined();
     expect(within(permissions).getByText(/^Containment and the denylist are set\./)).toBeDefined();
     expect(stepActions(permissions)).toEqual([]);
     expect(within(permissions).queryByText(/^Read-only:/)).toBeNull();
@@ -80,7 +80,7 @@ describe("on a fresh environment", () => {
     expect(within(permissions).getByRole("button", { name: "Continue" })).toBeDefined();
 
     const appearance = await cardOf(app, "Appearance");
-    expect(within(appearance).getByRole("img", { name: "Appearance: done" })).toBeDefined();
+    expect(within(appearance).getByRole("img", { name: "Appearance: Done" })).toBeDefined();
     expect(stepActions(appearance)).toEqual([]);
     expect(within(appearance).queryByText(/^Read-only:/)).toBeNull();
     expect(within(appearance).getByRole("radiogroup", { name: "Light or dark" })).toBeDefined();
@@ -107,7 +107,7 @@ describe("the Permissions step's Restore", () => {
     });
     const desk = app.environment("desk");
     const permissions = await cardOf(app, "Permissions");
-    expect(within(permissions).getByRole("img", { name: "Permissions: needs attention" })).toBeDefined();
+    expect(within(permissions).getByRole("img", { name: "Permissions: Needs a fix" })).toBeDefined();
     const paths = await section(permissions, "Paths");
     expect(entries(paths)).not.toContain("~/.ssh");
     expect(stepActions(permissions)).toEqual(["Restore: paths"]);
@@ -126,7 +126,7 @@ describe("the Permissions step's Restore", () => {
     expect(desk.requests("permissions.denylist.restorePresets").map((request) => request.params["sections"])).toEqual([["paths"]]);
     expect(entries(paths).slice(-2)).toEqual(["~/.ssh", "~/.gnupg"]);
     expect(entries(await section(permissions, "Command patterns"))).not.toContain("sudo *");
-    expect(await within(permissions).findByRole("img", { name: "Permissions: done" })).toBeDefined();
+    expect(await within(permissions).findByRole("img", { name: "Permissions: Done" })).toBeDefined();
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "permissions" });
     expect(stepActions(permissions)).toEqual([]);
   });
@@ -179,7 +179,7 @@ describe("the Appearance card", () => {
     });
     const desk = app.environment("desk");
     const appearance = await cardOf(app, "Appearance");
-    expect(within(appearance).getByRole("img", { name: "Appearance: needs attention" })).toBeDefined();
+    expect(within(appearance).getByRole("img", { name: "Appearance: Needs a fix" })).toBeDefined();
     expect(await within(appearance).findByText("Loud, on desk")).toBeDefined();
     expect(within(appearance).getByText("accent: hue 264, chroma 0.4")).toBeDefined();
     for (const ladder of ["Light ladder", "Dark ladder"]) {
@@ -207,7 +207,7 @@ describe("the Appearance card", () => {
     expect(desk.settings()["appearance.theme"]).toEqual(DEFAULT_THEME);
     expect(await within(appearance).findByText("Default, on desk")).toBeDefined();
     expect(within(appearance).getByText("No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.")).toBeDefined();
-    expect(await within(appearance).findByRole("img", { name: "Appearance: done" })).toBeDefined();
+    expect(await within(appearance).findByRole("img", { name: "Appearance: Done" })).toBeDefined();
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "appearance" });
   });
 });

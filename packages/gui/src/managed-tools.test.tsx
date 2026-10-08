@@ -388,7 +388,7 @@ describe("About's Managed tools", () => {
   it("is absent with its reason where the environment does not offer managedTools, asking nothing", async () => {
     const app = await opened({ capabilities: [] });
     await openAbout(app);
-    expect(within(section()).getByText("desk runs an older agent-harness without this. Update expect(within(section()).getByText("desk to use it.")).toBeDefined();
+    expect(within(section()).getByText("desk runs an older agent-harness without this. Update desk to use it.")).toBeDefined();
     expect(within(section()).queryAllByRole("region")).toEqual([]);
     expect(app.environment("desk").requests("tools.list")).toEqual([]);
   });
