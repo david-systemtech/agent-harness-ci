@@ -53,10 +53,10 @@ describe("the Instructions card in Set up", () => {
     await waitFor(() => expect(within(orientation).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("false"));
     expect(desk.requests("settings.update").at(-1)?.params["values"]).toEqual({ "instructions.orientation": false });
     act(() => {
-      desk.setSetup({ instructions: { state: "done", reason: "The orientation block renders." } });
+      desk.setSetup({ instructions: { state: "done", reason: "Agents get your notes and a summary of this computer." } });
     });
     await app.user.click(within(card).getByRole("button", { name: "Check again" }));
-    expect(await within(card).findByText("The orientation block renders.")).toBeDefined();
+    expect(await within(card).findByText("Agents get your notes and a summary of this computer.")).toBeDefined();
     expect(within(card).getByRole("img", { name: "Instructions: Done" })).toBeDefined();
   });
 

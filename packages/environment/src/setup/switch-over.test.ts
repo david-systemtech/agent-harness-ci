@@ -54,7 +54,7 @@ describe("switch-over's eleven callable Health checks (#1192)", () => {
     expect(results.map((result) => result.step)).toEqual(STEP_ORDER);
     for (const result of results) {
       expect(result.state, result.step).toBe("needs-attention");
-      expect(result.reason, result.step).toContain("Could not check");
+      expect(result.reason, result.step).toBe("agent-harness could not finish checking this step. Choose Check again.");
       expect(result.failing.length, result.step).toBeGreaterThan(0);
       expect(result.failing.every((id) => id.startsWith(`${result.step}.`)), result.step).toBe(true);
     }
@@ -74,7 +74,7 @@ describe("switch-over's eleven callable Health checks (#1192)", () => {
     expect(results.find((result) => result.step === "account")).toMatchObject({ state: "needs-attention", failing: ["account.present"] });
     expect(results.find((result) => result.step === "appearance")).toMatchObject({ state: "done" });
     for (const result of results) {
-      expect(result.reason).not.toMatch(/Could not check|timed out|not implemented/i);
+      expect(result.reason).not.toMatch(/Could not check|could not finish checking|took too long|timed out|not implemented/i);
       if (result.state === "skipped") {
         expect(STEP_REGISTRY.find((step) => step.id === result.step)).toMatchObject({ skippable: true, skip: `${result.step}.present` });
         expect(result.failing).toEqual([]);
@@ -115,7 +115,7 @@ describe("switch-over's eleven callable Health checks (#1192)", () => {
     const { results } = await client.request("setup.check", {});
     expect(results.map((result) => result.step)).toEqual(STEP_ORDER);
     expect(results.filter((result) => result.state === "skipped")).toEqual([]);
-    for (const result of results) expect(result.reason).not.toMatch(/Could not check|timed out|not implemented/i);
+    for (const result of results) expect(result.reason).not.toMatch(/Could not check|could not finish checking|took too long|timed out|not implemented/i);
     for (const step of ["forges", "key-manager", "memory-bank"] as const) {
       const result = results.find((result) => result.step === step)!;
       expect(result.state, step).toBe("needs-attention");
@@ -180,7 +180,7 @@ describe("the registered checks on the Environment clock", () => {
     expect((await snapshot(t, client)).setup!.find((result) => result.step === "instructions")).toEqual(good);
     t.clock.advance(1);
     const failed = await checking;
-    expect(failed).toMatchObject({ state: "needs-attention", reason: "could not check: timed out after 5 s", failing: ["instructions.orientation-renders"], actions: ["check-again"], lastGood: { state: "done", reason: good.reason, checkedAt: good.checkedAt } });
+    expect(failed).toMatchObject({ state: "needs-attention", reason: "Checking took too long. Choose Check again.", failing: ["instructions.orientation-renders"], actions: ["check-again"], lastGood: { state: "done", reason: good.reason, checkedAt: good.checkedAt } });
     expect(await changed("instructions")).toEqual(failed);
     finish({ text: "# Orientation", unreadRegistries: [] });
     expect((await snapshot(t, client)).setup!.find((result) => result.step === "instructions")).toEqual(failed);

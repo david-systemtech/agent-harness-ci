@@ -43,8 +43,6 @@ const withForge = async () => {
   return { t, forge, client: await t.client() };
 };
 
-/** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
-const ALL_HOLD = "Every forge account is signed in and answering.";
 
 /** The manual clock's time `ms` after its start. */
 const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
@@ -58,6 +56,9 @@ const hold = (): { readonly held: Promise<void>; readonly release: () => void } 
 
 /** How a check's line and targets name a forge account on `forge` answering as David. */
 const davidOn = (forge: FakeForge): string => `david on ${forge.origin.replace("http://", "")}`;
+
+/** The step's line when every check holds on one forge account answering as David: what was found, never its checks' conditions (#1698; setup-copy.md §5.6). */
+const holds = (forge: FakeForge): string => `${davidOn(forge)} is connected.`;
 
 /** The one result `setup.check` answers for the Forges step. */
 const checkForges = async (client: WireClient): Promise<StepResult> => {
@@ -108,7 +109,7 @@ describe("the Forges step with forge accounts", () => {
     await added(client, { url: forge.origin, kind: "forgejo" });
     const asked = forge.requests.length;
 
-    expect(await checkForges(client)).toEqual({ step: "forges", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    expect(await checkForges(client)).toEqual({ step: "forges", state: "done", reason: holds(forge), details: [forge.origin], failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
     expect(forge.requests.slice(asked)).toEqual([
       { method: "GET", path: "/api/v1/user", scheme: "token" },
       { method: "GET", path: "/api/v1/user/repos", query: "limit=1", scheme: "token" },
@@ -213,7 +214,7 @@ describe("forges.primary", () => {
     });
 
     await setPrimary(client, other.id);
-    expect(await checkForges(client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect(await checkForges(client)).toMatchObject({ state: "done", reason: "2 forges connected." });
   });
 });
 
@@ -235,9 +236,9 @@ describe("forges.gh", () => {
   };
 
   it("holds when gh is installed at 2.40 or later and signed in as the login each gh forge account reads, which it asks gh", async () => {
-    const { t, gh, client } = await withGhSource(`${tempDir()}/data`);
+    const { t, forge, gh, client } = await withGhSource(`${tempDir()}/data`);
     onCleanup(() => t.close());
-    expect(await checkForges(client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect(await checkForges(client)).toMatchObject({ state: "done", reason: holds(forge) });
     expect(gh.calls().map((call) => call.argv.slice(0, 2))).toContainEqual(["auth", "status"]);
   });
 
@@ -338,7 +339,7 @@ describe("forges.gh", () => {
     await vi.waitFor(async () => expect((await list(client))[0]?.problem).toBeNull(), { timeout: WAIT_MS });
     t.clock.advance(1_000);
     const result = await nextForgesResult(client, subscription);
-    expect(result).toEqual({ step: "forges", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: after(20 * 60_000 + 2_000) });
+    expect(result).toEqual({ step: "forges", state: "done", reason: holds(forge), details: [forge.origin], failing: [], actions: [], checkedAt: after(20 * 60_000 + 2_000) });
 
     // The cache holds it: the snapshot a client subscribing now is sent.
     const { subscription: later } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
@@ -358,7 +359,7 @@ describe("forges.expiry", () => {
     forge.repositories(token, []);
     expiresAt("2026-10-24 00:00:01 UTC");
     await added(client, { url: forge.origin, kind: "github", credential: { kind: "stored", provenance: "pasted", token } });
-    expect(await checkForges(client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect(await checkForges(client)).toMatchObject({ state: "done", reason: holds(forge) });
 
     expiresAt("2026-10-20 12:00:00 UTC");
     expect(await checkForges(client)).toEqual({
@@ -409,7 +410,7 @@ describe("forges.coverage", () => {
     uncovered.user(TOKEN, DAVID);
     uncovered.repositories(TOKEN, []);
     await added(client, { url: uncovered.origin, kind: "forgejo" });
-    expect(await checkForges(client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect(await checkForges(client)).toMatchObject({ state: "done", reason: "2 forges connected." });
   });
 });
 
@@ -460,7 +461,7 @@ describe("the Forges step beside the verifier's own schedule (#680)", () => {
     await verifiedAt(client, limited, MANUAL_CLOCK_START);
     const steadyAsked = askedWho(steady);
     const limitedAsked = askedWho(limited);
-    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: "2 forges connected." });
     expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([0, 0]);
 
     // Fifteen minutes on, the verifier's schedule: the forge limits the second forge account's credential for forty minutes.
@@ -488,7 +489,7 @@ describe("the Forges step beside the verifier's own schedule (#680)", () => {
     // Its time, fifty-five minutes on, it is verified again, and the step reads it so a second later; an hour on, the steady one is verified the fourth time.
     t.clock.advance(10 * MINUTE - 1_000);
     await vi.waitFor(async () => expect((await accountOn(client, limited))?.problem).toBeNull(), { timeout: WAIT_MS });
-    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: "2 forges connected." });
     t.clock.advance(5 * MINUTE - 1_000);
     await verifiedAt(client, steady, after(4 * QUARTER));
     expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([4, 2]);
@@ -528,7 +529,7 @@ describe("the verification setup.check awaits (ADR 0031's ten seconds)", () => {
     await askedWhoTimes(forge, 2);
     t.clock.advance(9_999);
     release();
-    expect(await checking).toMatchObject({ state: "done", reason: ALL_HOLD, checkedAt: MANUAL_CLOCK_START });
+    expect(await checking).toMatchObject({ state: "done", reason: holds(forge), checkedAt: MANUAL_CLOCK_START });
   });
 
   it("answers could not check with Check again past ten seconds, naming the checks still awaiting it, the last good result beneath, whatever the forge answers later", async () => {
@@ -547,11 +548,12 @@ describe("the verification setup.check awaits (ADR 0031's ten seconds)", () => {
     expect(timedOut).toEqual({
       step: "forges",
       state: "needs-attention",
-      reason: "could not check: timed out after 10 s",
+      reason: "Checking took too long. Choose Check again.",
+      details: ["Stopped after 10 seconds."],
       failing: ["forges.identity", "forges.reads", "forges.expiry"],
       actions: ["check-again"],
       checkedAt: after(60_000),
-      lastGood: { state: "done", reason: ALL_HOLD, checkedAt: MANUAL_CLOCK_START },
+      lastGood: { state: "done", reason: holds(forge), checkedAt: MANUAL_CLOCK_START },
     });
   });
 });

@@ -7,6 +7,7 @@ import {
   SETUP_ACTIONS,
   SETUP_TARGET_KINDS,
   STEP_ORDER,
+  STEP_RESULT_DETAILS_MAX,
   SetupAction,
   StepResult,
   StepState,
@@ -79,6 +80,39 @@ describe("the Set up result vocabulary", () => {
     expect(StepResult.parse({ ...result, times }).times).toEqual(times);
     expect(StepResult.safeParse({ ...result, times: [{ text: "more than an hour ago, at 2026-10-06 16:24 UTC", at: "16:24" }] }).success).toBe(false);
     expect(StepResult.safeParse({ ...result, times: [{ text: "", at: "2026-10-06T16:24:10.496Z" }] }).success).toBe(false);
+  });
+
+  it("carries the raw facts behind its line apart from it as details, each one line and at most twenty, and leaves them out when there are none (#1836)", () => {
+    const result = {
+      step: "forges",
+      state: "needs-attention",
+      reason: "agent-harness could not finish checking this step. Choose Check again.",
+      failing: ["forges.reads"],
+      actions: ["check-again"],
+      checkedAt: "2026-10-08T08:00:00.000Z",
+    };
+    expect(StepResult.parse(result)).not.toHaveProperty("details");
+    const details = ["forges.reads: connect ECONNREFUSED 127.0.0.1:3000"];
+    expect(StepResult.parse({ ...result, details }).details).toEqual(details);
+    expect(StepResult.safeParse({ ...result, details: ["forges.reads: one\ntwo"] }).success).toBe(false);
+    expect(StepResult.safeParse({ ...result, details: [""] }).success).toBe(false);
+    expect(StepResult.safeParse({ ...result, details: Array.from({ length: STEP_RESULT_DETAILS_MAX }, (_, n) => `line ${n}`) }).success).toBe(true);
+    expect(StepResult.safeParse({ ...result, details: Array.from({ length: STEP_RESULT_DETAILS_MAX + 1 }, (_, n) => `line ${n}`) }).success).toBe(false);
+    expect(STEP_RESULT_DETAILS_MAX).toBe(20);
+  });
+
+  it("is read whole, its details passed over, by a reader built before details (#1836)", () => {
+    const result = {
+      step: "your-machines",
+      state: "done",
+      reason: "desk is ready. It updates itself.",
+      failing: [],
+      actions: [],
+      checkedAt: "2026-10-08T08:00:00.000Z",
+    } as const;
+    // The result's shape as it was before details: every field the same, details unknown to it.
+    const before = StepResult.in.omit({ details: true });
+    expect(before.safeParse({ ...result, details: ["Version 0.4.0", "Updates: on"] })).toEqual({ success: true, data: result });
   });
 
   it("carries pending scheduled reads through results, snapshots and notices without failure actions", () => {
@@ -182,7 +216,7 @@ describe("a result in a newer environment's vocabulary", () => {
     actions: ["sign-in-again", "check-again"],
     checkedAt: "2026-09-29T08:00:00.000Z",
   } as const;
-  const done = { step: "account", state: "done", reason: "Every account is signed in.", failing: [], actions: [], checkedAt: "2026-09-29T08:00:00.000Z" } as const;
+  const done = { step: "account", state: "done", reason: "All your accounts are signed in.", failing: [], actions: [], checkedAt: "2026-09-29T08:00:00.000Z" } as const;
 
   it("offers no action this build does not know, nor a target serving one, and setup.check's answer reads whole", () => {
     const rotate = { action: "rotate-token", kind: "forge-account", id: "https://git.example.com", label: "david on git.example.com" };

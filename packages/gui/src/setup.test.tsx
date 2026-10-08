@@ -59,7 +59,7 @@ const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
 it("numbers all eleven steps with an outcome hint and distinguishes required from optional", async () => {
   await firstLaunch();
   const rows = within(steps()).getAllByRole("listitem");
-  const hints = ["Choose your agent’s account", "Bring past work with you", "Work here or elsewhere", "Open pull requests", "Fetch keys when needed", "Keep a shared notebook", "Reuse working procedures", "Guide every session", "See and use web pages", "Choose when agents ask", "Make the window feel right"];
+  const hints = ["Sign in to Claude", "Bring your past chats", "Use it from other devices", "Connect GitHub and others", "Use your key manager", "A notebook agents keep", "Ready-made agent skills", "Notes every agent reads", "Let agents use Chrome", "When agents must ask", "Light, dark and colours"];
   expect(rows).toHaveLength(11);
   for (const [index, row] of rows.entries()) {
     expect(within(row).getByText(String(index + 1))).toBeDefined();
@@ -264,17 +264,17 @@ describe("the Set up pane", () => {
     expect(pickedIn(pane)).toBe("desk");
     expect(await within(pane).findByText("4 done, 1 needs attention, 1 skipped")).toBeDefined();
     expect(paneSteps(pane)).toEqual([
-      ["Account", "Done", "Every account is signed in."],
+      ["Account", "Done", "All your accounts are signed in."],
       ["Carry over", null, "Not checked yet."],
-      ["Your machines", "Done", "This machine is ready."],
-      ["Forges", "Done", "Every forge account is signed in and answering."],
+      ["Your machines", "Done", "This computer is ready."],
+      ["Forges", "Done", "Your forges are connected."],
       ["Key manager", null, "Not checked yet."],
       ["Memory bank", null, "Not checked yet."],
       ["Skills", null, "Not checked yet."],
       ["Instructions", null, "Not checked yet."],
       ["Browser", "Not set up", "No Chrome is paired."],
       ["Permissions", "Needs a fix", "The denylist lost 2 presets."],
-      ["Appearance", "Done", "The theme meets the contrast rules."],
+      ["Appearance", "Done", "Your theme is easy to read."],
     ]);
 
     // The steps desk gives no result for are ones it does not register: their names dim, with no dot, and uncounted.
@@ -396,7 +396,7 @@ describe("a step's named actions", () => {
     await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets the denylist lost?" })).getByRole("button", { name: "Restore" }));
     expect(await within(permissions).findByText("Restored the denylist's presets: 2 put back.")).toBeDefined();
     expect(await within(steps()).findByRole("img", { name: "Permissions: Done" })).toBeDefined();
-    expect(within(permissions).getByText(/^Containment and the denylist are set\./)).toBeDefined();
+    expect(within(permissions).getByText(/^Set\./)).toBeDefined();
     expect(desk.requests("permissions.denylist.restorePresets")).toHaveLength(1);
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "permissions" });
 
@@ -422,7 +422,7 @@ describe("a step's named actions", () => {
       account: { state: "needs-attention", reason: "work is signed out.", failing: ["account.signed-in"], actions: ["sign-in-again"] },
       "your-machines": {
         state: "needs-attention",
-        reason: "could not check: timed out after 10 s",
+        reason: "Checking took too long. Choose Check again.",
         failing: ["your-machines.release-channel"],
         actions: ["check-again", "set-up-this-machine"],
         targets: [{ action: "set-up-this-machine", kind: "environment", id: laptop.environmentId, label: "laptop" }],
@@ -431,7 +431,7 @@ describe("a step's named actions", () => {
     });
 
     const machines = await cardOf(app, "Your machines");
-    expect(await within(machines).findByText("could not check: timed out after 10 s")).toBeDefined();
+    expect(await within(machines).findByText("Checking took too long. Choose Check again.")).toBeDefined();
     expect(within(machines).getByText("Last good, checked 2 h ago: The release channel was read.")).toBeDefined();
     expect(within(machines).queryByRole("button", { name: "Check now" })).toBeNull();
     const asked = desk.requests("setup.check").length;
@@ -675,7 +675,7 @@ describe("a card registered for a step", () => {
     await screen.findByText(NO_SESSION);
     const permissions = await cardOf(app, "Permissions");
     const desk = app.environment("desk").environmentId;
-    expect(await within(permissions).findByText(new RegExp(`^The Permissions card on ${desk}: Containment and the denylist are set\\.`))).toBeDefined();
+    expect(await within(permissions).findByText(new RegExp(`^The Permissions card on ${desk}: Set\\.`))).toBeDefined();
     expect(within(permissions).queryByRole("button", { name: "Check now" })).toBeNull();
     expect(within(permissions).getByRole("img", { name: "Permissions: Done" })).toBeDefined();
     expect(within(permissions).getByRole("button", { name: "Continue" })).toBeDefined();
@@ -693,7 +693,7 @@ describe("a check's time", () => {
     app.environment("desk").setSetup({
       "your-machines": {
         state: "needs-attention",
-        reason: "could not check: timed out after 10 s",
+        reason: "Checking took too long. Choose Check again.",
         failing: ["your-machines.release-channel"],
         actions: ["check-again"],
         lastGood: { state: "done", reason: "The release channel was read.", checkedAt: new Date(app.clock.now().getTime() - 20_000).toISOString() },
@@ -736,9 +736,9 @@ describe("a check's time", () => {
     expect(await within(pane).findAllByText("Checking…")).toHaveLength(11);
 
     release();
-    expect(await within(pane).findByText("Every account is signed in. (checked 3 h ago)")).toBeDefined();
+    expect(await within(pane).findByText("All your accounts are signed in. (checked 3 h ago)")).toBeDefined();
     expect(within(pane).queryByText("Checking…")).toBeNull();
-    expect(within(pane).getByText("Containment and the denylist are set.")).toBeDefined();
+    expect(within(pane).getByText("Set.")).toBeDefined();
   });
 });
 
@@ -813,7 +813,7 @@ describe("a result this window did not ask for", () => {
     await screen.findByText(NO_SESSION);
     const desk = app.environment("desk");
     const permissions = await cardOf(app, "Permissions");
-    expect(await within(permissions).findByText(/^Containment and the denylist are set\./)).toBeDefined();
+    expect(await within(permissions).findByText(/^Set\./)).toBeDefined();
     const release = desk.holdSetupChecks();
 
     await app.user.click(within(permissions).getByRole("button", { name: "Check now" }));
@@ -823,12 +823,12 @@ describe("a result this window did not ask for", () => {
     act(() => app.clock.advance(1));
     expect(await within(permissions).findByText("Checking…")).toBeDefined();
     await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
-    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText(/^The theme meets the contrast rules\./)).toBeDefined();
+    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText(/^Your theme is easy to read\./)).toBeDefined();
 
     await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
     release();
     const again = within(checklist() as HTMLElement).getByRole("region", { name: "Permissions" });
-    expect(await within(again).findByText(/^Containment and the denylist are set\./)).toBeDefined();
+    expect(await within(again).findByText(/^Set\./)).toBeDefined();
     expect(within(again).queryByText("Checking…")).toBeNull();
   });
 });
@@ -882,8 +882,8 @@ describe("an environment the checklist cannot reach", () => {
     expect(await within(pane).findByText(/^laptop has not been reached since \d\d:\d\d: its results are from before\.$/)).toBeDefined();
     expect(within(pane).getByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
     expect(paneSteps(pane).filter(([, state]) => state !== null)).toEqual([
-      ["Account", "Done", "Every account is signed in. (stale, checked just now)"],
-      ["Your machines", "Done", "This machine is ready. (stale, checked just now)"],
+      ["Account", "Done", "All your accounts are signed in. (stale, checked just now)"],
+      ["Your machines", "Done", "This computer is ready. (stale, checked just now)"],
       ["Forges", "Done", expect.stringMatching(/ \(stale, checked just now\)$/)],
       ["Browser", "Done", expect.stringMatching(/ \(stale, checked just now\)$/)],
       ["Permissions", "Needs a fix", "The denylist lost 2 presets. (stale, checked 10 min ago)"],

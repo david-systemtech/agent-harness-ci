@@ -50,7 +50,7 @@ it("answers within the local five-second budget when the orientation seam never 
   const checking = check(client);
   await call;
   t.clock.advance(5_000);
-  expect(await checking).toMatchObject({ state: "needs-attention", failing: ["instructions.orientation-renders"], actions: ["check-again"], reason: "could not check: timed out after 5 s" });
+  expect(await checking).toMatchObject({ state: "needs-attention", failing: ["instructions.orientation-renders"], actions: ["check-again"], reason: "Checking took too long. Choose Check again." });
   answer({ text: "# Orientation", unreadRegistries: [] });
 });
 

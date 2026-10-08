@@ -35,7 +35,8 @@ const needsAttention = {
 const timedOut = {
   step: "your-machines",
   state: "needs-attention",
-  reason: "could not check: timed out after 5 s",
+  reason: "Checking took too long. Choose Check again.",
+  details: ["Stopped after 5 seconds."],
   failing: ["your-machines.release-channel"],
   actions: ["check-again"],
   checkedAt: "2026-09-25T09:00:00.000Z",
