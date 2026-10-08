@@ -151,11 +151,16 @@ export const ManagedToolStatus = z.enum(MANAGED_TOOL_STATUSES).meta({
 });
 export type ManagedToolStatus = z.infer<typeof ManagedToolStatus>;
 
-/** A row's one action (ADR 0026): Install a missing tool, Update one the harness can drive, else Copy the command. */
-export const MANAGED_TOOL_ACTIONS = ["install", "update", "copy"] as const;
+/**
+ * A row's one action (ADR 0026, #1833): Install a missing tool, Update one
+ * the harness can drive, else Run in a terminal pane, the vendor's command
+ * typed out in a tool terminal for a person to start with Enter; Copy only
+ * where the harness has no command to run: `vault`.
+ */
+export const MANAGED_TOOL_ACTIONS = ["install", "update", "terminal", "copy"] as const;
 export const ManagedToolAction = z.enum(MANAGED_TOOL_ACTIONS).meta({
   description:
-    "A managed tool's one action: install (it is not installed), update (installed by a method the harness can drive), or copy (the command, for a method it cannot: manual, unknown, mise, asdf, Scoop).",
+    "A managed tool's one action: install (it is not installed); update (installed by a method the harness can drive); terminal (Run in a terminal pane: installed by a method it cannot drive, such as one that could not be told, so the row's command runs in a tool terminal once a person presses Enter there, and can be copied besides); or copy (nothing the harness runs: vault, which it never installs or updates, and rows recorded before terminal existed).",
 });
 export type ManagedToolAction = z.infer<typeof ManagedToolAction>;
 
@@ -185,12 +190,12 @@ export const ManagedToolRow = z
     action: ManagedToolAction,
     command: ToolCommandLine.nullable().meta({
       description:
-        "For a Copy row, the vendor's documented command a person copies and runs, as tools.run's tool_not_runnable answers it (#426): the vendor script's update where the tool has one, else the install the command table would run here, else the first it has for this platform. Null for an Install or Update row, whose command tools.run runs and answers, and for a Copy row the table has nothing for (vault, which the harness never installs or updates).",
+        "For a terminal or Copy row, the vendor's documented command (#426, #1833): a bare binary's update, else the vendor script's, where the tool has one, else the install the command table would run here, else the first it has for this platform; a terminal row's tools.run runs it once a person presses Enter, and a person can copy it. Null for an Install or Update row, whose command tools.run runs and answers, and for a row the table has nothing for (vault, which the harness never installs or updates).",
     }),
   })
   .meta({
     description:
-      "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status, its one action and, for a Copy row, the command to copy.",
+      "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status, its one action and, for a terminal or Copy row, the vendor's command.",
   });
 export type ManagedToolRow = z.infer<typeof ManagedToolRow>;
 
