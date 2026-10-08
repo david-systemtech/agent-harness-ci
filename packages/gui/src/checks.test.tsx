@@ -26,13 +26,12 @@ describe("Workspace checks in the GUI", () => {
   it("gets, saves verbatim and clears the canonical directory command across Sessions and Client notices", async () => {
     const { app, env, configured, change } = await opened();
     await enter(app, "/check");
-    await screen.findByText("Check is off for /canonical/repo.");
+    await screen.findByText("After-edit check: off for /canonical/repo.");
     const command = "  pnpm test  &&\nprintf 'done'  ";
     await enter(app, `/check ${command}`);
     await waitFor(() => expect(configured()).toBe(command));
     const configuration = await screen.findByRole("region", { name: "Workspace check" });
-    expect(configuration.textContent).toContain(`/canonical/repo`);
-    expect(within(configuration).getByText((_text, node) => node?.textContent === `$ ${command}`).textContent).toBe(`$ ${command}`);
+    expect(configuration.textContent).toBe(`After-edit check: $ ${command}`);
     app.open("desk", 1);
     await waitFor(() => expect(screen.getByRole("region", { name: "Workspace check" }).textContent).toContain(command));
     act(() => change("saved on the laptop"));
@@ -41,6 +40,38 @@ describe("Workspace checks in the GUI", () => {
     await waitFor(() => expect(configured()).toBeNull());
     expect(env.requests("runs.start")).toHaveLength(0);
     expect(env.requests("terminals.run")).toHaveLength(0);
+  });
+
+  it("says above the composer what the check is, in one labelled line, with the workspace and how to turn it on in its tooltip", async () => {
+    const { app, change } = await opened();
+    const strip = await screen.findByRole("region", { name: "Workspace check" });
+    await waitFor(() => expect(strip.textContent).toBe("After-edit check: off"));
+    expect(strip.querySelectorAll("p")).toHaveLength(1);
+    act(() => within(strip).getByText("After-edit check: off").focus());
+    const tooltip = (await screen.findByRole("tooltip")).textContent;
+    expect(tooltip).toContain("Workspace: /canonical/repo.");
+    expect(tooltip).toContain("after the agent edits files");
+    expect(tooltip).toContain("/check <command> turns it on");
+    act(() => change("pnpm test"));
+    await waitFor(() => expect(strip.textContent).toBe("After-edit check: $ pnpm test"));
+    expect(strip.textContent).not.toContain("/canonical/repo");
+    await enter(app, "/check");
+    await screen.findByText("After-edit check: $ pnpm test", { selector: '[role="status"]' });
+    act(() => (strip.querySelector("[tabindex]") as HTMLElement).focus());
+    await waitFor(() => expect(screen.getByRole("tooltip").textContent).toMatch(/^\$ pnpm test · Workspace: \/canonical\/repo\./));
+  });
+
+  it("names the after-edit check when the Environment cannot run it, rather than showing a bare reason", async () => {
+    await opened({ capabilities: [] });
+    const strip = await screen.findByRole("region", { name: "Workspace check" });
+    expect(strip.textContent).toBe("After-edit check: desk does not offer workspaceChecks; a version that does is needed.");
+  });
+
+  it("names the after-edit check when reading it fails", async () => {
+    const { app, env } = await opened();
+    env.wire.answer("checks.get", () => ({ error: { code: "forbidden", message: "Reading the check was refused.", data: {} } }));
+    app.open("desk", 1);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Workspace check" }).textContent).toBe("After-edit check: Reading the check was refused."));
   });
 });
 
@@ -89,7 +120,7 @@ it.each([
   expect(option.getAttribute("aria-disabled")).toBe("true");
   expect(option.textContent).toContain(availability.message);
   await enter(app, "/check now");
-  await screen.findByText(availability.message, { selector: '[role="status"]' });
+  await screen.findByText(`After-edit check: ${availability.message}`, { selector: '[role="status"]' });
   expect(env.requests("checks.run")).toHaveLength(0);
   expect(env.requests("checks.set")).toHaveLength(0);
 });
@@ -106,7 +137,7 @@ it("reports unset, busy, refused and accepted manual execution without local she
   await screen.findByText("forbidden: Terminal grant revoked.");
   env.wire.answer("checks.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true }, result: { terminalId: TERMINAL } } }));
   await enter(app, "/check now");
-  await screen.findByText("Check running on the Environment.");
+  await screen.findByText("After-edit check running on the Environment.");
   expect(env.requests("checks.run")).toHaveLength(5);
   expect(env.requests("terminals.run")).toHaveLength(0);
   expect(env.requests("runs.start")).toHaveLength(0);
@@ -161,7 +192,7 @@ it("dims checks while unreachable and does not enqueue configuration or executio
   await enter(app, "/check now");
   const optionReason = app.runtime.projections.checks(env.environmentId, env.sessionId()).read().availability;
   if (optionReason.status !== "absent") throw new Error("Checks should be unreachable.");
-  await screen.findByText(optionReason.message, { selector: '[role="status"]' });
+  await screen.findByText(`After-edit check: ${optionReason.message}`, { selector: '[role="status"]' });
   await enter(app, "/check printf never");
   expect(env.requests("checks.run")).toHaveLength(0);
   expect(env.requests("checks.set")).toHaveLength(0);
@@ -175,7 +206,7 @@ it("invalidates changed commands and manual now resets identical automatic failu
   act(() => change("pnpm lint"));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull());
   await enter(app, "/check pnpm test");
-  await screen.findByText("Check saved for this Workspace.");
+  await screen.findByText("After-edit check saved for this Workspace.");
   expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull();
   act(() => env.emit(session, "checks.finished", { ...finished, sourceRunId: RUN, terminalId: "0199aa00-0000-4000-8000-000000000007" }));
   await screen.findByRole("button", { name: "Send failure" });
@@ -185,7 +216,7 @@ it("invalidates changed commands and manual now resets identical automatic failu
     return { result: { receipt: { status: "accepted", sequence: event.sequence, changed: true }, result: { terminalId } } };
   });
   await enter(app, "/check now");
-  await screen.findByText("Check running on the Environment.");
+  await screen.findByText("After-edit check running on the Environment.");
   expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull();
   act(() => env.emit(session, "checks.finished", { ...finished, terminalId: "0199aa00-0000-4000-8000-000000000008" }));
   await screen.findByRole("button", { name: "Send failure" });
@@ -210,7 +241,7 @@ it("leaves imported after-edit text inert until a person explicitly saves it", a
   const { app, env, configured } = await opened();
   await app.platform.documents.set("terminal.afterEdit", { "/canonical/repo": "imported command" });
   await enter(app, "/check");
-  await screen.findByText("Check is off for /canonical/repo.");
+  await screen.findByText("After-edit check: off for /canonical/repo.");
   env.wire.answer("checks.run", () => ({ error: { code: "conflict", message: "The check is unset.", data: { reason: "check_unset" } } }));
   await enter(app, "/check now");
   await screen.findByText("check_unset: The check is unset.");

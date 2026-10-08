@@ -686,6 +686,7 @@ export {
   noCommandWords,
   requiredWords,
   runWords,
+  terminalCommandWords,
   toolRunWords,
   verificationWords,
 } from "./managed-tools/words.js";
@@ -697,7 +698,7 @@ export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";
 export { terminalAnswers } from "./terminals/answers.js";
 export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";
 
-export type { Checks, ChecksView } from "./checks.js";
+export { checkWords, type Checks, type ChecksView } from "./checks.js";
 export { undoFile, fileUndoWords, type FileUndoResult } from "./files/undo.js";
 export { clientLocalImportValues } from "./state-import.js";
 

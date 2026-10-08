@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AccountUsage, EnvironmentNotice, HandoffRecommendation, eventTypeEntry, registry, usageWindowLabel, isKnownUsageWindow } from "./index.js";
+import { AccountUsage, EnvironmentNotice, HandoffRecommendation, eventTypeEntry, registry, usageWindowLabel, usageWindowMeterLabel, isKnownUsageWindow } from "./index.js";
 
 /**
  * Plan usage and the hand-off recommendation (#136): the reading a client
@@ -21,6 +21,19 @@ describe("a plan-usage reading", () => {
   ])("names %s for a person as %s", (window, label) => {
     expect(usageWindowLabel(window as string)).toBe(label);
     expect(isKnownUsageWindow(window as string)).toBe(true);
+  });
+
+  it.each([
+    ["five_hour", "5-hour"],
+    ["seven_day", "Weekly"],
+    ["seven_day_opus", "Opus"],
+    ["seven_day_sonnet", "Sonnet"],
+    ["seven_day_oauth_apps", "Apps"],
+    ["model_scoped:fable", "Fable"],
+    ["extra_usage", "Extra usage"],
+    ["iguana_necktie", "Other limit"],
+  ])("captions %s beside its meter ring as %s, the window's name left to the tooltip", (window, caption) => {
+    expect(usageWindowMeterLabel(window as string)).toBe(caption);
   });
 
   it.each(["iguana_necktie", "toString", "model_scoped:"])("never uses the unknown identifier %s as a label", (window) => {

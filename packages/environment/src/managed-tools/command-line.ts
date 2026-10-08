@@ -42,3 +42,19 @@ export const commandLine = (command: ToolCommand, platform: NodeJS.Platform): st
   const word = windows ? powershellWord : posixWord;
   return command.map((step) => step.map((program) => program.map(word).join(" ")).join(" | ")).join(" && ");
 };
+
+/** What a tool terminal says under the command it holds back until Enter (#1833). */
+export const CONFIRM_PROMPT = "Press Enter to run it here, or Ctrl+C to cancel.";
+
+/**
+ * `command` as the line a tool terminal runs only once a person presses
+ * Enter in it (Run in a terminal pane, #1833): the command written out,
+ * the prompt, a read of one line, then the command; Ctrl+C, or the
+ * terminal closing, ends it before anything runs. On POSIX the read is
+ * `sh`'s, so a login shell without `read` (csh) holds it back too.
+ */
+export const confirmedLine = (command: ToolCommand, platform: NodeJS.Platform): string => {
+  const line = commandLine(command, platform);
+  if (platform === "win32") return `Write-Host ${powershellWord(line)}; $null = Read-Host ${powershellWord(CONFIRM_PROMPT)}; ${line}`;
+  return `${commandLine([[["printf", "%s\\n\\n%s ", line, CONFIRM_PROMPT]], [["sh", "-c", "read -r answer"]]], platform)} && ${line}`;
+};

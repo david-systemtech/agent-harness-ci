@@ -904,6 +904,20 @@ describe("/setup", () => {
     expect(env.requests("tools.run")).toEqual([]);
   });
 
+  it("offers a tool update the table cannot drive, which runs in a tool terminal held until Enter (#1833)", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup", "managedTools"],
+      keyManagers: { tools: [{ tool: "gh", action: "terminal", method: "unknown", status: "method-unknown", command: "brew install gh" }] },
+      setup: { ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+        forges: { state: "needs-attention", reason: "gh needs attention.", actions: ["update"], targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }] },
+      },
+    })]);
+    await command(app, "/setup");
+    await app.waitFor("Action: Update gh");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => env.requests("tools.run").length === 1, "the update sent");
+    expect(env.requests("tools.run").map((request) => [request.params["tool"], request.params["action"]])).toEqual([["gh", "update"]]);
+  });
+
   it("keeps unreachable results cached and stale without checking them", async () => {
     const { app } = await launch([desk(), { name: "laptop", reach: "paired", capabilities: ["setup"], setup: {
       ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])), account: { state: "done", reason: "Account ready." },

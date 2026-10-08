@@ -1,5 +1,5 @@
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { DEFAULT_CHOICE_WORDS, accountChoiceWords, effortChoices, familyChoices, identityWords, modelDisplayName, type EnvironmentView } from "@agent-harness/client-runtime";
+import { DEFAULT_CHOICE_WORDS, accountChoiceWords, effortChoices, effortName, familyChoices, identityWords, modelDisplayName, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type ModelEntry } from "@agent-harness/contracts";
 import { ArrowLeft, ChevronDown, Cpu, Gauge, KeyRound, RefreshCw, Search } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -100,7 +100,7 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
   const options = {
     "accounts.defaultAccount": accounts.map((account) => ({ value: account.id, words: accountChoiceWords(account), under: `${identityWords(account)} · ${account.provider}` })),
     "accounts.defaultModelFamily": families.map(({ family, model }) => ({ value: family, ...modelWords(model), hasEffort: model.efforts.length > 0, under: model.efforts.length > 0 ? "Supports effort" : "Uses its own effort" })),
-    "accounts.defaultEffort": efforts.map((effort) => ({ value: effort, words: effort, under: "Reasoning effort for new sessions." })),
+    "accounts.defaultEffort": efforts.map((effort) => ({ value: effort, words: effortName(effort), under: "Reasoning effort for new sessions." })),
   };
   const selectedWords = (key: DefaultKey) => {
     const value = valueOf(key);

@@ -103,7 +103,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
         <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />
         {facts.offer !== undefined ? <HandoffOffer offer={facts.offer} /> : <RunLine facts={facts} />}
       </div>
-      <span className="ml-auto flex shrink-0 items-center gap-2">
+      <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
         <SessionContextMeter environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model?.model ?? null} />
         <UsageMeter environmentId={environmentId} accountId={facts.accountId} />
       </span>
