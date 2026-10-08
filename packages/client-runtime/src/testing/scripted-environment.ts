@@ -1482,7 +1482,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   /** The refusal of `label` for another account than `accountId` holding it, ignoring case. */
   const labelTaken = (label: string, accountId?: string): FakeAnswer | undefined => {
     const holder = accounts.find((a) => a.id !== accountId && a.label.toLowerCase() === label.toLowerCase());
-    return holder ? accountRefusal("label_taken", `The label ${label} is taken by another account on this environment, ignoring case.`, { accountId: holder.id }) : undefined;
+    return holder ? accountRefusal("label_taken", `Another account is already called ${label}. Choose another name.`, { accountId: holder.id }) : undefined;
   };
   /** Removes `held`, releasing the machine's own directory if it held it, as the account store does. */
   const removeAccount = (held: AccountRecord) => {
@@ -1496,10 +1496,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("accounts.adopt");
     if (refused) return refused;
     if (ambient.directory === null || !ambient.present || !ambient.signedIn) {
-      return accountRefusal("ambient_unavailable", `The machine's own Claude directory is not signed in (${ambient.directory ?? "none"}); sign in with Claude's own CLI, then call accounts.probe.`);
+      const line = ambient.directory === null || !ambient.present ? "Claude Code is not on this computer. Sign in with Claude instead." : "Claude Code on this computer is not signed in. Sign in with Claude instead.";
+      return accountRefusal("ambient_unavailable", line, ambient.directory === null ? {} : { directory: ambient.directory });
     }
     const holder = accounts.find((a) => a.id === ambient.accountId);
-    if (holder) return accountRefusal("already_added", `${ambient.directory} is already added as ${holder.label}.`, { accountId: holder.id });
+    if (holder) return accountRefusal("already_added", `This sign-in is already used by ${holder.label}.`, { accountId: holder.id, directory: ambient.directory });
     const label = (params["label"] as string | undefined) ?? ambient.identity?.email ?? "";
     const taken = labelTaken(label);
     if (taken) return taken;
