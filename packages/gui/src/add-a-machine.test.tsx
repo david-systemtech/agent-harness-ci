@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
-import { SCOPES } from "@agent-harness/contracts";
+import { SCOPES, type EnvironmentBinding } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -59,7 +59,7 @@ const pasteLink = async (app: RenderedApp, place: HTMLElement, link: string) => 
 const pickedIn = (region: HTMLElement) => within(within(region).getByRole("combobox", { name: /^(Environment|Setting up)$/ })).getByRole("option", { selected: true }).textContent;
 
 /** A computer bound to loopback alone: no tailnet address and no LAN address. */
-const LOOPBACK_ALONE = { binding: { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: [] } } as const;
+const LOOPBACK_ALONE: { readonly binding: EnvironmentBinding } = { binding: { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: [] } };
 
 describe("Add a device, Part 2: connect this app to another computer", () => {
   /** Part 2 of Add a device. */
@@ -365,6 +365,12 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
 
   it("says nothing about reaching this computer while it binds a tailnet address", async () => {
     const { part } = await partOne({ status: { binding: { ...LOOPBACK_ALONE.binding, tailnet: { address: "100.64.0.7", name: "desk.tail1234.ts.net" } } } });
+    await within(part).findByRole("button", { name: "Make a pairing code" });
+    expect(within(part).queryByText(/Other devices cannot reach this computer yet/)).toBeNull();
+  });
+
+  it("says nothing about reaching this computer while a proxy serves it at an HTTPS origin, on loopback alone, which its codes' links carry", async () => {
+    const { part } = await partOne({ status: { binding: { ...LOOPBACK_ALONE.binding, webOrigin: "https://desk.tail1234.ts.net" } } });
     await within(part).findByRole("button", { name: "Make a pairing code" });
     expect(within(part).queryByText(/Other devices cannot reach this computer yet/)).toBeNull();
   });

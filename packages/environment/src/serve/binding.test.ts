@@ -130,6 +130,12 @@ describe("binding", () => {
     expect(snapshot.payload).toMatchObject({ status: { binding: { tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] } } });
   });
 
+  it("says on environment.status the HTTPS origin a proxy serves it at, which its pairing links carry while it binds loopback alone, and no origin without one (#1847)", async () => {
+    const served = await start({ interfaces: detector(undefined), webOrigin: "https://desk.tail1234.ts.net" });
+    expect(await binding(served)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: [], webOrigin: "https://desk.tail1234.ts.net" });
+    expect(await binding(await start({ interfaces: detector(undefined) }))).not.toHaveProperty("webOrigin");
+  });
+
   it("says on Windows that its firewall asks once, at the first start that binds beside loopback, and says nothing of it elsewhere (#1910)", async () => {
     const dataDir = join(tempDir(), "data");
     const stable = join(dataDir, "node", "node.exe");

@@ -203,6 +203,11 @@
               ],
               "description": "The LAN address the environment binds; null when it binds none."
             },
+            "webOrigin": {
+              "description": "The HTTPS origin a proxy in front of the environment serves it at (serve's --web-origin, such as Tailscale Serve's), which its pairing links carry, so other devices reach it there whatever it binds; absent when it has none and from an older environment.",
+              "type": "string",
+              "minLength": 1
+            },
             "lanAddresses": {
               "type": "array",
               "items": {

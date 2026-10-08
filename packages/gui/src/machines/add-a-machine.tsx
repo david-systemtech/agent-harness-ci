@@ -30,14 +30,15 @@ const Steps = ({ steps }: { readonly steps: readonly string[] }) => (
  * §5.5): who it is for, and, while this computer binds loopback alone, so
  * that any code it makes carries a 127.0.0.1 link no other device can use,
  * the warning above the button (#1847). How it is reached is
- * `environment.status`'s binding, from the request cache.
+ * `environment.status`'s binding, from the request cache: a proxy's HTTPS
+ * origin, which the links carry then, reaches it on loopback alone.
  */
 const ConnectToThisOne = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const status = useObservable(useMemo(() => runtime.requests.cached(environmentId, "environment.status", {}), [runtime, environmentId]));
   const binding = status.result?.binding;
-  const onlyFromItself = binding != null && binding.tailnet === null && binding.lan === null;
+  const onlyFromItself = binding != null && binding.tailnet === null && binding.lan === null && binding.webOrigin === undefined;
   return (
     <PresetPairing
       view={view}
