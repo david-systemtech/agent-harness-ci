@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { changed, markdown, memory, PERSONAL_BANK, personalManifest, scopeFile, TEAM_BANK, teamManifest } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge } from "../../test/fake-forge.js";
-import { DAVID, TOKEN, added, update } from "../../test/forge.js";
+import { DAVID, TOKEN, added, update, verify } from "../../test/forge.js";
 import { startTestEnvironment } from "../../test/helper.js";
 import { scriptedKeyManagers } from "../../test/key-managers.js";
 
@@ -234,6 +234,17 @@ describe("a link that cannot be read (setup-copy.md §5.8; #1854)", () => {
       code: "kind_unsupported",
       message: "GitLab is not supported yet.",
       data: { origin: forge.origin, kind: "gitlab", details: [expect.stringContaining("is GitLab")] },
+    });
+  });
+
+  it("says the forge account needs a fix when its credential answers as someone else, the forge's words in details", async () => {
+    const { client, forge, account } = await setup();
+    forge.user(TOKEN, { login: "someone", id: 7 });
+    await verify(client, account.id);
+    await expect(client.request("banks.join.preview", { url: `${forge.origin}/acme/memory.git` })).rejects.toMatchObject({
+      code: "credential_unavailable",
+      message: `Your account on ${new URL(forge.origin).host} needs a fix first.`,
+      data: { origin: forge.origin, details: [expect.stringContaining("replace it in Set up, Forges")] },
     });
   });
 
