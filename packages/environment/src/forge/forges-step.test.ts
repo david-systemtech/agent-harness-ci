@@ -1,4 +1,4 @@
-import { EnvironmentNotice, registry, type Frame, type SnapshotFrame, type StepResult } from "@agent-harness/contracts";
+import { EnvironmentNotice, UNKNOWN_FORGE_CAPABILITIES, registry, type Frame, type SnapshotFrame, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -165,6 +165,35 @@ describe("forges.identity", () => {
       ],
     });
     expect(copy.requests).toEqual([]);
+  });
+
+  it("says a credential recorded as answering as another user by an older build in today's words, its old line in details, since such an account is never verified again (#1850)", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    const old = "The credential now answers as eve (user 7), not david (user 42): replace it in Set up, Forges.";
+    t.env.log.append(
+      { kind: "environment", id: t.env.id },
+      [
+        {
+          type: "forge.account.verified",
+          payload: {
+            forgeAccountId: account.id,
+            identity: { login: "david", userId: "42" },
+            capabilities: UNKNOWN_FORGE_CAPABILITIES,
+            tokenInformation: null,
+            problem: { kind: "identity-changed", since: MANUAL_CLOCK_START, message: old },
+          },
+        },
+      ],
+      { actor: "system:forge" },
+    );
+
+    expect(await checkForges(client)).toMatchObject({
+      state: "needs-attention",
+      reason: `The token for ${hostOf(forge)} belongs to another user, not david. Add a token for david.`,
+      details: [old],
+      failing: ["forges.identity"],
+    });
   });
 });
 
