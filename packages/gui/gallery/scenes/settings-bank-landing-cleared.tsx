@@ -14,5 +14,6 @@ const cleared = (personal: BankRecord): BankRecord => ({
   status: { ...personal.status, landing: { state: "ok", since: "2026-10-08T12:00:40.000Z" } },
 });
 
-export default await bankScene(false, (personal) => [cleared(personal)]);
+// Listed beside the personal notebook, as the Banks row always shows it, so the cards keep their two-column width.
+export default await bankScene(false, (personal) => [personal, cleared(personal)]);
 export const readySelector = "[data-bank-scene-ready]";
