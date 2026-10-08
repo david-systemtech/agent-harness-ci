@@ -137,9 +137,12 @@ returning to a genuinely wide non-phone viewport. Split
 is unavailable with a width reason. Below the existing 900px pane-width
 breakpoint, the side column is a sheet sized `min(480px, 85%)`; closing/hiding
 it retains terminal and delegated work. A session opened in the phone layout (a
-reload, a push or session link, the drawer) shows itself, with a sheet left
-open hidden and its edge handle bringing back the pane it showed, so a waiting
-card is not covered (#1903); outside it a column is restored as it was left.
+reload, a push or session link, the drawer, or a tapped notification for the
+session the window already shows) shows itself, with a sheet left open hidden
+and its edge handle bringing back the pane it showed, so a waiting card is not
+covered (#1903); a pane a gesture asks for as it opens the session, as Set up's
+"Write it myself" Files, stays shown. Outside the phone layout a column is
+restored as it was left.
 Drawers/sheets trap and restore focus
 and close predictably. Long titles and labels wrap without page overflow.
 

@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { narrowSheet, phoneLayout } from "../test/phone-layout.js";
 
 /**
  * The side column beside the session pane (docs/specs/gui.md, "The seven
@@ -12,26 +13,6 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
  */
 
 const FILES = ["README.md", "package.json", "src/app.tsx", "src/files/browse.ts", "src/files/pages.ts", "test/harness.ts"];
-
-/** Drive the owning pane's real ResizeObserver to a phone width. */
-const narrowSheet = () => {
-  const Original = globalThis.ResizeObserver;
-  vi.stubGlobal("ResizeObserver", class extends Original {
-    constructor(callback: ResizeObserverCallback) {
-      super((entries, observer) => callback(entries.map(entry => entry.target.hasAttribute("data-dock-owner")
-        ? { ...entry, borderBoxSize: [{ inlineSize: 390, blockSize: 844 }] } : entry), observer));
-    }
-  });
-  onTestFinished(() => { vi.unstubAllGlobals(); });
-};
-
-/** Lay the window out as a phone, as the phone frame's media test reads it. */
-const phoneLayout = () => {
-  const original = window.matchMedia;
-  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
-    ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
-  onTestFinished(() => { vi.restoreAllMocks(); });
-};
 
 /** The local environment with two sessions, the first opened in the pane. */
 const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
@@ -135,7 +116,7 @@ describe("the side column", () => {
     expect(screen.queryByRole("button", { name: "Close side sheet" })).toBeNull();
   });
 
-  it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, its waiting card in sight and the edge handle bringing back the pane it showed", async () => {
+  it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, uncovering its waiting card, focus left in the session and the edge handle bringing back the pane it showed", async () => {
     phoneLayout();
     narrowSheet();
     const app = await opened();
@@ -156,6 +137,27 @@ describe("the side column", () => {
     await screen.findByRole("region", { name: "Transcript" });
     again.open("desk", 0);
     expect(await screen.findByRole("region", { name: "Parked prompt" })).toBeDefined();
+    await waitFor(() => expect(column()).toBeNull());
+    expect(screen.getByRole("button", { name: "Show the side column" })).not.toBe(document.activeElement);
+  });
+
+  it("hides a phone's sheet over the session a tapped notification names when the window was already showing it", async () => {
+    phoneLayout();
+    narrowSheet();
+    const worker = new EventTarget();
+    Object.defineProperty(navigator, "serviceWorker", { value: worker, configurable: true });
+    onTestFinished(() => { Reflect.deleteProperty(navigator, "serviceWorker"); });
+    const app = await opened();
+    const env = app.environment("desk"), session = env.sessionId();
+    await openPane(app, "Documents");
+    expect(screen.getByRole("dialog", { name: "Side column" })).toBeDefined();
+    const tapped = (sessionId: string) => act(() => {
+      worker.dispatchEvent(new MessageEvent("message", { data: { type: "attention-opened", url: `${location.origin}/#/session/${encodeURIComponent(env.environmentId)}/${encodeURIComponent(sessionId)}` } }));
+    });
+
+    tapped(env.sessionId(1));
+    expect(screen.getByRole("dialog", { name: "Side column" })).toBeDefined();
+    tapped(session);
     await waitFor(() => expect(column()).toBeNull());
     expect(screen.getByRole("button", { name: "Show the side column" })).toBeDefined();
   });
