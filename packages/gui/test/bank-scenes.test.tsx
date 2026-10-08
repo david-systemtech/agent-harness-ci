@@ -33,6 +33,21 @@ it.each(["light", "dark"] as const)("draws Settings bank records and their measu
   ]));
 });
 
+it("draws a team bank whose landing, refused for want of a forge account, the covering account cleared, with no failure on its card", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "settings-bank-landing-cleared", "dark");
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe("settings-bank-landing-cleared"));
+  const dialog = await screen.findByRole("dialog", { name: "Settings" });
+  const bank = within(dialog).getByRole("region", { name: "team-memory" });
+  expect(within(bank).getByText("Remote")).toBeDefined();
+  expect(within(bank).queryByRole("alert")).toBeNull();
+  expect(within(bank).queryByText(/add one in Set up, Forges/)).toBeNull();
+  expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([{ selector: "[data-bank-card]", paddingLeft: 16, paddingTop: 16 }]));
+});
+
 it.each(["light", "dark"] as const)("draws the setup choices with navigation outside scrolling content in %s", async (ladder) => {
   const container = document.createElement("div");
   document.body.append(container);

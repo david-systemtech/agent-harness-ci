@@ -22,12 +22,22 @@ import { FORGE_ACTOR } from "./verifier.js";
  * repository is never answered.
  */
 
+/** How the refusal's message for `origin` begins, whatever the reason. */
+const missingOpening = (origin: ForgeOrigin): string => `No forge account on this environment covers ${origin}, and `;
+
 /** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the origin and the Forges step. */
 export const forgeAccountMissing = (origin: ForgeOrigin, why: string): ForgeAccountMissingError => ({
   code: "forge_account_missing",
-  message: `No forge account on this environment covers ${origin}, and ${why}: add one in Set up, Forges.`,
+  message: `${missingOpening(origin)}${why}: add one in Set up, Forges.`,
   data: { origin, step: "forges" },
 });
+
+/** Whether `message` is that refusal's on `origin`: a record that kept only the message, as a failed landing's reason does, still names its cause (#1900). */
+export const isForgeAccountMissingOn = (message: string, origin: ForgeOrigin): boolean => message.startsWith(missingOpening(origin));
+
+/** Whether a forge account among `accounts` serves `origin`, at its own origin or a verified alias. */
+export const coversOrigin = (accounts: readonly Pick<ForgeAccountRecord, "origin" | "aliases">[], origin: ForgeOrigin): boolean =>
+  accounts.some((account) => servedOrigins(account).includes(origin));
 
 /** How long after an origin's last record another refusal there records nothing. */
 export const MISSING_ORIGIN_RECORD_MS = 24 * 60 * 60_000;
@@ -71,8 +81,8 @@ export const createMissingOrigins = ({ log, clock, stream, reader, accounts }: M
     });
   },
   counted() {
-    const covered = new Set(accounts().flatMap(servedOrigins));
+    const held = accounts();
     const now = clock.now().getTime();
-    return missingOrigins(reader).filter((missing) => !covered.has(missing.origin) && now - Date.parse(missing.recordedAt) < MISSING_ORIGIN_COUNTS_MS);
+    return missingOrigins(reader).filter((missing) => !coversOrigin(held, missing.origin) && now - Date.parse(missing.recordedAt) < MISSING_ORIGIN_COUNTS_MS);
   },
 });
