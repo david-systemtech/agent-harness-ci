@@ -1,4 +1,4 @@
-import { workspaceName, type ChecksView } from "@agent-harness/client-runtime";
+import { checkWords, workspaceName, type ChecksView } from "@agent-harness/client-runtime";
 import { useMemo } from "react";
 import { Folder, GitBranch, Hand, Terminal, CircleCheck, CircleMinus, CircleAlert } from "lucide-react";
 import { usePaneGrid } from "../grid/grid.js";
@@ -20,7 +20,7 @@ export const useWorkspaceChecks = (environmentId: string, sessionId: string, say
     if (form === "") {
       void runtime.checks.get(environmentId, sessionId).then((answer) => {
         runtime.requests.refresh(environmentId, "checks.get", { sessionId });
-        say(!answer.ok ? answer.error.message : answer.result.command === null ? `Check is off for ${answer.result.workspace}.` : `$ ${answer.result.command}`);
+        say(!answer.ok ? answer.error.message : answer.result.command === null ? checkWords.offFor(answer.result.workspace) : `$ ${answer.result.command}`);
       });
     } else if (form === "now") {
       void runtime.checks.run(environmentId, sessionId).then((answer) => {
@@ -29,7 +29,7 @@ export const useWorkspaceChecks = (environmentId: string, sessionId: string, say
       });
     } else {
       void runtime.checks.set(environmentId, sessionId, form === "off" ? null : argument).then((answer) => {
-        say(!answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : form === "off" ? "Check is off." : "Check saved for this Workspace.");
+        say(!answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : form === "off" ? `${checkWords.off}.` : checkWords.saved);
       });
     }
   }, view.availability);
@@ -44,23 +44,25 @@ export const WorkspaceCheck = ({ view, sendFailure, sending, compact = false }: 
     const state = view.availability.status === "absent" ? "unavailable" : view.offer !== null ? "failure ready to send" : view.value === null ? "reading" : view.value.command === null ? "off" : "configured";
     const Icon = state === "off" ? CircleMinus : state === "configured" ? CircleCheck : CircleAlert;
     return <Dialog>
-      <DialogTrigger asChild><Button aria-label={`Workspace check: ${state}`}><Icon aria-hidden="true" className="size-4" /></Button></DialogTrigger>
-      <PhoneComposerSheet title="Workspace check">
+      <DialogTrigger asChild><Button aria-label={`${checkWords.name}: ${state}`}><Icon aria-hidden="true" className="size-4" /></Button></DialogTrigger>
+      <PhoneComposerSheet title={checkWords.name}>
         {view.availability.status === "absent" ? <p className="text-sm text-ink-muted">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : <>
-          <p className="break-all font-mono text-sm">{view.value.workspace}</p>
-          {view.value.command === null ? <p>Check is off.</p> : <pre className="overflow-x-auto rounded-none bg-abyss p-2 text-sm">{`$ ${view.value.command}`}</pre>}
-          <p className="text-sm text-ink-muted">Use /check &lt;command&gt; to configure, /check now to run, or /check off to clear.</p>
+          {view.value.command === null ? <p>{checkWords.off}</p> : <pre className="overflow-x-auto rounded-none bg-abyss p-2 text-sm">{`$ ${view.value.command}`}</pre>}
+          <p className="break-all font-mono text-sm">{checkWords.workspace(view.value.workspace)}</p>
+          <p className="text-sm text-ink-muted">{checkWords.explain}</p>
         </>}
         {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check" keys="Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" />Send failure</VerbButton>}
       </PhoneComposerSheet>
     </Dialog>;
   }
   return <section aria-label="Workspace check" className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
-    {view.availability.status === "absent" ? <p className="text-ink-faint">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : (
-      <>
-        <p className="truncate font-mono text-2xs" title={view.value.workspace}>{view.value.workspace}</p>
-        {view.value.command === null ? <p>Check is off.</p> : <pre className="flex min-w-0 items-center gap-1.5 truncate" title={view.value.command}><Terminal aria-hidden="true" className="size-3 shrink-0" />{`$ ${view.value.command}`}</pre>}
-      </>
+    {view.availability.status === "absent" ? <p className="text-ink-faint">{`${checkWords.name}: ${view.availability.message}`}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : (
+      // The Workspace chip above names the folder; the label says what the check is, its tooltip where it runs and how to set it.
+      <Tooltip content={`${view.value.command === null ? "" : `$ ${view.value.command} · `}${checkWords.workspace(view.value.workspace)}. ${checkWords.explain}`}>
+        {view.value.command === null
+          ? <p tabIndex={0} className="rounded-sm outline-none focus-visible:outline-2 focus-visible:outline-beam">{checkWords.off}</p>
+          : <p tabIndex={0} className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:outline-2 focus-visible:outline-beam">{`${checkWords.name}: `}<Terminal aria-hidden="true" className="size-3 shrink-0" /><code className="truncate">{`$ ${view.value.command}`}</code></p>}
+      </Tooltip>
     )}
     {view.offer !== null && <VerbButton does="Send the offered check output to the agent · /check" keys="Enter in an empty message" availability={sending} run={sendFailure}><Terminal aria-hidden="true" className="size-3" />Send failure</VerbButton>}
   </section>;

@@ -19,6 +19,16 @@ export interface ChecksView extends EnvironmentAnswer<WorkspaceCheck> {
   readonly runningOutput: ReadonlyMap<string, { readonly output: string; readonly truncated: boolean }>;
 }
 
+/** What both Clients call a Workspace check, so a bare path and "is off" never stand for it (#1826). */
+export const checkWords = {
+  name: "After-edit check",
+  off: "After-edit check: off",
+  offFor: (workspace: string) => `After-edit check: off for ${workspace}.`,
+  saved: "After-edit check saved for this Workspace.",
+  workspace: (workspace: string) => `Workspace: ${workspace}`,
+  explain: "A shell command, such as your tests, that the Environment runs in this Workspace after the agent edits files; a failure can be sent back to the agent. /check <command> turns it on, /check now runs it, /check off turns it off.",
+} as const;
+
 export interface Checks {
   get(environmentId: string, sessionId: string): Promise<RequestAnswer<"checks.get">>;
   set(environmentId: string, sessionId: string, command: string | null): Promise<RequestAnswer<"checks.set">>;

@@ -9,6 +9,7 @@ import {
   browse,
   bulkAsks,
   bulkQuestion,
+  checkWords,
   decidable,
   directoryOf,
   followDraft,
@@ -522,7 +523,7 @@ export const App = (props: AppProps) => {
   const checks = useMemo(() => opened ? runtime.projections.checks(opened.environmentId, opened.sessionId) : undefined, [runtime, opened]);
   useFollow(checks, request);
   const checkView = checks?.read();
-  const checkUnavailable = checkView?.availability.status === "absent" ? ` Check: ${checkView.availability.message}` : undefined;
+  const checkUnavailable = checkView?.availability.status === "absent" ? ` ${checkWords.name}: ${checkView.availability.message}` : undefined;
   const checkOffer = checkView?.offer ? ` Send failure: Enter on an empty composer · ${checkView.offer.result?.timedOut ? "timeout" : "failure"}` : undefined;
   const checkSummaryRows = [checkUnavailable, checkOffer].reduce((rows, text) => rows + (text === undefined ? 0 : wrap([{ text }], size.columns).length), 0);
 
@@ -1325,7 +1326,7 @@ export const App = (props: AppProps) => {
                 }
               } catch { /* An unreadable local import enables nothing. */ }
             }
-            say(answer.result.command === null ? `Check is off for ${answer.result.workspace}.${imported === undefined ? "" : ` Imported (inert): ${imported}; save explicitly with /check <command>.`}` : `$ ${answer.result.command}`);
+            say(answer.result.command === null ? `${checkWords.offFor(answer.result.workspace)}${imported === undefined ? "" : ` Imported (inert): ${imported}; save explicitly with /check <command>.`}` : `$ ${answer.result.command}`);
           });
         } else if (command.action === "now") {
           void runtime.checks.run(environmentId, sessionId).then((answer) => {
@@ -1333,7 +1334,7 @@ export const App = (props: AppProps) => {
             say(error === undefined ? "Check running on the Environment." : `${error.data?.["reason"] ?? error.code}: ${error.message}`);
           });
         } else {
-          void runtime.checks.set(environmentId, sessionId, command.action === "set" ? command.command : null).then((answer) => say(!answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : command.action === "off" ? "Check is off." : "Check saved for this Workspace."));
+          void runtime.checks.set(environmentId, sessionId, command.action === "set" ? command.command : null).then((answer) => say(!answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : command.action === "off" ? `${checkWords.off}.` : checkWords.saved));
         }
         return true;
       }
