@@ -32,7 +32,9 @@ import { readKeptTime, writeKeptTime } from "./kept-time.js";
  * kept in the data directory (`RELEASE_CHANNEL_FILE`), so a restart, an
  * update's included, does not make the channel read as unread, and
  * `updates.status` says it (`lastReadAt`) before the first check since the
- * start has a newest or a last check to show (#1812). A check
+ * start has a newest or a last check to show (#1812), and says whether a
+ * read since the start succeeded (`readSinceStart`), which a read that found
+ * no release and a later check that failed do not otherwise show (#1818). A check
  * appends nothing, so no trigger the step names hears it: the environment
  * hears each check that ends through `onChecked` instead, and triggers the
  * step from it (#679).
@@ -56,7 +58,7 @@ export const CHECK_AGAIN_MS = MINUTE_MS;
 export const RELEASE_CHANNEL_FRESH_MS = 24 * 60 * MINUTE_MS;
 
 /** What `updates.status` shows of the channel. */
-export type ChannelStatus = Pick<UpdatesStatus, "newest" | "lastCheck" | "lastReadAt" | "target" | "passedOver">;
+export type ChannelStatus = Pick<UpdatesStatus, "newest" | "lastCheck" | "lastReadAt" | "readSinceStart" | "target" | "passedOver">;
 
 /** Why the staging of what a check found failed: the check's reason, and what failed. */
 export interface StagingFailure {
@@ -80,7 +82,7 @@ export interface ChannelChecksOptions {
 }
 
 export interface ChannelChecks {
-  /** The channel's newest, the last check, the target and a release passed over. */
+  /** The channel's newest, the last check, the target and a release passed over, the last read and whether one was since the start. */
   status(): ChannelStatus;
   /** `updates.check`: a check now, or the one under way; within a minute of the last check's start, nothing: that check's result stands. */
   check(): Promise<void>;
@@ -112,8 +114,10 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   const { clock, channel } = options;
   const recordPath = join(options.dataDir, RELEASE_CHANNEL_FILE);
   /** What `updates.status` shows of the channel from this start's checks; the last read beside it is `lastSucceededAt`. */
-  let status: Omit<ChannelStatus, "lastReadAt"> = { newest: null, lastCheck: null, target: null, passedOver: null };
+  let status: Omit<ChannelStatus, "lastReadAt" | "readSinceStart"> = { newest: null, lastCheck: null, target: null, passedOver: null };
   let lastSucceededAt = readKeptTime(recordPath, LAST_SUCCEEDED, LAST_CHECK);
+  /** Whether a read since the start succeeded: what it found may be no release at all, and a later check that fails leaves it (#1818). */
+  let readSinceStart = false;
   let lastStartedAt: number | undefined;
   /** When the read whose findings `status` shows began: one that began before it shows none of its own. */
   let foundAt = Number.NEGATIVE_INFINITY;
@@ -137,6 +141,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
 
   /** A read that began `at` found `reading`: its time kept, and its newest, target and release passed over shown unless a later read's are. */
   const found = (at: Date, reading: ChannelReading): void => {
+    readSinceStart = true;
     if (lastSucceededAt === undefined || at.getTime() > lastSucceededAt) {
       lastSucceededAt = at.getTime();
       writeKeptTime(recordPath, LAST_SUCCEEDED, lastSucceededAt, LAST_CHECK);
@@ -209,7 +214,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   };
 
   return {
-    status: () => ({ ...status, lastReadAt: lastSucceededAt === undefined ? null : new Date(lastSucceededAt).toISOString() }),
+    status: () => ({ ...status, lastReadAt: lastSucceededAt === undefined ? null : new Date(lastSucceededAt).toISOString(), readSinceStart }),
 
     check() {
       if (running !== undefined) return running;

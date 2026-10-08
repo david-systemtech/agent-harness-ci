@@ -1,6 +1,6 @@
 import { PromptOpenedPayload, promptAnswerMisfits } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { choiceRows, joinAnswers, rowAnswer, ttlWords, type RowOutcome } from "./card.js";
+import { buttonRows, choiceRows, joinAnswers, rowAnswer, ttlWords, type RowOutcome } from "./card.js";
 
 /**
  * A parked prompt's card as both renderers draw it: the rows each kind
@@ -59,6 +59,17 @@ describe("an approval", () => {
     ] as const) {
       expect(promptAnswerMisfits(of.kind, answerOf(choose(of, at)))).toEqual([]);
     }
+  });
+
+  it("lays a denylist prompt of a bypassPermissions run out as Deny and Allow once, the allow never remembered (#1820)", () => {
+    const denylist = prompt({ kind: "denylist", mode: "bypassPermissions", ceiling: "bypassPermissions" });
+    const rows = buttonRows(denylist);
+    expect(rows.map((row) => row.label)).toEqual(["Deny", "Allow once"]);
+    expect(rows.map((row) => answerOf(rowAnswer(denylist, row, "")))).toEqual([{ decision: "deny" }, { decision: "allow" }]);
+  });
+
+  it("lays a permission prompt out with Allow once last, the button Mod+Enter presses", () => {
+    expect(buttonRows(prompt({})).map((row) => row.label)).toEqual(["Deny", "Allow for this session", "Allow once"]);
   });
 
   it("sends the note, trimmed, as the answer's message with whichever row is chosen; blank sends none", () => {

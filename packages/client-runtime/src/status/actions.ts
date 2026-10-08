@@ -24,11 +24,18 @@ export const adminCall = async <N extends CommandMethodName>(call: () => Promise
   return { ok: true, result, changed: receipt.changed };
 };
 
-/** What setting a session's mode said: the line, and the mode the session got when the environment said it. */
+/** What setting a session's mode said: the line, the mode the session got when the environment said it, and whether the line is transient. */
 export interface ModeSet {
   readonly ok: boolean;
   readonly line: string;
   readonly mode?: Mode;
+  /**
+   * Whether the line is a transient notice, said once as the mode changes: the
+   * session got the mode asked for, and the mode control shows it from then on
+   * (#1823). A clamp or a refusal is not: it stands as the pane's line, since
+   * the control does not say why the session has less than was asked.
+   */
+  readonly transient: boolean;
 }
 
 /**
@@ -36,19 +43,20 @@ export interface ModeSet {
  * mode above the ceiling is sent all the same, so the environment's clamp
  * answers it, lowered and never refused: the line names the mode asked for,
  * the one got and why (the ceiling, or a mode the account cannot use), and
- * bypassPermissions carries the permissions spec's sentence.
+ * bypassPermissions carries the permissions spec's sentence. A mode got as
+ * asked is said as a transient notice.
  */
 export const setSessionMode = async (runtime: Runtime, environmentId: string, sessionId: string, mode: Mode, sessionName: string): Promise<ModeSet> => {
   const answer = await runtime.commands.dispatch(environmentId, "permissions.mode.set", { sessionId, mode });
-  if (!answer.ok) return { ok: false, line: `The mode was not set: ${answer.error.message}` };
+  if (!answer.ok) return { ok: false, line: `The mode was not set: ${answer.error.message}`, transient: false };
   const resolved = answer.result?.mode;
-  if (!resolved) return { ok: true, line: `Mode: ${mode}.` };
+  if (!resolved) return { ok: true, line: `Mode: ${mode}.`, transient: true };
   const live = answer.result?.live ? " The running turn has it too." : "";
   if (!resolved.clamped) {
-    return { ok: true, mode: resolved.effective, line: `Mode: ${resolved.effective}.${resolved.effective === "bypassPermissions" ? ` ${BYPASS_SENTENCE}` : ""}${live}` };
+    return { ok: true, mode: resolved.effective, line: `Mode: ${resolved.effective}.${resolved.effective === "bypassPermissions" ? ` ${BYPASS_SENTENCE}` : ""}${live}`, transient: true };
   }
   const why = resolved.clampReason === "unavailable" ? `its account cannot use ${resolved.requested}` : `clamped to this connection's ceiling (${resolved.ceiling})`;
-  return { ok: true, mode: resolved.effective, line: `Asked for ${resolved.requested}; ${sessionName} has ${resolved.effective}: ${why}.${live}` };
+  return { ok: true, mode: resolved.effective, line: `Asked for ${resolved.requested}; ${sessionName} has ${resolved.effective}: ${why}.${live}`, transient: false };
 };
 
 /** What setting a session's containment said: the level the session got, or the refusal, in one line. */

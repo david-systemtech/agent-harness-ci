@@ -93,6 +93,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
         <ModePicker
           environmentId={environmentId}
           sessionId={sessionId}
+          mode={facts.mode.mode}
           value={`${modeLabel(MODE_BADGE_WORDS[facts.mode.mode])}${facts.mode.clampedFrom !== null ? ` ${clampWords(facts.mode.clampedFrom)}` : ""}`}
         >
           <span className={facts.mode.mode === "bypassPermissions" ? "font-semibold text-signal" : "text-ink"}>{modeLabel(MODE_BADGE_WORDS[facts.mode.mode])}</span>

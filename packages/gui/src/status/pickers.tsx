@@ -7,7 +7,6 @@ import {
   identityWords,
   modelName,
   modelsOf,
-  readingWords,
   gaugeOf,
   sessionModeOf,
   setSessionContainment,
@@ -17,7 +16,7 @@ import {
   type RunChoice,
 } from "@agent-harness/client-runtime";
 import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
-import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
+import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type Mode } from "@agent-harness/contracts";
 import { createContext, Fragment, use, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
@@ -31,8 +30,10 @@ import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
+import { useSayModeSet } from "./mode-said.js";
 import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
+import { UsageRings } from "./window-reading.js";
 
 /**
  * The status line's pickers (docs/specs/gui.md, "A session pane": pickers
@@ -46,7 +47,8 @@ import { useHandedOnto, useModelChoice } from "./run-choices.js";
  * `setSessionContainment`, the hand-off), so the terminal UI says the same.
  *
  * - **Accounts**: the environment's accounts, each with its identity, its
- *   sign-in status and its identity's plan reading, then Add an account.
+ *   sign-in status and its identity's plan windows as compact usage rings
+ *   (the reading in words their tooltip; #1822), then Add an account.
  *   An account not signed in starts its sign-in on the sign-in card; a
  *   session's account is fixed, so another signed-in account hands the
  *   session off onto it, the hand-off picker's fork.
@@ -249,7 +251,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
           {accounts.value.map((candidate) => <RunChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
             label={`${candidate.label} ${identityWords(candidate)}`} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
             note={[ACCOUNT_STATUS_WORDS[candidate.status.state], candidate.id === accountId ? "this session" : candidate.status.state === "signed-in" ? "Fork onto this account" : "Sign in", candidate.provider].join(" · ")}
-            under={readingWords(gaugeOf(usage.gauges, environmentId, candidate.id))} onSelect={() => pickAccount(candidate)} />)}
+            usage={<UsageRings gauge={gaugeOf(usage.gauges, environmentId, candidate.id)} />} onSelect={() => pickAccount(candidate)} />)}
         </>}
         {accountId !== null && accounts.value !== null && !accounts.value.some((entry) => entry.id === accountId) && <Waiting>Stored account {accountId} is not listed on this environment.</Waiting>}
         {accounts.error !== null && <RunChoiceRow icon={RefreshCw} label="Refresh accounts" onSelect={() => runtime.requests.refresh(environmentId, "accounts.list", {})} />}
@@ -323,6 +325,8 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
 interface ModePickerProps {
   readonly environmentId: string;
   readonly sessionId: string;
+  /** The session's mode as the status line shows it: bypassPermissions carries its sentence in the button's tooltip (#1823). */
+  readonly mode: Mode;
   /** The mode badge the status line shows, with its clamp, in words. */
   readonly value: string;
   readonly children: ReactNode;
@@ -332,13 +336,13 @@ const ModeRows = ({ environmentId, sessionId }: { readonly environmentId: string
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.modes(environmentId), [runtime, environmentId]));
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const [, say] = usePaneLine();
+  const sayModeSet = useSayModeSet();
   const session = projection.summary?.title ?? "this session";
   const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
   return picker.modes.map(({ mode, allowed }) => (
       <Item
         key={mode}
-        onSelect={() => void setSessionMode(runtime, environmentId, sessionId, mode, session).then((set) => say(set.line))}
+        onSelect={() => void setSessionMode(runtime, environmentId, sessionId, mode, session).then(sayModeSet)}
         dim={!allowed}
         selected={mode === own}
         tooltip={modeLabel(MODE_BADGE_WORDS[mode])}
@@ -358,12 +362,17 @@ const ModeSubmenu = ({ environmentId, sessionId }: { readonly environmentId: str
   </MenuSub>;
 };
 
-/** The mode picker: the four modes, one above the connection's ceiling greyed with the ceiling named, and the clamp said once set. */
-export const ModePicker = ({ environmentId, sessionId, value, children }: ModePickerProps) => {
+/**
+ * The mode picker: the four modes, one above the connection's ceiling greyed
+ * with the ceiling named, and the clamp said once set. The button shows the
+ * mode, bypassPermissions with its sentence in the tooltip, so nothing says
+ * it under the composer for as long as it holds (#1823).
+ */
+export const ModePicker = ({ environmentId, sessionId, mode, value, children }: ModePickerProps) => {
   const setting = useOffer(environmentId, "permissions.mode.set");
   const items = () => <ModeRows environmentId={environmentId} sessionId={sessionId} />;
   return (
-    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
+    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} warning={mode === "bypassPermissions" ? BYPASS_SENTENCE : undefined} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
       {children}
     </PickerButton>
   );
