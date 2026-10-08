@@ -38,8 +38,10 @@ export const RunPickerContent = ({ sheet, ...props }: Omit<ComponentProps<typeof
 };
 
 /** Rows keep the popup open while a dependent choice is made. */
-export const RunChoiceRow = ({ label, note, under, selected, dim, primary, machine, icon: Icon, onSelect }: {
+export const RunChoiceRow = ({ label, note, under, usage, selected, dim, primary, machine, icon: Icon, onSelect }: {
   readonly label: string; readonly primary?: string; readonly machine?: string | undefined; readonly note?: string | undefined; readonly under?: string | undefined;
+  /** An account row's plan windows, drawn last (`UsageRings`). */
+  readonly usage?: ReactNode;
   readonly selected?: boolean; readonly dim?: boolean; readonly icon: typeof Cpu; readonly onSelect: () => void;
 }) => <MenuItem title={`${label} · Enter to choose · ↑ ↓ Home End · Tab next column${note ? ` · ${note}` : ""}`} aria-label={label} aria-disabled={dim || undefined} data-selected={selected || undefined} onSelect={(event) => { event.preventDefault(); onSelect(); }}
     className={classes("items-start gap-2 px-2.5 py-2 text-xs [overflow-wrap:anywhere] [&_svg]:size-3", selected && "bg-wash", dim && "opacity-50")}>
@@ -49,6 +51,7 @@ export const RunChoiceRow = ({ label, note, under, selected, dim, primary, machi
       {machine !== undefined && <span className="block font-mono text-2xs text-ink-muted">{machine}</span>}
       {note !== undefined && <span className="block text-2xs text-ink-muted">{note}</span>}
       {under !== undefined && <span className="block text-2xs text-ink-muted">{under}</span>}
+      {usage}
     </span>
     {selected && <Check aria-hidden="true" className="mt-0.5 size-3" />}
   </MenuItem>;
