@@ -1,5 +1,6 @@
 import { isKnownUsageWindow } from "@agent-harness/contracts";
 import { meterReadingsOf, readingWords, type Reading, type UsageGauge } from "@agent-harness/client-runtime";
+import type { ReactNode } from "react";
 import { classes } from "../ui/classes.js";
 import { Tooltip } from "../ui/index.js";
 
@@ -37,8 +38,12 @@ export const UsageRings = ({ gauge }: { readonly gauge: UsageGauge | undefined }
   return words === undefined ? line : <Tooltip content={words}>{line}</Tooltip>;
 };
 
-/** Detailed windows pair the same ring with a 4px bar and a percent/refusal label. */
-export const WindowReading = ({ reading }: { readonly reading: Reading }) => {
+/**
+ * Detailed windows pair the same ring with a 4px bar and a percent/refusal
+ * label; `suffix` follows the label in the same item, so a row's gap does not
+ * fall before it (`42%, resets 12:49`, #1893).
+ */
+export const WindowReading = ({ reading, suffix }: { readonly reading: Reading; readonly suffix?: ReactNode }) => {
   const width = reading.pressure === "out" ? 100 : Math.max(0, Math.min(100, (reading.utilisation ?? 0) * 100));
   const tone = reading.pressure === "out" || reading.pressure === "high" ? "text-signal" : reading.pressure === "raised" ? "text-amber" : reading.pressure === "low" ? "text-mint" : "text-ink-faint";
   return <>
@@ -46,6 +51,6 @@ export const WindowReading = ({ reading }: { readonly reading: Reading }) => {
     <span aria-hidden="true" className="h-1 w-10 overflow-hidden rounded-full bg-wash-strong">
       <span className={classes("block h-full bg-current", tone)} style={{ width: `${width}%` }} />
     </span>
-    <span className={tone}>{reading.value}</span>
+    <span><span className={tone}>{reading.value}</span>{suffix}</span>
   </>;
 };
