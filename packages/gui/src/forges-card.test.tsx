@@ -1,7 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { MANUAL_CLOCK_START, fakeShell, type FakeShell } from "@agent-harness/client-runtime/testing";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { DETECT_PAUSE_MS } from "./forges/add-forge.js";
 
 /**
  * The Forges card in Set up (the Set up specification, "4. Forges"; forge
@@ -11,7 +12,7 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
  * forge from a pasted origin or repository URL, `forge.detect` naming its
  * kind, the token form deep-linking the token page with the scopes named;
  * this computer's `gh` on a remote environment and the environment's own
- * `gh` from `forge.gh.probe`; an alias verified before use; Make primary;
+ * `gh` from `forge.gh.probe`; an alias verified before use; Make main;
  * Move to your key manager on a stored token; no GitLab walkthrough or
  * expiry warning; and the card read-only without `admin`. Driven through
  * the harness's full checklist over the scripted environment's forge
@@ -20,6 +21,9 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
 
 /** A token as a person pastes one: nothing a secret scanner takes for a real one. */
 const TOKEN = "token-for-tests";
+
+/** The add form's one address field (setup-copy.md §5.6). */
+const ADDRESS = "Address of the site or of one of your repositories";
 
 /** Set up as the whole window. */
 const checklist = () => screen.getByRole("region", { name: "Set up" });
@@ -62,14 +66,14 @@ describe("the Forges step's card", () => {
   it("is registered for the Forges step: where it stands, then a row per forge account", async () => {
     await opened({ forges: { accounts: [{}] } });
     expect(within(step()).getByRole("button", { name: "Open Forges" })).toBeDefined();
-    expect(await row("https://github.com")).toBeDefined();
+    expect(await row("david on github.com")).toBeDefined();
   });
 });
 
 describe("a forge account's row", () => {
-  it("shows its origin and aliases, kind, login, primary star, capabilities with their dots, and its problem line", async () => {
+  it("reads setup-copy.md §5.6: login on host, Main forge or Make main, its state word, kind, what the token can do in words, its problem line with Details, and its other addresses under More options", async () => {
     const at = MANUAL_CLOCK_START;
-    await opened({
+    const app = await opened({
       forges: {
         accounts: [
           {},
@@ -87,37 +91,48 @@ describe("a forge account's row", () => {
               createRepository: { state: "unknown", verifiedAt: null, status: null },
               readReleases: { state: "verified", verifiedAt: at, status: null },
             },
-            problem: { kind: "unreachable", since: at, message: "https://git.example.test did not answer: check again once it is up." },
+            problem: { kind: "unreachable", since: at, message: "git.example.test did not answer. Check the internet connection, then choose Check again.", details: ["GET /api/v1/user: connection refused"] },
           },
         ],
       },
     });
-    const github = await row("https://github.com");
-    expect(facts(github)).toMatchObject({ Kind: "GitHub", "Signed in as": "david (user 42)" });
-    expect(within(github).getByRole("img", { name: "Primary forge" })).toBeDefined();
-    expect(within(github).queryByRole("button", { name: "Make primary" })).toBeNull();
-    expect(within(github).queryByRole("list", { name: "Aliases" })).toBeNull();
+    const github = await row("david on github.com");
+    expect(facts(github)).toMatchObject({ Kind: "GitHub" });
+    expect(within(github).getByText("Main forge")).toBeDefined();
+    expect(within(github).queryByRole("button", { name: "Make main" })).toBeNull();
+    expect(within(github).getByText("Done")).toBeDefined();
 
-    const forgejo = await row("https://git.example.test");
-    expect(facts(forgejo)).toMatchObject({ Kind: "Forgejo", "Signed in as": "david (user 42)" });
-    expect(within(forgejo).queryByRole("img", { name: "Primary forge" })).toBeNull();
-    const aliases = within(within(forgejo).getByRole("list", { name: "Aliases" })).getAllByRole("listitem");
-    expect(aliases.map((alias) => alias.textContent)).toEqual([
+    const forgejo = await row("david on git.example.test");
+    expect(facts(forgejo)).toMatchObject({ Kind: "Forgejo" });
+    expect(within(forgejo).queryByText("Main forge")).toBeNull();
+    expect(within(forgejo).getByRole("button", { name: "Make main" })).toBeDefined();
+    expect(within(forgejo).getByText("Needs a fix")).toBeDefined();
+    // Each capability's state is visible words, never a tooltip or a status code alone.
+    const capabilities = within(forgejo).getByRole("list", { name: "What the token can do" });
+    expect(within(capabilities).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Read code: Works",
+      "Write issues: Not checked yet",
+      "Open pull requests: Not allowed",
+      "Create repositories: Not checked yet",
+      "Read releases: Works",
+    ]);
+    expect(forgejo.textContent).not.toContain("403");
+    expect(within(forgejo).getByText("git.example.test did not answer. Check the internet connection, then choose Check again.")).toBeDefined();
+    // The raw facts are under Details, not in the line.
+    await app.user.click(within(forgejo).getByRole("button", { name: "Details" }));
+    expect(within(forgejo).getByText(/GET \/api\/v1\/user: connection refused/)).toBeDefined();
+
+    // Other addresses for this site sit in More options.
+    expect(within(forgejo).queryByText("Other addresses for this site")).toBeNull();
+    await app.user.click(within(forgejo).getByRole("button", { name: "More options" }));
+    const others = within(forgejo).getByRole("region", { name: "Other addresses for this site" });
+    expect(within(others).getAllByRole("listitem").map((alias) => alias.textContent)).toEqual([
       expect.stringMatching(/^http:\/\/forge\.tail\.test:3000: last verified \d\d:\d\d$/),
       "http://forge.lan.test:3000: not verified yet, so not used until it answers as david",
     ]);
-    const capabilities = within(forgejo).getByRole("list", { name: "Capabilities" });
-    expect(within(capabilities).getAllByRole("img").map((dot) => dot.getAttribute("aria-label"))).toEqual([
-      "Read repositories: verified",
-      "Write issues: not tried yet",
-      "Pull requests: refused (HTTP 403)",
-      "Create repositories: not tried yet",
-      "Read releases: verified",
-    ]);
-    expect(within(forgejo).getByText("https://git.example.test did not answer: check again once it is up.")).toBeDefined();
   });
 
-  it("offers its problem's action: Check again verifies an unreachable one, Sign in again takes a new token in forge.accounts.update, a refusal in one line", async () => {
+  it("offers its problem's action: Check again verifies an unreachable one, Add a new token takes one in forge.accounts.update under the token steps, a refusal in one plain line that keeps the token", async () => {
     const at = MANUAL_CLOCK_START;
     const app = await opened({
       forges: {
@@ -131,24 +146,29 @@ describe("a forge account's row", () => {
     const desk = app.environment("desk");
     const [github, forgejo] = desk.forgeAccounts();
 
-    await app.user.click(within(await row("https://git.example.test")).getByRole("button", { name: "Check again" }));
+    await app.user.click(within(await row("david on git.example.test")).getByRole("button", { name: "Check again" }));
     expect(await within(step()).findByText("Verified david on git.example.test.")).toBeDefined();
     expect(desk.requests("forge.accounts.verify").map((request) => request.params)).toEqual([{ forgeAccountId: forgejo?.id }]);
-    await waitFor(async () => expect(within(await row("https://git.example.test")).queryByText("https://git.example.test did not answer.")).toBeNull());
+    await waitFor(async () => expect(within(await row("david on git.example.test")).queryByText("https://git.example.test did not answer.")).toBeNull());
 
-    await app.user.click(within(await row("https://github.com")).getByRole("button", { name: "Sign in again" }));
-    const form = within(await row("https://github.com")).getByRole("form", { name: "Sign in again to https://github.com" });
-    expect(within(form).getByText(/^A fine-grained token with access to all repositories and Contents \(write\)/)).toBeDefined();
-    expect(within(form).getByRole("button", { name: /^https:\/\/github\.com\/settings\/personal-access-tokens\/new/ })).toBeDefined();
+    await app.user.click(within(await row("david on github.com")).getByRole("button", { name: "Add a new token" }));
+    const form = within(await row("david on github.com")).getByRole("form", { name: "A new token for david on github.com" });
+    expect(within(form).getByText("1. Create a token on github.com.")).toBeDefined();
+    expect(within(form).getByText(/^Give it these permissions: All repositories, with Contents: Read and write/)).toBeDefined();
+    await app.user.click(within(form).getByRole("button", { name: "Create a token" }));
+    expect(app.shell.calls.filter(([member]) => member === "openExternal")).toEqual([["openExternal", expect.stringMatching(/^https:\/\/github\.com\/settings\/personal-access-tokens\/new\?/)]]);
     await app.user.type(within(form).getByLabelText("Token"), "token-refused-for-tests");
-    await app.user.click(within(form).getByRole("button", { name: "Sign in again" }));
-    expect(await within(form).findByText("Not signed in again: https://github.com refused the token (HTTP 401): nothing was stored.")).toBeDefined();
-    expect((within(form).getByLabelText("Token") as HTMLInputElement).value).toBe("");
+    await app.user.click(within(form).getByRole("button", { name: "Add a new token" }));
+    expect(await within(form).findByText("github.com did not accept this token. Check that you copied all of it, or create a new one.")).toBeDefined();
+    expect(within(form).getByRole("alert").textContent).toBe("Error: github.com did not accept this token. Check that you copied all of it, or create a new one.");
+    // What was typed stays after a refusal (setup-copy.md §1 rule 17).
+    expect((within(form).getByLabelText("Token") as HTMLInputElement).value).toBe("token-refused-for-tests");
 
+    await app.user.clear(within(form).getByLabelText("Token"));
     await app.user.type(within(form).getByLabelText("Token"), TOKEN);
-    await app.user.click(within(form).getByRole("button", { name: "Sign in again" }));
+    await app.user.click(within(form).getByRole("button", { name: "Add a new token" }));
     expect(await within(step()).findByText("david on github.com is signed in again.")).toBeDefined();
-    await waitFor(async () => expect(within(await row("https://github.com")).queryByText(/refused the token/)).toBeNull());
+    await waitFor(async () => expect(within(await row("david on github.com")).queryByText(/refused the token/)).toBeNull());
     expect(desk.requests("forge.accounts.update").map((request) => request.params)).toMatchObject([
       { forgeAccountId: github?.id, credential: { kind: "stored", provenance: "pasted", token: "token-refused-for-tests" } },
       { forgeAccountId: github?.id, credential: { kind: "stored", provenance: "pasted", token: TOKEN } },
@@ -159,30 +179,84 @@ describe("a forge account's row", () => {
 });
 
 describe("Add a forge", () => {
-  it("takes a pasted origin or repository URL, forge.detect naming its kind, and the token form deep-links its token page with the scopes, sent in forge.accounts.add directly", async () => {
-    const app = await opened();
+  it("takes a site's or repository's address, forge.detect naming its kind, the numbered token steps opening its token page with the permissions in words, sent in forge.accounts.add directly", async () => {
+    const app = await opened({ forges: { rejects: ["token-refused-for-tests"] } });
     expect(await within(step()).findByText("No forge account is on this environment.")).toBeDefined();
     const add = await openAdd(app);
-    await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://git.example.test/david/agent-harness.git");
-    await app.user.click(within(add).getByRole("button", { name: "Find the forge" }));
-    const found = await within(add).findByRole("region", { name: "The forge found" });
-    expect(within(found).getByText("Forgejo at https://git.example.test, version 11.0.1+gitea-1.22.0.")).toBeDefined();
-    const page = within(found).getByRole("button", { name: "https://git.example.test/user/settings/applications" });
-    expect(within(found).getByText(/^An access token with /)).toBeDefined();
-    await app.user.click(page);
+    await app.user.type(within(add).getByRole("textbox", { name: ADDRESS }), "https://git.example.test/david/agent-harness.git");
+    await app.user.click(within(add).getByRole("button", { name: "Check address" }));
+    expect(await within(add).findByText("git.example.test runs Forgejo.")).toBeDefined();
+    const steps = within(add).getByRole("list", { name: "Token steps" });
+    expect(within(steps).getByText("1. Create a token on git.example.test.")).toBeDefined();
+    expect(within(steps).getByText("Give it these permissions: User: Read, Repository: Read and write, Issue: Read and write and Organization: Read and write.")).toBeDefined();
+    expect(within(steps).getByText("2. Paste the token here.")).toBeDefined();
+    expect(within(steps).getByText("The token is kept on this computer, not in this window.")).toBeDefined();
+    await app.user.click(within(steps).getByRole("button", { name: "Create a token" }));
     expect(app.shell.calls.filter(([member]) => member === "openExternal")).toEqual([["openExternal", "https://git.example.test/user/settings/applications"]]);
 
+    // A refused token is one plain line with Details, and stays typed.
+    await app.user.type(within(add).getByLabelText("Token"), "token-refused-for-tests");
+    await app.user.click(within(add).getByRole("button", { name: "Add git.example.test" }));
+    expect(await within(add).findByText("git.example.test did not accept this token. Check that you copied all of it, or create a new one.")).toBeDefined();
+    expect(within(add).getByRole("button", { name: "Details" })).toBeDefined();
+    expect((within(add).getByLabelText("Token") as HTMLInputElement).value).toBe("token-refused-for-tests");
+
+    await app.user.clear(within(add).getByLabelText("Token"));
     await app.user.type(within(add).getByLabelText("Token"), TOKEN);
-    await app.user.click(within(add).getByRole("button", { name: "Add" }));
+    await app.user.click(within(add).getByRole("button", { name: "Add git.example.test" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
-    expect(await within(step()).findByText("Added david on git.example.test.")).toBeDefined();
-    expect(facts(await row("https://git.example.test"))).toMatchObject({ Kind: "Forgejo" });
+    expect(await within(step()).findByText("david on git.example.test is connected.")).toBeDefined();
+    expect(facts(await row("david on git.example.test"))).toMatchObject({ Kind: "Forgejo" });
     const desk = app.environment("desk");
     expect(desk.requests("forge.accounts.add").map((request) => request.params)).toMatchObject([
+      { url: "https://git.example.test/david/agent-harness.git", kind: "forgejo", credential: { kind: "stored", provenance: "pasted", token: "token-refused-for-tests" } },
       { url: "https://git.example.test/david/agent-harness.git", kind: "forgejo", credential: { kind: "stored", provenance: "pasted", token: TOKEN } },
     ]);
     // Sent directly, never through the outbox, and kept nowhere the client stores.
     expect(JSON.stringify(app.platform.documents.entries())).not.toContain(TOKEN);
+  });
+
+  it("adds a self-hosted site detection cannot recognise with the kind the person chooses", async () => {
+    const app = await opened({ forges: { detect: { "https://code.example.test": "not_a_forge" } } });
+    const add = await openAdd(app);
+    await app.user.type(within(add).getByRole("textbox", { name: ADDRESS }), "https://code.example.test/team/project");
+    await app.user.click(within(add).getByRole("button", { name: "Check address" }));
+    expect(await within(add).findByText("agent-harness does not recognise this site. Choose what it runs:")).toBeDefined();
+    await app.user.click(within(add).getByRole("radio", { name: "Gitea" }));
+    expect(within(add).getByText("1. Create a token on code.example.test.")).toBeDefined();
+    await app.user.type(within(add).getByLabelText("Token"), TOKEN);
+    await app.user.click(within(add).getByRole("button", { name: "Add code.example.test" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
+    const desk = app.environment("desk");
+    expect(desk.requests("forge.accounts.add").map((request) => request.params)).toMatchObject([{ url: "https://code.example.test/team/project", kind: "gitea" }]);
+    expect(desk.forgeAccounts()[0]).toMatchObject({ origin: "https://code.example.test", kind: "gitea" });
+  });
+
+  it("finds the kind as the address is typed, and keeps the typed token when the kind changes or the address is checked again", async () => {
+    const app = await opened({ forges: { detect: { "https://code.example.test": "not_a_forge" } } });
+    const add = await openAdd(app);
+    // Check address is never dimmed: pressed with nothing typed, it says what to enter.
+    await app.user.click(within(add).getByRole("button", { name: "Check address" }));
+    expect(within(add).getByText("Enter an address like https://github.com/you/project.")).toBeDefined();
+    expect(app.environment("desk").requests("forge.detect")).toEqual([]);
+    await app.user.type(within(add).getByRole("textbox", { name: ADDRESS }), "https://git.example.test/team/project");
+    // No button pressed: the kind is found once typing pauses, and only then.
+    act(() => app.clock.advance(DETECT_PAUSE_MS - 1));
+    expect(app.environment("desk").requests("forge.detect")).toEqual([]);
+    act(() => app.clock.advance(1));
+    expect(await within(add).findByText("1. Create a token on git.example.test.")).toBeDefined();
+    expect(app.environment("desk").requests("forge.detect").map((request) => request.params)).toEqual([{ url: "https://git.example.test/team/project" }]);
+    await app.user.type(within(add).getByLabelText("Token"), TOKEN);
+    await app.user.click(within(add).getByRole("button", { name: "Check address" }));
+    await waitFor(() => expect(app.environment("desk").requests("forge.detect").length).toBeGreaterThanOrEqual(2));
+    expect(await within(add).findByLabelText("Token")).toHaveProperty("value", TOKEN);
+
+    await app.user.clear(within(add).getByRole("textbox", { name: ADDRESS }));
+    await app.user.type(within(add).getByRole("textbox", { name: ADDRESS }), "https://code.example.test");
+    act(() => app.clock.advance(DETECT_PAUSE_MS));
+    await app.user.click(await within(add).findByRole("radio", { name: "Forgejo" }));
+    await app.user.click(within(add).getByRole("radio", { name: "Gitea" }));
+    expect(within(add).getByLabelText("Token")).toHaveProperty("value", TOKEN);
   });
 
   it("shows no GitLab walkthrough, and no expiry warning on a token the forge says expires", async () => {
@@ -191,30 +265,38 @@ describe("Add a forge", () => {
     const app = await opened({
       forges: { accounts: [{ tokenInformation: { kind: "fine-grained", scopes: null, expiresAt }, problem: expiring, statusSince: MANUAL_CLOCK_START }], detect: { "https://gitlab.com": "gitlab" } },
     });
-    expect((await row("https://github.com")).textContent).not.toMatch(/expir/i);
+    expect((await row("david on github.com")).textContent).not.toMatch(/expir|runs out/i);
     const add = await openAdd(app);
-    await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://gitlab.com/david/agent-harness");
-    await app.user.click(within(add).getByRole("button", { name: "Find the forge" }));
-    expect(await within(add).findByText("The forge could not be told: https://gitlab.com is GitLab, which the harness cannot add a forge account for yet.")).toBeDefined();
-    expect(within(add).queryByRole("region", { name: "The forge found" })).toBeNull();
+    await app.user.type(within(add).getByRole("textbox", { name: ADDRESS }), "https://gitlab.com/david/agent-harness");
+    await app.user.click(within(add).getByRole("button", { name: "Check address" }));
+    expect(await within(add).findByText("GitLab is not supported yet.")).toBeDefined();
+    expect(within(add).queryByRole("list", { name: "Token steps" })).toBeNull();
+    expect(within(add).queryByRole("radio")).toBeNull();
     expect(within(add).queryByText(/api/)).toBeNull();
   });
 });
 
 describe("the gh paths", () => {
-  it("on a remote environment, hands this computer's gh token over once with Use the gh signed in on this computer; never offered for this machine's own environment", async () => {
+  /** The gh paths, first on the card, before Add a forge. */
+  const ghFirst = () => {
+    const card = step();
+    const add = within(card).getByRole("button", { name: "Add a forge" });
+    return { card, before: (element: HTMLElement) => Boolean(element.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING) };
+  };
+
+  it("on a remote environment, comes first: Use the gh sign-in from this computer hands its token over once; never offered for this machine's own environment", async () => {
     const shell = fakeShell();
     shell.answer("gh.token", async (host) => (host === "github.com" ? "gh-token-for-tests" : undefined));
     const app = await opened({}, [{ name: "laptop", reach: "paired", capabilities: ["forge"] }], { on: "laptop", shell });
-    const add = await openAdd(app, "laptop");
-    await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://github.com/david/agent-harness");
-    await app.user.click(within(add).getByRole("button", { name: "Use the gh signed in on this computer" }));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on laptop" })).toBeNull());
-    expect(await row("https://github.com")).toBeDefined();
+    const use = await within(step()).findByRole("button", { name: "Use the gh sign-in from this computer" });
+    expect(ghFirst().before(use)).toBe(true);
+    await app.user.click(use);
+    expect(await within(step()).findByText("david on github.com is connected.")).toBeDefined();
+    expect(await row("david on github.com")).toBeDefined();
     const laptop = app.environment("laptop");
     expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([["gh.token", "github.com"]]);
     expect(laptop.requests("forge.accounts.add").map((request) => request.params)).toMatchObject([
-      { url: "https://github.com/david/agent-harness", credential: { kind: "stored", provenance: "client-gh", token: "gh-token-for-tests" } },
+      { url: "https://github.com", credential: { kind: "stored", provenance: "client-gh", token: "gh-token-for-tests" } },
     ]);
     expect(laptop.forgeAccounts()[0]?.credential).toMatchObject({ kind: "stored", provenance: "client-gh", followsGhRotations: false });
     expect(JSON.stringify(app.platform.documents.entries())).not.toContain("gh-token-for-tests");
@@ -222,18 +304,16 @@ describe("the gh paths", () => {
     // This machine's environment reads the same gh as its own: the hand-over is not offered there.
     await app.user.selectOptions(within(checklist()).getByRole("combobox", { name: "Setting up" }), "desk");
     await app.user.click(railStep("Forges"));
-    const onDesk = await openAdd(app);
-    expect(within(onDesk).queryByRole("button", { name: "Use the gh signed in on this computer" })).toBeNull();
+    expect(within(step()).queryByRole("button", { name: "Use the gh sign-in from this computer" })).toBeNull();
   });
 
   it("on a remote environment, is absent with its reason where the shell has no gh", async () => {
-    const app = await opened({}, [{ name: "laptop", reach: "paired", capabilities: ["forge"] }], { on: "laptop", shell: { ...fakeShell(), gh: undefined } as unknown as FakeShell });
-    const add = await openAdd(app, "laptop");
-    expect(within(add).queryByRole("button", { name: "Use the gh signed in on this computer" })).toBeNull();
-    expect(within(add).getByText("This app cannot use the gh tool signed in on this computer here. Add a token instead.")).toBeDefined();
+    await opened({}, [{ name: "laptop", reach: "paired", capabilities: ["forge"] }], { on: "laptop", shell: { ...fakeShell(), gh: undefined } as unknown as FakeShell });
+    expect(within(step()).queryByRole("button", { name: "Use the gh sign-in from this computer" })).toBeNull();
+    expect(await within(step()).findByText("This app cannot use the gh tool signed in on this computer here. Add a token instead.")).toBeDefined();
   });
 
-  it("on an environment with gh, Use this machine's gh adds the forge account with forge.gh.probe's login for the host, read on every use", async () => {
+  it("on an environment with gh, comes first: Use gh with its login adds the forge account with forge.gh.probe's login, read on every use", async () => {
     const app = await opened({
       forges: {
         gh: {
@@ -247,42 +327,50 @@ describe("the gh paths", () => {
         },
       },
     });
-    const add = await openAdd(app);
-    expect(await within(add).findByText("desk's own gh, read on every use, so it follows gh's rotations.")).toBeDefined();
+    expect(await within(step()).findByText("Use your GitHub sign-in from the gh tool (david)")).toBeDefined();
+    const use = within(step()).getByRole("button", { name: "Use gh" });
+    expect(ghFirst().before(use)).toBe(true);
+    await app.user.click(use);
+    expect(await row("david on github.com")).toBeDefined();
     const desk = app.environment("desk");
-    await waitFor(() => expect(desk.requests("forge.gh.probe").length).toBeGreaterThan(0));
-
-    await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://git.example.test");
-    await app.user.click(within(add).getByRole("button", { name: "Use this machine's gh" }));
-    expect(await within(add).findByText("Not added: The gh on desk is not signed in to git.example.test: run gh auth login --hostname git.example.test there, or paste a token.")).toBeDefined();
-    expect(desk.requests("forge.accounts.add")).toEqual([]);
-
-    await app.user.clear(within(add).getByRole("textbox", { name: "URL" }));
-    await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "git@github.com:david/agent-harness.git");
-    await app.user.click(within(add).getByRole("button", { name: "Use this machine's gh" }));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Add a forge on desk" })).toBeNull());
-    expect(await row("https://github.com")).toBeDefined();
-    expect(desk.requests("forge.accounts.add").map((request) => request.params)).toMatchObject([{ url: "git@github.com:david/agent-harness.git", credential: { kind: "gh", login: "david" } }]);
+    expect(desk.requests("forge.accounts.add").map((request) => request.params)).toMatchObject([{ url: "https://github.com", credential: { kind: "gh", login: "david" } }]);
     expect(desk.forgeAccounts()[0]?.credential).toEqual({ kind: "gh", login: "david" });
   });
 
-  it("does not offer this machine's gh where forge.gh.probe finds none, or one older than the minimum, saying why", async () => {
-    const app = await opened({}, [{ name: "laptop", reach: "paired", capabilities: ["forge"], forges: { gh: { installed: true, version: "2.30.0", meetsMinimum: false } } }]);
-    const add = await openAdd(app);
-    expect(await within(add).findByText("desk has no gh to read a token from.")).toBeDefined();
-    expect(within(add).queryByRole("button", { name: "Use this machine's gh" })).toBeNull();
-    await app.user.click(within(add).getByRole("button", { name: "Cancel" }));
+  it("offers Install gh in place where gh is missing, run in a tool terminal on the card, and never a second Install in the status line", async () => {
+    const app = await opened({
+      capabilities: ["forge", "managedTools"],
+      managedTools: { runs: { gh: { command: "brew install gh" } } },
+      setup: { forges: { state: "needs-attention", reason: "The gh tool is not installed. Install it to use your GitHub sign-in.", failing: ["forges.gh"], actions: ["install"], targets: [{ action: "install", kind: "tool", id: "gh", label: "gh" }] } },
+    });
+    expect(await within(step()).findAllByText("The gh tool is not installed. Install it to use your GitHub sign-in.")).not.toHaveLength(0);
+    expect(within(step()).queryByRole("button", { name: "Install gh in a tool terminal" })).toBeNull();
+    const install = within(step()).getByRole("button", { name: "Install gh" });
+    expect(ghFirst().before(install)).toBe(true);
+    await app.user.click(install);
+    expect(await within(step()).findByRole("region", { name: "Installing GitHub CLI" })).toBeDefined();
+    expect(app.environment("desk").requests("tools.run").map((request) => request.params)).toEqual([{ commandId: expect.any(String), id: expect.any(String), tool: "gh", action: "install" }]);
+  });
+
+  it("offers Update gh where gh is older than the minimum, and how to sign it in or Add a token instead where it is signed in nowhere", async () => {
+    const app = await opened({ forges: { gh: { installed: true, version: "2.30.0", meetsMinimum: false } } }, [
+      { name: "laptop", reach: "paired", capabilities: ["forge"], forges: { gh: { installed: true, version: "2.63.2", meetsMinimum: true, accounts: [] } } },
+    ]);
+    expect(await within(step()).findByText("The gh tool is out of date.")).toBeDefined();
+    expect(within(step()).getByRole("button", { name: "Update gh" })).toBeDefined();
+    expect(within(step()).queryByRole("button", { name: "Use gh" })).toBeNull();
 
     await app.user.selectOptions(within(checklist()).getByRole("combobox", { name: "Setting up" }), "laptop");
     await app.user.click(railStep("Forges"));
-    const onLaptop = await openAdd(app, "laptop");
-    expect(await within(onLaptop).findByText("The gh on laptop is 2.30.0, older than 2.40.0, the oldest a forge account reads.")).toBeDefined();
-    expect(within(onLaptop).queryByRole("button", { name: "Use this machine's gh" })).toBeNull();
+    expect(await within(step()).findByText("The gh tool is not signed in to github.com. Run gh auth login on laptop, or add a token instead.")).toBeDefined();
+    expect(within(step()).getByText("gh auth login --hostname github.com")).toBeDefined();
+    await app.user.click(within(step()).getByRole("button", { name: "Add a token instead" }));
+    expect(await screen.findByRole("region", { name: "Add a forge on laptop" })).toBeDefined();
   });
 });
 
-describe("aliases", () => {
-  it("verifies an alias typed under a forge account before it is used, through forge.accounts.update, and says a refusal in one line", async () => {
+describe("other addresses for this site", () => {
+  it("verifies another address typed under More options before it is used, through forge.accounts.update, and says a refusal in one plain line", async () => {
     const app = await opened({
       forges: {
         accounts: [{}, { origin: "https://git.example.test", kind: "forgejo" }],
@@ -291,30 +379,29 @@ describe("aliases", () => {
     });
     const desk = app.environment("desk");
     const [, forgejo] = desk.forgeAccounts();
-    const field = async () => within(await row("https://git.example.test")).getByRole("form", { name: "Add an alias to https://git.example.test" });
+    await app.user.click(within(await row("david on git.example.test")).getByRole("button", { name: "More options" }));
+    const field = async () => within(await row("david on git.example.test")).getByRole("form", { name: "Add another address for david on git.example.test" });
+    const address = async () => within(await field()).getByRole("textbox", { name: "Another address for this site" });
 
-    await app.user.type(within(await field()).getByRole("textbox", { name: "Alias" }), "http://forge.tail.test:3000/david/agent-harness.git");
-    await app.user.click(within(await field()).getByRole("button", { name: "Add alias" }));
-    expect(await within(step()).findByText("http://forge.tail.test:3000 answers as david: it is an alias of david on git.example.test.")).toBeDefined();
-    const listed = async () => within(within(await row("https://git.example.test")).getByRole("list", { name: "Aliases" })).getAllByRole("listitem").map((alias) => alias.textContent);
+    await app.user.type(await address(), "http://forge.tail.test:3000/david/agent-harness.git");
+    await app.user.click(within(await field()).getByRole("button", { name: "Add address" }));
+    expect(await within(step()).findByText("forge.tail.test:3000 is another address for david on git.example.test.")).toBeDefined();
+    const others = async () => within(await row("david on git.example.test")).getByRole("region", { name: "Other addresses for this site" });
+    const listed = async () => within(await others()).queryAllByRole("listitem").map((alias) => alias.textContent);
     await waitFor(async () => expect(await listed()).toEqual([expect.stringMatching(/^http:\/\/forge\.tail\.test:3000: last verified \d\d:\d\d$/)]));
-    expect((within(await field()).getByRole("textbox", { name: "Alias" }) as HTMLInputElement).value).toBe("");
+    expect(((await address()) as HTMLInputElement).value).toBe("");
 
     // One that does not answer waits unverified, and is not used until it does.
-    await app.user.type(within(await field()).getByRole("textbox", { name: "Alias" }), "http://forge.lan.test:3000");
-    await app.user.click(within(await field()).getByRole("button", { name: "Add alias" }));
-    expect(await within(step()).findByText("http://forge.lan.test:3000 did not answer: it is not used until it answers as david.")).toBeDefined();
+    await app.user.type(await address(), "http://forge.lan.test:3000");
+    await app.user.click(within(await field()).getByRole("button", { name: "Add address" }));
+    expect(await within(step()).findByText("forge.lan.test:3000 did not answer. It is used once it answers as david.")).toBeDefined();
     await waitFor(async () => expect(await listed()).toHaveLength(2));
     expect((await listed())[1]).toBe("http://forge.lan.test:3000: not verified yet, so not used until it answers as david");
 
-    // One answering as someone else is refused, in one line, and nothing changes.
-    await app.user.type(within(await field()).getByRole("textbox", { name: "Alias" }), "http://other.tail.test:3000");
-    await app.user.click(within(await field()).getByRole("button", { name: "Add alias" }));
-    expect(
-      await within(await field()).findByText(
-        "Not added: http://other.tail.test:3000 answers the credential as other (user 7), not david (user 42): it is not the same forge. Nothing was changed.",
-      ),
-    ).toBeDefined();
+    // One answering as someone else is refused, in one plain line, and nothing changes.
+    await app.user.type(await address(), "http://other.tail.test:3000");
+    await app.user.click(within(await field()).getByRole("button", { name: "Add address" }));
+    expect(await within(await field()).findByText("other.tail.test:3000 knows this token as another user, so it is not another address for this site. Nothing was changed.")).toBeDefined();
     expect(await listed()).toHaveLength(2);
     expect(desk.requests("forge.accounts.update").map((request) => request.params)).toMatchObject([
       { forgeAccountId: forgejo?.id, aliases: ["http://forge.tail.test:3000"] },
@@ -323,58 +410,69 @@ describe("aliases", () => {
     ]);
     expect(desk.forgeAccounts()[1]?.aliases.map((alias) => alias.origin)).toEqual(["http://forge.tail.test:3000", "http://forge.lan.test:3000"]);
 
-    // The alias refused stays in the field; one that is the forge account's own origin is refused before anything is sent.
-    expect((within(await field()).getByRole("textbox", { name: "Alias" }) as HTMLInputElement).value).toBe("http://other.tail.test:3000");
-    await app.user.clear(within(await field()).getByRole("textbox", { name: "Alias" }));
-    await app.user.type(within(await field()).getByRole("textbox", { name: "Alias" }), "https://git.example.test/david");
-    await app.user.click(within(await field()).getByRole("button", { name: "Add alias" }));
-    expect(await within(await field()).findByText("Not added: https://git.example.test is the forge account's own origin.")).toBeDefined();
+    // The address refused stays in the field; the site's own address is refused before anything is sent.
+    expect(((await address()) as HTMLInputElement).value).toBe("http://other.tail.test:3000");
+    await app.user.clear(await address());
+    await app.user.type(await address(), "https://git.example.test/david");
+    await app.user.click(within(await field()).getByRole("button", { name: "Add address" }));
+    expect(await within(await field()).findByText("git.example.test is this site's own address.")).toBeDefined();
     expect(desk.requests("forge.accounts.update")).toHaveLength(3);
   });
 });
 
-describe("Make primary", () => {
-  it("makes another forge account the primary, the star moving to it", async () => {
+describe("Make main", () => {
+  it("makes another forge account the main forge, the Main forge badge moving to it", async () => {
     const app = await opened({ forges: { accounts: [{}, { origin: "https://git.example.test", kind: "forgejo" }] } });
     const desk = app.environment("desk");
     const [, forgejo] = desk.forgeAccounts();
-    await app.user.click(within(await row("https://git.example.test")).getByRole("button", { name: "Make primary" }));
-    expect(await within(step()).findByText("david on git.example.test is the primary forge: new repositories go there unless another is named.")).toBeDefined();
-    await waitFor(async () => expect(within(await row("https://git.example.test")).queryByRole("img", { name: "Primary forge" })).not.toBeNull());
-    expect(within(await row("https://github.com")).getByRole("button", { name: "Make primary" })).toBeDefined();
+    await app.user.click(within(await row("david on git.example.test")).getByRole("button", { name: "Make main" }));
+    expect(await within(step()).findByText("david on git.example.test is your main forge. New notebooks go there.")).toBeDefined();
+    await waitFor(async () => expect(within(await row("david on git.example.test")).queryByText("Main forge")).not.toBeNull());
+    expect(within(await row("david on github.com")).getByRole("button", { name: "Make main" })).toBeDefined();
     expect(desk.requests("forge.accounts.setPrimary").map((request) => request.params)).toMatchObject([{ forgeAccountId: forgejo?.id }]);
     expect(desk.forgeAccounts().map((account) => account.primary)).toEqual([false, true]);
   });
 });
 
-describe("Move to your key manager", () => {
-  it("shows on a stored token's row alone, and opens the Key manager step's Move card", async () => {
+describe("Keep this token in your key manager", () => {
+  it("shows on a stored token's row alone while a key manager is connected, and opens the Key manager step's Move card", async () => {
     const app = await opened({
       capabilities: ["forge", "keyManagers", "managedTools"],
       forges: { accounts: [{}, { origin: "https://git.example.test", kind: "forgejo", credential: { kind: "gh", login: "david" } }] },
       keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test:8200" }], items: [{ name: "https://github.com", slug: "github" }] },
     });
     // A token the environment's own gh reads holds nothing to move; a stored one does.
-    expect(within(await row("https://git.example.test")).queryByRole("button", { name: "Move to your key manager" })).toBeNull();
-    await app.user.click(within(await row("https://github.com")).getByRole("button", { name: "Move to your key manager" }));
+    expect(await within(await row("david on github.com")).findByRole("button", { name: "Keep this token in your key manager" })).toBeDefined();
+    expect(within(await row("david on git.example.test")).queryByRole("button", { name: "Keep this token in your key manager" })).toBeNull();
+    await app.user.click(within(await row("david on github.com")).getByRole("button", { name: "Keep this token in your key manager" }));
     expect(railStep("Key manager").getAttribute("aria-current")).toBe("step");
     const keyManager = within(checklist()).getByRole("region", { name: "Key manager" });
     await waitFor(() => expect(document.activeElement).toBe(within(keyManager).getByRole("region", { name: "Move stored tokens" })));
     expect(await within(within(keyManager).getByRole("region", { name: "Move stored tokens" })).findByRole("listitem", { name: "https://github.com" })).toBeDefined();
   });
+
+  it("is not offered while no key manager is connected", async () => {
+    const app = await opened({ capabilities: ["forge", "keyManagers"], forges: { accounts: [{}] } });
+    const github = await row("david on github.com");
+    await waitFor(() => expect(app.environment("desk").requests("keyManagers.list").length).toBeGreaterThan(0));
+    expect(within(github).queryByRole("button", { name: "Keep this token in your key manager" })).toBeNull();
+    expect(within(github).queryByRole("button", { name: "Move to your key manager" })).toBeNull();
+  });
 });
 
 describe("without admin", () => {
   it("is read-only, saying the capability's line", async () => {
-    await opened({}, [
+    const app = await opened({}, [
       { name: "laptop", reach: "paired", capabilities: ["forge"], scopes: ["read", "sessions:write", "runs:drive", "terminal"], forges: { accounts: [{}, { origin: "https://git.example.test" }] } },
     ], { on: "laptop" });
     expect(await within(step()).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(step()).getByRole("button", { name: "Add a forge" }).hasAttribute("disabled")).toBe(true);
-    const forgejo = await row("https://git.example.test");
-    expect(within(forgejo).getByRole("button", { name: "Make primary" }).hasAttribute("disabled")).toBe(true);
-    expect(within(forgejo).getByRole("textbox", { name: "Alias" }).hasAttribute("disabled")).toBe(true);
-    expect(within(forgejo).getByRole("button", { name: "Add alias" }).hasAttribute("disabled")).toBe(true);
+    expect(within(step()).queryByRole("button", { name: "Use the gh sign-in from this computer" })).toBeNull();
+    const forgejo = await row("david on git.example.test");
+    expect(within(forgejo).getByRole("button", { name: "Make main" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(forgejo).getByRole("button", { name: "More options" }));
+    expect(within(forgejo).getByRole("textbox", { name: "Another address for this site" }).hasAttribute("disabled")).toBe(true);
+    expect(within(forgejo).getByRole("button", { name: "Add address" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("dims a problem's action that changes the forge account, and leaves the ways to the Key manager step, which change nothing", async () => {
@@ -388,12 +486,12 @@ describe("without admin", () => {
         scopes: ["read", "sessions:write", "runs:drive", "terminal"],
         forges: {
           accounts: [
-            { problem: { kind: "credential-rejected", since: at, message: "github.com refused the token (HTTP 401): give it a new one in Set up, Forges." }, statusSince: at },
+            { problem: { kind: "credential-rejected", since: at, message: "github.com did not accept the token for david. Create a new token and add it." }, statusSince: at },
             {
               origin: "https://git.example.test",
               kind: "forgejo",
               credential: { kind: "reference", reference },
-              problem: { kind: "credential-unavailable", since: at, message: "The key manager did not give the token: open Set up, Key manager." },
+              problem: { kind: "credential-unavailable", since: at, message: "agent-harness cannot read the saved token for david on git.example.test. Sign in to your key manager." },
               statusSince: at,
             },
           ],
@@ -401,12 +499,11 @@ describe("without admin", () => {
       },
     ], { on: "laptop" });
     expect(await within(step()).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
-    const github = await row("https://github.com");
-    expect(within(github).getByRole("button", { name: "Sign in again" }).hasAttribute("disabled")).toBe(true);
-    expect(within(github).getByRole("button", { name: "Move to your key manager" }).hasAttribute("disabled")).toBe(false);
-    const forgejo = await row("https://git.example.test");
-    expect(within(forgejo).getByRole("button", { name: "Open Key manager" }).hasAttribute("disabled")).toBe(false);
-    await app.user.click(within(forgejo).getByRole("button", { name: "Open Key manager" }));
+    const github = await row("david on github.com");
+    expect(within(github).getByRole("button", { name: "Add a new token" }).hasAttribute("disabled")).toBe(true);
+    const forgejo = await row("david on git.example.test");
+    expect(within(forgejo).getByRole("button", { name: "Go to Key manager" }).hasAttribute("disabled")).toBe(false);
+    await app.user.click(within(forgejo).getByRole("button", { name: "Go to Key manager" }));
     expect(railStep("Key manager").getAttribute("aria-current")).toBe("step");
   });
 });

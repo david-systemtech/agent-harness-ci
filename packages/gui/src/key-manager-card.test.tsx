@@ -292,7 +292,7 @@ describe("Move stored tokens", () => {
     expect(desk.requests("keyManagers.move").at(-1)?.params).toMatchObject({ verifyOnly: true });
   });
 
-  it("is where the Forges card's Move to your key manager goes: the full checklist on the Key manager step, its Move card taking the focus", async () => {
+  it("is where the Forges card's Keep this token in your key manager goes: the full checklist on the Key manager step, its Move card taking the focus", async () => {
     const app = await renderApp({
       environments: [
         {
@@ -310,8 +310,8 @@ describe("Move stored tokens", () => {
     await app.user.click(within(within(settings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Forges" }));
     const forges = within(settings).getByRole("region", { name: "Forges" });
     // A token the environment's own gh reads holds nothing to move; a stored one does.
-    expect(within(await within(forges).findByRole("region", { name: "https://git.example.test" })).queryByRole("button", { name: "Move to your key manager" })).toBeNull();
-    await app.user.click(within(await within(forges).findByRole("region", { name: "https://github.com" })).getByRole("button", { name: "Move to your key manager" }));
+    expect(within(await within(forges).findByRole("region", { name: "https://git.example.test" })).queryByRole("button", { name: "Keep this token in your key manager" })).toBeNull();
+    await app.user.click(await within(await within(forges).findByRole("region", { name: "https://github.com" })).findByRole("button", { name: "Keep this token in your key manager" }));
 
     expect(within(within(checklist()).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }).getAttribute("aria-current")).toBe("step");
     await waitFor(() => expect(document.activeElement).toBe(moveCard()));

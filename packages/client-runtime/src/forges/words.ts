@@ -1,6 +1,8 @@
 import {
   FORGE_CAPABILITIES,
+  PRODUCT_NAME,
   forgeOriginHost,
+  normaliseRemote,
   type ForgeAccountRecord,
   type ForgeAlias,
   type ForgeCapabilities,
@@ -12,6 +14,7 @@ import {
   type ForgeProblem,
   type ForgeProblemKind,
   type ForgeTokenPage,
+  type ForgeTokenPermission,
   type GhProbe,
   type PullRequest,
   type PullRequestState,
@@ -19,6 +22,7 @@ import {
 import type { CopyReport } from "../copies.js";
 import { KEY_MANAGER_PROVIDER_WORDS, listWords } from "../key-managers/words.js";
 import { whenWords } from "../transcript/format.js";
+import { plainRefusal, type PlainRefusal, type RefusedAnswer } from "../words/refusal.js";
 
 /**
  * A forge account and a session's pull requests in words, as both
@@ -75,11 +79,11 @@ export const credentialWords = (source: ForgeCredentialSource): string => {
   }
 };
 
-/** What each capability is called in a list. */
+/** What each capability is called in a list (setup-copy.md §5.6). */
 const CAPABILITY_WORDS: Readonly<Record<ForgeCapabilityName, string>> = {
-  readRepository: "read repositories",
+  readRepository: "read code",
   writeIssues: "write issues",
-  pullRequests: "pull requests",
+  pullRequests: "open pull requests",
   createRepository: "create repositories",
   readReleases: "read releases",
 };
@@ -99,19 +103,25 @@ export const capabilitiesWords = (capabilities: ForgeCapabilities): string => {
   return parts.filter((part) => part !== false).join(" ");
 };
 
-/** A capability as a list of them names it on its own: `Read repositories`. */
+/** A capability as a list of them names it on its own: `Read code`. */
 export const capabilityName = (name: ForgeCapabilityName): string => `${CAPABILITY_WORDS[name].charAt(0).toUpperCase()}${CAPABILITY_WORDS[name].slice(1)}`;
 
-/** Where a capability stands: verified, refused with the HTTP status a failure answered, or not tried yet. */
-export const capabilityStateWords = ({ state, status }: Pick<ForgeCapability, "state" | "status">): string => {
+/** Where a capability stands, in words (setup-copy.md §5.6): it works, the forge does not allow it, or it is not checked yet; an HTTP status stays out. */
+export const capabilityStateWords = ({ state }: Pick<ForgeCapability, "state">): string => {
   switch (state) {
     case "verified":
-      return "verified";
+      return "Works";
     case "failed":
-      return status === null ? "refused" : `refused (HTTP ${String(status)})`;
+      return "Not allowed";
     case "unknown":
-      return "not tried yet";
+      return "Not checked yet";
   }
+};
+
+/** A forge account's row as a state word names it (setup-copy.md §3): needing a fix while it has a problem the row draws, checking until its code is read, else done. */
+export const forgeRowState = (account: Pick<ForgeAccountRecord, "problem" | "capabilities">): "done" | "needs-attention" | "pending" => {
+  if (forgeRowProblem(account) !== null) return "needs-attention";
+  return account.capabilities.readRepository.state === "unknown" ? "pending" : "done";
 };
 
 /** Where an alias stands (ADR 0020): when the credential last answered there as the forge account's identity, or that it is not used until it does. */
@@ -144,16 +154,30 @@ export const forgeProblemAction = (account: Pick<ForgeAccountRecord, "problem" |
   return problem.kind === "credential-unavailable" && account.credential.kind === "reference" ? "key-manager" : "sign-in-again";
 };
 
+/** The host the gh routes offer first: GitHub's own. */
+const GITHUB_HOST = "github.com";
+
 /**
- * Why the environment's own `gh` (`forge.gh.probe`; ADR 0032) cannot give
- * a forge account its token: not installed, older than the minimum, or
- * signed in to no host; null when it can be offered.
+ * What the environment's own `gh` (`forge.gh.probe`; ADR 0032) offers the
+ * Forges card first (setup-copy.md §5.6): Use gh with the login it is signed
+ * in as, github.com's active one first; else Install gh where it is missing,
+ * Update gh where it is older than the minimum, or that it is signed in to
+ * no site, the command that signs it in in details. `computer` is where gh
+ * runs, as the line names it.
  */
-export const machineGhAbsence = (probe: GhProbe, environmentName: string): string | null => {
-  if (!probe.installed) return `${environmentName} has no gh to read a token from.`;
-  if (!probe.meetsMinimum) return `The gh on ${environmentName} is ${probe.version ?? "of a version it does not say"}, older than ${probe.minimum}, the oldest a forge account reads.`;
-  if (probe.accounts.length === 0) return `The gh on ${environmentName} is signed in to no host: run gh auth login there, or paste a token.`;
-  return null;
+export type GhRoute =
+  | { readonly kind: "use"; readonly host: string; readonly login: string; readonly line: string }
+  | { readonly kind: "install" | "update" | "signed-out"; readonly line: string; readonly details: readonly string[] };
+
+export const ghRoute = (probe: GhProbe, computer: string): GhRoute => {
+  if (!probe.installed) return { kind: "install", line: "The gh tool is not installed. Install it to use your GitHub sign-in.", details: [`Needs gh ${probe.minimum} or later.`] };
+  if (!probe.meetsMinimum) return { kind: "update", line: "The gh tool is out of date.", details: [`${probe.version === null ? "gh reports no version" : `gh ${probe.version}`} (needs ${probe.minimum} or later)`] };
+  const github = probe.accounts.filter((account) => account.host === GITHUB_HOST);
+  const chosen = github.find((account) => account.active) ?? github[0] ?? probe.accounts.find((account) => account.active) ?? probe.accounts[0];
+  if (chosen === undefined) {
+    return { kind: "signed-out", line: `The gh tool is not signed in to ${GITHUB_HOST}. Run gh auth login on ${computer}, or add a token instead.`, details: [`gh auth login --hostname ${GITHUB_HOST}`] };
+  }
+  return { kind: "use", host: chosen.host, login: chosen.login, line: `Use your GitHub sign-in from the gh tool (${chosen.login})` };
 };
 
 /** The login the environment's own `gh` reads a token for on `host`, as `gh` names a host: the host's active account, else its first; null where it is signed in to none there. */
@@ -174,16 +198,93 @@ export const forgeAccountName = (account: Pick<ForgeAccountRecord, "origin" | "i
   return account.identity === null ? host : `${account.identity.login} on ${host}`;
 };
 
-/** Where to mint a token and what to grant it, as `forge.detect` names a token page. */
-export const tokenPageWords = (page: ForgeTokenPage): string => {
+/** What GitHub's fine-grained token page calls each access. */
+const ACCESS_WORDS: Readonly<Record<ForgeTokenPermission["access"], string>> = { read: "Read-only", write: "Read and write" };
+
+/** What Forgejo's and Gitea's token page calls an access a scope grants. */
+const SCOPE_ACCESS_WORDS: Readonly<Record<string, string>> = { read: "Read", write: "Read and write" };
+
+/**
+ * The permissions to give a token on its page, in the words that page shows
+ * (setup-copy.md §5.6, `Give it these permissions: {plain list}.`): a
+ * fine-grained GitHub token's repositories and each permission's access, a
+ * classic one's scopes as it lists them, and Forgejo's or Gitea's areas,
+ * each with its access.
+ */
+export const tokenPermissionWords = (page: ForgeTokenPage): string => {
   switch (page.kind) {
     case "fine-grained":
-      return `A fine-grained token with access to all repositories and ${listWords(page.permissions.map((permission) => `${permission.name} (${permission.access})`))}`;
+      return `All repositories, with ${listWords(page.permissions.map((permission) => `${permission.name}: ${ACCESS_WORDS[permission.access]}`))}`;
     case "classic":
-      return `A classic token with ${listWords(page.scopes)}`;
+      return listWords(page.scopes);
     case "access-token":
-      return `An access token with ${listWords(page.scopes)}`;
+      return listWords(
+        page.scopes.map((scope) => {
+          const [access = "", area = scope] = scope.split(":");
+          return `${area.charAt(0).toUpperCase()}${area.slice(1)}: ${SCOPE_ACCESS_WORDS[access] ?? access}`;
+        }),
+      );
   }
+};
+
+/** The site a forge refusal names: an origin's host, with its port. */
+const siteOf = (origin: string): string => origin.replace(/^https?:\/\//, "");
+
+/** The login an identity in a refusal's data names, if any. */
+const loginIn = (identity: unknown): string | undefined => {
+  const login = (identity as { readonly login?: unknown } | null | undefined)?.login;
+  return typeof login === "string" ? login : undefined;
+};
+
+/** The forge's own refusals in setup-copy.md §5.6's words, naming `site`; undefined for one the shared mapper words. */
+const forgeRefusalLine = ({ code, data }: RefusedAnswer, site: string): string | undefined => {
+  switch (code) {
+    case "kind_unsupported":
+      return "GitLab is not supported yet.";
+    case "not_a_forge":
+      return `${PRODUCT_NAME} does not recognise this site. Choose what it runs.`;
+    case "unreachable":
+      // This client's own `unreachable` is a lost connection to the computer, which the shared mapper words.
+      return data === undefined ? undefined : `${PRODUCT_NAME} could not reach ${site}. Check the address and the internet connection.`;
+    case "conflict":
+      return data?.["reason"] === "origin_held" ? `${site} is already connected.` : undefined;
+    case "verification_failed":
+      return `${site} did not accept this token. Check that you copied all of it, or create a new one.`;
+    case "gh-unavailable":
+      return `The gh tool is not signed in to ${site}.`;
+    case "identity_mismatch": {
+      const found = loginIn(data?.["found"]);
+      const expected = loginIn(data?.["expected"]);
+      return found === undefined || expected === undefined ? undefined : `This token belongs to ${found}, not ${expected}. Add a token for ${expected}.`;
+    }
+    case "alias_identity_mismatch": {
+      const expected = loginIn(data?.["expected"]);
+      if (expected === undefined) return undefined;
+      return `${data?.["found"] === null ? `${site} did not accept the token for ${expected}` : `${site} knows this token as another user`}, so it is not another address for this site. Nothing was changed.`;
+    }
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * A forge command's refusal in plain words (setup-copy.md §5.6, "Add
+ * messages"; §3, raw refusals): the forge's own refusals worded from their
+ * code and data, naming `site` (the host a person typed, or the forge
+ * account's); every other through `plainRefusal` for the button `verb`.
+ * Details hold the raw refusal, then the raw facts the environment gave.
+ */
+export const forgeRefusal = (refusal: RefusedAnswer, site: string, verb: string): PlainRefusal => {
+  const plain = plainRefusal(refusal, verb);
+  const raw = refusal.data?.["details"];
+  const facts = Array.isArray(raw) ? raw.filter((fact): fact is string => typeof fact === "string") : [];
+  return { line: forgeRefusalLine(refusal, site) ?? plain.line, details: [...plain.details, ...facts] };
+};
+
+/** The site a typed address names, as a line names it: its origin's host, or what was typed where it names no forge. */
+export const typedSite = (typed: string): string => {
+  const origin = normaliseRemote(typed.trim())?.origin;
+  return origin === undefined ? typed.trim() : siteOf(origin);
 };
 
 /** What a copy of a forge account came to on one environment, named as this client names it: copied and where it stands there, or refused and why. */
