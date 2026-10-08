@@ -95,7 +95,7 @@ export class PushController {
   }
 }
 
-export const PushControls = ({ controller, fallback, onFallback }: { readonly controller: PushController; readonly fallback: readonly AttentionTargetStatus[]; readonly onFallback?: (id: string) => void }) => {
+export const PushControls = ({ controller, admin, fallback, onFallback }: { readonly controller: PushController; readonly admin: boolean; readonly fallback: readonly AttentionTargetStatus[]; readonly onFallback?: (id: string) => void }) => {
   const state = useSyncExternalStore(controller.subscribe, controller.read);
   return <section data-phone-push aria-label="Web Push" className="flex min-w-0 flex-col gap-3 break-words rounded-lg border border-hairline bg-panel p-3 text-base">
     <h2 className="font-semibold">Web Push</h2>
@@ -110,7 +110,7 @@ export const PushControls = ({ controller, fallback, onFallback }: { readonly co
       {state.status === "ready" && <><Button className="h-11" title="Test push" disabled={state.busy} onClick={() => { void controller.test(); }}>Test push</Button><Button className="h-11" title="Disable push" disabled={state.busy} onClick={() => { void controller.disable(); }}>Disable push</Button></>}
     </div>
     <h3 className="font-semibold">Fallback and in-app attention</h3>
-    {fallback.length ? fallback.map(target => <div key={target.id}><p>{attentionTargetLabel(target)} · {target.state}{target.failure ? ` · ${target.failure}` : ""}</p>{onFallback && (!target.global || target.enabled) && <Button className="mt-2 h-11" title={`Use fallback ${attentionTargetLabel(target)}`} disabled={state.busy} onClick={() => onFallback(target.id)}>Use fallback</Button>}</div>) : <p>No webhook fallback is configured. Ask an environment admin to configure and test a named attention endpoint in Attention settings.</p>}
+    {fallback.length ? fallback.map(target => <div key={target.id}><p>{attentionTargetLabel(target)} · {target.state}{target.failure ? ` · ${target.failure}` : ""}</p>{onFallback && (!target.global || target.enabled) && <Button className="mt-2 h-11" title={`Use fallback ${attentionTargetLabel(target)}`} disabled={state.busy} onClick={() => onFallback(target.id)}>Use fallback</Button>}</div>) : <p>{admin ? "No webhook fallback is configured. Add a webhook route above with its receiver's URL and signing secret, then test it." : "No webhook fallback is configured. Ask an environment admin to configure and test a named attention endpoint in Attention settings."}</p>}
     <p className="text-ink-muted">In-app Parked asks remain available while connected. In-app attention alone cannot alert a closed browser.</p>
   </section>;
 };
@@ -170,7 +170,7 @@ const ConnectedPush = ({ environmentId, sessionId }: { readonly environmentId: s
   }, [runtime, clock, environmentId, sessionId, id]);
   useEffect(() => { void controller.restore(answer.result?.targets.some(target => target.id === id && target.enabled) ?? false).catch(() => undefined); }, [controller, answer.result, id]);
   const fallback = answer.result?.targets.filter(target => target.transport === "webhook") ?? [];
-  return <PushControls controller={controller} fallback={answer.result?.targets.filter(target => target.transport === "webhook") ?? []} onFallback={fallbackId => {
+  return <PushControls controller={controller} admin={runtime.capability(environmentId, "attention.routes.set").status === "present"} fallback={answer.result?.targets.filter(target => target.transport === "webhook") ?? []} onFallback={fallbackId => {
     void controller.useFallback(fallback.find(target => target.id === fallbackId)?.global ? undefined : async () => {
       const result = await runtime.requests.call(environmentId, "attention.targets.configure", { commandId: crypto.randomUUID(), id: fallbackId, enabled: true, completion: false });
       if (!result.ok || result.result.receipt.status !== "accepted") throw new Error("Fallback unavailable.");

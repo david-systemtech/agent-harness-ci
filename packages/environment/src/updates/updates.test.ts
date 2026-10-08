@@ -105,6 +105,7 @@ describe("updates.status", () => {
       newest: null,
       lastCheck: null,
       lastReadAt: null,
+      readSinceStart: false,
       target: null,
       passedOver: null,
       pending: { state: "current" },

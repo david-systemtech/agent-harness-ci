@@ -56,7 +56,7 @@ describe("the last read of the channel (#1812)", () => {
 
   it("is none before any check read it, and the start of the last check that did", async () => {
     const { clock, checks, answer, checked } = heldChecks();
-    expect(checks.status()).toEqual({ newest: null, lastCheck: null, lastReadAt: null, target: null, passedOver: null });
+    expect(checks.status()).toEqual({ newest: null, lastCheck: null, lastReadAt: null, readSinceStart: false, target: null, passedOver: null });
     await checked(reading("0.5.0"));
     const read = clock.now().toISOString();
     expect(checks.status()).toMatchObject({ newest: "0.5.0", lastCheck: { at: read, result: "ok" }, lastReadAt: read });
@@ -73,7 +73,7 @@ describe("the last read of the channel (#1812)", () => {
     const kept = "2026-09-23T23:48:00.000Z";
     writeFileSync(join(dataDir, RELEASE_CHANNEL_FILE), `${JSON.stringify({ lastSucceededAt: kept })}\n`);
     const { clock, checks, answer, checked } = heldChecks(dataDir);
-    expect(checks.status()).toEqual({ newest: null, lastCheck: null, lastReadAt: kept, target: null, passedOver: null });
+    expect(checks.status()).toEqual({ newest: null, lastCheck: null, lastReadAt: kept, readSinceStart: false, target: null, passedOver: null });
 
     const checking = checks.check();
     await answer(unreachable);
@@ -83,6 +83,21 @@ describe("the last read of the channel (#1812)", () => {
     await checked(reading("0.5.0"));
     expect(checks.status()).toMatchObject({ newest: "0.5.0", lastReadAt: clock.now().toISOString() });
   });
+
+  it("says whether a check since the start read it, through a later check that fails after one that found nothing (#1818)", async () => {
+    const dataDir = tempDir("agent-harness-checks-");
+    const kept = "2026-09-23T23:48:00.000Z";
+    writeFileSync(join(dataDir, RELEASE_CHANNEL_FILE), `${JSON.stringify({ lastSucceededAt: kept })}\n`);
+    const { clock, checks, checked } = heldChecks(dataDir);
+    expect(checks.status()).toMatchObject({ readSinceStart: false, lastReadAt: kept });
+    await checked(unreachable);
+    expect(checks.status()).toMatchObject({ readSinceStart: false, lastReadAt: kept });
+
+    await checked({ outcome: "read", newest: null, target: null, passedOver: null, stage: null, blocked: null });
+    const read = clock.now().toISOString();
+    await checked(unreachable);
+    expect(checks.status()).toMatchObject({ newest: null, target: null, passedOver: null, lastCheck: { result: "failed" }, lastReadAt: read, readSinceStart: true });
+  });
 });
 
 describe("Update now's read of the channel", () => {
@@ -91,7 +106,7 @@ describe("Update now's read of the channel", () => {
     const checking = checks.check();
     clock.advance(1000);
     checks.readByRequest(reading("0.5.0"), clock.now());
-    expect(checks.status()).toEqual({ newest: "0.5.0", lastCheck: { at: SECOND_LATER.toISOString(), result: "ok" }, lastReadAt: SECOND_LATER.toISOString(), target: null, passedOver: null });
+    expect(checks.status()).toEqual({ newest: "0.5.0", lastCheck: { at: SECOND_LATER.toISOString(), result: "ok" }, lastReadAt: SECOND_LATER.toISOString(), readSinceStart: true, target: null, passedOver: null });
 
     await answer(reading("0.4.1"));
     await checking;
@@ -111,6 +126,7 @@ describe("Update now's read of the channel", () => {
       newest: "0.4.1",
       lastCheck: { at: SECOND_LATER.toISOString(), result: "failed", reason: "unreachable", message: "The forge did not answer." },
       lastReadAt: MANUAL_CLOCK_START,
+      readSinceStart: true,
       target: null,
       passedOver: null,
     });
