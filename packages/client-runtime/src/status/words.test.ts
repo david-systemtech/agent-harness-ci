@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containmentWords, elapsedClock, gaugeOf, pressureOf, readingWords, readingsOf, meterReadingsOf, spendOf, windowLabel, windowOut } from "./words.js";
+import { containmentWords, effortName, elapsedClock, gaugeOf, modelChoiceWords, modelDisplayName, modelName, pressureOf, readingWords, readingsOf, meterReadingsOf, spendOf, windowLabel, windowOut } from "./words.js";
 
 /** The status line's and the pickers' words, as both renderers say them (docs/specs/tui.md, "Status, usage, pickers"; #147, moved here by #402). */
 
@@ -108,5 +108,30 @@ describe("the hand-off offer", () => {
     expect(windowOut({ ...recommendation, reason: "most-room", accountId: "b" })).toBe(false);
     expect(windowOut(null)).toBe(false);
     expect(windowOut(undefined)).toBe(false);
+  });
+});
+
+describe("a model's and an effort's names (#1824)", () => {
+  it("names a model as its provider does, whether it is chosen by alias or by full or dated id", () => {
+    expect(["fable", "opus", "sonnet", "haiku"].map((id) => modelDisplayName(id))).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 4.5"]);
+    expect(["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "Claude-Opus-5-5"].map((id) => modelDisplayName(id))).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 4.5", "Opus 5.5"]);
+  });
+
+  it("takes the provider's own name for a model the table does not know, else the id, never a blank", () => {
+    expect(modelDisplayName("gpt-sample-2", "Sample 2")).toBe("Sample 2");
+    expect(modelDisplayName("gpt-sample-2", null)).toBe("gpt-sample-2");
+    expect(modelDisplayName("sonnet[1m]", "Sonnet (1M context)")).toBe("Sonnet (1M context)");
+  });
+
+  it("capitalises an effort and joins it to the model with a dash", () => {
+    expect(["low", "medium", "high", "xhigh", "max"].map(effortName)).toEqual(["Low", "Medium", "High", "Extra high", "Max"]);
+    expect(modelChoiceWords({ model: "fable", effort: "high" })).toBe("Fable 5.1 - High");
+    expect(modelChoiceWords({ model: "claude-opus-5-5", effort: null })).toBe("Opus 5.5");
+    expect(modelChoiceWords({ model: "local-model", effort: "medium" }, null)).toBe("local-model - Medium");
+  });
+
+  it("lists a model by its display name with its id beside it, and by its id alone when they are the same", () => {
+    expect(modelName({ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" })).toBe("Fable 5.1 (fable)");
+    expect(modelName({ id: "local-model", family: "local", tier: 0, efforts: [], label: null })).toBe("local-model");
   });
 });
