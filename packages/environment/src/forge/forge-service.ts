@@ -59,7 +59,21 @@ import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
 import { detectForge, unreadable, type Detection } from "./detection.js";
-import { accountWords, adviceLine, alreadyConnected, noToken, notAnAlias, notAnswering, savedTokenUnreadable, siteOf, tokenOfOther, tokenRefusedAtAdd, unreachableAtAdd } from "./lines.js";
+import {
+  accountWords,
+  adviceLine,
+  alreadyConnected,
+  cannotListOrganisations,
+  noToken,
+  notAnAlias,
+  notAnswering,
+  savedTokenUnreadable,
+  siteOf,
+  tokenOfOther,
+  tokenRefused,
+  tokenRefusedAtAdd,
+  unreachableAtAdd,
+} from "./lines.js";
 import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 import { createForgeMoveSource } from "./move-source.js";
 import { createForgeInjection } from "./injection.js";
@@ -1006,10 +1020,12 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       switch (answer.outcome) {
         case "done":
           return { owners: answer.value };
-        case "failed":
-          throw new ContractError({ code: "verification_failed", message: answer.message, data: { origin, status: answer.status } });
+        case "failed": {
+          const message = answer.status === 401 ? adviceLine(tokenRefused(siteOf(origin), account.identity?.login ?? null)) : cannotListOrganisations(siteOf(origin));
+          throw new ContractError({ code: "verification_failed", message, data: { origin, status: answer.status, details: [answer.message] } });
+        }
         case "unreachable":
-          throw new ContractError({ code: "unreachable", message: answer.message, data: { origin } });
+          throw new ContractError({ code: "unreachable", message: adviceLine(notAnswering(siteOf(origin), answer.status)), data: { origin, details: [answer.message] } });
         case "refused":
           // Removed while it was asked: nothing serves its origin now.
           throw new ContractError(answer.error.code === "forge_account_missing" ? notFound(id) : answer.error);

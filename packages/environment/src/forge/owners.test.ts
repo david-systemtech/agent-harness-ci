@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ContractError } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
@@ -95,7 +96,7 @@ describe("forge.orgs.list", () => {
     expect(elsewhere.requests).toEqual([]);
 
     forge.answer(TOKEN, "GET /api/v1/user/orgs", { status: 403, body: { message: "token does not have at least one of required scope(s): [read:organization]" } });
-    expect(await refusal(owners(client, account.id))).toEqual({ code: "verification_failed", data: { origin: forge.origin, status: 403 } });
+    expect(await refusal(owners(client, account.id))).toMatchObject({ code: "verification_failed", data: { origin: forge.origin, status: 403 } });
 
     // A credential answering as another user than the forge account's lists nobody's owners, verified or not.
     forge.user(TOKEN, { login: "someone", id: 7 });
@@ -103,9 +104,56 @@ describe("forge.orgs.list", () => {
     expect(forge.requests.at(-1)).toMatchObject({ path: "/api/v1/user" });
 
     forge.answer(TOKEN, "GET /api/v1/user", { status: 401, body: { message: "token is required" } });
-    expect(await refusal(owners(client, account.id))).toEqual({ code: "verification_failed", data: { origin: forge.origin, status: 401 } });
+    expect(await refusal(owners(client, account.id))).toMatchObject({ code: "verification_failed", data: { origin: forge.origin, status: 401 } });
 
     await forge.close();
-    expect(await refusal(owners(client, account.id))).toEqual({ code: "unreachable", data: { origin: forge.origin } });
+    expect(await refusal(owners(client, account.id))).toMatchObject({ code: "unreachable", data: { origin: forge.origin } });
+  });
+
+
+  it("refuses in plain lines, with what the forge answered in details and never a status in the line", async () => {
+    const t = await start();
+    const forge = await fakeForge();
+    forge.user(TOKEN, DAVID);
+    const client = await t.client();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    const site = forge.origin.replace("http://", "");
+    const refused = async () => {
+      try {
+        await owners(client, account.id);
+      } catch (error) {
+        if (error instanceof ContractError) return { code: error.code, message: error.message, data: error.data };
+        throw error;
+      }
+      throw new Error("The request was answered, not refused.");
+    };
+
+    forge.answer(TOKEN, "GET /api/v1/user/orgs", { status: 403, body: { message: "token does not have at least one of required scope(s): [read:organization]" } });
+    expect(await refused()).toEqual({
+      code: "verification_failed",
+      message: `The token for ${site} cannot list organisations. Create a new token with that permission and add it.`,
+      data: { origin: forge.origin, status: 403, details: [expect.stringContaining("HTTP 403")] },
+    });
+
+    forge.answer(TOKEN, "GET /api/v1/user/orgs", { status: 502 });
+    expect(await refused()).toEqual({
+      code: "unreachable",
+      message: `${site} is not answering properly right now. Choose Check again later.`,
+      data: { origin: forge.origin, details: [expect.stringContaining("HTTP 502")] },
+    });
+
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 401, body: { message: "token is required" } });
+    expect(await refused()).toEqual({
+      code: "verification_failed",
+      message: `${site} did not accept the token for david. Create a new token and add it.`,
+      data: { origin: forge.origin, status: 401, details: [expect.stringContaining("HTTP 401")] },
+    });
+
+    await forge.close();
+    expect(await refused()).toEqual({
+      code: "unreachable",
+      message: `${site} did not answer. Check the internet connection, then choose Check again.`,
+      data: { origin: forge.origin, details: [expect.any(String)] },
+    });
   });
 });

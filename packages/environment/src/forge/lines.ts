@@ -83,6 +83,10 @@ export type Read = "read code" | "read releases";
 export const cannotRead = (site: string, reads: readonly Read[]): string =>
   `The token for ${site} cannot ${reads.join(" or ")}. Create a new token with ${reads.length === 1 ? "that permission" : "those permissions"} and add it.`;
 
+/** The forge answered the owner list with no list: the token may not list the account's organisations. */
+export const cannotListOrganisations = (site: string): string =>
+  `The token for ${site} cannot list organisations. Create a new token with that permission and add it.`;
+
 /** A read the forge has not answered yet. */
 export const checkingReads = (site: string): string => `Checking what the token for ${site} can do.`;
 
