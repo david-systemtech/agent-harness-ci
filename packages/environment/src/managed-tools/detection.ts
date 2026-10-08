@@ -162,14 +162,16 @@ const shimPackage = (file: string, own: readonly string[]): string | null => {
  * table must not drive it (#1833): a bare binary somewhere a system package
  * manager may own it; for Scoop, mise and asdf, a package other than the
  * tool's own (`npm i -g` into a Node they installed), read from the
- * realpath's package directory, else from the package directories beside
- * a shim, whose upgrade would update that package instead.
+ * package directories beside the shim it was found through, else from the
+ * realpath's package directory (#1876: a mise shim's realpath is mise itself,
+ * which asdf may have installed), whose upgrade would update that package
+ * instead.
  */
 export const drivenUpdate = (entry: ToolCommandEntry, found: FoundTool): ToolCommand | null => {
   if (entry.method === "manual") return heldBySystem(found.realpath) ? null : entry.update;
   if (entry.package === undefined) return entry.update;
   const own = [entry.package, entry.tool];
-  const installedAs = installedPackage(found.realpath) ?? shimPackage(found.path, own) ?? shimPackage(found.realpath, own);
+  const installedAs = shimPackage(found.path, own) ?? installedPackage(found.realpath) ?? shimPackage(found.realpath, own);
   return installedAs !== null && own.includes(installedAs) ? updateCommand(entry, installedAs) : null;
 };
 
