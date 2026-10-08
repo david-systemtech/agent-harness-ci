@@ -2,6 +2,7 @@ import { uuidv7, type CachedAnswer, type EnvironmentView } from "@agent-harness/
 import { CATALOGUE_SEED_INSTRUCTION_ID, type OwnedInstructionRow } from "@agent-harness/contracts";
 import { useEffect, useRef, useState } from "react";
 import { useClock, useRuntime } from "../window-context.js";
+import { InstructionError } from "./instruction-error.js";
 
 // Instruction ids are environment-local. Every client uses this id for the automatic seed,
 // so the environment's existing create conflict also guards simultaneous first opens.
@@ -30,9 +31,5 @@ export const SetupSeed = ({ view, listed }: { readonly view: EnvironmentView; re
       runtime.requests.refresh(view.environmentId, "instructions.list", {});
     });
   }, [runtime, clock, view.environmentId, view.phase, mayCreate, listed]);
-  return line === undefined ? null : (
-    <p role="status" className="text-sm text-signal">
-      {line}
-    </p>
-  );
+  return line === undefined ? null : <InstructionError>{line}</InstructionError>;
 };

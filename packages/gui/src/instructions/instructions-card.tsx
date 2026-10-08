@@ -6,6 +6,7 @@ import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { InstructionButton } from "./instruction-button.js";
+import { InstructionError } from "./instruction-error.js";
 import { InstructionEditor } from "./instruction-editor.js";
 import { ListedReach, useListedInstructions } from "./instructions-pane.js";
 import { GoToSteps, Orientation } from "./orientation.js";
@@ -66,7 +67,7 @@ const SetupInstructions = ({ view, step }: { readonly view: EnvironmentView; rea
       )}
       <InstructionButton environmentId={view.environmentId} method="instructions.create" run={() => edit("new")}>Write your own</InstructionButton>
       {preview.row !== undefined && <Orientation view={view} row={preview.row} setup />}
-      {preview.error !== undefined && <p className="text-sm text-amber">Could not preview the run: {preview.error}</p>}
+      {preview.error !== undefined && <InstructionError>Could not preview the run: {preview.error}</InstructionError>}
       {editing === "new" && <InstructionEditor environmentId={view.environmentId} close={() => edit(null)} />}
     </>
   );

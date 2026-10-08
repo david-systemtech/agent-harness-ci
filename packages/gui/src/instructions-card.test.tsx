@@ -150,6 +150,30 @@ describe("the Instructions card in Set up", () => {
     expect(within(card).queryByRole("checkbox", { name: "All accounts, including future accounts" })).toBeNull();
   });
 
+  it("shows a refused tick, a refused switch and a preview it could not read as errors: text, colour, an alert and a hidden Error prefix", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("workspaces.browse", () => ({ result: { path: "/home/test", parent: "/home", directories: [], truncated: false } }));
+    desk.wire.answer("instructions.preview", () => ({ error: { code: "unavailable", message: "The account's runner is not reachable.", data: {} } }));
+    const card = await openCard(app);
+    const preview = await within(card).findByRole("alert");
+    expect(preview.textContent).toBe("Error: Could not preview the run: The account's runner is not reachable.");
+    expect(preview.className).toContain("text-signal");
+    expect(preview.querySelector(".sr-only")?.textContent).toBe("Error: ");
+    scriptPreview(desk);
+    desk.wire.answer("instructions.create", () => ({ error: { code: "conflict", message: "The catalogue changed meanwhile.", data: {} } }));
+    const suggestions = await within(card).findByRole("region", { name: "Suggestions" });
+    await app.user.click(within(suggestions).getByRole("checkbox", { name: "Read code from a fresh checkout" }));
+    expect((await within(suggestions).findByRole("alert")).textContent).toBe("Error: Not saved: The catalogue changed meanwhile.");
+    expect(within(suggestions).queryByRole("status")).toBeNull();
+    desk.wire.answer("settings.update", () => ({ error: { code: "conflict", message: "instructions.orientation changed while it was being written.", data: {} } }));
+    await app.user.click(within(card).getByRole("button", { name: "What agents are told about this computer" }));
+    await app.user.click(await within(card).findByRole("switch", { name: "Tell agents about this computer" }));
+    await waitFor(() => expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: Not saved: instructions.orientation changed while it was being written."));
+  });
+
   it("leaves a copy's newer version to Settings, where its comparison opens", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
@@ -203,5 +227,15 @@ describe("the Instructions card in Set up", () => {
     await within(await within(card).findByRole("region", { name: "Your note" })).findByRole("region", { name: "About my setup" });
     expect(within(card).queryByText(/About my setup was not created/)).toBeNull();
     expect(desk.requests("instructions.create")).toHaveLength(1);
+  });
+
+  it("shows a seed the environment refused as an error with a hidden Error prefix", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { firstLaunch: true });
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    const desk = app.environment("desk");
+    scriptInstructions(desk);
+    desk.wire.answer("instructions.create", () => ({ error: { code: "unavailable", message: "The instructions store is busy.", data: {} } }));
+    const card = await openCard(app);
+    await waitFor(() => expect(within(card).getAllByRole("alert").map((alert) => alert.textContent)).toContain("Error: About my setup was not created: The instructions store is busy."));
   });
 });

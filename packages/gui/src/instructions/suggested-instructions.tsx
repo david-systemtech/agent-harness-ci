@@ -5,6 +5,7 @@ import { Part, SettingsCardGrid } from "../settings/part.js";
 import { Fold } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { InstructionButton } from "./instruction-button.js";
+import { InstructionError } from "./instruction-error.js";
 import { useInstructionCommand } from "./use-instruction-command.js";
 
 /** Tick state and the Dismissed fold come only from instructions.list. */
@@ -116,11 +117,7 @@ export const SetupSuggestions = ({ environmentId, rows, dismissed }: { readonly 
         })}
       </ul>
       {create.status === "absent" && <p className="text-xs text-ink-faint">{create.message}</p>}
-      {line !== undefined && (
-        <p role="status" className="text-sm text-signal">
-          {line}
-        </p>
-      )}
+      {line !== undefined && <InstructionError>{line}</InstructionError>}
     </Part>
   );
 };

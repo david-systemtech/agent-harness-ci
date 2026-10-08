@@ -292,7 +292,7 @@ describe("Instructions", () => {
     await app.user.click(within(editor).getByRole("textbox", { name: "Markdown body" }));
     await app.user.paste("The typed text.");
     await app.user.click(within(editor).getByRole("button", { name: "Save instruction" }));
-    expect(await within(editor).findByRole("status")).toHaveProperty("textContent", "Not saved: This instruction id is already used.");
+    expect(await within(editor).findByRole("alert")).toHaveProperty("textContent", "Error: Not saved: This instruction id is already used.");
     expect(within(editor).getByRole("textbox", { name: "Markdown body" }).textContent).toBe("The typed text.");
   });
   it("preserves typed session instructions while reconnecting and catching up", async () => {

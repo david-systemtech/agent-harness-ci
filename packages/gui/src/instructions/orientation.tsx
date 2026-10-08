@@ -10,6 +10,7 @@ import { Button, Switch, Tooltip, Fold } from "../ui/index.js";
 import { Markdown } from "../transcript/markdown.js";
 import { useRuntime } from "../window-context.js";
 import { InstructionAccounts } from "./instruction-accounts.js";
+import { InstructionError } from "./instruction-error.js";
 
 /** The fold, and the Settings part, that hold what the orientation block tells agents (setup-copy.md §5.10). */
 const ORIENTATION_TITLE = "What agents are told about this computer";
@@ -85,11 +86,7 @@ export const Orientation = ({ view, row, setup = false }: { readonly view: Envir
           <GoToSteps environmentId={view.environmentId} steps={unread} />
         </>
       )}
-      {line !== undefined && (
-        <p role="status" className="text-sm text-signal">
-          {line}
-        </p>
-      )}
+      {line !== undefined && <InstructionError>{line}</InstructionError>}
     </>
   );
   return setup ? (
