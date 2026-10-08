@@ -191,7 +191,7 @@ describe("the Instructions card in Set up", () => {
     const card = await openCard(app);
     await within(card).findByRole("region", { name: "Suggestions" });
     expect(within(card).queryByText("Newer version 2")).toBeNull();
-    await app.user.click(within(card).getByRole("button", { name: "Open Instructions" }));
+    await app.user.click(within(card).getByRole("button", { name: "Open in Settings" }));
     const pane = await screen.findByRole("region", { name: "Instructions" });
     const row = await within(pane).findByRole("region", { name: "Review habits" });
     expect(within(row).getByText("Newer version 2")).toBeDefined();
