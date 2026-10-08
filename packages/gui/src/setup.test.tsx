@@ -384,6 +384,23 @@ describe("the Set up pane", () => {
     expect(within(pane).getByText("Everything on laptop is set up.")).toBeDefined();
   });
 
+  it("stops saying everything is set up once a result this window did not ask for finds a step to fix", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: onlySteps(PASSING) }] });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("desk");
+    const pane = await setupPane(app);
+    await within(pane).findByText("6 done · 0 need a fix · 0 not set up");
+    await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
+    expect(await within(pane).findByText("Everything on desk is set up.")).toBeDefined();
+
+    // The environment's own pass, with nobody asking.
+    desk.setSetup({ permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] } });
+    act(() => app.clock.advance(SETUP_PENDING_MS));
+    desk.passSetup(["permissions"]);
+    await within(pane).findByText("5 done · 1 needs a fix · 0 not set up");
+    expect(within(pane).queryByText("Everything on desk is set up.")).toBeNull();
+  });
+
   it("forgets what Check everything again found on a computer once it is picked again, as picking it checks every step anew", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");

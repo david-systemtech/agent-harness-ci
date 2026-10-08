@@ -1,4 +1,4 @@
-import { countsWords, plainRefusal, stepLine, stepNote, type RefusedAnswer, type SetupStepView } from "@agent-harness/client-runtime";
+import { countsWords, plainRefusal, stepLine, stepNote, type RefusedAnswer, type SetupCounts, type SetupStepView } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { useEffect, useState } from "react";
 import { nameOf } from "../connections/words.js";
@@ -17,6 +17,9 @@ import { useCheckOnOpen, useSetupView } from "./use-setup.js";
 
 /** What the last Check everything again on an environment found: every step fine, or the check refused. */
 type Checked = { readonly passed: true } | { readonly passed: false; readonly refusal: RefusedAnswer };
+
+/** All pass: each answer done, or skipped, which counts as fine; one still pending or needing a fix has not passed (setup-copy.md §4.5). */
+const allPass = (counts: SetupCounts): boolean => counts.done + counts.skipped === counts.registered;
 
 /** `all` with `environmentId`'s entry set to `result`, or dropped where `result` is undefined. */
 const withResult = (all: ReadonlyMap<string, Checked>, environmentId: string, result: Checked | undefined): ReadonlyMap<string, Checked> => {
@@ -72,8 +75,7 @@ export const SetupPane = () => {
     const { counts } = runtime.projections.setup(environmentId).read();
     const first = counts.attention[0];
     if (first !== undefined) openChecklist(first);
-    // All pass: each answer done, or skipped, which counts as fine; one still pending has not passed (setup-copy.md §4.5).
-    else if (counts.done + counts.skipped === counts.registered) found({ passed: true });
+    else if (allPass(counts)) found({ passed: true });
   };
 
   return (
@@ -87,7 +89,8 @@ export const SetupPane = () => {
         <Button onClick={() => openChecklist()}>Open Set up</Button>
         <Button onClick={() => openRow("environments.machines", undefined, "add-a-machine")}>Set up another computer</Button>
       </div>
-      {shown?.passed === true && <p role="status" className="text-sm text-ink-muted">Everything on {name} is set up.</p>}
+      {/* Said only while the live results still agree: any later one, asked for here or not, can find a step to fix. */}
+      {shown?.passed === true && allPass(view.counts) && <p role="status" className="text-sm text-ink-muted">Everything on {name} is set up.</p>}
       {shown?.passed === false && (
         <SetupNotice
           tone="error"
