@@ -90,7 +90,7 @@ export type { BankCopyItemReport } from "./banks-copy.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
   CONNECTION_FIX_WORDS,
-  INJECTION_SWITCH_WORDS,
+  INJECTION_SWITCH_HINT,
   INJECTION_WORDS,
   KEY_MANAGER_METHOD_WORDS,
   KEY_MANAGER_PROVIDER_NAMES,
@@ -105,10 +105,12 @@ export {
   cliWords,
   connectionHealth,
   copyLine,
+  injectionSwitchWords,
   injectsWords,
   listWords,
   methodWords,
   mintWords,
+  moveOfferWords,
   originWords,
   overridesWith,
   policyWarning,

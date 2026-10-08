@@ -1,12 +1,13 @@
 import { ArrowRight, Copy, Pencil, RefreshCw, X } from "lucide-react";
 import { ActionButton as Button, AccessField as Field } from "./action-button.js";
-import { copyValue, moveItems, setBasePath, type MoveFollowUp, type MoveLine, type MoveOptions } from "@agent-harness/client-runtime";
+import { copyValue, moveItems, moveOfferWords, setBasePath, type MoveFollowUp, type MoveLine, type MoveOptions } from "@agent-harness/client-runtime";
 import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerMoveLocator } from "@agent-harness/contracts";
-import { useId, useMemo, useState, type Ref } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type Ref } from "react";
 import { useSettings } from "../settings/settings-window.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { Dialog, DialogContent, Input, Select } from "../ui/index.js";
 import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
+import { RefusalLine } from "./refusal-line.js";
 
 /** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
 interface Copied {
@@ -66,35 +67,40 @@ export const MoveCard = ({ environmentId, connections, writable, ref }: MoveCard
   );
 };
 
-/** The Move card's part for the connection it goes into, at its base path: the base path, the items with their targets, the Move's lines and follow-ups. */
-const MoveInto = ({ environmentId, connection, writable }: { readonly environmentId: string; readonly connection: KeyManagerConnectionRecord; readonly writable: boolean }) => {
+/**
+ * A Move into one connection, as a card holds it: the items
+ * `keyManagers.move.list` holds, named as people know them; each Move's
+ * lines and what each item offers next (Overwrite, Copy value, Verify the
+ * paste), a value Copy value answered while its dialog is open, and a
+ * refusal of the whole Move or of a copy.
+ */
+const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord, writable: boolean) => {
   const runtime = useRuntime();
   const clock = useClock();
   const sender = { runtime, clock };
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
-  const [typed, setTyped] = useState<string | undefined>(undefined);
   const [lines, setLines] = useState<readonly MoveLine[]>([]);
   const [line, setLine] = useState<string | undefined>(undefined);
   const [followUps, setFollowUps] = useState<ReadonlyMap<string, MoveFollowUp>>(new Map());
   const [copied, setCopied] = useState<Copied | undefined>(undefined);
   const [sending, setSending] = useState(false);
-
   const items = listed.result?.items ?? [];
+  const names = new Map(items.map((item) => [item.id, item.name]));
   // A Move or a copy on its way takes no second press.
   const acting = !writable || sending;
-  // While the base path typed differs from the one set, a Move would go to the one set: it waits for Set the base path.
-  const editing = typed !== undefined && typed.trim() !== (connection.basePath ?? connection.suggestedBasePath ?? "");
-  const moving = acting || editing;
-  const names = new Map(items.map((item) => [item.id, item.name]));
-  const basePath = typed ?? connection.basePath ?? connection.suggestedBasePath ?? "";
-  const targetOf = (item: KeyManagerMoveItem) => item.targets.find((target) => target.connectionId === connection.id)?.reference;
 
-  const move = (which: "all" | readonly KeyManagerMoveItemRef[], options: MoveOptions = {}) => {
+  /** Sets the base path first when `basePath` differs from the one set, then moves. */
+  const move = (which: "all" | readonly KeyManagerMoveItemRef[], options: MoveOptions = {}, basePath?: string) => {
     setLine(undefined);
     setSending(true);
-    void moveItems(sender, environmentId, connection, which, names, options).then((answer) => {
+    const placed = basePath === undefined || basePath.trim() === connection.basePath ? Promise.resolve(null) : setBasePath(sender, environmentId, connection, basePath);
+    void placed.then(async (set) => {
+      if (set !== null && !set.ok) return set;
+      return moveItems(sender, environmentId, connection, which, names, options);
+    }).then((answer) => {
       setSending(false);
       if (!answer.ok) return setLine(answer.line);
+      if (!("lines" in answer)) return;
       setLines(answer.lines);
       setFollowUps((held) => new Map([...held, ...answer.lines.map((each) => [each.item.id, each.followUp] as const)]));
     });
@@ -108,7 +114,8 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
       setCopied({ value: answer.value, reference: answer.reference });
     });
   };
-  const followUp = (item: KeyManagerMoveItem) => {
+  /** What `item` offers after the last Move: Overwrite, Copy value or Verify the paste; null for nothing. `moving` holds a Move back. */
+  const followUp = (item: KeyManagerMoveItemRef, moving: boolean) => {
     const ref = { kind: item.kind, id: item.id };
     switch (followUps.get(item.id)) {
       case "overwrite":
@@ -133,6 +140,19 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
         return null;
     }
   };
+  const dialog = copied === undefined ? null : <CopiedValueDialog environmentId={environmentId} label={connection.label} copied={copied} close={() => setCopied(undefined)} />;
+  return { listed, items, lines, line, setLine, acting, sender, move, followUp, dialog };
+};
+
+/** The Move card's part for the connection it goes into, at its base path: the base path, the items with their targets, the Move's lines and follow-ups. */
+const MoveInto = ({ environmentId, connection, writable }: { readonly environmentId: string; readonly connection: KeyManagerConnectionRecord; readonly writable: boolean }) => {
+  const { listed, items, lines, line, setLine, acting, sender, move, followUp, dialog } = useMoves(environmentId, connection, writable);
+  const [typed, setTyped] = useState<string | undefined>(undefined);
+  // While the base path typed differs from the one set, a Move would go to the one set: it waits for Set the base path.
+  const editing = typed !== undefined && typed.trim() !== (connection.basePath ?? connection.suggestedBasePath ?? "");
+  const moving = acting || editing;
+  const basePath = typed ?? connection.basePath ?? connection.suggestedBasePath ?? "";
+  const targetOf = (item: KeyManagerMoveItem) => item.targets.find((target) => target.connectionId === connection.id)?.reference;
 
   return (
     <>
@@ -161,7 +181,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
                 <span className="text-ink">{item.name}</span>
                 <span className="min-w-0 break-all font-mono text-xs text-ink-muted">{target === undefined ? "Set a base path to see where it goes." : `To ${referenceLocator(target)}`}</span>
                 <span className="ml-auto flex gap-2">
-                  {followUp(item)}
+                  {followUp(item, moving)}
                   <Button icon={ArrowRight} label="Move" disabled={moving || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
                     Move
                   </Button>
@@ -184,8 +204,95 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
           ))}
         </ul>
       )}
-      {copied !== undefined && <CopiedValueDialog environmentId={environmentId} label={connection.label} copied={copied} close={() => setCopied(undefined)} />}
+      {dialog}
     </>
+  );
+};
+
+export interface MoveSavedTokensProps {
+  readonly environmentId: string;
+  /** The connections a Move may go into, as the cached list holds them; at least one. */
+  readonly connections: readonly KeyManagerConnectionRecord[];
+  readonly writable: boolean;
+  /** Whether the card was opened at it (the Forges card's Move to your key manager): it takes the focus once drawn. */
+  readonly focused: boolean;
+}
+
+/**
+ * Move saved tokens on the Key manager card (setup-copy.md §5.7; ADR 0028;
+ * #590, #1851), drawn only while agent-harness keeps tokens itself: how many,
+ * and whether to move them into the connection runs get the keys of (the
+ * first, else; another chosen where there are several), in the folder
+ * typed there, preset to the one set or suggested. Move them sets that
+ * folder as the connection's base path where it differs, then moves every
+ * one, each answered in a line with what it offers next (Overwrite, Copy
+ * value, Verify the paste).
+ */
+export const MoveSavedTokens = ({ environmentId, connections, writable, focused }: MoveSavedTokensProps) => {
+  const [chosen, choose] = useState<string | undefined>(undefined);
+  const connection = connections.find((each) => each.id === chosen) ?? connections.find((each) => each.id === presetOf(connections));
+  if (connection === undefined) return null;
+  return <MoveSavedInto key={`${connection.id} ${connection.basePath ?? ""}`} environmentId={environmentId} connections={connections} connection={connection} choose={choose} writable={writable} focused={focused} />;
+};
+
+const MoveSavedInto = ({
+  environmentId,
+  connections,
+  connection,
+  choose,
+  writable,
+  focused,
+}: Omit<MoveSavedTokensProps, "connections"> & { readonly connections: readonly KeyManagerConnectionRecord[]; readonly connection: KeyManagerConnectionRecord; readonly choose: (id: string) => void }) => {
+  const heading = useId();
+  const section = useRef<HTMLElement>(null);
+  const { items, lines, line, acting, move, followUp, dialog } = useMoves(environmentId, connection, writable);
+  const [typed, setTyped] = useState<string | undefined>(undefined);
+  const folder = typed ?? connection.basePath ?? connection.suggestedBasePath ?? "";
+  const drawn = items.length > 0 || lines.length > 0;
+  useEffect(() => {
+    if (focused && drawn) section.current?.focus();
+  }, [focused, drawn]);
+  if (!drawn) return null;
+  return (
+    <section ref={section} data-move-saved-tokens tabIndex={-1} aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3 outline-none">
+      <h3 id={heading} className="text-sm font-semibold text-ink">
+        Move saved tokens
+      </h3>
+      {items.length > 0 && <p className="text-sm text-ink">{moveOfferWords(items.length, connection.label)}</p>}
+      {connections.length > 1 && (
+        <Field label="Move into">
+          <Select value={connection.id} disabled={!writable} onChange={(event) => choose(event.target.value)}>
+            {connections.map((each) => (
+              <option key={each.id} value={each.id}>
+                {each.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      {items.length > 0 && (
+        <>
+          <Field label={`Folder in ${connection.label}`}>
+            <Input value={folder} disabled={!writable} onChange={(event) => setTyped(event.target.value)} />
+          </Field>
+          <Button icon={ArrowRight} label="Move them" variant="default" className="self-start" disabled={acting || folder.trim() === ""} onClick={() => move("all", {}, folder)}>
+            Move them
+          </Button>
+        </>
+      )}
+      {line !== undefined && <RefusalLine line={line} />}
+      {lines.length > 0 && (
+        <ul aria-label="What the Move did" className="flex flex-col gap-2 text-sm text-ink">
+          {lines.map((each) => (
+            <li key={each.item.id} className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0">{each.line}</span>
+              {followUp(each.item, acting)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {dialog}
+    </section>
   );
 };
 

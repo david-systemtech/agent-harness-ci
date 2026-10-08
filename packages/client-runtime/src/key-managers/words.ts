@@ -229,8 +229,15 @@ export const cliHealthWords = (connection: Pick<ListedKeyManagerConnection, "inj
   return `${cli.label}${version} is below its minimum${minimum}: runs may not read this key manager from their shell until it is updated. ${keeps}`;
 };
 
-/** The sentence beside the injection switch on the Key manager card (ADR 0028; the Set up specification, "5. Key manager"). */
-export const INJECTION_SWITCH_WORDS = "Every run on this environment receives this key manager's variables unless an account, routine or bot turns it off.";
+/** A connection's switch on the Key manager card (setup-copy.md §5.7; ADR 0028): whether every run gets its keys. */
+export const injectionSwitchWords = (label: string): string => `Let every run use ${label}'s keys`;
+
+/** The line under a connection's switch, saying where one run's answer is changed. */
+export const INJECTION_SWITCH_HINT = "You can turn this off for one account, routine or bot in Settings.";
+
+/** What Move saved tokens asks (setup-copy.md §5.7): how many tokens agent-harness keeps itself, and whether to move them into `label`. */
+export const moveOfferWords = (count: number, label: string): string =>
+  count === 1 ? `${PRODUCT_NAME} keeps 1 token itself. Move it into ${label}?` : `${PRODUCT_NAME} keeps ${count} tokens itself. Move them into ${label}?`;
 
 /** What a policy's write flag says beside its name. */
 export const POLICY_WRITES_WORDS: Readonly<Record<KeyManagerPolicyWrites, string>> = { yes: "writes", no: "reads only", possibly: "may write" };
