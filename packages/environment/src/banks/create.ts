@@ -49,6 +49,18 @@ const collision = (name: string): ContractError =>
 export const accountNeedsFix = (account: Pick<ForgeAccountRecord, "origin" | "problem">): ContractError =>
   invalid(`Your account on ${new URL(account.origin).host} needs a fix first.`, [account.problem?.message ?? "The forge account is not verified yet."]);
 
+/**
+ * The refusal of a secret among `fields`, in setup-copy.md §5.8's words: which answer or file held it stays in
+ * `data.field`, never in the line; null when none holds one.
+ */
+export const secretRefusal = (scrub: Pick<ScrubRegistry, "check">, fields: Readonly<Record<string, string>>, message: string): ContractError | null => {
+  const found = secretShapedIn(scrub, "notebook", fields, "");
+  return found === null ? null : new ContractError({ ...found, message });
+};
+
+/** The refusal of answers that hold, or render a notebook that holds, a secret. */
+const ANSWERS_HOLD_A_SECRET = "Your answers hold something that looks like a password. Take it out and try again.";
+
 /** The refusal of a notebook whose bundled validator is not this build's. */
 export const MISSING_PART = "This copy of agent-harness is missing a part. Reinstall agent-harness.";
 
@@ -71,8 +83,8 @@ const git = async (checkout: string, args: string[]): Promise<void> => {
 export const createBankCommand = (options: BankCreationOptions): PreparedCommand<"banks.create"> => ({
   async prepare(params, context) {
     const input = params.creation;
-    const secret = secretShapedIn(options.scrub, "bank", { creation: JSON.stringify(input), name: params.name }, "No bank was created.");
-    if (secret !== null) throw new ContractError(secret);
+    const secret = secretRefusal(options.scrub, { creation: JSON.stringify(input), name: params.name }, ANSWERS_HOLD_A_SECRET);
+    if (secret !== null) throw secret;
     if (input.kind === "team" && new Set(input.projects.map((project) => project.folder)).size !== input.projects.length) throw invalid("Enter a different folder name for each project.");
     const personal = input.kind === "personal";
     const local = personal && input.localOnly;
@@ -95,8 +107,8 @@ export const createBankCommand = (options: BankCreationOptions): PreparedCommand
         : renderTeamBank({ name: params.name, team: { name: input.teamName, org: input.org }, projects: input.projects, owners: [account!.identity!.login], repository: repository!, keyManager })),
       ...(local && { "issues/README.md": LOCAL_ISSUES }),
     };
-    const heldSecret = secretShapedIn(options.scrub, "bank", files, "No bank was created.");
-    if (heldSecret !== null) throw new ContractError(heldSecret);
+    const heldSecret = secretRefusal(options.scrub, files, ANSWERS_HOLD_A_SECRET);
+    if (heldSecret !== null) throw heldSecret;
     const verdict = validateBank({ files });
     if (!verdict.valid) throw new ContractError({ code: "validation_failed", message: "These answers do not make a notebook agent-harness can use. Check the names and try again.", data: { rules: [...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))], findings: verdict.findings } });
     await options.admit(params.bankId, params.name, files);

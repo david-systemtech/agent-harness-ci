@@ -174,7 +174,14 @@ it("refuses an add over 8 KB for a selected account, retaining the registry and 
   const before = (await client.request("banks.list", {})).banks;
   const sequence = t.env.log.head();
   const refused = await client.request("banks.join", { commandId: randomUUID(), bankId: randomUUID(), url, accounts: ["work"], repositories: "all" });
-  expect(refused.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "index_too_large", banks: ["bank-one", "bank-two", "bank-three"], scopes: [{ account: "work", repository: "all" }] } } });
+  expect(refused.receipt).toMatchObject({
+    status: "rejected",
+    error: {
+      code: "conflict",
+      message: "With this notebook, what agents read at the start would be too long. Turn another notebook off first.",
+      data: { reason: "index_too_large", banks: ["bank-one", "bank-two", "bank-three"], scopes: [{ account: "work", repository: "all" }] },
+    },
+  });
   expect((await client.request("banks.list", {})).banks).toEqual(before);
   expect(t.env.log.head()).toBe(sequence);
   expect(readdirSync(join(t.dataDir, "banks"))).toEqual([]);
@@ -213,6 +220,20 @@ describe("a link that cannot be read (setup-copy.md §5.8; #1854)", () => {
       code: "forge_account_missing",
       message: `agent-harness cannot see a notebook at this link. If it is private, add a forge for ${new URL(forge.origin).host} first.`,
       data: { origin: forge.origin, step: "forges", details: [expect.stringMatching(/^No forge account on this environment covers /)] },
+    });
+  });
+
+  it("says GitLab is not supported yet, the forge's own words in details", async () => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.answer(null, "GET /api/v4/version", { status: 401, body: { message: "401 Unauthorized" } });
+    const t = await startTestEnvironment({ forgeFetch: (url, init) => forge.fetch(url, init) });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    await expect(client.request("banks.join.preview", { url: `${forge.origin}/acme/memory.git` })).rejects.toMatchObject({
+      code: "kind_unsupported",
+      message: "GitLab is not supported yet.",
+      data: { origin: forge.origin, kind: "gitlab", details: [expect.stringContaining("is GitLab")] },
     });
   });
 

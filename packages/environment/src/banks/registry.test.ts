@@ -186,7 +186,7 @@ describe("the 8 KB rule", () => {
       status: "rejected",
       error: {
         code: "conflict",
-        message: expect.stringMatching(/^The fixed tiers of bank-one, bank-two and bank-three would come to \d+ bytes for every account in every repository, over the 8192-byte limit\.$/),
+        message: "With this notebook, what agents read at the start would be too long. Turn another notebook off first.",
         data: { reason: "index_too_large", limitBytes: 8192, banks: ["bank-one", "bank-two", "bank-three"], scopes: [{ account: "all", repository: "all" }] },
       },
     });

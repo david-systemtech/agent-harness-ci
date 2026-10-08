@@ -203,12 +203,8 @@ const overLimit = (banks: readonly Weighed[], added: Weighed): Omit<BankIndexCon
   return { bytes, limitBytes: BANK_INDEX_BUDGET.fixedBytes, banks: all.map((bank) => bank.name).filter((name) => over.has(name)), scopes };
 };
 
-/** Where the fixed tiers come past the limit, as a sentence names it. */
-const scopeWords = ({ account, repository }: BankIndexConflict["scopes"][number]): string =>
-  `${account === "all" ? "every account" : `the account ${account}`} in ${repository === "all" ? "every repository" : repository}`;
-
-/** "a", "a and b", "a, b and c". */
-const listed = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+/** The refusal of a bank whose fixed tiers would come past the limit (setup-copy.md §5.8): the banks, bytes and scopes are in its data. */
+const TOO_LONG_AT_START = "With this notebook, what agents read at the start would be too long. Turn another notebook off first.";
 
 export interface BankServiceOptions {
   readonly log: EventLog;
@@ -296,8 +292,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     const weighed = listBanks(reader).filter((bank) => bank.id !== entry.id && bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
     const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
     if (conflict === null) return null;
-    const [first] = conflict.scopes;
-    return { code: "conflict", message: `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`, data: { reason: "index_too_large", ...conflict } };
+    return { code: "conflict", message: TOO_LONG_AT_START, data: { reason: "index_too_large", ...conflict } };
   };
 
   /** The bank's record from its entry and reading, its shared aliases those `others` claim too. */
@@ -523,7 +518,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       if (nameHolder(reader, name) !== null) throw new ContractError({ code: "conflict", message: `You already have a notebook named ${name}.`, data: { reason: "name_taken", name } });
       const weighed = listBanks(reader).filter((bank) => bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
       const conflict = overLimit(weighed, { name, accounts: "all", repositories: "all", bytes: fixedBytes(readingFrom(files, { name, role: "read-write" })) });
-      if (conflict !== null) throw new ContractError({ code: "conflict", message: "With this notebook, what agents read at the start would be too long. Turn another notebook off first.", data: { reason: "index_too_large", ...conflict } });
+      if (conflict !== null) throw new ContractError({ code: "conflict", message: TOO_LONG_AT_START, data: { reason: "index_too_large", ...conflict } });
     },
   });
 

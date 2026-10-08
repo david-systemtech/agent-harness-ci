@@ -7,10 +7,9 @@ import { stringify } from "yaml";
 import type { ForgeService } from "../forge/forge-service.js";
 import type { ForgeAnswer } from "../forge/operations.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
-import { secretShapedIn } from "../scrub/refusal.js";
 import { runGit } from "../workspace/git.js";
 import { readBankFiles } from "./bank-files.js";
-import { accountNeedsFix, invalid, MISSING_PART, repositoryNotMade } from "./create.js";
+import { accountNeedsFix, invalid, MISSING_PART, repositoryNotMade, secretRefusal } from "./create.js";
 
 /** What the forge answered, else its refusal in setup-copy.md §5.8's words: `failed` says what the forge did not do. */
 const valueOf = <T>(answer: ForgeAnswer<T>, origin: string, failed: (status: number, message: string) => ContractError = (status, message) => repositoryNotMade(origin, { outcome: "failed", status, message })): T => {
@@ -76,8 +75,8 @@ export const prepareBankPublication = async (options: {
       const title = /^#\s+(.+)$/m.exec(body)?.[1]?.trim() ?? path.slice(7, -3);
       followUps.push({ path, title, body, issue: null });
     }
-    const secret = secretShapedIn(options.scrub, "bank", { ...files, ...Object.fromEntries(followUps.map((f) => [f.path, f.body])) }, "No bank was published.");
-    if (secret) throw new ContractError(secret);
+    const secret = secretRefusal(options.scrub, { ...files, ...Object.fromEntries(followUps.map((f) => [f.path, f.body])) }, `${bank.name} holds something that looks like a password. Take it out before it moves to your forge.`);
+    if (secret !== null) throw secret;
     const branch = `memory/publish-${options.commandId}`;
     await git(checkout, ["checkout", "-b", branch]);
     for (const [path, content] of Object.entries(writes)) {

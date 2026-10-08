@@ -156,7 +156,7 @@ it("refuses a creation fact containing a registered secret before anything leave
   const params = personal();
   params.creation.localOnly = false;
   params.creation.personName = TOKEN;
-  await expect(client.request("banks.create", params)).rejects.toMatchObject({ code: "secret_shaped", data: { rule: "registered-value" } });
+  await expect(client.request("banks.create", params)).rejects.toMatchObject({ code: "secret_shaped", message: "Your answers hold something that looks like a password. Take it out and try again.", data: { rule: "registered-value", field: "creation" } });
   expect(forge.requests.filter((request) => request.method === "POST")).toHaveLength(0);
 });
 

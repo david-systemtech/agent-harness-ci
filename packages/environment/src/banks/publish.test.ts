@@ -85,6 +85,19 @@ it("publishes existing history and identity, holding the landing change for the 
   await expect(h.client.request("banks.publish", { ...params, commandId: randomUUID() })).rejects.toMatchObject({ code: "conflict", message: `${h.bank.name} is already on a forge.`, data: { reason: "not_local_only" } });
 });
 
+it("refuses a follow-up holding a secret in plain words, its path in data, before making a repository", async () => {
+  const h = await start();
+  writeFileSync(join(h.checkout, "issues", "leak.md"), `# Rotate the token\n\nThe token is ${TOKEN}.\n`);
+  git(h.checkout, "add", "--all");
+  git(h.checkout, "commit", "--quiet", "-m", "Note a follow-up.");
+  await expect(h.client.request("banks.publish", { commandId: randomUUID(), bankId: h.bank.id })).rejects.toMatchObject({
+    code: "secret_shaped",
+    message: `${h.bank.name} holds something that looks like a password. Take it out before it moves to your forge.`,
+    data: { rule: "registered-value", field: "issues/leak.md" },
+  });
+  expect(h.forge.requests.some((r) => r.path === "/api/v1/user/repos")).toBe(false);
+});
+
 it("copies follow-ups into tracker issues only with an explicit choice, retaining their checklist", async () => {
   const h = await start();
   h.forge.answer(TOKEN, "POST /api/v1/repos/david/maya-memory/issues", (request) => {

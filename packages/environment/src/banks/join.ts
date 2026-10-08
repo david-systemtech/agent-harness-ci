@@ -37,10 +37,14 @@ const tooSlow = (origin: string): ContractError =>
 const unreadable = (origin: string, answer: Exclude<ForgeAnswer<ForgeRepositoryCapabilities>, { outcome: "done" }>): ContractError => {
   const host = new URL(origin).host;
   switch (answer.outcome) {
-    case "refused":
-      return answer.error.code === "forge_account_missing"
-        ? new ContractError({ ...answer.error, message: `agent-harness cannot see a notebook at this link. If it is private, add a forge for ${host} first.`, data: { ...answer.error.data, details: [answer.error.message] } })
-        : new ContractError(answer.error);
+    case "refused": {
+      const message =
+        answer.error.code === "forge_account_missing" ? `agent-harness cannot see a notebook at this link. If it is private, add a forge for ${host} first.`
+        : answer.error.code === "kind_unsupported" ? "GitLab is not supported yet."
+        : answer.error.code === "credential_unavailable" ? `Your account on ${host} needs a fix first.`
+        : `${host} would not show this notebook to agent-harness. Try again in a moment.`;
+      return new ContractError({ ...answer.error, message, data: { ...answer.error.data, details: [answer.error.message] } });
+    }
     case "unreachable":
       return new ContractError({ code: "unreachable", message: `agent-harness could not reach ${host}. Check the link and the internet connection.`, data: { origin, details: [answer.message] } });
     case "failed":
