@@ -9,7 +9,7 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-it.each(["composer-idle", "composer-running", "composer-slash"])("draws %s with the composer's measured controls", async (scene) => {
+it.each(["composer-idle", "composer-running", "composer-slash", "composer-bypass"])("draws %s with the composer's measured controls", async (scene) => {
   const container = document.createElement("div");
   document.body.append(container);
   const gallery = await mountGallery(container, scene);
@@ -37,5 +37,10 @@ it.each(["composer-idle", "composer-running", "composer-slash"])("draws %s with 
   } else if (scene === "composer-slash") {
     const menu = await screen.findByRole("listbox", { name: "Commands" });
     expect(within(menu).getAllByRole("option").length).toBeGreaterThan(0);
+  } else if (scene === "composer-bypass") {
+    // #1823: the scene's composition only: the mode button showing bypassPermissions and the scene's own notice in the transient lane. What a mode set says is status-pickers.test.tsx's.
+    expect(within(screen.getByRole("region", { name: "Status line" })).getByRole("button", { name: "Mode: BYPASS" })).toBeDefined();
+    expect(within(screen.getByRole("region", { name: /^Status feedback/ })).getByText(/^Mode: bypassPermissions\. The agent will act without asking/)).toBeDefined();
+    expect(screen.queryByText(/without asking/, { selector: "[data-composer-column] *" })).toBeNull();
   } else expect(screen.queryByRole("status", { name: "Run activity" })).toBeNull();
 });
