@@ -9,7 +9,7 @@ const result = (over: Partial<SetupResultView> = {}): SetupResultView => ({
   step: "forges",
   state: "needs-attention",
   reason: "GitHub did not accept the token.",
-  checks: [],
+  failing: [],
   actions: [],
   checkedAt: new Date(NOW.getTime() - 3 * HOUR).toISOString(),
   asked: true,
@@ -52,7 +52,7 @@ describe("Set up's shared words (setup-copy.md §3, §4.5)", () => {
   });
 
   it("says when it last worked, dated", () => {
-    expect(lastGoodWords({ checkedAt: new Date(NOW.getTime() - 2 * HOUR).toISOString(), reason: "Every forge account is signed in." }, NOW)).toBe(
+    expect(lastGoodWords({ state: "done", checkedAt: new Date(NOW.getTime() - 2 * HOUR).toISOString(), reason: "Every forge account is signed in." }, NOW)).toBe(
       "Last time it worked (2 h ago): Every forge account is signed in.",
     );
   });

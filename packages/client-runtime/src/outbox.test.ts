@@ -112,7 +112,7 @@ describe("commands.dispatch", () => {
     });
     expect(await runtime.commands.dispatch(id, "sessions.archive", { sessionId: randomUUID() })).toMatchObject({
       ok: false,
-      error: { code: "scope", message: expect.stringContaining("sessions:write") },
+      error: { code: "scope", message: expect.stringContaining("cannot start sessions") },
     });
     expect(await runtime.commands.dispatch(id, "access.sessions.revoke", { clientSessionId: "x" })).toMatchObject({
       ok: false,
@@ -549,7 +549,7 @@ describe("commands.admits", () => {
   it("says a command the connection lacks the scope for is absent with the capability's line, as dispatch refuses it", async () => {
     const { runtime, id } = await paired({ hello: { scopes: ["read", "runs:drive"] } });
     const admitted = runtime.commands.admits(id, "sessions.pin");
-    expect(admitted).toMatchObject({ status: "absent", reason: "scope", message: expect.stringContaining("sessions:write") });
+    expect(admitted).toMatchObject({ status: "absent", reason: "scope", message: expect.stringContaining("cannot start sessions"), details: ["sessions:write"] });
     expect(await runtime.commands.dispatch(id, "sessions.pin", { sessionId: randomUUID() })).toMatchObject({ ok: false, error: { code: "scope", message: admitted.status === "absent" ? admitted.message : "" } });
   });
 });
