@@ -691,9 +691,14 @@ describe("the Your machines step's updates check", () => {
   const machines = async (client: WireClient) => {
     const { results } = await client.request("setup.check", { step: "your-machines" });
     const result = results[0];
-    return { failing: result?.failing.filter((id) => id !== "your-machines.release-channel"), actions: result?.actions, reason: result?.reason };
+    return { failing: result?.failing.filter((id) => id !== "your-machines.release-channel"), actions: result?.actions, reason: result?.reason, details: result?.details };
   };
-  const holds = { failing: [], actions: [], reason: expect.stringMatching(new RegExp(`^Ready on ${RUNNING.replaceAll(".", "\\.")}, updates `)) as unknown as string };
+  const holds = {
+    failing: [],
+    actions: [],
+    reason: expect.stringMatching(/^.+ is ready\. (It updates itself|Automatic updates are off)\.$/) as unknown as string,
+    details: expect.arrayContaining([`Version: ${RUNNING}`]) as unknown as string[],
+  };
 
   it("holds with auto-update on, behind as the machine may be, and with it off while the channel's newest runs", async () => {
     const { fake, client } = await withReleases();

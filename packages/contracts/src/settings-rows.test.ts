@@ -180,8 +180,8 @@ describe("keys and steps on rows", () => {
     expect(stepOf("permissions").links).toEqual([{ step: "your-machines" }]);
   });
 
-  it("puts the Account step's four keys on accounts.default-model, which its step links to beside its home", () => {
-    const keys = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"] as const;
+  it("puts the Account step's five keys on accounts.default-model, which its step links to beside its home", () => {
+    const keys = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "accounts.favouriteModels", "providers.processIdleMinutes"] as const;
     for (const key of keys) expect(SETTINGS[key].step, key).toEqual({ id: "account", row: "accounts.default-model" });
     expect(stepOf("account").links).toEqual([{ row: "accounts.default-model" }]);
   });
@@ -224,6 +224,7 @@ describe("keys and steps on rows", () => {
       "accounts.defaultAccount: sits on accounts.default-model, which account neither lives on nor links to",
       "accounts.defaultModelFamily: sits on accounts.default-model, which account neither lives on nor links to",
       "accounts.defaultEffort: sits on accounts.default-model, which account neither lives on nor links to",
+      "accounts.favouriteModels: sits on accounts.default-model, which account neither lives on nor links to",
       "providers.processIdleMinutes: sits on accounts.default-model, which account neither lives on nor links to",
     ]);
   });

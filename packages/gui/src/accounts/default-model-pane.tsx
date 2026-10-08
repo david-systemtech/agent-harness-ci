@@ -1,13 +1,14 @@
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { DEFAULT_CHOICE_WORDS, accountChoiceWords, effortChoices, effortName, familyChoices, identityWords, modelDisplayName, type EnvironmentView } from "@agent-harness/client-runtime";
-import { settingsRow, type ModelEntry } from "@agent-harness/contracts";
-import { ArrowLeft, ChevronDown, Cpu, Gauge, KeyRound, RefreshCw, Search } from "lucide-react";
+import { DEFAULT_CHOICE_WORDS, accountChoiceWords, addFavourite, effortChoices, effortName, familyChoices, favouriteCandidates, identityWords, modelDisplayName, modelName, moveFavourite, removeFavourite, type EnvironmentView } from "@agent-harness/client-runtime";
+import { FAVOURITE_MODELS_MAX, settingsRow, type ModelEntry } from "@agent-harness/contracts";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Cpu, Gauge, KeyRound, Plus, RefreshCw, Search, Star, X } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { GenericEditor, readOnlyLine } from "../settings/generic-editor.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { SettingsGroup } from "../settings/part.js";
-import { Button, Checkbox, Menu, MenuContent, MenuTrigger, Tooltip } from "../ui/index.js";
+import { Button, Checkbox, IconButton, Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger, Tooltip } from "../ui/index.js";
+import { MenuGroup } from "../ui/menu.js";
 import { classes } from "../ui/classes.js";
 import { RunChoiceRow, RunPickerColumn, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -27,7 +28,8 @@ type DefaultKey = keyof typeof DEFAULT_CHOICE_WORDS;
  * #414), on the environment its picker names: the Account step's four keys,
  * the default account picked from `accounts.list`, the model family and
  * effort from `models.list` (the effort among those of the model the family
- * gives a run), and the process idle time in the generic editor. Each is
+ * gives a run), the favourite models the model picker offers first (#1821),
+ * and the process idle time in the generic editor. Each is
  * read from `settings.get` in the request cache and written through
  * `settings.update` (`useSettingsValues`). Without `admin` it is read-only
  * with the capability's line; while the environment cannot be reached its
@@ -55,6 +57,7 @@ const DefaultModelOn = ({ view }: { readonly view: EnvironmentView }) => {
       ) : (
         <>
           <DefaultChoices view={view} />
+          <FavouriteModels view={view} />
           <SettingsGroup title="Provider process"><GenericEditor view={view} keys={["providers.processIdleMinutes"]} saysWhyReadOnly={false} /></SettingsGroup>
         </>
       )}
@@ -207,4 +210,128 @@ const DefaultColumns = ({ initial, narrow, writable, options, valueOf, save, acc
       {(options["accounts.defaultEffort"].length > 0 || valueOf("accounts.defaultEffort") !== null) && <RunPickerColumn name="Effort" narrow={narrow} activeColumn={activeColumn} showEffortWithModel={false}>{rows("accounts.defaultEffort", Gauge, modelReason)}</RunPickerColumn>}
     </div>
   </div>;
+};
+
+/** What a person focuses on purpose, as against a container that catches a dropped focus. */
+const CONTROL = "button, input, select, textarea, a[href], [role^='menuitem'], [contenteditable='true'], [tabindex]:not([tabindex='-1'])";
+
+/**
+ * Where the keyboard goes once the list is drawn again after an edit: a
+ * favourite's button, or (no `id`) Add a favourite. Where that is gone or
+ * disabled, the section itself takes it, so the keyboard stays here.
+ */
+interface Touched {
+  readonly id: string | undefined;
+  readonly edit?: "up" | "down" | "remove";
+}
+
+/**
+ * The favourite models, `accounts.favouriteModels` (#1821): the models the
+ * account and model picker offers first, in the order kept here. A model is
+ * added from those the signed-in accounts list (Add a favourite, by account
+ * while several list models), moved one place up or down, or removed; each
+ * edit writes the whole list through `settings.update`, a refused one said
+ * in one line; the list and Add a favourite are held until a write is
+ * answered, so the next edit starts from what it wrote. A favourite no
+ * signed-in account lists stays, said so, until it is removed. Greyed while the environment cannot be reached or without
+ * `admin`, whose line the pane says.
+ */
+const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
+  const runtime = useRuntime();
+  const { environmentId } = view;
+  const settings = useSettingsValues(environmentId);
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value ?? [];
+  const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId])).value ?? [];
+  const [line, setLine] = useState<string | undefined>(undefined);
+  const [saving, setSaving] = useState(false);
+  const list = useRef<HTMLOListElement>(null);
+  const add = useRef<HTMLButtonElement>(null);
+  const section = useRef<HTMLDivElement>(null);
+  const touched = useRef<Touched | undefined>(undefined);
+  const favourites = (settings.values?.["accounts.favouriteModels"] as readonly string[] | undefined) ?? [];
+  useLayoutEffect(() => {
+    const last = touched.current;
+    if (last === undefined || saving) return;
+    touched.current = undefined;
+    // A control the person moved to before the answer keeps the keyboard; a dropped focus (the body, the dialog) is taken back.
+    const active = document.activeElement;
+    if (active?.matches(CONTROL) === true && section.current?.contains(active) === false) return;
+    const row = last.id === undefined ? undefined : list.current?.querySelector<HTMLElement>(`[data-favourite="${CSS.escape(last.id)}"]`);
+    const buttons = [...(row?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+    const adding = add.current?.disabled === false ? add.current : undefined;
+    (buttons.find((button) => button.dataset["edit"] === last.edit) ?? buttons[0] ?? adding ?? section.current)?.focus();
+  }, [favourites, saving]);
+  if (settings.values === null) return null;
+  const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present" && !saving;
+  // Each model the signed-in accounts list, as the first account listing it names it.
+  const signedIn = new Set(accounts.filter((account) => account.status.state === "signed-in").map((account) => account.id));
+  const listed = new Map<string, ModelEntry>();
+  for (const entry of catalogues.filter((catalogue) => signedIn.has(catalogue.accountId)).flatMap((catalogue) => catalogue.models)) if (!listed.has(entry.id)) listed.set(entry.id, entry);
+  const candidates = favouriteCandidates(catalogues, accounts, favourites);
+  const full = favourites.length >= FAVOURITE_MODELS_MAX;
+  const accountLabel = (id: string) => accounts.find((account) => account.id === id)?.label ?? id;
+  // Named as the model picker names it: the display table's name, else the provider's label, else the id.
+  const nameOf = (id: string) => modelDisplayName(id, listed.get(id)?.label ?? null);
+  // A refused edit leaves the list as it was, so the keyboard goes back to the button pressed.
+  const save = async (next: readonly string[], after?: Touched, pressed: Touched | undefined = after) => {
+    setLine(undefined);
+    setSaving(true);
+    touched.current = after;
+    try {
+      const saved = await settings.save("accounts.favouriteModels", next);
+      if (!saved.ok) {
+        touched.current = pressed;
+        setLine(`Not saved: ${saved.line}`);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+  // After a removal the keyboard goes to the next favourite's Remove, the previous one's for the last, or Add a favourite.
+  const afterRemoving = (index: number): Touched => ({ id: favourites[index + 1] ?? favourites[index - 1], edit: "remove" });
+  const candidate = (entry: ModelEntry) => <MenuItem key={entry.id} aria-label={modelName(entry)} onSelect={() => void save(addFavourite(favourites, entry.id), { id: undefined })} className="items-start text-xs">
+    <Cpu aria-hidden="true" className="mt-0.5 size-3" />
+    <span className="min-w-0 flex-1"><span className="block">{modelDisplayName(entry.id, entry.label)}</span>{modelDisplayName(entry.id, entry.label) !== entry.id && <span className="block font-mono text-2xs text-ink-muted">{entry.id}</span>}</span>
+  </MenuItem>;
+  return (
+    <SettingsGroup title="Favourite models">
+      <div ref={section} tabIndex={-1} className="flex flex-col gap-2 text-xs text-ink outline-none">
+        <p className="text-2xs text-ink-faint">The account and model picker offers these first, in this order; every other model is under Other models.</p>
+        {favourites.length === 0 ? <p className="text-ink-muted">No favourites yet: the model picker offers the provider's recommended models.</p> : (
+          <ol ref={list} aria-label="Favourite models, in order" className="flex flex-col gap-1">
+            {favourites.map((id, index) => {
+              const entry = listed.get(id);
+              return <li key={id} data-favourite={id} className="flex items-center gap-2 rounded-md bg-wash px-2 py-1.5">
+                <Star aria-hidden="true" className="size-3 shrink-0 text-ink-muted" />
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                  <span className="block">{nameOf(id)}</span>
+                  {nameOf(id) !== id && <span className="block font-mono text-2xs text-ink-muted">{id}</span>}
+                  {entry === undefined && <span className="block text-2xs text-ink-faint">No signed-in account lists it: the picker passes it over.</span>}
+                </span>
+                <IconButton label={`Move ${nameOf(id)} up`} data-edit="up" disabled={!writable || index === 0} onClick={() => void save(moveFavourite(favourites, id, -1), { id, edit: "up" })}><ArrowUp aria-hidden="true" /></IconButton>
+                <IconButton label={`Move ${nameOf(id)} down`} data-edit="down" disabled={!writable || index === favourites.length - 1} onClick={() => void save(moveFavourite(favourites, id, 1), { id, edit: "down" })}><ArrowDown aria-hidden="true" /></IconButton>
+                <IconButton label={`Remove ${nameOf(id)}`} data-edit="remove" disabled={!writable} onClick={() => void save(removeFavourite(favourites, id), afterRemoving(index), { id, edit: "remove" })}><X aria-hidden="true" /></IconButton>
+              </li>;
+            })}
+          </ol>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Menu modal={false}>
+            <MenuTrigger asChild>
+              <Button ref={add} variant="outline" aria-label="Add a favourite" disabled={!writable || full || candidates.length === 0} className="h-8 text-xs"><Plus aria-hidden="true" />Add a favourite</Button>
+            </MenuTrigger>
+            <MenuContent side="bottom" align="start" aria-label="Models to add" aria-labelledby={undefined} className="w-72 max-h-[320px] overflow-y-auto">
+              {candidates.map((group) => <MenuGroup key={group.accountId} aria-label={candidates.length > 1 ? accountLabel(group.accountId) : undefined}>
+                {candidates.length > 1 && <MenuLabel>{accountLabel(group.accountId)}</MenuLabel>}
+                {group.models.map(candidate)}
+              </MenuGroup>)}
+            </MenuContent>
+          </Menu>
+          {full ? <span className="text-2xs text-ink-faint">{`At most ${FAVOURITE_MODELS_MAX} favourites.`}</span>
+            : candidates.length === 0 && <span className="text-2xs text-ink-faint">{favourites.length === 0 ? "No signed-in account lists a model yet." : "Every model the signed-in accounts list is a favourite."}</span>}
+        </div>
+        {line !== undefined && <p className="text-xs text-signal">{line}</p>}
+      </div>
+    </SettingsGroup>
+  );
 };

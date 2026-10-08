@@ -41,6 +41,9 @@ const NoticeHostContext = createContext<{ host: HTMLDivElement | null; setHost: 
 /** One mounted notice list moves into Settings while its modal covers the session window. */
 export const useSettingsNoticeHost = () => use(NoticeHostContext);
 
+/** Settings as the window holds it, or null where nothing holds it (a gallery scene drawing one part alone). */
+export const useSettingsIfHeld = (): SettingsWindow | null => use(SettingsContext);
+
 /** Settings as the window holds it, anywhere in the window. */
 export const useSettings = (): SettingsWindow => {
   const settings = use(SettingsContext);

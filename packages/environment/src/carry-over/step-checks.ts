@@ -234,15 +234,16 @@ const holdingsWords = (holds: StateImportHoldings): string =>
     .join(", ");
 
 /**
- * The Carry over step's line when done (#1698): what is there to bring over
- * and whether it was. A source data folder or terminal-client state folder no
- * state import has brought over yet is named first, with what the data folder
- * holds, since that is what a person acts on; else the day of the last import
- * that finished, of an adopted account's directory or of the state import; or
- * that the state import is bringing it over now.
+ * The Carry over step's line when done (#1698; setup-copy.md §5.3): what is
+ * there to bring over and whether it was. A source data folder or
+ * terminal-client state folder no state import has brought over yet is named
+ * first, with what the data folder holds, since that is what a person acts
+ * on, its path in details; else when the last import that finished, of an
+ * adopted account's directory or of the state import, ran, as a time the
+ * client words; or that the state import is bringing it over now.
  */
 export const carryOverDoneLine = (options: Pick<CarryOverStateChecksOptions, "reader" | "detect" | "stateImport">): DoneLine => async () => {
-  if (options.stateImport.underWay() !== null) return "Bringing past work over now.";
+  if (options.stateImport.underWay() !== null) return { reason: "Bringing your earlier work over now…" };
   const lastOf = (...types: readonly string[]) =>
     options.reader.all<{ occurred_at: string }>(
       `SELECT occurred_at FROM events WHERE stream_kind = ? AND type IN (${types.map(() => "?").join(", ")}) ORDER BY sequence DESC LIMIT 1`,
@@ -254,9 +255,11 @@ export const carryOverDoneLine = (options: Pick<CarryOverStateChecksOptions, "re
     const found = dataFolder ?? terminalFolder;
     if (found !== null) {
       const holds = dataFolder === null ? "" : holdingsWords(dataFolder.holds);
-      return `Past work found in ${found.path}${holds === "" ? "" : `: ${holds}`}. Not brought over yet.`;
+      return { reason: `Found earlier work you can bring over${holds === "" ? "" : `: ${holds}`}.`, details: [`Folder: ${found.path}`] };
     }
   }
   const last = lastOf("carry-over.imported", "state-import.finished");
-  return last === undefined ? undefined : `Brought over on ${readableMinute(last.occurred_at)}.`;
+  if (last === undefined) return undefined;
+  const when = readableMinute(last.occurred_at);
+  return { reason: `Brought over ${when}.`, details: [`Brought over at: ${last.occurred_at}`], times: [{ text: when, at: last.occurred_at }] };
 };

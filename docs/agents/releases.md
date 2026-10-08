@@ -27,9 +27,14 @@ available without an account.
    procedure to publish its cleaned tree to the public repository without a tag.
    Verify that snapshot includes the installed release workflow.
 2. For a build rehearsal, manually dispatch GitHub's **release** workflow on
-   that commit's branch. Dispatch always uses `v0.0.0-ci.<run number>`, even on
-   a stable tag, and builds every server artefact, desktop installer and the
-   image without publishing or logging in to GHCR. Download the `release-assets`
+   that commit's branch. Dispatch always uses a synthetic version, even on a
+   stable tag: `ci.<run number>` as a prerelease of the patch after the newest
+   release published (`v0.1.9-ci.<run number>` while v0.1.8 is the newest;
+   `v0.0.0-ci.<run number>` while none is), read anonymously from the release
+   source with `git ls-remote` (#1880). It sorts above every published release,
+   so the build under test takes none as its update, as a tag's build does. It
+   builds every server artefact, desktop installer and the image without
+   publishing or logging in to GHCR. Download the `release-assets`
    workflow artifact (kept seven days), check `release.json` and its SHA-256
    sidecars, and run the desktop and service-install checklists on real machines.
    Its image digest belongs to that local build; it cannot be pulled from GHCR.
@@ -78,7 +83,9 @@ workflow (`.forgejo/workflows/smoke.yml`) relays the merge to
 event `smoke`), and its `smoke / smoke` status on the merge commit is the
 hosted run's verdict. There, `.github/workflows/smoke.yml` calls
 `.github/workflows/release.yml` with the merge's commit: `prepare` names a
-synthetic `v0.0.0-ci.<run number>` version, the image, the three desktops and
+synthetic version above every published release (`v0.1.9-ci.<run number>` while
+v0.1.8 is the newest, #1880: below them, the replaced macOS desktop staged the
+public release and held its quit to install it), the image, the three desktops and
 the three smokes run as on a tag, and `verify` and `suite` are skipped (the
 merge's own CI ran them), which skips `image-push` and `release` with them.
 No tag, image push, draft release or `latest` move is possible in that mode.

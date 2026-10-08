@@ -11,7 +11,6 @@ import type { OrientationAnswer } from "../instructions/composer.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { forgesStateChecks } from "../forge/step-checks.js";
-import { readableMinute } from "../forge/verification.js";
 import type { KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerStateChecks } from "../key-managers/step-checks.js";
 import type { ManagedTools } from "../managed-tools/registry.js";
@@ -23,7 +22,7 @@ import { lanAddressHeld } from "../serve/interfaces.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
 import { skillsStateChecks, type SkillsStateChecksOptions } from "../skills/step-checks.js";
-import type { DoneLines, StateCheckers } from "./check.js";
+import type { DoneLines, Finding, StateCheckers } from "./check.js";
 
 /**
  * How this environment answers every state check the step registry names
@@ -111,35 +110,89 @@ export interface StateChecksOptions {
 /**
  * The environment is ready, or draining no longer than its cap (ADR 0025:
  * needs attention when draining past its cap): a drain within it is an
- * update or a restart under way.
+ * update or a restart under way. Its lines are setup-copy.md §5.4's, since
+ * when it drains in details.
  */
-const readyWithinCap = ({ readiness, activity }: EnvironmentStatus, now: Date): StateCheckAnswer => {
+export const readyWithinCap = ({ readiness, activity }: EnvironmentStatus, now: Date): StateCheckAnswer => {
   if (activity.state === "draining") {
     if (now.getTime() - Date.parse(activity.drainingSince) <= DRAIN_CAP_MS) return true;
     return {
-      reason: `The environment has been draining since ${readableMinute(activity.drainingSince)}, past its ${DRAIN_CAP_MS / 60_000}-minute cap: Check again once it has restarted.`,
+      reason: `agent-harness has been restarting for over ${DRAIN_CAP_MS / 60_000} minutes. Choose Check again once it is back.`,
+      details: [`Restarting since: ${activity.drainingSince}`],
     };
   }
-  return readiness === "ready" || { reason: "The environment is still starting: Check again once it is ready." };
+  return readiness === "ready" || { reason: "agent-harness is still starting. This takes a few seconds." };
 };
 
+/** Named from the first start (ADR 0025's "named"): the record's name, the preset icon and colour stand until set. */
+export const namedHolds = ({ name }: Pick<EnvironmentLook, "name">): StateCheckAnswer =>
+  name.trim() !== "" || { reason: "This computer has no name. Give it one in More options." };
+
+/** LAN binding is off, or names an address the machine holds now: a start skips one it does not hold (#773), so the step names it, the addresses it holds in details. */
+export const lanHolds = (lan: string | null, held: readonly string[]): StateCheckAnswer =>
+  lan === null ||
+  lanAddressHeld(lan, held) === true || {
+    reason: `The network address ${lan} is no longer on this computer.`,
+    details: [`network.bindLan: ${lan}`, `Addresses this computer holds: ${held.length === 0 ? "none" : held.join(", ")}`],
+  };
+
 /**
- * Your machines' line when done (#1698): ready, or draining within its cap,
- * on the version it runs; whether updates are on, off, pinned or the host's;
- * and where it can be reached beside this machine.
+ * Your machines' line when done (#1698; setup-copy.md §5.4): the computer is
+ * ready, or restarting within its cap, by its name, and how it is kept up to
+ * date; the version it runs, its updates and where it can be reached beside
+ * this computer in details.
  */
-export const yourMachinesLine = (version: string, { activity, updatesManagedOutside, binding }: EnvironmentStatus, values: SettingsValues): string => {
+export const yourMachinesLine = (name: string, version: string, { activity, updatesManagedOutside, binding }: EnvironmentStatus, values: SettingsValues): Finding => {
   const pinned = values["updates.pinnedVersion"];
-  const updates = updatesManagedOutside
-    ? "updates by the host"
+  const [updates, kept] = updatesManagedOutside
+    ? ["by the host's updater", "The host's updater keeps it up to date."]
     : !values["updates.autoUpdate"]
-      ? "updates off"
+      ? ["off", "Automatic updates are off."]
       : pinned !== null
-        ? `updates pinned to ${pinned}`
-        : "updates on";
-  const networks = [...(binding?.tailnet ? ["the tailnet"] : []), ...(binding?.lan ? ["the LAN"] : [])];
-  const reach = networks.length === 0 ? "reachable from this machine only" : `reachable on ${networks.join(" and ")}`;
-  return `${activity.state === "draining" ? "Restarting" : "Ready"} on ${version}, ${updates}, ${reach}.`;
+        ? [`pinned to ${pinned}`, `It stays on version ${pinned}.`]
+        : ["on", "It updates itself."];
+  const tailnet = binding?.tailnet ?? null;
+  const reach = [
+    ...(tailnet === null ? [] : [`Tailscale address: ${tailnet.address}${tailnet.name === null ? "" : ` (${tailnet.name})`}`]),
+    ...(binding?.lan ? [`Local network address: ${binding.lan}`] : []),
+  ];
+  return {
+    reason: `${name} is ${activity.state === "draining" ? "restarting" : "ready"}. ${kept}`,
+    details: [`Version: ${version}`, `Updates: ${updates}`, ...(reach.length === 0 ? ["Reachable from: this computer only"] : reach)],
+  };
+};
+
+/** The Account step's line when done (setup-copy.md §5.1): the one account by its label, else how many, their labels in details. */
+export const accountsLine = (accounts: readonly Pick<AccountRecord, "label">[]): Finding | undefined => {
+  const [only] = accounts;
+  if (only === undefined) return undefined;
+  if (accounts.length === 1) return { reason: `${only.label} is signed in.` };
+  return { reason: `All ${accounts.length} accounts are signed in.`, details: accounts.map((account) => account.label) };
+};
+
+/** The Forges step's line when done (setup-copy.md §5.6): the one forge by its login and host, else how many, their addresses in details. */
+export const forgesLine = (accounts: readonly { readonly origin: string; readonly identity: { readonly login: string } | null }[]): Finding | undefined => {
+  const [only] = accounts;
+  if (only === undefined) return undefined;
+  const details = accounts.map((account) => account.origin);
+  if (accounts.length > 1) return { reason: `${accounts.length} forges connected.`, details };
+  const host = only.origin.replace(/^https?:\/\//, "");
+  return { reason: `${only.identity === null ? host : `${only.identity.login} on ${host}`} is connected.`, details };
+};
+
+/** The Key manager step's line when done (setup-copy.md §5.7): the one connection by its label, else how many, their labels in details. */
+export const keyManagersLine = (connections: readonly { readonly label: string }[]): Finding | undefined => {
+  const [only] = connections;
+  if (only === undefined) return undefined;
+  if (connections.length === 1) return { reason: `Connected to ${only.label}.` };
+  return { reason: `${connections.length} key managers connected.`, details: connections.map((connection) => connection.label) };
+};
+
+/** The Memory bank step's line when done (setup-copy.md §5.8): the notebooks runs use, counted when more than one, their names in details. */
+export const notebooksLine = (banks: readonly { readonly name: string; readonly enabled: boolean }[]): Finding | undefined => {
+  const names = banks.filter((bank) => bank.enabled).map((bank) => bank.name);
+  if (names.length === 0) return undefined;
+  return { reason: names.length === 1 ? "Your notebook is ready." : `Your ${names.length} notebooks are ready.`, details: names };
 };
 
 /** The environment's lines for the steps it says more of when done than the registry's sentence (#1698), each read when the step is done. */
@@ -147,8 +200,12 @@ export const environmentDoneLines = (options: StateChecksOptions): DoneLines => 
   const reader: Reader = { all: (sql, ...params) => options.log.read(sql, ...params) };
   const presets = denylistPresets(options.dataDir);
   return {
+    account: () => accountsLine(options.accounts()),
     "carry-over": carryOverDoneLine({ reader, detect: options.detectStateImport, stateImport: options.stateImport }),
-    "your-machines": () => yourMachinesLine(options.version, options.status(), readSettings(reader)),
+    "your-machines": () => yourMachinesLine(options.look().name, options.version, options.status(), readSettings(reader)),
+    forges: () => forgesLine(options.forge.list()),
+    "key-manager": () => keyManagersLine(options.keyManagerConnections.list()),
+    "memory-bank": () => notebooksLine(options.banks.list()),
     permissions: () =>
       permissionsLine(
         readPermissionsReport(reader, options.containment, options.isRoot).values["permissions.containment.default"],
@@ -171,15 +228,10 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     "your-machines.release-channel": options.releaseChannel,
     "your-machines.updates": options.updates,
     "your-machines.host-updater": options.hostUpdater,
-    // Named from the first start (ADR 0025's "named"): the record's name, the preset icon and colour stand until set.
-    "your-machines.named": () => (options.look().name.trim() !== "" ? true : { reason: "The environment has no name: rename it." }),
+    "your-machines.named": () => namedHolds(options.look()),
     "your-machines.ready": () => readyWithinCap(options.status(), options.clock.now()),
-    // A start skips a LAN address the machine does not hold (#773): the step names it, read against the interfaces now.
-    "your-machines.lan": () => {
-      const lan = readSettings(reader)["network.bindLan"];
-      const held = lan === null || lanAddressHeld(lan, options.lanAddresses());
-      return held === true || { reason: `${held}: pick one it holds, or turn LAN binding off.` };
-    },
+    // Read against the interfaces now.
+    "your-machines.lan": () => lanHolds(readSettings(reader)["network.bindLan"], options.lanAddresses()),
     ...forgesStateChecks({ forge: options.forge, clock: options.clock }),
     ...keyManagerStateChecks({
       connections: () => options.keyManagerConnections.list(),

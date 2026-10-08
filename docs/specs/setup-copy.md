@@ -78,7 +78,9 @@ the list is at the end).
 - **Details and Copy details.** Details shows the check ids, the environment's raw words (`details` on the result), and when it
   was checked. Copy details copies:
   `agent-harness {app version} on {platform}` / `Computer: {name} (agent-harness {version})` / `Step: {label} ({step id}): {state}` /
-  `Checked: {ISO time}` / `What we saw: {line}` / `Checks: {failing ids}` / `Details: {details, one per line}`.
+  `Checked: {ISO time}` / `What we saw: {line}` / `Checks: {failing ids}` / `Details:` then `{details}`, one per line. A line
+  whose value is not known (no step, no check yet, no failing checks, no details) is left out. Details shows the same lines,
+  so a refused copy leaves them to select.
 - **Patterns** (old → new):
 
 | Old (where) | New |
@@ -107,6 +109,10 @@ the list is at the end).
 | raw refusals `Not {verb}ed: {message}` | `{Plain line from the refusal mapper}` Details: `{message}`; the mapper (client-runtime) words each error code and reason; unknown ones read `Something went wrong. Choose {verb} to try again.` |
 | text cut at 120 characters by `oneLine` (banks, skills cards) | never cut: the plain line is short and the rest is in Details |
 
+- **Done lines without values.** Where §5's done line names a value the environment fills in, the step registry's own line (contracts
+  `done`, shown only when the environment says nothing more) is the same line without it: Account `All your accounts are signed in.`;
+  Carry over `Everything is already here.`; Your machines `This computer is ready.`; Forges `Your forges are connected.`; Key manager
+  `Your key managers are connected.`; Memory bank `Your notebook is ready.`; Permissions `Set.`.
 - **State words** (client-runtime STEP_STATE_WORDS and the dots): done `Done`; needs-attention `Needs a fix`; skipped `Not set up`;
   pending `Checking`. The wire states do not change.
 
@@ -303,7 +309,8 @@ quoted from the files named; a builder greps for them.
 - More options: name, icon and colour; switch `Use Tailscale` with `On: agent-harness uses Tailscale whenever it is installed.` (the switch is preset on, so it must not read as "Tailscale is working"); switch `Also allow devices on this Wi-Fi network` with `Anyone on this network could try to connect. They still need a pairing code.`;
   updates (`Update automatically`, channel `Stable` / `Beta`); link **All settings for this computer** (Settings › Your machines; leaves Set up).
   Browser origins, the sandbox list and the grant note are not on this card. A limited pairing shows one line `This app has limited access to {name}.` with **What does this mean?** (#1631's sheet).
-- Lines: done `{name} is ready. It updates itself.` / `{name} is ready. Automatic updates are off.` / `{name} is ready. The host's updater keeps it up to date.`;
+- Lines: done `{name} is ready. It updates itself.` / `{name} is ready. Automatic updates are off.` / `{name} is ready. The host's updater keeps it up to date.` /
+  pinned `{name} is ready. It stays on version {v}.`; restarting within its 30 minutes `{name} is restarting.` and the same second sentence; Details: `Version: {v}`, `Updates: {on | off | pinned to {v} | by the host's updater}`, and `Tailscale address: {ip} ({tailnet name})`, `Local network address: {ip}` or `Reachable from: this computer only`;
   pending `Checking for updates. This takes about two minutes after start.`; late first check `The first update check is late. Choose Check again.`;
   not read `agent-harness has not checked for updates {in the last day | yet}. Choose Check again.`; read failed `agent-harness could not check for updates.
   Check the internet connection, then choose Check again.` Details; root `agent-harness runs as the administrator (root) account, which is unsafe. Restart it as your own user.` Details;

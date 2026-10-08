@@ -26,7 +26,7 @@ const scriptedRegistry = () => {
   const answers: { account: StateCheckAnswer; permissions: StateCheckAnswer } = { account: true, permissions: { reason: "The denylist lost its presets." } };
   const setupSteps: SetupSteps = {
     steps: [
-      scriptedStep("account", { done: "Every account is signed in.", stateChecks: [{ id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again"] }] }),
+      scriptedStep("account", { done: "All your accounts are signed in.", stateChecks: [{ id: "account.signed-in", holds: "All your accounts are signed in.", actions: ["sign-in-again"] }] }),
       scriptedStep("permissions", { done: "The denylist holds its presets.", stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
       scriptedStep("appearance"),
     ],
@@ -54,7 +54,7 @@ describe("projections.setup over the in-process environment", () => {
     harness.onCleanup(async () => stop());
     expect(setup.read().reach).toEqual({ status: "reachable" });
     const rows = [
-      { id: "account", state: "done", reason: "Every account is signed in.", stale: false, pending: false },
+      { id: "account", state: "done", reason: "All your accounts are signed in.", stale: false, pending: false },
       { id: "permissions", state: "needs-attention", reason: "The denylist lost its presets.", stale: false, pending: false },
       { id: "appearance", state: "done", reason: expect.any(String), stale: false, pending: false },
     ];
@@ -87,7 +87,7 @@ describe("projections.setup over the in-process environment", () => {
     permissions.answer({ reason: "The denylist lost its presets." });
     const setupSteps: SetupSteps = {
       steps: [
-        scriptedStep("account", { done: "Every account is signed in.", stateChecks: [{ id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again"] }] }),
+        scriptedStep("account", { done: "All your accounts are signed in.", stateChecks: [{ id: "account.signed-in", holds: "All your accounts are signed in.", actions: ["sign-in-again"] }] }),
         scriptedStep("permissions", { done: "The denylist holds its presets.", stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
       ],
       stateChecks: { "account.signed-in": account.checker, "permissions.denylist": permissions.checker },
@@ -119,6 +119,6 @@ describe("projections.setup over the in-process environment", () => {
     const signedIn = view.steps.find((step) => step.id === "account");
     expect(signedIn?.result).toMatchObject({ checkedAt: MANUAL_CLOCK_START, asked: false, olderThanCadence: false, stale: false });
     const now = runtime.environmentNow(t.env.id);
-    expect(signedIn === undefined ? undefined : [stepLine(signedIn, now), stepNote(signedIn, now, "desk")]).toEqual(["Every account is signed in.", `No change since ${whenWords(MANUAL_CLOCK_START, now)}.`]);
+    expect(signedIn === undefined ? undefined : [stepLine(signedIn, now), stepNote(signedIn, now, "desk")]).toEqual(["All your accounts are signed in.", `No change since ${whenWords(MANUAL_CLOCK_START, now)}.`]);
   });
 });

@@ -138,7 +138,8 @@ describe("an environment's look before anyone sets it", () => {
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
     const [result] = (await client.request("setup.check", { step: "your-machines" })).results;
     expect(result).toMatchObject({ state: "done", failing: [] });
-    expect(result?.reason).toMatch(/^Ready on .+, updates off, reachable from this machine only\.$/);
+    expect(result?.reason).toMatch(/^.+ is ready\. Automatic updates are off\.$/);
+    expect(result?.details).toEqual(expect.arrayContaining(["Updates: off", "Reachable from: this computer only"]));
   });
 });
 

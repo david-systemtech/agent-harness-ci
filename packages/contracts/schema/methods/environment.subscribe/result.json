@@ -292,7 +292,7 @@
       "items": {
         "anyOf": [
           {
-            "description": "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer and the items they apply to, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031). A verb or a kind of item the reader does not know is a newer environment's: the reader leaves out that action or target, and an action whose every target it leaves out, and reads the rest.",
+            "description": "A step's health check: its state, one plain line saying what failed, the raw facts behind it as details, the checks that failed, the actions to offer and the items they apply to, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031). A verb or a kind of item the reader does not know is a newer environment's: the reader leaves out that action or target, and an action whose every target it leaves out, and reads the rest.",
             "type": "object",
             "properties": {
               "step": {
@@ -325,7 +325,7 @@
               "reason": {
                 "type": "string",
                 "minLength": 1,
-                "description": "One line for the step's row: what needs attention, naming each check that failed; when the step is done, what its checks found to hold."
+                "description": "One plain line for the step's row: what needs attention, each check that failed in its own sentence; when the step is done, what its checks found to hold. It holds no check id, settings key, error code or exact time: those are in failing and details."
               },
               "failing": {
                 "type": "array",
@@ -369,7 +369,7 @@
                     }
                   ]
                 },
-                "description": "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out."
+                "description": "The actions to offer beside the reason: those of the checks that failed, each once (check-again for a check that could not finish, and only those a failure offers of the ones its check declares), after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when pending, skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out."
               },
               "targets": {
                 "description": "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once, after the session try-again continues when an LLM step's minted session stopped; on a done LLM step, each of its subjects for revise; absent when none is named. The reader leaves out one of a verb or a kind it does not know.",
@@ -477,6 +477,16 @@
                     "at"
                   ],
                   "description": "A past time the reason names: the words that say it and the instant, which a client words where it is, its age and its clock time, in place of those words."
+                }
+              },
+              "details": {
+                "description": "The raw facts behind the reason, which a client shows under Details and copies with Copy details, never in the line itself (setup-copy.md §3): check ids with the errors they threw, settings keys, addresses, versions and exact times, each one line, at most 20; absent when there are none. A reader built before details passes over them and shows the reason as it is.",
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\r\\n]*$"
                 }
               },
               "checkedAt": {

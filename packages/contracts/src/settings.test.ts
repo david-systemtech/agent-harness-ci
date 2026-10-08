@@ -5,6 +5,7 @@ import {
   CREDENTIAL_SETTINGS_KEYS,
   DEFAULT_THEME,
   EVENT_TYPES,
+  FAVOURITE_MODELS_MAX,
   IdleSpan,
   MAX_IDLE_SPAN_AMOUNT,
   SETTINGS,
@@ -43,7 +44,7 @@ describe("the settings keys", () => {
     }
   });
 
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391), the browser keys (#541), the injection keys (#367), the binding keys, preset to the tailnet on and the LAN off (#574), and the orientation switch, preset on (#505)", () => {
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, its favourite models, preset to none (#1821), the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391), the browser keys (#541), the injection keys (#367), the binding keys, preset to the tailnet on and the LAN off (#574), and the orientation switch, preset on (#505)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
@@ -51,6 +52,7 @@ describe("the settings keys", () => {
       "accounts.defaultAccount",
       "accounts.defaultModelFamily",
       "accounts.defaultEffort",
+      "accounts.favouriteModels",
       "providers.processIdleMinutes",
       ...PERMISSION_SETTINGS_KEYS,
       ...UPDATE_SETTINGS_KEYS,
@@ -69,6 +71,7 @@ describe("the settings keys", () => {
       "accounts.defaultAccount": null,
       "accounts.defaultModelFamily": null,
       "accounts.defaultEffort": null,
+      "accounts.favouriteModels": [],
       "providers.processIdleMinutes": 30,
       ...presetPermissionSettings(),
       "updates.autoUpdate": true,
@@ -103,6 +106,7 @@ describe("the settings keys", () => {
       "accounts.defaultAccount",
       "accounts.defaultModelFamily",
       "accounts.defaultEffort",
+      "accounts.favouriteModels",
       "providers.processIdleMinutes",
       "appearance.theme",
       ...BROWSER_SETTINGS_KEYS,
@@ -198,6 +202,17 @@ describe("the settings keys", () => {
     }
     const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
     expect(registry["settings.update"].params.safeParse({ commandId, values: { "accounts.defaultModelFamily": "opus", "accounts.defaultEffort": "high" } }).success).toBe(true);
+  });
+
+  it("take the favourite models as model ids in the person's order, each once, at most twenty, and none for the provider's recommended models (#1821)", () => {
+    const schema = SETTINGS["accounts.favouriteModels"].schema;
+    expect(SETTINGS["accounts.favouriteModels"].preset).toEqual([]);
+    expect(schema.parse(["sonnet", "opus"])).toEqual(["sonnet", "opus"]);
+    for (const value of [null, "opus", [""], ["opus", "opus"], Array.from({ length: FAVOURITE_MODELS_MAX + 1 }, (_, index) => `model-${index}`)]) {
+      expect(schema.safeParse(value).success, JSON.stringify(value)).toBe(false);
+    }
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "accounts.favouriteModels": ["opus"] } }).success).toBe(true);
   });
 
   it("take a boolean for settle on merge, never null", () => {

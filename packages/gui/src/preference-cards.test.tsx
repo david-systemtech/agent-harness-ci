@@ -63,7 +63,7 @@ describe("on a fresh environment", () => {
 
     const permissions = await cardOf(app, "Permissions");
     expect(within(permissions).getByRole("img", { name: "Permissions: Done" })).toBeDefined();
-    expect(within(permissions).getByText(/^Containment and the denylist are set\./)).toBeDefined();
+    expect(within(permissions).getByText(/^Set\./)).toBeDefined();
     expect(stepActions(permissions)).toEqual([]);
     expect(within(permissions).queryByText(/^Read-only:/)).toBeNull();
     // The permissions spec's form, as the Permissions row draws it.

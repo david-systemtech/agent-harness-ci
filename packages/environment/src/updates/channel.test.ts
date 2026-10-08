@@ -439,9 +439,9 @@ describe("the Your machines step's release channel check", () => {
     const { fake, client } = await withChannel("0.5.0");
     fake.publish({ version: "0.4.2" });
     await setUpdates(client, { "updates.autoUpdate": false });
-    expect(await result(client)).toMatchObject({ state: "done", reason: "Ready on 0.5.0, updates off, reachable from this machine only." });
+    expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. Automatic updates are off\.$/), details: expect.arrayContaining(["Updates: off"]) });
     await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": "0.4.2" });
-    expect(await result(client)).toMatchObject({ state: "done", reason: "Ready on 0.5.0, updates pinned to 0.4.2, reachable from this machine only." });
+    expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. It stays on version 0\.4\.2\.$/), details: expect.arrayContaining(["Updates: pinned to 0.4.2"]) });
   });
 
   it("holds for 24 hours after a check succeeded, across a restart, and then needs attention with the last failure", async () => {

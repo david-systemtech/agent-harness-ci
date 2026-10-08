@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DefaultAccount, DefaultEffort, DefaultModelFamily } from "./accounts.js";
+import { DefaultAccount, DefaultEffort, DefaultModelFamily, FavouriteModels } from "./accounts.js";
 import { BROWSER_SETTINGS } from "./browser-settings.js";
 import { CREDENTIAL_SETTINGS } from "./credential-settings.js";
 import type { EventTypeEntry } from "./event-types.js";
@@ -118,7 +118,7 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * sit on `environments.service`: ADR 0027 closed the Appearance band at Theme
  * and Keyboard shortcuts, and they are the environment's policy on its log
  * (GUI spec). The Account step's own keys (ADR 0018: the default account, model
- * family and effort, #134) and `providers.processIdleMinutes` (#120) are the
+ * family and effort, #134; the favourite models, #1821) and `providers.processIdleMinutes` (#120) are the
  * Account step's, on `accounts.default-model` (which folds together what
  * were separate Models and Runs panes). The permission keys (#129) are the
  * Permissions step's, on `access.permissions`, written through
@@ -167,6 +167,11 @@ const SETTING_DEFINITIONS = {
   "accounts.defaultEffort": setting({
     schema: DefaultEffort,
     preset: null,
+    step: DEFAULT_MODEL_PLACE,
+  }),
+  "accounts.favouriteModels": setting({
+    schema: FavouriteModels,
+    preset: [],
     step: DEFAULT_MODEL_PLACE,
   }),
   "providers.processIdleMinutes": setting({
@@ -221,6 +226,10 @@ const SETTING_WORDS = {
   "accounts.defaultEffort": {
     label: "Default thinking effort",
     description: "How much thinking to request when a run has no effort of its own. Choose none to use the model's default.",
+  },
+  "accounts.favouriteModels": {
+    label: "Favourite models",
+    description: "The models the account and model picker offers first, in this order. Every other model is under Other models; with none pinned, the picker offers the provider's recommended models.",
   },
   "providers.processIdleMinutes": {
     label: "Stop idle agent processes after minutes",

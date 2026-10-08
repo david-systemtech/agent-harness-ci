@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { AccountUsage, HandoffRecommendation } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -198,7 +198,7 @@ describe("the model picker", () => {
     const list = within(menu).getByRole("group", { name: "Models" });
     act(() => within(list).getByRole("menuitem", { name: "Opus (claude-opus-4)" }).focus());
     await app.user.keyboard("{End}");
-    expect(document.activeElement).toBe(within(list).getByRole("menuitem", { name: "claude-haiku-4" }));
+    expect(document.activeElement).toBe(within(list).getByRole("menuitem", { name: "Pin favourites…" }));
     await app.user.keyboard("{Home}{Tab}");
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "its own effort" }));
     await app.user.keyboard("{Shift>}{Tab}{/Shift}");
@@ -252,7 +252,7 @@ describe("the model picker", () => {
     const result = within(menu).getByRole("menuitem", { name: "Model 14 (model-14)" });
     expect(within(menu).queryByRole("menuitem", { name: "Model 1 (model-1)" })).toBeNull();
     await app.user.keyboard("{ArrowDown}");
-    expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "All models" }));
+    expect(document.activeElement).toBe(result);
     await app.user.click(result);
     await app.user.keyboard("{Escape}");
     expect(within(statusLine()).getByRole("button", { name: "Model: Model 14" })).toBeTruthy();
@@ -308,6 +308,96 @@ describe("the model picker", () => {
     expect(within(menu).getByRole("menuitem", { name: "Fable 5.1 (fable)" })).toBeTruthy();
     expect(within(menu).queryByRole("menuitem", { name: "Model 1 (model-1)" })).toBeNull();
   });
+});
+
+describe("the model picker's favourites (ticket 1821)", () => {
+  const model = (id: string, family: string, label: string | null = null) => ({ id, family, tier: 1, efforts: [], label });
+  const catalogue = (accountId: string, ...entries: ReturnType<typeof model>[]) => ({ accountId, live: true, models: entries });
+  const FOUR = catalogue("account-1", model("claude-opus-4", "opus", "Opus"), model("claude-opus-4-1m", "opus"), model("claude-sonnet-4", "sonnet"), model("claude-haiku-4", "haiku"));
+  const rows = (group: HTMLElement) => within(group).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"));
+
+  it("lists the favourites first in the person's order, then the session's model, and the rest under Other models, opened on hover", async () => {
+    const { app } = await opened([desk({ models: [FOUR], settings: { "accounts.favouriteModels": ["claude-haiku-4", "retired-model", "claude-sonnet-4"] } })]);
+    const menu = await openPicker(app, "Model");
+    const list = within(menu).getByRole("group", { name: "Models" });
+    await waitFor(() => expect(rows(list)).toEqual(["claude-haiku-4", "claude-sonnet-4", "Opus (claude-opus-4)", "Other models", "Edit favourites…"]));
+    expect(within(list).queryByText(/Pin your favourites/)).toBeNull();
+    await app.user.hover(within(list).getByRole("menuitem", { name: "Other models" }));
+    const others = await screen.findByRole("menu", { name: "Other models" });
+    expect(rows(others)).toEqual(["claude-opus-4-1m"]);
+    // jsdom lays out nothing, so a pointer leaving the trigger never reads as heading into the flyout, which closes: the row is clicked where it is.
+    fireEvent.click(within(others).getByRole("menuitem", { name: "claude-opus-4-1m" }));
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Other models" })).toBeNull());
+    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on claude-opus-4-1m at its own effort."));
+    expect(screen.getByRole("menu", { name: "Run choices" })).toBe(menu);
+  });
+
+  it("offers the provider's recommended models with no favourite pinned, says how to pin them, and opens Settings there", async () => {
+    const { app } = await opened([desk({ models: [FOUR] })]);
+    const menu = await openPicker(app, "Model");
+    const list = within(menu).getByRole("group", { name: "Models" });
+    expect(rows(list)).toEqual(["Opus (claude-opus-4)", "claude-sonnet-4", "claude-haiku-4", "Other models", "Pin favourites…"]);
+    expect(within(list).getByText("Recommended models. Pin your favourites in Settings, Default account and model.")).toBeTruthy();
+    await app.user.click(within(list).getByRole("menuitem", { name: "Pin favourites…" }));
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    expect(await within(within(settings).getByRole("region", { name: "Default account and model" })).findByRole("region", { name: "Favourite models" })).toBeTruthy();
+  });
+
+  it("opens Other models from the keyboard and chooses in it, and the left arrow goes back", async () => {
+    const { app } = await opened([desk({ models: [FOUR] })]);
+    const menu = await openPicker(app, "Model");
+    const trigger = within(menu).getByRole("menuitem", { name: "Other models" });
+    act(() => trigger.focus());
+    await app.user.keyboard("{ArrowRight}");
+    const others = await screen.findByRole("menu", { name: "Other models" });
+    await waitFor(() => expect(document.activeElement).toBe(within(others).getByRole("menuitem", { name: "claude-opus-4-1m" })));
+    await app.user.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Other models" })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+    await app.user.keyboard("{ArrowRight}");
+    const again = await screen.findByRole("menu", { name: "Other models" });
+    await waitFor(() => expect(document.activeElement).toBe(within(again).getByRole("menuitem", { name: "claude-opus-4-1m" })));
+    await app.user.keyboard("{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on claude-opus-4-1m at its own effort."));
+  });
+
+  it("groups Other models by account while the session has no account", async () => {
+    const { app } = await opened([desk({
+      sessions: [{ title: "Receipts", accountId: null, model: "claude-opus-4" }],
+      models: [FOUR, catalogue("account-2", model("claude-opus-4", "opus", "Opus"), model("claude-sonnet-3", "sonnet"))],
+      settings: { "accounts.favouriteModels": ["claude-opus-4"] },
+    })]);
+    const menu = await openPicker(app, "Model");
+    const list = within(menu).getByRole("group", { name: "Models" });
+    await waitFor(() => expect(rows(list)).toEqual(["Opus (claude-opus-4)", "Other models", "Edit favourites…"]));
+    await app.user.hover(within(list).getByRole("menuitem", { name: "Other models" }));
+    const others = await screen.findByRole("menu", { name: "Other models" });
+    expect(rows(within(others).getByRole("group", { name: "work" }))).toEqual(["claude-opus-4-1m", "claude-sonnet-4", "claude-haiku-4"]);
+    expect(rows(within(others).getByRole("group", { name: "personal" }))).toEqual(["claude-sonnet-3"]);
+  });
+
+  it("opens Other models as a page of the list with a tap on a phone, where a flyout has no room, with a row back", async () => {
+    const previousWidth = globalThis.window.innerWidth;
+    Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 360 });
+    onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: previousWidth }); });
+    const { app } = await opened([desk({ models: [FOUR] })]);
+    await app.user.click(within(statusLine()).getByRole("button", { name: /^Model:/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Run choices" });
+    const list = () => within(dialog).getByRole("group", { name: "Models" });
+    await app.user.pointer({ keys: "[TouchA]", target: within(list()).getByRole("menuitem", { name: "Other models" }) });
+    const others = await within(dialog).findByRole("group", { name: "Other models" });
+    expect(screen.queryByRole("menu", { name: "Other models" })).toBeNull();
+    expect(rows(list())).toEqual(["Back to the quick picks", "claude-opus-4-1m"]);
+    await waitFor(() => expect(document.activeElement).toBe(within(others).getByRole("menuitem", { name: "claude-opus-4-1m" })));
+    await app.user.pointer({ keys: "[TouchA]", target: within(list()).getByRole("menuitem", { name: "Back to the quick picks" }) });
+    await waitFor(() => expect(document.activeElement).toBe(within(list()).getByRole("menuitem", { name: "Other models" })));
+    expect(rows(list())).toEqual(["Opus (claude-opus-4)", "claude-sonnet-4", "claude-haiku-4", "Other models", "Pin favourites…"]);
+    await app.user.pointer({ keys: "[TouchA]", target: within(list()).getByRole("menuitem", { name: "Other models" }) });
+    await app.user.pointer({ keys: "[TouchA]", target: await within(dialog).findByRole("menuitem", { name: "claude-opus-4-1m" }) });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Model: claude-opus-4-1m", hidden: true })).toBeTruthy());
+    expect(within(dialog).queryByRole("group", { name: "Other models" })).toBeNull();
+  });
+
 });
 
 describe("the account picker", () => {

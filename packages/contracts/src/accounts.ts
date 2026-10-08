@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AccountIdentity, ProviderId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
-import { Timestamp } from "./primitives.js";
+import { setOf, Timestamp } from "./primitives.js";
 
 /**
  * The account store (claude-adapter spec, "The account store"; ADR 0018):
@@ -289,6 +289,23 @@ export const DefaultEffort = z
     description:
       "The reasoning effort a run with none of its own takes, when its model takes that effort; null, or an effort the model does not take, for the model's own. The Account step presets it to high.",
   });
+
+/** The most models `accounts.favouriteModels` holds: a short list of quick picks, never the catalogue again. */
+export const FAVOURITE_MODELS_MAX = 20;
+
+/**
+ * `accounts.favouriteModels` (#1821): the models a person pinned, in the
+ * order they put them, which the account and model picker offers first as
+ * one-click picks, every other model the account offers under Other models.
+ * Model ids, not families, each once; a model no account lists any more
+ * stays until it is removed, and the picker passes it over.
+ */
+export const FavouriteModels = setOf(z.string().min(1))
+  .max(FAVOURITE_MODELS_MAX)
+  .meta({
+    description: `The model ids the account and model picker offers first, in the order the person put them, each once, at most ${FAVOURITE_MODELS_MAX}; empty for the provider's recommended models. A model the selected account does not list is passed over.`,
+  });
+export type FavouriteModels = z.infer<typeof FavouriteModels>;
 
 /**
  * The sign-in director (claude-adapter spec, "Sign-in and status through the

@@ -505,8 +505,8 @@ describe("/settings", () => {
     expect(frame).toMatch(/Maximum permission mode\s+acceptEdits/);
     expect(frame).toMatch(/Unanswered permission timeout\s+24 hours/);
     expect(frame).toMatch(/Permission bypass acknowledged\s+none\s+read-only/);
-    // Down to the Service row's keys, past the four, one, five, nine, two and seven of the rows above it.
-    await app.press(...Array.from({ length: 28 }, () => KEY.down));
+    // Down to the Service row's keys, past the five, one, five, nine, two and seven of the rows above it.
+    await app.press(...Array.from({ length: 29 }, () => KEY.down));
     await app.waitFor(/Settle idle sessions\s+14 days/);
     // The key under the cursor says what it is.
     expect(app.frame()).toContain("Move quiet sessions out of the active list after this long.");
@@ -520,7 +520,7 @@ describe("/settings", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     // A typed value, checked against the key's schema before it is sent.
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("New value for Stop idle agent processes after minutes (now 30)");
     // The value being typed holds its key: ↓ moves nothing.
     await app.press(KEY.down);
@@ -587,7 +587,7 @@ describe("/settings", () => {
     const { app } = await launch();
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("Unattended permission mode:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Make bypassPermissions the unattended mode? y/n");
@@ -635,7 +635,7 @@ describe("/settings by row (#389)", () => {
     expect(app.frame()).toMatch(/Default account and model\n.*Default account\s+none/);
     expect(app.frame()).toContain("The account to use when a session has no account of its own.");
     // Down the list, each row's label over its keys: Instructions, then Permissions, then Browser, then Key managers, then Your machines, then Service.
-    await app.press(...Array.from({ length: 30 }, () => KEY.down));
+    await app.press(...Array.from({ length: 31 }, () => KEY.down));
     await app.waitFor(/Compact quiet transcripts after days\s+90/);
     const lines = linesOf(app.frame());
     const at = (text: string) => lines.findIndex((line) => line.startsWith(text));
@@ -709,11 +709,11 @@ describe("/setup", () => {
     expect(app.frame()).not.toContain("Run it in the desktop window.");
     await command(app, "/setup");
     await app.waitFor(/Account.*Done/);
-    await app.waitFor("Choose your agent’s account");
+    await app.waitFor("Sign in to Claude");
     // Outcome hints make rows two lines; move to the steps below the fold.
     for (let row = 0; row < 6; row++) await app.press(KEY.down);
     await app.waitFor(/Browser.*Not set up/);
-    await app.waitFor("See and use web pages");
+    await app.waitFor("Let agents use Chrome");
     await app.press(KEY.down);
     await app.waitFor(/Permissions.*Needs a fix.*The denylist could not be read\./);
     await app.waitFor("7 done · 1 needs a fix · 1 not set up");

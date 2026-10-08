@@ -1,4 +1,5 @@
 import { defaultAccountRepair, deferredDefaults } from "./default-account.js";
+import { planFavouriteModels } from "./favourite-models.js";
 import { planBanks, BANK_REGISTRY_LABEL, type PlanBanksOptions } from "./banks.js";
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
@@ -109,6 +110,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
         };
       }
     }
+    defaultItems.push(...planFavouriteModels(records.models, { ...options, sourceKey }));
     const excluded: StateImportNotCarried[] = [];
     if (records.modelChoices > 0) excluded.push({ label: "Per-session model choices", count: records.modelChoices, step: null });
     if (records.layouts > 0) excluded.push({ label: "Dock layouts", count: records.layouts, step: null });

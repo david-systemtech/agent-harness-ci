@@ -59,19 +59,19 @@ export const STEP_LABELS: { readonly [Id in (typeof STEP_ORDER)[number]]: string
   appearance: "Appearance",
 };
 
-/** The outcome each checklist step explains to the person setting up (docs/specs/look.md §13.2). */
+/** The outcome each checklist step explains to the person setting up (docs/specs/look.md §13.2), in setup-copy.md §4.4's words. */
 export const STEP_HINTS: { readonly [Id in (typeof STEP_ORDER)[number]]: string } = {
-  account: "Choose your agent’s account",
-  "carry-over": "Bring past work with you",
-  "your-machines": "Work here or elsewhere",
-  forges: "Open pull requests",
-  "key-manager": "Fetch keys when needed",
-  "memory-bank": "Keep a shared notebook",
-  skills: "Reuse working procedures",
-  instructions: "Guide every session",
-  browser: "See and use web pages",
-  permissions: "Choose when agents ask",
-  appearance: "Make the window feel right",
+  account: "Sign in to Claude",
+  "carry-over": "Bring your past chats",
+  "your-machines": "Use it from other devices",
+  forges: "Connect GitHub and others",
+  "key-manager": "Use your key manager",
+  "memory-bank": "A notebook agents keep",
+  skills: "Ready-made agent skills",
+  instructions: "Notes every agent reads",
+  browser: "Let agents use Chrome",
+  permissions: "When agents must ask",
+  appearance: "Light, dark and colours",
 };
 
 export const StepId = z.enum(STEP_ORDER).meta({
@@ -79,12 +79,18 @@ export const StepId = z.enum(STEP_ORDER).meta({
 });
 export type StepId = z.infer<typeof StepId>;
 
+/** What a value check says of a value the step cannot use: the plain line, and the raw facts behind it for Details (setup-copy.md §3). */
+export interface ValueProblem {
+  readonly reason: string;
+  readonly details: readonly string[];
+}
+
 /**
  * A health check of one setting: `true` when the value the environment
  * holds lets the step count as done, else what needs attention, for the
  * step's card to show.
  */
-export type HealthCheck = (value: unknown) => true | string;
+export type HealthCheck = (value: unknown) => true | ValueProblem;
 
 /** A link from a step to a row of Settings beside its home: the Account step's to `accounts.default-model`, where its keys sit. */
 export interface RowLink {
@@ -192,7 +198,9 @@ export interface Step {
    * The step's line when every check holds, as one short sentence of what
    * was found, unless the environment says more of what it found (#1698):
    * never its state checks' conditions joined, whose alternatives say what
-   * would pass rather than what is there.
+   * would pass rather than what is there. Its words are the step's done line
+   * in setup-copy.md §5, without the values the environment fills in when it
+   * says more.
    */
   readonly done: string;
   /** The rows beside its home the step links to (every row its keys sit on is its home or one of these), and the other steps. */
@@ -227,11 +235,18 @@ export interface Step {
   readonly llm?: string;
 }
 
-/** A check that passes on any value the key's schema accepts: what a setting with no stronger notion of done asks. */
+/**
+ * A check that passes on any value the key's schema accepts: what a setting
+ * with no stronger notion of done asks. A value it refuses is named by the
+ * setting's label, the key in details (setup-copy.md §3).
+ */
 export const anyValidValue =
   (key: SettingsKey): HealthCheck =>
   (value) =>
-    SETTINGS[key].schema.safeParse(value).success || `${key} does not hold a valid value.`;
+    SETTINGS[key].schema.safeParse(value).success || {
+      reason: `A saved setting for this step cannot be used: ${SETTINGS[key].label}. Set it again in Settings.`,
+      details: [key],
+    };
 
 /**
  * Every step registered so far, in the milestone-1 order: Account, for the
@@ -256,25 +271,27 @@ export const anyValidValue =
 export const STEP_REGISTRY = [
   {
     // The Account step (ADR 0018), at home on accounts.accounts beside Carry over: the default account, model family
-    // and effort (#134) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its health
+    // and effort (#134), the favourite models (#1821) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its health
     // reads the account store's statuses (#134), never a setting: at least one account, with no action since the card's
     // Sign in is the fix, and every account signed in, Sign in again naming each that is not (#574). Checked every
     // fifteen minutes, as often as the store reads each account's status, since the orientation block reports it; never
     // skipped. An account's change and the sign-in's re-run it.
     id: "account",
     home: "accounts.accounts",
-    writes: ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"],
+    writes: ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "accounts.favouriteModels", "providers.processIdleMinutes"],
     checks: [
       { key: "accounts.defaultAccount", check: anyValidValue("accounts.defaultAccount") },
       { key: "accounts.defaultModelFamily", check: anyValidValue("accounts.defaultModelFamily") },
       { key: "accounts.defaultEffort", check: anyValidValue("accounts.defaultEffort") },
+      { key: "accounts.favouriteModels", check: anyValidValue("accounts.favouriteModels") },
       { key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") },
     ],
     stateChecks: [
       { id: "account.present", holds: "At least one account is on this environment.", actions: [] },
-      { id: "account.signed-in", holds: "Every account on this environment is signed in.", actions: ["sign-in-again"] },
+      // Check again for an account whose status could not be read, Sign in again for one signed out or expired.
+      { id: "account.signed-in", holds: "Every account on this environment is signed in.", actions: ["sign-in-again", "check-again"] },
     ],
-    done: "Every account is signed in.",
+    done: "All your accounts are signed in.",
     links: [{ row: "accounts.default-model" }],
     skippable: false,
     budget: "local",
@@ -315,7 +332,7 @@ export const STEP_REGISTRY = [
       },
       { id: "carry-over.default-account", holds: "No imported default Account is waiting for sign-in.", actions: ["sign-in-again"] },
     ],
-    done: "Nothing is waiting to be brought over.",
+    done: "Everything is already here.",
     links: [{ row: "knowledge.skills" }, { row: "knowledge.banks" }],
     skippable: true,
     skip: "carry-over.present",
@@ -392,7 +409,7 @@ export const STEP_REGISTRY = [
       { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
       { id: "your-machines.lan", holds: "LAN binding is off, or the LAN address it names is one this machine holds.", actions: ["check-again"] },
     ],
-    done: "This machine is ready.",
+    done: "This computer is ready.",
     links: [{ row: "environments.service" }],
     skippable: false,
     budget: "network",
@@ -432,7 +449,7 @@ export const STEP_REGISTRY = [
       { id: "forges.expiry", holds: "No forge account's token expires within thirty days.", actions: ["sign-in-again"] },
       { id: "forges.coverage", holds: "No origin a harness operation was refused on for want of a forge account counts as missing.", actions: [] },
     ],
-    done: "Every forge account is signed in and answering.",
+    done: "Your forges are connected.",
     links: [{ step: "key-manager" }],
     skippable: true,
     skip: "forges.present",
@@ -483,7 +500,7 @@ export const STEP_REGISTRY = [
         actions: ["install", "update"],
       },
     ],
-    done: "Every key-manager connection is signed in and reachable.",
+    done: "Your key managers are connected.",
     links: [{ step: "forges" }, { step: "memory-bank" }, { row: "about.about" }],
     skippable: true,
     skip: "key-manager.present",
@@ -526,7 +543,7 @@ export const STEP_REGISTRY = [
       { id: "memory-bank.owners", holds: "Each enabled team bank's owners resolve on its forge.", actions: [] },
       { id: "memory-bank.landing", holds: "No landing on an enabled bank has failed.", actions: ["check-again"] },
     ],
-    done: "Every bank is reachable.",
+    done: "Your notebook is ready.",
     links: [{ step: "key-manager" }, { step: "forges" }],
     skippable: true,
     skip: "memory-bank.present",
@@ -558,7 +575,7 @@ export const STEP_REGISTRY = [
       { id: "skills.source-limit", holds: "At most twenty skill sources are tracked.", actions: [] },
       { id: "skills.own-directory", holds: "The own skills directory is readable.", actions: [] },
     ],
-    done: "Every skill source is in sync.",
+    done: "Your skills are up to date.",
     links: [],
     skippable: true,
     skip: "skills.present",
@@ -588,7 +605,7 @@ export const STEP_REGISTRY = [
     ],
     checks: [{ key: "instructions.orientation", check: anyValidValue("instructions.orientation") }],
     stateChecks: [{ id: "instructions.orientation-renders", holds: "The orientation block renders with no failed registry read.", actions: [] }],
-    done: "The orientation block renders.",
+    done: "Agents get your notes and a summary of this computer.",
     links: [],
     skippable: false,
     budget: "local",
@@ -634,7 +651,7 @@ export const STEP_REGISTRY = [
       { id: "browser.chrome-connected", holds: "A paired Chrome is connected.", actions: ["check-again", "unpair", "pair-another"] },
       { id: "browser.extension-current", holds: "Every paired Chrome last reported the shipped extension version.", actions: ["reload", "check-again"] },
     ],
-    done: "Chrome is paired, connected and current.",
+    done: "Chrome is connected.",
     links: [],
     skippable: true,
     skip: "browser.present",
@@ -679,7 +696,7 @@ export const STEP_REGISTRY = [
       { id: "permissions.denylist", holds: "Each denylist section holds its presets, or was emptied on purpose.", actions: ["restore"] },
       { id: "permissions.not-root", holds: "The environment runs as a non-root user.", actions: [] },
     ],
-    done: "Containment and the denylist are set.",
+    done: "Set.",
     links: [{ step: "your-machines" }],
     skippable: false,
     budget: "local",
@@ -703,7 +720,7 @@ export const STEP_REGISTRY = [
         actions: ["restore"],
       },
     ],
-    done: "The theme meets the contrast rules.",
+    done: "Your theme is easy to read.",
     links: [],
     skippable: false,
     budget: "local",
