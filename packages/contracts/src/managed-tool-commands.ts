@@ -22,8 +22,10 @@ import { TerminalExitCause, TerminalId } from "./terminals.js";
  * dnf), the vendor's self-update (`claude update`, `doppler update`), or
  * for a bare `bao` the vendor's release archive, checked against its
  * published checksums and put where the current binary is (#1833). A
- * method the table cannot drive (unknown, pacman, apk or cargo, which
- * detection reads as manual, and a bare `op`, `gh` or `bws`) runs the
+ * method the table cannot drive (unknown; a file no dpkg or rpm owns in a
+ * place pacman, apk, MacPorts, Nix, snap, cargo or Chocolatey may own,
+ * which detection reads as manual; a tool npm installed into a Node that
+ * Scoop, mise or asdf installed; a bare `op`, `gh` or `bws`) runs the
  * vendor's documented command in a tool terminal once a person presses
  * Enter, so nothing is run unseen. `vault` is never installed or updated,
  * being under the Business Source License: its row offers Install `bao`.

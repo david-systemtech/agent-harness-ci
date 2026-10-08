@@ -11,7 +11,6 @@ import {
   installedInstead,
   toolCommandEntry,
   toolCommandMethodOf,
-  updateCommand,
   type InstallableToolName,
   type ManagedToolName,
   type ManagedToolRow,
@@ -31,7 +30,7 @@ import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, PreparedCommand } from "../serve/methods.js";
 import type { ToolTerminals } from "../terminals/service.js";
 import { commandLine, confirmedLine } from "./command-line.js";
-import { installedPackage } from "./detection.js";
+import { documentedTable, drivenUpdate } from "./detection.js";
 import type { ToolDoctor } from "./doctor.js";
 import { MANAGED_TOOLS_ACTOR, type ManagedTools } from "./registry.js";
 import type { ToolVerifier } from "./verify.js";
@@ -50,7 +49,8 @@ import type { ToolVerifier } from "./verify.js";
  *   and on `claude` runs its `doctor` first, whose report the answer sets
  *   beside the detected method, which the run uses (ADR 0026: the realpath's
  *   shape is trusted over what doctor reports); Scoop, mise and asdf name
- *   the package the realpath is installed under. Run in a terminal pane,
+ *   the package the realpath is installed under where it is the tool's own
+ *   (`drivenUpdate`). Run in a terminal pane,
  *   and Update of a tool installed by a method the table cannot drive here,
  *   run the vendor's documented command (`documentedChoice`) held back
  *   until a person presses Enter in the tool terminal (#1833). Anything
@@ -152,9 +152,9 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
     return (program) => found.has(program);
   };
 
-  /** The vendor's documented command for `tool`, which a refusal answers for a person to copy (`documentedCommand`); null where the table has none here. */
-  const documented = (tool: ManagedToolName, installed: boolean, available: (program: string) => boolean): string | null => {
-    const command = tablePlatform === null ? null : documentedCommand(tool, installed, tablePlatform, available, commands);
+  /** The vendor's documented command for `tool` at `realpath`, which a refusal answers for a person to copy (`documentedCommand`); null where the table has none here. */
+  const documented = (tool: ManagedToolName, realpath: string | null, available: (program: string) => boolean): string | null => {
+    const command = tablePlatform === null ? null : documentedCommand(tool, realpath !== null, tablePlatform, available, documentedTable(commands, realpath));
     return command === null ? null : line(command);
   };
 
@@ -179,9 +179,10 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
     if (tablePlatform === null) return `The harness has no commands for ${platform}: update ${tool} the way it was installed.`;
     const method = action === "update" ? toolCommandMethodOf(row.method) : null;
     const entry = method === null ? null : toolCommandEntry(tool, method, tablePlatform, commands);
-    if (entry !== null) return { entry, command: updateCommand(entry, installedPackage(row.realpath)), confirmed: false };
+    const command = entry === null ? null : drivenUpdate(entry, row.realpath);
+    if (entry !== null && command !== null) return { entry, command, confirmed: false };
     // Installed in a way the table does not drive here, or Run in a terminal pane asked: the vendor's command, once a person presses Enter.
-    const documented = documentedChoice(tool, true, tablePlatform, available, commands);
+    const documented = documentedChoice(tool, true, tablePlatform, available, documentedTable(commands, row.realpath));
     return documented === null ? `The harness has no command for ${tool} installed ${METHOD_WORDS[row.method]} here: update it the way it was installed.` : { ...documented, confirmed: true };
   };
 
@@ -189,7 +190,7 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
   const plan = async (tool: ManagedToolName, action: RunnableToolAction): Promise<Plan> => {
     const target = action === "install" ? installedInstead(tool) : tool;
     const [row, available] = await Promise.all([tools.row(target), availability()]);
-    const refused = (message: string): Plan => ({ kind: "refused", message, command: documented(target, row.status !== "not-installed", available) });
+    const refused = (message: string): Plan => ({ kind: "refused", message, command: documented(target, row.status === "not-installed" ? null : row.realpath, available) });
     if (target === "vault") return refused("The harness never installs or updates vault, which is under the Business Source License: Install bao instead.");
     const chosen = choose(target, action, row, available);
     if (typeof chosen === "string") return refused(chosen);

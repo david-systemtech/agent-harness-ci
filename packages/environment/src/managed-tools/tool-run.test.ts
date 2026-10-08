@@ -261,6 +261,29 @@ posix("tools.run's Update", () => {
     expect([update.method, update.command]).toEqual(["homebrew", expect.stringMatching(/^printf .* && sh -c 'read -r answer' && brew install gh$/)]);
   });
 
+  it("never upgrades the Node a tool was installed into by npm under mise or asdf, nor a file a system package manager may own: their rows run the vendor's command once Enter is pressed (#1833)", async () => {
+    const path = fakePath();
+    path.install("claude", { at: ".local/share/mise/installs/node/22.11.0/lib/node_modules/@anthropic-ai/claude-code/cli.js", output: "2.1.283 (Claude Code)" });
+    path.install("gh", { at: ".asdf/installs/nodejs/22.11.0/lib/node_modules/gh/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    path.install("bao", { at: ".cargo/bin/bao", output: "OpenBao v2.1.1" });
+    const { client, pty } = await withRunner(path);
+
+    const rows = (await client.request("tools.list", {})).tools;
+    expect(Object.fromEntries(rows.filter((row) => ["claude", "gh", "bao"].includes(row.tool)).map((row) => [row.tool, [row.method, row.action]]))).toEqual({
+      claude: ["mise", "terminal"],
+      gh: ["asdf", "terminal"],
+      bao: ["manual", "terminal"],
+    });
+    const held: string[] = [];
+    for (const tool of ["claude", "gh", "bao"] as const) {
+      held.push((await ran(client, { tool, action: "update" })).command);
+      spawnedAt(pty, held.length - 1).exit(0);
+      await expect.poll(async () => (await eventsOf(client, "tool.run-finished")).length).toBe(held.length);
+    }
+    for (const command of held) expect(command).toMatch(/ && sh -c 'read -r answer' && /);
+    expect(held.join("\n")).not.toMatch(/mise upgrade|asdf install|checksums\.txt/);
+  });
+
   it("is tool_not_runnable for vault, which the harness never installs or updates, and for a tool not installed, opening nothing", async () => {
     const path = fakePath();
     programs(path, "brew");

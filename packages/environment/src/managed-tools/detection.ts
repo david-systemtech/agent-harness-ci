@@ -1,6 +1,6 @@
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
-import { ManagedToolVersion, type ManagedToolInstallMethod, type ManagedToolName } from "@agent-harness/contracts";
+import { ManagedToolVersion, updateCommand, type ManagedToolInstallMethod, type ManagedToolName, type ToolCommand, type ToolCommandEntry } from "@agent-harness/contracts";
 
 /**
  * Detecting a managed tool (key-managers spec, "Managed tools"; ADR 0026):
@@ -113,6 +113,39 @@ const PACKAGE_DIRECTORY = /\/(?:scoop\/apps|mise\/installs|\.asdf\/installs)\/([
  * them, whose update names the registry's package.
  */
 export const installedPackage = (realpath: string): string | null => PACKAGE_DIRECTORY.exec(realpath.replaceAll("\\", "/"))?.[1] ?? null;
+
+/**
+ * Places a system package manager may own a file in, read with its
+ * separators as `/`: `/usr` but its `local`, `/bin`, `/sbin`, MacPorts'
+ * `/opt/local`, Nix's store and snap's, anchored; cargo's and Chocolatey's
+ * anywhere. Detection asks dpkg and rpm alone, so pacman's, apk's and these
+ * read as manual (#1833).
+ */
+const SYSTEM_PLACE = [/^\/(?:usr\/(?!local\/)|bin\/|sbin\/|opt\/local\/|nix\/store\/|snap\/)/, /\/\.cargo\/bin\//, /\/chocolatey\//i];
+
+/** Whether a tool's realpath is somewhere a system package manager may own it, so no bare binary's update replaces it (#1833). */
+export const heldBySystem = (realpath: string): boolean => {
+  const slashed = realpath.replaceAll("\\", "/");
+  return SYSTEM_PLACE.some((place) => place.test(slashed));
+};
+
+/** The table a tool at `realpath` takes its documented command from: without the bare binaries' updates where a system package manager may own it (#1833). */
+export const documentedTable = (commands: readonly ToolCommandEntry[], realpath: string | null): readonly ToolCommandEntry[] =>
+  realpath !== null && heldBySystem(realpath) ? commands.filter((entry) => entry.method !== "manual") : commands;
+
+/**
+ * The update `entry` runs for a tool at `realpath`, else null when the
+ * table must not drive it (#1833): a bare binary somewhere a system package
+ * manager may own it, or a Scoop, mise or asdf package other than the
+ * tool's own (`npm i -g` into a Node they installed), whose upgrade would
+ * update that package instead.
+ */
+export const drivenUpdate = (entry: ToolCommandEntry, realpath: string): ToolCommand | null => {
+  if (entry.method === "manual" && heldBySystem(realpath)) return null;
+  const installedAs = installedPackage(realpath);
+  if (installedAs !== null && entry.package !== undefined && installedAs !== entry.tool && installedAs !== entry.package) return null;
+  return updateCommand(entry, installedAs);
+};
 
 /** A version in a tool's `--version`, with an optional leading `v`, standing alone: not part of a longer dotted run or a word. */
 const PRINTED_VERSION = /(?<![\w.])v?(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)(?![\w.])/;
