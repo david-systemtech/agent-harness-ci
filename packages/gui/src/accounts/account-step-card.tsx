@@ -42,7 +42,7 @@ export const AccountStepCard = ({ environmentId, step }: StepCardProps) => {
       <StepStatus environmentId={environmentId} step={step} />
       {view !== undefined && (
         <>
-          <AccountsList inlineSignIn={shell === undefined} view={view} label={label} />
+          <AccountsList inlineSignIn={shell === undefined} view={view} label={label} labelTaken={() => setLabel("")} />
           <Preset view={view} accounts={accounts} />
           <MoreOptions step="account">
             <label className="flex flex-col gap-1 text-sm text-ink-muted">

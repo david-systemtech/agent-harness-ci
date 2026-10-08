@@ -264,7 +264,7 @@ describe("Accounts", () => {
       expect(within(card).getByText("Finish or cancel the open sign-in first.")).toBeDefined();
     }
     expect(desk.requests("accounts.signin.start")).toHaveLength(0);
-    expect(within(question(accounts)).getByRole("button", { name: "Sign in with Claude" }).hasAttribute("disabled")).toBe(true);
+    expect(within(question(accounts)).getByRole("button", { name: "Sign in with Claude", description: "Finish or cancel the open sign-in first." }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(await within(adding).findByRole("button", { name: "Cancel the sign-in" }));
     const work = within(accounts).getByRole("region", { name: "work" });

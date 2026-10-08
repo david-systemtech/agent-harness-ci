@@ -1,6 +1,6 @@
 import { SettingsCardGrid } from "../settings/part.js";
 import { AccessUnavailable } from "../connections/limited-access.js";
-import { clockTime, emailLabel, newAccountLabel, relabelAccount, uuidv7, type AccountOutcome, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
+import { clockTime, emailLabel, nameProblem, newAccountLabel, relabelAccount, uuidv7, type AccountOutcome, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountIdentity, type AccountRecord } from "@agent-harness/contracts";
 import { Plus, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -60,6 +60,8 @@ export interface AccountsListProps {
   readonly view: EnvironmentView;
   /** The name typed for the next new account (the Account step's More options); empty or absent for `Claude account`, then its email. */
   readonly label?: string;
+  /** Empties the name typed once an account has taken it. */
+  readonly labelTaken?: () => void;
   readonly inlineSignIn?: boolean;
 }
 
@@ -101,7 +103,7 @@ const SaidLine = ({ said }: { readonly said: AccountOutcome }) => (
  * per account. An account Sign in with Claude added as `Claude account` is
  * renamed to its email once it is signed in, unless it was renamed first.
  */
-export const AccountsList = ({ view, label = "", inlineSignIn = false }: AccountsListProps) => {
+export const AccountsList = ({ view, label = "", labelTaken, inlineSignIn = false }: AccountsListProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const shell = useShell();
@@ -143,16 +145,24 @@ export const AccountsList = ({ view, label = "", inlineSignIn = false }: Account
     }
   }, [runtime, environmentId, accounts, writable]);
 
+  // A name typed that the account cannot have is said here, before the sign-in card, which would ask for another.
   const signInNew = () => {
     const typed = label.trim();
+    const problem = typed === "" ? undefined : nameProblem(typed);
+    if (problem !== undefined) return setSaid({ ok: false, line: problem });
     signIn({ account: null, label: typed === "" ? newAccountLabel(accounts ?? []) : typed });
+    if (typed !== "") labelTaken?.();
+  };
+  const adopted = (outcome: AccountOutcome) => {
+    if (outcome.ok && label.trim() !== "") labelTaken?.();
+    setSaid(outcome);
   };
 
   return (
     <>
       {!ready && <p className="text-sm text-amber">{unreachedLine(runtime, view, accounts !== null)}</p>}
       {ready && admin.status === "absent" && <AccessUnavailable environmentId={view.environmentId} answer={admin}><p data-phone-grant-guidance={shell === undefined || undefined} className="text-sm text-amber">You can look but not change this. {admin.message}{shell === undefined && " Pair again using a Custom code with admin from a trusted client to sign in or change environment settings."}</p></AccessUnavailable>}
-      {ready && <SignInQuestion environmentId={environmentId} computer={computerOf(view)} writable={writable && !held} label={label.trim()} signIn={signInNew} say={setSaid} />}
+      {ready && <SignInQuestion environmentId={environmentId} computer={computerOf(view)} writable={writable} {...(held ? { held: SIGN_IN_HELD } : {})} label={label.trim()} signIn={signInNew} say={adopted} />}
       {accounts !== null && environments.filter(source => source.environmentId !== environmentId && source.enabled).map(source => (
         <AccountsElsewhere key={source.environmentId} source={source} here={accounts} disabled={!writable || held}
           suggest={(suggestion) => signIn({ account: null, suggestion })} />

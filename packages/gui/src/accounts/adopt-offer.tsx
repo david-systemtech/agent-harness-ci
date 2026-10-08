@@ -9,8 +9,10 @@ export interface SignInQuestionProps {
   readonly environmentId: string;
   /** The computer as a line names it: "this computer", or its name. */
   readonly computer: string;
-  /** Whether this client may sign in: the environment reached, with `admin`, and no sign-in card open. */
+  /** Whether this client may sign in: the environment reached, with `admin`. */
   readonly writable: boolean;
+  /** Why the buttons wait while a sign-in card is open: they are disabled, with this line under them. */
+  readonly held?: string;
   /** The name typed for the new account in More options, trimmed; empty for its email (or `Claude account` until signed in). */
   readonly label: string;
   /** Opens the sign-in card on a new account. */
@@ -33,10 +35,11 @@ type Answer = "use" | "sign-in";
  * signed out, a line says so. Sign in with Claude, always there, opens the
  * sign-in card on a new account, with no label form.
  */
-export const SignInQuestion = ({ environmentId, computer, writable, label, signIn, say }: SignInQuestionProps) => {
+export const SignInQuestion = ({ environmentId, computer, writable, held, label, signIn, say }: SignInQuestionProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const heading = useId();
+  const why = useId();
   const probed = runtime.capability(environmentId, "accounts.probe").status === "present";
   const probe = useFollowed(useMemo(() => (probed ? runtime.requests.cached(environmentId, "accounts.probe", {}) : undefined), [runtime, environmentId, probed]))?.result;
   const [answer, setAnswer] = useState<Answer>("use");
@@ -44,6 +47,7 @@ export const SignInQuestion = ({ environmentId, computer, writable, label, signI
   const ambient = ambientSignIn(probe, computer);
   const offer = ambient?.kind === "offer" ? ambient.choice : undefined;
   const using = offer !== undefined && answer === "use";
+  const waits = { disabled: !writable || held !== undefined, ...(held === undefined ? {} : { "aria-describedby": why }) };
 
   const adopt = () => {
     setSending(true);
@@ -67,15 +71,16 @@ export const SignInQuestion = ({ environmentId, computer, writable, label, signI
       )}
       <div className="flex flex-wrap gap-2">
         {using ? (
-          <AccountAction icon={KeyRound} variant="default" disabled={!writable || sending} onClick={adopt}>
+          <AccountAction icon={KeyRound} variant="default" {...waits} disabled={waits.disabled || sending} onClick={adopt}>
             Use this sign-in
           </AccountAction>
         ) : (
-          <AccountAction icon={LogIn} variant="default" disabled={!writable} onClick={signIn}>
+          <AccountAction icon={LogIn} variant="default" {...waits} onClick={signIn}>
             Sign in with Claude
           </AccountAction>
         )}
       </div>
+      {held !== undefined && <p id={why} className="text-2xs text-ink-muted">{held}</p>}
     </section>
   );
 };
