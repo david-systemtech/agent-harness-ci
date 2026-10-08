@@ -368,7 +368,7 @@ describe("the triggers", () => {
     expect(calls()).toEqual([2, 2]);
   });
 
-  it("check, as the registry names them, the steps a cause fixed elsewhere reaches: a forge account change Carry over, Forges, Memory bank, Skills and Instructions, a key manager change Forges, Key manager and Instructions (#1860)", async () => {
+  it("check, as the registry names them, the steps a cause fixed elsewhere reaches: a forge account change Carry over, Forges, Memory bank, Skills and Instructions, but a git rejection not Memory bank, a key manager change Forges, Key manager and Instructions (#1860)", async () => {
     const checks = STEP_REGISTRY.map((step) => ({ id: step.id, holds: answeringCheck() }));
     const t = await start({
       setupSteps: {
@@ -387,6 +387,12 @@ describe("the triggers", () => {
     poke(t, "key-manager.connection.signed-in");
     await advance(t, 1_000);
     expect(checkedSince()).toEqual(["forges", "key-manager", "instructions"]);
+
+    // A git rejection fixes no bank, and an agent's git can record one a second; Memory bank's probe is a git call per bank.
+    checks.forEach(({ holds }, index) => void (counted[index] = holds.calls()));
+    poke(t, "forge.account.git-rejected");
+    await advance(t, 1_000);
+    expect(checkedSince()).toEqual(["carry-over", "forges", "skills", "instructions"]);
   });
 });
 

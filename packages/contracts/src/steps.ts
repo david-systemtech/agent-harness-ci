@@ -521,7 +521,8 @@ export const STEP_REGISTRY = [
     // banks spec's methods, which the banks build registers (#937). Skippable: with no registered bank it answers skipped.
     // Its checks await a verification of every bank, a git probe, and answer from what the records' status says; every
     // bank.* notice re-runs it, and so does every run end of its minted describe session (ADR 0019), whose prompt it
-    // names; every forge.account.* event too, since a bank's repository is reached through a forge account (#1860).
+    // names; and every forge account event that can fix a bank's access, since a bank's repository is reached through a
+    // forge account (#1860): not forge.account.git-rejected, which an agent's git can record a second, each a git probe.
     id: "memory-bank",
     home: "knowledge.banks",
     writes: [],
@@ -551,7 +552,7 @@ export const STEP_REGISTRY = [
     skip: "memory-bank.present",
     budget: "git",
     cadence: { minutes: 60 },
-    triggers: ["bank.*", "forge.account.*"],
+    triggers: ["bank.*", "forge.account.added", "forge.account.updated", "forge.account.verified", "forge.account.primary-set", "forge.account.removed"],
     llm: "describe-bank",
   },
   {

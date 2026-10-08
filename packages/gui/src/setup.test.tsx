@@ -363,7 +363,6 @@ describe("a step's pane", () => {
   });
 });
 
-/** The full checklist opened from the Set up pane on the card of `step`, by its label. */
 describe("the window regaining focus", () => {
   it("checks the step Set up shows again, at most once in ten seconds, and nothing once Set up is closed", async () => {
     const app = await firstLaunch({ capabilities: ["setup"] });
@@ -394,6 +393,7 @@ describe("the window regaining focus", () => {
   });
 });
 
+/** The full checklist opened from the Set up pane on the card of `step`, by its label. */
 const cardOf = async (app: RenderedApp, step: string) => {
   await app.user.click(within(await setupPane(app)).getByRole("button", { name: "Open the full checklist" }));
   await app.user.click(within(steps()).getByRole("button", { name: step }));
