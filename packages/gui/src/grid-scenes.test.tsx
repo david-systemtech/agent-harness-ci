@@ -31,7 +31,7 @@ it("grid-drop reveals the real caption-drag targets with dashed labels", async (
 it("the gallery panes use a complete workspace-check script", async () => {
   const view = render(<GridTwo ladder="light" />);
   try {
-    expect(await screen.findAllByText("Check is off.")).toHaveLength(2);
+    expect(await screen.findAllByText("After-edit check: off")).toHaveLength(2);
     expect(screen.queryByText(/The fake environment has no method/)).toBeNull();
   } finally { view.unmount(); }
 });

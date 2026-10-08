@@ -1,21 +1,23 @@
 import {
   INSTALL_METHOD_WORDS,
+  LOCAL_PLACEHOLDER_ID,
   MANAGED_TOOL_STATUS_WORDS,
   doctorMethodWords,
   noCommandWords,
   requiredWords,
   runTool,
   runWords,
+  terminalCommandWords,
   toolRunWords,
   verifyTool,
   type ActionOutcome,
 } from "@agent-harness/client-runtime";
 import { VerifiableToolName, managedTool, type ManagedToolDetail, type ManagedToolRow, type RunnableToolAction, type ToolRunFinishedPayload } from "@agent-harness/contracts";
-import { ArrowDownToLine, CircleCheck, Info, Terminal } from "lucide-react";
+import { ArrowDownToLine, CircleCheck, Copy, Ellipsis, Info, SquareTerminal, Terminal } from "lucide-react";
 import { useId, useState } from "react";
 import { CopyLine } from "../settings/copy-line.js";
-import { Button, Fact, Tooltip } from "../ui/index.js";
-import { useClock, useRuntime } from "../window-context.js";
+import { Button, Fact, Menu, MenuContent, MenuItem, MenuTrigger, Tooltip } from "../ui/index.js";
+import { useClock, useRuntime, useShell } from "../window-context.js";
 import type { ShownRun } from "./tool-terminal.js";
 
 export interface ToolRowProps {
@@ -37,9 +39,11 @@ export interface ToolRowProps {
  * One tool's row in About's Managed tools (key-managers spec, "Managed
  * tools"; ADR 0026; #426): what the environment's last probe found, its
  * version against its minimum and the latest known, its install method,
- * its status and when it is required, then its one action: Install or
- * Update, which runs `tools.run` and hands the tool terminal it opened to
- * the section, or for a Copy row the vendor's command to copy. Verify runs
+ * its status and when it is required, then its one action: Install,
+ * Update or Run in a terminal pane (#1833), which runs `tools.run` and
+ * hands the tool terminal it opened to the section, the last holding the
+ * vendor's command until Enter there, with the command shown and Copy in
+ * the row's menu; a Copy row (vault) says why there is none. Verify runs
  * the tool's verify command, and claude's Details its doctor beside the
  * method the harness detected. What a verb did, or why it did not, is one
  * line; how the tool's last run ended, and what the verification after it
@@ -47,6 +51,7 @@ export interface ToolRowProps {
  */
 export const ToolRow = ({ environmentId, name, row, writable, readable, finished, started }: ToolRowProps) => {
   const runtime = useRuntime();
+  const shell = useShell();
   const clock = useClock();
   const heading = useId();
   const [said, say] = useState<ActionOutcome | undefined>(undefined);
@@ -57,6 +62,16 @@ export const ToolRow = ({ environmentId, name, row, writable, readable, finished
   const installed = row.status !== "not-installed";
   /** What the row's one action runs; null for a Copy row, which runs nothing. */
   const action: RunnableToolAction | null = row.action === "copy" ? null : row.action;
+  const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
+  const copyCommand = async (command: string) => {
+    say(undefined);
+    try {
+      await clipboard?.writeText(command);
+      say({ ok: true, line: "Copied the vendor's command." });
+    } catch {
+      say({ ok: false, line: "Could not copy. Select the command and copy it instead." });
+    }
+  };
 
   const run = async (action: RunnableToolAction) => {
     say(undefined);
@@ -98,8 +113,18 @@ export const ToolRow = ({ environmentId, name, row, writable, readable, finished
       <div className="flex flex-wrap gap-2">
         {action !== null && (
           <Tooltip content={runWords(row, action)} keys="Enter / Space"><Button variant="secondary" disabled={!writable} onClick={() => void run(action)}>
-            <ArrowDownToLine aria-hidden="true" />{runWords(row, action)}
+            {action === "terminal" ? <SquareTerminal aria-hidden="true" /> : <ArrowDownToLine aria-hidden="true" />}{runWords(row, action)}
           </Button></Tooltip>
+        )}
+        {row.action === "terminal" && row.command !== null && clipboard !== undefined && (
+          <Menu>
+            <Tooltip content={`More for ${row.tool}`} keys="Enter opens; arrows choose">
+              <MenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`More for ${row.tool}`}><Ellipsis aria-hidden="true" /></Button></MenuTrigger>
+            </Tooltip>
+            <MenuContent align="start" aria-label={`More for ${row.tool}`}>
+              <MenuItem onSelect={() => void copyCommand(row.command ?? "")}><Copy aria-hidden="true" />Copy the vendor's command</MenuItem>
+            </MenuContent>
+          </Menu>
         )}
         {verifiable.success && (
           <Tooltip content="Verify tool" keys="Enter / Space"><Button disabled={!writable} onClick={() => void verify(verifiable.data)}>
@@ -112,6 +137,12 @@ export const ToolRow = ({ environmentId, name, row, writable, readable, finished
           </Button></Tooltip>
         )}
       </div>
+      {row.action === "terminal" && row.command !== null && (
+        <section aria-label={`The vendor's command on ${name}`} className="flex flex-col gap-1">
+          <p className="text-sm text-ink-muted">{terminalCommandWords(row)}</p>
+          <pre className="rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs break-all whitespace-pre-wrap text-ink select-all">{row.command}</pre>
+        </section>
+      )}
       {row.action === "copy" &&
         (row.command === null ? (
           <p className="text-sm text-ink-muted">{noCommandWords(row)}</p>

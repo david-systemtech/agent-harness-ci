@@ -55,9 +55,25 @@ export const requiredWords = ({ requiredFor }: Pick<ManagedTool, "requiredFor">)
   }
 };
 
-/** The button a row's Install or Update is: `vault`'s Install installs `bao`, since `vault` is never installed. */
-export const runWords = (row: Pick<ManagedToolRow, "tool">, action: RunnableToolAction): string =>
-  action === "update" ? "Update" : row.tool === "vault" ? "Install bao" : "Install";
+/**
+ * The button a row's action is: Install (`vault`'s installs `bao`, since
+ * `vault` is never installed), Update, or Run in a terminal pane, the
+ * vendor's command held back in a tool terminal until Enter (#1833).
+ */
+export const runWords = (row: Pick<ManagedToolRow, "tool">, action: RunnableToolAction): string => {
+  switch (action) {
+    case "update":
+      return "Update";
+    case "terminal":
+      return "Run in a terminal pane";
+    case "install":
+      return row.tool === "vault" ? "Install bao" : "Install";
+  }
+};
+
+/** What a Run in a terminal pane row says of its command (#1833): it waits for Enter in the tool terminal, and can be copied besides. */
+export const terminalCommandWords = (row: Pick<ManagedToolRow, "label">): string =>
+  `The harness does not update the ${row.label} installed this way by itself: Run in a terminal pane types out the vendor's command, which runs when you press Enter there.`;
 
 /** What a Copy row says where the command table has none for it here: `vault`, which the harness never installs or updates. */
 export const noCommandWords = (row: Pick<ManagedToolRow, "label">): string => `The harness has no command for the ${row.label} here: update it the way it was installed.`;

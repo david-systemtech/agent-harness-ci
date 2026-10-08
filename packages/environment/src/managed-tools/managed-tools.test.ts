@@ -107,8 +107,10 @@ posix("tools.list", () => {
       bws: ["0.2.1", "below-minimum"],
       gh: ["2.63.2", "current"],
     });
+    // Placed by hand: claude, bao and doppler update themselves (#1833); the others run the vendor's command in a terminal pane, and vault none.
+    const actions = { claude: "update", bao: "update", vault: "copy", doppler: "update", op: "terminal", bws: "terminal", gh: "terminal" } as const;
     for (const [name, tool] of Object.entries(tools)) {
-      expect(rowOf(rows, name), name).toMatchObject({ path: tool.onPath, realpath: tool.file, method: "manual", action: "copy" });
+      expect(rowOf(rows, name), name).toMatchObject({ path: tool.onPath, realpath: tool.file, method: "manual", action: actions[name as keyof typeof actions] });
       expect(tool.calls(), name).toEqual([["--version"]]);
     }
   });
@@ -161,7 +163,7 @@ posix("tools.list", () => {
     const answer = list(client);
     await vi.waitFor(() => expect(op.calls()).toEqual([["--version"]]), { timeout: 30_000 });
     t.clock.advance(5_000);
-    expect(rowOf((await answer).tools, "op")).toMatchObject({ path: op.onPath, version: null, status: "below-minimum", action: "copy" });
+    expect(rowOf((await answer).tools, "op")).toMatchObject({ path: op.onPath, version: null, status: "below-minimum", action: "terminal" });
   });
 
   it("is a read method: a client session with the read scope alone may call it", async () => {
@@ -187,11 +189,11 @@ posix("the install method", () => {
     const rows = (await list(client)).tools;
     expect(Object.fromEntries(rows.map((row) => [row.tool, [row.method, row.status, row.action]]))).toEqual({
       claude: ["npm", "current", "update"],
-      bao: ["mise", "current", "copy"],
+      bao: ["mise", "current", "update"],
       vault: ["asdf", "current", "copy"],
       doppler: ["homebrew", "current", "update"],
       op: ["homebrew", "current", "update"],
-      bws: ["scoop", "current", "copy"],
+      bws: ["scoop", "current", "update"],
       gh: ["winget", "current", "update"],
     });
     expect(rowOf(rows, "doppler").realpath).toBe(doppler.file);
@@ -209,7 +211,8 @@ posix("the install method", () => {
       mkdirSync(directory, { recursive: true });
       path.append(directory);
     }
-    // mise's shims are links to mise itself; asdf's are scripts of their own.
+    mkdirSync(join(path.root, ".local/share/mise/installs/doppler"), { recursive: true });
+    // mise's shims are links to mise itself, driven where mise has the tool's own package; asdf's are scripts of their own.
     const miseBinary = fakeToolPath(join(path.root, "mise-itself")).install("mise", { output: "2025.1.0 linux-x64" });
     symlinkSync(miseBinary.file, join(mise, "doppler"));
     fakeToolPath(join(path.root, "asdf-shim")).install("vault", { output: "Vault v1.15.0" });
@@ -219,7 +222,7 @@ posix("the install method", () => {
     const { client } = await withTools(path, { managedTools: { packageOwner: scriptedPackageOwners({ [miseBinary.file]: { manager: "dpkg", package: "mise" } }) } });
 
     const rows = (await list(client)).tools;
-    expect(rowOf(rows, "doppler")).toMatchObject({ path: join(mise, "doppler"), method: "mise", action: "copy" });
+    expect(rowOf(rows, "doppler")).toMatchObject({ path: join(mise, "doppler"), method: "mise", action: "update" });
     expect(rowOf(rows, "vault")).toMatchObject({ path: join(asdf, "vault"), method: "asdf" });
     expect(rowOf(rows, "op")).toMatchObject({ path: join(links, "op"), method: "winget", action: "update" });
   });
@@ -247,13 +250,13 @@ posix("the install method", () => {
     expect(Object.fromEntries(["gh", "op", "bws", "doppler"].map((tool) => [tool, [rowOf(rows, tool).method, rowOf(rows, tool).status, rowOf(rows, tool).action]]))).toEqual({
       gh: ["apt", "current", "update"],
       op: ["dnf", "current", "update"],
-      bws: ["unknown", "method-unknown", "copy"],
-      doppler: ["manual", "current", "copy"],
+      bws: ["unknown", "method-unknown", "terminal"],
+      doppler: ["manual", "current", "update"],
     });
     expect(owners.asked.sort()).toEqual([gh.file, op.file, bws.file, doppler.file].sort());
   });
 
-  it("offers Update only where the closed command table updates the tool installed that way (#376): never vault, nor bws from Homebrew or gh from npm", async () => {
+  it("offers Update where the closed command table updates the tool installed that way (#376), else Run in a terminal pane (#1833): never a command for vault, and bws from Homebrew or gh from npm in a terminal pane", async () => {
     const path = fakePath();
     path.install("vault", { at: "homebrew/Cellar/vault/1.15.0/bin/vault", output: "Vault v1.15.0" });
     path.install("bws", { at: "homebrew/Cellar/bws/1.0.0/bin/bws", output: "bws 1.0.0" });
@@ -264,8 +267,8 @@ posix("the install method", () => {
     const rows = (await list(client)).tools;
     expect(Object.fromEntries(["vault", "bws", "gh", "claude"].map((tool) => [tool, [rowOf(rows, tool).method, rowOf(rows, tool).action]]))).toEqual({
       vault: ["homebrew", "copy"],
-      bws: ["homebrew", "copy"],
-      gh: ["npm", "copy"],
+      bws: ["homebrew", "terminal"],
+      gh: ["npm", "terminal"],
       claude: ["apt", "update"],
     });
   });
@@ -274,7 +277,7 @@ posix("the install method", () => {
     const path = fakePath();
     const bws = path.install("bws", { output: "bws 0.2.1" });
     const { client } = await withTools(path, { managedTools: { packageOwner: scriptedPackageOwners({ [bws.file]: "unknown" }) } });
-    expect(rowOf((await list(client)).tools, "bws")).toMatchObject({ method: "unknown", status: "below-minimum", action: "copy" });
+    expect(rowOf((await list(client)).tools, "bws")).toMatchObject({ method: "unknown", status: "below-minimum", action: "terminal" });
   });
 });
 
