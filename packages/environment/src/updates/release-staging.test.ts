@@ -514,7 +514,8 @@ describe("a target that needs a newer launcher", () => {
       state: "needs-attention",
       failing: ["your-machines.updates"],
       actions: ["update"],
-      reason: "0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.6.0 release to install its launcher.",
+      reason: "Version 0.7.0 needs a newer installer. Reinstall agent-harness from the 0.6.0 download.",
+      details: ["0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.6.0 release to install its launcher."],
     });
   });
 
@@ -693,6 +694,8 @@ describe("the Your machines step's updates check", () => {
     const result = results[0];
     return { failing: result?.failing.filter((id) => id !== "your-machines.release-channel"), actions: result?.actions, reason: result?.reason, details: result?.details };
   };
+  /** Names the environment `name`, which the step's lines name. */
+  const rename = (client: WireClient, name: string) => client.request("environment.rename", { commandId: randomUUID(), name });
   const holds = {
     failing: [],
     actions: [],
@@ -718,17 +721,31 @@ describe("the Your machines step's updates check", () => {
     fake.publish(release("0.4.5"), release("0.5.0"));
     await setUpdates(client, { "updates.autoUpdate": false });
     await check(client);
-    expect(await machines(client)).toEqual({ failing: ["your-machines.updates"], actions: ["update"], reason: "Auto-update is off, and this machine runs 0.4.1, behind the channel's newest, 0.5.0." });
+    expect(await machines(client)).toEqual({
+      failing: ["your-machines.updates"],
+      actions: ["update"],
+      reason: "Version 0.5.0 is available. Choose Update now.",
+      details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: off"],
+    });
     await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": "0.4.5" });
     await check(client);
-    expect((await machines(client)).reason).toBe("Auto-update is off while 0.4.5 is pinned, and this machine runs 0.4.1, behind the channel's newest, 0.5.0.");
+    await rename(client, "Desk");
+    expect(await machines(client)).toMatchObject({
+      reason: `Desk stays on 0.4.5 because it is pinned. 0.5.0 is available.`,
+      details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: pinned to 0.4.5"],
+    });
   });
 
   it("needs attention while the target is blocked, saying what unblocks it", async () => {
     const { fake, client } = await withReleases();
     fake.publish(release("0.7.0", { manifest: { launcherProtocol: 2 } }));
     await check(client);
-    expect(await machines(client)).toEqual({ failing: ["your-machines.updates"], actions: ["update"], reason: expect.stringContaining("run `agent-harness service install` from the 0.7.0 release") as unknown as string });
+    expect(await machines(client)).toEqual({
+      failing: ["your-machines.updates"],
+      actions: ["update"],
+      reason: "Version 0.7.0 needs a newer installer. Reinstall agent-harness from the 0.7.0 download.",
+      details: ["0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.7.0 release to install its launcher."],
+    });
   });
 
   it("needs attention while a failed update leaves the machine below the version it failed to reach", async () => {
@@ -742,7 +759,14 @@ describe("the Your machines step's updates check", () => {
     const record: OutcomeRecord = { updateId, fromVersion: RUNNING, toVersion: "0.5.0", stage: "crash-loop", reason: "exit" };
     writeFileSync(join(dataDir, OUTCOME_RECORD_FILE), `${JSON.stringify(record)}\n`);
     const again = await start(fake, { dataDir, clock: t.clock });
-    expect(await machines(await again.client())).toEqual({ failing: ["your-machines.updates"], actions: ["update"], reason: "The update to 0.5.0 failed, and this machine runs 0.4.1." });
+    const client2 = await again.client();
+    await rename(client2, "Desk");
+    expect(await machines(client2)).toEqual({
+      failing: ["your-machines.updates"],
+      actions: ["update"],
+      reason: "The update to 0.5.0 did not work. Desk still runs 0.4.1. Choose Update now to try again.",
+      details: ["Running: 0.4.1", "Updates that did not work: 0.5.0", "Last update: to 0.5.0, failed at crash-loop: exit"],
+    });
   });
 
   it("needs attention while a pending update is still not through its drain more than the drain's cap past its deferral cap", async () => {
@@ -757,7 +781,8 @@ describe("the Your machines step's updates check", () => {
     expect(await machines(client)).toEqual({
       failing: ["your-machines.updates"],
       actions: ["update"],
-      reason: `The update to 0.5.0 was due at ${at(HOUR)} and has not gone through its drain: it is waiting.`,
+      reason: "The update to 0.5.0 is waiting for running sessions to finish.",
+      details: [`Update due at: ${at(HOUR)}`, "Update state: waiting"],
     });
   });
 });
