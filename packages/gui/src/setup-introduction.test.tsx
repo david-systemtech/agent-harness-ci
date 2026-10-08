@@ -220,7 +220,7 @@ it("asks about the home computer's accounts on close, not the picked computer's"
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{}] }, { name: "laptop", reach: "paired" }] }, { firstLaunch: true });
   await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   const setup = screen.getByRole("region", { name: "Set up" });
-  await app.user.selectOptions(within(setup).getByRole("combobox", { name: "Environment" }), "laptop");
+  await app.user.selectOptions(within(setup).getByRole("combobox", { name: "Setting up" }), "laptop");
   await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
   expect(screen.queryByRole("dialog", { name: "Leave set up without an account?" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
