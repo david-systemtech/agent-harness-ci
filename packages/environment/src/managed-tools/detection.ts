@@ -87,15 +87,28 @@ const SHAPES: readonly (readonly [RegExp, ManagedToolInstallMethod])[] = [
 /** Claude Code's native installer keeps each version as a file in `.../claude/versions/`, which `claude` links to. */
 const CLAUDE_NATIVE = /\/claude\/versions\/[^/]+$/i;
 
+/** A shim directory of Scoop, mise or asdf, whose root (`scoop`, `mise`, `.asdf`) holds the packages' directory too. */
+const SHIM = /^(.*\/(scoop|mise|\.asdf))\/shims\/[^/]+$/i;
+
+/** The manager each shim directory's root belongs to. */
+const SHIM_MANAGERS: Readonly<Record<string, ManagedToolInstallMethod>> = { scoop: "scoop", mise: "mise", ".asdf": "asdf" };
+
+/** The manager whose shim directory `file` is in; null outside one. */
+const shimManager = (file: string): ManagedToolInstallMethod | null => SHIM_MANAGERS[SHIM.exec(file.replaceAll("\\", "/"))?.[2]?.toLowerCase() ?? ""] ?? null;
+
 /**
  * The install method a tool's place says: for `claude`, its native
- * installer's versions directory; then a package manager's directory in its
- * realpath, else in its path on the PATH (a shim of mise or asdf, WinGet's
- * links). Null when neither says, for the package owner to answer.
+ * installer's versions directory; then the manager whose shim directory its
+ * path on the PATH is in, wherever the shim resolves to (#1876: mise's are
+ * links to mise itself, which may be Homebrew's); then a package manager's
+ * directory in its realpath, else in its path (WinGet's links). Null when
+ * none says, for the package owner to answer.
  */
 export const methodFromShape = (tool: ManagedToolName, found: FoundTool): ManagedToolInstallMethod | null => {
   const slashed = (file: string): string => file.replaceAll("\\", "/");
   if (tool === "claude" && CLAUDE_NATIVE.test(slashed(found.realpath))) return "native";
+  const shim = shimManager(found.path);
+  if (shim !== null) return shim;
   for (const file of [found.realpath, found.path]) {
     const shape = SHAPES.find(([pattern]) => pattern.test(slashed(file)));
     if (shape !== undefined) return shape[1];
@@ -129,8 +142,6 @@ export const heldBySystem = (realpath: string): boolean => {
   return SYSTEM_PLACE.some((place) => place.test(slashed));
 };
 
-/** A shim directory of Scoop, mise or asdf, whose root (`scoop`, `mise`, `.asdf`) holds the packages' directory too. */
-const SHIM = /^(.*\/(scoop|mise|\.asdf))\/shims\/[^/]+$/i;
 
 /**
  * Which of `own` (a tool's own package names) a shim of Scoop, mise or asdf
@@ -151,14 +162,16 @@ const shimPackage = (file: string, own: readonly string[]): string | null => {
  * table must not drive it (#1833): a bare binary somewhere a system package
  * manager may own it; for Scoop, mise and asdf, a package other than the
  * tool's own (`npm i -g` into a Node they installed), read from the
- * realpath's package directory, else from the package directories beside
- * a shim, whose upgrade would update that package instead.
+ * package directories beside the shim it was found through, else from the
+ * realpath's package directory (#1876: a mise shim's realpath is mise itself,
+ * which asdf may have installed), whose upgrade would update that package
+ * instead.
  */
 export const drivenUpdate = (entry: ToolCommandEntry, found: FoundTool): ToolCommand | null => {
   if (entry.method === "manual") return heldBySystem(found.realpath) ? null : entry.update;
   if (entry.package === undefined) return entry.update;
   const own = [entry.package, entry.tool];
-  const installedAs = installedPackage(found.realpath) ?? shimPackage(found.path, own) ?? shimPackage(found.realpath, own);
+  const installedAs = shimPackage(found.path, own) ?? installedPackage(found.realpath) ?? shimPackage(found.realpath, own);
   return installedAs !== null && own.includes(installedAs) ? updateCommand(entry, installedAs) : null;
 };
 

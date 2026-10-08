@@ -315,6 +315,26 @@ posix("tools.run's Update", () => {
     expect(commands[2]).not.toMatch(/doppler update/);
   });
 
+  it("updates through mise a tool found through a mise shim when mise itself came from Homebrew or asdf, not through brew (#1876)", async () => {
+    // mise's shims are links to mise itself, here the one Homebrew installed, or the one asdf did.
+    for (const miseAt of ["homebrew/Cellar/mise/2025.1.0", ".asdf/installs/mise/2025.1.0"]) {
+      const path = fakePath();
+      const mise = join(path.root, ".local/share/mise");
+      for (const directory of [join(mise, "shims"), join(mise, "installs/github-cli/2.63.2")]) mkdirSync(directory, { recursive: true });
+      path.append(join(mise, "shims"));
+      const miseItself = fakeToolPath(join(path.root, miseAt)).install("mise", { output: "gh version 2.63.2 (2024-12-05)" });
+      symlinkSync(miseItself.file, join(mise, "shims/gh"));
+      const { client, pty } = await withRunner(path);
+
+      const rows = (await client.request("tools.list", {})).tools;
+      expect(rows.find((row) => row.tool === "gh"), miseAt).toMatchObject({ path: join(mise, "shims/gh"), realpath: miseItself.file, method: "mise", action: "update" });
+      const { command } = await ran(client, { tool: "gh", action: "update" });
+      spawnedAt(pty, 0).exit(0);
+      await expect.poll(async () => (await eventsOf(client, "tool.run-finished")).length).toBe(1);
+      expect(command, miseAt).toBe("mise upgrade github-cli");
+    }
+  });
+
   it("is tool_not_runnable for vault, which the harness never installs or updates, and for a tool not installed, opening nothing", async () => {
     const path = fakePath();
     programs(path, "brew");
