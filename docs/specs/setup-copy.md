@@ -95,9 +95,14 @@ the list is at the end).
 | `{name} has not been reached yet.` | `This app has not reached {name} yet.` + **Try again** |
 | a failed `setup.check` (silent today) | `agent-harness could not run the check. Choose Check again.` Details: the refusal |
 | a failed Start (silent outside the introduction) | `agent-harness did not start on {name}. Choose Start to try again.` Details: the failure |
-| `This client was paired with {env} without the {scope} scope.` (client-runtime/src/capabilities.ts) | `This app has limited access to {env}, so it cannot {verb}. Pair again with full access to change this.` verbs: admin `change settings or sign in accounts`; terminal `use terminals or files`; sessions:write `start sessions`; runs:drive `run agents` |
+| `This client was paired with {env} without the {scope} scope.` (client-runtime/src/capabilities.ts) | `This app has limited access to {env}, so it cannot {verb}. Pair again with full access to change this.` verbs: admin `change settings or sign in accounts`; terminal `use terminals or files`; sessions:write `start sessions`; runs:drive `run agents`; read `see what is on it`. Details: `{scope}` |
 | `{env} does not offer {flag}; a version that does is needed.` | `{env} runs an older agent-harness without this. Update {env} to use it.` Details: `{flag}` |
-| `This client cannot {purpose}: its shell has no {member}.` | `This app cannot {purpose} here.` + the alternative (`Copy the link instead.`) |
+| `This client cannot {purpose}: its shell has no {member}.` | `This app cannot {purpose} here.` + the alternative where there is one (`Copy the link instead.`, `Paste the link instead.`, `Add a token instead.`, `Type the folder's path instead.`, `Select the text and copy it instead.`, `Connect to another computer instead.`). Details: `{member}` |
+| `{env} is newer than this client: update this client.` (client-runtime/src/connections/block-words.ts) | `{env} runs a newer agent-harness than this app. Update this app.` |
+| `{env} is older than this client: update {env} to this client's version.` / `…, and cannot update itself from here.` | `{env} runs an older agent-harness than this app. Update {env}.` / `… Update it on that computer.` |
+| `This client's access to {env} was revoked: pair it again.` / `… expired: …` | `This app's access to {env} was taken away. Pair again.` / `This app's access to {env} has run out. Pair again.` (this computer's own: `Try again.`) |
+| `Stored credentials for {env} could not be read: pair it again.` | `This app cannot read its saved key for {env}. Pair again.` |
+| `The address kept for {env} now reaches another environment.` / `{env} is blocked.` | `The address saved for {env} now reaches a different computer.` / `This app cannot connect to {env}.` |
 | `Read-only: {line}` | `You can look but not change this. {line}` |
 | raw refusals `Not {verb}ed: {message}` | `{Plain line from the refusal mapper}` Details: `{message}`; the mapper (client-runtime) words each error code and reason; unknown ones read `Something went wrong. Choose {verb} to try again.` |
 | text cut at 120 characters by `oneLine` (banks, skills cards) | never cut: the plain line is short and the rest is in Details |
@@ -183,7 +188,9 @@ Words stay: `Leave set up without an account?` / `You can look around, but you w
 - Header chip: `Set up: {n} to fix` (never cut: the chip grows to fit); it opens Set up at the first step that needs a fix.
 - After Check everything again opens Set up on a step, that step's card says `Checked just now.` above its notice, so the jump is explained.
 - Terminal UI `/setup`: header `Set up on {name}: {d} of {m} done, {n} {needs|need} a fix ({steps}).`; the closing line
-  `Press Enter on a step to run its fix, or open Set up in the desktop app.` (was "Run it in the desktop window."); state words as §3.
+  `Press Enter on a step to run its fix, or open Set up in the desktop app.` (was "Run it in the desktop window."); state words as §3,
+  a step's second line after its line on the same row. A refused check: `agent-harness could not check {name}. Run /setup to try again.`
+  and, dim beneath, `Details: {the refusal}` (the terminal has no Check everything again; `/setup` checks again).
 
 ## 5. The steps
 
@@ -406,7 +413,7 @@ quoted from the files named; a builder greps for them.
   `You can follow up to 20 collections.` shows once, above the list, from 15 on.
 - More options › `Add from a link`: `Repository address` **Look for skills** → `Found {n} skill folders:` ticks **Add selected**.
 - Skill members, always-on switches and repository trust are not in Set up (Settings › Skills, link **All skill settings**).
-- Lines: skip `No skills added. Optional.`; done `Your skills are up to date.` (own only: `Your own skills are ready.`);
+- Lines: skip `No skills added. Optional.`; done `Your skills are up to date.` (own only: `Your own skills are ready.`); after Update now `{collection} is up to date.`;
   update failed `{collection} could not update. Choose Update now.`; out of date `{collection} has not updated for over 7 hours. Choose Update now.`;
   moved `{collection} no longer has skills where they were. Choose its folders again.` (card button **Choose folders**);
   too many `You follow {n} collections. The limit is 20. Remove {n-20}.`; own folder `agent-harness cannot open your own skills folder. Check that it exists.` Details.
