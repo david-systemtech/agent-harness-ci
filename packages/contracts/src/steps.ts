@@ -522,7 +522,8 @@ export const STEP_REGISTRY = [
     // Its checks await a verification of every bank, a git probe, and answer from what the records' status says; every
     // bank.* notice re-runs it, and so does every run end of its minted describe session (ADR 0019), whose prompt it
     // names; and every forge account event that can fix a bank's access, since a bank's repository is reached through a
-    // forge account (#1860): not forge.account.git-rejected, which an agent's git can record a second, each a git probe.
+    // forge account (#1860): not forge.account.git-rejected, which an agent's git can record a second, each a git probe,
+    // nor forge.account.capability-learned, which a bank check's own forge reads can record, so it would re-trigger itself.
     id: "memory-bank",
     home: "knowledge.banks",
     writes: [],
