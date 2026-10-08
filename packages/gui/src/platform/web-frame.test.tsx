@@ -61,7 +61,7 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   await screen.findByDisplayValue(link);
   expect(screen.getByRole("note", { name: "Limited access" })).toBeDefined();
   await user.click(screen.getByRole("button", { name: "Pair" }));
-  await user.click(await screen.findByRole("button", { name: "Pair again" }));
+  await user.click(await screen.findByRole("button", { name: "Connect again" }));
   await waitFor(() => expect(screen.queryByRole("heading", { name: "Pair with this environment" })).toBeNull());
 
 

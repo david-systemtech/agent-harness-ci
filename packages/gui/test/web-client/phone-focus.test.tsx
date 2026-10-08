@@ -52,7 +52,7 @@ it.each(["phone", "own-client"] as const)("keeps Tab inside the %s session drawe
       expect(entry.textContent).toContain("Give this phone full access");
       await user.click(entry);
       const upgrade = await screen.findByRole("dialog", { name: "Give this phone full access" });
-      expect(upgrade.textContent).toContain("My own client");
+      expect(upgrade.textContent).toContain("card → Me");
       await user.click(within(upgrade).getByRole("button", { name: "Close" }));
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Give this phone full access" })).toBeNull());
       expect(world.runtime.connections.list.read()).toEqual(pairing);
