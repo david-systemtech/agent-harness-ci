@@ -15,9 +15,22 @@ const section = (step: StepId): string => {
   return rest.slice(0, rest.search(/^#{2,3} /m));
 };
 
-/** §2's "What is this?" sentences, the table's third column. */
-const glossary = copy.slice(copy.indexOf("## 2. Words"), copy.indexOf("## 3. "))
-  .split("\n").filter((line) => line.startsWith("| ")).map((line) => line.split(" | ")[2]?.replace(/\|$/, "").trim() ?? "").filter((cell) => cell.endsWith("."));
+/** §2's "What is this?" sentences by the word they explain: the table's third column by its first. */
+const glossary = new Map(
+  copy.slice(copy.indexOf("## 2. Words"), copy.indexOf("## 3. "))
+    .split("\n").filter((line) => line.startsWith("| ")).map((line) => line.slice(2).split(" | "))
+    .map(([use = "", , sentence = ""]) => [use.trim(), sentence.replace(/\|$/, "").trim()] as const).filter(([, sentence]) => sentence.endsWith(".")),
+);
+
+/** The §2 words each step without a §5 sentence of its own uses, by their row's first cell, and the word its §5 section says. */
+const USES: { readonly [Id in StepId]?: readonly (readonly [row: string, said: string])[] } = {
+  "your-machines": [["this computer / {name}", "this computer"], ["Tailscale", "Tailscale"]],
+  forges: [["forge (code host)", "forge"], ["token", "token"]],
+  "key-manager": [["key manager", "key manager"]],
+  "memory-bank": [["memory bank (notebook)", "notebook"]],
+  skills: [["skill, skill collection", "skill"]],
+  permissions: [["sandbox", "sandbox"], ["always-ask list", "always-ask list"]],
+};
 
 it.each(STEP_ORDER)("gives %s the heading and why line of its §5 section, word for word", (step) => {
   const head = /^- Title `([^`]+)`\.? Why `([^`]+)`/m.exec(section(step));
@@ -27,12 +40,10 @@ it.each(STEP_ORDER)("gives %s the heading and why line of its §5 section, word 
 it.each(STEP_ORDER)("gives %s its §5 \"What is this?\" sentence, else §2's sentences for the words it uses, else none", (step) => {
   const own = /^- What is this\? `([^`]+)`/m.exec(section(step))?.[1];
   const { what } = STEP_WORDS[step];
-  if (own !== undefined) expect(what).toBe(own);
-  else if (what !== undefined) {
-    let left = what;
-    for (const sentence of glossary) left = left.replace(sentence, "");
-    expect(left.trim(), what).toBe("");
-  }
+  if (own !== undefined) return expect(what).toBe(own);
+  const uses = USES[step] ?? [];
+  for (const [, said] of uses) expect(section(step).toLowerCase()).toContain(said.toLowerCase());
+  expect(what).toBe(uses.length === 0 ? undefined : uses.map(([row]) => glossary.get(row)).join(" "));
 });
 
 it("leaves the fold off the steps whose words need no explaining", () => {
