@@ -208,7 +208,7 @@ describe("the Account card's defaults", () => {
     await waitFor(() => expect(desk.settings()["accounts.defaultAccount"]).toBe("account-2"));
     await pickDefault(app, "Model family", "claude-sonnet-5");
     await waitFor(() => expect(desk.settings()["accounts.defaultModelFamily"]).toBe("sonnet"));
-    await pickDefault(app, "Effort", "medium");
+    await pickDefault(app, "Effort", "Medium");
     await waitFor(() => expect(desk.settings()["accounts.defaultEffort"]).toBe("medium"));
     expect(writes(app)).toEqual([{ "accounts.defaultAccount": "account-2" }, { "accounts.defaultModelFamily": "sonnet" }, { "accounts.defaultEffort": "medium" }]);
   });
@@ -221,7 +221,7 @@ describe("the Account card's defaults", () => {
     await waitFor(() => expect(writes(app)).toEqual([{ "accounts.defaultModelFamily": "opus", "accounts.defaultEffort": "high" }]));
     expect(await within(defaults()).findByText("Model family set to opus at high effort, the strongest milo@example.test offers.")).toBeDefined();
     await within(defaults()).findByRole("button", { name: "Model family: Claude Opus 5" });
-    expect(within(defaults()).getByRole("button", { name: "Effort: high" })).toBeDefined();
+    expect(within(defaults()).getByRole("button", { name: "Effort: High" })).toBeDefined();
 
     // Back to unset by hand, then a second account signed in: the card wrote its preset once.
     await pickDefault(app, "Model family", "The account's strongest model");
@@ -244,7 +244,7 @@ describe("the Account card's defaults", () => {
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
     expect(await within(step()).findByText("Adopted milo@example.test on desk.")).toBeDefined();
     await within(step()).findByRole("region", { name: "milo@example.test" });
-    await within(defaults()).findByRole("button", { name: "Effort: medium" });
+    await within(defaults()).findByRole("button", { name: "Effort: Medium" });
     expect(writes(app)).toEqual([]);
   });
 
