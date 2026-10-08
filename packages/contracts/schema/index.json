@@ -1019,6 +1019,10 @@
       "title": "ForgeProblemKind"
     },
     {
+      "path": "forge/details.json",
+      "title": "ForgeDetails"
+    },
+    {
       "path": "forge/problem.json",
       "title": "ForgeProblem"
     },
