@@ -1,4 +1,4 @@
-import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
+import type { BankJoinPreview, CarryOverInventory, EnvironmentBinding, StepId, StepResult } from "@agent-harness/contracts";
 import type { ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
@@ -21,7 +21,13 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | "machines-tailscale" | "machines-unreachable";
+
+/** setup-copy.md §5.4: how desk is reached in the Your machines scenes that answer "Also from my other devices" (#1846); every address is invented. */
+const MACHINES_BINDING: Partial<Record<SetupRegion, EnvironmentBinding>> = {
+  "machines-tailscale": { tailnet: { address: "100.101.102.103", name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: ["192.168.1.20"] },
+  "machines-unreachable": { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: ["192.168.1.20"] },
+};
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
@@ -47,7 +53,8 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" || kind === "machines-tailscale" || kind === "machines-unreachable" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind;
+  const binding = MACHINES_BINDING[kind];
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : kind === "sign-in"
@@ -56,6 +63,7 @@ async function prepareRegion(kind: SetupRegion) {
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
     ...(kind === "rail-states" && { setup: RAIL_STATES }),
+    ...(binding !== undefined && { status: { binding } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   desk.wire.answer("browser.status", () => ({ result: {
@@ -121,6 +129,12 @@ export function setupRegionScene(kind: SetupRegion) {
             signed = true;
             scene.prepared.world.environment("desk").signIn("awaiting-code", { url: SIGN_IN_URL });
           }
+          return;
+        }
+        if (MACHINES_BINDING[kind] !== undefined) {
+          // setup-copy.md §5.4: the question answered "Also from my other devices", as a person answers it.
+          const also = document.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Also from my other devices"]');
+          if (also !== null && also.getAttribute("aria-checked") !== "true") also.click();
           return;
         }
         if (kind === "host-updater") {
