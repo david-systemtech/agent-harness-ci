@@ -78,7 +78,9 @@ the list is at the end).
 - **Details and Copy details.** Details shows the check ids, the environment's raw words (`details` on the result), and when it
   was checked. Copy details copies:
   `agent-harness {app version} on {platform}` / `Computer: {name} (agent-harness {version})` / `Step: {label} ({step id}): {state}` /
-  `Checked: {ISO time}` / `What we saw: {line}` / `Checks: {failing ids}` / `Details: {details, one per line}`.
+  `Checked: {ISO time}` / `What we saw: {line}` / `Checks: {failing ids}` / `Details:` then `{details}`, one per line. A line
+  whose value is not known (no step, no check yet, no failing checks, no details) is left out. Details shows the same lines,
+  so a refused copy leaves them to select.
 - **Patterns** (old → new):
 
 | Old (where) | New |

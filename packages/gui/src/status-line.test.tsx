@@ -77,6 +77,16 @@ describe("the status line", () => {
     expect(line.children).toHaveLength(2); // choices and nonshrinking meters, no second status row
   });
 
+  it("shrinks the account before any chip wraps: it enters the row at a small basis and grows back to its own width", async () => {
+    await opened();
+    const account = within(statusLine()).getByRole("button", { name: /^Account:/ });
+    // A wrapping row breaks its lines at each chip's basis before anything shrinks, so at its full width the account would push the
+    // last chips onto a second line, which a short stacked pane cuts off (look.md §10.5, "Account shrinks first"; #1865). The basis is
+    // 60px, not smaller: where the row wraps anyway, a smaller one packs a chip beside the account and leaves it a single letter.
+    expect(account.parentElement!.className.split(" ")).toEqual(expect.arrayContaining(["flex", "min-w-0", "max-w-max", "grow", "basis-[60px]"]));
+    expect(account.className.split(" ")).toEqual(expect.arrayContaining(["shrink", "min-w-0", "max-w-[240px]"]));
+  });
+
   it("shows the environment's badge, the account's label and identity, model and effort, the mode badge and the containment default marked so", async () => {
     const { env, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts", [], { model: "fable", effort: "high" });
