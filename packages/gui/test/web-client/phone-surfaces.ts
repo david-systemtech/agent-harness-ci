@@ -363,8 +363,8 @@ export async function phonePaneSmoke(page: Page, engine: string, environment: Te
   for (const step of STEP_ORDER) {
     await setup.getByRole("button", { name: "Set up steps", exact: true }).click();
     await page.getByRole("dialog", { name: "Set up steps", exact: true }).getByRole("button", { name: STEP_LABELS[step], exact: true }).click();
-    await expect(setup.getByRole("heading", { name: STEP_LABELS[step], level: 2, exact: true })).toBeVisible();
-    await reachable(page, setup.getByRole("button", { name: step === "appearance" ? "Finish" : "Continue", exact: true }));
+    await expect(setup.getByRole("region", { name: STEP_LABELS[step], exact: true })).toBeVisible();
+    await reachable(page, setup.getByRole("button", { name: step === "appearance" ? "Finish set up" : "Continue", exact: true }));
     await noOverflow(page);
   }
   await observer.close();
