@@ -116,7 +116,7 @@ describe("the forges section", () => {
 
     expect(after).not.toBe(before);
     expect(after).toContain(
-      `- home: ${hostOf(forge)} (Forgejo), login david: credential rejected since 2026-09-24 00:07 UTC. The forge at ${forge.origin} refused the token (HTTP 401).`,
+      `- home: ${hostOf(forge)} (Forgejo), login david: credential rejected since 2026-09-24 00:07 UTC. ${hostOf(forge)} did not accept the token for david. Create a new token and add it.`,
     );
     const processes = t.adapter.processesOf(session.id);
     expect(processes).toHaveLength(2);
@@ -305,7 +305,7 @@ describe("the forges section", () => {
           [
             `- home: ${hostOf(forge)} (Forgejo), login david: verified, unchanged since 2026-09-24 00:00 UTC.`,
             "- github: GitHub, login david: verified, unchanged since 2026-09-24 00:00 UTC.",
-            "- copy: git.example (Forgejo), login not known yet: needs a credential since 2026-09-24 00:00 UTC. This forge account has no credential on this environment: give it one in Set up, Forges.",
+            "- copy: git.example (Forgejo), login not known yet: needs a credential since 2026-09-24 00:00 UTC. git.example has no token yet. Add one.",
           ].join("\n"),
           `Your primary forge is ${hostOf(forge)} (Forgejo); GitHub and git.example (Forgejo) are also connected. Repositories go to the primary forge unless the user names another.`,
           "This run is given no forge variables or git credential: credential injection is denied for it by the account claude-max. ssh uses the user's own keys.",

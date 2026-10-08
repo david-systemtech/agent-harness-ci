@@ -218,8 +218,8 @@ describe("an origin no forge account covers", () => {
       outcome: "refused",
       error: {
         code: "forge_account_missing",
-        message: `No forge account on this environment covers ${forge.origin}, and it refused an anonymous read (HTTP 404): add one in Set up, Forges.`,
-        data: { origin: forge.origin, step: "forges" },
+        message: `agent-harness needed a forge for ${forge.origin.replace("http://", "")} and found none. Add ${forge.origin.replace("http://", "")}.`,
+        data: { origin: forge.origin, step: "forges", details: [`${forge.origin}: it refused an anonymous read (HTTP 404)`] },
       },
     });
     expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "read the release channel", recordedAt: MANUAL_CLOCK_START }]);
@@ -230,7 +230,73 @@ describe("an origin no forge account covers", () => {
       error: { code: "forge_account_missing", data: { origin: forge.origin, step: "forges" } },
     });
     expect(forge.requests).toHaveLength(requests);
-    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["forge.origin-missing", { origin: forge.origin, operation: "read the release channel" }]]);
+    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["forge.origin-missing", { origin: forge.origin, operation: "read the release channel", repository: "david/bank" }]]);
+  });
+
+  it("clears an origin's missing record once the operation refused there reads it anonymously, as forge.origin-answered, and keeps it for another operation's read", async () => {
+    const forge = await fakeForge();
+    const t = await start({ forgeFetch: forge.fetch });
+    const client = await t.client();
+    forge.answer(null, "GET /api/v3/repos/someone/tool/releases", { status: 403, body: { message: "Forbidden" } });
+    forge.answer(null, "GET /api/v3/repos/someone/tool", { status: 200, body: repositoryBody(forge, "someone/tool", false) });
+    const from = t.env.log.head();
+    const channel = () => t.env.forge.releases.list({ origin: forge.origin, kind: "github", repository: "someone/tool", limit: 5, purpose: "read the release channel" });
+
+    expect(await channel()).toMatchObject({ outcome: "refused", error: { code: "forge_account_missing" } });
+    expect(await t.env.forge.repositories.get({ origin: forge.origin, kind: "github", repository: "someone/tool", purpose: "read a skill source" })).toMatchObject({ outcome: "done" });
+    expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "read the release channel", recordedAt: MANUAL_CLOCK_START }]);
+
+    forge.answer(null, "GET /api/v3/repos/someone/tool/releases", { status: 200, body: [] });
+    t.clock.advance(6 * 60 * 60_000);
+    expect(await channel()).toMatchObject({ outcome: "done", value: [] });
+    expect(await channel()).toMatchObject({ outcome: "done" });
+    expect(t.env.forge.missingOrigins()).toEqual([]);
+    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([
+      ["forge.origin-missing", { origin: forge.origin, operation: "read the release channel", repository: "someone/tool" }],
+      ["forge.origin-answered", { origin: forge.origin, operation: "read the release channel", repository: "someone/tool" }],
+    ]);
+
+    // Cleared, the next refusal there records the origin again at once, not a day after the last record.
+    forge.answer(null, "GET /api/v3/repos/someone/tool/releases", { status: 404, body: { message: "Not Found" } });
+    expect(await channel()).toMatchObject({ outcome: "refused", error: { code: "forge_account_missing" } });
+    expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "read the release channel", recordedAt: "2026-09-24T06:00:00.000Z" }]);
+  });
+
+  it("keeps an origin's missing record while the same operation reads only another repository there, so a private and a public repository under one purpose do not clear it", async () => {
+    const forge = await fakeForge();
+    const t = await start({ forgeFetch: forge.fetch });
+    const client = await t.client();
+    forge.answer(null, "GET /api/v3/repos/david/bank", { status: 404, body: { message: "Not Found" } });
+    forge.answer(null, "GET /api/v3/repos/david/notes", { status: 200, body: repositoryBody(forge, "david/notes", false) });
+    const from = t.env.log.head();
+    const verify = (repository: string) => t.env.forge.repositories.get({ origin: forge.origin, kind: "github", repository, purpose: "verify a memory bank" });
+
+    expect(await verify("david/bank")).toMatchObject({ outcome: "refused", error: { code: "forge_account_missing" } });
+    expect(await verify("david/notes")).toMatchObject({ outcome: "done" });
+    t.clock.advance(30 * 60_000);
+    expect(await verify("david/bank")).toMatchObject({ outcome: "refused" });
+    expect(await verify("david/notes")).toMatchObject({ outcome: "done" });
+
+    expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "verify a memory bank", recordedAt: MANUAL_CLOCK_START }]);
+    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([
+      ["forge.origin-missing", { origin: forge.origin, operation: "verify a memory bank", repository: "david/bank" }],
+    ]);
+  });
+
+  it("answers a 403 whose body says GitHub's rate limit, with no rate-limit header, unreachable, recording nothing", async () => {
+    const forge = await fakeForge();
+    const t = await start({ forgeFetch: forge.fetch });
+    const channel = () => t.env.forge.releases.list({ origin: forge.origin, kind: "github", repository: "someone/tool", limit: 5, purpose: "read the release channel" });
+
+    for (const message of [
+      "API rate limit exceeded for 192.0.2.1. (But here's the good news: Authenticated requests get a higher rate limit.)",
+      "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "You have triggered an abuse detection mechanism. Please wait a few minutes before you try again.",
+    ]) {
+      forge.answer(null, "GET /api/v3/repos/someone/tool/releases", { status: 403, body: { message, documentation_url: "https://docs.github.com/rest" } });
+      expect(await channel()).toEqual({ outcome: "unreachable", status: 403, message: `The forge at ${forge.origin} is rate-limiting anonymous reads (HTTP 403).` });
+    }
+    expect(t.env.forge.missingOrigins()).toEqual([]);
   });
 
   it("reads an Enterprise origin answering the meta route on /api/v3, detecting its kind once for the process", async () => {
@@ -277,8 +343,8 @@ describe("an origin no forge account covers", () => {
       outcome: "refused",
       error: {
         code: "forge_account_missing",
-        message: `No forge account on this environment covers ${walled.origin}, and it refused an anonymous read (HTTP 401): add one in Set up, Forges.`,
-        data: { origin: walled.origin, step: "forges" },
+        message: `agent-harness needed a forge for ${walled.origin.replace("http://", "")} and found none. Add ${walled.origin.replace("http://", "")}.`,
+        data: { origin: walled.origin, step: "forges", details: [`${walled.origin}: it refused an anonymous read (HTTP 401)`] },
       },
     });
     expect(await read(gitlab.origin)).toMatchObject({ outcome: "refused", error: { code: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } } });
@@ -538,7 +604,7 @@ describe("a forge account's credential", () => {
 
     expect(await t.env.forge.repositories.get({ origin: copy.origin, repository: "david/bank", purpose: "check a bank" })).toEqual({
       outcome: "refused",
-      error: { code: "credential_unavailable", message: expect.stringContaining("Set up, Forges"), data: { origin: copy.origin } },
+      error: { code: "credential_unavailable", message: `${copy.origin.replace("http://", "")} has no token yet. Add one.`, data: { origin: copy.origin } },
     });
     expect(copy.requests).toHaveLength(requests);
 

@@ -1019,6 +1019,10 @@
       "title": "ForgeProblemKind"
     },
     {
+      "path": "forge/details.json",
+      "title": "ForgeDetails"
+    },
+    {
       "path": "forge/problem.json",
       "title": "ForgeProblem"
     },
@@ -1085,6 +1089,10 @@
     {
       "path": "forge/events/forge.origin-missing.json",
       "title": "ForgeOriginMissingPayload"
+    },
+    {
+      "path": "forge/events/forge.origin-answered.json",
+      "title": "ForgeOriginAnsweredPayload"
     },
     {
       "path": "key-managers/provider.json",

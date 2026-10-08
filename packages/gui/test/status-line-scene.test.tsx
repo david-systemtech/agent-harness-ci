@@ -26,6 +26,20 @@ it.each(["light", "dark"] as const)("shows status chips with 20/80/95 percent us
   for (const check of checks) expect(container.querySelector(check.selector)).not.toBeNull();
 });
 
+it("shows the run's spend beside a docked side pane and measures that it reads whole, so a narrow column that cuts it fails the geometry", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "status-line-docked", "dark");
+  close = gallery.close;
+  const line = await screen.findByRole("region", { name: "Status line" });
+  await waitFor(() => expect(within(line).getByLabelText("Run status").textContent).toBe("73k tok · $0.030"));
+  const checks = JSON.parse(container.dataset["galleryGeometry"] ?? "[]") as { selector: string; contentFits?: boolean; visibleWithin?: string }[];
+  const spend = checks.find((check) => check.selector.endsWith('[aria-label="Run status"]'));
+  expect(spend).toMatchObject({ contentFits: true, visibleWithin: "[data-grid-card]" });
+  expect(container.querySelector(spend!.selector)?.closest(spend!.visibleWithin!)).not.toBeNull();
+  expect(container.querySelector('[data-dock-rail]')).not.toBeNull();
+});
+
 it("holds every status-line chip and ring inside its pane, so a wrapped line the pane edge cuts off fails the geometry", async () => {
   const container = document.createElement("div");
   document.body.append(container);

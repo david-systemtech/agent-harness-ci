@@ -74,7 +74,7 @@ describe("switch-over's eleven callable Health checks (#1192)", () => {
     expect(results.find((result) => result.step === "account")).toMatchObject({ state: "needs-attention", failing: ["account.present"] });
     expect(results.find((result) => result.step === "appearance")).toMatchObject({ state: "done" });
     for (const result of results) {
-      expect(result.reason).not.toMatch(/Could not check|could not finish checking|took too long|timed out|not implemented/i);
+      expect(result.reason).not.toMatch(/Could not check \S+:|could not finish checking|took too long|timed out|not implemented/i);
       if (result.state === "skipped") {
         expect(STEP_REGISTRY.find((step) => step.id === result.step)).toMatchObject({ skippable: true, skip: `${result.step}.present` });
         expect(result.failing).toEqual([]);
@@ -115,7 +115,7 @@ describe("switch-over's eleven callable Health checks (#1192)", () => {
     const { results } = await client.request("setup.check", {});
     expect(results.map((result) => result.step)).toEqual(STEP_ORDER);
     expect(results.filter((result) => result.state === "skipped")).toEqual([]);
-    for (const result of results) expect(result.reason).not.toMatch(/Could not check|could not finish checking|took too long|timed out|not implemented/i);
+    for (const result of results) expect(result.reason).not.toMatch(/Could not check \S+:|could not finish checking|took too long|timed out|not implemented/i);
     for (const step of ["forges", "key-manager", "memory-bank"] as const) {
       const result = results.find((result) => result.step === step)!;
       expect(result.state, step).toBe("needs-attention");

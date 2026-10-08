@@ -205,17 +205,16 @@ const useSessionName = (environmentId: string, sessionId: string): string => {
   return projection.summary?.title ?? "this session";
 };
 
-interface AccountPickerProps {
+interface RunPickerProps {
   readonly environmentId: string;
   readonly sessionId: string;
   readonly accountId: string | null;
-}
-interface ModelPickerProps extends AccountPickerProps {
+  /** The model and effort the status line shows: both chips open the columns on this one, so they mark the same row (#1896). */
   readonly model: RunChoice | undefined;
 }
 
 /** Both account and model chips expose the same runtime-owned dependencies. */
-export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, initialStage, close, compact = false }: ModelPickerProps & { readonly initialStage: "Accounts" | "Models"; readonly close: () => void; readonly compact?: boolean }) => {
+export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, initialStage, close, compact = false }: RunPickerProps & { readonly initialStage: "Accounts" | "Models"; readonly close: () => void; readonly compact?: boolean }) => {
   const runtime = useRuntime();
   const environments = useObservable(runtime.projections.environments);
   const environment = environments.find((view) => view.environmentId === environmentId);
@@ -299,7 +298,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
         {accounts.value === null ? <Waiting>{accounts.error ? `The accounts could not be read: ${accounts.error.message}` : "Reading the accounts…"}</Waiting> : <>
           {accounts.value.length === 0 && <Waiting>No accounts yet. Add an account to sign in.</Waiting>}
           {accounts.value.map((candidate) => <RunChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
-            label={`${candidate.label} ${identityWords(candidate)}`} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
+            label={`${candidate.label} ${identityWords(candidate)}`} primary={candidate.label} identity={identityWords(candidate)} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
             note={[ACCOUNT_STATUS_WORDS[candidate.status.state], candidate.id === accountId ? "this session" : candidate.status.state === "signed-in" ? "Fork onto this account" : "Sign in", candidate.provider].join(" · ")}
             usage={<UsageRings gauge={gaugeOf(usage.gauges, environmentId, candidate.id)} />} onSelect={() => pickAccount(candidate)} />)}
         </>}
@@ -351,24 +350,21 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
 };
 
 /** A session never moves environment; choosing another account invokes the runtime's fork. */
-export const AccountPicker = ({ environmentId, sessionId, accountId }: AccountPickerProps) => {
+export const AccountPicker = ({ environmentId, sessionId, accountId, model }: RunPickerProps) => {
   const runtime = useRuntime();
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
-  const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const [choice] = useModelChoice(environmentId, sessionId);
   const names = useObservable(useMemo(() => runtime.projections.accountNames(environmentId), [runtime, environmentId]));
   const account = accounts.value?.find((candidate) => candidate.id === accountId);
   // Until the environment lists the account, the name this window last saw of it, else that it was never read: never its id.
   const kept = accountId === null ? undefined : names.names[accountId];
   const value = accountId === null ? "default account" : account !== undefined ? `${account.label} ${identityWords(account)}` : kept !== undefined ? `${kept} · last seen` : UNREAD_ACCOUNT;
-  const model = choice ?? (projection.summary?.model ? { model: projection.summary.model, effort: null } : undefined);
   return <PickerButton name="Account" command="account" value={value} offer={useOffer(environmentId, "accounts.list")} columns
     items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={model} initialStage="Accounts" close={close} />}>
     <span className="truncate">{value}</span>
   </PickerButton>;
 };
 
-export const ModelPicker = ({ environmentId, sessionId, accountId, model }: ModelPickerProps) => {
+export const ModelPicker = ({ environmentId, sessionId, accountId, model }: RunPickerProps) => {
   const runtime = useRuntime();
   const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
   const [choice] = useModelChoice(environmentId, sessionId);

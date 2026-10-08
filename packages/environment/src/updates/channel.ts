@@ -125,10 +125,12 @@ export interface StageableRelease extends DownloadableAsset {
   readonly image: ReleaseImage;
 }
 
-/** Why a target cannot be reached by itself: its reason, the target, and what unblocks it, for people. */
+/** Why a target cannot be reached by itself: its reason, the target, the release whose installer unblocks it, and the launcher's words for it. */
 export interface ChannelBlock {
   readonly reason: UpdateBlockedReason;
   readonly toVersion: string;
+  /** The release whose `service install` brings the launcher the target needs: the target's, or the running version's own newer launcher. */
+  readonly installVersion: string;
   readonly message: string;
 }
 
@@ -420,7 +422,7 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     if (ownLauncherProtocol > launcherProtocol && context.failedHandoverVersion !== harnessVersion) return reading({ target });
     const installVersion = ownLauncherProtocol > launcherProtocol ? harnessVersion : target.version;
     const message = launcherMessage(target.version, release.launcherProtocol, launcherProtocol, installVersion);
-    return reading({ target, blocked: { reason: "launcher", toVersion: target.version, message } });
+    return reading({ target, blocked: { reason: "launcher", toVersion: target.version, installVersion, message } });
   };
 
   /** The release `updates.apply` asks for, by `asked` or the newest on `channel`, among the releases `listed`; or why it cannot be. */

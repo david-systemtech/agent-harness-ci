@@ -111,7 +111,7 @@ describe("forge.detect", () => {
 
     expect(await refusal(detect(client, `${gitlab.origin}/group/project`))).toEqual({ code: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } });
     expect(await refusal(detect(client, nothing.origin))).toEqual({ code: "not_a_forge", data: { origin: nothing.origin } });
-    expect(await refusal(detect(client, nowhere))).toEqual({ code: "unreachable", data: { origin: nowhere } });
+    expect(await refusal(detect(client, nowhere))).toEqual({ code: "unreachable", data: { origin: nowhere, details: [expect.stringMatching(/^The forge at http:\/\/127\.0\.0\.1:\d+ could not be reached: /)] } });
     expect(await refusal(detect(client, "/work/agent-harness"))).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["url"] })] } });
   });
 
@@ -138,7 +138,7 @@ describe("forge.accounts.add without a kind", () => {
     expect(forge.requests).toEqual([asked("/api/forgejo/v1/version"), asked("/api/v1/version"), { method: "GET", path: "/api/v1/user", scheme: "token" }]);
   });
 
-  it("refuses a detected GitLab kind_unsupported, and an address answering as no forge or not at all, never sending the token and storing nothing", async () => {
+  it("refuses a detected GitLab kind_unsupported, and an address answering as no forge or not at all, in setup-copy.md §5.6's words with what failed in details, never sending the token and storing nothing", async () => {
     const t = await start();
     const client = await t.client();
     const gitlab = await fakeForge();
@@ -147,9 +147,18 @@ describe("forge.accounts.add without a kind", () => {
     const nowhere = await unreachableOrigin(onCleanup);
     const from = t.env.log.head();
 
-    expect(rejection((await add(client, { url: gitlab.origin })).receipt)).toMatchObject({ reason: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } });
-    expect(rejection((await add(client, { url: nothing.origin })).receipt)).toMatchObject({ reason: "not_a_forge", data: { origin: nothing.origin } });
-    expect(rejection((await add(client, { url: nowhere })).receipt)).toMatchObject({ reason: "unreachable", data: { origin: nowhere } });
+    expect(rejection((await add(client, { url: gitlab.origin })).receipt)).toEqual({ reason: "kind_unsupported", message: "GitLab is not supported yet.", data: { origin: gitlab.origin, kind: "gitlab" } });
+    expect(rejection((await add(client, { url: nothing.origin })).receipt)).toEqual({
+      reason: "not_a_forge",
+      message: "agent-harness does not recognise this site. Choose what it runs.",
+      data: { origin: nothing.origin },
+    });
+    const host = nowhere.replace("http://", "");
+    expect(rejection((await add(client, { url: nowhere })).receipt)).toEqual({
+      reason: "unreachable",
+      message: `agent-harness could not reach ${host}. Check the address and the internet connection.`,
+      data: { origin: nowhere, details: [expect.stringMatching(/^The forge at http:\/\/127\.0\.0\.1:\d+ could not be reached: /)] },
+    });
 
     for (const forge of [gitlab, nothing]) expect(forge.requests.filter((request) => request.scheme !== null)).toEqual([]);
     expect(await list(client)).toEqual([]);

@@ -223,6 +223,12 @@ export const ForgeProblemKind = z.enum(FORGE_PROBLEM_KINDS).meta({
 });
 export type ForgeProblemKind = z.infer<typeof ForgeProblemKind>;
 
+/** The raw facts behind a forge's plain line (setup-copy.md §3, §5.6): what the forge or a tool answered, statuses, user ids and exact times, each one line. */
+export const ForgeDetails = z
+  .array(z.string().min(1).regex(/^[^\r\n]*$/))
+  .meta({ description: "The raw facts behind the plain line, which a client shows under Details and copies with Copy details, never in the line itself: what the forge or a tool answered, HTTP statuses, user ids and exact times, each one line." });
+export type ForgeDetails = z.infer<typeof ForgeDetails>;
+
 export const ForgeProblem = z
   .object({
     kind: ForgeProblemKind,
@@ -231,9 +237,10 @@ export const ForgeProblem = z
       .string()
       .min(1)
       .regex(/^[^\n]*$/)
-      .meta({ description: "One line for people: what is wrong and what to do." }),
+      .meta({ description: "One plain line for people: what is wrong and what to do. It holds no HTTP status, user id or exact time: those are in details." }),
+    details: ForgeDetails.optional().meta({ description: "The raw facts behind the line; absent when there are none, and on a problem recorded before details were." }),
   })
-  .meta({ description: "A forge account's problem: which, since when, and one line saying what to do." });
+  .meta({ description: "A forge account's problem: which, since when, one plain line saying what to do, and the raw facts behind it." });
 export type ForgeProblem = z.infer<typeof ForgeProblem>;
 
 export const FORGE_TOKEN_KINDS = ["classic", "fine-grained", "oauth", "unknown"] as const;
@@ -375,9 +382,19 @@ export const ForgeOriginMissingPayload = z
   .object({
     origin: ForgeOrigin.meta({ description: "The origin no forge account covers." }),
     operation: z.string().min(1).meta({ description: "What the harness was doing there when it was refused, in a few words." }),
+    repository: z.string().min(1).optional().meta({ description: "The repository the operation was refused, `owner/name`; absent when it named none." }),
   })
   .meta({ description: "forge.origin-missing: a harness operation was refused on an origin no forge account covers; recorded at most daily per origin." });
 export type ForgeOriginMissingPayload = z.infer<typeof ForgeOriginMissingPayload>;
+
+export const ForgeOriginAnsweredPayload = z
+  .object({
+    origin: ForgeOrigin.meta({ description: "The origin recorded as missing, which answered an anonymous read." }),
+    operation: z.string().min(1).meta({ description: "The operation its last record names, which the forge has now answered." }),
+    repository: z.string().min(1).meta({ description: "The repository its last record names, `owner/name`, which that operation has now read." }),
+  })
+  .meta({ description: "forge.origin-answered: the operation a missing origin was last recorded for read the repository it was refused anonymously after all, so the record counts no more." });
+export type ForgeOriginAnsweredPayload = z.infer<typeof ForgeOriginAnsweredPayload>;
 
 /**
  * The forge's events, on the environment stream (ADR 0020) so that
@@ -393,4 +410,5 @@ export const FORGE_EVENT_PAYLOADS = {
   "forge.account.git-rejected": ForgeAccountGitRejectedPayload,
   "forge.account.removed": ForgeAccountRemovedPayload,
   "forge.origin-missing": ForgeOriginMissingPayload,
+  "forge.origin-answered": ForgeOriginAnsweredPayload,
 } as const;

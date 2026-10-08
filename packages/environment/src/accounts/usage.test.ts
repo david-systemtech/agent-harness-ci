@@ -146,6 +146,35 @@ describe("accounts.usage", () => {
     expect(readsOf(adapter, "work")).toBe(1);
   });
 
+  it.each([
+    ["answers", (account: Parameters<UsageScript>[0], now: Date) => presetUsage(account, now)],
+    [
+      "fails",
+      () => {
+        throw new Error("The provider process was stopped.");
+      },
+    ],
+  ])("ends a read still in flight when the environment stops quietly, when the held read %s after the stop", async (_, settle) => {
+    const held = gate();
+    const { adapter, client, t } = await start({
+      usage: async (account, now) => {
+        await held.opened;
+        return settle(account, now);
+      },
+    });
+    const asked = client.request("accounts.usage", {});
+    asked.catch(() => undefined);
+    await vi.waitFor(() => expect(adapter.usageReads).toHaveLength(ACCOUNTS.length));
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => reported.mockRestore());
+    await t.close();
+
+    held.open();
+    // The reads' remaining steps are promise continuations: one turn of the event loop runs them all.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(reported.mock.calls.filter(([said]) => /plan usage/i.test(String(said)))).toEqual([]);
+  });
+
   it("keeps a reading for six minutes from when the provider was read, and reads again after", async () => {
     const { adapter, client, clock } = await start();
     const first = await reading(client, "work");

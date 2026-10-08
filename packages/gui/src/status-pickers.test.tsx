@@ -192,6 +192,18 @@ describe("the model picker", () => {
     expect(within(statusLine()).getByRole("button", { name: /^Model:/ })).toBe(document.activeElement);
   });
 
+  it("marks the effort the status line shows as this session's from either chip, when the effort came from the default (ticket 1896)", async () => {
+    const { app, env, session } = await opened([desk({ models })]);
+    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    env.endRun(session, runId);
+    await within(statusLine()).findByRole("button", { name: "Model: Opus - High" });
+    const marked = (menu: HTMLElement) =>
+      within(within(menu).getByRole("group", { name: "Effort" })).getAllByRole("menuitem").filter((item) => item.textContent?.includes("this session")).map((item) => item.getAttribute("aria-label"));
+    expect(marked(await openPicker(app, "Account"))).toEqual(["High"]);
+    await app.user.keyboard("{Escape}");
+    expect(marked(await openPicker(app, "Model"))).toEqual(["High"]);
+  });
+
   it("moves within a column and tabs between columns, with permission and browser submenus", async () => {
     const { app } = await opened([desk({ models })]);
     const menu = await openPicker(app, "Model");
@@ -443,9 +455,10 @@ describe("the account picker", () => {
     const work = within(menu).getByRole("menuitem", { name: /^work/ });
     const personal = within(menu).getByRole("menuitem", { name: /^personal/ });
     const spare = within(menu).getByRole("menuitem", { name: /^spare/ });
-    // The words are gone from the row: the rings draw them, and the tooltip says them.
-    expect(work.textContent).toBe("work milo@work.testsigned in · this session · claude");
-    expect(personal.textContent).toBe("personal milo@home.testsign-in expired · Sign in · claude");
+    // The words are gone from the row: the rings draw them, and the tooltip says them. The email is a line of its own (#1895).
+    expect(work.textContent).toBe("workmilo@work.testsigned in · this session · claude");
+    expect(personal.textContent).toBe("personalmilo@home.testsign-in expired · Sign in · claude");
+    expect([work, personal].map((row) => row.querySelector("[data-run-identity]")?.textContent)).toEqual(["milo@work.test", "milo@home.test"]);
     const rings = (row: HTMLElement) => within(row).queryAllByRole("img").map((ring) => [ring.getAttribute("aria-label"), ring.getAttribute("class")?.match(/text-(mint|amber|signal)/)?.[1]]);
     expect(rings(work)).toEqual([["5-hour 42%", "mint"], ["Weekly 80%", "amber"]]);
     expect(rings(spare)).toEqual([["5-hour 95%", "signal"]]);
@@ -525,6 +538,17 @@ describe("the hand-off offer and picker", () => {
     await waitFor(() => expect(within(statusLine()).queryByText(out.message as string)).toBeNull());
     env.endRun(session, runId);
     expect(await within(statusLine()).findByText(out.message as string)).toBeTruthy();
+  });
+
+  it("wraps the hand-off offer whole onto the status line's next row rather than squeezing it into what the chips leave, its sentence in its tooltip", async () => {
+    await opened([desk({ recommendation: out })]);
+    const sentence = await within(statusLine()).findByText(out.message as string);
+    // A basis of 0 never moves to the next line of a wrapping row (look.md §10.5, whole-chip wrap; #1892).
+    const offer = sentence.parentElement!;
+    expect(offer.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "max-w-full"]));
+    expect(offer.className.split(" ")).not.toContain("flex-1");
+    expect(sentence.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "truncate"]));
+    expect(sentence.getAttribute("title")).toBe(out.message);
   });
 
   it("keeps the hand-off open and refuses duplicates and dismissal until the environment answers", async () => {

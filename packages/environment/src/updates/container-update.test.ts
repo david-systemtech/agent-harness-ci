@@ -161,7 +161,8 @@ describe("the ready update", () => {
     t.clock.advance(1);
     const result = await updatesCheck();
     expect(result?.failing).toContain("your-machines.updates");
-    expect(result?.reason).toContain(`The update to ${TARGET} was due at ${at(24 * HOUR)} and the host-side updater has not begun it.`);
+    expect(result?.reason).toContain(`The update to ${TARGET} has not started. Check the updater on the host computer.`);
+    expect(result?.details).toEqual(expect.arrayContaining([`Update due at: ${at(24 * HOUR)}`]));
   });
 
   it("is still pending with its image after a restart on the same data directory", async () => {
@@ -602,9 +603,9 @@ describe("the host-side updater's poll", () => {
     const { t, client } = await container();
     const hostUpdaterCheck = async () => {
       const [result] = (await client.request("setup.check", { step: "your-machines" })).results;
-      return { failing: result?.failing.includes("your-machines.host-updater"), actions: result?.actions, reason: result?.reason, times: result?.times };
+      return { failing: result?.failing.includes("your-machines.host-updater"), actions: result?.actions, reason: result?.reason, times: result?.times, details: result?.details };
     };
-    expect(await hostUpdaterCheck()).toMatchObject({ failing: true, actions: expect.arrayContaining(["check-again"]), reason: expect.stringContaining("The host-side updater has not polled") });
+    expect(await hostUpdaterCheck()).toMatchObject({ failing: true, actions: expect.arrayContaining(["check-again"]), reason: expect.stringContaining("This container is not kept up to date yet. Set up the updater on the host computer.") });
 
     await client.request("updates.status", { hostUpdater: true });
     expect(await hostUpdaterCheck()).toMatchObject({ failing: false });
@@ -614,8 +615,9 @@ describe("the host-side updater's poll", () => {
     // The poll's time is data a client words its own way; the reason says it to the minute, in UTC, for a reader that does not (#1742).
     expect(await hostUpdaterCheck()).toMatchObject({
       failing: true,
-      reason: expect.stringContaining("The host-side updater last polled more than an hour ago, at 2026-09-24 00:00 UTC: check that it still runs on the Docker host, every five minutes, so the container is updated."),
+      reason: expect.stringContaining("The host's updater last ran more than an hour ago, at 2026-09-24 00:00 UTC. Check that it still runs every five minutes."),
       times: [{ text: "more than an hour ago, at 2026-09-24 00:00 UTC", at: at(0) }],
+      details: expect.arrayContaining([`Host updater's last poll: ${at(0)}`]),
     });
   });
 });

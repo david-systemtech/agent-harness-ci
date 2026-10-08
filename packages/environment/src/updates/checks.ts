@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { CHECK_BUDGET_SECONDS, type ChannelCheckedPayload, type UpdateCheck, type UpdateCheckFailure, type UpdatesStatus } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { StateCheckRequest } from "../setup/check.js";
 import type { ChannelContext, ChannelFailure, ChannelReading, ChannelSettings, ReleaseChannelReader } from "./channel.js";
 import { readKeptTime, writeKeptTime } from "./kept-time.js";
 
@@ -26,9 +27,13 @@ import { readKeptTime, writeKeptTime } from "./kept-time.js";
  * began after it found. The Your machines step's
  * `your-machines.release-channel` reads it: it holds while auto-update is
  * off (switched off, or a version pinned) or a check succeeded in the last
- * 24 hours. Before its first scheduled read,
+ * 24 hours. A client's ask of the step (Check again, opening Set up) reads
+ * the channel again first, as `updates.check` does, and answers once that
+ * read ends, its staging left to go on; the schedule's asks read what the
+ * hourly checks found (#1848). Before its first scheduled read,
  * it reports pending through the startup delay and network budget (#1326),
- * then needs attention if no read completed. When the last one succeeded is
+ * then needs attention if no read completed. Its lines are setup-copy.md
+ * §5.4's, the times and failures behind them in details. When the last one succeeded is
  * kept in the data directory (`RELEASE_CHANNEL_FILE`), so a restart, an
  * update's included, does not make the channel read as unread, and
  * `updates.status` says it (`lastReadAt`) before the first check since the
@@ -53,6 +58,13 @@ export const CHECK_INTERVAL_MS = 60 * MINUTE_MS;
 
 /** How long after a check's start `updates.check` answers its result instead of reading the forge again. */
 export const CHECK_AGAIN_MS = MINUTE_MS;
+
+/**
+ * How long a client's ask waits for the channel's read before answering from
+ * what is known: inside the Your machines step's network budget, which a
+ * slow forge or a stalled manifest download would otherwise run out (#1848).
+ */
+export const CLIENT_READ_WAIT_MS = (CHECK_BUDGET_SECONDS.network - 2) * 1000;
 
 /** How long a successful check keeps the release channel's Set up check holding. */
 export const RELEASE_CHANNEL_FRESH_MS = 24 * 60 * MINUTE_MS;
@@ -90,8 +102,15 @@ export interface ChannelChecks {
   settingsChanged(): void;
   /** Update now's read of the channel (`updates.apply`), which began `at`: shown as a check that found `read`, staging nothing. */
   readByRequest(read: ChannelReading | ChannelFailure, at: Date): void;
-  /** The Your machines step's `your-machines.release-channel`. */
-  releaseChannelHolds(): StateCheckAnswer;
+  /**
+   * Set up's read of the channel for a Your machines check asked with
+   * `request`: a client's (no age allowed) reads it again as `updates.check`
+   * does, settled once the read ends, while what it found stages; the
+   * schedule's reads nothing.
+   */
+  readAsAsked(request: StateCheckRequest): Promise<void>;
+  /** The Your machines step's `your-machines.release-channel`, after `readAsAsked`. */
+  releaseChannelHolds(request: StateCheckRequest): Promise<StateCheckAnswer>;
   /**
    * Hears each check as it ends, whether it read the channel or failed: what
    * `releaseChannelHolds` answers and the channel's newest may have changed,
@@ -105,6 +124,12 @@ export interface ChannelChecks {
 /** The field of `RELEASE_CHANNEL_FILE` holding the time of the last check that read the channel, and that time for people. */
 const LAST_SUCCEEDED = "lastSucceededAt";
 const LAST_CHECK = "the last check of the release channel";
+
+/** A check under way: its read of the channel, settled once the read ends, and the whole check, its staging included. */
+interface Running {
+  readonly read: Promise<void>;
+  readonly done: Promise<void>;
+}
 
 /** What a check that changes it says (#1795): the newest shown, and the last check's result and reason, never its time or message. */
 const saidOf = ({ newest, lastCheck }: Pick<ChannelStatus, "newest" | "lastCheck">): string =>
@@ -124,7 +149,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   /** When the read `status` shows as the last check began, failed or not: one that began before it is not the last check. */
   let endedAt = Number.NEGATIVE_INFINITY;
   let firstCheckDueAt = clock.now().getTime() + FIRST_CHECK_MS;
-  let running: Promise<void> | undefined;
+  let running: Running | undefined;
   /** Whether the settings changed while a check was under way, which read them before. */
   let again = false;
   let stopped = false;
@@ -180,47 +205,97 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
     }
   };
 
-  const once = async (): Promise<void> => {
+  /** A check: the channel read, what it found staged; its read settles once what it found is kept, or it ended without. */
+  const once = (): Running => {
     const at = clock.now();
-    let lastCheck: UpdateCheck;
-    try {
-      const settings = options.settings();
-      const read = await channel.read(settings, await options.context());
-      if (read.outcome === "failed") {
-        lastCheck = failedCheck(at, read);
-      } else {
-        found(at, read);
-        const unstaged = await options.follow(read, settings);
-        lastCheck = unstaged === null ? { at: at.toISOString(), result: "ok" } : failedCheck(at, unstaged);
+    let readEnded = (): void => undefined;
+    const read = new Promise<void>((resolve) => (readEnded = resolve));
+    const done = (async () => {
+      let lastCheck: UpdateCheck;
+      try {
+        const settings = options.settings();
+        const reading = await channel.read(settings, await options.context());
+        if (reading.outcome === "failed") {
+          lastCheck = failedCheck(at, reading);
+        } else {
+          found(at, reading);
+          readEnded();
+          const unstaged = await options.follow(reading, settings);
+          lastCheck = unstaged === null ? { at: at.toISOString(), result: "ok" } : failedCheck(at, unstaged);
+        }
+      } catch (error) {
+        lastCheck = faultCheck(at, error);
       }
-    } catch (error) {
-      lastCheck = faultCheck(at, error);
-    }
-    ended(at, lastCheck);
+      ended(at, lastCheck);
+      readEnded();
+    })();
+    return { read, done };
   };
 
   /** Runs a check, or answers the one under way. */
-  const run = (): Promise<void> => {
+  const run = (): Running => {
     if (running !== undefined) return running;
     lastStartedAt = clock.now().getTime();
-    running = once().finally(() => {
+    const { read, done } = once();
+    const ended = done.finally(() => {
       running = undefined;
       if (again && !stopped) {
         again = false;
         void run();
       }
     });
+    running = { read, done: ended };
     return running;
+  };
+
+  /** `updates.check`'s rule: the check under way, none within a minute of the last check's start, else a check now. */
+  const checkNow = (): Running | undefined => {
+    if (running !== undefined) return running;
+    if (lastStartedAt !== undefined && clock.now().getTime() - lastStartedAt < CHECK_AGAIN_MS) return undefined;
+    return run();
+  };
+
+  /** The release channel check's answer now (setup-copy.md §5.4). */
+  const channelAnswer = (): StateCheckAnswer => {
+    const settings = options.settings();
+    if (!settings.autoUpdate || settings.pinnedVersion !== null) return true;
+    if (lastSucceededAt !== undefined && clock.now().getTime() - lastSucceededAt <= RELEASE_CHANNEL_FRESH_MS) return true;
+    const last = status.lastCheck;
+    if (lastSucceededAt === undefined && last === null) {
+      return clock.now().getTime() < firstCheckDueAt + CHECK_BUDGET_SECONDS.network * 1000
+        ? { pending: true, reason: "Checking for updates. This takes about two minutes after start." }
+        : { reason: "The first update check is late. Choose Check again.", details: [`First update check due at: ${new Date(firstCheckDueAt).toISOString()}`] };
+    }
+    if (last?.result === "failed") {
+      return {
+        reason: "agent-harness could not check for updates. Check the internet connection, then choose Check again.",
+        details: [`Update check: ${last.at}, ${last.reason}`, last.message],
+      };
+    }
+    return {
+      reason: `agent-harness has not checked for updates ${lastSucceededAt === undefined ? "yet" : "in the last day"}. Choose Check again.`,
+      ...(lastSucceededAt !== undefined && { details: [`Last read of the release channel: ${new Date(lastSucceededAt).toISOString()}`] }),
+    };
+  };
+
+  const readAsAsked = async ({ maxAgeMs }: StateCheckRequest): Promise<void> => {
+    const read = maxAgeMs === 0 ? checkNow()?.read : undefined;
+    if (read === undefined) return;
+    let timer: Timer | undefined;
+    const waited = new Promise<void>((resolve) => (timer = clock.setTimeout(resolve, CLIENT_READ_WAIT_MS)));
+    try {
+      await Promise.race([read, waited]);
+    } finally {
+      timer?.cancel();
+    }
   };
 
   return {
     status: () => ({ ...status, lastReadAt: lastSucceededAt === undefined ? null : new Date(lastSucceededAt).toISOString(), readSinceStart }),
 
-    check() {
-      if (running !== undefined) return running;
-      if (lastStartedAt !== undefined && clock.now().getTime() - lastStartedAt < CHECK_AGAIN_MS) return Promise.resolve();
-      return run();
-    },
+    check: async () => checkNow()?.done,
+
+    readAsAsked,
 
     settingsChanged() {
       if (stopped) return;
@@ -238,20 +313,9 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
       ended(at, { at: at.toISOString(), result: "ok" });
     },
 
-    releaseChannelHolds() {
-      const settings = options.settings();
-      if (!settings.autoUpdate || settings.pinnedVersion !== null) return true;
-      if (lastSucceededAt !== undefined && clock.now().getTime() - lastSucceededAt <= RELEASE_CHANNEL_FRESH_MS) return true;
-      const last = status.lastCheck;
-      if (lastSucceededAt === undefined && last === null && clock.now().getTime() < firstCheckDueAt + CHECK_BUDGET_SECONDS.network * 1000) {
-        return { pending: true, reason: "Waiting for the first release channel read, scheduled two minutes after the environment starts." };
-      }
-      if (lastSucceededAt === undefined && last === null) {
-        return { reason: "The first scheduled release channel read is overdue: it has not completed within ten seconds of its scheduled time." };
-      }
-      const since = lastSucceededAt === undefined ? "yet" : "in the last 24 hours";
-      if (last === null) return { reason: `The release channel has not been read ${since}: the environment reads it two minutes after it starts, then hourly.` };
-      return { reason: `The release channel has not been read ${since}: ${last.result === "failed" ? last.message : "no check succeeded."}` };
+    async releaseChannelHolds(request) {
+      await readAsAsked(request);
+      return channelAnswer();
     },
 
     onChecked(listener) {

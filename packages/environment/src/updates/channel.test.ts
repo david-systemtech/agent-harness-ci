@@ -274,7 +274,7 @@ describe("a failed check", () => {
       at: MANUAL_CLOCK_START,
       result: "failed",
       reason: "no_release_access",
-      message: expect.stringContaining("it refused an anonymous read (HTTP 401)") as unknown as string,
+      message: expect.stringContaining(`needed a forge for ${fake.forge.origin.replace("http://", "")} and found none.`) as unknown as string,
     });
     expect(target).toBeNull();
     expect(fake.reads()).toEqual([{ method: "GET", path: "/api/v1/repos/david/agent-harness/releases", query: "limit=50", scheme: null }]);
@@ -412,36 +412,52 @@ describe("the Your machines step's release channel check", () => {
     return results[0];
   };
 
-  it("is pending with auto-update on before the first scheduled channel read", async () => {
+  it("is pending with auto-update on before the first scheduled channel read, as the environment checks it unasked", async () => {
     const t = await start();
-    expect(await result(await t.client())).toMatchObject({
-      state: "pending",
-      failing: [],
-      actions: [],
-      reason: "Waiting for the first release channel read, scheduled two minutes after the environment starts.",
-    });
+    await t.env.setup.startPass;
+    const next = await machinesResults(await t.client());
+    expect(await next()).toMatchObject({ state: "pending", failing: [], actions: [], reason: notReadYet });
   });
 
-  it("needs attention when the first scheduled read is overdue, after its ten-second network budget", async () => {
-    const t = await start();
+  it("reads the channel again on a client's ask, before the first scheduled read, and answers from that read: Check again after a failed read finds it read (#1848)", async () => {
+    // The private forge refuses an anonymous read of the channel.
+    const fake = await releaseSource();
+    fake.publish({ version: "0.5.0" });
+    const t = await start({ harnessVersion: "0.5.0", releaseSource: fake.source, forgeFetch: fake.forge.fetch });
     const client = await t.client();
-    // A missed scheduled read: moving wall time runs no scheduled callbacks.
-    t.clock.jump(2 * MINUTE + 9_999);
-    expect(await result(client)).toMatchObject({ state: "pending", failing: [], actions: [] });
-    t.clock.jump(1);
     expect(await result(client)).toMatchObject({
-      state: "needs-attention", failing: ["your-machines.release-channel"], actions: ["check-again"],
-      reason: "The first scheduled release channel read is overdue: it has not completed within ten seconds of its scheduled time.",
+      state: "needs-attention",
+      failing: ["your-machines.release-channel"],
+      actions: ["check-again"],
+      reason: "agent-harness could not check for updates. Check the internet connection, then choose Check again.",
+      details: expect.arrayContaining([`Update check: ${MANUAL_CLOCK_START}, no_release_access`]) as unknown as string[],
     });
+    expect(listReads(fake)).toBe(1);
+
+    await fake.grantAccess(client);
+    // Within a minute of that read's start, its result stands, as updates.check's does.
+    expect(await result(client)).toMatchObject({ state: "needs-attention", failing: ["your-machines.release-channel"] });
+    expect(listReads(fake)).toBe(1);
+    t.clock.advance(MINUTE);
+    expect(await result(client)).toMatchObject({ state: "done", failing: [] });
+    expect(listReads(fake)).toBe(2);
+    expect(await client.request("updates.status", {})).toMatchObject({ newest: "0.5.0", lastCheck: { at: after(MINUTE), result: "ok" }, readSinceStart: true });
   });
 
-  it("holds with auto-update off, or a version pinned", async () => {
+  it("holds with auto-update off, or a version pinned, naming the version that runs while the pin does not (#1890)", async () => {
     const { fake, client } = await withChannel("0.5.0");
     fake.publish({ version: "0.4.2" });
+    fake.publish({ version: "0.5.0" });
     await setUpdates(client, { "updates.autoUpdate": false });
     expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. Automatic updates are off\.$/), details: expect.arrayContaining(["Updates: off"]) });
     await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": "0.4.2" });
-    expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. It stays on version 0\.4\.2\.$/), details: expect.arrayContaining(["Updates: pinned to 0.4.2"]) });
+    expect(await result(client)).toMatchObject({
+      state: "done",
+      reason: expect.stringMatching(/ is ready\. It runs version 0\.5\.0 and is pinned to 0\.4\.2\.$/),
+      details: expect.arrayContaining(["Version: 0.5.0", "Updates: pinned to 0.4.2"]),
+    });
+    await setUpdates(client, { "updates.pinnedVersion": "0.5.0" });
+    expect(await result(client)).toMatchObject({ state: "done", reason: expect.stringMatching(/ is ready\. It stays on version 0\.5\.0\.$/), details: expect.arrayContaining(["Updates: pinned to 0.5.0"]) });
   });
 
   it("holds for 24 hours after a check succeeded, across a restart, and then needs attention with the last failure", async () => {
@@ -474,7 +490,8 @@ describe("the Your machines step's release channel check", () => {
       state: "needs-attention",
       failing: ["your-machines.release-channel"],
       actions: ["check-again"],
-      reason: expect.stringMatching(/^The release channel has not been read in the last 24 hours: The forge at .* could not be reached/) as unknown as string,
+      reason: "agent-harness could not check for updates. Check the internet connection, then choose Check again.",
+      details: [expect.stringMatching(/^Update check: .+, unreachable$/), expect.stringMatching(/^The forge at .* could not be reached/)] as unknown as string[],
     });
   });
 
@@ -489,7 +506,7 @@ describe("the Your machines step's release channel check", () => {
     return async () => StepResult.parse((await client.next(isMachinesResult)).event.payload);
   };
 
-  const notReadYet = "Waiting for the first release channel read, scheduled two minutes after the environment starts.";
+  const notReadYet = "Checking for updates. This takes about two minutes after start.";
 
   it("is checked again within a second of the channel's first read, two minutes after the start, not an hour on at its cadence, though the read appends nothing (#679)", async () => {
     // The channel's newest is what runs: the read stages nothing, so no update notice triggers the step.
@@ -522,7 +539,8 @@ describe("the Your machines step's release channel check", () => {
     expect(await next()).toMatchObject({
       state: "needs-attention",
       failing: ["your-machines.release-channel"],
-      reason: `The release channel has not been read yet: ${lastCheck?.result === "failed" ? lastCheck.message : ""}`,
+      reason: "agent-harness could not check for updates. Check the internet connection, then choose Check again.",
+      details: [`Update check: ${after(2 * MINUTE)}, no_release_access`, lastCheck?.result === "failed" ? lastCheck.message : ""],
       checkedAt: after(2 * MINUTE + 1_000),
     });
   });
