@@ -1,6 +1,6 @@
 import { countsWords, plainRefusal, stepLine, stepNote, type RefusedAnswer, type SetupStepView } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { usePickedEnvironment, useSettings } from "../settings/settings-window.js";
 import { classes } from "../ui/classes.js";
@@ -17,6 +17,15 @@ import { useCheckOnOpen, useSetupView } from "./use-setup.js";
 
 /** What the last Check everything again on an environment found: every step fine, or the check refused. */
 type Checked = { readonly passed: true } | { readonly passed: false; readonly refusal: RefusedAnswer };
+
+/** `all` with `environmentId`'s entry set to `result`, or dropped where `result` is undefined. */
+const withResult = (all: ReadonlyMap<string, Checked>, environmentId: string, result: Checked | undefined): ReadonlyMap<string, Checked> => {
+  if (result === undefined && !all.has(environmentId)) return all;
+  const next = new Map(all);
+  if (result === undefined) next.delete(environmentId);
+  else next.set(environmentId, result);
+  return next;
+};
 
 /**
  * The Set up pane, `setup.checklist` (ADR 0027; docs/specs/gui.md, "Set up
@@ -38,6 +47,10 @@ export const SetupPane = () => {
   /** The environments a Check everything again is running on, and what the last one on each found. */
   const [checking, setChecking] = useState<ReadonlySet<string>>(new Set());
   const [checked, setChecked] = useState<ReadonlyMap<string, Checked>>(new Map());
+  // Picking an environment checks every step there anew (useCheckOnOpen), so what an earlier Check everything again found there goes.
+  useEffect(() => {
+    if (picked !== undefined) setChecked((all) => withResult(all, picked.environmentId, undefined));
+  }, [picked?.environmentId]);
   if (picked === undefined || view === undefined) return null;
   const { environmentId } = picked;
   const name = nameOf(picked);
@@ -49,13 +62,7 @@ export const SetupPane = () => {
   const busy = checking.has(environmentId);
 
   /** Sets, or with undefined clears, what this environment's check found, leaving every other's. */
-  const found = (result: Checked | undefined) =>
-    setChecked((all) => {
-      const next = new Map(all);
-      if (result === undefined) next.delete(environmentId);
-      else next.set(environmentId, result);
-      return next;
-    });
+  const found = (result: Checked | undefined) => setChecked((all) => withResult(all, environmentId, result));
 
   const checkEverything = async () => {
     found(undefined);

@@ -373,12 +373,33 @@ describe("the Set up pane", () => {
     // Back on desk, its first check is still running.
     await app.user.selectOptions(picker(), "desk");
     expect((await within(pane).findByRole("button", { name: "Checking…" })).hasAttribute("disabled")).toBe(true);
+
+    // desk's check answers while laptop is shown, and leaves what laptop's found (the header's chip counts desk, the home computer).
+    await app.user.selectOptions(picker(), "laptop");
+    await app.user.click(await within(pane).findByRole("button", { name: "Check everything again" }));
+    expect(await within(pane).findByText("Everything on laptop is set up.")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Set up: 1 to fix", hidden: true })).toBeDefined();
     release();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Set up: \d+ to fix$/, hidden: true })).toBeNull());
+    expect(within(pane).getByText("Everything on laptop is set up.")).toBeDefined();
+  });
+
+  it("forgets what Check everything again found on a computer once it is picked again, as picking it checks every step anew", async () => {
+    const app = await twoEnvironments();
+    const desk = app.environment("desk");
+    const pane = await setupPane(app);
+    const picker = () => within(pane).getByRole("combobox", { name: "Environment" });
+    await within(pane).findByText("4 done · 1 needs a fix · 1 not set up");
+    desk.setSetup({ permissions: {} });
+    await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
     expect(await within(pane).findByText("Everything on desk is set up.")).toBeDefined();
 
-    // desk's answer leaves what laptop's check found.
     await app.user.selectOptions(picker(), "laptop");
-    expect(await within(pane).findByText("Everything on laptop is set up.")).toBeDefined();
+    await within(pane).findByText("5 done · 1 needs a fix · 0 not set up");
+    desk.setSetup({ permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] } });
+    await app.user.selectOptions(picker(), "desk");
+    await within(pane).findByText("4 done · 1 needs a fix · 1 not set up");
+    expect(within(pane).queryByText("Everything on desk is set up.")).toBeNull();
   });
 
   it("says a check that could not run as an alert naming the computer, with Details holding the refusal, and keeps it to the computer it was for", async () => {
@@ -400,9 +421,15 @@ describe("the Set up pane", () => {
     expect(details).toContain("internal: The step registry could not load.");
     expect(screen.queryByRole("navigation", { name: "Set up steps" })).toBeNull();
 
-    // Another computer picked: the line was about desk, so it goes.
+    // Another computer picked: the line was about desk, so it goes, and it does not come back when desk is picked and checked again.
     await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "laptop");
     await within(pane).findByText("5 done · 1 needs a fix · 0 not set up");
+    expect(within(pane).queryByRole("alert")).toBeNull();
+    desk.wire.answer("setup.check", () => ({ result: { results: [] } }));
+    const asked = desk.requests("setup.check").length;
+    await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "desk");
+    await waitFor(() => expect(desk.requests("setup.check")).toHaveLength(asked + 1));
+    await within(pane).findByText("4 done · 1 needs a fix · 1 not set up");
     expect(within(pane).queryByRole("alert")).toBeNull();
   });
 });
