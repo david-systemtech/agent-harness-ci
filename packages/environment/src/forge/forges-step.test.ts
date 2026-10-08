@@ -178,7 +178,10 @@ describe("forges.reads", () => {
     refusing.answer(TOKEN, "GET /api/v1/user/repos", { status: 403, body: { message: "token does not have at least one of required scope(s): [read:repository]" } });
     silent.answer(TOKEN, "GET /api/v1/user/repos", { status: 502 });
 
-    expect(await checkForges(client)).toEqual({
+    const result = await checkForges(client);
+    // The statuses are in details, never the line (#1836's evidence: forges.reads worded a refused read "(HTTP 403)").
+    expect(result.reason).not.toContain("HTTP");
+    expect(result).toEqual({
       step: "forges",
       state: "needs-attention",
       reason:
