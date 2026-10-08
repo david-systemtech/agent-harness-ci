@@ -513,17 +513,17 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
   const register: BankService["register"] = { prepare: (params) => prepareRegister(params) };
   const create: BankService["create"] = options.creation === undefined ? {
-    prepare: () => { throw new ContractError({ code: "not_found", message: "Bank creation is unavailable on this service.", data: {} }); },
+    prepare: () => { throw new ContractError({ code: "not_found", message: "agent-harness on this computer cannot create notebooks.", data: {} }); },
   } : createBankCommand({
     ...options.creation,
     register: (params, personalDefaults) => prepareRegister(params, personalDefaults, "managed"),
     async admit(bankId, name, files) {
       await readAll();
-      if (bankEver(reader, bankId)) throw new ContractError({ code: "conflict", message: `A bank ${bankId} was registered already.`, data: { reason: "exists", bankId } });
-      if (nameHolder(reader, name) !== null) throw new ContractError({ code: "conflict", message: `Another bank is named ${name}.`, data: { reason: "name_taken", name } });
+      if (bankEver(reader, bankId)) throw new ContractError({ code: "conflict", message: "This notebook was made already.", data: { reason: "exists", bankId } });
+      if (nameHolder(reader, name) !== null) throw new ContractError({ code: "conflict", message: `You already have a notebook named ${name}.`, data: { reason: "name_taken", name } });
       const weighed = listBanks(reader).filter((bank) => bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
       const conflict = overLimit(weighed, { name, accounts: "all", repositories: "all", bytes: fixedBytes(readingFrom(files, { name, role: "read-write" })) });
-      if (conflict !== null) throw new ContractError({ code: "conflict", message: "The bank would exceed the fixed-tier limit.", data: { reason: "index_too_large", ...conflict } });
+      if (conflict !== null) throw new ContractError({ code: "conflict", message: "With this notebook, what agents read at the start would be too long. Turn another notebook off first.", data: { reason: "index_too_large", ...conflict } });
     },
   });
 
@@ -694,12 +694,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     publish: {
       async prepare(params, context) {
         const bank = liveBank(reader, params.bankId);
-        if (!bank) throw new ContractError({ code: "not_found", message: "No such bank is registered.", data: {} });
-        if (bank.location.kind !== "local") throw new ContractError({ code: "conflict", message: "Only a local-only bank can be published.", data: { reason: "not_local_only", bankId: bank.id } });
-        if (!bank.enabled || bank.role !== "read-write") throw new ContractError({ code: "bank_read_only", message: "Enable a writable bank before publishing it.", data: { bank: bank.name } });
-        if (!lander || !options.creation) throw new ContractError({ code: "not_found", message: "Bank publication is unavailable.", data: {} });
+        if (!bank) throw new ContractError({ code: "not_found", message: "That notebook is not on this computer.", data: {} });
+        if (bank.location.kind !== "local") throw new ContractError({ code: "conflict", message: `${bank.name} is already on a forge.`, data: { reason: "not_local_only", bankId: bank.id } });
+        if (!bank.enabled || bank.role !== "read-write") throw new ContractError({ code: "bank_read_only", message: `Turn on ${bank.name}, with changes allowed, before you move it.`, data: { bank: bank.name } });
+        if (!lander || !options.creation) throw new ContractError({ code: "not_found", message: "agent-harness on this computer cannot move notebooks to a forge.", data: {} });
         const release = lander.reserve(bank.id);
-        if (!release) throw new ContractError({ code: "conflict", message: "A landing is already in progress for this bank.", data: { reason: "landing_in_progress", bankId: bank.id } });
+        if (!release) throw new ContractError({ code: "conflict", message: `${bank.name} is saving a change. Try again in a moment.`, data: { reason: "landing_in_progress", bankId: bank.id } });
         context.onUndo(release);
         try {
           const publication = await prepareBankPublication({ bank, commandId: params.commandId, transferIssues: params.transferIssues === true, dataDir: options.dataDir, forge: options.creation.forge, scrub: options.scrub });
@@ -713,7 +713,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
           return (_params, command) => {
             try {
               const current = liveBank(reader, bank.id);
-              if (!current || current.location.kind !== "local") return { aggregate: stream, rejected: { code: "conflict", message: "The bank changed while publication was prepared.", data: { reason: "not_local_only", bankId: bank.id } } };
+              if (!current || current.location.kind !== "local") return { aggregate: stream, rejected: { code: "conflict", message: `${bank.name} changed while it was being prepared. Try again.`, data: { reason: "not_local_only", bankId: bank.id } } };
               log.append(stream, [
                 { type: "bank.updated", payload: { bankId: bank.id, location: publication.location, credential: "forge", credentialEntry: null, credentialReference: null } },
                 { type: "bank.review-held", payload: publication.review },

@@ -82,7 +82,7 @@ it("publishes existing history and identity, holding the landing change for the 
   expect(git(h.checkout, "remote", "get-url", "origin").trim()).toBe(`${h.forge.origin}/david/maya-memory.git`);
   expect((await h.client.request("banks.publish", params)).receipt).toEqual(answer.receipt);
   expect(h.forge.requests.filter((r) => r.path === "/api/v1/user/repos")).toHaveLength(1);
-  await expect(h.client.request("banks.publish", { ...params, commandId: randomUUID() })).rejects.toMatchObject({ code: "conflict", data: { reason: "not_local_only" } });
+  await expect(h.client.request("banks.publish", { ...params, commandId: randomUUID() })).rejects.toMatchObject({ code: "conflict", message: `${h.bank.name} is already on a forge.`, data: { reason: "not_local_only" } });
 });
 
 it("copies follow-ups into tracker issues only with an explicit choice, retaining their checklist", async () => {
@@ -136,7 +136,7 @@ it("refuses publication while a local landing is held without creating a remote 
   const landing = h.t.env.banks.landChanges(h.bank.id, { title: "Keep a local change", body: "A local landing.", writes: { "README.md": "Local change.\n" } });
   try {
     await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: WAIT_MS });
-    await expect(h.client.request("banks.publish", { commandId: randomUUID(), bankId: h.bank.id })).rejects.toMatchObject({ code: "conflict", data: { reason: "landing_in_progress" } });
+    await expect(h.client.request("banks.publish", { commandId: randomUUID(), bankId: h.bank.id })).rejects.toMatchObject({ code: "conflict", message: `${h.bank.name} is saving a change. Try again in a moment.`, data: { reason: "landing_in_progress" } });
     expect(h.forge.requests.some((r) => r.path === "/api/v1/user/repos")).toBe(false);
   } finally {
     try {
@@ -162,7 +162,11 @@ it("refuses a publication path that is a symlink without overwriting its target"
   symlinkSync(outside, join(h.checkout, ".forgejo"));
   git(h.checkout, "add", "--all");
   git(h.checkout, "commit", "--quiet", "-m", "A path publication must refuse.");
-  await expect(h.client.request("banks.publish", { commandId: randomUUID(), bankId: h.bank.id })).rejects.toMatchObject({ code: "invalid_params" });
+  await expect(h.client.request("banks.publish", { commandId: randomUUID(), bankId: h.bank.id })).rejects.toMatchObject({
+    code: "invalid_params",
+    message: `A file in ${h.bank.name}'s folder is not a plain file, so it cannot move.`,
+    data: { details: [expect.stringMatching(/ is not a (regular file|directory)\.$/)] },
+  });
   expect(readFileSync(sentinel, "utf8")).toBe("Keep the outside file.\n");
   expect(h.forge.requests.some((r) => r.path === "/api/v1/user/repos")).toBe(false);
 });

@@ -408,7 +408,9 @@ quoted from the files named; a builder greps for them.
 - How the environment picks the unreachable cause (one per notebook, #1854): its folder is not on this computer; else no forge account here covers
   its forge (a notebook copied from another computer names that computer, `copiedFrom`); else its forge answers that the repository is not there;
   else the plain line. Details hold `{bank}: {what the check saw}`. Lines the code needs beyond the list above: a description problem's `{plain rule}`
-  is one phrase per validator rule (the rule id and its message go in Details); saving failed on a notebook kept on this computer only
+  is one phrase per validator rule, the rule id and its message in Details (environment/src/banks/step-checks.ts `PLAIN_RULES`, for example retired_key
+  `it uses keys from an older layout`, orientation_missing `its summary names a note that does not exist`, secret_shaped `it holds something that
+  looks like a password`; a rule this build does not know `it does not follow the notebook's rules`); saving failed on a notebook kept on this computer only
   `The last change to {bank} could not be saved.`; a reviewed change other than the description `{bank}'s latest changes are waiting for your approval on {host}.`
   **Open the review**. The pull request's address is in Details.
 - Refusals (each with Details: the raw message, statuses, git's words and paths; never in the line):
@@ -424,8 +426,8 @@ quoted from the files named; a builder greps for them.
   `This copy of agent-harness is missing a part. Reinstall agent-harness.`; a folder could not be set up `agent-harness could not set up the notebook's
   folder on this computer.`; the forge did not answer `agent-harness could not reach {host}. Check the internet connection, then try again.`; the
   repository was not made `{host} did not make the notebook's repository. Check that your token can create repositories.`; the first save
-  `The repository was made on {host}, but agent-harness could not save the notebook to it.`; a name already used
-  `You already have a notebook or folder named {name}. Choose another name.`; creating is not offered `agent-harness on this computer cannot create notebooks.`;
+  `The repository was made on {host}, but agent-harness could not save the notebook to it.`; a notebook of that name
+  `You already have a notebook named {name}.`; a folder of that name `You already have a notebook or folder named {name}. Choose another name.`; creating is not offered `agent-harness on this computer cannot create notebooks.`;
   made already `This notebook was made already.`; too big at start `With this notebook, what agents read at the start would be too long. Turn another notebook off first.`
   Publish (move a notebook to your forge): no main forge `Choose your main forge before you move this notebook to it.` **Go to Forges**; an account with a
   problem, GitLab, a missing part, the forge did not answer and the repository was not made as Create; a description that cannot move
@@ -433,7 +435,7 @@ quoted from the files named; a builder greps for them.
   `A file in {bank}'s folder is not a plain file, so it cannot move.`; preparing `agent-harness could not get {bank} ready to move.`; the copy
   `The repository was made on {host}, but agent-harness could not copy {bank} to it.`; reading it back `{bank} is on {host}, but agent-harness
   could not read it back for your review. Choose Check again.`; gone `That notebook is not on this computer.`; already on a forge
-  `{bank} is already on a forge.`; turned off or read-only `Turn on {bank}, with changes allowed, before you move it.`; not offered
+  `{bank} is already on a forge.`; the review or a follow-up not taken `{host} did not accept the move of {bank}. Try again in a moment.`; turned off or read-only `Turn on {bank}, with changes allowed, before you move it.`; not offered
   `agent-harness on this computer cannot move notebooks to a forge.`; busy `{bank} is saving a change. Try again in a moment.`;
   changed `{bank} changed while it was being prepared. Try again.`
   Describe: no notebook named `Choose which notebook to describe.`; gone `{bank} is no longer one of your notebooks.`; its folder `{bank}'s folder on this

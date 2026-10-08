@@ -694,7 +694,11 @@ describe("the describe session", () => {
     const answer = await mint(client, { step: "memory-bank", subject: bank.id, variant: "first" });
     expect(answer.receipt).toMatchObject({
       status: "rejected",
-      error: { code: "conflict", data: { reason: "git_failed", operation: "clone", diagnostic: "exit_128" } },
+      error: {
+        code: "conflict",
+        message: `agent-harness could not get ${bank.name} ready to describe. Choose Describe it to try again.`,
+        data: { reason: "git_failed", operation: "clone", diagnostic: "exit_128" },
+      },
     });
     expect(JSON.stringify(answer)).not.toContain("token-for-tests");
   });
@@ -707,9 +711,12 @@ describe("the describe session", () => {
     rmSync(checkout, { recursive: true, force: true });
     expect((await mint(client, { step: "memory-bank", subject: gone.id, variant: "first" })).receipt).toMatchObject({
       status: "rejected",
-      error: { code: "conflict", data: { reason: "bank_missing", bankId: gone.id } },
+      error: { code: "conflict", message: `${gone.name}'s folder on this computer is missing.`, data: { reason: "bank_missing", bankId: gone.id, path: checkout } },
     });
-    expect((await mint(client, { step: "memory-bank", variant: "first" })).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "bank_missing" } } });
+    expect((await mint(client, { step: "memory-bank", variant: "first" })).receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", message: "Choose which notebook to describe.", data: { reason: "bank_missing" } },
+    });
     expect((await mint(client, { step: "memory-bank", subject: "bank-9", variant: "first" })).receipt).toMatchObject({
       status: "rejected",
       error: { code: "not_found", data: { kind: "subject", step: "memory-bank", subject: "bank-9" } },

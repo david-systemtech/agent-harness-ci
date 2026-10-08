@@ -112,7 +112,7 @@ export const mintMethods = (options: MintOptions): Required<Pick<MethodHandlers,
           () => ({ aggregate, rejected });
         const step = steps.steps.find((entry) => entry.id === params.step);
         if (step?.llm === undefined) {
-          return refused({ code: "conflict", message: `The step ${params.step} has no authoring conversation.`, data: { reason: "no_llm_step", step: params.step } });
+          return refused({ code: "conflict", message: "This step has no conversation to start.", data: { reason: "no_llm_step", step: params.step } });
         }
         const prompt = prompts.find((entry) => entry.id === step.llm);
         const llmStep = steps.llmSteps?.[step.id];
@@ -121,7 +121,7 @@ export const mintMethods = (options: MintOptions): Required<Pick<MethodHandlers,
         if (params.subject !== undefined) {
           subject = llmStep.subjects().find((entry) => entry.id === params.subject) ?? null;
           if (subject === null) {
-            return refused({ code: "not_found", message: `The step ${step.id} has no subject ${params.subject}.`, data: { kind: "subject", step: step.id, subject: params.subject } });
+            return refused({ code: "not_found", message: "What this conversation was for is no longer here. Choose Check again.", data: { kind: "subject", step: step.id, subject: params.subject } });
           }
         }
         const workspace = (await llmStep.workspace?.(subject)) ?? SCRATCH;

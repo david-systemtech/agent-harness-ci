@@ -135,11 +135,21 @@ it("creates a team bank under an organisation from the selected account's owner 
 
 it("refuses repeated first-project folders rather than silently overwriting one", async () => {
   const { client, account, forge } = await remote("acme/team-memory");
-  await expect(client.request("banks.create", { commandId: randomUUID(), bankId: randomUUID(), name: "acme-memory", creation: { kind: "team", forgeAccountId: account.id, owner: { kind: "organisation", login: "acme" }, repositoryName: "team-memory", teamName: "Acme", org: "acme", projects: [{ name: "Web", folder: "web" }, { name: "API", folder: "web" }] } })).rejects.toMatchObject({ code: "invalid_params" });
+  await expect(client.request("banks.create", { commandId: randomUUID(), bankId: randomUUID(), name: "acme-memory", creation: { kind: "team", forgeAccountId: account.id, owner: { kind: "organisation", login: "acme" }, repositoryName: "team-memory", teamName: "Acme", org: "acme", projects: [{ name: "Web", folder: "web" }, { name: "API", folder: "web" }] } })).rejects.toMatchObject({ message: "Enter a different folder name for each project.", code: "invalid_params" });
   expect(forge.requests.filter((request) => request.method === "POST")).toHaveLength(0);
   expect((await client.request("banks.list", {})).banks).toEqual([]);
 });
 
+
+it("asks for a main forge, or to keep the notebook on this computer, when no forge is the main one", async () => {
+  const t = await startTestEnvironment();
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const params = personal();
+  params.creation.localOnly = false;
+  await expect(client.request("banks.create", params)).rejects.toMatchObject({ code: "not_found", message: "Choose your main forge first, or keep the notebook on this computer." });
+  expect((await client.request("banks.list", {})).banks).toEqual([]);
+});
 
 it("refuses a creation fact containing a registered secret before anything leaves for the forge", async () => {
   const { client, forge } = await remote("david/maya-memory");
@@ -167,11 +177,19 @@ it("refuses a bank-name collision without creating another repository, and keeps
   const params = personal();
   params.creation.localOnly = false;
   const first = (await client.request("banks.create", params)).result!.bank;
-  await expect(client.request("banks.create", { ...params, commandId: randomUUID(), bankId: randomUUID() })).rejects.toMatchObject({ code: "conflict", data: { reason: "name_taken" } });
+  await expect(client.request("banks.create", { ...params, commandId: randomUUID(), bankId: randomUUID() })).rejects.toMatchObject({
+    code: "conflict",
+    message: "You already have a notebook named maya-memory.",
+    data: { reason: "name_taken" },
+  });
   const occupied = join(t.dataDir, "banks", "occupied");
   mkdirSync(occupied);
   writeFileSync(join(occupied, "keep.txt"), "Keep this file.");
-  await expect(client.request("banks.create", { ...personal(), name: "occupied" })).rejects.toMatchObject({ code: "conflict", data: { reason: "name_taken" } });
+  await expect(client.request("banks.create", { ...personal(), name: "occupied" })).rejects.toMatchObject({
+    code: "conflict",
+    message: "You already have a notebook or folder named occupied. Choose another name.",
+    data: { reason: "name_taken" },
+  });
   expect(readFileSync(join(occupied, "keep.txt"), "utf8")).toBe("Keep this file.");
   expect((await client.request("banks.list", {})).banks).toEqual([first]);
   expect(forge.requests.filter((request) => request.method === "POST")).toHaveLength(1);
@@ -183,7 +201,11 @@ it("refuses invalid template facts before registering or writing a checkout", as
   const client = await t.client();
   const params = personal();
   params.creation.personName = "Maya\nReyes";
-  await expect(client.request("banks.create", params)).rejects.toMatchObject({ code: "validation_failed", data: { rules: ["manifest_fact_invalid", "scope_line"] } });
+  await expect(client.request("banks.create", params)).rejects.toMatchObject({
+    code: "validation_failed",
+    message: "These answers do not make a notebook agent-harness can use. Check the names and try again.",
+    data: { rules: ["manifest_fact_invalid", "scope_line"] },
+  });
   expect((await client.request("banks.list", {})).banks).toEqual([]);
   expect(existsSync(join(t.dataDir, "banks", params.name))).toBe(false);
 });
@@ -193,7 +215,11 @@ it("cleans up only its new checkout when the forge refuses repository creation",
   forge.answer(TOKEN, "POST /api/v1/user/repos", { status: 403, body: { message: "Creation denied" } });
   const params = personal();
   params.creation.localOnly = false;
-  await expect(client.request("banks.create", params)).rejects.toMatchObject({ code: "verification_failed", data: { status: 403 } });
+  await expect(client.request("banks.create", params)).rejects.toMatchObject({
+    code: "verification_failed",
+    message: `${new URL(forge.origin).host} did not make the notebook's repository. Check that your token can create repositories.`,
+    data: { status: 403, details: [expect.stringContaining("Creation denied")] },
+  });
   expect((await client.request("banks.list", {})).banks).toEqual([]);
   expect(existsSync(join(t.dataDir, "banks", params.name))).toBe(false);
 });
