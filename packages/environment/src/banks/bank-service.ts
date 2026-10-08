@@ -69,6 +69,9 @@ export const REGISTERED_SYNC_BLOCKED = "Sync paused for registered checkout";
 /** What the purpose of the BankService's forge reads is called, for a missing origin's record. */
 const VERIFY_PURPOSE = "verify a memory bank";
 
+/** Why a verification could not reach a bank, and the cause the Memory bank step names, where it found one. */
+type Unreachable = Omit<Extract<BankStatus["reachable"], { state: "unreachable" }>, "state" | "since">;
+
 /** The describe sessions' branches (`banks/describe.ts`), whose open pull requests hold a `BANK.md` awaiting review. */
 const DESCRIBE_BRANCHES = "refs/heads/setup/describe-*";
 
@@ -325,17 +328,19 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   /** Whether the remote answers for the repository, or why not. */
-  const reachableRemote = async (location: Extract<BankLocation, { kind: "remote" }>): Promise<string | null> => {
+  const reachableRemote = async (location: Extract<BankLocation, { kind: "remote" }>): Promise<Unreachable | null> => {
     const answer = await forge.repositories.get({ origin: location.origin, repository: location.repository, purpose: VERIFY_PURPOSE });
     switch (answer.outcome) {
       case "done":
         return null;
       case "unreachable":
-        return `${location.origin} did not answer: ${answer.message}`;
+        return { reason: `${location.origin} did not answer: ${answer.message}` };
       case "failed":
-        return answer.status === 404 ? `${location.origin} has no repository ${location.repository}` : `${location.origin} answered HTTP ${answer.status}: ${answer.message}`;
+        return answer.status === 404
+          ? { reason: `${location.origin} has no repository ${location.repository}`, cause: "repository-missing" }
+          : { reason: `${location.origin} answered HTTP ${answer.status}: ${answer.message}` };
       case "refused":
-        return answer.error.message;
+        return { reason: answer.error.message, ...(answer.error.code === "forge_account_missing" && { cause: "no-forge-account" }) };
     }
   };
 
@@ -400,12 +405,14 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status" | "checkoutOwnership">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
     const since = clock.now().toISOString();
     const read = await readCheckout(entry.checkout, entry);
-    const unreadable = "problem" in read ? (existsSync(entry.checkout) ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : `its repository at ${entry.checkout} is not there`) : null;
+    const unreadable: Unreachable | null = "problem" in read
+      ? (existsSync(entry.checkout) ? { reason: `its repository at ${entry.checkout} cannot be read: ${read.problem}` } : { reason: `its repository at ${entry.checkout} is not there`, cause: "folder-missing" })
+      : null;
     // A checkout git cannot read fails the bank wherever its remote is; a readable one with a remote fails when its forge does not have it.
     const syncProblem = entry.checkoutOwnership !== "managed" && entry.status.reachable.state === "unreachable" && entry.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)
-      ? entry.status.reachable.reason : null;
+      ? { reason: entry.status.reachable.reason } : null;
     const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null) ?? syncProblem;
-    const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since };
+    const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", ...unreachable, since };
     // A checkout that cannot be read says nothing new of what it holds: those parts stay as last found.
     if ("problem" in read) return { status: { ...entry.status, reachable }, reading: null };
     const { reading } = read;
