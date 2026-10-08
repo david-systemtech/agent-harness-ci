@@ -206,7 +206,7 @@ describe("the reach line", () => {
   it("offers Try again on an environment this app cannot reach, which reaches it again", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired", capabilities: ["setup"], setup: onlySteps({}) }] }, { firstLaunch: true });
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
-    await app.user.selectOptions(within(await screen.findByRole("region", { name: "Set up" })).getByRole("combobox", { name: "Environment" }), "laptop");
+    await app.user.selectOptions(within(await screen.findByRole("region", { name: "Set up" })).getByRole("combobox", { name: "Setting up" }), "laptop");
     const laptop = app.environment("laptop");
     laptop.discovery("nothing");
     laptop.server.drop();

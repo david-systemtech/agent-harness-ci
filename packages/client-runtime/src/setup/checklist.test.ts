@@ -27,6 +27,7 @@ const step = (over: Partial<SetupStepView> = {}): SetupStepView => ({
   skippable: true,
   result: result(),
   pending: false,
+  missing: false,
   ...over,
 });
 

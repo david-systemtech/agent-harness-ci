@@ -1,4 +1,4 @@
-import { setupReachWords, type EnvironmentView, type SetupView } from "@agent-harness/client-runtime";
+import { setupReachWords, type EnvironmentView, type ServiceFailure, type SetupView } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { Power, RotateCw } from "lucide-react";
 import { useState } from "react";
@@ -28,11 +28,11 @@ export const useStart = () => {
 };
 
 /** A start that did not start the service on `name` (setup-copy.md §3, the patterns): what to do, and the failure under Details. */
-export const StartFailed = ({ name, failure }: { readonly name: string; readonly failure: string }) => {
+export const StartFailed = ({ name, failure }: { readonly name: string; readonly failure: ServiceFailure }) => {
   const details = useDetails();
   const title = `${PRODUCT_NAME} did not start on ${name}.`;
   const description = "Choose Start to try again.";
-  return <SetupNotice tone="error" title={title} description={description} details={details({ computer: { name }, line: `${title} ${description}`, details: [failure] })} />;
+  return <SetupNotice tone="error" title={title} description={description} details={details({ computer: { name }, line: `${title} ${description}`, details: [failure.text] })} />;
 };
 
 /**

@@ -1,4 +1,5 @@
 import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
+import type { ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -24,7 +25,7 @@ export const joinPreview: BankJoinPreview = {
 /** A step's status at the head of its card (setup-copy.md §3; #1840): done, needing a fix with Details open, a check that could not run, and the environment out of reach. */
 type StatusRegion = "status-done" | "status-fix" | "status-could-not-check" | "status-unreachable";
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | StatusRegion;
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "host-updater" | "rail-states" | StatusRegion;
 
 const isStatus = (kind: SetupRegion): kind is StatusRegion => kind.startsWith("status-");
 
@@ -44,6 +45,17 @@ const STATUS_RESULTS: { readonly [Kind in StatusRegion]?: Partial<StepResult> } 
   },
 };
 
+/**
+ * setup-copy.md §4.4: the rail with every state a computer's results give at once, Done, Needs a fix, Not set up,
+ * Checking and Not available (a step its version does not have), the last one shown (#1839).
+ */
+const RAIL_STATES: ScriptedSetup = {
+  "carry-over": { state: "needs-attention", reason: "2 chats could not be read. Choose Check again." },
+  "your-machines": { state: "skipped", reason: "Only on this computer." },
+  forges: { state: "pending", reason: "Checking…" },
+  "key-manager": null,
+};
+
 /** A provider's authorize link at its real length, which once printed over eight lines (#1690); every value is invented. */
 export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=true&client_id=client-for-gallery&response_type=code"
   + "&redirect_uri=https%3A%2F%2Fprovider.example.test%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions"
@@ -51,7 +63,7 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : isStatus(kind) ? "skills" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || kind === "sign-in" ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : isStatus(kind) ? "skills" : kind;
   const status = isStatus(kind) ? STATUS_RESULTS[kind] : undefined;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
@@ -60,6 +72,7 @@ async function prepareRegion(kind: SetupRegion) {
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
+    ...(kind === "rail-states" && { setup: RAIL_STATES }),
     ...(status !== undefined && { setup: { skills: status } }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");

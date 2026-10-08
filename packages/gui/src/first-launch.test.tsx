@@ -11,7 +11,7 @@ import { renderApp, type RenderedApp } from "../test/harness.js";
 /**
  * First launch on the desktop (docs/specs/gui.md, "The local environment,
  * pairing and updates"): the runtime lists the placeholder "this machine"
- * (#181); with "Run an environment on this machine" on, the preset, the
+ * (#181); with "Run agent-harness on this computer" on, the preset, the
  * window calls `connections.startService`, whose shell `service` installs
  * the service from the artefact the desktop carries when none is installed
  * and starts it, and the window follows the environment from service down
@@ -42,7 +42,7 @@ describe("first launch", () => {
     onTestFinished(async () => { await runtime.close(); await presentation.close(); });
     render(<App runtime={runtime} presentation={presentation} clock={world.clock} version={world.version} macOS={false} shell={world.shell} />);
     expect(screen.getByRole("heading", { name: "Welcome to agent-harness" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Waiting for this machine…" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Begin set up" }).hasAttribute("disabled")).toBe(true);
     expect(screen.queryByRole("main")).toBeNull();
     expect(screen.queryByRole("region", { name: "Pair with an environment" })).toBeNull();
     await act(async () => runtime.start());
@@ -78,17 +78,17 @@ describe("first launch", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Welcome to agent-harness" })).toBeDefined();
-    expect(await screen.findByText("Installing the environment (first start only)…")).toBeDefined();
+    expect(await screen.findByText("Installing agent-harness on this computer…")).toBeDefined();
     expect(serviceCalls(app)).toEqual(["service.status", "service.install"]);
     await act(async () => installed());
-    expect(await screen.findByText("Starting the environment on this machine")).toBeDefined();
+    expect(await screen.findByText("Starting agent-harness on this computer…")).toBeDefined();
     expect(serviceCalls(app)).toEqual(["service.status", "service.install", "service.start"]);
     expect(app.runtime.connections.list.read()).toMatchObject([{ environmentId: LOCAL_PLACEHOLDER_ID, phase: "service-down" }]);
 
     // The service is installed and started; the environment answers, starting.
     app.environment("desk").discovery("starting");
     await act(async () => started());
-    expect(screen.getByRole("button", { name: "Waiting for this machine…" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Begin set up" }).hasAttribute("disabled")).toBe(true);
 
     app.environment("desk").discovery("ready");
     act(() => app.clock.advance(STARTING_POLL_MS));
@@ -105,10 +105,10 @@ describe("first launch", () => {
         .getAllByRole("button")
         .map((step) => step.getAttribute("aria-label")),
     ).toEqual(["Account", "Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions", "Appearance"]);
-    expect(await within(steps).findByRole("img", { name: "Permissions: Needs a fix" })).toBeDefined();
-    expect(within(steps).getByRole("img", { name: "Account: Done" })).toBeDefined();
+    expect(await within(steps).findByRole("button", { name: "Permissions", description: / Needs a fix / })).toBeDefined();
+    expect(within(steps).getByRole("button", { name: "Account", description: / Done / })).toBeDefined();
     expect(within(setup).getByRole("region", { name: "Account" })).toBeDefined();
-    expect(within(within(setup).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("desk");
+    expect(within(within(setup).getByRole("combobox", { name: "Setting up" })).getByRole("option", { selected: true }).textContent).toBe("desk");
     expect(serviceCalls(app)).toEqual(["service.status", "service.install", "service.start"]);
   });
 
@@ -170,19 +170,19 @@ describe("first launch", () => {
   });
 });
 
-describe("with Run an environment on this machine off", () => {
+describe("with Run agent-harness on this computer off", () => {
   it("opens on pairing and starts nothing", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, { presentation: { runLocalEnvironment: false } });
     const pairing = await screen.findByRole("region", { name: "Pair with an environment" });
     expect(within(pairing).getByRole("textbox", { name: "Pairing link" })).toBeDefined();
-    expect(within(pairing).getByRole("switch", { name: "Run an environment on this machine" }).getAttribute("aria-checked")).toBe("false");
+    expect(within(pairing).getByRole("switch", { name: "Run agent-harness on this computer" }).getAttribute("aria-checked")).toBe("false");
     expect(serviceCalls(app)).toEqual([]);
   });
 
   it("is turned off from the window, which then opens on pairing, and the next launch too", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] });
     await within(pane()).findByText(/^The environment on this machine /);
-    await app.user.click(within(pane()).getByRole("switch", { name: "Run an environment on this machine" }));
+    await app.user.click(within(pane()).getByRole("switch", { name: "Run agent-harness on this computer" }));
     expect(await screen.findByRole("region", { name: "Pair with an environment" })).toBeDefined();
 
     const again = await app.remount();
@@ -194,7 +194,7 @@ describe("with Run an environment on this machine off", () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, { presentation: { runLocalEnvironment: false } });
     app.shell.answer("service.start", async () => app.environment("desk").discovery("ready"));
     const pairing = await screen.findByRole("region", { name: "Pair with an environment" });
-    await app.user.click(within(pairing).getByRole("switch", { name: "Run an environment on this machine" }));
+    await app.user.click(within(pairing).getByRole("switch", { name: "Run agent-harness on this computer" }));
     expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
     expect(serviceCalls(app)).toEqual(["service.status", "service.start"]);
   });

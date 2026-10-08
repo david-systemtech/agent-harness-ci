@@ -1,10 +1,10 @@
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ShellPlatform } from "@agent-harness/client-runtime";
+import { serviceFailureOf, type ServiceFailure, type ShellPlatform } from "@agent-harness/client-runtime";
 import { fakeArtefact, type FakeArtefact } from "../test/fake-artefact.js";
 import { fakeElectron } from "../test/fake-electron.js";
-import { cleanUp, platformOn, start } from "../test/harness.js";
+import { cleanUp, platformOn, scratch, start } from "../test/harness.js";
 import type { DesktopPlatform } from "./platform.js";
 
 afterEach(cleanUp);
@@ -20,6 +20,10 @@ afterEach(cleanUp);
 const STATUS = ["service", "status", "--json"];
 /** Looks every few milliseconds where the desktop looks every second; still waits a minute, so a loaded runner's slow spawns never run it out. */
 const QUICK = { everyMs: 5, forMs: 60_000 };
+
+/** The failure a shell call rejected with, as the window reads it on its side of the bridge. */
+const failureOf = (call: Promise<unknown>): Promise<ServiceFailure | undefined> =>
+  call.then(() => undefined, (error: unknown) => serviceFailureOf(error));
 
 /** The desktop on `os`, carrying `artefact`. */
 const carrying = (os: ShellPlatform, artefact: FakeArtefact): DesktopPlatform => {
@@ -105,6 +109,31 @@ describe("service", () => {
     const second = await start({ platform: carrying("linux", stopped), serviceWait: QUICK });
     await expect(second.shell().service.start()).rejects.toThrow("Installed, but starting it failed: Could not run systemctl: no user manager.");
     expect(stopped.state()).toMatchObject({ installed: true, running: false });
+  });
+
+  it("names the kind of each failure beside its text, across the bridge", async () => {
+    const refused = await start({ platform: carrying("linux", fakeArtefact("linux", { fails: { verb: "install", message: "agent-harness refuses to run as root." } })), serviceWait: QUICK });
+    expect(await failureOf(refused.shell().service.install())).toEqual({ kind: "install", text: "Could not install the environment on this machine: agent-harness refuses to run as root." });
+    expect(await failureOf(refused.shell().service.start())).toMatchObject({ kind: "install" });
+
+    const stopped = await start({ platform: carrying("linux", fakeArtefact("linux", { installed: true, fails: { verb: "start", message: "Could not run systemctl: no user manager." } })), serviceWait: QUICK });
+    expect(await failureOf(stopped.shell().service.start())).toEqual({ kind: "start", text: "Could not start the environment on this machine: Could not run systemctl: no user manager." });
+
+    const unread = await start({ platform: carrying("linux", fakeArtefact("linux", { fails: { verb: "status", message: "No user service manager." } })), serviceWait: QUICK });
+    expect(await failureOf(unread.shell().service.status())).toEqual({ kind: "status", text: "Could not read the service's status: No user service manager." });
+    expect(await failureOf(unread.shell().service.start())).toMatchObject({ kind: "status" });
+
+    const silent = await start({ platform: carrying("linux", fakeArtefact("linux", { startsAs: null })), serviceWait: { everyMs: 5, forMs: 60 } });
+    expect(await failureOf(silent.shell().service.start())).toMatchObject({ kind: "no-answer" });
+
+    const platform = platformOn("linux");
+    const broken = await start({ platform: { ...platform, paths: { ...platform.paths, server: scratch() } }, serviceWait: QUICK });
+    expect(await failureOf(broken.shell().service.status())).toMatchObject({ kind: "unrunnable", text: expect.stringMatching(/could not be run/) });
+    expect(await failureOf(broken.shell().service.start())).toMatchObject({ kind: "unrunnable" });
+
+    const bare = await start();
+    expect(await failureOf(bare.shell().service.start())).toMatchObject({ kind: "no-artefact", text: expect.stringMatching(/carries no server artefact/) });
+    expect(await failureOf(bare.shell().service.install())).toMatchObject({ kind: "no-artefact" });
   });
 
   it.each([

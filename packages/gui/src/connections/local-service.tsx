@@ -1,4 +1,4 @@
-import { LOCAL_PLACEHOLDER_ID, type CapabilityAnswer } from "@agent-harness/client-runtime";
+import { LOCAL_PLACEHOLDER_ID, serviceFailureOf, type CapabilityAnswer, type ServiceFailure, type ServiceFailureKind } from "@agent-harness/client-runtime";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { desktopErrorMessage } from "../platform/desktop-platform.js";
 import { useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
@@ -15,7 +15,8 @@ import { useObservable, usePresentation, useRuntime, useShell } from "../window-
  * offered a start, never started unasked. Before starting, the window asks
  * the shell whether it must install, and shows that step until it settles.
  * The start under way and why the last one failed are the window's, shared
- * by every place that offers it.
+ * by every place that offers it. A failure keeps the kind the desktop gave
+ * it, else the kind of the step that failed (setup-copy.md §4.1).
  */
 
 export interface LocalService {
@@ -26,7 +27,7 @@ export interface LocalService {
   /** Whether the first install is under way, before the service can start. */
   readonly installing: boolean;
   /** Why the last start asked from this window failed, until another is asked. */
-  readonly failure: string | undefined;
+  readonly failure: ServiceFailure | undefined;
   /** Starts the service of the local environment listed as `environmentId`. */
   start(environmentId: string): void;
 }
@@ -41,7 +42,7 @@ export const LocalServiceProvider = ({ children }: { readonly children: ReactNod
   const [marked] = usePresentation("firstLaunchDone");
   const [starting, setStarting] = useState(false);
   const [installing, setInstalling] = useState(false);
-  const [failure, setFailure] = useState<string | undefined>(undefined);
+  const [failure, setFailure] = useState<ServiceFailure | undefined>(undefined);
   const available = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.service");
 
   /** Whether this window attempted startup or found the local environment already ready: later outages wait for an action. */
@@ -54,12 +55,19 @@ export const LocalServiceProvider = ({ children }: { readonly children: ReactNod
       started.current = true;
       setStarting(true);
       setFailure(undefined);
+      let step: ServiceFailureKind = "start";
       const run = async () => {
-        if (available.status === "present" && shell?.service !== undefined && !(await shell.service.status()).installed) {
-          setInstalling(true);
-          await shell.service.install();
-          setInstalling(false);
+        if (available.status === "present" && shell?.service !== undefined) {
+          step = "status";
+          const { installed } = await shell.service.status();
+          if (!installed) {
+            step = "install";
+            setInstalling(true);
+            await shell.service.install();
+            setInstalling(false);
+          }
         }
+        step = "start";
         await runtime.connections.startService(environmentId);
       };
       run().then(
@@ -68,7 +76,7 @@ export const LocalServiceProvider = ({ children }: { readonly children: ReactNod
           inFlight.current = false;
           setStarting(false);
           setInstalling(false);
-          setFailure(desktopErrorMessage(error));
+          setFailure(serviceFailureOf(error) ?? { kind: step, text: desktopErrorMessage(error) });
         },
       );
     },

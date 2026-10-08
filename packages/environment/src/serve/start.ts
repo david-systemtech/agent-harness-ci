@@ -358,6 +358,8 @@ export interface EnvironmentOptions {
    * looked for (#555). Preset: `process.platform`; tests script it.
    */
   readonly platform?: NodeJS.Platform;
+  /** The Node this environment runs on, which on Windows says whether it is the launcher's copy that no update moves (#1910). Preset: `process.execPath`. */
+  readonly execPath?: string;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
   /** Canonical HTTPS origin for web links, configured independently of the TLS proxy. */
@@ -814,6 +816,16 @@ const linkHost = (listening: readonly { readonly address: Address; readonly inte
   const host = (listening.find((entry) => entry.interface !== "loopback") ?? listening[0])?.address.host ?? LOOPBACK;
   return formatHostPort(host);
 };
+
+/**
+ * Whether `execPath` is the Windows launcher's copy of Node in `dataDir`,
+ * `node\node.exe` (the cli's `serveNode`, #1910): the one Node whose path no
+ * update changes, so its firewall answer holds. A foreground `serve`, or a
+ * version the launcher ran on its own Node when the copy could not be made,
+ * runs elsewhere. Windows paths compare without case.
+ */
+const onServeNode = (execPath: string, dataDir: string): boolean =>
+  absolutePath(execPath).toLowerCase() === join(dataDir, "node", "node.exe").toLowerCase();
 
 /**
  * The managed tool `claude` as a sign-in runs it: the path the registry
@@ -1578,7 +1590,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
     startedAt: () => startedAt,
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, tailnetFound, ...(interfaces.tailscaleInstalled !== undefined && { tailscaleInstalled: interfaces.tailscaleInstalled() }), lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({
+      ...boundBeside,
+      tailnetFound,
+      ...(interfaces.tailscaleInstalled !== undefined && { tailscaleInstalled: interfaces.tailscaleInstalled() }),
+      // Windows Firewall asks once whether the environment's Node may accept connections (#1910), when it runs on the launcher's copy; the Reachability section says so beforehand.
+      ...((options.platform ?? process.platform) === "win32" && onServeNode(options.execPath ?? process.execPath, dataDir) && { firewallAsksOnce: true as const }),
+      lanAddresses: [...interfaces.lanAddresses()],
+    }),
     lookAgain: async () => {
       if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
     },
