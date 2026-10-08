@@ -446,7 +446,7 @@ status`, from a release's shim, says `Installed: no`, or the user is new).
    installed, running and ready; `<data>/versions` holds the desktop's
    version, complete; the service's definition runs `<data>`'s launcher
    entry, never a path inside the app.
-2. **Opted out.** Turn "Run an environment on this machine" off: the window
+2. **Opted out.** Turn "Run agent-harness on this computer" off: the window
    shows pairing. Stop the service (`service` has no stop verb: stop it
    through the OS's service manager), quit and start: the window opens on
    pairing and starts nothing. Turn the switch on: the service starts and the

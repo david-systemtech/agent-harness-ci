@@ -15,7 +15,7 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
 
 const OFF = { presentation: { runLocalEnvironment: false } } as const;
 
-/** The window with nothing paired and "Run an environment on this machine" off: it opens on pairing. */
+/** The window with nothing paired and "Run agent-harness on this computer" off: it opens on pairing. */
 const onPairing = async (laptop: Partial<ScriptedEnvironment> = {}, options: { readonly protocolVersion?: number } = {}) => {
   const app = await renderApp({ environments: [{ name: "laptop", reach: "unpaired", ...laptop }] }, { ...OFF, ...options });
   const pane = await screen.findByRole("region", { name: "Pair with an environment" });
