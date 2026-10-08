@@ -167,7 +167,7 @@ describe("key-manager.signed-in on a connection that is not ready yet (#1852)", 
 
   /** The Key manager step's signed-in check over `records`, verified as they stand. */
   const signedInOver = (records: readonly KeyManagerConnectionRecord[], requiredConnections: readonly string[] = []) =>
-    keyManagerStateChecks({ connections: () => records, verify: async () => records, requiredConnections: () => requiredConnections, toolRows: async () => [], computer: () => COMPUTER })["key-manager.signed-in"]();
+    keyManagerStateChecks({ connections: () => records, verify: async () => records, requiredConnections: () => requiredConnections, toolRows: async () => [], computer: () => COMPUTER })["key-manager.signed-in"]({ maxAgeMs: 0 });
 
   /** A connection labelled `label` standing in `status`. */
   const standing = (label: string, status: Pick<KeyManagerStatus, "kind" | "message">): KeyManagerConnectionRecord =>
