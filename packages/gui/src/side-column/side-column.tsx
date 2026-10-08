@@ -4,6 +4,7 @@ import { directoryOf, outsideWorkspace, typedPath } from "@agent-harness/client-
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
+import { phoneLayoutMedia } from "../frame/phone-frame.js";
 import { BrowserPane } from "../browser/browser-pane.js";
 import { useBrowserPanes } from "../browser/browser-panes.js";
 import { useGridPaneId } from "../grid/grid.js";
@@ -107,9 +108,9 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
       if (!entry) return;
       const floats = (entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width) < 900;
       setNarrow(floats);
-      // A sheet left open is not put back over the session it would cover (#1903): the session opens with its
-      // column hidden, and the edge handle brings back the pane it showed. A wide column is restored as it was.
-      if (floats && !arrived) change((held) => (held.hidden ? held : hideColumn(held, true)));
+      // On a phone a sheet left open is not put back over the session it would cover (#1903): the session opens
+      // with its column hidden, and the edge handle brings back the pane it showed. Elsewhere it is restored as it was.
+      if (floats && !arrived && phoneLayoutMedia().some((query) => query.matches)) change((held) => (held.hidden ? held : hideColumn(held, true)));
       arrived = true;
     });
     observer.observe(owner);

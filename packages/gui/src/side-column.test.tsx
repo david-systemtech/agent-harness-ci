@@ -25,6 +25,14 @@ const narrowSheet = () => {
   onTestFinished(() => { vi.unstubAllGlobals(); });
 };
 
+/** Lay the window out as a phone, as the phone frame's media test reads it. */
+const phoneLayout = () => {
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation(query => query === "(width < 640px)"
+    ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
+  onTestFinished(() => { vi.restoreAllMocks(); });
+};
+
 /** The local environment with two sessions, the first opened in the pane. */
 const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
   const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }, { title: "Parser" }], files: FILES, ...more }] });
@@ -128,6 +136,7 @@ describe("the side column", () => {
   });
 
   it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, its waiting card in sight and the edge handle bringing back the pane it showed", async () => {
+    phoneLayout();
     narrowSheet();
     const app = await opened();
     const env = app.environment("desk"), session = env.sessionId();
@@ -149,6 +158,16 @@ describe("the side column", () => {
     expect(await screen.findByRole("region", { name: "Parked prompt" })).toBeDefined();
     await waitFor(() => expect(column()).toBeNull());
     expect(screen.getByRole("button", { name: "Show the side column" })).toBeDefined();
+  });
+
+  it("restores a sheet left open over a narrow pane that is not a phone's", async () => {
+    narrowSheet();
+    const app = await opened();
+    await openPane(app, "Documents");
+
+    await app.remount();
+    expect(await screen.findByRole("dialog", { name: "Side column" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Show the side column" })).toBeNull();
   });
 
   it("repairs focus after switching from preview to source, closing a pane and closing the final sheet", async () => {
