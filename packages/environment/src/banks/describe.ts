@@ -88,11 +88,11 @@ export const describeBankStep = ({ banks, clock, dataDir }: DescribeBankOptions)
       const bank = bankOf(subject);
       if (bank === undefined) {
         return subject === null
-          ? bankMissing("The Memory bank step's session describes one bank: name it as the subject.")
-          : bankMissing(`The bank ${subject.label} is no longer registered on this environment.`, { bankId: subject.id });
+          ? bankMissing("Choose which notebook to describe.")
+          : bankMissing(`${subject.label} is no longer one of your notebooks.`, { bankId: subject.id });
       }
       if (!(await isDirectory(bank.checkout))) {
-        return bankMissing(`The bank ${bank.name} has no checkout at ${bank.checkout} on this environment.`, { bankId: bank.id, path: bank.checkout });
+        return bankMissing(`${bank.name}'s folder on this computer is missing.`, { bankId: bank.id, path: bank.checkout });
       }
       const day = clock.now().toISOString().slice(0, 10);
       try {
@@ -103,7 +103,7 @@ export const describeBankStep = ({ banks, clock, dataDir }: DescribeBankOptions)
         const diagnostic = error instanceof DescribeGitError
           ? { reason: "git_failed", operation: error.operation, diagnostic: error.diagnostic }
           : errno === undefined ? { reason: "describe_repository_failed", diagnostic: "unexpected" } : { reason: "filesystem_failed", errno };
-        return { refused: { code: "conflict", message: `The bank ${bank.name}'s describe repository could not be prepared.`, data: { ...diagnostic, bankId: bank.id, repository: describeRepositoryAt(dataDir, bank.checkout) } } };
+        return { refused: { code: "conflict", message: `agent-harness could not get ${bank.name} ready to describe. Choose Describe it to try again.`, data: { ...diagnostic, bankId: bank.id, repository: describeRepositoryAt(dataDir, bank.checkout) } } };
       }
     },
     facts: (subject) => {

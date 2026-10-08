@@ -182,7 +182,7 @@ it.each([
     yield end();
   };
   const { client, bank, initial } = await describedLocal(describes, "revise");
-  expect((await client.request("setup.check", { step: "memory-bank" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], reason: expect.stringContaining(rule) });
+  expect((await client.request("setup.check", { step: "memory-bank" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], details: expect.arrayContaining([expect.stringContaining(rule)]) });
   expect(git(bank.checkout, "rev-parse", "main")).toBe(initial);
 });
 
@@ -204,7 +204,7 @@ it("refuses to overwrite a main that changed after the describe branch was minte
   git(bank.checkout, "add", "BANK.md");
   git(bank.checkout, "commit", "--quiet", "-m", "Change main independently.");
   const head = git(bank.checkout, "rev-parse", "main");
-  expect((await client.request("setup.check", { step: "memory-bank" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], reason: expect.stringContaining("main changed") });
+  expect((await client.request("setup.check", { step: "memory-bank" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], details: expect.arrayContaining([expect.stringContaining("main changed")]) });
   expect(git(bank.checkout, "rev-parse", "main")).toBe(head);
   expect(readFileSync(path, "utf8")).toContain("A newer main purpose.");
 });
@@ -222,5 +222,5 @@ it("keeps a missing describe result on the existing manifest check", async () =>
   const sessionId = (await client.request("setup.mint", { commandId: randomUUID(), step: "memory-bank", subject: bankId, variant: "first" })).result!.sessionId;
   const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
   await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended");
-  expect((await client.request("setup.check", { step: "memory-bank" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest"], reason: expect.stringContaining("has no BANK.md on main") });
+  expect((await client.request("setup.check", { step: "memory-bank" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest"], reason: expect.stringContaining("needs a description.") });
 });

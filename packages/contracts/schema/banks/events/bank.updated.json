@@ -378,6 +378,15 @@
                   "minLength": 1,
                   "description": "Why it could not be reached, in a sentence."
                 },
+                "cause": {
+                  "description": "What the verification found behind it: folder-missing, its checkout is not on this machine; no-forge-account, no forge account here covers its origin and the forge refused an anonymous read; repository-missing, its forge answered that the repository is not there. Absent for any other cause, and on a status recorded before causes were.",
+                  "type": "string",
+                  "enum": [
+                    "folder-missing",
+                    "no-forge-account",
+                    "repository-missing"
+                  ]
+                },
                 "since": {
                   "type": "string",
                   "format": "date-time",

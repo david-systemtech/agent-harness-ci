@@ -334,7 +334,7 @@ describe("a provider's error text", () => {
 
     bao.approle(ROLE_ID, OTHER_SECRET_ID, { status: 400, error: echo(OTHER_SECRET_ID) });
     const refused = await signIn(client, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) });
-    expect(rejection(refused.receipt).message).toBe(`OpenBao at ${bao.address} refused the credential (HTTP 400: bad request for ${REDACTED} and ${REDACTED}). Nothing was changed.`);
+    expect(rejection(refused.receipt).data?.["details"]).toEqual([`OpenBao at ${bao.address} refused the credential (HTTP 400: bad request for ${REDACTED} and ${REDACTED}).`, "Nothing was changed."]);
 
     bao.answer("GET sys/seal-status", { status: 500, error: echo(SECRET_ID) });
     const [down] = await verify(client, connection.id);
