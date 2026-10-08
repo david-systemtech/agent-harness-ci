@@ -4,9 +4,13 @@ import {
   UNREAD_ACCOUNT,
   aboveCeilingWords,
   containmentWords,
+  effortName,
   identityWords,
+  modelChoiceWords,
+  modelDisplayName,
   modelName,
   modelsOf,
+  nextRunWords,
   gaugeOf,
   sessionModeOf,
   setSessionContainment,
@@ -16,7 +20,7 @@ import {
   type RunChoice,
 } from "@agent-harness/client-runtime";
 import { ArrowRightLeft, Box, Check, Cpu, KeyRound, Plus, RefreshCw, Search, Shield, SlidersHorizontal } from "lucide-react";
-import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
+import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type Mode } from "@agent-harness/contracts";
 import { createContext, Fragment, use, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
@@ -30,6 +34,7 @@ import { useSignInCard } from "./pane-dialogs.js";
 import { MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.js";
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
+import { useSayModeSet } from "./mode-said.js";
 import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
 import { UsageRings } from "./window-reading.js";
@@ -222,7 +227,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
     if (listingModels.status === "absent") return say(listingModels.message);
     choose({ model: id, effort });
     if (narrow && models.find((entry) => entry.id === id)?.efforts.length) setActiveColumn("Effort");
-    say(`The next run of ${session} goes out on ${id} at ${effort === null ? "its own effort" : `${effort} effort`}.`);
+    say(nextRunWords(session, { model: id, effort }, models.find((entry) => entry.id === id)?.label));
   };
   const pickAccount = (candidate: AccountRecord) => {
     if (reason !== undefined) return say(reason);
@@ -237,7 +242,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   };
   const active = activeColumn === "Effort" && (selected?.efforts.length ?? 0) === 0 ? "Models" : activeColumn;
   const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <RunPickerColumn name={name} narrow={narrow} activeColumn={active} showEffortWithModel={false}>{children}</RunPickerColumn>;
-  const visible = models.filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLowerCase().includes(query.toLowerCase()));
+  const visible = models.filter((entry) => `${modelName(entry)} ${entry.label ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   const quick = model?.model === undefined ? models.slice(0, 5) : models.filter((entry, index) => entry.id === model.model || index < 5);
   return <div data-run-picker data-narrow={narrow ? "true" : undefined} className={classes("flex flex-col", narrow && "w-[min(512px,calc(100vw-16px))]")}
     onKeyDownCapture={moveInColumns}>
@@ -263,7 +268,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
         {catalogues.value === null ? <Waiting>{catalogues.error ? `The models could not be read: ${catalogues.error.message}` : "Reading the models…"}</Waiting> : <>
           {models.length > 12 && <label title="Search models · Type to filter · Tab next column" className="mb-1 flex items-center gap-2 rounded-md bg-wash px-2"><Search aria-hidden="true" className="size-3" /><input aria-label="Search models" value={query} onChange={(event) => setQuery(event.target.value)} className="h-8 min-w-0 w-full bg-transparent text-xs outline-none" /></label>}
           {models.length > 5 && <RunChoiceRow icon={Search} label={full ? "Quick choices" : "All models"} onSelect={() => setFull(!full)} />}
-          {(full || query !== "" ? visible : quick).map((entry) => <RunChoiceRow key={entry.id} icon={Cpu} label={modelName(entry)} primary={entry.label ?? entry.id} machine={entry.label === null ? undefined : entry.id}
+          {(full || query !== "" ? visible : quick).map((entry) => <RunChoiceRow key={entry.id} icon={Cpu} label={modelName(entry)} primary={modelDisplayName(entry.id, entry.label)} machine={modelDisplayName(entry.id, entry.label) === entry.id ? undefined : entry.id}
             selected={model?.model === entry.id} dim={live || listingModels.status === "absent"} note={entry.efforts.length > 0 ? "Supports effort" : "Uses its own effort"}
             onSelect={() => chosen(entry.id, model?.model === entry.id && (model.effort === null || entry.efforts.includes(model.effort)) ? model.effort : null)} />)}
           {model !== undefined && selected === undefined && <Waiting>Stored model {model.model} is not listed for this account. Choose an available model for the next run.</Waiting>}
@@ -274,7 +279,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
         {listingModels.status === "absent" && <Waiting>{listingModels.message}</Waiting>}
       </>)}
       {selected !== undefined && selected.efforts.length > 0 && column("Effort", <>
-        {[null, ...selected.efforts].map((effort) => <RunChoiceRow key={effort ?? "own"} icon={SlidersHorizontal} label={effort ?? "its own effort"}
+        {[null, ...selected.efforts].map((effort) => <RunChoiceRow key={effort ?? "own"} icon={SlidersHorizontal} label={effort === null ? "its own effort" : effortName(effort)}
           selected={model?.effort === effort} dim={live || listingModels.status === "absent"} note={model?.effort === effort ? "this session" : undefined}
           under={effort === null ? "Let the model choose its effort." : "Reasoning effort for the next run."}
           onSelect={() => { chosen(selected.id, effort); if (!live && listingModels.status === "present") close(); }} />)}
@@ -312,8 +317,9 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
   const [choice] = useModelChoice(environmentId, sessionId);
   const handedOnto = useHandedOnto(environmentId, sessionId);
   const current = choice ?? model;
-  const unavailable = current !== undefined && catalogues.value !== null && !modelsOf(catalogues.value, accountId ?? handedOnto ?? null).some((entry) => entry.id === current.model);
-  const words = current === undefined ? "default model" : current.effort !== null ? `${current.model} ${current.effort}` : current.model;
+  const listed = current === undefined || catalogues.value === null ? undefined : modelsOf(catalogues.value, accountId ?? handedOnto ?? null).find((entry) => entry.id === current.model);
+  const unavailable = current !== undefined && catalogues.value !== null && listed === undefined;
+  const words = current === undefined ? "default model" : modelChoiceWords(current, listed?.label);
   return <PickerButton name="Model" command="model" value={words} offer={useOffer(environmentId, "models.list")} columns
     items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={current} initialStage="Models" close={close} />}
     warning={unavailable ? "This stored model is not listed for this account. Choose an available model for the next run." : undefined}>
@@ -324,6 +330,8 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
 interface ModePickerProps {
   readonly environmentId: string;
   readonly sessionId: string;
+  /** The session's mode as the status line shows it: bypassPermissions carries its sentence in the button's tooltip (#1823). */
+  readonly mode: Mode;
   /** The mode badge the status line shows, with its clamp, in words. */
   readonly value: string;
   readonly children: ReactNode;
@@ -333,13 +341,13 @@ const ModeRows = ({ environmentId, sessionId }: { readonly environmentId: string
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.modes(environmentId), [runtime, environmentId]));
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const [, say] = usePaneLine();
+  const sayModeSet = useSayModeSet();
   const session = projection.summary?.title ?? "this session";
   const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
   return picker.modes.map(({ mode, allowed }) => (
       <Item
         key={mode}
-        onSelect={() => void setSessionMode(runtime, environmentId, sessionId, mode, session).then((set) => say(set.line))}
+        onSelect={() => void setSessionMode(runtime, environmentId, sessionId, mode, session).then(sayModeSet)}
         dim={!allowed}
         selected={mode === own}
         tooltip={modeLabel(MODE_BADGE_WORDS[mode])}
@@ -359,12 +367,17 @@ const ModeSubmenu = ({ environmentId, sessionId }: { readonly environmentId: str
   </MenuSub>;
 };
 
-/** The mode picker: the four modes, one above the connection's ceiling greyed with the ceiling named, and the clamp said once set. */
-export const ModePicker = ({ environmentId, sessionId, value, children }: ModePickerProps) => {
+/**
+ * The mode picker: the four modes, one above the connection's ceiling greyed
+ * with the ceiling named, and the clamp said once set. The button shows the
+ * mode, bypassPermissions with its sentence in the tooltip, so nothing says
+ * it under the composer for as long as it holds (#1823).
+ */
+export const ModePicker = ({ environmentId, sessionId, mode, value, children }: ModePickerProps) => {
   const setting = useOffer(environmentId, "permissions.mode.set");
   const items = () => <ModeRows environmentId={environmentId} sessionId={sessionId} />;
   return (
-    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
+    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} warning={mode === "bypassPermissions" ? BYPASS_SENTENCE : undefined} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
       {children}
     </PickerButton>
   );

@@ -10,7 +10,9 @@ import {
   handedOffAlreadyWords,
   handingOffWords,
   labelProblem,
+  modelDisplayName,
   modelsOf,
+  nextRunWords,
   noKeysLine,
   oneLine,
   parseTyped,
@@ -47,6 +49,7 @@ import {
   type ContainmentLevel,
   type KeyActionId,
   type Mode,
+  type ModelEntry,
   type SettingsKey,
   type ResultOf,
 } from "@agent-harness/contracts";
@@ -602,15 +605,15 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "models": {
           if (!opened) return host.say("No session is open: a model rides a session's runs. /resume opens one, /new starts one.");
           const target = opened;
-          const choose = (model: string, effort: string | null) => {
-            setChoices((held) => new Map(held).set(keyOf(target), { model, effort }));
+          const choose = (model: ModelEntry, effort: string | null) => {
+            setChoices((held) => new Map(held).set(keyOf(target), { model: model.id, effort }));
             host.close();
-            host.say(`The next run of ${sessionName()} goes out on ${model} at ${effort === null ? "its own effort" : `${effort} effort`}.`);
+            host.say(nextRunWords(sessionName(), { model: model.id, effort }, model.label));
           };
-          if (card.model !== null) return choose(card.model.id, card.cursor === 0 ? null : (card.model.efforts[card.cursor - 1] ?? null));
+          if (card.model !== null) return choose(card.model, card.cursor === 0 ? null : (card.model.efforts[card.cursor - 1] ?? null));
           const model = modelList(card)[card.cursor];
           if (!model) return;
-          if (model.efforts.length === 0) return choose(model.id, null);
+          if (model.efforts.length === 0) return choose(model, null);
           const effort = currentChoice()?.model === model.id ? (currentChoice()?.effort ?? null) : null;
           return host.change((c) => (c.kind === "models" ? { ...c, model, modelCursor: c.cursor, cursor: effort === null ? 0 : model.efforts.indexOf(effort) + 1 } : c));
         }
@@ -822,7 +825,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           return (
             <ListCard
               width={size.width}
-              title={card.model !== null ? `Effort for ${card.model.label ?? card.model.id}` : `Models${label !== undefined ? ` for ${label}` : ""} on ${nameFor(card.environmentId)}`}
+              title={card.model !== null ? `Effort for ${modelDisplayName(card.model.id, card.model.label)}` : `Models${label !== undefined ? ` for ${label}` : ""} on ${nameFor(card.environmentId)}`}
               hint={hint}
               rows={rows}
               cursor={cursor}

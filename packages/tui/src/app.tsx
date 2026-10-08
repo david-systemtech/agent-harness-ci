@@ -10,6 +10,7 @@ import {
   bulkAsks,
   bulkQuestion,
   decidable,
+  denylistRepeatWords,
   directoryOf,
   followDraft,
   inWorkspace,
@@ -47,6 +48,7 @@ import {
   type Notice,
   type Observable,
   type PairingInput,
+  type PromptEntry,
   type SessionRow,
   type TranscriptEntry,
   type TranscriptRow as Row,
@@ -926,6 +928,8 @@ export const App = (props: AppProps) => {
   const runInfoEnvironment = screen.card.kind === "lines" && screen.card.which === "run-info" ? opened?.environmentId : undefined;
   const runInfoAccounts = useMemo(() => runInfoEnvironment === undefined ? undefined : runtime.projections.accounts(runInfoEnvironment), [runtime, runInfoEnvironment]);
   useFollow(runInfoAccounts, request);
+  const runInfoModels = useMemo(() => runInfoEnvironment === undefined ? undefined : runtime.projections.models(runInfoEnvironment), [runtime, runInfoEnvironment]);
+  useFollow(runInfoModels, request);
   const pickers = usePickers({
     runtime,
     request,
@@ -1814,7 +1818,7 @@ export const App = (props: AppProps) => {
   const cardLines: TranscriptLine[] =
     card.kind === "lines"
       ? card.which === "run-info"
-        ? runInfoLines(projection, runInfoAccounts?.read().value, mainWidth)
+        ? runInfoLines(projection, runInfoAccounts?.read().value, runInfoModels?.read().value, mainWidth)
         : card.which === "timeline"
           ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
           : tasksLines(projection)
@@ -2742,6 +2746,11 @@ export const App = (props: AppProps) => {
               }
               hint={cardHint(shownPrompt.prompt.kind, promptState.line !== null)}
               absent={shownPrompt.prompt.kind === "permission" || shownPrompt.prompt.kind === "denylist" ? `${keys("permission.rule.edit")} ${keys("permission.scope.walk")}: rules are per session on the harness` : undefined}
+              repeat={
+                shownPrompt.prompt.kind === "denylist" && projection
+                  ? denylistRepeatWords(shownPrompt.prompt, projection.items.filter((item): item is PromptEntry => item.kind === "prompt"))
+                  : undefined
+              }
             />
           )}
           {card.kind === "none" && !opened && !railInPane && started && known.length === 0 && <PairingPrompt />}
