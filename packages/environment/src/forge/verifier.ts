@@ -223,7 +223,7 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       const current = liveForgeAccount(reader, forgeAccountId);
       if (current === null || credentialOf(current) !== credential) return null;
       const before = seen(current);
-      const after = reconcile(before, found, clock.now());
+      const after = reconcile(before, found, clock.now(), { origin: current.origin });
       if (after.changed) {
         const payload: ForgeAccountVerifiedPayload = {
           forgeAccountId,
@@ -339,8 +339,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       const found = await withinBudget(origin, (signal) =>
         verifyCredential(options.provider(kind), { origin, token, expected: null, repository, aliases: [] }, { signal }),
       );
-      // No forge account holds the token yet: its lines name no remedy in Set up, Forges.
-      return reconcile(NOTHING_KNOWN, found, clock.now(), { remedies: false });
+      // No forge account holds the token yet: its lines say what happened, and no remedy.
+      return reconcile(NOTHING_KNOWN, found, clock.now(), { origin, remedies: false });
     },
     close() {
       closed = true;

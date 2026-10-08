@@ -198,7 +198,11 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: ["needs-credential", "credential-rejected", "credential-unavailable", "identity-changed", "unreachable", "expiring"],
     invalid: ["expired", "unreachable ", ""],
   },
-  "forge/problem.json": { valid: [problem], invalid: [{ ...problem, message: "" }, { ...problem, message: "two\nlines" }, { ...problem, since: "now" }, { kind: "unreachable" }] },
+  "forge/details.json": { valid: [[], [`The forge at ${origin} answered HTTP 503.`, "Runs out at: 2026-10-20T12:00:00.000Z"]], invalid: [[""], ["two\nlines"], "HTTP 503"] },
+  "forge/problem.json": {
+    valid: [problem, { ...problem, message: "git.example is not answering properly right now. Choose Check again later.", details: [`The forge at ${origin} answered HTTP 503.`] }],
+    invalid: [{ ...problem, message: "" }, { ...problem, message: "two\nlines" }, { ...problem, since: "now" }, { kind: "unreachable" }, { ...problem, details: [""] }],
+  },
   "forge/token-kind.json": { valid: ["classic", "fine-grained", "oauth", "unknown"], invalid: ["pat", ""] },
   "forge/token-information.json": {
     valid: [tokenInformation, { kind: "classic", scopes: ["repo", "read:org"], expiresAt: null }, { kind: "unknown", scopes: null, expiresAt: null }],
@@ -241,7 +245,11 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
   },
   "forge/events/forge.account.git-rejected.json": { valid: [{ forgeAccountId, origin }], invalid: [{ forgeAccountId }, { forgeAccountId, origin: "ssh://git.systemtech.dev" }] },
   "forge/events/forge.account.removed.json": { valid: [{ forgeAccountId }], invalid: [{}, { forgeAccountId: "github" }] },
-  "forge/events/forge.origin-missing.json": { valid: [{ origin, operation: "clone a skill source" }], invalid: [{ origin }, { origin, operation: "" }] },
+  "forge/events/forge.origin-missing.json": { valid: [{ origin, operation: "clone a skill source" }, { origin, operation: "clone a skill source", repository: "someone/tool" }], invalid: [{ origin }, { origin, operation: "" }, { origin, operation: "clone a skill source", repository: "" }] },
+  "forge/events/forge.origin-answered.json": {
+    valid: [{ origin, operation: "read the release channel", repository: "someone/tool" }],
+    invalid: [{ operation: "read the release channel", repository: "someone/tool" }, { origin, operation: "", repository: "someone/tool" }, { origin, operation: "read the release channel" }],
+  },
   "forge/token-permission.json": {
     valid: [{ name: "Contents", access: "write" }, { name: "Metadata", access: "read" }],
     invalid: [{ name: "Contents", access: "admin" }, { name: "", access: "write" }, { name: "Contents" }],
@@ -271,8 +279,11 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ code: "not_a_forge", message: "m", data: {} }, { code: "not_a_forge", message: "m", data: { origin: "https://example.com/" } }],
   },
   "forge/errors/unreachable.json": {
-    valid: [{ code: "unreachable", message: "The forge at https://git.systemtech.dev:5526 could not be reached: ECONNREFUSED.", data: { origin } }],
-    invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { origin: "git.systemtech.dev" } }],
+    valid: [
+      { code: "unreachable", message: "The forge at https://git.systemtech.dev:5526 could not be reached: ECONNREFUSED.", data: { origin } },
+      { code: "unreachable", message: "agent-harness could not reach git.example. Check the address and the internet connection.", data: { origin, details: [`The forge at ${origin} could not be reached: ECONNREFUSED.`] } },
+    ],
+    invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { origin: "git.systemtech.dev" } }, { code: "unreachable", message: "m", data: { origin, details: ["two\nlines"] } }],
   },
   "errors/not_a_pull_request.json": {
     valid: [
@@ -282,7 +293,10 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ code: "not_a_pull_request", message: "m", data: {} }, { code: "not_a_pull_request", message: "m", data: { origin: "github.com" } }],
   },
   "errors/verification_failed.json": {
-    valid: [{ code: "verification_failed", message: "The forge refused the token.", data: { origin, status: 401 } }],
+    valid: [
+      { code: "verification_failed", message: "The forge refused the token.", data: { origin, status: 401 } },
+      { code: "verification_failed", message: "git.example did not accept this token. Check that you copied all of it, or create a new one.", data: { origin, status: 401, details: [`The forge at ${origin} refused the token (HTTP 401).`] } },
+    ],
     invalid: [{ code: "verification_failed", message: "m", data: { origin } }, { code: "verification_failed", message: "m", data: { origin: "nowhere", status: 401 } }, { code: "identity_mismatch", message: "m", data: { origin, status: 401 } }],
   },
   "errors/credential_source_unavailable.json": {
@@ -290,7 +304,14 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ code: "credential_source_unavailable", message: "m", data: {} }, { code: "credential_source_unavailable", message: "m", data: { connectionId: "openbao" } }],
   },
   "errors/forge_account_missing.json": {
-    valid: [{ code: "forge_account_missing", message: "No forge account covers https://codeberg.org: add one in Set up, Forges.", data: { origin: "https://codeberg.org", step: "forges" } }],
+    valid: [
+      { code: "forge_account_missing", message: "No forge account covers https://codeberg.org: add one in Set up, Forges.", data: { origin: "https://codeberg.org", step: "forges" } },
+      {
+        code: "forge_account_missing",
+        message: "agent-harness needed a forge for codeberg.org and found none. Add codeberg.org.",
+        data: { origin: "https://codeberg.org", step: "forges", details: ["https://codeberg.org: it refused an anonymous read (HTTP 404)"] },
+      },
+    ],
     invalid: [{ code: "forge_account_missing", message: "m", data: { origin: "https://codeberg.org" } }, { code: "forge_account_missing", message: "m", data: { origin: "codeberg.org", step: "forges" } }],
   },
   "scrub/shape-rule-id.json": { valid: ["github", "openai-style", "key-assignment", "bitwarden"], invalid: ["registered-value", "entropy", "GitHub", ""] },

@@ -22,6 +22,15 @@
           "type": "string",
           "const": "forges",
           "description": "The Set up step that adds a forge account for it, for the deep link."
+        },
+        "details": {
+          "description": "What the harness was doing and what the forge answered, behind the message's plain line.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]*$"
+          }
         }
       },
       "required": [

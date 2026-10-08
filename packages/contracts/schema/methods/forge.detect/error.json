@@ -328,6 +328,15 @@
               "type": "string",
               "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
               "description": "The origin that did not answer."
+            },
+            "details": {
+              "description": "What failed, behind the message's plain line: no answer within ten seconds, a lost connection, HTTP 5xx or a rate limit.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\r\\n]*$"
+              }
             }
           },
           "required": [
@@ -340,7 +349,7 @@
         "message",
         "data"
       ],
-      "description": "The forge could not be reached, or answered that it could not answer now (its own error, HTTP 5xx; a rate limit; no answer within ten seconds): the message says which; data names the origin."
+      "description": "The forge could not be reached, or answered that it could not answer now (its own error, HTTP 5xx; a rate limit; no answer within ten seconds): the message says so plainly and data's details say which; data names the origin."
     }
   ]
 }

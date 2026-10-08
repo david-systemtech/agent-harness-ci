@@ -336,6 +336,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "forge.account.git-rejected":
       case "forge.account.removed":
       case "forge.origin-missing":
+      case "forge.origin-answered":
         return data;
       // A queued memory change (#1030) changes no status; the request cache refreshes `banks.drafts.list`.
       case "bank.draft-queued":

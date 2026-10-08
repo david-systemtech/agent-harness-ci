@@ -314,9 +314,11 @@ quoted from the files named; a builder greps for them.
   pending `Checking for updates. This takes about two minutes after start.`; late first check `The first update check is late. Choose Check again.`;
   not read `agent-harness has not checked for updates {in the last day | yet}. Choose Check again.`; read failed `agent-harness could not check for updates.
   Check the internet connection, then choose Check again.` Details; root `agent-harness runs as the administrator (root) account, which is unsafe. Restart it as your own user.` Details;
-  behind `Version {v} is available. Choose Update now.` (pinned: `{name} stays on {v} because it is pinned. {v2} is available.`);
+  behind `Version {v} is available. Choose Update now.` (pinned, while the pin runs: `{name} stays on {v} because it is pinned. {v2} is available.`;
+  a pin that does not run and is neither on its way, blocked nor failed: `{name} is pinned to {v}, which could not be installed. Unpin it or pin another version.`
+  with no Update now, which would install the pin again; Details: the versions and `To unpin: agent-harness update settings --pinned-version none`);
   late update `The update to {v} is waiting for running sessions to finish.`; host updater late `The update to {v} has not started. Check the updater on the host computer.`;
-  launcher too old `Version {v} needs a newer installer. Reinstall agent-harness from the {v} download.` Details: the command;
+  launcher too old `Version {v} needs a newer installer. Reinstall agent-harness from the {v2} download.` ({v2} is the target, or the running version when its own newer installer is what is missing) Details: the command;
   update failed `The update to {v} did not work. {name} still runs {v0}. Choose Update now to try again.` Details;
   container never polled `This container is not kept up to date yet. Set up the updater on the host computer.` **How to set it up** (action `how-to-set-up`, on this line alone, #1883),
   which opens beside the line `Set up the updater on the host computer`: `On the computer that runs Docker, put compose.yaml and host-updater.sh from the same agent-harness release in one folder, such as /opt/agent-harness. Then, in that folder:`,
@@ -327,7 +329,10 @@ quoted from the files named; a builder greps for them.
   no name `This computer has no name. Give it one in More options.`; draining long `agent-harness has been restarting for over 30 minutes. Choose Check again once it is back.`;
   starting `agent-harness is still starting. This takes a few seconds.`;
   network address gone `The network address {ip} is no longer on this computer.` **Use {held ip}** / **Turn off Wi-Fi network access** Details: addresses.
-- Check again on this step reads the update channel again (today it only re-reads the last result).
+- Check again on this step, and any check this app asks for, reads the update channel again, as Check for updates does: a second ask within a
+  minute answers that read. The environment's own hourly checks of the step read the last result.
+- Update status words on the card (client-runtime/src/updates/words.ts): downloading `Downloading {v}…`; draining `Waiting for running sessions to finish before updating to {v}.`;
+  ready (a container) `{v} is ready. The host's updater installs it.`
 
 ### 5.5 Add a device (gui/src/machines/add-a-machine.tsx, preset-pairing.tsx, pairing-code.tsx; client-runtime/src/access/presets.ts)
 - Part 1 `Connect a phone or computer to this one`. Question `Who is it for?`
@@ -370,6 +375,18 @@ quoted from the files named; a builder greps for them.
   token refused `{host} did not accept this token. Check that you copied all of it, or create a new one.` Details; gh signed out `The gh tool is not signed in to {host}.` Details: the command.
 - Changing the kind or looking the site up again keeps the token already typed (today it is emptied).
 - Every environment line drops "in Set up, Forges" (the person is there) and moves HTTP statuses, user ids and times into Details.
+- Lines the code needs beyond these (#1850): a forge that answered it cannot answer now (HTTP 5xx, a rate limit) `{host} is not answering properly right now. Choose Check again later.`,
+  the unreachable line kept for no answer at all; the token run out `The token for {host} has run out. Add a new one.`; expiring's `{when}` is `in {n} days`, or `within a day`,
+  the exact time in Details, and a forge account's own problem says `The token for {host} runs out soon. Add a new one before then.` (it is written once per verification);
+  unreadable from a stored token without a key manager is the line without its second sentence; from gh `agent-harness cannot get the token for {login} on {host} from the gh tool.`,
+  gh's own cause in Details; missing permission for both reads `The token for {host} cannot read code or read releases. Create a new token with those permissions and add it.`;
+  gh not looked for yet `agent-harness has not looked for the gh tool yet. Choose Check again.`, gh failing `The gh tool did not give a token for {login} on {host}.`;
+  {computer} in gh signed out is `this computer`; no main lists the forges to choose from in Details; needed elsewhere is also the refusal of an operation with no forge,
+  what it was doing in Details. A token no forge account holds yet (a carry-over check) says only the first sentence. Add messages: another user on update
+  `This token belongs to {found}, not {expected}. Add a token for {expected}.`; an address for this site that is not one `{alias} did not accept the token for {login}, so it is not another address for this site. Nothing was changed.` /
+  `{alias} knows this token as another user, so it is not another address for this site. Nothing was changed.`; listing owners, a token the forge gives no list of organisations
+  `The token for {host} cannot list organisations. Create a new token with that permission and add it.` (a refused token, a server error and no answer read as above, what the forge answered in Details);
+  a token an older build recorded as another user's reads `The token for {host} belongs to another user, not {login}. Add a token for {login}.`, its old line in Details.
 - **Move to your key manager** shows only while a key manager is connected, as **Keep this token in your key manager**.
 
 ### 5.7 Key manager (gui/src/key-managers/*; environment/src/key-managers/*)

@@ -230,7 +230,8 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * started, updated, failed, cancelled) and a check of the release channel
  * that changed what it shows (`environment.channel-checked`, #1795)
  * `updates.status`, which the card and About follow (#344); every `forge.account.*` event the forge accounts
- * (#320), a missing origin (`forge.origin-missing`) changing none of them;
+ * (#320), a missing origin (`forge.origin-missing`) or its answer
+ * (`forge.origin-answered`) changing none of them;
  * and settings changing (`settings.changed`, appended with every
  * `settings.updated`, #391) the settings, read through `settings.get` and,
  * for the permission keys and the containment the status line shows,

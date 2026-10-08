@@ -23,6 +23,15 @@
           "minimum": -9007199254740991,
           "maximum": 9007199254740991,
           "description": "The HTTP status the forge answered."
+        },
+        "details": {
+          "description": "What the forge answered, behind the message's plain line; absent when the message says it all.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]*$"
+          }
         }
       },
       "required": [

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock, MANUAL_CLOCK_START } from "../../test/clock.js";
 import type { ChannelFailure, ChannelReading, ReleaseChannelReader } from "./channel.js";
-import { CHECK_AGAIN_MS, RELEASE_CHANNEL_FILE, createChannelChecks } from "./checks.js";
+import { CHECK_AGAIN_MS, CLIENT_READ_WAIT_MS, FIRST_CHECK_MS, RELEASE_CHANNEL_FILE, RELEASE_CHANNEL_FRESH_MS, createChannelChecks, type ChannelChecksOptions } from "./checks.js";
 
 /**
  * The channel's checks against a read held until the test lets it answer,
@@ -19,19 +19,23 @@ const { tempDir } = useCleanups();
 /** What a read finds with `newest` the channel's newest, nothing to target. */
 const reading = (newest: string): ChannelReading => ({ outcome: "read", newest, target: null, passedOver: null, stage: null, blocked: null });
 
-/** Checks over `dataDir` whose every read waits for the answer the test gives it. */
-const heldChecks = (dataDir = tempDir("agent-harness-checks-")) => {
+/** Checks over `dataDir` whose every read waits for the answer the test gives it, and which stage what they find with `follow`. */
+const heldChecks = (dataDir = tempDir("agent-harness-checks-"), follow: ChannelChecksOptions["follow"] = () => Promise.resolve(null)) => {
   const clock = manualClock();
   const answers: ((read: ChannelReading | ChannelFailure) => void)[] = [];
   const said: ChannelCheckedPayload[] = [];
-  const channel: ReleaseChannelReader["read"] = () => new Promise((resolve) => answers.push(resolve));
+  let reads = 0;
+  const channel: ReleaseChannelReader["read"] = () => {
+    reads += 1;
+    return new Promise((resolve) => answers.push(resolve));
+  };
   const checks = createChannelChecks({
     clock,
     dataDir,
     channel: { read: channel } as ReleaseChannelReader,
     settings: () => ({ autoUpdate: true, channel: "stable", pinnedVersion: null }),
     context: () => Promise.resolve({ launcherProtocol: null, failedVersions: [] }),
-    follow: () => Promise.resolve(null),
+    follow,
     said: (payload) => said.push(payload),
   });
   /** Lets the read under way answer, once it has begun. */
@@ -46,8 +50,12 @@ const heldChecks = (dataDir = tempDir("agent-harness-checks-")) => {
     await answer(read);
     await checking;
   };
-  return { clock, checks, answer, checked, said };
+  return { clock, checks, answer, checked, said, reads: () => reads };
 };
+
+/** What Set up tells the release channel's check: a client's ask wants a fresh finding, the schedule's one of the step's hour. */
+const CLIENT = { maxAgeMs: 0 };
+const SCHEDULE = { maxAgeMs: 60 * 60_000 };
 
 const SECOND_LATER = new Date(Date.parse(MANUAL_CLOCK_START) + 1000);
 
@@ -111,7 +119,7 @@ describe("Update now's read of the channel", () => {
     await answer(reading("0.4.1"));
     await checking;
     expect(checks.status()).toMatchObject({ newest: "0.5.0", lastCheck: { at: SECOND_LATER.toISOString(), result: "ok" } });
-    expect(checks.releaseChannelHolds()).toBe(true);
+    expect(await checks.releaseChannelHolds(SCHEDULE)).toBe(true);
   });
 
   it("failed, is the last check, and a check that began before it and found a newest still shows that newest", async () => {
@@ -224,5 +232,95 @@ describe("a check that changes what updates.status shows of the channel", () => 
     clock.advance(CHECK_AGAIN_MS);
     await checks.check();
     expect(said).toEqual([{ newest: "0.5.0", lastCheck: checks.status().lastCheck }]);
+  });
+});
+
+describe("the Your machines step's release channel check (#1848; setup-copy.md §5.4)", () => {
+  const unreachable = { outcome: "failed", reason: "unreachable", message: "The forge at https://forge.test could not be reached." } as const;
+  const at = (ms: number) => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
+
+  it("on a client's ask reads the channel again and answers from that read, before the first scheduled read is due", async () => {
+    const { checks, answer, reads } = heldChecks();
+    const answered = checks.releaseChannelHolds(CLIENT);
+    await answer(reading("0.5.0"));
+    expect(await answered).toBe(true);
+    expect(reads()).toBe(1);
+    expect(checks.status()).toMatchObject({ newest: "0.5.0", readSinceStart: true });
+  });
+
+  it("on a client's ask answers once the read ends, while the staging of what it found goes on", async () => {
+    let staged: (() => void) | undefined;
+    const { checks, answer } = heldChecks(undefined, () => new Promise((resolve) => (staged = () => resolve(null))));
+    const answered = checks.releaseChannelHolds(CLIENT);
+    await answer(reading("0.5.0"));
+    expect(await answered).toBe(true);
+    await expect.poll(() => staged).toBeDefined();
+    expect(checks.status().lastCheck).toBeNull();
+    staged?.();
+  });
+
+  it("on a client's ask within a minute of the last check's start answers that check's read, reading nothing again", async () => {
+    const { clock, checks, answer, reads } = heldChecks();
+    const first = checks.releaseChannelHolds(CLIENT);
+    await answer(unreachable);
+    await first;
+    clock.advance(CHECK_AGAIN_MS - 1);
+    expect(await checks.releaseChannelHolds(CLIENT)).toMatchObject({ reason: "agent-harness could not check for updates. Check the internet connection, then choose Check again." });
+    expect(reads()).toBe(1);
+  });
+
+  it("on a client's ask answers from what is known once the read outlasts its wait, and so does an ask that joins it", async () => {
+    const dataDir = tempDir("agent-harness-checks-");
+    const kept = "2026-09-22T23:48:00.000Z";
+    writeFileSync(join(dataDir, RELEASE_CHANNEL_FILE), `${JSON.stringify({ lastSucceededAt: kept })}\n`);
+    const { clock, checks, answer, reads } = heldChecks(dataDir);
+    clock.jump(RELEASE_CHANNEL_FRESH_MS);
+    const stale = { reason: "agent-harness has not checked for updates in the last day. Choose Check again.", details: [`Last read of the release channel: ${kept}`] };
+    const first = checks.releaseChannelHolds(CLIENT);
+    clock.advance(CLIENT_READ_WAIT_MS);
+    expect(await first).toEqual(stale);
+    const joined = checks.releaseChannelHolds(CLIENT);
+    clock.advance(CLIENT_READ_WAIT_MS);
+    expect(await joined).toEqual(stale);
+    expect(reads()).toBe(1);
+    await answer(reading("0.5.0"));
+    expect(await checks.releaseChannelHolds(SCHEDULE)).toBe(true);
+  });
+
+  it("on the schedule's ask reads nothing: checking for updates until the first check is due, then late", async () => {
+    const { clock, checks, reads } = heldChecks();
+    expect(await checks.releaseChannelHolds(SCHEDULE)).toEqual({
+      pending: true,
+      reason: "Checking for updates. This takes about two minutes after start.",
+    });
+    // A missed scheduled read: moving wall time runs no scheduled callbacks.
+    clock.jump(FIRST_CHECK_MS + 10_000);
+    expect(await checks.releaseChannelHolds(SCHEDULE)).toEqual({
+      reason: "The first update check is late. Choose Check again.",
+      details: [`First update check due at: ${at(FIRST_CHECK_MS)}`],
+    });
+    expect(reads()).toBe(0);
+  });
+
+  it("says a read that failed in plain words, what failed in details", async () => {
+    const { checks, answer } = heldChecks();
+    const answered = checks.releaseChannelHolds(CLIENT);
+    await answer(unreachable);
+    expect(await answered).toEqual({
+      reason: "agent-harness could not check for updates. Check the internet connection, then choose Check again.",
+      details: [`Update check: ${MANUAL_CLOCK_START}, unreachable`, unreachable.message],
+    });
+  });
+
+  it("says the channel was not read in the last day once the last read is older, its time in details", async () => {
+    const dataDir = tempDir("agent-harness-checks-");
+    const kept = "2026-09-22T23:48:00.000Z";
+    writeFileSync(join(dataDir, RELEASE_CHANNEL_FILE), `${JSON.stringify({ lastSucceededAt: kept })}\n`);
+    const { clock, checks } = heldChecks(dataDir);
+    clock.jump(RELEASE_CHANNEL_FRESH_MS);
+    expect(await checks.releaseChannelHolds(SCHEDULE)).toEqual({
+      reason: "agent-harness has not checked for updates in the last day. Choose Check again.",
+      details: [`Last read of the release channel: ${kept}`],
+    });
   });
 });

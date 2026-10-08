@@ -22,7 +22,9 @@ import { createNamedRows } from "./named-rows.js";
  *   and records a verification that changed something else beside it.
  * - **A git rejection** is `forge.account.git-rejected`, naming the origin
  *   git was refused on; **a missing origin** is `forge.origin-missing`,
- *   which the environment records at most daily per origin.
+ *   which the environment records at most daily per origin. Its rows are
+ *   withdrawn by `forge.origin-answered` for the same origin and operation:
+ *   the operation read the origin anonymously after all (#1891).
  *
  * A row names its forge account by its origin, which only the add names:
  * the origins heard are kept per environment beside the request cache's
@@ -67,6 +69,8 @@ export interface ForgeNotices {
 export const createForgeNotices = (host: ForgeNoticesHost): ForgeNotices => {
   /** Each forge account's problem kind as last heard, per environment; null for none. A forge account never heard of is not here. */
   const problems = new Map<string, Map<string, ForgeProblemKind | null>>();
+  /** The ids of the rows raised for each missing origin's operation (`missingKey`), per environment, which its answer withdraws. */
+  const missing = new Map<string, Map<string, string[]>>();
   let closed = false;
   // A forge account is known by its origin, which only its add names, and which never changes, so a list read at any time names it.
   const rows = createNamedRows({
@@ -79,6 +83,14 @@ export const createForgeNotices = (host: ForgeNoticesHost): ForgeNotices => {
     },
     report: host.report,
   });
+
+  const missingKey = (origin: string, operation: string): string => `${origin} ${operation}`;
+
+  const missingOf = (environmentId: string): Map<string, string[]> => {
+    let held = missing.get(environmentId);
+    if (held === undefined) missing.set(environmentId, (held = new Map()));
+    return held;
+  };
 
   const problemsOf = (environmentId: string): Map<string, ForgeProblemKind | null> => {
     let held = problems.get(environmentId);
@@ -134,7 +146,26 @@ export const createForgeNotices = (host: ForgeNoticesHost): ForgeNotices => {
         case "forge.origin-missing": {
           if (!news) return;
           const { origin, operation } = notice.payload;
-          return rows.say(environmentId, null, () => `${name()} was refused on ${origin} when it tried to ${operation}: no forge account covers it; add one in Set up, Forges.`);
+          const key = missingKey(origin, operation);
+          return rows.say(
+            environmentId,
+            null,
+            () => `${name()} was refused on ${origin} when it tried to ${operation}: no forge account covers it; add one in Set up, Forges.`,
+            (raised) => {
+              const held = missingOf(environmentId);
+              held.set(key, [...(held.get(key) ?? []), raised.id]);
+            },
+          );
+        }
+        // Heard as history too: it withdraws only a row this runtime raised, and history raises none.
+        case "forge.origin-answered": {
+          const key = missingKey(notice.payload.origin, notice.payload.operation);
+          return rows.inTurn(environmentId, () => {
+            const ids = missing.get(environmentId)?.get(key);
+            if (ids === undefined) return;
+            missing.get(environmentId)?.delete(key);
+            host.notices.retire((raised) => ids.includes(raised.id));
+          });
         }
         // A removal and a new primary say nothing that needs attention; an id is never used again, so what is known of a removed
         // forge account is kept, for a row still waiting behind its origin.
@@ -144,11 +175,13 @@ export const createForgeNotices = (host: ForgeNoticesHost): ForgeNotices => {
     },
     forget(environmentId) {
       problems.delete(environmentId);
+      missing.delete(environmentId);
       rows.forget(environmentId);
     },
     close() {
       closed = true;
       problems.clear();
+      missing.clear();
       rows.close();
     },
   };

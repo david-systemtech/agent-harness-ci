@@ -1,5 +1,6 @@
 import { GITHUB_ORIGIN, PRODUCT_NAME, type ForgeKind, type ForgeOrigin, type KindUnsupportedError, type NotAForgeError } from "@agent-harness/contracts";
 import { forgeGet, type CallOptions, type ForgeHttpOptions, type Reply } from "./forge-http.js";
+import { GITLAB_UNSUPPORTED, SITE_UNRECOGNISED } from "./lines.js";
 import { field, nonEmpty } from "./providers.js";
 
 /**
@@ -37,10 +38,10 @@ export type Detection =
 /** A detection that answered, naming no kind the harness reads a forge with: GitLab's, or none. */
 export type Unreadable = Extract<Detection, { outcome: "unsupported" | "not-a-forge" }>;
 
-/** Why GitLab at `origin` cannot be read: its forge accounts are milestone 2's. */
+/** Why GitLab at `origin` cannot be read: its forge accounts are milestone 2's, which a person is not told (setup-copy.md §5.6). */
 export const kindUnsupported = (origin: ForgeOrigin, kind: "gitlab"): KindUnsupportedError => ({
   code: "kind_unsupported",
-  message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`,
+  message: GITLAB_UNSUPPORTED,
   data: { origin, kind },
 });
 
@@ -50,7 +51,7 @@ export const unreadable = (origin: ForgeOrigin, found: Unreadable): KindUnsuppor
     ? kindUnsupported(origin, found.kind)
     : {
         code: "not_a_forge",
-        message: `${origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
+        message: SITE_UNRECOGNISED,
         data: { origin },
       };
 

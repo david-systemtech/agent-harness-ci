@@ -166,24 +166,30 @@ describe("the environment's gh as a credential source", () => {
     gh.set({ version: "2.63.2", accounts: [] });
     expect(await t.env.forge.resolveCredential(id, "a test operation")).toEqual({
       outcome: "unavailable",
-      problem: { kind: "credential-unavailable", since: MANUAL_CLOCK_START, message: "gh on this environment is not signed in to github.com as david: run gh auth login --hostname github.com as david here." },
+      problem: {
+        kind: "credential-unavailable",
+        since: MANUAL_CLOCK_START,
+        message: "The gh tool is not signed in to github.com.",
+        details: ["gh auth login --hostname github.com (as david)"],
+      },
     });
     expect(gh.calls().filter((call) => call.argv[1] === "token")).toHaveLength(4);
     expect(await t.env.forge.resolveCredential(randomUUID(), "a test operation")).toBeNull();
   });
 
-  it("keeps a forge account whose gh is missing, signed out of the host or the login, or older than 2.40, with problem credential-unavailable and a line naming the fix", async () => {
-    const cases: { readonly state: FakeGhState | null; readonly message: string }[] = [
-      { state: null, message: "gh is not installed on this environment: install the GitHub CLI 2.40.0 or later, then run gh auth login --hostname github.com." },
-      { state: { version: "2.63.2", accounts: [] }, message: "gh on this environment is not signed in to github.com as david: run gh auth login --hostname github.com as david here." },
-      { state: { version: "2.63.2", accounts: [github("someone-else", GH_TOKEN)] }, message: "gh on this environment is not signed in to github.com as david: run gh auth login --hostname github.com as david here." },
-      { state: { version: "2.39.2", accounts: [github("david", GH_TOKEN)] }, message: "gh 2.39.2 on this environment is older than 2.40.0, the first that reads a token per account: update gh." },
+  it("keeps a forge account whose gh is missing, signed out of the host or the login, or older than 2.40, with problem credential-unavailable in plain words, the version and command in details", async () => {
+    const signedOut = { message: "The gh tool is not signed in to github.com.", details: ["gh auth login --hostname github.com (as david)"] };
+    const cases: { readonly state: FakeGhState | null; readonly message: string; readonly details: readonly string[] }[] = [
+      { state: null, message: "The gh tool is not installed. Install it to use your GitHub sign-in.", details: ["Needs gh 2.40.0 or later, then gh auth login --hostname github.com (as david)"] },
+      { state: { version: "2.63.2", accounts: [] }, ...signedOut },
+      { state: { version: "2.63.2", accounts: [github("someone-else", GH_TOKEN)] }, ...signedOut },
+      { state: { version: "2.39.2", accounts: [github("david", GH_TOKEN)] }, message: "The gh tool is out of date.", details: ["gh 2.39.2 is older than 2.40.0, the first that gives a token per account."] },
     ];
-    for (const { state, message } of cases) {
+    for (const { state, message, details } of cases) {
       const forge = await fakeForge();
       const t = await start({ forgeFetch: forge.fetch, ...(state !== null && { managedTools: fakeGh(state).managedTools }) });
       const account = await added(await t.client(), { url: "https://github.com", credential: ghCredential("david") });
-      expect(account, message).toMatchObject({ identity: null, credential: { kind: "gh", login: "david" }, problem: { kind: "credential-unavailable", since: MANUAL_CLOCK_START, message } });
+      expect(account, message).toMatchObject({ identity: null, credential: { kind: "gh", login: "david" }, problem: { kind: "credential-unavailable", since: MANUAL_CLOCK_START, message, details } });
       // The forge was never asked: there was no token to ask with.
       expect(forge.requests).toEqual([]);
     }
@@ -224,7 +230,7 @@ describe("the environment's gh as a credential source", () => {
     gh.set({ version: "2.63.2", accounts: [] });
     const unavailable = await update(client, { forgeAccountId: account.id, credential: ghCredential("david") });
     expect(unavailable.result?.account).toMatchObject({ identity: { login: "david", userId: "42" }, problem: { kind: "credential-unavailable" } });
-    expect(unavailable.result?.account.problem?.message).toContain(`not signed in to ${host} as david`);
+    expect(unavailable.result?.account.problem).toMatchObject({ message: `The gh tool is not signed in to ${host}.`, details: [`gh auth login --hostname ${host} (as david)`] });
   });
 });
 
@@ -293,7 +299,12 @@ describe("a key-manager reference", () => {
     const client = await t.client();
 
     const refused = await add(client, { url: forge.origin, kind: "forgejo", credential: referenced });
-    expect(rejection(refused.receipt)).toEqual({ reason: "credential_source_unavailable", message: expect.stringContaining(connectionId), data: { connectionId } });
+    // The refusal is the key manager's own line, which names the connection; the problem's plain line says less.
+    expect(rejection(refused.receipt)).toEqual({
+      reason: "credential_source_unavailable",
+      message: expect.stringMatching(new RegExp(`${connectionId}.* Nothing was changed\\.$`)),
+      data: { connectionId },
+    });
     expect(await list(client)).toEqual([]);
 
     const account = await added(client, { url: forge.origin, kind: "forgejo" });
@@ -351,7 +362,12 @@ describe("a key-manager reference", () => {
     keyManagers.answer(reference, null);
     expect(await t.env.forge.resolveCredential(id, "verify")).toEqual({
       outcome: "unavailable",
-      problem: { kind: "credential-unavailable", since: MANUAL_CLOCK_START, message: expect.stringContaining(connectionId) },
+      problem: {
+        kind: "credential-unavailable",
+        since: MANUAL_CLOCK_START,
+        message: expect.stringMatching(/^agent-harness cannot read the saved token for .+\. Sign in to your key manager\.$/),
+        details: [expect.stringContaining(connectionId)],
+      },
       refusal: "credential_source_unavailable",
     });
     expect(keyManagers.requests.map((request) => request.purpose)).toEqual(["add", "verify", "verify", "verify"]);
@@ -412,7 +428,7 @@ describe("none, a copy awaiting a credential", () => {
     expect(account).toMatchObject({
       identity: null,
       credential: { kind: "none" },
-      problem: { kind: "needs-credential", since: MANUAL_CLOCK_START, message: "This forge account has no credential on this environment: give it one in Set up, Forges." },
+      problem: { kind: "needs-credential", since: MANUAL_CLOCK_START, message: `${forge.origin.replace("http://", "")} has no token yet. Add one.` },
       variables: { url: [], token: [], kind: [] },
       copiedFrom,
     });

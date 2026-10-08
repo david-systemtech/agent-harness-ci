@@ -16,6 +16,7 @@ import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../ser
 import type { BankCredentials } from "../banks/credentials.js";
 import type { ForgeService } from "./forge-service.js";
 import { servedOrigins } from "./git-helper.js";
+import { identityChangedLine, siteOf } from "./lines.js";
 
 /**
  * The credential route, `POST /api/internal/git-credential` (forge spec,
@@ -136,7 +137,8 @@ export const createCredentialRoute = ({ forge, clock, clientAddress, banks }: Cr
 
     // A credential answering as another user is unused until it is replaced (forge spec, "Problem").
     if (account.problem?.kind === "identity-changed") {
-      return answer(response, 503, { code: "credential_unavailable", message: account.problem.message, data: { origin } });
+      const message = identityChangedLine(siteOf(origin), account.identity?.login ?? null, account.problem.message);
+      return answer(response, 503, { code: "credential_unavailable", message, data: { origin } });
     }
     const credential = await forge.resolveCredential(account.id, "git");
     if (credential === null) return answer(response, 401, unauthorized(`No forge account this secret names serves ${origin}.`));

@@ -11,7 +11,8 @@ import { whenWords } from "../transcript/format.js";
  * pending update and what it waits on, the Claude Code it bundles, a pin,
  * the desktop's own build, the server the desktop carries, and the offer
  * of a client newer than the environment, and what Drain and update now
- * asks (#825). The window draws an environment's on About and Your
+ * asks (#825). The pending update's staging, ready and draining words are
+ * setup-copy.md §5.4's (#1848). The window draws an environment's on About and Your
  * machines' cards, the terminal UI on its card in `/environment` (#827).
  */
 
@@ -52,7 +53,7 @@ export const pendingUpdateWords = (pending: PendingUpdate, environment: string, 
     case "current":
       return null;
     case "staging":
-      return `Staging ${pending.toVersion}: downloading and installing it.`;
+      return `Downloading ${pending.toVersion}…`;
     case "waiting": {
       const { waitsOn } = pending;
       if (waitsOn === null) return `Updating to ${pending.toVersion} within a minute: nothing holds it.`;
@@ -60,9 +61,9 @@ export const pendingUpdateWords = (pending: PendingUpdate, environment: string, 
       return `Waiting to update to ${pending.toVersion} until ${environment} is idle: ${BUSY_WORDS[waitsOn.reason]}${until}. Forced at ${whenWords(pending.deferUntil, now)}.`;
     }
     case "ready":
-      return `${pending.toVersion} is ready: it waits for the host-side updater.`;
+      return `${pending.toVersion} is ready. The host's updater installs it.`;
     case "draining":
-      return `Draining for the update to ${pending.toVersion}: new runs are refused.`;
+      return `Waiting for running sessions to finish before updating to ${pending.toVersion}.`;
     case "switching":
       return `Switching to ${pending.toVersion}.`;
     case "blocked":
