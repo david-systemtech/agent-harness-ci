@@ -41,8 +41,9 @@ export const phaseWords = (view: EnvironmentView, starting: boolean, installing:
       return view.unreachableSince === null ? "Connecting…" : unreachableWords(view.unreachableSince);
     case "backoff":
       return view.unreachableSince === null ? "Cannot be reached" : unreachableWords(view.unreachableSince);
+    // A service stopped by hand drains too; `updating` is the environment's own bye: updating, from any client (#1838).
     case "draining":
-      return "Restarting for an update…";
+      return updateWords(view, now) ?? "Stopping…";
     case "updating":
       return updateWords(view, now) ?? "Restarting for an update…";
     case "disabled":
@@ -80,7 +81,7 @@ export const phaseSentence = (view: EnvironmentView, starting: boolean, installi
     case "backoff":
       return `${subject} cannot be reached; this client tries again.`;
     case "draining":
-      return `${subject} is restarting for an update…`;
+      return updateWords(view, now) ?? `${subject} is stopping…`;
     case "updating":
       return updateWords(view, now) ?? `${subject} is restarting for an update…`;
     case "disabled":
