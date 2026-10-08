@@ -176,7 +176,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
   const scanner = scanQr ?? (camera ? () => camera.scanQr() : undefined);
   useEffect(() => () => camera?.cancel(), [camera]);
   const [link, setLink] = useState(handed ?? "");
-  const [typing, setTyping] = useState(false);
+  const [manual, setManual] = useState(false);
   const [address, setAddress] = useState("");
   const [code, setCode] = useState("");
   const [said, setSaid] = useState<Said | undefined>(undefined);
@@ -275,7 +275,7 @@ export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus 
           {scanner !== undefined && <Button icon={QrCode} disabled={pairing} onClick={() => void scan()}>Scan a QR code</Button>}
         </div>
       </form>
-      <Fold summary="Type an address and code instead" open={typing} onOpenChange={setTyping}>
+      <Fold summary="Type an address and code instead" open={manual} onOpenChange={setManual}>
         <form aria-label="Pair by address and code" className="flex flex-col gap-2 rounded-lg border border-hairline bg-inset/60 p-3" onSubmit={byCode}>
           <label className="flex items-center gap-2 text-xs text-ink-muted" htmlFor={addressField}><Link aria-hidden="true" className="size-4" />Address</label>
           <Input title="Address (type the other computer's address)" id={addressField} value={address} onChange={(event) => setAddress(event.target.value)} disabled={pairing} className="font-mono" />

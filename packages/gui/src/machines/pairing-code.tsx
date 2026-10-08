@@ -103,7 +103,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
   const [minted, setMinted] = useState<Minted | undefined>(undefined);
   const [expired, setExpired] = useState(false);
   const [refused, setRefused] = useState<string | undefined>(undefined);
-  const [typing, setTyping] = useState(false);
+  const [manual, setManual] = useState(false);
 
   useEffect(() => {
     if (minted === undefined) return undefined;
@@ -118,7 +118,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
     if (!outcome.ok || outcome.result === undefined) return setRefused(outcome.ok ? "The computer answered with no code." : outcome.line);
     const left = Date.parse(outcome.result.expiresAt) - runtime.environmentNow(view.environmentId).getTime();
     setExpired(false);
-    setTyping(false);
+    setManual(false);
     setMinted({ pairing: outcome.result, until: new Date(clock.now().getTime() + left), minutes: Math.max(1, Math.round(left / MINUTE_MS)) });
   };
 
@@ -134,7 +134,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
           <div className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm text-ink">
             <p className={local ? "text-amber" : "text-ink"}>{local ? ONLY_HERE : "On the new device, open agent-harness and choose Connect to another computer. Scan this code or paste the link."}</p>
             <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />
-            <Fold summary="Type it instead" open={typing} onOpenChange={setTyping}>
+            <Fold summary="Type it instead" open={manual} onOpenChange={setManual}>
               <div className="flex flex-col gap-1">
                 {origin !== undefined && <CopyLine label="Address" text={origin.replace(/^https?:\/\//, "")} copyLabel="Copy address" />}
                 <CopyLine label="Code" text={formatPairingCode(live.pairing.code)} copyLabel="Copy pairing code" />
