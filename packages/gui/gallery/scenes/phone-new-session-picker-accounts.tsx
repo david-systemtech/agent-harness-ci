@@ -12,6 +12,9 @@ export const geometry = ({ width }: { readonly width: number }) => [
   { selector: "[data-run-sheet]", width: width - 16, visibleWithin: "[data-run-sheet]" },
   { selector: '[data-run-sheet] [role="menuitem"]', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, contentFits: true },
   { selector: "[data-run-sheet] button", renderedOnly: true, minimumHeight: 44, minimumWidth: 44, visibleWithin: "[data-run-sheet]" },
-  // The ring line scales with the text size, so here it is checked to fit the sheet, not for its 16px.
-  { selector: "[data-run-sheet] [data-usage-rings]", renderedOnly: true, visibleWithin: "[data-run-sheet]" },
+  // The ring line scales with the text size, so here it is checked to fit the sheet, not for its 16px. Only rings that draw
+  // something: the signed-out Spare draws none, and its row sits below the fold when the text is large or the keyboard is up.
+  { selector: '[data-run-sheet] [data-usage-rings]:has([role="img"])', renderedOnly: true, visibleWithin: "[data-run-sheet]" },
+  // An email is one line of its own, never broken mid-word (#1895).
+  { selector: "[data-run-sheet] [data-run-identity]", renderedOnly: true, unbroken: true },
 ];

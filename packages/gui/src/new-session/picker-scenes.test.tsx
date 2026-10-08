@@ -53,4 +53,9 @@ it("opens the account chip on a phone with each account's rings", async () => {
   await mount("phone-new-session-picker-accounts", true);
   const accounts = within(screen.getByRole("dialog", { name: "Run choices" })).getByRole("group", { name: "Accounts" });
   expect(rings(within(accounts).getByRole("menuitem", { name: /^Personal/ }))).toEqual(["5-hour 95%"]);
+  // The fit check reads the rings that draw something: the signed-out Spare's row may sit below the fold (#1895's taller rows).
+  const geometry: { selector: string; visibleWithin?: string; unbroken?: boolean }[] = JSON.parse(document.getElementById("root")?.dataset["galleryGeometry"] ?? "[]");
+  const ringCheck = geometry.find((check) => check.selector.includes("[data-usage-rings]") && check.visibleWithin !== undefined);
+  expect([...document.querySelectorAll(ringCheck?.selector ?? "none")].map((line) => line.closest('[role="menuitem"]')?.getAttribute("aria-label"))).toEqual(["Work work@example.test", "Personal personal@example.test"]);
+  expect(geometry).toContainEqual({ selector: "[data-run-sheet] [data-run-identity]", renderedOnly: true, unbroken: true });
 });
