@@ -900,7 +900,7 @@ describe("the step registry", () => {
     }
     expect(checkOf("accounts.favouriteModels")([])).toBe(true);
     expect(checkOf("accounts.favouriteModels")(["opus", "sonnet"])).toBe(true);
-    expect(checkOf("accounts.favouriteModels")(["opus", "opus"])).toMatch(/accounts\.favouriteModels/);
+    expect(checkOf("accounts.favouriteModels")(["opus", "opus"])).toEqual(refused("accounts.favouriteModels"));
     const check = checkOf("providers.processIdleMinutes");
     expect(check(presetSettings()["providers.processIdleMinutes"])).toBe(true);
     expect(check(1440)).toBe(true);
