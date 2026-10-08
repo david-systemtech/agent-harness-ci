@@ -6,9 +6,11 @@ import {
   type Denylist,
   type DenylistSection,
   type ReasonTime,
+  type SetupAction,
   type SetupTarget,
 } from "@agent-harness/contracts";
 import { parseActor } from "../event-log/event-log.js";
+import type { Finding } from "../setup/check.js";
 import { unenforceable } from "./containment.js";
 
 /**
@@ -30,8 +32,18 @@ import { unenforceable } from "./containment.js";
  */
 export type StateCheckAnswer =
   | true
-  | { readonly holds: true; readonly reason: string; readonly pending?: never; readonly targets?: never; readonly times?: never }
-  | { readonly holds?: false; readonly reason: string; readonly pending?: true; readonly targets?: readonly SetupTarget[]; readonly times?: readonly ReasonTime[] };
+  | { readonly holds: true; readonly reason: string; readonly details?: readonly string[]; readonly pending?: never; readonly targets?: never; readonly times?: never; readonly actions?: never }
+  | {
+      readonly holds?: false;
+      readonly reason: string;
+      /** The raw facts behind the reason, for Details (setup-copy.md §3). */
+      readonly details?: readonly string[];
+      readonly pending?: true;
+      readonly targets?: readonly SetupTarget[];
+      readonly times?: readonly ReasonTime[];
+      /** The actions this failure offers, of those its check declares; absent, all of them. */
+      readonly actions?: readonly SetupAction[];
+    };
 
 /**
  * What a person can do on Linux about a containment level the probe refused:
@@ -126,25 +138,25 @@ export const denylistHoldsPresets = (state: DenylistState, presets: Denylist): S
   };
 };
 
-/** What sessions get at each containment default, as the Permissions step's line says it. */
+/** What agents get at each containment default, as the Permissions step's line says it (setup-copy.md §5.12). */
 const CONTAINMENT_WORDS: Readonly<Record<ContainmentLevel, string>> = {
-  off: "Containment is off",
-  workspace: "Sessions are contained to their workspace",
-  "workspace-no-network": "Sessions are contained to their workspace with no network",
+  off: "Agents are not sandboxed",
+  workspace: "Agents stay inside the project folder",
+  "workspace-no-network": "Agents stay inside the project folder, offline",
 };
 
 /**
- * The Permissions step's line when done (#1698): the containment default as
- * it is, which holds at `off` too since nothing has to be enforced, so the
- * line never says containment is enforced when nothing is contained; and
- * each denylist section with presets that a person emptied, which holds as
- * well.
+ * The Permissions step's line when done (#1698; setup-copy.md §5.12): the
+ * containment default as it is, which holds at `off` too since nothing has
+ * to be enforced, so the line never says agents are sandboxed when nothing
+ * is contained; and each denylist section with presets that a person
+ * emptied, which holds as well. The containment level's id is in details.
  */
-export const permissionsLine = (level: ContainmentLevel, state: DenylistState, presets: Denylist): string => {
+export const permissionsLine = (level: ContainmentLevel, state: DenylistState, presets: Denylist): Finding => {
   const emptied = DENYLIST_SECTIONS.filter((section) => presets[section].length > 0 && state.denylist[section].length === 0).map((section) => SECTION_NAMES[section]);
   const names = emptied.length <= 1 ? emptied.join("") : `${emptied.slice(0, -1).join(", ")} and ${emptied.at(-1) as string}`;
-  const denylist = emptied.length === 0 ? "the denylist holds its presets" : `the denylist's ${names} ${emptied.length === 1 ? "section is" : "sections are"} emptied`;
-  return `${CONTAINMENT_WORDS[level]}, and ${denylist}.`;
+  const lists = emptied.length === 0 ? "" : ` You emptied the ${names} always-ask ${emptied.length === 1 ? "list" : "lists"}.`;
+  return { reason: `Set. ${CONTAINMENT_WORDS[level]}.${lists}`, details: [`permissions.containment.default: ${level}`] };
 };
 
 /**

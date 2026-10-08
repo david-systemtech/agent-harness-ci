@@ -1,5 +1,6 @@
 import {
   CHECK_BUDGET_SECONDS,
+  STEP_RESULT_DETAILS_MAX,
   type LastGood,
   type ReasonTime,
   type RegisteredStepId,
@@ -29,10 +30,15 @@ import type { StoppedRun } from "./minted.js";
  * check that holds says it found; otherwise needs attention, the line naming every check that
  * failed, with the failing checks' actions, each once, and the items those
  * checks named for their actions, each once. A check that throws or rejects
- * could not check, which needs attention too. Past the seconds of the
- * step's budget class it answers that it timed out, with Check again,
- * whatever its checks answer later. A result that timed out or could not
- * check carries the step's last good result beneath it.
+ * could not check, which needs attention too, with Check again. Past the
+ * seconds of the step's budget class it answers that it took too long, with
+ * Check again, whatever its checks answer later. A result that timed out or
+ * could not check carries the step's last good result beneath it.
+ *
+ * Its line is plain words (setup-copy.md §1.7, §3; #1836): each failure's
+ * own sentence, each once, and the raw facts behind them, the ids of the
+ * checks that threw with their errors, settings keys, addresses, versions
+ * and exact times, in its details, each once, at most twenty.
  *
  * Each state check is told how old a finding of its feature's own schedule
  * may be for it to read that finding rather than ask the feature again
@@ -49,7 +55,8 @@ import type { StoppedRun } from "./minted.js";
  * session, `write-it-myself` and `start-over` before its checks' own
  * actions, for each subject's latest session, with the latter two targeting
  * that session's subject; after a clean end, its line names what is missing, as any
- * step's does. A check that could not check says only that.
+ * step's does. A check that could not check says only that. The line says the
+ * describing conversation stopped (setup-copy.md §5.8), its error in details.
  */
 
 /** Who asked for a step's check: a client, through `setup.check`, or the environment's own schedule, its start pass, cadence and triggers (#571). */
@@ -64,12 +71,20 @@ export interface StateCheckRequest {
 /** How the environment answers one state check: at once, or with a promise the check awaits within its step's budget. */
 export type StateChecker = (request: StateCheckRequest) => StateCheckAnswer | Promise<StateCheckAnswer>;
 
+/** What the environment found of a step: its plain line, the raw facts behind it for Details, and the past times the line names. */
+export interface Finding {
+  readonly reason: string;
+  readonly details?: readonly string[];
+  readonly times?: readonly ReasonTime[];
+}
+
 /**
  * The environment's line for a step that is done, from what it finds when
  * asked (#1698): Carry over's source folder and its last import, Your
- * machines' version, updates and reach. Undefined leaves the entry's `done`.
+ * machines' name and updates, its version and reach in details. Undefined
+ * leaves the entry's `done`.
  */
-export type DoneLine = (request: StateCheckRequest) => string | undefined | Promise<string | undefined>;
+export type DoneLine = (request: StateCheckRequest) => Finding | undefined | Promise<Finding | undefined>;
 
 /** The steps the environment says more of when done than the entry's `done`, by id. */
 export type DoneLines = { readonly [Id in RegisteredStepId]?: DoneLine };
@@ -109,13 +124,31 @@ export interface CheckContext {
 /** What a stopped minted session offers, before its step's checks' own actions. */
 const STOPPED_RUN_ACTIONS: readonly SetupAction[] = ["try-again", "write-it-myself", "start-over"];
 
-/** The line a stopped minted session's run opens a result with: its error, or that it was stopped. */
-const stoppedLine = ({ error }: StoppedRun): string => (error === null ? "The session's run was stopped." : `The session's run failed: ${error.replace(/\.$/, "")}.`);
+/** The line a result opens with when a minted session's run stopped, with an error or not (setup-copy.md §5.8): the error is in details. */
+const STOPPED_LINE = "The describing conversation stopped.";
+
+/** A check that threw or rejected (setup-copy.md §3): its id and error are in details. */
+const COULD_NOT_FINISH = "agent-harness could not finish checking this step. Choose Check again.";
+
+/** A step whose checks did not answer within its budget (setup-copy.md §3). */
+const TOOK_TOO_LONG = "Checking took too long. Choose Check again.";
+
+/** Lines of details as a result carries them: each on one line, each once, at most the twenty a result holds. */
+const detailLines = (lines: readonly string[]): string[] =>
+  [...new Set(lines.map((line) => line.replace(/\s+/g, " ").trim()).filter((line) => line !== ""))].slice(0, STEP_RESULT_DETAILS_MAX);
+
+/** A result's details, absent when there are none. */
+const withDetails = (lines: readonly string[]): { details?: string[] } => {
+  const details = detailLines(lines);
+  return details.length > 0 ? { details } : {};
+};
 
 /** A check that did not hold, or that could not check because it threw or rejected. */
 interface Failure {
   readonly id: string;
   readonly reason: string;
+  /** The raw facts behind its reason. */
+  readonly details: readonly string[];
   readonly actions: readonly SetupAction[];
   /** The items its actions apply to, as it named them. */
   readonly targets: readonly SetupTarget[];
@@ -136,11 +169,11 @@ const uniqueTargets = (targets: readonly SetupTarget[]): SetupTarget[] => {
 };
 
 /** A done step's line from what the environment found, else the entry's `done`, which stands too when what was found cannot be read. */
-const foundLine = async (step: CheckedStep, doneLine: DoneLine, request: StateCheckRequest): Promise<string> => {
+const foundLine = async (step: CheckedStep, doneLine: DoneLine, request: StateCheckRequest): Promise<Finding> => {
   try {
-    return (await doneLine(request)) ?? step.done;
+    return (await doneLine(request)) ?? { reason: step.done };
   } catch {
-    return step.done;
+    return { reason: step.done };
   }
 };
 
@@ -151,22 +184,32 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
   const request: StateCheckRequest = { maxAgeMs: context.askedBy === "client" ? 0 : step.cadence.minutes * 60_000 };
   /** The state checks called and not answered yet: what a timeout names. */
   const unanswered = new Set<string>();
-  const holdingLines = new Map<string, string>();
+  const holdingLines = new Map<string, Finding>();
 
-  const ask = async ({ id, actions }: StateCheck): Promise<true | Failure> => {
+  const ask = async ({ id, actions: declared }: StateCheck): Promise<true | Failure> => {
     unanswered.add(id);
     try {
       const answer = await (context.stateChecks[id] as StateChecker)(request);
       if (answer === true) return true;
       if (answer.holds) {
-        holdingLines.set(id, answer.reason);
+        holdingLines.set(id, answer);
         return true;
       }
+      const actions = answer.actions?.filter((action) => declared.includes(action)) ?? declared;
       const targets = (answer.targets ?? []).filter((target) => actions.includes(target.action));
-      return { id, reason: answer.reason, actions, targets, ...(answer.times !== undefined && { times: answer.times }), couldNotCheck: false, ...(answer.pending && { pending: true }) };
+      return {
+        id,
+        reason: answer.reason,
+        details: answer.details ?? [],
+        actions,
+        targets,
+        ...(answer.times !== undefined && { times: answer.times }),
+        couldNotCheck: false,
+        ...(answer.pending && { pending: true }),
+      };
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
-      return { id, reason: `Could not check ${id}: ${message}.`, actions, targets: [], couldNotCheck: true };
+      return { id, reason: COULD_NOT_FINISH, details: [`${id}: ${message}`], actions: ["check-again"], targets: [], couldNotCheck: true };
     } finally {
       unanswered.delete(id);
     }
@@ -187,10 +230,12 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     ]);
     const targets = uniqueTargets([...mintedTargets, ...failures.flatMap((failure) => failure.targets)]);
     const times = failures.flatMap((failure) => failure.times ?? []);
+    const stoppedErrors = stopped.flatMap((run) => (run.error === null ? [] : [run.error]));
     return {
       step: step.id,
       state: "needs-attention",
-      reason: [...stopped.map(stoppedLine), ...failures.map((failure) => failure.reason)].join(" "),
+      reason: [...new Set([...(stopped.length === 0 ? [] : [STOPPED_LINE]), ...failures.map((failure) => failure.reason)])].join(" "),
+      ...withDetails([...stoppedErrors, ...failures.flatMap((failure) => failure.details)]),
       failing: failures.map((failure) => failure.id),
       actions: [...new Set([...(stopped.length === 0 ? [] : STOPPED_RUN_ACTIONS), ...failures.flatMap((failure) => failure.actions)])],
       ...(targets.length > 0 && { targets }),
@@ -213,7 +258,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     }
     for (const { key, check } of step.checks) {
       const answer = check(context.values[key]);
-      if (answer !== true) failures.push({ id: key, reason: answer, actions: [], targets: [], couldNotCheck: false });
+      if (answer !== true) failures.push({ id: key, reason: answer.reason, details: answer.details, actions: [], targets: [], couldNotCheck: false });
     }
     const answers = await Promise.all(step.stateChecks.filter((stateCheck) => stateCheck !== skipCheck).map(ask));
     for (const answer of answers) if (answer !== true) failures.push(answer);
@@ -226,11 +271,19 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     }
     if (pending.length > 0) return { step: step.id, state: "pending", reason: pending.map((check) => check.reason).join(" "), failing: [], actions: [], checkedAt };
     // Awaited only when the environment says more, so a step it does not answers as soon as its checks have.
-    const line = context.doneLine === undefined ? step.done : await foundLine(step, context.doneLine, request);
-    const reason = [line, ...step.stateChecks.flatMap((stateCheck) => holdingLines.get(stateCheck.id) ?? [])].join(" ");
-    if (llm === undefined) return { step: step.id, state: "done", reason, failing: [], actions: [], checkedAt };
+    const line = context.doneLine === undefined ? { reason: step.done } : await foundLine(step, context.doneLine, request);
+    const found = [line, ...step.stateChecks.flatMap((stateCheck) => holdingLines.get(stateCheck.id) ?? [])];
+    const done = {
+      step: step.id,
+      state: "done" as const,
+      reason: found.map((finding) => finding.reason).join(" "),
+      ...withDetails(found.flatMap((finding) => finding.details ?? [])),
+      ...(line.times !== undefined && line.times.length > 0 && { times: [...line.times] }),
+      failing: [],
+    };
+    if (llm === undefined) return { ...done, actions: [], checkedAt };
     const targets = llm.subjects().map((subject): SetupTarget => ({ action: "revise", ...subject }));
-    return { step: step.id, state: "done", reason, failing: [], actions: ["revise"], ...(targets.length > 0 && { targets }), checkedAt };
+    return { ...done, actions: ["revise"], ...(targets.length > 0 && { targets }), checkedAt };
   };
 
   const seconds = CHECK_BUDGET_SECONDS[step.budget];
@@ -244,7 +297,8 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     return {
       step: step.id,
       state: "needs-attention",
-      reason: `could not check: timed out after ${seconds} s`,
+      reason: TOOK_TOO_LONG,
+      details: [`Stopped after ${seconds} seconds.`],
       failing: step.stateChecks.filter((stateCheck) => unanswered.has(stateCheck.id)).map((stateCheck) => stateCheck.id),
       actions: ["check-again"],
       checkedAt,

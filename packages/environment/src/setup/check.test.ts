@@ -1,4 +1,4 @@
-import { STEP_REGISTRY, presetSettings, type RegisteredStep, type SettingsValues } from "@agent-harness/contracts";
+import { CHECK_BUDGET_SECONDS, SETTINGS_KEYS, STEP_REGISTRY, presetSettings, registry, type RegisteredStep, type SettingsValues } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { checkStep, type DoneLine, type StateCheckers } from "./check.js";
@@ -69,12 +69,12 @@ describe("a step's result", () => {
     expect(await check(stepOf("permissions"), presetSettings(), holding)).toEqual({
       step: "permissions",
       state: "done",
-      reason: "Containment and the denylist are set.",
+      reason: "Set.",
       failing: [],
       actions: [],
       checkedAt: AT,
     });
-    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Chrome is paired, connected and current." });
+    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Chrome is connected." });
   });
 
   it("never makes a done step's line of its checks' conditions, whose alternatives say what would pass rather than what is there, on any registered step (#1698)", async () => {
@@ -87,10 +87,10 @@ describe("a step's result", () => {
   });
 
   it("says what the environment found when it gives a line for the step, the entry's sentence when it gives none or cannot read it", async () => {
-    const found = "Past work found in /srv/source-data: 7 profiles. Not brought over yet.";
-    expect(await check(stepOf("carry-over"), presetSettings(), holding, () => found)).toMatchObject({ state: "done", reason: found });
-    expect(await check(stepOf("carry-over"), presetSettings(), holding, async () => undefined)).toMatchObject({ state: "done", reason: "Nothing is waiting to be brought over." });
-    expect(await check(stepOf("carry-over"), presetSettings(), holding, async () => Promise.reject(new Error("EACCES")))).toMatchObject({ state: "done", reason: "Nothing is waiting to be brought over." });
+    const found = { reason: "Found earlier work you can bring over: 7 profiles.", details: ["Folder: /srv/source-data"] };
+    expect(await check(stepOf("carry-over"), presetSettings(), holding, () => found)).toMatchObject({ state: "done", ...found });
+    expect(await check(stepOf("carry-over"), presetSettings(), holding, async () => undefined)).toMatchObject({ state: "done", reason: "Everything is already here." });
+    expect(await check(stepOf("carry-over"), presetSettings(), holding, async () => Promise.reject(new Error("EACCES")))).toMatchObject({ state: "done", reason: "Everything is already here." });
     // A step that does not pass never asks for it.
     let asked = false;
     const failing = await check(stepOf("carry-over"), presetSettings(), { ...holding, "carry-over.readable": () => ({ reason: "A directory cannot be read." }) }, () => ((asked = true), found));
@@ -101,7 +101,7 @@ describe("a step's result", () => {
     const stateChecks: StateCheckers = { ...holding, "permissions.denylist": async () => ({ holds: true, reason: "The denylist was deliberately emptied." }) };
     expect(await check(stepOf("permissions"), presetSettings(), stateChecks)).toMatchObject({
       state: "done",
-      reason: "Containment and the denylist are set. The denylist was deliberately emptied.",
+      reason: "Set. The denylist was deliberately emptied.",
       failing: [],
       actions: [],
     });
@@ -136,7 +136,8 @@ describe("a step's result", () => {
     expect(result).toEqual({
       step: "permissions",
       state: "needs-attention",
-      reason: "permissions.parkedPrompt.ttl does not hold a valid value. The paths section is short. Root.",
+      reason: "A saved setting for this step cannot be used: Unanswered permission timeout. Set it again in Settings. The paths section is short. Root.",
+      details: ["permissions.parkedPrompt.ttl"],
       failing: ["permissions.parkedPrompt.ttl", "permissions.denylist", "permissions.not-root"],
       actions: ["restore"],
       checkedAt: AT,
@@ -155,13 +156,135 @@ describe("a step's result", () => {
     expect(without).not.toHaveProperty("times");
   });
 
-  it("needs attention when a state check throws, saying it could not check", async () => {
+  it("needs attention when a state check throws, saying in plain words it could not finish, the check and its error in details, with Check again (#1836)", async () => {
     const result = await check(stepOf("your-machines"), presetSettings(), {
       ...holding,
       "your-machines.not-root": () => {
         throw new Error("the log is closed");
       },
     });
-    expect(result).toMatchObject({ state: "needs-attention", reason: "Could not check your-machines.not-root: the log is closed.", failing: ["your-machines.not-root"] });
+    expect(result).toMatchObject({
+      state: "needs-attention",
+      reason: "agent-harness could not finish checking this step. Choose Check again.",
+      details: ["your-machines.not-root: the log is closed"],
+      failing: ["your-machines.not-root"],
+      actions: ["check-again"],
+    });
+  });
+
+  it("says once that it could not finish when several checks throw, beside each other failure's own sentence, every check's error in details (#1836)", async () => {
+    const result = await check(stepOf("your-machines"), presetSettings(), {
+      ...holding,
+      "your-machines.not-root": () => {
+        throw new Error("the log is closed.");
+      },
+      "your-machines.named": () => ({ reason: "This computer has no name. Give it one in More options." }),
+      "your-machines.lan": async () => Promise.reject(new Error("no interfaces\nread")),
+    });
+    expect(result).toMatchObject({
+      reason: "agent-harness could not finish checking this step. Choose Check again. This computer has no name. Give it one in More options.",
+      details: ["your-machines.not-root: the log is closed", "your-machines.lan: no interfaces read"],
+      failing: ["your-machines.not-root", "your-machines.named", "your-machines.lan"],
+      actions: ["check-again"],
+    });
+  });
+
+  it("names a setting it cannot use by its label, the key in details, beside what a failing check puts in details (#1836)", async () => {
+    const values = { ...presetSettings(), "permissions.parkedPrompt.ttl": "forever" } as unknown as ReturnType<typeof presetSettings>;
+    const result = await check(stepOf("permissions"), values, {
+      ...holding,
+      "permissions.containment": () => ({ reason: "The sandbox you chose does not work on this computer yet.", details: ["bwrap: setting up uid map: Permission denied"] }),
+    });
+    expect(result).toMatchObject({
+      reason: "A saved setting for this step cannot be used: Unanswered permission timeout. Set it again in Settings. The sandbox you chose does not work on this computer yet.",
+      details: ["permissions.parkedPrompt.ttl", "bwrap: setting up uid map: Permission denied"],
+    });
+  });
+
+  it("keeps the facts the environment found apart from a done step's line, and those a passing check gives (#1836)", async () => {
+    const result = await check(stepOf("your-machines"), presetSettings(), { ...holding, "your-machines.lan": () => ({ holds: true, reason: "Devices on this network can reach it.", details: ["Network address: 192.0.2.20"] }) }, () => ({
+      reason: "desk is ready. It updates itself.",
+      details: ["Version: 0.4.0"],
+    }));
+    expect(result).toEqual({
+      step: "your-machines",
+      state: "done",
+      reason: "desk is ready. It updates itself. Devices on this network can reach it.",
+      details: ["Version: 0.4.0", "Network address: 192.0.2.20"],
+      failing: [],
+      actions: [],
+      checkedAt: AT,
+    });
+  });
+
+  it("says the describing conversation stopped, once however many did, the provider's words in details (setup-copy.md §5.8; #1836)", async () => {
+    const bank = { kind: "bank", id: "bank-1", label: "personal" } as const;
+    const stopped = [
+      { sessionId: "session-1", title: "Set up: Memory bank (personal)", subject: bank, error: "The provider is overloaded." },
+      { sessionId: "session-2", title: "Set up: Memory bank (team)", subject: null, error: null },
+    ];
+    const result = await checkStep(stepOf("memory-bank"), {
+      values: presetSettings(),
+      stateChecks: { ...holding, "memory-bank.manifest": () => ({ reason: "personal needs a description." }) },
+      clock: manualClock(AT),
+      checkedAt: AT,
+      askedBy: "client",
+      lastGood: undefined,
+      llm: { subjects: () => [bank], stopped: () => stopped },
+    });
+    expect(result).toMatchObject({
+      state: "needs-attention",
+      reason: "The describing conversation stopped. personal needs a description.",
+      details: ["The provider is overloaded."],
+      actions: ["try-again", "write-it-myself", "start-over", "revise"],
+    });
+  });
+
+  it("keeps at most twenty lines of details, each once", async () => {
+    const lines = Array.from({ length: 25 }, (_, n) => `forge ${n % 22}`);
+    const result = await check(stepOf("forges"), presetSettings(), { ...holding, "forges.reads": () => ({ reason: "Some reads did not pass.", details: lines }) });
+    expect(result.details).toEqual(Array.from({ length: 20 }, (_, n) => `forge ${n}`));
+  });
+});
+
+/**
+ * No line of any registered step's result holds a raw fact (setup-copy.md
+ * §1.7, §3): whatever its checks throw or answer, a check id, a settings key,
+ * an ISO time, an HTTP status or a method name is in details, never in the
+ * reason (#1836).
+ */
+describe("a step's line on every registered step", () => {
+  const RAW = "HTTP 503 from forge.accounts.add at 2026-10-08T08:00:00.000Z";
+  const methods = Object.keys(registry);
+  const checkIds = STEP_REGISTRY.flatMap((step) => step.stateChecks.map((stateCheck) => stateCheck.id));
+
+  const plain = (reason: string, what: string) => {
+    expect(reason, what).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+    expect(reason, what).not.toMatch(/\bHTTP\b|\b[1-5]\d\d\b/);
+    for (const method of methods) expect(reason, `${what}: ${method}`).not.toContain(method);
+    for (const id of checkIds) expect(reason, `${what}: ${id}`).not.toContain(id);
+    for (const key of SETTINGS_KEYS) expect(reason, `${what}: ${key}`).not.toContain(key);
+  };
+
+  it("holds no check id, settings key, ISO time, HTTP status or method name, done, when a check throws, when a value is refused, or when its checks take too long", async () => {
+    for (const step of STEP_REGISTRY) {
+      plain((await check(step, presetSettings(), holding)).reason, `${step.id} done`);
+      for (const { id } of step.stateChecks) {
+        const throws: StateCheckers = { ...holding, [id]: () => Promise.reject(new Error(RAW)) };
+        const result = await check(step, presetSettings(), throws);
+        plain(result.reason, `${id} throws`);
+        expect(result.details, id).toEqual([`${id}: ${RAW}`]);
+      }
+      for (const { key } of step.checks) {
+        const values = { ...presetSettings(), [key]: Symbol("unusable") } as unknown as SettingsValues;
+        plain((await check(step, values, holding)).reason, `${key} refused`);
+      }
+      const clock = manualClock(AT);
+      const never: StateCheckers = { ...holding, [step.stateChecks[0]?.id ?? ""]: () => new Promise<never>(() => undefined) };
+      const pending = checkStep(step, { values: presetSettings(), stateChecks: never, clock, checkedAt: AT, askedBy: "client", lastGood: undefined });
+      clock.advance(CHECK_BUDGET_SECONDS[step.budget] * 1000);
+      const timedOut = await pending;
+      plain(timedOut.reason, `${step.id} timed out`);
+    }
   });
 });
