@@ -1,4 +1,4 @@
-import type { SetupStepView, SetupView } from "@agent-harness/client-runtime";
+import type { SetupStepView } from "@agent-harness/client-runtime";
 import { STEP_HINTS } from "@agent-harness/contracts";
 import { ListChecks, X } from "lucide-react";
 import { useId, useState } from "react";
@@ -18,12 +18,12 @@ import { useCheckOnFocus, useCheckOnOpen, useSetupView } from "./use-setup.js";
 
 /**
  * What Set up draws a step as (setup-copy.md §3 and §4.4): its result's
- * state; Not available once the computer has given results but none for it,
- * a step its version does not have; Checking while this window's check of it
- * waits; else Not checked yet.
+ * state; Not available for a step the computer's version does not have,
+ * which its answer about every step left out; Checking while this window's
+ * check of it waits; else Not checked yet.
  */
-export const stepState = (view: SetupView, step: SetupStepView): SetupState =>
-  step.result !== null ? step.result.state : view.steps.some((other) => other.registered) ? "unavailable" : step.pending ? "pending" : "unchecked";
+export const stepState = (step: SetupStepView): SetupState =>
+  step.result !== null ? step.result.state : step.missing ? "unavailable" : step.pending ? "pending" : "unchecked";
 
 /**
  * A step's row on the rail (setup-copy.md §4.4): its number, label, hint,
@@ -94,7 +94,7 @@ export const ChecklistView = () => {
             key={candidate.id}
             step={candidate}
             index={index}
-            state={stepState(view, candidate)}
+            state={stepState(candidate)}
             shown={candidate.id === shown}
             choose={() => { choose(candidate.id); setRailOpen(false); }}
           />
@@ -125,7 +125,7 @@ export const ChecklistView = () => {
           {reading && <p role="status" className="border-b border-hairline px-4 py-2 text-sm text-ink-muted">Reading {picked.name ?? "this computer"}&apos;s setup…</p>}
           <div className="relative flex min-h-0 flex-1 flex-col min-[640px]:flex-row">
             {phone ? <PhoneNavigation title="Set up steps" open={railOpen} onOpenChange={setRailOpen}>{rail}</PhoneNavigation> : rail}
-            {step !== undefined && view !== undefined && <StepCard key={`${picked.environmentId} ${step.id}`} environmentId={picked.environmentId} step={step} state={stepState(view, step)} computer={picked.name} />}
+            {step !== undefined && view !== undefined && <StepCard key={`${picked.environmentId} ${step.id}`} environmentId={picked.environmentId} step={step} state={stepState(step)} computer={picked.name} />}
           </div>
         </>
       )}

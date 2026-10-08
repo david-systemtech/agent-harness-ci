@@ -19,7 +19,7 @@ const Card = () => {
   const environmentId = environment?.environmentId ?? "";
   const setup = useObservable(useMemo(() => runtime.projections.setup(environmentId), [runtime, environmentId]));
   const step = setup.steps.find(s => s.id === "permissions");
-  return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">{step && <StepCard environmentId={environmentId} step={step} state={stepState(setup, step)} computer={environment?.name ?? null} />}</div>;
+  return <div data-web-client className="flex h-dvh min-w-0 flex-col bg-abyss text-ink">{step && <StepCard environmentId={environmentId} step={step} state={stepState(step)} computer={environment?.name ?? null} />}</div>;
 };
 
 /** The real checklist footer, isolated from its desktop rail, on a browser runtime. */

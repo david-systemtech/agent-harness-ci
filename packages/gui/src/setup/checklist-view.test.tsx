@@ -86,6 +86,20 @@ describe("a step the computer's version does not have", () => {
     expect(within(shown).queryByRole("button", { name: "Check now" })).toBeNull();
     expect(within(footer()).getByRole("button", { name: "Skip for now" }).hasAttribute("disabled")).toBe(false);
   });
+
+  it("is not a step whose result is still on its way while other steps have theirs, which reads Done once it lands", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: { "key-manager": null } }] }, { firstLaunch: true });
+    const release = app.environment("desk").holdSetupChecks();
+    await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
+    await waitFor(() => expect(within(rail()).getByRole("button", { name: "Account", description: /Done/ })).toBeDefined());
+    const keyManager = () => within(rail()).getByRole("button", { name: "Key manager" });
+    expect(keyManager().querySelector("[data-state-word]")?.textContent).not.toBe("Not available");
+    await app.user.click(keyManager());
+    expect(within(card("Key manager")).queryByText("desk runs an older agent-harness without this step. Update desk to set it up.")).toBeNull();
+    app.environment("desk").setSetup({ "key-manager": {} });
+    release();
+    await waitFor(() => expect(within(rail()).getByRole("button", { name: "Key manager", description: /Done/ })).toBeDefined());
+  });
 });
 
 describe("a card's head", () => {
