@@ -57,7 +57,7 @@ describe("the Instructions card in Set up", () => {
     });
     await app.user.click(within(card).getByRole("button", { name: "Check again" }));
     expect(await within(card).findByText("Agents get your notes and a summary of this computer.")).toBeDefined();
-    expect(within(card).getByRole("img", { name: "Instructions: Done" })).toBeDefined();
+    expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Instructions", description: / Done / })).toBeDefined();
   });
 
   it("creates Custom text without an origin, with all account chips on", async () => {

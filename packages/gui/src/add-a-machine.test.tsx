@@ -49,7 +49,7 @@ const pasteLink = async (app: RenderedApp, add: HTMLElement, link: string) => {
 };
 
 /** The environment the full checklist checks, as its picker shows it. */
-const pickedIn = (region: HTMLElement) => within(within(region).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent;
+const pickedIn = (region: HTMLElement) => within(within(region).getByRole("combobox", { name: /^(Environment|Setting up)$/ })).getByRole("option", { selected: true }).textContent;
 
 describe("Add a machine", () => {
   it("pairs from a pasted link, and the machine becomes a card offering Set up this machine, which opens the checklist there on its first step needing attention", async () => {

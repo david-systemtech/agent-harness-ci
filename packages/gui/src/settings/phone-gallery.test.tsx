@@ -10,7 +10,7 @@ it.each(["constrained", "full", "setup", "picker", "qr"] as const)("phone Settin
   const scene = phoneSettingsScene(kind);
   const gallery = await mountGallery(container, "phone-settings", "dark", { "phone-settings": scene });
   close = gallery.close;
-  if (kind === "setup") await screen.findByRole("heading", { name: "Carry over", level: 2 });
+  if (kind === "setup") await screen.findByRole("region", { name: "Carry over" });
   await gallery.ready;
   expect(gallery.world.shell).toBeUndefined();
   if (kind === "constrained") expect(screen.getByRole("button", { name: "Give this phone full access" })).toBeDefined();
@@ -25,7 +25,7 @@ it.each(["constrained", "full", "setup", "picker", "qr"] as const)("phone Settin
     expect(document.querySelectorAll(targets?.[0]?.selector ?? "missing").length).toBeGreaterThan(0);
   }
   if (kind === "setup") {
-    expect(screen.getByRole("heading", { name: "Carry over", level: 2 })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Bring over your past work", level: 2 })).toBeDefined();
     expect(await screen.findByText("Project account with a long descriptive label: 24 past chats, 7 notes folders, 7 skills.")).toBeDefined();
     expect(screen.queryByText(/could not look at/)).toBeNull();
   }
