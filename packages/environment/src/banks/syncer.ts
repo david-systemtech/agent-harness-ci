@@ -1,5 +1,6 @@
 import { ContractError, type BankEntry, type BankRecord } from "@agent-harness/contracts";
 import type { ForgeGitAnswer, ForgeGitRequest } from "../forge/harness-git.js";
+import { refusalReason } from "../forge/operations.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { runGit } from "../workspace/git.js";
 import { REGISTERED_SYNC_BLOCKED, type BankService } from "./bank-service.js";
@@ -41,7 +42,7 @@ export const createBankSyncer = (options: { readonly banks: BankService; readonl
     }, bank.id);
     if (controller.signal.aborted) return;
     if (answer.outcome === "refused" || !answer.git.ok || answer.git.timedOut || answer.git.truncated) {
-      await banks.recordSync(bank.id, { problem: answer.outcome === "refused" ? answer.error.message : "Fetching the bank's main failed." });
+      await banks.recordSync(bank.id, { problem: answer.outcome === "refused" ? refusalReason(answer.error) : "Fetching the bank's main failed." });
       return;
     }
     // Adopted paths, including older records, retain the owner's work.

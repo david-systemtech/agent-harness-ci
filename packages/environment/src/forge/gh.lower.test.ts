@@ -28,14 +28,19 @@ describe("the environment's gh over the registry's row", () => {
     expect(await gh.probe()).toEqual({ installed: false, version: null, minimum: GH_MINIMUM_VERSION, meetsMinimum: false, accounts: [] });
     expect(await gh.token("github.com", "david")).toEqual({
       outcome: "unavailable",
-      message: "gh is not installed on this environment: install the GitHub CLI 2.40.0 or later, then run gh auth login --hostname github.com.",
+      message: "The gh tool is not installed. Install it to use your GitHub sign-in.",
+      details: ["Needs gh 2.40.0 or later, then gh auth login --hostname github.com (as david)"],
     });
   });
 
   it("gives no token, and says so, when the registry has no row to give, as when the environment closes before its first probe", async () => {
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const gh = managedGh({ row: () => Promise.reject(new Error("The managed tools have not been probed.")), hostEnv: { PATH: "/nonexistent" } });
-    expect(await gh.token("github.com", "david")).toEqual({ outcome: "unavailable", message: "gh on this environment could not be found: its managed tools have not been probed." });
+    expect(await gh.token("github.com", "david")).toEqual({
+      outcome: "unavailable",
+      message: "agent-harness has not looked for the gh tool yet. Choose Check again.",
+      details: ["The Managed tools registry has not probed gh."],
+    });
     expect(await gh.probe()).toMatchObject({ installed: false, accounts: [] });
     quiet.mockRestore();
   });

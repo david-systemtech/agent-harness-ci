@@ -26,6 +26,8 @@ export interface SceneGeometry {
   readonly wordsIntact?: boolean;
   /** The element's text sits on one line: it may move to the next line whole, but never wraps inside, not even at a hyphen. */
   readonly unbroken?: boolean;
+  /** Every matching element is as tall as the first: rows of one list keep one shape whatever their text. */
+  readonly sameHeight?: boolean;
   readonly width?: number;
   readonly height?: number;
   readonly paddingLeft?: number;

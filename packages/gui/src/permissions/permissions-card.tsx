@@ -1,4 +1,4 @@
-import type { ActionOutcome } from "@agent-harness/client-runtime";
+import { restoredOutcome, type ActionOutcome } from "@agent-harness/client-runtime";
 import type { DenylistSection } from "@agent-harness/contracts";
 import { useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
@@ -46,7 +46,7 @@ export const PermissionsCard = ({ environmentId, step }: StepCardProps) => {
         open={asking !== undefined}
         sections={asking?.sections}
         cancel={() => settle((asked) => asked.answer(null))}
-        restore={() => settle((asked) => void denylist.restore(asked.sections).then(asked.answer))}
+        restore={() => settle((asked) => void denylist.restore(asked.sections).then((restored) => asked.answer(restoredOutcome(restored))))}
       />
     </>
   );

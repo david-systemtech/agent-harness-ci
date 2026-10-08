@@ -64,7 +64,7 @@ describe("Workspace checks in the GUI", () => {
   it("names the after-edit check when the Environment cannot run it, rather than showing a bare reason", async () => {
     await opened({ capabilities: [] });
     const strip = await screen.findByRole("region", { name: "Workspace check" });
-    expect(strip.textContent).toBe("After-edit check: desk does not offer workspaceChecks; a version that does is needed.");
+    expect(strip.textContent).toBe("After-edit check: desk runs an older agent-harness without this. Update desk to use it.");
   });
 
   it("names the after-edit check when reading it fails", async () => {

@@ -321,7 +321,7 @@ describe("organisations", () => {
       message: `The forge at ${forge.origin} answered HTTP 403 and no list of organisations.`,
     });
     expect(await providerOf(forge, "forgejo").organisations(forge.origin, "odd-token-for-tests", 100)).toMatchObject({ outcome: "failed", status: 200 });
-    expect(await providerOf(forge, "github").organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "unreachable", message: `The forge at ${forge.origin} answered HTTP 502.` });
+    expect(await providerOf(forge, "github").organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "unreachable", status: 502, message: `The forge at ${forge.origin} answered HTTP 502.` });
   });
 });
 
@@ -591,6 +591,20 @@ describe("releases", () => {
       outcome: "failed",
       status: 404,
       message: `The forge at ${forge.origin} answered HTTP 404: Not Found.`,
+    });
+    expect(existsSync(destination)).toBe(false);
+  });
+
+  it("answer a download refused 403 with a body that says GitHub's secondary rate limit unreachable, not failed", async () => {
+    const forge = await fakeForge();
+    const message = "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.";
+    forge.answer("token-for-tests", "GET /api/v3/repos/david/agent-harness/releases/assets/50", { status: 403, body: { message, documentation_url: "https://docs.github.com/rest" } });
+    const destination = join(tempDir(), "release.json");
+
+    const asset = { id: 50, name: "release.json", size: 2, downloadUrl: "https://github.example/x" };
+    expect(await providerOf(forge, "github").downloadAsset(forge.origin, "token-for-tests", "david/agent-harness", asset, destination)).toMatchObject({
+      outcome: "unreachable",
+      message: expect.stringContaining("is rate-limiting this token (HTTP 403)"),
     });
     expect(existsSync(destination)).toBe(false);
   });

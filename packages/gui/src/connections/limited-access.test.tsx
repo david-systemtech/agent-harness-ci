@@ -31,7 +31,7 @@ it("dismisses the short disclosure for this pairing across a remount", async () 
   const app = await opened();
   const note = screen.getByRole("note", { name: "Limited access" });
   expect(note.textContent).toBe("Limited access · Details");
-  expect(screen.queryByText(/without the terminal scope/)).toBeNull();
+  expect(screen.queryByText(/so it cannot use terminals or files/)).toBeNull();
   await app.user.click(within(note).getByRole("button", { name: "Dismiss limited access" }));
   expect(screen.queryByRole("note", { name: "Limited access" })).toBeNull();
   await app.remount();

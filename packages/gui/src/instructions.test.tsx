@@ -197,7 +197,7 @@ describe("Instructions", () => {
     expect(await within(pane).findByRole("button", { name: "New instruction" })).toBeDefined();
     await within(pane).findByRole("region", { name: "Review habits" });
     expect(within(pane).getByRole("button", { name: "New instruction" }).hasAttribute("disabled")).toBe(true);
-    expect(within(pane).getAllByText("This client was paired with read-only without the admin scope.").length).toBeGreaterThan(0);
+    expect(within(pane).getAllByText("This app has limited access to read-only, so it cannot change settings or sign in accounts. Pair again with full access to change this.").length).toBeGreaterThan(0);
   });
   it("edits and clears session instructions from the session menu by keyboard", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });

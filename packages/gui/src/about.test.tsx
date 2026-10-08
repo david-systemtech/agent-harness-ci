@@ -78,7 +78,7 @@ describe("About", () => {
 
     desk.setUpdates({ status: { pending: { state: "staging", updateId: UPDATE_ID, toVersion: "0.6.1", source: "request" } } });
     desk.notice("environment.update-pending", { ...WAITING, toVersion: "0.6.1" });
-    expect(await within(updates).findByText("Staging 0.6.1: downloading and installing it.")).toBeDefined();
+    expect(await within(updates).findByText("Downloading 0.6.1…")).toBeDefined();
   });
 
   it("says an unreadable bundled Claude Code, and a pin that holds the version with auto-update off", async () => {
@@ -172,13 +172,14 @@ describe("About", () => {
     const app = await opened({ receipts: { "updates.apply": { rejected: "conflict", message: "desk is pinned to 0.5.0.", data: { reason: "pinned" } } } });
     const about = await openAbout(app);
     await app.user.click(await within(about).findByRole("button", { name: "Update now" }));
-    expect(await within(about).findByText("Not updated: desk is pinned to 0.5.0.")).toBeDefined();
+    expect(await within(about).findByText("This computer is pinned to another version. Change or clear the pin, then choose Update now.")).toBeDefined();
+    expect(within(within(about).getByRole("region", { name: "Details" })).getByText("conflict (pinned): desk is pinned to 0.5.0.")).toBeDefined();
   });
 
   it("is read-only without admin, with the capability's line said once", async () => {
     const app = await opened({ scopes: ["read", "sessions:write", "runs:drive", "terminal"], updates: { status: { version: "0.5.0" } } });
     const about = await openAbout(app);
-    expect(await within(about).findByText("Read-only: This client was paired with desk without the admin scope.")).toBeDefined();
+    expect(await within(about).findByText("Read-only: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(about).getAllByText(/^Read-only:/)).toHaveLength(1);
     for (const control of [
       within(about).getByRole("combobox", { name: "Channel" }),

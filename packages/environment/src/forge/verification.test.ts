@@ -137,8 +137,9 @@ describe("forge.accounts.verify", () => {
 });
 
 describe("what a verification finds", () => {
-  it("takes a 401 on identity as credential-rejected, and a server error or no connection as unreachable, each since when it began, with one line", async () => {
+  it("takes a 401 on identity as credential-rejected, and a server error or no connection as unreachable, each since when it began, with setup-copy.md §5.6's line and what the forge answered in details", async () => {
     const { t, forge, client } = await withForge();
+    const host = forge.origin.replace("http://", "");
     const account = await added(client, { url: forge.origin, kind: "forgejo" });
     forge.repositories(TOKEN, []);
     const [fine] = await verify(client, account.id);
@@ -146,21 +147,49 @@ describe("what a verification finds", () => {
     t.clock.advance(MINUTE);
     forge.answer(TOKEN, "GET /api/v1/user", { status: 401, body: { message: "token is required" } });
     const [rejected] = await verify(client, account.id);
-    expect(rejected).toEqual({ ...fine, problem: { kind: "credential-rejected", since: after(MINUTE), message: expect.stringMatching(/^[^\n]+$/) }, statusSince: after(MINUTE) });
-    expect(rejected?.problem?.message).toContain("HTTP 401");
+    expect(rejected).toEqual({
+      ...fine,
+      problem: {
+        kind: "credential-rejected",
+        since: after(MINUTE),
+        message: `${host} did not accept the token for david. Create a new token and add it.`,
+        details: [`The forge at ${forge.origin} refused the token (HTTP 401).`],
+      },
+      statusSince: after(MINUTE),
+    });
 
     t.clock.advance(MINUTE);
     forge.answer(TOKEN, "GET /api/v1/user", { status: 503 });
     const [busy] = await verify(client, account.id);
-    expect(busy?.problem).toEqual({ kind: "unreachable", since: after(2 * MINUTE), message: `The forge at ${forge.origin} answered HTTP 503; it could not say who the token is now.` });
+    expect(busy?.problem).toEqual({
+      kind: "unreachable",
+      since: after(2 * MINUTE),
+      message: `${host} is not answering properly right now. Choose Check again later.`,
+      details: [`The forge at ${forge.origin} answered HTTP 503; it could not say who the token is now.`],
+    });
 
-    // Still unreachable, now for want of a connection: the same problem, since it began, and nothing appended.
+    // Another server error says the same line: the record's details still follow what the forge answered.
+    t.clock.advance(MINUTE);
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 502 });
+    const [stillBusy] = await verify(client, account.id);
+    expect(stillBusy?.problem).toEqual({ ...busy?.problem, details: [`The forge at ${forge.origin} answered HTTP 502; it could not say who the token is now.`] });
+    expect((await list(client))[0]?.problem).toEqual(stillBusy?.problem);
+
+    // Still unreachable, now for want of a connection: the same problem, since it began, its line saying so now.
     t.clock.advance(MINUTE);
     const from = t.env.log.head();
     await forge.close();
     const [gone] = await verify(client, account.id);
-    expect(gone).toMatchObject({ problem: { kind: "unreachable", since: after(2 * MINUTE) }, statusSince: after(2 * MINUTE), capabilities: fine?.capabilities });
-    expect(await forgeEvents(client, from)).toEqual([]);
+    expect(gone).toMatchObject({
+      problem: { kind: "unreachable", since: after(2 * MINUTE), message: `${host} did not answer. Check the internet connection, then choose Check again.` },
+      statusSince: after(2 * MINUTE),
+      capabilities: fine?.capabilities,
+    });
+    expect((await forgeEvents(client, from)).map((event) => event.type)).toEqual(["forge.account.verified"]);
+    // Verified again with no change, it appends nothing.
+    const again = t.env.log.head();
+    await verify(client, account.id);
+    expect(await forgeEvents(client, again)).toEqual([]);
   });
 
   it("updates a changed login with the same user id, and holds a stored token's Basic-auth form for the login it has now", async () => {
@@ -189,7 +218,12 @@ describe("what a verification finds", () => {
     const [changed] = await verify(client, account.id);
     expect(changed).toEqual({
       ...fine,
-      problem: { kind: "identity-changed", since: after(MINUTE), message: "The credential now answers as someone (user 7), not david (user 42): replace it in Set up, Forges." },
+      problem: {
+        kind: "identity-changed",
+        since: after(MINUTE),
+        message: `The token for ${forge.origin.replace("http://", "")} belongs to someone, not david. Add a token for david.`,
+        details: ["The token answers as someone (user 7), not david (user 42)."],
+      },
       statusSince: after(MINUTE),
       variables: { url: [], token: [], kind: [] },
     });
@@ -219,7 +253,12 @@ describe("what a verification finds", () => {
     keyManagers.answer(reference, null);
     t.clock.advance(MINUTE);
     const [unavailable] = await verify(client, account.id);
-    expect(unavailable?.problem).toEqual({ kind: "credential-unavailable", since: after(MINUTE), message: expect.stringContaining(reference.connectionId) });
+    expect(unavailable?.problem).toEqual({
+      kind: "credential-unavailable",
+      since: after(MINUTE),
+      message: `agent-harness cannot read the saved token for david on ${forge.origin.replace("http://", "")}. Sign in to your key manager.`,
+      details: [expect.stringContaining(reference.connectionId)],
+    });
 
     keyManagers.answer(reference, TOKEN);
     t.clock.advance(MINUTE);
@@ -253,7 +292,12 @@ describe("what a verification finds", () => {
     const [expiring] = await verify(client, account.id);
     expect(expiring).toMatchObject({
       tokenInformation: { expiresAt: "2026-10-20T12:00:00.000Z" },
-      problem: { kind: "expiring", since: after(MINUTE), message: "The token expires at 2026-10-20 12:00 UTC: replace it in Set up, Forges before then." },
+      problem: {
+        kind: "expiring",
+        since: after(MINUTE),
+        message: "The token for github.com runs out soon. Add a new one before then.",
+        details: ["Runs out at: 2026-10-20T12:00:00.000Z"],
+      },
       statusSince: after(MINUTE),
     });
     expect(forge.requests.slice(-2).map((request) => [request.path, request.query ?? null])).toEqual([
@@ -353,7 +397,10 @@ describe("when a verification runs", () => {
     const [slow] = await verify(client, account.id);
 
     expect(slow).toMatchObject({ identity: account.identity, capabilities: UNKNOWN_FORGE_CAPABILITIES, tokenInformation: null, problem: { kind: "unreachable", since: MANUAL_CLOCK_START } });
-    expect(slow?.problem?.message).toBe(`The forge at ${forge.origin} did not finish answering within 0.3 s.`);
+    expect(slow?.problem).toMatchObject({
+      message: `${forge.origin.replace("http://", "")} did not answer. Check the internet connection, then choose Check again.`,
+      details: [`The forge at ${forge.origin} did not finish answering within 0.3 s.`],
+    });
   });
 
   it("waits out a pause the forge asks for before its next scheduled verification", async () => {
@@ -544,13 +591,18 @@ describe("the state import's credential probe", () => {
   it("answers a credential the forge refuses with problem credential-rejected, and one on a forge that does not answer with unreachable", async () => {
     const { t, forge } = await withForge();
     const refused = await t.env.forge.probeCredential({ url: forge.origin, kind: "gitea", token: "token-nobody-knows" });
-    // No forge account holds it yet, so the line says what the forge said and names none to fix.
+    // No forge account holds it yet, so the line says what happened and no remedy, what the forge said in details.
     expect(refused).toEqual({
       origin: forge.origin,
       identity: null,
       capabilities: UNKNOWN_FORGE_CAPABILITIES,
       tokenInformation: null,
-      problem: { kind: "credential-rejected", since: MANUAL_CLOCK_START, message: `The forge at ${forge.origin} refused the token (HTTP 401).` },
+      problem: {
+        kind: "credential-rejected",
+        since: MANUAL_CLOCK_START,
+        message: `${forge.origin.replace("http://", "")} did not accept the token.`,
+        details: [`The forge at ${forge.origin} refused the token (HTTP 401).`],
+      },
     });
     await forge.close();
     const unreachable = await t.env.forge.probeCredential({ url: forge.origin, kind: "gitea", token: TOKEN });

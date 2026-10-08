@@ -97,9 +97,14 @@ the list is at the end).
 | `{name} has not been reached yet.` | `This app has not reached {name} yet.` + **Try again** |
 | a failed `setup.check` (silent today) | `agent-harness could not run the check. Choose Check again.` Details: the refusal |
 | a failed Start (silent outside the introduction) | `agent-harness did not start on {name}. Choose Start to try again.` Details: the failure |
-| `This client was paired with {env} without the {scope} scope.` (client-runtime/src/capabilities.ts) | `This app has limited access to {env}, so it cannot {verb}. Pair again with full access to change this.` verbs: admin `change settings or sign in accounts`; terminal `use terminals or files`; sessions:write `start sessions`; runs:drive `run agents` |
+| `This client was paired with {env} without the {scope} scope.` (client-runtime/src/capabilities.ts) | `This app has limited access to {env}, so it cannot {verb}. Pair again with full access to change this.` verbs: admin `change settings or sign in accounts`; terminal `use terminals or files`; sessions:write `start sessions`; runs:drive `run agents`; read `see what is on it`. Details: `{scope}` |
 | `{env} does not offer {flag}; a version that does is needed.` | `{env} runs an older agent-harness without this. Update {env} to use it.` Details: `{flag}` |
-| `This client cannot {purpose}: its shell has no {member}.` | `This app cannot {purpose} here.` + the alternative (`Copy the link instead.`) |
+| `This client cannot {purpose}: its shell has no {member}.` | `This app cannot {purpose} here.` + the alternative where there is one (`Copy the link instead.`, `Paste the link instead.`, `Add a token instead.`, `Type the folder's path instead.`, `Select the text and copy it instead.`, `Connect to another computer instead.`). Details: `{member}` |
+| `{env} is newer than this client: update this client.` (client-runtime/src/connections/block-words.ts) | `{env} runs a newer agent-harness than this app. Update this app.` |
+| `{env} is older than this client: update {env} to this client's version.` / `…, and cannot update itself from here.` | `{env} runs an older agent-harness than this app. Update {env}.` / `… Update it on that computer.` |
+| `This client's access to {env} was revoked: pair it again.` / `… expired: …` | `This app's access to {env} was taken away. Pair again.` / `This app's access to {env} has run out. Pair again.` (this computer's own: `Try again.`) |
+| `Stored credentials for {env} could not be read: pair it again.` | `This app cannot read its saved key for {env}. Pair again.` |
+| `The address kept for {env} now reaches another environment.` / `{env} is blocked.` | `The address saved for {env} now reaches a different computer.` / `This app cannot connect to {env}.` |
 | `Read-only: {line}` | `You can look but not change this. {line}` |
 | raw refusals `Not {verb}ed: {message}` | `{Plain line from the refusal mapper}` Details: `{message}`; the mapper (client-runtime) words each error code and reason; unknown ones read `Something went wrong. Choose {verb} to try again.` |
 | text cut at 120 characters by `oneLine` (banks, skills cards) | never cut: the plain line is short and the rest is in Details |
@@ -189,7 +194,9 @@ Words stay: `Leave set up without an account?` / `You can look around, but you w
 - Header chip: `Set up: {n} to fix` (never cut: the chip grows to fit); it opens Set up at the first step that needs a fix.
 - After Check everything again opens Set up on a step, that step's card says `Checked just now.` above its notice, so the jump is explained.
 - Terminal UI `/setup`: header `Set up on {name}: {d} of {m} done, {n} {needs|need} a fix ({steps}).`; the closing line
-  `Press Enter on a step to run its fix, or open Set up in the desktop app.` (was "Run it in the desktop window."); state words as §3.
+  `Press Enter on a step to run its fix, or open Set up in the desktop app.` (was "Run it in the desktop window."); state words as §3,
+  a step's second line after its line on the same row. A refused check: `agent-harness could not check {name}. Run /setup to try again.`
+  and, dim beneath, `Details: {the refusal}` (the terminal has no Check everything again; `/setup` checks again).
 
 ## 5. The steps
 
@@ -303,20 +310,25 @@ quoted from the files named; a builder greps for them.
   updates (`Update automatically`, channel `Stable` / `Beta`); link **All settings for this computer** (Settings › Your machines; leaves Set up).
   Browser origins, the sandbox list and the grant note are not on this card. A limited pairing shows one line `This app has limited access to {name}.` with **What does this mean?** (#1631's sheet).
 - Lines: done `{name} is ready. It updates itself.` / `{name} is ready. Automatic updates are off.` / `{name} is ready. The host's updater keeps it up to date.` /
-  pinned `{name} is ready. It stays on version {v}.`; restarting within its 30 minutes `{name} is restarting.` and the same second sentence; Details: `Version: {v}`, `Updates: {on | off | pinned to {v} | by the host's updater}`, and `Tailscale address: {ip} ({tailnet name})`, `Local network address: {ip}` or `Reachable from: this computer only`;
+  pinned `{name} is ready. It stays on version {v}.`, and while the pin does not run yet (its update waits for idle, or never comes) `{name} is ready. It runs version {v0} and is pinned to {v}.`; restarting within its 30 minutes `{name} is restarting.` and the same second sentence; Details: `Version: {v0}` (the running version), `Updates: {on | off | pinned to {v} | by the host's updater}`, and `Tailscale address: {ip} ({tailnet name})`, `Local network address: {ip}` or `Reachable from: this computer only`;
   pending `Checking for updates. This takes about two minutes after start.`; late first check `The first update check is late. Choose Check again.`;
   not read `agent-harness has not checked for updates {in the last day | yet}. Choose Check again.`; read failed `agent-harness could not check for updates.
   Check the internet connection, then choose Check again.` Details; root `agent-harness runs as the administrator (root) account, which is unsafe. Restart it as your own user.` Details;
-  behind `Version {v} is available. Choose Update now.` (pinned: `{name} stays on {v} because it is pinned. {v2} is available.`);
+  behind `Version {v} is available. Choose Update now.` (pinned, while the pin runs: `{name} stays on {v} because it is pinned. {v2} is available.`;
+  a pin that does not run and is neither on its way, blocked nor failed: `{name} is pinned to {v}, which could not be installed. Unpin it or pin another version.`
+  with no Update now, which would install the pin again; Details: the versions and `To unpin: agent-harness update settings --pinned-version none`);
   late update `The update to {v} is waiting for running sessions to finish.`; host updater late `The update to {v} has not started. Check the updater on the host computer.`;
-  launcher too old `Version {v} needs a newer installer. Reinstall agent-harness from the {v} download.` Details: the command;
+  launcher too old `Version {v} needs a newer installer. Reinstall agent-harness from the {v2} download.` ({v2} is the target, or the running version when its own newer installer is what is missing) Details: the command;
   update failed `The update to {v} did not work. {name} still runs {v0}. Choose Update now to try again.` Details;
   container never polled `This container is not kept up to date yet. Set up the updater on the host computer.` **How to set it up**;
   host updater stale `The host's updater last ran {when}. Check that it still runs every five minutes.`;
   no name `This computer has no name. Give it one in More options.`; draining long `agent-harness has been restarting for over 30 minutes. Choose Check again once it is back.`;
   starting `agent-harness is still starting. This takes a few seconds.`;
   network address gone `The network address {ip} is no longer on this computer.` **Use {held ip}** / **Turn off Wi-Fi network access** Details: addresses.
-- Check again on this step reads the update channel again (today it only re-reads the last result).
+- Check again on this step, and any check this app asks for, reads the update channel again, as Check for updates does: a second ask within a
+  minute answers that read. The environment's own hourly checks of the step read the last result.
+- Update status words on the card (client-runtime/src/updates/words.ts): downloading `Downloading {v}…`; draining `Waiting for running sessions to finish before updating to {v}.`;
+  ready (a container) `{v} is ready. The host's updater installs it.`
 
 ### 5.5 Add a device (gui/src/machines/add-a-machine.tsx, preset-pairing.tsx, pairing-code.tsx; client-runtime/src/access/presets.ts)
 - Part 1 `Connect a phone or computer to this one`. Question `Who is it for?`
@@ -359,6 +371,18 @@ quoted from the files named; a builder greps for them.
   token refused `{host} did not accept this token. Check that you copied all of it, or create a new one.` Details; gh signed out `The gh tool is not signed in to {host}.` Details: the command.
 - Changing the kind or looking the site up again keeps the token already typed (today it is emptied).
 - Every environment line drops "in Set up, Forges" (the person is there) and moves HTTP statuses, user ids and times into Details.
+- Lines the code needs beyond these (#1850): a forge that answered it cannot answer now (HTTP 5xx, a rate limit) `{host} is not answering properly right now. Choose Check again later.`,
+  the unreachable line kept for no answer at all; the token run out `The token for {host} has run out. Add a new one.`; expiring's `{when}` is `in {n} days`, or `within a day`,
+  the exact time in Details, and a forge account's own problem says `The token for {host} runs out soon. Add a new one before then.` (it is written once per verification);
+  unreadable from a stored token without a key manager is the line without its second sentence; from gh `agent-harness cannot get the token for {login} on {host} from the gh tool.`,
+  gh's own cause in Details; missing permission for both reads `The token for {host} cannot read code or read releases. Create a new token with those permissions and add it.`;
+  gh not looked for yet `agent-harness has not looked for the gh tool yet. Choose Check again.`, gh failing `The gh tool did not give a token for {login} on {host}.`;
+  {computer} in gh signed out is `this computer`; no main lists the forges to choose from in Details; needed elsewhere is also the refusal of an operation with no forge,
+  what it was doing in Details. A token no forge account holds yet (a carry-over check) says only the first sentence. Add messages: another user on update
+  `This token belongs to {found}, not {expected}. Add a token for {expected}.`; an address for this site that is not one `{alias} did not accept the token for {login}, so it is not another address for this site. Nothing was changed.` /
+  `{alias} knows this token as another user, so it is not another address for this site. Nothing was changed.`; listing owners, a token the forge gives no list of organisations
+  `The token for {host} cannot list organisations. Create a new token with that permission and add it.` (a refused token, a server error and no answer read as above, what the forge answered in Details);
+  a token an older build recorded as another user's reads `The token for {host} belongs to another user, not {login}. Add a token for {login}.`, its old line in Details.
 - **Move to your key manager** shows only while a key manager is connected, as **Keep this token in your key manager**.
 
 ### 5.7 Key manager (gui/src/key-managers/*; environment/src/key-managers/*)
@@ -453,7 +477,7 @@ quoted from the files named; a builder greps for them.
   `You can follow up to 20 collections.` shows once, above the list, from 15 on.
 - More options › `Add from a link`: `Repository address` **Look for skills** → `Found {n} skill folders:` ticks **Add selected**.
 - Skill members, always-on switches and repository trust are not in Set up (Settings › Skills, link **All skill settings**).
-- Lines: skip `No skills added. Optional.`; done `Your skills are up to date.` (own only: `Your own skills are ready.`);
+- Lines: skip `No skills added. Optional.`; done `Your skills are up to date.` (own only: `Your own skills are ready.`); after Update now `{collection} is up to date.`;
   update failed `{collection} could not update. Choose Update now.`; out of date `{collection} has not updated for over 7 hours. Choose Update now.`;
   moved `{collection} no longer has skills where they were. Choose its folders again.` (card button **Choose folders**);
   too many `You follow {n} collections. The limit is 20. Remove {n-20}.`; own folder `agent-harness cannot open your own skills folder. Check that it exists.` Details.

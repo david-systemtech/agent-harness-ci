@@ -248,7 +248,7 @@ describe("a copy's credential", () => {
 });
 
 describe("the forge events", () => {
-  it("are the eight on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
+  it("are the nine on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
     expect(Object.keys(FORGE_EVENT_PAYLOADS)).toEqual([
       "forge.account.added",
       "forge.account.updated",
@@ -258,6 +258,7 @@ describe("the forge events", () => {
       "forge.account.git-rejected",
       "forge.account.removed",
       "forge.origin-missing",
+      "forge.origin-answered",
     ]);
     for (const type of Object.keys(FORGE_EVENT_PAYLOADS)) {
       expect(ENVIRONMENT_NOTICE_TYPES, type).toContain(type);

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { errorSchema } from "../errors.js";
-import { ForgeAccountId, ForgeAccountRecord, ForgeAddCredential, ForgeCopiedFrom, ForgeCredentialInput, ForgeIdentity } from "../forge-accounts.js";
+import { ForgeAccountId, ForgeAccountRecord, ForgeAddCredential, ForgeCopiedFrom, ForgeCredentialInput, ForgeDetails, ForgeIdentity } from "../forge-accounts.js";
 import { GhProbe } from "../forge-gh.js";
 import { FORGE_KINDS, ForgeKind, ForgeOrigin, ForgeSlug, ForgeTokenPage } from "../forge.js";
 import { CredentialUnavailableError } from "../git-credential.js";
@@ -49,6 +49,7 @@ export const VerificationFailedError = errorSchema(
   z.object({
     origin: ForgeOrigin,
     status: z.int().meta({ description: "The HTTP status the forge answered." }),
+    details: ForgeDetails.optional().meta({ description: "What the forge answered, behind the message's plain line; absent when the message says it all." }),
   }),
 ).meta({
   description:
@@ -93,6 +94,7 @@ export const ForgeAccountMissingError = errorSchema(
   z.object({
     origin: ForgeOrigin.meta({ description: "The origin no forge account covers." }),
     step: z.literal("forges").meta({ description: "The Set up step that adds a forge account for it, for the deep link." }),
+    details: ForgeDetails.optional().meta({ description: "What the harness was doing and what the forge answered, behind the message's plain line." }),
   }),
 ).meta({
   description:
@@ -118,8 +120,14 @@ export const NotAForgeError = errorSchema("not_a_forge", z.object({ origin: Forg
 export type NotAForgeError = z.infer<typeof NotAForgeError>;
 
 /** The forge did not answer, or answered that it could not now. */
-export const ForgeUnreachableError = errorSchema("unreachable", z.object({ origin: ForgeOrigin.meta({ description: "The origin that did not answer." }) })).meta({
-  description: "The forge could not be reached, or answered that it could not answer now (its own error, HTTP 5xx; a rate limit; no answer within ten seconds): the message says which; data names the origin.",
+export const ForgeUnreachableError = errorSchema(
+  "unreachable",
+  z.object({
+    origin: ForgeOrigin.meta({ description: "The origin that did not answer." }),
+    details: ForgeDetails.optional().meta({ description: "What failed, behind the message's plain line: no answer within ten seconds, a lost connection, HTTP 5xx or a rate limit." }),
+  }),
+).meta({
+  description: "The forge could not be reached, or answered that it could not answer now (its own error, HTTP 5xx; a rate limit; no answer within ten seconds): the message says so plainly and data's details say which; data names the origin.",
 });
 export type ForgeUnreachableError = z.infer<typeof ForgeUnreachableError>;
 
