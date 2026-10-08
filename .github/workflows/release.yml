@@ -705,7 +705,7 @@ jobs:
                 $stopTimer = [Diagnostics.Stopwatch]::StartNew()
                 do {
                   Start-Sleep -Milliseconds 500
-                  $left = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" -or ($_.Name -eq 'cmd.exe' -and $_.CommandLine -like '*launcher-entry.cmd*') })
+                  $left = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" -or $_.ExecutablePath -eq "$dataDir\node\node.exe" -or ($_.Name -eq 'cmd.exe' -and $_.CommandLine -like '*launcher-entry.cmd*') })
                   $probe = [Net.Sockets.TcpClient]::new()
                   try {
                     try { $probe.Connect('127.0.0.1', $port) } catch [Net.Sockets.SocketException] { }
@@ -725,8 +725,14 @@ jobs:
                 if ($entries.Count -ne 1 -or $launchers.Count -ne 1 -or $launchers[0].ParentProcessId -ne $entries[0].ProcessId) {
                   throw "After Stop-ScheduledTask and Start-ScheduledTask: $($entries.Count) launcher-entry chains and $($launchers.Count) launchers, not one of each (#1712)"
                 }
+                # Windows Firewall keys its answer on the listening program's path: the environment runs on the data
+                # directory's one Node, which no update moves, so it asks once and not at every update (#1910).
+                $servers = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $launchers[0].ProcessId -and $_.CommandLine -like '* serve *' })
+                if ($servers.Count -ne 1 -or $servers[0].ExecutablePath -ne "$dataDir\node\node.exe") {
+                  throw "The launcher's environment runs on $($servers.ExecutablePath -join ', '), not $dataDir\node\node.exe, which keeps Windows Firewall's answer through updates (#1910)"
+                }
                 # Keep native handles so PID reuse cannot make the exit checks lie.
-                $rows = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" })
+                $rows = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$dataDir\versions\*\node\node.exe" -or $_.ExecutablePath -eq "$dataDir\node\node.exe" })
                 if ($rows.Count -lt 2) { throw 'The scheduled task did not start its launcher and server' }
                 foreach ($row in $rows) {
                   $handle = Get-Process -Id $row.ProcessId
