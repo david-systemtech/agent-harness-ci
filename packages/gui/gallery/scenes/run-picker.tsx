@@ -12,7 +12,9 @@ import type { SceneGeometry } from "../scene-registry.js";
 
 const environmentId = "0199cc00-0000-4000-8000-000000000053";
 const sessionId = "0199dd00-0000-4000-8000-000000000054";
-const accounts = Array.from({ length: 8 }, (_, index) => ({ id: `account-${index + 1}`, label: `Account ${index + 1}`, identity: { provider: "claude", email: `account-${index + 1}@example.test`, organisation: null } }));
+// The second email is long enough to break mid-word in the 224px column, the rest fit: the rows keep one shape (#1895).
+const emailOf = (index: number) => index === 1 ? "account-2.with-a-long-address@example.test" : `account-${index + 1}@example.test`;
+const accounts = Array.from({ length: 8 }, (_, index) => ({ id: `account-${index + 1}`, label: `Account ${index + 1}`, identity: { provider: "claude", email: emailOf(index), organisation: null } }));
 // The provider's own aliases first, named from the client runtime's display table (#1824), then enough samples to search.
 const models = [
   { id: "fable", family: "fable", tier: 14, label: "Fable", efforts: ["low", "medium", "high"] },
@@ -66,4 +68,8 @@ export const geometry: readonly SceneGeometry[] = [
   { selector: '[data-run-column="Accounts"] [data-run-list]', height: 320 },
   { selector: '[data-run-column="Models"] [data-run-list]', height: 320 },
   { selector: '[data-run-column="Accounts"] [data-usage-rings]', height: 16 },
+  // An email is one line, cut with an ellipsis, so a long address no longer makes its row taller (#1895).
+  { selector: '[data-run-column="Accounts"] [data-run-identity]', unbroken: true },
+  // The session's own row reads a shorter note, so the other rows are compared with each other.
+  { selector: '[data-run-column="Accounts"] [role="menuitem"]:has([data-run-identity]):not([data-selected])', sameHeight: true },
 ];

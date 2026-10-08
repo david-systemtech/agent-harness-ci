@@ -71,6 +71,8 @@ export const phoneRunPickerScene = (stage: RunStage, otherModels = false): Scene
     { selector: '[data-run-sheet] button', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, visibleWithin: '[data-run-sheet]' },
     ...otherModels ? [{ selector: '[data-other-models-list] [role="menuitem"]', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, contentFits: true, hitTestable: true }] : [],
     // The ring line scales with the text size, so here it is checked to fit the sheet, not for its 16px.
-    ...(stage === "Accounts" ? [{ selector: "[data-run-sheet] [data-usage-rings]", renderedOnly: true, visibleWithin: "[data-run-sheet]" }] : []),
+    ...(stage === "Accounts" ? [{ selector: "[data-run-sheet] [data-usage-rings]", renderedOnly: true, visibleWithin: "[data-run-sheet]" },
+      // The 28-character address stays on one line (#1895).
+      { selector: "[data-run-sheet] [data-run-identity]", renderedOnly: true, unbroken: true }] : []),
   ],
 });

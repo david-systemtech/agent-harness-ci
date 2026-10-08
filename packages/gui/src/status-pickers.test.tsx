@@ -455,9 +455,10 @@ describe("the account picker", () => {
     const work = within(menu).getByRole("menuitem", { name: /^work/ });
     const personal = within(menu).getByRole("menuitem", { name: /^personal/ });
     const spare = within(menu).getByRole("menuitem", { name: /^spare/ });
-    // The words are gone from the row: the rings draw them, and the tooltip says them.
-    expect(work.textContent).toBe("work milo@work.testsigned in · this session · claude");
-    expect(personal.textContent).toBe("personal milo@home.testsign-in expired · Sign in · claude");
+    // The words are gone from the row: the rings draw them, and the tooltip says them. The email is a line of its own (#1895).
+    expect(work.textContent).toBe("workmilo@work.testsigned in · this session · claude");
+    expect(personal.textContent).toBe("personalmilo@home.testsign-in expired · Sign in · claude");
+    expect([work, personal].map((row) => row.querySelector("[data-run-identity]")?.textContent)).toEqual(["milo@work.test", "milo@home.test"]);
     const rings = (row: HTMLElement) => within(row).queryAllByRole("img").map((ring) => [ring.getAttribute("aria-label"), ring.getAttribute("class")?.match(/text-(mint|amber|signal)/)?.[1]]);
     expect(rings(work)).toEqual([["5-hour 42%", "mint"], ["Weekly 80%", "amber"]]);
     expect(rings(spare)).toEqual([["5-hour 95%", "signal"]]);

@@ -42,6 +42,10 @@ export function measureSceneGeometry(): string[] {
         const [first, ...rest] = Array.from(range.getClientRects());
         if (first && rest.some(line => Math.abs(line.top - first.top) > first.height / 2)) visibility.push(`${check.selector}[${index}]: breaks across lines; it must wrap whole`);
       }
+      if (check.sameHeight === true && index > 0) {
+        const first = elements[0]!.getBoundingClientRect().height;
+        if (Math.abs(rect.height - first) > (check.tolerance ?? 0.5)) visibility.push(`${check.selector}[${index}].height: got ${rect.height}, expected ${first} like ${check.selector}[0] ±${check.tolerance ?? 0.5}`);
+      }
       if (check.minimumTop !== undefined && rect.top < check.minimumTop - (check.tolerance ?? 0.5)) {
         visibility.push(`${check.selector}[${index}].top: got ${rect.top}, expected at least ${check.minimumTop}`);
       }
