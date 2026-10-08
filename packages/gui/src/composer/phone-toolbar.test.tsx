@@ -46,7 +46,7 @@ it("keeps workspace details in a sheet while preserving the draft and restoring 
 
 it.each([
   ["Workspace: receipts", "Workspace"],
-  ["Workspace check: off", "Workspace check"],
+  ["After-edit check: off", "After-edit check"],
   ["Run settings", "Run settings"],
 ])("announces %s details before focusing an action or its tooltip", async (label, title) => {
   await openPhone();
@@ -58,7 +58,7 @@ it.each([
 
 it.each([
   ["Workspace: receipts", "Workspace"],
-  ["Workspace check: off", "Workspace check"],
+  ["After-edit check: off", "After-edit check"],
   ["Run settings", "Run settings"],
 ])("keeps %s details within a shrinking and panning visual viewport", async (label, title) => {
   const viewport = Object.assign(new EventTarget(), { height: 844, width: 390, scale: 1, offsetTop: 0, offsetLeft: 0 });
@@ -142,12 +142,13 @@ it("retains the desktop workspace and status controls at a narrow window width",
 
 it("explains the check state on tap without giving its path or off sentence a dock row", async () => {
   await openPhone();
-  const check = await screen.findByRole("button", { name: "Workspace check: off" });
-  expect(screen.queryByText("Check is off.")).toBeNull();
+  const check = await screen.findByRole("button", { name: "After-edit check: off" });
+  expect(screen.queryByText("After-edit check: off")).toBeNull();
   fireEvent.click(check);
-  const sheet = await screen.findByRole("dialog", { name: "Workspace check" });
-  expect(within(sheet).getByText("Check is off.")).toBeDefined();
-  expect(within(sheet).getByText("/work/receipts")).toBeDefined();
+  const sheet = await screen.findByRole("dialog", { name: "After-edit check" });
+  expect(within(sheet).getByText("After-edit check: off")).toBeDefined();
+  expect(within(sheet).getByText("Workspace: /work/receipts")).toBeDefined();
+  expect(within(sheet).getByText(/after the agent edits files/)).toBeDefined();
 });
 
 it("opens all run details from the same toolbar as workspace, check and browser", async () => {
@@ -155,7 +156,7 @@ it("opens all run details from the same toolbar as workspace, check and browser"
   const toolbar = await screen.findByRole("toolbar", { name: "Conversation controls" });
   expect(within(toolbar).getByRole("button", { name: "Workspace: receipts" })).toBeDefined();
   expect(within(toolbar).getByRole("button", { name: "Hand off" })).toBeDefined();
-  expect(within(toolbar).getByRole("button", { name: /^Workspace check:/ })).toBeDefined();
+  expect(within(toolbar).getByRole("button", { name: /^After-edit check:/ })).toBeDefined();
   expect(within(toolbar).getByRole("button", { name: "Environment browser" })).toBeDefined();
   fireEvent.click(within(toolbar).getByRole("button", { name: "Run settings" }));
   const sheet = await screen.findByRole("dialog", { name: "Run settings" });
@@ -170,11 +171,11 @@ it("opens all run details from the same toolbar as workspace, check and browser"
 
 it("explains a restricted check grant on tap and retains ordinary message sending", async () => {
   const gallery = await openPhone(false);
-  fireEvent.click(await screen.findByRole("button", { name: "Workspace check: unavailable" }));
-  const sheet = await screen.findByRole("dialog", { name: "Workspace check" });
+  fireEvent.click(await screen.findByRole("button", { name: "After-edit check: unavailable" }));
+  const sheet = await screen.findByRole("dialog", { name: "After-edit check" });
   expect(within(sheet).getByText(/terminal/)).toBeDefined();
   fireEvent.click(within(sheet).getByRole("button", { name: "Close dialog" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Workspace check" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "After-edit check" })).toBeNull());
   fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Explain the receipt totals" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   const env = gallery.world.world.environment("desk");
