@@ -1040,7 +1040,7 @@ async function storedGallery(packagesToken = "token-for-tests") {
   return {
     f, sha, comments, captures, attachments, env,
     fail: (stage: string) => { failure = stage; },
-    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }, shard?: { run: string; index: number; count: number; total: number }) => {
+    capture: async (pixel: number, count = 1, names = count === 1 ? ["window-empty.dark"] : Array.from({ length: count }, (_, index) => `scene-${index}.dark`), viewport?: { width: number; height: number }, shard?: { run: string; index: number; count: number; total: number } | { id: string; index: number; count: number }) => {
       await run("python3", ["-c", `import json,struct,sys,zipfile,zlib,pathlib
 pixel=int(sys.argv[2])
 def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
@@ -1185,31 +1185,41 @@ it.each(["attachment", "package", "asset-url"])("finalizes an actionable failure
   expect(body).not.toContain("token-for-tests");
 });
 
-it("publishes and accepts the required captures per registered scene through a report manifest", async () => {
+it("publishes and accepts the required captures per registered scene through main's named report shards", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { captureCases, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; console.log(JSON.stringify(captureCases(await sceneFiles("./packages/gui/gallery/scenes"))));'], { cwd: root });
-  const cases = JSON.parse(plan.stdout) as { scene: string; ladder: "light" | "dark" }[];
-  const names = cases.flatMap(({ scene, ladder }) => [`${scene}.${ladder}`, `${scene}-narrow.${ladder}`]);
-  expect(names.length).toBeGreaterThan(200);
-  await g.capture(255, names.length, names);
-  const result = await relay(g.f, g.env);
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); console.log(JSON.stringify(capturePlan(desktop).shards.map(shard => ({ id: shard.id, names: shard.captures.map(c => c.name) }))));'], { cwd: root });
+  const shards = JSON.parse(plan.stdout) as { id: string; names: string[] }[];
+  const names = shards.flatMap(shard => shard.names);
+  // The hosted job captures the registered desktop scenes in named shards of at most 400 captures (#1937), however many the plan holds.
+  const artifacts: { id: number; name: string; size_in_bytes: number }[] = [];
+  const archives: Record<string, string> = {};
+  for (const [index, shard] of shards.entries()) {
+    await g.capture(255, shard.names.length, shard.names, undefined, { id: shard.id, index, count: shards.length });
+    const archive = join(g.f.checkout, `${shard.id}.zip`);
+    writeFileSync(archive, readFileSync(g.env.FAKE_GALLERY_ZIP));
+    artifacts.push({ id: 100 + index, name: `window-gallery-${shard.id}`, size_in_bytes: statSync(archive).size });
+    archives[String(100 + index)] = archive;
+  }
+  const result = await relay(g.f, { ...g.env, FAKE_ARTIFACTS: JSON.stringify(artifacts), FAKE_GALLERY_ZIPS: JSON.stringify(archives) });
   expect(result.code, result.stderr).toBe(0);
-  expect(g.comments).toHaveLength(1);
-  const body = g.comments[0]!.body;
-  expect(body).toContain("Geometry: passed");
-  const marker = /<!-- window-gallery (.*?) -->/.exec(body)?.[1];
-  expect(marker).toBeDefined();
-  const manifest = JSON.parse(marker!) as { captures: { name: string }[] };
-  expect(manifest.captures.map(({ name }) => name)).toEqual(names.map((name) => `${name}.png`));
+  expect(g.comments).toHaveLength(shards.length);
+  const manifests = g.comments.map(({ body }) => {
+    expect(body).toContain("Geometry: passed");
+    const marker = /<!-- window-gallery (.*?) -->/.exec(body)?.[1];
+    expect(marker).toBeDefined();
+    return JSON.parse(marker!) as { version: string; captures: { name: string }[] };
+  });
+  expect(manifests.flatMap(({ captures }) => captures.map(({ name }) => name))).toEqual(names.map((name) => `${name}.png`));
   expect(g.captures.size).toBe(names.length);
   await run("bash", [join(root, "scripts/gallery-accept.sh"), "42"], { cwd: g.f.checkout, env: { ...g.f.env, ...g.env } });
   const baselines = join(g.f.checkout, "packages/gui/gallery/baselines");
   expect(readdirSync(baselines).sort()).toEqual(names.map((name) => `${name}.png`).sort());
-  for (const name of names) {
-    const image = readFileSync(join(baselines, `${name}.png`));
-    const stored = g.captures.get(`/api/packages/example/generic/window-gallery/${g.sha}-1/${name}.png`);
-    expect(image).toEqual(stored);
-    expect([image.readUInt32BE(16), image.readUInt32BE(20)]).toEqual(name.includes("-narrow.") ? [1024, 768] : [1400, 900]);
+  for (const { version, captures } of manifests) {
+    for (const { name } of captures) {
+      const image = readFileSync(join(baselines, name));
+      expect(image).toEqual(g.captures.get(`/api/packages/example/generic/window-gallery/${version}/${name}`));
+      expect([image.readUInt32BE(16), image.readUInt32BE(20)]).toEqual(name.includes("-narrow.") ? [1024, 768] : [1400, 900]);
+    }
   }
 });
 
@@ -1472,9 +1482,10 @@ it("plans and validates a bounded single report on heads predating shard support
 
 it("publishes and accepts older combined reports including all frame phone profiles", async () => {
   const g = await storedGallery();
-  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = [...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`), "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).captures.map(c => c.name)));'], { cwd: root });
+  const plan = await run(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import { capturePlan, sceneFiles } from "./packages/gui/gallery/capture-plan.ts"; const desktop = (await sceneFiles("./packages/gui/gallery/scenes")).filter(name => !name.startsWith("phone-")); const phone = [...Array.from({ length: 6 }, (_, i) => `phone-capacity-existing-${i}`), "phone-frame-conversation", "phone-frame-drawer"]; console.log(JSON.stringify(capturePlan([...desktop, ...phone]).shards.filter(shard => shard.id === "desktop-001" || shard.id.startsWith("phone-")).flatMap(shard => shard.captures.map(c => c.name))));'], { cwd: root });
   const names = JSON.parse(plan.stdout) as string[];
-  // This older combined format must keep working beyond one 400-capture report's limit as desktop scenes are added.
+  // This older combined format holds one bounded report per family (the registered desktop captures now fill more than one, #1937),
+  // and must keep working beyond one 400-capture report's limit across both families.
   expect(names.filter(name => !name.startsWith("phone-frame-")).length).toBeGreaterThan(400);
   expect(names.filter(name => name.startsWith("phone-frame-"))).toHaveLength(16);
   await g.capture(230, names.length, names);
