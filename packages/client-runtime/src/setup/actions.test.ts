@@ -25,6 +25,15 @@ describe("Set up actions on named items", () => {
     expect(planSetupAction(forges, "update", [{ action: "update", kind: "tool", id: "future-tool", label: "Future" }])).toEqual({ kind: "managed-tools" });
     expect(planSetupAction({ id: "your-machines", home: "environments.machines" }, "update")).toEqual({ kind: "update" });
   });
+  it("plans Check certificate for each key-manager connection it names on Key managers, where its certificate check is (#1852)", () => {
+    const keyManager = { id: "key-manager", home: "access.key-managers" } as const;
+    const target = { action: "check-certificate", kind: "key-manager-connection", id: "connection-1", label: "OpenBao at bao.example.test:8200" } as const;
+    expect(setupActions(keyManager, { actions: ["check-again", "check-certificate"], targets: [target] })).toMatchObject([
+      { words: "Check again", plan: { kind: "check", step: "key-manager" } },
+      { words: "Check certificate: OpenBao at bao.example.test:8200", plan: { kind: "row", row: "access.key-managers" } },
+    ]);
+  });
+
   it("plans How to set it up on Your machines as the host updater's setup, and on any other step as its home row (#1883)", () => {
     const machines = { id: "your-machines", home: "environments.machines" } as const;
     expect(setupActions(machines, { actions: ["how-to-set-up", "check-again"] })).toMatchObject([

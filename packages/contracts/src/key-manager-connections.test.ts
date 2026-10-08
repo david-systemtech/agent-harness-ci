@@ -109,6 +109,15 @@ describe("the key-manager connection methods", () => {
     expect(verificationFailed?.safeParse({ code: "verification_failed", message: "m", data: { connectionId, reason: "root_token" } }).success).toBe(true);
     expect(verificationFailed?.safeParse({ code: "verification_failed", message: "m", data: { connectionId, reason: "expired" } }).success).toBe(false);
   });
+
+  it("carries a sign-in refusal's raw words beside its plain message, one line each, for Details (setup-copy.md §5.7)", () => {
+    for (const member of registry["keyManagers.connections.signIn"].errors) {
+      const code = member.shape.code.value;
+      const data = { connectionId, ...(code === "verification_failed" && { reason: "rejected" }), ...(code === "provider_unavailable" && { provider: "openbao" }) };
+      expect(member.safeParse({ code, message: "m", data: { ...data, details: ["HTTP 400: invalid role or secret ID"] } }).success, code).toBe(true);
+      expect(member.safeParse({ code, message: "m", data: { ...data, details: ["one line\nand another"] } }).success, code).toBe(false);
+    }
+  });
 });
 
 describe("the credential", () => {

@@ -646,8 +646,8 @@ describe("the step registry", () => {
   it("checks that every connection is signed in and reachable, every injecting OpenBao login can mint, and each injecting connection's CLI is installed, with actions from ADR 0031's vocabulary (#383)", () => {
     expect(keyManager.stateChecks.map((check) => [check.id, check.actions])).toEqual([
       ["key-manager.present", []],
-      ["key-manager.signed-in", ["sign-in-again"]],
-      ["key-manager.reachable", ["check-again"]],
+      ["key-manager.signed-in", ["sign-in-again", "check-again"]],
+      ["key-manager.reachable", ["check-again", "check-certificate"]],
       ["key-manager.run-tokens", ["check-again"]],
       ["key-manager.cli", ["install", "update"]],
     ]);

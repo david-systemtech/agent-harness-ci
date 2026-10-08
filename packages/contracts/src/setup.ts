@@ -42,6 +42,7 @@ export const SETUP_ACTIONS = [
   "write-it-myself",
   "start-over",
   "revise",
+  "check-certificate",
   "how-to-set-up",
 ] as const;
 
@@ -65,6 +66,7 @@ const SETUP_ACTION_MEANINGS: { readonly [Action in (typeof SETUP_ACTIONS)[number
   "write-it-myself": "opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor",
   "start-over": "starts a new authoring session for the step, the old one staying",
   revise: "starts an authoring session that revises the step's artefact",
+  "check-certificate": "opens the certificate check of each key-manager connection it targets, where a person reviews the certificate it presents and trusts it",
   "how-to-set-up": "shows how to set up what the step needs outside the environment: on Your machines, the host-side updater on the Docker host",
 };
 

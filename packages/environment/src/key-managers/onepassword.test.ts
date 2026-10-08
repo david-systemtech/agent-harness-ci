@@ -134,13 +134,13 @@ describe("signing in to 1Password", () => {
 
     expect(rejection(refused.receipt)).toEqual({
       reason: "verification_failed",
-      message: `Signing in to 1Password with the service-account token failed: ${REJECTED_TOKEN_MESSAGE} Nothing was stored.`,
-      data: { connectionId: expect.any(String), reason: "rejected" },
+      message: "1Password did not accept these details. Check them and try again.",
+      data: { connectionId: expect.any(String), reason: "rejected", details: [`Signing in to 1Password with the service-account token failed: ${REJECTED_TOKEN_MESSAGE}`, "Nothing was stored."] },
     });
     expect(rejection(malformed.receipt)).toEqual({
       reason: "verification_failed",
-      message: "That is no 1Password credential that names its account. Nothing was stored.",
-      data: { connectionId: expect.any(String), reason: "rejected" },
+      message: "1Password did not accept these details. Check them and try again.",
+      data: { connectionId: expect.any(String), reason: "rejected", details: ["That is no 1Password credential that names its account.", "Nothing was stored."] },
     });
     expect(await list(client)).toEqual([]);
   });
@@ -158,8 +158,12 @@ describe("signing in to 1Password", () => {
 
     expect(rejection(elsewhere.receipt)).toEqual({
       reason: "verification_failed",
-      message: `That token is for the 1Password account at https://other.1password.com, and this connection is for ${FAKE_ACCOUNT_URL}: add a connection for that account. Nothing was changed.`,
-      data: { connectionId: connection.id, reason: "rejected" },
+      message: "1Password did not accept these details. Check them and try again.",
+      data: {
+        connectionId: connection.id,
+        reason: "rejected",
+        details: [`That token is for the 1Password account at https://other.1password.com, and this connection is for ${FAKE_ACCOUNT_URL}: add a connection for that account.`, "Nothing was changed."],
+      },
     });
     expect(again.result?.connection).toMatchObject({ address: FAKE_ACCOUNT_URL, method: null, mount: null, status: { kind: "signed-in" } });
     expect(await refusal(add(client, { provider: "onepassword", label: "Other", address: "https://another.1password.com", credential: token(other) }))).toMatchObject({

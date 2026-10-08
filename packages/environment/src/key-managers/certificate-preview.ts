@@ -87,6 +87,13 @@ export const previewCertificate = async ({ address }: ParamsOf<"keyManagers.cert
     throw new ContractError(invalidParams([{ code: "custom", path: ["address"], message }], message));
   }
   const answer = await readChain(origin, budgetMs);
-  if (answer.outcome === "unreachable") throw new ContractError({ code: "unreachable", message: `${origin} could not be reached for its certificate: ${answer.reason}.`, data: { address: origin } });
+  if (answer.outcome === "unreachable") {
+    // setup-copy.md §5.7's line; what the socket met stays in details (#1852).
+    throw new ContractError({
+      code: "unreachable",
+      message: `agent-harness could not reach ${origin}. Check the address.`,
+      data: { address: origin, details: [`${origin} could not be reached for its certificate: ${answer.reason}.`] },
+    });
+  }
   return { certificate: answer.certificate };
 };

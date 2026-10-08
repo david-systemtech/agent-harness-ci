@@ -161,9 +161,7 @@ describe("Add", () => {
     await fillAppRole(app, add, { label: "Home OpenBao", address: "https://bao.home.test:8200/", secretId: "secret-rejected-for-tests" });
     await app.user.type(within(add).getByRole("textbox", { name: "Token role (optional)" }), "harness-runs");
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
-    expect(
-      await within(add).findByText("Not added: OpenBao at https://bao.home.test:8200 refused the credential (HTTP 400: invalid role or secret ID). Nothing was stored."),
-    ).toBeDefined();
+    expect(await within(add).findByText("Not added: OpenBao did not accept these details. Check them and try again.")).toBeDefined();
     const desk = app.environment("desk");
     expect(desk.requests("keyManagers.connections.add")[0]?.params).toMatchObject({
       provider: "openbao",
@@ -200,11 +198,7 @@ describe("Add", () => {
     expect(within(add).queryByRole("combobox", { name: "Signs in by" })).toBeNull();
     await app.user.type(within(add).getByLabelText("Token"), "token-for-tests");
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
-    expect(
-      await within(add).findByText(
-        "Not added: This environment cannot sign in to Doppler yet: add the connection without a credential, and sign it in with a version that can. Nothing was stored.",
-      ),
-    ).toBeDefined();
+    expect(await within(add).findByText("Not added: agent-harness cannot connect to Doppler on this computer yet.")).toBeDefined();
     const params = app.environment("desk").requests("keyManagers.connections.add")[0]?.params ?? {};
     expect(params).toMatchObject({ provider: "doppler", address: "https://api.doppler.com", credential: { method: "token", token: "token-for-tests" } });
     expect(Object.keys(params)).not.toContain("method");
@@ -224,7 +218,7 @@ describe("Add", () => {
     expect(within(add).getByText("No address: it is the account URL the token names, learned at sign-in.")).toBeDefined();
     await app.user.type(within(add).getByLabelText("Token"), "token-for-tests");
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
-    expect(await within(add).findByText(/^Not added: This environment cannot sign in to 1Password yet/)).toBeDefined();
+    expect(await within(add).findByText("Not added: agent-harness cannot connect to 1Password on this computer yet.")).toBeDefined();
     const params = app.environment("desk").requests("keyManagers.connections.add")[0]?.params ?? {};
     expect(params).toMatchObject({ provider: "onepassword", label: "1Password", credential: { method: "token", token: "token-for-tests" } });
     expect(Object.keys(params)).not.toContain("address");
@@ -327,7 +321,7 @@ describe("the card's verbs", () => {
     await app.user.type(within(signIn).getByRole("textbox", { name: "Username" }), "david");
     await app.user.type(within(signIn).getByLabelText("Password"), "password-rejected-for-tests");
     await app.user.click(within(signIn).getByRole("button", { name: "Sign in" }));
-    expect(await within(signIn).findByText(/^Not signed in: OpenBao at https:\/\/bao\.home\.test refused the credential/)).toBeDefined();
+    expect(await within(signIn).findByText("Not signed in: OpenBao did not accept these details. Check them and try again.")).toBeDefined();
     expect((within(signIn).getByLabelText("Password") as HTMLInputElement).value).toBe("");
 
     await app.user.type(within(signIn).getByLabelText("Password"), "password-for-tests");
