@@ -566,6 +566,27 @@ describe("policies and injection", () => {
     await waitFor(() => expect(within(pane()).getByRole("region", { name: "Work OpenBao 2" })).toBeDefined());
     expect(within(within(pane()).getByRole("region", { name: "Work OpenBao 2" })).queryByRole("alert")).toBeNull();
   });
+
+  it("drops a card's refusal once the connection changes, so it does not come back when the connection stands as it did again", async () => {
+    const app = await opened({
+      receipts: { "keyManagers.connections.setInjected": { rejected: "conflict", message: "Another change to Work OpenBao is on its way." } },
+      keyManagers: { connections: [{ label: "Work OpenBao", address: "https://bao.work.test", injects: false, injectedVariables: [] }] },
+    });
+    await openKeyManagers(app);
+    await app.user.click(within(await card("Work OpenBao")).getByRole("button", { name: "Inject its variables" }));
+    expect(await within(await card("Work OpenBao")).findByRole("alert")).toBeDefined();
+
+    const desk = app.environment("desk");
+    const work = desk.keyManagerConnections()[0]?.id ?? "";
+    desk.setKeyManagerStatus(work, { kind: "sealed", message: "OpenBao at https://bao.work.test is sealed: unseal it to sign in." });
+    desk.verifyKeyManager(work);
+    await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Work OpenBao" }))["Status"]).not.toMatch(/^Signed in since /));
+    expect(within(await card("Work OpenBao")).queryByRole("alert")).toBeNull();
+    desk.setKeyManagerStatus(work, { kind: "signed-in", message: "Signed in to OpenBao as approle." });
+    desk.verifyKeyManager(work);
+    await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Work OpenBao" }))["Status"]).toMatch(/^Signed in since /));
+    expect(within(await card("Work OpenBao")).queryByRole("alert")).toBeNull();
+  });
 });
 
 /** The Move card. */

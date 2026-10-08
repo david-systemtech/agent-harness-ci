@@ -60,9 +60,11 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
   const now = clock.now();
   const [open, setOpen] = useState<Open>(null);
   const [sending, setSending] = useState(false);
-  // A refusal is said on the card while the connection stands as it did when it was refused, and until another verb answers.
+  // A refusal is said on the card while the connection stands as it did when it was refused, and until another verb answers;
+  // once the connection stands otherwise it is dropped, so a standing that comes back later does not bring it back.
   const standing = `${connection.status.kind} ${connection.status.since} ${connection.injects}`;
   const [refusal, setRefusal] = useState<{ readonly outcome: KeyManagerOutcome & { readonly ok: false }; readonly standing: string }>();
+  if (refusal !== undefined && refusal.standing !== standing) setRefusal(undefined);
   const refused = refusal?.standing === standing ? refusal.outcome : undefined;
   const setRefused = (outcome: (KeyManagerOutcome & { readonly ok: false }) | undefined) => setRefusal(outcome === undefined ? undefined : { outcome, standing });
   /** Says what a verb did in the pane, or its refusal on the card in plain words, its raw words under Details. */
