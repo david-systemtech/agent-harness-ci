@@ -176,7 +176,7 @@ describe("the credential route", () => {
     const asked = await ask(t.address, secret.value, getFor(copy));
     expect(asked.status).toBe(503);
     expect(GitCredentialError.parse(asked.body)).toMatchObject({ code: "credential_unavailable", data: { origin: forge.origin } });
-    expect(JSON.stringify(asked.body)).toContain("Set up, Forges");
+    expect(JSON.stringify(asked.body)).toContain(`${forge.origin.replace("http://", "")} has no token yet. Add one.`);
   });
 
   it("gives nothing for a forge account whose credential answers as another user, which is unused until replaced", async () => {

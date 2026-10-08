@@ -321,7 +321,7 @@ describe("organisations", () => {
       message: `The forge at ${forge.origin} answered HTTP 403 and no list of organisations.`,
     });
     expect(await providerOf(forge, "forgejo").organisations(forge.origin, "odd-token-for-tests", 100)).toMatchObject({ outcome: "failed", status: 200 });
-    expect(await providerOf(forge, "github").organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "unreachable", message: `The forge at ${forge.origin} answered HTTP 502.` });
+    expect(await providerOf(forge, "github").organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "unreachable", status: 502, message: `The forge at ${forge.origin} answered HTTP 502.` });
   });
 });
 
