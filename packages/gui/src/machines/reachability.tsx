@@ -20,6 +20,15 @@ const tailscaleWarning = (installed: boolean | undefined): string => installed =
 /** What binding a LAN address opens the environment to. */
 const LAN_WARNING = "Anyone on this network could try to reach it; it still needs a paired client.";
 
+/**
+ * What Windows asks the first time the environment binds beside loopback
+ * (#1910): its firewall's prompt for the environment's Node, which the
+ * person sees once, since the environment runs on a Node whose path no
+ * update changes.
+ */
+const FIREWALL_NOTICE =
+  "Windows asks once, at the first start that binds the tailnet or a LAN address, whether Node.js may accept connections: keep Private networks ticked and choose Allow access, which may ask for an administrator's approval. Updates do not ask again.";
+
 /** How the environment is reached beside loopback, a line for each address it binds; none for loopback alone. */
 const reachedLines = (binding: EnvironmentBinding): readonly string[] => [
   ...(binding.tailnet === null
@@ -40,7 +49,8 @@ const reachedLines = (binding: EnvironmentBinding): readonly string[] => [
  * binding switches, `network.bindTailnet` and `network.bindLan`, each
  * written through `settings.update` and applied at the environment's next
  * start, the LAN switch naming the address it would bind (a choice among
- * them where the machine holds more than one) with its warning.
+ * them where the machine holds more than one) with its warning, and, on
+ * Windows, what its firewall asks once (#1910).
  */
 export const Reachability = ({ view, writable }: { readonly view: EnvironmentView; readonly writable: boolean }) => {
   const runtime = useRuntime();
@@ -80,6 +90,7 @@ export const Reachability = ({ view, writable }: { readonly view: EnvironmentVie
             save={(address) => save("network.bindLan", address)}
           />
           <p className="text-ink-muted">Both switches apply at {name}&apos;s next start.</p>
+          {binding?.firewallAsksOnce === true && <p className="text-ink-muted">{FIREWALL_NOTICE}</p>}
         </>
       )}
       {line !== undefined && <p className="text-signal">{line}</p>}
