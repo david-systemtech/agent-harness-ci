@@ -1,6 +1,11 @@
 import type { SceneModule } from "./scene-registry.js";
 import type { RunStage } from "../src/status/run-picker-parts.js";
 
+const usage = (accountId: string, email: string, windows: readonly (readonly [string, number])[]) => ({
+  accountId, identity: { provider: "claude", email, organisation: null }, readAt: "2026-09-24T00:00:00.000Z", unavailableReason: null,
+  windows: windows.map(([window, utilisation]) => ({ window, utilisation, observedAt: "2026-09-24T00:00:00.000Z", resetsAt: "2026-09-24T05:00:00.000Z", verdict: null })),
+});
+
 /** The real session chips and phone sheet, with long account and model labels. */
 export const phoneRunPickerScene = (stage: RunStage): SceneModule => ({
   platform: "web",
@@ -10,6 +15,11 @@ export const phoneRunPickerScene = (stage: RunStage): SceneModule => ({
   ], models: [{ accountId: "account-1", live: true, models: [
     { id: "sample-model-with-a-long-identifier", label: "Sample model with a long descriptive name", family: "sample", tier: 1, efforts: ["low", "medium", "high"] },
   ] }], sessions: [{ title: "Check the receipts", accountId: "account-1", model: "sample-model-with-a-long-identifier" }] }] },
+  // Two plan windows on the long-labelled account and one on the other, as rings in a 360px sheet (#1822).
+  arrangeWeb: world => world.environment("desk").setUsage([
+    usage("account-1", "project-account@example.test", [["five_hour", 0.8], ["seven_day", 0.35]]),
+    usage("account-2", "personal@example.test", [["five_hour", 0.95]]),
+  ]),
   route: world => ({ session: { environmentId: world.environment("desk").environmentId, sessionId: world.environment("desk").sessionId() } }),
   activate: () => {
     let expanded = false;
@@ -47,5 +57,6 @@ export const phoneRunPickerScene = (stage: RunStage): SceneModule => ({
     { selector: "[data-run-sheet]", width: width - 16, visibleWithin: "[data-run-sheet]" },
     { selector: '[data-run-sheet] [role="menuitem"]', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, contentFits: true },
     { selector: '[data-run-sheet] button', renderedOnly: true, minimumHeight: 44, minimumWidth: 44, visibleWithin: '[data-run-sheet]' },
+    { selector: "[data-run-sheet] [data-usage-rings]", renderedOnly: true, height: 16, visibleWithin: "[data-run-sheet]" },
   ],
 });
