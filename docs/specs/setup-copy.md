@@ -314,6 +314,7 @@ quoted from the files named; a builder greps for them.
   - `Tailscale is installed but not connected. Open Tailscale and sign in, then choose Check again.`
   - `Tailscale is ready. Restart agent-harness to use it.` **Restart agent-harness** where the service can restart, else `It is used from the next start.`
   - and, when `Use Tailscale` is off, which no install helps: `Use Tailscale is off in More options, so your other devices cannot reach this computer.`
+  - once the Wi-Fi network switch is applied, where Tailscale is not bound and no Tailscale address waits for a restart: `Devices on this Wi-Fi network can reach this computer. To reach it from anywhere else, use Tailscale.`
   - **Check again** under every line but the first; it reads how the computer is reached again.
   - on Windows, under every line but the first and the Use Tailscale one: `Windows asks once whether Node.js may accept connections. Keep Private networks ticked and choose Allow access.` (#1910)
   - **Restart agent-harness** (this computer's own service, from the desktop app) drains it and starts it again; meanwhile `{name} is restarting.`;

@@ -207,17 +207,19 @@ export const TAILSCALE_DOWNLOAD = "https://tailscale.com/download";
 /**
  * Whether other devices reach the computer, as Set up's Your machines step
  * says it with "Also from my other devices" chosen (setup-copy.md §5.4): its
- * Tailscale address bound; Use Tailscale off, which no install helps; a
- * Tailscale address found since its start, used once it starts again;
- * Tailscale installed with no address; or not installed, which is what an
- * environment too old to say whether it is installed reads too.
+ * Tailscale address bound; a Tailscale address found since its start, used
+ * once it starts again; its local network address bound, so devices on that
+ * network reach it; Use Tailscale off, which no install helps; Tailscale
+ * installed with no address; or not installed, which is what an environment
+ * too old to say whether it is installed reads too.
  */
-export type ReachVerdict = "reachable" | "tailscale-off" | "needs-restart" | "not-connected" | "not-installed";
+export type ReachVerdict = "reachable" | "needs-restart" | "wifi" | "tailscale-off" | "not-connected" | "not-installed";
 
 export const reachVerdict = (binding: EnvironmentBinding, tailnetOff: boolean): ReachVerdict => {
   if (binding.tailnet !== null) return "reachable";
+  if (!tailnetOff && (binding.tailnetFound ?? null) !== null) return "needs-restart";
+  if (binding.lan !== null) return "wifi";
   if (tailnetOff) return "tailscale-off";
-  if ((binding.tailnetFound ?? null) !== null) return "needs-restart";
   return binding.tailscaleInstalled === true ? "not-connected" : "not-installed";
 };
 
@@ -225,6 +227,7 @@ const VERDICT_WORDS: Readonly<Record<ReachVerdict, string>> = {
   reachable: "Your devices can reach this computer through Tailscale.",
   "tailscale-off": "Use Tailscale is off in More options, so your other devices cannot reach this computer.",
   "needs-restart": "Tailscale is ready. Restart agent-harness to use it.",
+  wifi: "Devices on this Wi-Fi network can reach this computer. To reach it from anywhere else, use Tailscale.",
   "not-connected": "Tailscale is installed but not connected. Open Tailscale and sign in, then choose Check again.",
   "not-installed": "Your other devices cannot reach this computer yet. Install Tailscale here and on your other devices.",
 };
@@ -268,7 +271,7 @@ export const ReachVerdictLine = ({ view, restart }: { readonly view: Environment
       ) : (
         verdict !== undefined && (
           <>
-            <p className={verdict === "reachable" ? "text-ink" : "text-amber"}>{VERDICT_WORDS[verdict]}</p>
+            <p className={verdict === "reachable" || verdict === "wifi" ? "text-ink" : "text-amber"}>{VERDICT_WORDS[verdict]}</p>
             {verdict === "needs-restart" && restart === undefined && <p className="text-ink-muted">It is used from the next start.</p>}
             <div className="flex flex-wrap items-center gap-2">
               {verdict === "not-installed" && (

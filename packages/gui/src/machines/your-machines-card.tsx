@@ -1,7 +1,7 @@
 import { drainEnvironment, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
 import { RELEASE_CHANNELS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
 import { ExternalLink, Radio, RefreshCw } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { LimitedGrant } from "../connections/connection-grant.js";
 import { useLocalService } from "../connections/local-service.js";
 import { nameOf } from "../connections/words.js";
@@ -170,7 +170,6 @@ const useRestart = (view: EnvironmentView): Restart | undefined => {
   const frame = useWindowFrame();
   const [progress, setProgress] = useState<RestartProgress>("idle");
   const [refusal, setRefusal] = useState<string | undefined>(undefined);
-  const sentStart = useRef(false);
   const { environmentId, phase } = view;
   const name = nameOf(view);
   useEffect(() => {
@@ -183,16 +182,17 @@ const useRestart = (view: EnvironmentView): Restart | undefined => {
       runtime.requests.refresh(environmentId, "environment.status", {});
     }
   }, [progress, phase, environmentId, service, runtime]);
+  // The start clears the last failure as it sets starting, in the render that sets starting here, so a failure
+  // once it is no longer starting is this start's, however soon it fails.
   useEffect(() => {
-    if (progress === "starting" && service.starting) sentStart.current = true;
-    if (progress === "starting" && sentStart.current && !service.starting && service.failure !== undefined) {
-      sentStart.current = false;
+    if (progress === "starting" && !service.starting && service.failure !== undefined) {
       setProgress("idle");
       setRefusal(service.failure.text);
     }
   }, [progress, service.starting, service.failure]);
   const can = view.kind === "local" && service.available.status === "present" && runtime.capability(environmentId, "environment.drain").status === "present";
-  if (!can) return undefined;
+  // A restart under way, or its refusal, outlasts the drain that makes the computer stop answering.
+  if (!can && progress === "idle" && refusal === undefined) return undefined;
   const start = () => {
     setRefusal(undefined);
     setProgress("draining");

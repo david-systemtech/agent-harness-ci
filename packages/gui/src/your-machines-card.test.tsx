@@ -79,6 +79,7 @@ const REACHABLE = "Your devices can reach this computer through Tailscale.";
 const NOT_INSTALLED = "Your other devices cannot reach this computer yet. Install Tailscale here and on your other devices.";
 const NOT_CONNECTED = "Tailscale is installed but not connected. Open Tailscale and sign in, then choose Check again.";
 const NEEDS_RESTART = "Tailscale is ready. Restart agent-harness to use it.";
+const ON_WIFI = "Devices on this Wi-Fi network can reach this computer. To reach it from anywhere else, use Tailscale.";
 
 describe("the Your machines step in Set up", () => {
   it("asks whether agent-harness is used from other devices, Only on this computer chosen while nothing else is paired, with no machine cards, browser origins, sandbox list or grant note", async () => {
@@ -176,10 +177,33 @@ describe("the Your machines step in Set up", () => {
     desk.server.drop();
     const phase = () => app.runtime.projections.environments.read().find((view) => view.environmentId === desk.environmentId)?.phase;
     await waitFor(() => expect(phase()).not.toBe("ready"));
+    // While the drain holds the service open, the line still says it restarts, not the Tailscale line read before.
+    expect(within(step()).getByText("desk is restarting.")).toBeDefined();
+    expect(within(step()).queryByText(NEEDS_RESTART)).toBeNull();
+    expect(within(step()).queryByText("It is used from the next start.")).toBeNull();
     // The first try again finds nothing answering on this machine: its service is down, and the restart starts it.
     act(() => app.clock.advance(5_000));
     await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1));
     expect(await within(step()).findByText(REACHABLE, {}, { timeout: 5_000 })).toBeDefined();
+    expect(within(step()).queryByText("desk is restarting.")).toBeNull();
+  });
+
+  it("says agent-harness did not restart on this computer when the start after the drain fails, with the refusal in Details", async () => {
+    const app = await inSetUp({ desk: { status: { binding: { ...LOOPBACK_ONLY, tailscaleInstalled: true, tailnetFound: "100.101.102.103" } } } });
+    const reach = await alsoFromOtherDevices(app);
+    expect(await within(reach).findByText(NEEDS_RESTART)).toBeDefined();
+    const desk = app.environment("desk");
+    app.shell.answer("service.start", async () => { throw new Error("the service manager refused the start"); });
+    await app.user.click(within(reach).getByRole("button", { name: "Restart agent-harness" }));
+    await waitFor(() => expect(desk.requests("environment.drain")).toHaveLength(1));
+    desk.discovery("nothing");
+    desk.server.drop();
+    const phase = () => app.runtime.projections.environments.read().find((view) => view.environmentId === desk.environmentId)?.phase;
+    await waitFor(() => expect(phase()).not.toBe("ready"));
+    act(() => app.clock.advance(5_000));
+    await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1));
+    expect(await within(step()).findByText("agent-harness did not restart on desk.")).toBeDefined();
+    expect(within(step()).getByText("Choose Restart agent-harness to try again.")).toBeDefined();
     expect(within(step()).queryByText("desk is restarting.")).toBeNull();
   });
 
@@ -199,6 +223,18 @@ describe("the Your machines step in Set up", () => {
     const reach = await alsoFromOtherDevices(app);
     expect(await within(reach).findByText("Use Tailscale is off in More options, so your other devices cannot reach this computer.")).toBeDefined();
     expect(within(reach).queryByText(NEEDS_RESTART)).toBeNull();
+  });
+
+  it("says devices on the Wi-Fi network reach the computer once its local network address is bound, whether or not Tailscale is off or installed", async () => {
+    const app = await inSetUp({
+      desk: { settings: { "network.bindTailnet": false, "network.bindLan": "192.168.1.20" }, status: { binding: { ...LOOPBACK_ONLY, lan: "192.168.1.20", lanAddresses: ["192.168.1.20"] } } },
+    });
+    const reach = await alsoFromOtherDevices(app);
+    expect(await within(reach).findByText(ON_WIFI)).toBeDefined();
+    expect(reach.getAttribute("data-reach-verdict")).toBe("wifi");
+    expect(within(reach).queryByText(/cannot reach this computer/)).toBeNull();
+    expect(within(reach).queryByRole("button", { name: "Get Tailscale" })).toBeNull();
+    expect(within(reach).getByRole("button", { name: "Check again" })).toBeDefined();
   });
 
   it("says on Windows, before the first start that uses Tailscale, which button to press when Windows asks", async () => {
