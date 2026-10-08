@@ -35,4 +35,7 @@ it("phone-composer-details-usage shows the Context and model rings in the Run se
   expect(within(gauge).getByText("5-hour")).toBeTruthy();
   expect(within(gauge).queryByText(/^Weekly,/)).toBeNull();
   expect((await within(sheet).findByRole("button", { name: "Context usage" })).textContent).toBe("Context80");
+  // The sheet stacks its rows in a column, where the rings' auto margin would size them to their content: capped at the
+  // sheet's width, the captions truncate instead of pushing a ring past the edge at text size 20.
+  expect(gauge.parentElement!.className.split(" ")).toContain("max-w-full");
 });
