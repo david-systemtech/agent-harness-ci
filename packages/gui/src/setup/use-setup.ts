@@ -1,8 +1,8 @@
 import { homeEnvironment, homedChecks, type SetupView } from "@agent-harness/client-runtime";
-import { settingsRow, type SettingsRowId } from "@agent-harness/contracts";
+import { settingsRow, type SettingsRowId, type StepId } from "@agent-harness/contracts";
 import { useEffect, useMemo } from "react";
 import { usePickedEnvironment } from "../settings/settings-window.js";
-import { useFollowed, useObservable, useRuntime } from "../window-context.js";
+import { useClock, useFollowed, useObservable, useRuntime } from "../window-context.js";
 
 /** The checklist of the environment `environmentId` (`projections.setup`), followed while the component is mounted; undefined without one. */
 export const useSetupView = (environmentId: string | undefined): SetupView | undefined => {
@@ -20,6 +20,31 @@ export const useCheckOnOpen = (environmentId: string | undefined): void => {
   useEffect(() => {
     if (environmentId !== undefined) void runtime.setup.check(environmentId);
   }, [runtime, environmentId]);
+};
+
+/** The least time between two checks of a shown step the window's focus asks for (#1860). */
+const FOCUS_CHECK_MS = 10_000;
+
+/**
+ * Checks the step Set up shows again each time the window regains focus, at
+ * most once in {@link FOCUS_CHECK_MS}: a cause fixed outside the app, such as
+ * installing Tailscale or opening Chrome, shows without Check again (#1860).
+ */
+export const useCheckOnFocus = (environmentId: string | undefined, step: StepId | undefined): void => {
+  const runtime = useRuntime();
+  const clock = useClock();
+  useEffect(() => {
+    if (environmentId === undefined || step === undefined) return;
+    let last: number | undefined;
+    const check = () => {
+      const now = clock.now().getTime();
+      if (last !== undefined && now - last < FOCUS_CHECK_MS) return;
+      last = now;
+      void runtime.setup.check(environmentId, step);
+    };
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, [runtime, clock, environmentId, step]);
 };
 
 /**

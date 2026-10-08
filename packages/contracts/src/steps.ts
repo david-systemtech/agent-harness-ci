@@ -338,7 +338,8 @@ export const STEP_REGISTRY = [
     skip: "carry-over.present",
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed"],
+    // Every forge.account.* event too: adding a forge account can fix what it found missing elsewhere (#1860).
+    triggers: ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed", "forge.account.*"],
   },
   {
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:
@@ -422,8 +423,9 @@ export const STEP_REGISTRY = [
     // Forges row (ADR 0027), linking the Key manager step, whose Move card takes stored tokens (ADR 0028). It writes no
     // settings key: its forge accounts go through the four forge account commands. Skippable: with no forge account it
     // answers skipped, the first step that does (ADR 0020). Its checks read every forge account's last verification, or
-    // await one when it is older than the cadence (a network call; #680); every forge.account.* event re-runs it, and
-    // tools.updated, since forges.gh reads gh's Managed tools row (#677).
+    // await one when it is older than the cadence (a network call; #680); every forge.account.* event re-runs it,
+    // tools.updated, since forges.gh reads gh's Managed tools row (#677), and every key-manager.* event, since a forge
+    // account's token can come from a key manager, so signing in to one can fix it (#1860).
     id: "forges",
     home: "access.forges",
     writes: [],
@@ -459,7 +461,7 @@ export const STEP_REGISTRY = [
       minutes: 15,
       reason: "The orientation block reports each forge account's status (ADR 0012), so the step is checked as often as a forge account is verified.",
     },
-    triggers: ["forge.account.*", "tools.updated"],
+    triggers: ["forge.account.*", "tools.updated", "key-manager.*"],
   },
   {
     // The Key manager step (key-managers spec, "The Key manager step"; ADR 0028, ADR 0034; #367), fifth, before Memory
@@ -521,7 +523,9 @@ export const STEP_REGISTRY = [
     // banks spec's methods, which the banks build registers (#937). Skippable: with no registered bank it answers skipped.
     // Its checks await a verification of every bank, a git probe, and answer from what the records' status says; every
     // bank.* notice re-runs it, and so does every run end of its minted describe session (ADR 0019), whose prompt it
-    // names.
+    // names; and every forge account event that can fix a bank's access, since a bank's repository is reached through a
+    // forge account (#1860): not forge.account.git-rejected, which an agent's git can record a second, each a git probe,
+    // nor forge.account.capability-learned, which a bank check's own forge reads can record, so it would re-trigger itself.
     id: "memory-bank",
     home: "knowledge.banks",
     writes: [],
@@ -551,12 +555,13 @@ export const STEP_REGISTRY = [
     skip: "memory-bank.present",
     budget: "git",
     cadence: { minutes: 60 },
-    triggers: ["bank.*"],
+    triggers: ["bank.*", "forge.account.added", "forge.account.updated", "forge.account.verified", "forge.account.primary-set", "forge.account.removed"],
     llm: "describe-bank",
   },
   {
     // Skills (ADR 0029; #514): local health from the sources' last attempts and the own directory.
-    // Its cards belong to the Set up workstream; skills.updated re-runs its local check (#588).
+    // Its cards belong to the Set up workstream; skills.updated re-runs its local check (#588), and every
+    // forge.account.* event, since a source on a forge is pulled with a forge account's credential (#1860).
     id: "skills",
     home: "knowledge.skills",
     writes: [],
@@ -583,7 +588,7 @@ export const STEP_REGISTRY = [
     skip: "skills.present",
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: ["skills.updated"],
+    triggers: ["skills.updated", "forge.account.*"],
   },
   {
     // The Instructions step (skills spec, "Set up"; ADR 0030; #505), at home on the Knowledge band's Instructions row

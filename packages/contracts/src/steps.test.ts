@@ -286,9 +286,9 @@ describe("the step registry", () => {
     expect(carryOver.writesState?.map((write) => write.method)).toEqual(["carryOver.run", "skills.carryOver", "stateImport.run"]);
   });
 
-  it("links the Carry over entry to the Skills and Memory banks rows, with the local budget and the hour, re-run on account.updated, carry-over.imported and state-import.finished", () => {
+  it("links the Carry over entry to the Skills and Memory banks rows, with the local budget and the hour, re-run on account.updated, carry-over.imported, state-import.finished and every forge.account.* event", () => {
     expect(carryOver.links).toEqual([{ row: "knowledge.skills" }, { row: "knowledge.banks" }]);
-    expect(carryOver).toMatchObject({ budget: "local", cadence: { minutes: 60 }, triggers: ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed"] });
+    expect(carryOver).toMatchObject({ budget: "local", cadence: { minutes: 60 }, triggers: ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed", "forge.account.*"] });
   });
 
   it("may skip Carry over, skipped when carry-over.present finds nothing to carry and no source folder, then checks every adopted directory readable and the last import finished", () => {
@@ -756,15 +756,15 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Skills on skills.updated, Instructions on its own events and every registry its orientation block reads, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported, state-import.finished and every forge.account.* event, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, tools.updated and every key-manager.* event, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586) and forge.account.added, updated, verified, primary-set and removed, Skills on skills.updated and every forge.account.* event (#1860), Instructions on its own events and every registry its orientation block reads, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
-      ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed"]],
+      ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished", "settings.changed", "forge.account.*"]],
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
-      ["forges", ["forge.account.*", "tools.updated"]],
+      ["forges", ["forge.account.*", "tools.updated", "key-manager.*"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
-      ["memory-bank", ["bank.*"]],
-      ["skills", ["skills.updated"]],
+      ["memory-bank", ["bank.*", "forge.account.added", "forge.account.updated", "forge.account.verified", "forge.account.primary-set", "forge.account.removed"]],
+      ["skills", ["skills.updated", "forge.account.*"]],
       ["instructions", ["bank.*", "instructions.*", "account.updated", "key-manager.*", "forge.account.*", "environment.renamed"]],
       ["browser", ["chrome.updated", "extension.seen"]],
       ["permissions", ["settings.updated", "denylist.changed"]],
