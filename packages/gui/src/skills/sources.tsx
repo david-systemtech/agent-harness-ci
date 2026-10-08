@@ -126,7 +126,8 @@ const folderWords = (identity: string, folder: string, count: number): string =>
  * skill folders:`, each ticked to add, and Add selected, which adds each in
  * turn; or what kept the look from the repository, with Go to Forges for a
  * private one. Choosing a moved collection's folders again (`replacing`)
- * looks afresh, and removes the moved one once the chosen ones are added.
+ * looks afresh on the branch it follows, adds the chosen ones following
+ * that branch, and removes the moved one once they are added.
  */
 export const FoundFolders = ({ environmentId, url, replacing, done }: {
   readonly environmentId: string;
@@ -136,7 +137,8 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
 }) => {
   const runtime = useRuntime();
   const { choose: goTo } = useChecklist();
-  const params = useMemo(() => ({ url }), [url]);
+  const branch = replacing?.follow.kind === "branch" ? replacing.follow.branch : null;
+  const params = useMemo(() => ({ url, ...(branch !== null && { branch }) }), [url, branch]);
   const probed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.probe", params), [runtime, environmentId, params]));
   const [chosen, choose] = useState<readonly string[]>([]);
   const { send, sending, refusal, commandId } = useCollectionVerb();
@@ -162,7 +164,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done }: {
     const added: string[] = [];
     for (const folder of chosen) {
       const ok = await send(
-        () => runtime.requests.call(environmentId, "skills.sources.add", { commandId: commandId(), url, folder, probeId: probe.probeId, follow: { kind: "branch", branch: null } }),
+        () => runtime.requests.call(environmentId, "skills.sources.add", { commandId: commandId(), url, folder, probeId: probe.probeId, follow: { kind: "branch", branch } }),
         "Add selected",
       );
       // A refused add stops here, its refusal said, the folders added so far no longer ticked.

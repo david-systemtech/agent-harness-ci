@@ -136,19 +136,19 @@ describe("the Skills card's lines and actions", () => {
     expect(steps()).toBeDefined();
   });
 
-  it("asks to choose a moved collection's folders, looks for them again and puts the chosen ones in its place", async () => {
+  it("asks to choose a moved collection's folders, looks for them again on its branch and puts the chosen ones in its place", async () => {
     const moved: SkillsViewSource = { ...source, url: linked, identity: linked, folder: "skills", skillCount: 0, sync: { outcome: "layout_moved", since: source.addedAt, commit: found.commit, folders: ["agents"] } };
     const { app, desk, update } = await opened({ ...initial(), sources: [moved] }, { setup: { skills: {
       state: "needs-attention", reason: "team/procedures (skills) no longer has skills where they were. Choose its folders again.", failing: ["skills.sources-yield"], actions: ["choose-folders"],
       targets: [{ action: "choose-folders", kind: "skill-source", id: moved.id, label: "team/procedures (skills)" }],
     } } });
     desk.wire.answer("skills.probe", (params) => {
-      expect(params).toEqual({ url: linked });
+      expect(params).toEqual({ url: linked, branch: "main" });
       return { result: { ...found, folders: [{ ...found.folders[0]!, folder: "agents" }] } };
     });
     const replacement = { ...moved, id: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", folder: "agents", skillCount: 2, sync: { outcome: "ok", since: source.addedAt } } as const;
     desk.wire.answer("skills.sources.add", (params) => {
-      expect(params).toMatchObject({ url: linked, folder: "agents", probeId: found.probeId, follow: { kind: "branch", branch: null } });
+      expect(params).toMatchObject({ url: linked, folder: "agents", probeId: found.probeId, follow: { kind: "branch", branch: "main" } });
       update({ ...initial(), sources: [moved, replacement] });
       return accepted({ source: replacement });
     });
