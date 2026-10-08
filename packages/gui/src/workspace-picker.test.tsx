@@ -325,7 +325,7 @@ describe("a worktree", () => {
 });
 
 describe("without terminal on the connection", () => {
-  const WITHOUT = "This client was paired with desk without the terminal scope.";
+  const WITHOUT = "This app has limited access to desk, so it cannot use terminals or files. Pair again with full access to change this.";
   const scopes = ["read", "sessions:write", "runs:drive", "admin"] as const;
 
   it("dims Browse and the branch list with the capability's reason, and a typed path and a typed branch still work, the create's refusal the surface's line", async () => {

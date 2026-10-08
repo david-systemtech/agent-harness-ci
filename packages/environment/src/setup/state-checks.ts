@@ -22,7 +22,7 @@ import { lanAddressHeld } from "../serve/interfaces.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
 import { skillsStateChecks, type SkillsStateChecksOptions } from "../skills/step-checks.js";
-import type { DoneLines, Finding, StateCheckers } from "./check.js";
+import type { DoneLines, Finding, StateChecker, StateCheckers } from "./check.js";
 
 /**
  * How this environment answers every state check the step registry names
@@ -77,10 +77,10 @@ export interface StateChecksOptions {
   readonly isRoot: boolean;
   /** The data directory, absolute: the denylist's presets name it (#132). */
   readonly dataDir: string;
-  /** Whether auto-update is off or the release channel was read in the last 24 hours (#346). */
-  readonly releaseChannel: () => StateCheckAnswer;
+  /** Whether auto-update is off or the release channel was read in the last 24 hours (#346); a client's ask reads it again first (#1848). */
+  readonly releaseChannel: StateChecker;
   /** Whether auto-update is effective or the channel's newest runs, no update is past its cap or blocked, and no failed update left the machine behind (#347). */
-  readonly updates: () => StateCheckAnswer;
+  readonly updates: StateChecker;
   /** Whether updates are not managed outside, or the host-side updater polled in the last hour (#348). */
   readonly hostUpdater: () => StateCheckAnswer;
   /** The environment's name, icon and colour now (#323). */
@@ -140,7 +140,9 @@ export const lanHolds = (lan: string | null, held: readonly string[]): StateChec
  * Your machines' line when done (#1698; setup-copy.md §5.4): the computer is
  * ready, or restarting within its cap, by its name, and how it is kept up to
  * date; the version it runs, its updates and where it can be reached beside
- * this computer in details.
+ * this computer in details. A pin that does not run yet names the version
+ * that runs beside it (#1890): the update to it may still wait for idle, or
+ * never come.
  */
 export const yourMachinesLine = (name: string, version: string, { activity, updatesManagedOutside, binding }: EnvironmentStatus, values: SettingsValues): Finding => {
   const pinned = values["updates.pinnedVersion"];
@@ -149,7 +151,7 @@ export const yourMachinesLine = (name: string, version: string, { activity, upda
     : !values["updates.autoUpdate"]
       ? ["off", "Automatic updates are off."]
       : pinned !== null
-        ? [`pinned to ${pinned}`, `It stays on version ${pinned}.`]
+        ? [`pinned to ${pinned}`, pinned === version ? `It stays on version ${pinned}.` : `It runs version ${version} and is pinned to ${pinned}.`]
         : ["on", "It updates itself."];
   const tailnet = binding?.tailnet ?? null;
   const reach = [

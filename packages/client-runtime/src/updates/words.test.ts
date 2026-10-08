@@ -24,7 +24,9 @@ describe("a pending update in words", () => {
   it.each<[PendingUpdate, string | null]>([
     [{ state: "current" }, null],
     [{ state: "waiting", ...PENDING, waitsOn: null }, "Updating to 0.6.0 within a minute: nothing holds it."],
-    [{ state: "ready", ...PENDING }, "0.6.0 is ready: it waits for the host-side updater."],
+    [{ state: "staging", updateId: PENDING.updateId, toVersion: "0.6.0", source: "channel" }, "Downloading 0.6.0…"],
+    [{ state: "ready", ...PENDING }, "0.6.0 is ready. The host's updater installs it."],
+    [{ state: "draining", ...PENDING, cause: "idle" }, "Waiting for running sessions to finish before updating to 0.6.0."],
     [{ state: "switching", ...PENDING, cause: "idle" }, "Switching to 0.6.0."],
   ])("%j", (pending, words) => {
     expect(pendingUpdateWords(pending, "desk", NOW)).toBe(words);

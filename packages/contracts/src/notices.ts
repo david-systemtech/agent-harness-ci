@@ -29,6 +29,7 @@ import {
   ForgeAccountRemovedPayload,
   ForgeAccountUpdatedPayload,
   ForgeAccountVerifiedPayload,
+  ForgeOriginAnsweredPayload,
   ForgeOriginMissingPayload,
 } from "./forge-accounts.js";
 import {
@@ -130,6 +131,7 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "forge.account.git-rejected",
   "forge.account.removed",
   "forge.origin-missing",
+  "forge.origin-answered",
   // The BankService's own events, which the BankRegistry is kept from (#1025); bank.updated is also a notice a client
   // refreshes banks.list and banks.get on.
   "bank.added",
@@ -236,6 +238,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "forge.account.git-rejected": "git refused a forge account's credential; a client refreshes what it caches of the forge accounts.",
   "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
   "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
+  "forge.origin-answered": "An origin recorded as missing answered the operation it was refused, anonymously; a client withdraws the notice it raised for it.",
   "bank.drafts-consumed": "A landing consumed its queue snapshot; clients refresh banks.drafts.list.",
   "bank.review-held": "A validated bank change was held for review as an immutable snapshot.",
   "bank.draft-queued": "A session queued a validated draft or retirement; clients refresh banks.drafts.list.",
@@ -437,6 +440,7 @@ const ForgeAccountCapabilityLearned = describedNotice(
 const ForgeAccountGitRejected = describedNotice("forge.account.git-rejected", ForgeAccountGitRejectedPayload, "git refused a forge account's credential.");
 const ForgeAccountRemoved = describedNotice("forge.account.removed", ForgeAccountRemovedPayload, "A forge account was removed.");
 const ForgeOriginMissing = describedNotice("forge.origin-missing", ForgeOriginMissingPayload, "A harness operation was refused on an origin no forge account covers.");
+const ForgeOriginAnswered = describedNotice("forge.origin-answered", ForgeOriginAnsweredPayload, "An origin recorded as missing answered the operation it was refused, anonymously.");
 const BankAdded = describedNotice("bank.added", BankAddedPayload, "A bank was registered, created or joined: its registry entry, whole.");
 const BankUpdated = describedNotice("bank.updated", BankUpdatedPayload, "A bank's registry settings, sync status or what its BANK.md names changed: the fields that changed.");
 const BankPinned = describedNotice("bank.pinned", BankPinnedPayload, "A session pinned or unpinned a folder of a bank.");
@@ -606,6 +610,7 @@ export const EnvironmentNotice = z
     ForgeAccountGitRejected,
     ForgeAccountRemoved,
     ForgeOriginMissing,
+    ForgeOriginAnswered,
     describedNotice("bank.drafts-consumed", BankDraftsConsumedPayload, "A landing consumed the queued changes it verified on main."),
     describedNotice("bank.review-held", BankReviewHeldPayload, "A validated bank change waits for review with its submitted files."),
     describedNotice("bank.draft-queued", BankDraftQueuedPayload, "A session queued a validated draft or retirement for its bank."),

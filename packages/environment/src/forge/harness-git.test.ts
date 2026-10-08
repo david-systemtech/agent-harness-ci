@@ -82,8 +82,33 @@ describe("the harness's git on an origin no forge account covers", () => {
     expect(forge.gitRequests.map((request) => request.status)).toEqual([401]);
 
     const events = await forgeEvents(client, before);
-    expect(events.map((event) => [event.type, event.payload])).toEqual([["forge.origin-missing", { origin: forge.origin, operation: "clone a bank" }]]);
+    expect(events.map((event) => [event.type, event.payload])).toEqual([["forge.origin-missing", { origin: forge.origin, operation: "clone a bank", repository: "david/bank" }]]);
     expect(events[0]?.actor).toEqual({ kind: "system", id: "forge" });
+  });
+
+  it("clears a missing origin once the operation refused there runs anonymously on the repository it was refused, as forge.origin-answered", async () => {
+    hostileMachineGit(tempDir, onCleanup);
+    const forge = await fakeForge();
+    forge.gitRepository("david/bank", { private: true });
+    forge.gitRepository("david/notes");
+    const t = await start({ forgeFetch: forge.fetch });
+    const client = await t.client();
+    const before = t.env.log.head();
+    const clone = (repository: string, purpose: string) => t.env.forge.git({ operation: "clone", repository: `${forge.origin}/${repository}`, cwd: tempDir(), directory: "bank", purpose });
+
+    expect((await clone("david/bank", "clone a bank")).outcome).toBe("refused");
+    expect((await clone("david/notes", "clone a skill source")).outcome).toBe("ran");
+    // The same operation on another, public repository says nothing of the private one: two banks share a purpose.
+    expect((await clone("david/notes", "clone a bank")).outcome).toBe("ran");
+    expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "clone a bank", recordedAt: MANUAL_CLOCK_START }]);
+
+    forge.gitRepository("david/bank", { empty: true });
+    expect((await clone("david/bank", "clone a bank")).outcome).toBe("ran");
+    expect(t.env.forge.missingOrigins()).toEqual([]);
+    expect((await forgeEvents(client, before)).map((event) => [event.type, event.payload])).toEqual([
+      ["forge.origin-missing", { origin: forge.origin, operation: "clone a bank", repository: "david/bank" }],
+      ["forge.origin-answered", { origin: forge.origin, operation: "clone a bank", repository: "david/bank" }],
+    ]);
   });
 
   it("records a missing origin at most once a day, and counts it for seven days or until a forge account covers it", async () => {

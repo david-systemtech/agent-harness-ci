@@ -302,7 +302,7 @@ describe("read-only", () => {
   it("says the capability's line once without admin, which every part of it needs", async () => {
     const app = await opened({ laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"] } });
     const access = await openAccess(app, "laptop");
-    expect(await within(access).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(access).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(access).queryByRole("region", { name: "Client sessions" })).toBeNull();
     expect(within(access).queryByRole("region", { name: "Access log" })).toBeNull();
     expect(app.environment("laptop").requests("access.sessions.list")).toEqual([]);

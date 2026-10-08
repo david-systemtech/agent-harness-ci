@@ -245,7 +245,11 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
   },
   "forge/events/forge.account.git-rejected.json": { valid: [{ forgeAccountId, origin }], invalid: [{ forgeAccountId }, { forgeAccountId, origin: "ssh://git.systemtech.dev" }] },
   "forge/events/forge.account.removed.json": { valid: [{ forgeAccountId }], invalid: [{}, { forgeAccountId: "github" }] },
-  "forge/events/forge.origin-missing.json": { valid: [{ origin, operation: "clone a skill source" }], invalid: [{ origin }, { origin, operation: "" }] },
+  "forge/events/forge.origin-missing.json": { valid: [{ origin, operation: "clone a skill source" }, { origin, operation: "clone a skill source", repository: "someone/tool" }], invalid: [{ origin }, { origin, operation: "" }, { origin, operation: "clone a skill source", repository: "" }] },
+  "forge/events/forge.origin-answered.json": {
+    valid: [{ origin, operation: "read the release channel", repository: "someone/tool" }],
+    invalid: [{ operation: "read the release channel", repository: "someone/tool" }, { origin, operation: "", repository: "someone/tool" }, { origin, operation: "read the release channel" }],
+  },
   "forge/token-permission.json": {
     valid: [{ name: "Contents", access: "write" }, { name: "Metadata", access: "read" }],
     invalid: [{ name: "Contents", access: "admin" }, { name: "", access: "write" }, { name: "Contents" }],

@@ -135,7 +135,7 @@ describe("without admin", () => {
     const app = await opened({ laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"] } });
     const service = await openService(app, "laptop");
     expect(await within(stateOf(service)).findByText("Ready and idle.")).toBeDefined();
-    expect(within(service).getAllByText("Read-only: This client was paired with laptop without the admin scope.")).toHaveLength(1);
+    expect(within(service).getAllByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toHaveLength(1);
     expect(within(service).getByRole("button", { name: "Drain…" }).hasAttribute("disabled")).toBe(true);
     expect(within(service).getByRole("button", { name: "Rebuild projections…" }).hasAttribute("disabled")).toBe(true);
     expect((await within(field(service, "sessions.autoSettleOnMerge")).findByRole("switch")).hasAttribute("disabled")).toBe(true);

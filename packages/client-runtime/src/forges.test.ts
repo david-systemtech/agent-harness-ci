@@ -28,7 +28,7 @@ const paired = (options: { readonly capabilities?: readonly string[]; readonly s
 const TOKEN = "token-for-tests";
 
 describe("forge.accounts.list in the request cache", () => {
-  it("is fetched again on every forge.account.* notice, and not on a missing origin", async () => {
+  it("is fetched again on every forge.account.* notice, and not on a missing origin or one answered", async () => {
     const { runtime, wire, env, environment } = await paired();
     const account = forgeRecord();
     let asked = 0;
@@ -57,6 +57,7 @@ describe("forge.accounts.list in the request cache", () => {
       expect(asked, type).toBe(index + 2);
     }
     environment.event(noticeEvent(types.length + 1, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)));
+    environment.event(noticeEvent(types.length + 2, env, "forge.origin-answered", forgeEventPayload("forge.origin-answered", account)));
     await flush();
     expect(asked).toBe(types.length + 1);
   });
@@ -71,11 +72,11 @@ describe("the forge methods without the forge flag", () => {
       return { result: { accounts: [] } };
     });
     for (const method of ["forge.accounts.list", "forge.accounts.add", "forge.accounts.verify", "forge.gh.probe"] as const) {
-      expect(runtime.capability(env, method), method).toEqual({ status: "absent", reason: "unsupported", message: "desk does not offer forge; a version that does is needed." });
+      expect(runtime.capability(env, method), method).toEqual({ status: "absent", reason: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it.", details: ["forge"] });
     }
     expect(await runtime.requests.call(env, "forge.accounts.list", {})).toEqual({
       ok: false,
-      error: { code: "unsupported", message: "desk does not offer forge; a version that does is needed." },
+      error: { code: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it." },
     });
     const cached = runtime.requests.cached(env, "forge.accounts.list", {});
     cached.subscribe(() => undefined);
@@ -167,6 +168,28 @@ describe("the forge notices", () => {
       { ...forges, message: "https://github.com on desk: GitHub refused the token: give this forge account a new credential in Set up, Forges." },
       { ...forges, message: "git on desk was refused on https://github.com with the forge account's credential, which desk is verifying again." },
       { ...forges, message: "desk was refused on https://git.example.com when it tried to read a skill source: no forge account covers it; add one in Set up, Forges." },
+    ]);
+  });
+
+  it("withdraw a missing origin's row once the operation it names is answered there, and only that row", async () => {
+    const { runtime, env, environment } = await paired();
+    const account = forgeRecord();
+    const channel = { origin: "https://github.com", operation: "read the release channel" };
+    environment.event(noticeEvent(1, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)));
+    environment.event(noticeEvent(2, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account, channel)));
+    await flush();
+    expect(shown(runtime)).toHaveLength(2);
+
+    environment.event(noticeEvent(3, env, "forge.origin-answered", forgeEventPayload("forge.origin-answered", account, { origin: channel.origin, operation: "read a skill source" })));
+    environment.event(noticeEvent(4, env, "forge.origin-answered", forgeEventPayload("forge.origin-answered", account, channel)));
+    await flush();
+    expect(shown(runtime)).toEqual([
+      {
+        environmentId: env,
+        kind: "forge",
+        action: "setup.forges",
+        message: "desk was refused on https://git.example.com when it tried to read a skill source: no forge account covers it; add one in Set up, Forges.",
+      },
     ]);
   });
 
@@ -391,10 +414,10 @@ describe("handing this computer's gh over", () => {
   it("is absent with its reason where the shell has no gh, as in the terminal UI and a browser tab, reading and sending nothing", async () => {
     const { runtime, wire, env } = await paired();
     accepting(wire);
-    expect(runtime.capability(env, "shell.gh")).toEqual({ status: "absent", reason: "no-shell", message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh." });
+    expect(runtime.capability(env, "shell.gh")).toEqual({ status: "absent", reason: "no-shell", message: "This app cannot use the gh tool signed in on this computer here. Add a token instead.", details: ["shell.gh"] });
     expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toEqual({
       ok: false,
-      error: { code: "no-shell", message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh." },
+      error: { code: "no-shell", message: "This app cannot use the gh tool signed in on this computer here. Add a token instead." },
     });
     expect(forgeRequests(wire)).toEqual([]);
   });
@@ -593,7 +616,7 @@ describe("copying a forge account to other environments", () => {
     const [copied, conflict, scope, unreachable, unknown] = reports;
     expect(copied).toMatchObject({ status: "copied", result: { id: expect.any(String), origin: "https://github.com" } });
     expect(conflict).toMatchObject({ error: { code: "conflict", message: "https://github.com is held by another forge account.", data: { reason: "origin_held" } } });
-    expect(scope).toMatchObject({ error: { code: "scope", message: "This client was paired with phone without the admin scope." } });
+    expect(scope).toMatchObject({ error: { code: "scope", message: "This app has limited access to phone, so it cannot change settings or sign in accounts. Pair again with full access to change this." } });
     expect(unreachable).toMatchObject({ error: { code: "unreachable" } });
     expect(unknown).toMatchObject({ error: { code: "unreachable" } });
   });

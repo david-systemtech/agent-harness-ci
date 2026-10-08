@@ -594,6 +594,20 @@ describe("releases", () => {
     });
     expect(existsSync(destination)).toBe(false);
   });
+
+  it("answer a download refused 403 with a body that says GitHub's secondary rate limit unreachable, not failed", async () => {
+    const forge = await fakeForge();
+    const message = "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.";
+    forge.answer("token-for-tests", "GET /api/v3/repos/david/agent-harness/releases/assets/50", { status: 403, body: { message, documentation_url: "https://docs.github.com/rest" } });
+    const destination = join(tempDir(), "release.json");
+
+    const asset = { id: 50, name: "release.json", size: 2, downloadUrl: "https://github.example/x" };
+    expect(await providerOf(forge, "github").downloadAsset(forge.origin, "token-for-tests", "david/agent-harness", asset, destination)).toMatchObject({
+      outcome: "unreachable",
+      message: expect.stringContaining("is rate-limiting this token (HTTP 403)"),
+    });
+    expect(existsSync(destination)).toBe(false);
+  });
 });
 
 describe("a download cut short", () => {

@@ -11,7 +11,7 @@ import { sideColumnKey } from "./presentation.js";
  * does, a sentence with what to do, and never the reason's id.
  */
 
-const STORED_CREDENTIALS = "Stored credentials for laptop could not be read: pair it again.";
+const STORED_CREDENTIALS = "This app cannot read its saved key for laptop. Pair again.";
 
 /** A session open on the paired laptop, whose stored credentials then cannot be read. */
 const blockedLaptop = async () => {

@@ -1,5 +1,6 @@
 import { BYPASS_SENTENCE, type AccountRecord, type CommandMethodName, type CommandReceipt, type ContainmentLevel, type Mode, type ResultOf } from "@agent-harness/contracts";
 import type { RequestAnswer } from "../requests.js";
+import type { RefusedAnswer } from "../words/refusal.js";
 import type { Runtime } from "../runtime.js";
 
 /**
@@ -10,17 +11,17 @@ import type { Runtime } from "../runtime.js";
  * request. Each answers the one line a renderer says, so both say the same.
  */
 
-/** What an `admin` command did: its result (none from a retry answered by its stored receipt) and whether it changed anything, or the one line saying why not. */
+/** What an `admin` command did: its result (none from a retry answered by its stored receipt) and whether it changed anything, or the one line saying why not and the refusal it says (`plainRefusal` words it plainly). */
 export type AdminOutcome<N extends CommandMethodName> =
   | { readonly ok: true; readonly result: ResultOf<N> | undefined; readonly changed: boolean }
-  | { readonly ok: false; readonly line: string };
+  | { readonly ok: false; readonly line: string; readonly refusal: RefusedAnswer };
 
 /** An `admin` command sent as a direct request (`requests.call`, never the outbox): its refusal or rejected receipt is one line. */
 export const adminCall = async <N extends CommandMethodName>(call: () => Promise<RequestAnswer<N>>): Promise<AdminOutcome<N>> => {
   const answer = await call();
-  if (!answer.ok) return { ok: false, line: answer.error.message };
+  if (!answer.ok) return { ok: false, line: answer.error.message, refusal: answer.error };
   const { receipt, result } = answer.result as { readonly receipt: CommandReceipt; readonly result?: ResultOf<N> };
-  if (receipt.status === "rejected") return { ok: false, line: receipt.error.message };
+  if (receipt.status === "rejected") return { ok: false, line: receipt.error.message, refusal: receipt.error };
   return { ok: true, result, changed: receipt.changed };
 };
 
