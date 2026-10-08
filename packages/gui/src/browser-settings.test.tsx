@@ -31,22 +31,22 @@ const opened = async () => {
 };
 
 describe("the Browser settings pane", () => {
-  it("numbers installation steps, copies the live code, and stops showing it", async () => {
+  it("numbers the steps, copies the live code, and renews it by itself with no Stop box (setup-copy.md §5.11)", async () => {
     const { app, desk, pane } = await opened();
     desk.wire.answer("browser.pairing.code", () => ({ result: { code: "ABCD2345", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
     await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
-    const load = await within(pane).findByRole("region", { name: "Load the extension" });
-    expect(within(load).getByRole("heading", { name: "Load the extension" })).toBeDefined();
-    expect(within(load).queryByRole("checkbox")).toBeNull();
+    const steps = await within(pane).findByRole("list", { name: "Connect Chrome" });
+    expect(within(steps).getByRole("heading", { name: "Copy this folder location." })).toBeDefined();
+    expect(within(steps).queryByRole("checkbox")).toBeNull();
     expect(within(pane).getAllByRole("textbox", { name: "Sites you are developing" })).toHaveLength(1);
     const code = await within(pane).findByRole("textbox", { name: "Pairing code" });
     expect((code as HTMLInputElement).value).toBe("ABCD2345");
-    await app.user.click(within(pane).getByRole("button", { name: "Copy pairing code (Enter or Space)" }));
+    await app.user.click(within(pane).getByRole("button", { name: "Copy pairing code" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", "ABCD2345"]);
-    await app.user.click(within(pane).getByRole("button", { name: "Stop" }));
-    expect(within(pane).queryByRole("textbox", { name: "Pairing code" })).toBeNull();
-    await app.user.click(within(pane).getByRole("button", { name: "Show code" }));
-    await within(pane).findByRole("textbox", { name: "Pairing code" });
+    expect(within(pane).queryByRole("button", { name: /^(Stop|Show code)/ })).toBeNull();
+    desk.wire.answer("browser.pairing.code", () => ({ result: { code: "EFGH6789", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
+    act(() => app.clock.advance(300_000));
+    expect(await within(pane).findByDisplayValue("EFGH6789")).toBeDefined();
     expect(desk.requests("browser.pairing.code")).toHaveLength(2);
   });
 
@@ -84,14 +84,14 @@ describe("the Browser settings pane", () => {
     expect((option as HTMLOptionElement).selected).toBe(true);
   });
 
-  it("reports a pairing refusal in one line", async () => {
+  it("reports a pairing refusal in one plain line, its raw words under Details (setup-copy.md §3)", async () => {
     const { app, desk, pane } = await opened();
     desk.wire.answer("browser.pairing.code", () => ({ error: { code: "forbidden", message: "Pairing is locked.\nThe environment refused the code request.", data: {} } }));
     await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
-    expect(await within(pane).findByText("No pairing code: Pairing is locked.")).toBeDefined();
-    expect(within(pane).getAllByText(/No pairing code:/)).toHaveLength(1);
-    expect(within(pane).queryByText(/The environment refused the code request/)).toBeNull();
-    await app.user.click(within(pane).getByRole("button", { name: "Technical detail" }));
+    const alert = await within(pane).findByRole("alert");
+    expect(alert.textContent).toMatch(/^Error: /);
+    expect(within(pane).queryByText(/Pairing is locked/)).toBeNull();
+    await app.user.click(within(pane).getByRole("button", { name: "Details" }));
     expect(within(pane).getByText(/forbidden: Pairing is locked/)).toBeDefined();
   });
 
