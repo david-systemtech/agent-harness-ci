@@ -4,6 +4,7 @@ import { Check, Shield } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePaneLine } from "../session/pane-line.js";
 import { Button } from "../ui/index.js";
+import { useSayModeSet } from "./mode-said.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import "./mode-sheet.css";
 
@@ -44,6 +45,7 @@ export const ModeSheet = ({ environmentId, sessionId, close }: {
   const picker = useObservable(useMemo(() => runtime.projections.modes(environmentId), [runtime, environmentId]));
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const [, say] = usePaneLine();
+  const sayModeSet = useSayModeSet();
   const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
   const busy = useRef(false);
   const [pending, setPending] = useState(false);
@@ -53,7 +55,7 @@ export const ModeSheet = ({ environmentId, sessionId, close }: {
     busy.current = true; setPending(true); setError(null);
     try {
       const answer = await setSessionMode(runtime, environmentId, sessionId, mode, projection.summary?.title ?? "this session");
-      say(answer.line);
+      sayModeSet(answer);
       if (answer.ok) close();
       else setError(answer.line);
     } catch {

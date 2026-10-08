@@ -1,4 +1,5 @@
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { DATA_DIRECTORY_PRESET_ID } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp } from "../test/harness.js";
 
@@ -49,6 +50,9 @@ const park = async (app: RenderedApp, env: EnvironmentHandle, prompt: ScriptedPr
 const answersSent = (env: EnvironmentHandle) => env.requests("permissions.prompts.answer").map((r) => r.params);
 
 const rowOf = (app: RenderedApp, text: string) => app.rows().findIndex((row) => row.includes(text));
+
+/** The frame's words as one line, the card's borders dropped, so a sentence the card wraps reads whole. */
+const prose = (app: RenderedApp) => app.frame().replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
 
 describe("the permission card", () => {
   it("draws the environment's preview under the command, including file and network lines", async () => {
@@ -153,6 +157,47 @@ describe("the permission card", () => {
     await app.press(KEY.enter);
     await app.waitUntil(() => answersSent(env).length === 1, "an answer sent");
     expect(answersSent(env)[0]).toEqual({ commandId: expect.any(String), promptId: expect.any(String), sessionId: SESSION, decision: "allow" });
+  });
+
+  const dataDirectory: ScriptedPrompt = {
+    kind: "denylist",
+    toolName: "Read",
+    input: { file_path: "/srv/harness/events.db" },
+    summary: "Read: /srv/harness/events.db",
+    denylist: [{ section: "paths", entry: { id: DATA_DIRECTORY_PRESET_ID, pattern: "/srv/harness", note: "", enabled: true, preset: true }, matched: "/srv/harness/events.db" }],
+  };
+
+  it("says in words what each matched entry protects and what the agent may do instead (#1828)", async () => {
+    const { app, env } = await opened();
+    await park(
+      app,
+      env,
+      {
+        ...dataDirectory,
+        denylist: [
+          ...(dataDirectory.denylist ?? []),
+          { section: "commandPatterns", entry: { id: "preset:sudo *", pattern: "sudo *", note: "Runs a command as another user.", enabled: true, preset: true }, matched: "sudo cat" },
+        ],
+      },
+      "⛔ Denylist",
+    );
+    const flat = prose(app);
+    expect(flat).toContain("This is the environment's data directory: its event log, keys and accounts.");
+    expect(flat).toContain("Instead, the agent may work in its own working directory, and ask you for anything it needs from the environment's records.");
+    expect(flat).toContain("Entry sudo *: Runs a command as another user.");
+    expect(flat).toContain("Instead, the agent may go on without this command, or ask you to run it yourself.");
+    expect(rowOf(app, "its event log")).toBeGreaterThan(rowOf(app, "is on the denylist (paths: /srv/harness)"));
+    expect(rowOf(app, "Entry sudo *")).toBeGreaterThan(rowOf(app, "is on the denylist (command patterns: sudo *)"));
+    expect(flat).not.toContain("The same entry as before");
+  });
+
+  it("says when the run already asked about the same entry, how often and the last answer (#1828)", async () => {
+    const { app, env } = await opened();
+    await park(app, env, dataDirectory, "⛔ Denylist");
+    await app.press(KEY.enter);
+    await app.waitFor("Read: /srv/harness/events.db — denied");
+    await park(app, env, dataDirectory, "⛔ Denylist");
+    await app.waitUntil(() => prose(app).includes("The same entry as before: this run already asked about /srv/harness once (last denied)."), "the repeat words");
   });
 });
 
