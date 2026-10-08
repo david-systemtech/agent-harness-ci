@@ -42,7 +42,8 @@ it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s p
     for (const button of within(card).getAllByRole("button")) expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     if (kind === "question") expect(within(card).getAllByRole("radio")).toHaveLength(2);
     if (kind === "denylist") {
-      expect(within(card).queryByRole("button", { name: /Allow/ })).toBeNull();
+      expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
+      expect(within(card).queryByRole("button", { name: "Allow for this session" })).toBeNull();
       expect(within(card).getByRole("list", { name: "On the denylist" }).textContent).toContain("private-key");
     }
     expect(await gallery.ready).toBe(true);

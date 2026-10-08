@@ -1,5 +1,6 @@
 import {
   ACCOUNT_STATUS_WORDS,
+  effortName,
   identityWords,
   modelName,
   readingWords,
@@ -157,7 +158,7 @@ const AccountModelOptions = ({ view, choose, effort, initialStage }: ChipProps &
       </>)}
       {model !== null && hasEffort && column("Effort", <>
         {[null, ...model.efforts].map(value => <Option key={value ?? "own"} selected={(effort ?? null) === value} onSelect={() => choose({ model: model.id, effort: value })}>
-          <SlidersHorizontal aria-hidden="true" className="size-3" />{value ?? "its own effort"}
+          <SlidersHorizontal aria-hidden="true" className="size-3" />{value === null ? "its own effort" : effortName(value)}
         </Option>)}
       </>)}
     </div>

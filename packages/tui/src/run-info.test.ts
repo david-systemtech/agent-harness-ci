@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 let apps: RenderedApp[] = [];
 afterEach(async () => {
@@ -8,12 +8,13 @@ afterEach(async () => {
 });
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
-const launch = async () => {
+const launch = async (models?: ScriptedEnvironment["models"]) => {
   const app = await renderApp({
     script: { environments: [{
       name: "desk", reach: "local",
       accounts: [{ id: "account-1", label: "work", identity: { provider: "claude", email: "milo@work.test", organisation: null } }],
       sessions: [{ id: SESSION, title: "Receipts", accountId: "account-1", mode: "auto" }],
+      ...(models !== undefined && { models }),
     }] },
     flags: { session: SESSION },
     size: { columns: 160, rows: 36 },
@@ -43,7 +44,7 @@ describe("run info", () => {
     await app.waitFor("The latest run");
     for (const fact of [
       "Started by: client, attended", "Account: work (milo@work.test)",
-      "Model: claude-opus-4", "Effort: high",
+      "Model: claude-opus-4", "Effort: High",
       "Mode: auto, clamped from bypassPermissions to the ceiling auto",
       "Containment: workspace (asked for workspace-no-network), enforced by bubblewrap: Network containment unavailable",
       "Tokens: 4.0k (1.5k in, 2.0k cache read, 0 cache write, 500 out)",
@@ -53,6 +54,13 @@ describe("run info", () => {
     expect(app.frame()).not.toContain("The latest run");
     expect(env.requests("runs.start")).toHaveLength(0);
   });
+  it("names a model its account's catalogue labels as the status line does", async () => {
+    const { app, env } = await launch([{ accountId: "account-1", live: true, models: [{ id: "claude-opus-4", family: "opus", tier: 3, efforts: ["high"], label: "Opus 4" }] }]);
+    env.startRun(SESSION, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    await app.press("\u001Bi");
+    await app.waitFor("Model: Opus 4");
+  });
+
   it("wraps the no-run explanation on a narrow terminal and closes with Esc", async () => {
     const { app } = await launch();
     await app.resize({ columns: 40, rows: 20 });

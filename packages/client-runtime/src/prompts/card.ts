@@ -61,6 +61,17 @@ export const choiceRows = (prompt: PromptOpenedPayload): readonly ChoiceRow[] =>
   return rows;
 };
 
+/**
+ * The rows as the window lays them out as buttons: every row `choiceRows`
+ * offers, so a `denylist` prompt has Deny and Allow once as the terminal
+ * UI's card does (#1820); on a `permission` prompt Allow once goes last, the
+ * button Mod+Enter presses.
+ */
+export const buttonRows = (prompt: PromptOpenedPayload): readonly ChoiceRow[] => {
+  const rows = choiceRows(prompt);
+  return prompt.kind === "permission" ? [...rows.filter((row) => row.kind !== "allow"), ...rows.filter((row) => row.kind === "allow")] : rows;
+};
+
 /** A note as the answer's `message`: trimmed, and none when nothing is written. */
 export const noteOf = (note: string): { readonly message?: string } => (note.trim().length > 0 ? { message: note.trim() } : {});
 

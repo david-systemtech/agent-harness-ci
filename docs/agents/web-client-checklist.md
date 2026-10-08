@@ -93,6 +93,10 @@ fresh codes for each browser/Home Screen pairing and revoke test clients after.
 - [ ] Tap the notification over mobile data with Tailscale on: it opens the
   intended session on the same HTTPS origin. Check behavior with Tailscale off,
   then reconnect. Record the generic lock-screen text without private content.
+- [ ] From a client paired with the admin grant, add a webhook route in
+  Settings > Attention (name, receiver URL, signing secret), tap **Test** and
+  check the receiver took the signed post. A client without admin shows no
+  form and says global routes require admin.
 - [ ] Select the configured webhook fallback when push is denied/unavailable.
   With the web client closed, park an ask and verify the generic message/link
   reaches the intended Matrix/Element X destination, then open that session.

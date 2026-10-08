@@ -4,12 +4,15 @@ import {
   UNREAD_ACCOUNT,
   aboveCeilingWords,
   containmentWords,
+  effortName,
   identityWords,
+  modelChoiceWords,
+  modelDisplayName,
   modelName,
   modelsOf,
+  nextRunWords,
   pickerModels,
   pinWords,
-  readingWords,
   gaugeOf,
   sessionModeOf,
   setSessionContainment,
@@ -19,7 +22,7 @@ import {
   type RunChoice,
 } from "@agent-harness/client-runtime";
 import { ArrowLeft, ArrowRightLeft, Box, Check, Cpu, KeyRound, Layers, Plus, RefreshCw, Search, Shield, SlidersHorizontal, Star } from "lucide-react";
-import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type ModelEntry } from "@agent-harness/contracts";
+import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type Mode, type ModelEntry } from "@agent-harness/contracts";
 import { createContext, Fragment, use, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
@@ -34,8 +37,10 @@ import { MenuGroup, MenuSub, MenuSubContent, MenuSubTrigger } from "../ui/menu.j
 import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { useSettingsIfHeld } from "../settings/settings-window.js";
 import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "./run-picker-parts.js";
+import { useSayModeSet } from "./mode-said.js";
 import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
+import { UsageRings } from "./window-reading.js";
 
 /**
  * The status line's pickers (docs/specs/gui.md, "A session pane": pickers
@@ -49,7 +54,8 @@ import { useHandedOnto, useModelChoice } from "./run-choices.js";
  * `setSessionContainment`, the hand-off), so the terminal UI says the same.
  *
  * - **Accounts**: the environment's accounts, each with its identity, its
- *   sign-in status and its identity's plan reading, then Add an account.
+ *   sign-in status and its identity's plan windows as compact usage rings
+ *   (the reading in words their tooltip; #1822), then Add an account.
  *   An account not signed in starts its sign-in on the sign-in card; a
  *   session's account is fixed, so another signed-in account hands the
  *   session off onto it, the hand-off picker's fork.
@@ -258,7 +264,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
     if (listingModels.status === "absent") return say(listingModels.message);
     choose({ model: id, effort });
     if (narrow && models.find((entry) => entry.id === id)?.efforts.length) setActiveColumn("Effort");
-    say(`The next run of ${session} goes out on ${id} at ${effort === null ? "its own effort" : `${effort} effort`}.`);
+    say(nextRunWords(session, { model: id, effort }, models.find((entry) => entry.id === id)?.label));
   };
   const pickAccount = (candidate: AccountRecord) => {
     if (reason !== undefined) return say(reason);
@@ -273,9 +279,9 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   };
   const active = activeColumn === "Effort" && (selected?.efforts.length ?? 0) === 0 ? "Models" : activeColumn;
   const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <RunPickerColumn name={name} narrow={narrow} activeColumn={active} showEffortWithModel={false}>{children}</RunPickerColumn>;
-  const visible = models.filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLowerCase().includes(query.toLowerCase()));
+  const visible = models.filter((entry) => `${modelName(entry)} ${entry.label ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   const accountLabel = (id: string) => accounts.value?.find((entry) => entry.id === id)?.label ?? id;
-  const modelRow = (entry: ModelEntry) => <RunChoiceRow key={entry.id} icon={favourites.includes(entry.id) ? Star : Cpu} label={modelName(entry)} primary={entry.label ?? entry.id} machine={entry.label === null ? undefined : entry.id}
+  const modelRow = (entry: ModelEntry) => <RunChoiceRow key={entry.id} icon={favourites.includes(entry.id) ? Star : Cpu} label={modelName(entry)} primary={modelDisplayName(entry.id, entry.label)} machine={modelDisplayName(entry.id, entry.label) === entry.id ? undefined : entry.id}
     selected={model?.model === entry.id} dim={live || listingModels.status === "absent"} note={entry.efforts.length > 0 ? "Supports effort" : "Uses its own effort"}
     onSelect={() => { setOthersOpen(false); chosen(entry.id, model?.model === entry.id && (model.effort === null || entry.efforts.includes(model.effort)) ? model.effort : null); }} />;
   // Other models: a flyout beside the column; in one column at a time (a phone's sheet), where a flyout has no room, a page of the list.
@@ -295,7 +301,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
           {accounts.value.map((candidate) => <RunChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
             label={`${candidate.label} ${identityWords(candidate)}`} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
             note={[ACCOUNT_STATUS_WORDS[candidate.status.state], candidate.id === accountId ? "this session" : candidate.status.state === "signed-in" ? "Fork onto this account" : "Sign in", candidate.provider].join(" · ")}
-            under={readingWords(gaugeOf(usage.gauges, environmentId, candidate.id))} onSelect={() => pickAccount(candidate)} />)}
+            usage={<UsageRings gauge={gaugeOf(usage.gauges, environmentId, candidate.id)} />} onSelect={() => pickAccount(candidate)} />)}
         </>}
         {accountId !== null && accounts.value !== null && !accounts.value.some((entry) => entry.id === accountId) && <Waiting>Stored account {accountId} is not listed on this environment.</Waiting>}
         {accounts.error !== null && <RunChoiceRow icon={RefreshCw} label="Refresh accounts" onSelect={() => runtime.requests.refresh(environmentId, "accounts.list", {})} />}
@@ -330,7 +336,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
         {listingModels.status === "absent" && <Waiting>{listingModels.message}</Waiting>}
       </>)}
       {selected !== undefined && selected.efforts.length > 0 && column("Effort", <>
-        {[null, ...selected.efforts].map((effort) => <RunChoiceRow key={effort ?? "own"} icon={SlidersHorizontal} label={effort ?? "its own effort"}
+        {[null, ...selected.efforts].map((effort) => <RunChoiceRow key={effort ?? "own"} icon={SlidersHorizontal} label={effort === null ? "its own effort" : effortName(effort)}
           selected={model?.effort === effort} dim={live || listingModels.status === "absent"} note={model?.effort === effort ? "this session" : undefined}
           under={effort === null ? "Let the model choose its effort." : "Reasoning effort for the next run."}
           onSelect={() => { chosen(selected.id, effort); if (!live && listingModels.status === "present") close(); }} />)}
@@ -368,8 +374,9 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
   const [choice] = useModelChoice(environmentId, sessionId);
   const handedOnto = useHandedOnto(environmentId, sessionId);
   const current = choice ?? model;
-  const unavailable = current !== undefined && catalogues.value !== null && !modelsOf(catalogues.value, accountId ?? handedOnto ?? null).some((entry) => entry.id === current.model);
-  const words = current === undefined ? "default model" : current.effort !== null ? `${current.model} ${current.effort}` : current.model;
+  const listed = current === undefined || catalogues.value === null ? undefined : modelsOf(catalogues.value, accountId ?? handedOnto ?? null).find((entry) => entry.id === current.model);
+  const unavailable = current !== undefined && catalogues.value !== null && listed === undefined;
+  const words = current === undefined ? "default model" : modelChoiceWords(current, listed?.label);
   return <PickerButton name="Model" command="model" value={words} offer={useOffer(environmentId, "models.list")} columns
     items={(close) => <RunPickerColumns environmentId={environmentId} sessionId={sessionId} accountId={accountId} model={current} initialStage="Models" close={close} />}
     warning={unavailable ? "This stored model is not listed for this account. Choose an available model for the next run." : undefined}>
@@ -380,6 +387,8 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
 interface ModePickerProps {
   readonly environmentId: string;
   readonly sessionId: string;
+  /** The session's mode as the status line shows it: bypassPermissions carries its sentence in the button's tooltip (#1823). */
+  readonly mode: Mode;
   /** The mode badge the status line shows, with its clamp, in words. */
   readonly value: string;
   readonly children: ReactNode;
@@ -389,13 +398,13 @@ const ModeRows = ({ environmentId, sessionId }: { readonly environmentId: string
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.modes(environmentId), [runtime, environmentId]));
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const [, say] = usePaneLine();
+  const sayModeSet = useSayModeSet();
   const session = projection.summary?.title ?? "this session";
   const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
   return picker.modes.map(({ mode, allowed }) => (
       <Item
         key={mode}
-        onSelect={() => void setSessionMode(runtime, environmentId, sessionId, mode, session).then((set) => say(set.line))}
+        onSelect={() => void setSessionMode(runtime, environmentId, sessionId, mode, session).then(sayModeSet)}
         dim={!allowed}
         selected={mode === own}
         tooltip={modeLabel(MODE_BADGE_WORDS[mode])}
@@ -415,12 +424,17 @@ const ModeSubmenu = ({ environmentId, sessionId }: { readonly environmentId: str
   </MenuSub>;
 };
 
-/** The mode picker: the four modes, one above the connection's ceiling greyed with the ceiling named, and the clamp said once set. */
-export const ModePicker = ({ environmentId, sessionId, value, children }: ModePickerProps) => {
+/**
+ * The mode picker: the four modes, one above the connection's ceiling greyed
+ * with the ceiling named, and the clamp said once set. The button shows the
+ * mode, bypassPermissions with its sentence in the tooltip, so nothing says
+ * it under the composer for as long as it holds (#1823).
+ */
+export const ModePicker = ({ environmentId, sessionId, mode, value, children }: ModePickerProps) => {
   const setting = useOffer(environmentId, "permissions.mode.set");
   const items = () => <ModeRows environmentId={environmentId} sessionId={sessionId} />;
   return (
-    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
+    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items} warning={mode === "bypassPermissions" ? BYPASS_SENTENCE : undefined} phoneItems={(close) => <ModeSheet environmentId={environmentId} sessionId={sessionId} close={close} />}>
       {children}
     </PickerButton>
   );

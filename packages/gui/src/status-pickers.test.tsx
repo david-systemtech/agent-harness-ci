@@ -43,6 +43,9 @@ const statusLine = () => screen.getByRole("region", { name: "Status line" });
 /** The pane's one line, under the composer. */
 const paneLine = () => within(screen.getByRole("region", { name: "Session pane" })).queryAllByRole("status").at(-1)?.textContent;
 
+/** What the transient lane says now, newest last (#1823): a mode set as asked is said there, once, not on the pane's line. */
+const feedback = () => [...document.querySelectorAll('[data-sonner-toast]:not([data-removed="true"]) [data-title]')].map((title) => title.textContent);
+
 /** Opens the picker whose button's name starts with `name` (`Mode`), as a person tabbing to it and pressing Enter does. */
 const openPicker = async (app: RenderedApp, name: string) => {
   const button = await within(statusLine()).findByRole("button", { name: new RegExp(`^${name}: `) });
@@ -85,11 +88,49 @@ describe("the mode picker", () => {
     expect(await within(statusLine()).findByRole("button", { name: "Mode: auto" })).toBeTruthy();
   });
 
-  it("sets a mode within the ceiling and says it", async () => {
+  it("sets a mode within the ceiling and says it once, as a transient notice, with no standing line under the composer", async () => {
     const { app } = await opened();
     await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
-    await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
+    expect(paneLine()).toBeUndefined();
     expect(await within(statusLine()).findByRole("button", { name: "Mode: plan" })).toBeTruthy();
+  });
+
+  it("says bypassPermissions once as it changes, with the permissions spec's sentence, and the mode control shows it from then on", async () => {
+    const { app } = await opened();
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(feedback()).toContain(`Mode: bypassPermissions. ${BYPASS}`));
+    expect(paneLine()).toBeUndefined();
+    expect(await within(statusLine()).findByRole("button", { name: "Mode: BYPASS" })).toBeTruthy();
+  });
+
+  it("shows a session in bypassPermissions by the mode control alone: its label and colour, the sentence in its tooltip", async () => {
+    await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4", mode: "bypassPermissions" }] })]);
+    const mode = await within(statusLine()).findByRole("button", { name: "Mode: BYPASS" });
+    expect(mode.querySelector(".text-signal")?.textContent).toBe("BYPASS");
+    expect(paneLine()).toBeUndefined();
+    act(() => mode.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain(`Mode: BYPASS · /mode · ${BYPASS}`);
+  });
+
+  it("keeps one mode notice: a later set replaces the earlier one's, and a clamp takes it away", async () => {
+    const { app } = await opened([desk({ hello: { ceiling: "auto" } })]);
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
+    await waitFor(() => expect(feedback()).toEqual(["Mode: plan."]));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^auto/ }));
+    await waitFor(() => expect(feedback()).toEqual(["Mode: auto."]));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(paneLine()).toBe("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto)."));
+    await waitFor(() => expect(feedback()).toEqual([]));
+  });
+
+  it("clears an earlier clamp's line once a mode is set as asked", async () => {
+    const { app } = await opened([desk({ hello: { ceiling: "auto" } })]);
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(paneLine()).toBe("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto)."));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
+    expect(paneLine()).toBeUndefined();
   });
 });
 
@@ -169,7 +210,7 @@ describe("the model picker", () => {
     expect(modes.className).toContain("w-72");
     act(() => within(modes).getByRole("menuitem", { name: /^plan/ }).focus());
     await app.user.keyboard("{Enter}");
-    await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
   });
 
   it("shows one dependency at a time at 360px and keeps model and effort choices when going back", async () => {
@@ -214,7 +255,7 @@ describe("the model picker", () => {
     expect(document.activeElement).toBe(result);
     await app.user.click(result);
     await app.user.keyboard("{Escape}");
-    expect(within(statusLine()).getByRole("button", { name: "Model: model-14" })).toBeTruthy();
+    expect(within(statusLine()).getByRole("button", { name: "Model: Model 14" })).toBeTruthy();
   });
 
   it("keeps accounts and models visible with a reason during a live run and sends no change", async () => {
@@ -225,24 +266,47 @@ describe("the model picker", () => {
     await app.user.click(within(menu).getByRole("menuitem", { name: /^personal/ }));
     await app.user.click(within(menu).getByRole("menuitem", { name: "claude-haiku-4" }));
     expect(sent(env, "sessions.fork")).toEqual([]);
-    expect(within(statusLine()).getByRole("button", { name: /^Model: claude-opus-4/ })).toBeTruthy();
+    expect(within(statusLine()).getByRole("button", { name: /^Model: Opus/ })).toBeTruthy();
   });
 
   it("lists the models of the session's account with their efforts, and the choice goes with the session's next run", async () => {
     const { app, env, session } = await opened([desk({ models })]);
     const menu = await openPicker(app, "Model");
     const opus = await within(menu).findByRole("group", { name: "Effort" });
-    expect(within(opus).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["its own effortthis sessionLet the model choose its effort.", "lowReasoning effort for the next run.", "highReasoning effort for the next run."]);
+    expect(within(opus).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["its own effortthis sessionLet the model choose its effort.", "LowReasoning effort for the next run.", "HighReasoning effort for the next run."]);
     expect(within(menu).getByRole("menuitem", { name: "claude-haiku-4" })).toBeTruthy();
 
-    await app.user.click(within(opus).getByRole("menuitem", { name: "high" }));
-    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on claude-opus-4 at high effort."));
-    expect(within(statusLine()).getByRole("button", { name: "Model: claude-opus-4 high" })).toBeTruthy();
+    await app.user.click(within(opus).getByRole("menuitem", { name: "High" }));
+    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on Opus - High."));
+    expect(within(statusLine()).getByRole("button", { name: "Model: Opus - High" })).toBeTruthy();
 
     const box = screen.getByRole("textbox", { name: "Message" });
     act(() => box.focus());
     await app.user.keyboard("Fix the receipts{Enter}");
     await waitFor(() => expect(sent(env, "runs.start")).toEqual([expect.objectContaining({ sessionId: session, text: "Fix the receipts", model: "claude-opus-4", effort: "high" })]));
+  });
+  it("names the model and effort as the provider does, in the trigger, the rows and the line it says", async () => {
+    const fable = [{ accountId: "account-1", live: false, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["low", "medium", "high"], label: "Fable" }] }];
+    const { app } = await opened([desk({ models: fable })]);
+    const menu = await openPicker(app, "Model");
+    const row = within(menu).getByRole("menuitem", { name: "Fable 5.1 (fable)" });
+    expect(row.textContent).toBe("Fable 5.1fableSupports effort");
+    await app.user.click(row);
+    const efforts = within(menu).getByRole("group", { name: "Effort" });
+    expect(within(efforts).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"))).toEqual(["its own effort", "Low", "Medium", "High"]);
+    await app.user.click(within(efforts).getByRole("menuitem", { name: "High" }));
+    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on Fable 5.1 - High."));
+    expect(within(statusLine()).getByRole("button", { name: "Model: Fable 5.1 - High" })).toBeTruthy();
+  });
+
+  it("finds a model in a long catalogue by the name its row shows", async () => {
+    const samples = Array.from({ length: 13 }, (_, index) => ({ id: `model-${index}`, family: "sample", tier: index, efforts: [], label: `Model ${index}` }));
+    const listed = [{ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" }, ...samples];
+    const { app } = await opened([desk({ models: [{ accountId: "account-1", live: true, models: listed }] })]);
+    const menu = await openPicker(app, "Model");
+    await app.user.type(within(menu).getByRole("textbox", { name: "Search models" }), "Fable 5.1");
+    expect(within(menu).getByRole("menuitem", { name: "Fable 5.1 (fable)" })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: "Model 1 (model-1)" })).toBeNull();
   });
 });
 
@@ -359,20 +423,43 @@ describe("the account picker", () => {
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(paneLine()).toContain("Cannot sign claude-max in"));
   });
-  it("lists the environment's accounts with their identity, sign-in status and plan reading, then Add an account", async () => {
+  it("lists the environment's accounts with their identity, sign-in status and one usage ring per plan window, the reading in the rings' tooltip, then Add an account (ticket 1822)", async () => {
     const { app, env } = await opened([
       desk({
         accounts: [
           { id: "account-1", label: "work", identity: WORK },
           { id: "account-2", label: "personal", identity: HOME, status: { state: "expired", checkedAt: null, detail: null } },
+          { id: "account-3", label: "spare", identity: { provider: "claude", email: "milo@spare.test", organisation: null } },
         ],
       }),
     ]);
-    env.setUsage([reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
+    env.setUsage([
+      reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.8)]),
+      reading("account-2", HOME, [], "Not signed in."),
+      reading("account-3", { provider: "claude", email: "milo@spare.test", organisation: null }, [window("five_hour", 0.95)]),
+    ]);
     await within(statusLine()).findByRole("group", { name: "Plan usage" });
     const menu = await openPicker(app, "Account");
-    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work milo@work.testsigned in · this session · claude5-hour 42% · Weekly 10%");
-    expect(within(menu).getByRole("menuitem", { name: /^personal/ }).textContent).toBe("personal milo@home.testsign-in expired · Sign in · claudeNot signed in.");
+    const work = within(menu).getByRole("menuitem", { name: /^work/ });
+    const personal = within(menu).getByRole("menuitem", { name: /^personal/ });
+    const spare = within(menu).getByRole("menuitem", { name: /^spare/ });
+    // The words are gone from the row: the rings draw them, and the tooltip says them.
+    expect(work.textContent).toBe("work milo@work.testsigned in · this session · claude");
+    expect(personal.textContent).toBe("personal milo@home.testsign-in expired · Sign in · claude");
+    const rings = (row: HTMLElement) => within(row).queryAllByRole("img").map((ring) => [ring.getAttribute("aria-label"), ring.getAttribute("class")?.match(/text-(mint|amber|signal)/)?.[1]]);
+    expect(rings(work)).toEqual([["5-hour 42%", "mint"], ["Weekly 80%", "amber"]]);
+    expect(rings(spare)).toEqual([["5-hour 95%", "signal"]]);
+    expect(rings(personal)).toEqual([]);
+    // The status line's own ring, drawn compact: the same arc, at 16px.
+    const ring = within(work).getByRole("img", { name: "5-hour 42%" });
+    expect([ring.getAttribute("width"), ring.querySelector("[data-usage-arc]")?.getAttribute("style")]).toEqual(["16", "stroke-dasharray: 42 100;"]);
+    // Every account row keeps its one fixed-height ring line, whether it holds two rings, one or none.
+    for (const row of [work, spare, personal]) expect(row.querySelectorAll("[data-usage-rings].h-4")).toHaveLength(1);
+    // The row's native title stops at the ring line, so it never draws over the rings' own tooltip.
+    expect([work.title.startsWith("work milo@work.test"), work.querySelector("[data-usage-rings]")?.getAttribute("title")]).toEqual([true, ""]);
+    expect(within(personal).getByRole("group", { name: "Not signed in." })).toBeTruthy();
+    await app.user.hover(within(work).getByRole("group", { name: "5-hour 42% · Weekly 80%" }));
+    expect((await screen.findByRole("tooltip")).textContent).toBe("5-hour 42% · Weekly 80%");
     expect(within(menu).getByRole("menuitem", { name: "Add an account…" })).toBeTruthy();
   });
 
@@ -458,6 +545,14 @@ describe("the hand-off offer and picker", () => {
     expect(await within(dialog).findByText("Not handed off: The account is busy.")).toBeTruthy();
     await app.user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Hand off Receipts on desk" })).toBeNull());
+  });
+
+  it("names each account's models in the hand-off picker as the model picker does", async () => {
+    const fable = [{ accountId: "account-2", live: false, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" }] }];
+    const { app } = await opened([desk({ recommendation: out, models: fable })]);
+    await app.user.click(await within(statusLine()).findByRole("button", { name: "Hand off…" }));
+    const accounts = within(await screen.findByRole("dialog", { name: "Hand off Receipts on desk" })).getByRole("list", { name: "Accounts" });
+    expect(await within(accounts).findByText("Models: Fable 5.1 (fable)")).toBeTruthy();
   });
 
   it("opens the hand-off picker: the environment's accounts with their status and plan readings, the recommended one marked; choosing one forks onto it", async () => {

@@ -243,13 +243,13 @@ describe("/model", () => {
     await command(app, "/model");
     await app.waitFor("Models for work on desk");
     await app.waitFor("Opus 4 (claude-opus-4)");
-    expect(app.rows().find((row) => row.includes("claude-opus-4"))).toMatch(/Opus 4 \(claude-opus-4\)\s+low · medium · high\s+this session/);
+    expect(app.rows().find((row) => row.includes("claude-opus-4"))).toMatch(/Opus 4 \(claude-opus-4\)\s+Low · Medium · High\s+this session/);
     expect(app.frame()).toContain("claude-haiku-4");
     await app.press(KEY.enter);
     await app.waitFor("Effort for Opus 4");
     await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("The next run of Receipts goes out on claude-opus-4 at high effort.");
-    await app.waitFor("claude-opus-4 high ·");
+    await app.waitFor("The next run of Receipts goes out on Opus 4 - High.");
+    await app.waitFor("Opus 4 - High ·");
 
     await app.type("go");
     await app.press(KEY.enter);
@@ -273,20 +273,20 @@ describe("/model", () => {
     await app.press(KEY.enter);
     await app.waitFor("Effort for Opus 4");
     await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("The next run of Receipts goes out on claude-opus-4 at high effort.");
+    await app.waitFor("The next run of Receipts goes out on Opus 4 - High.");
     // The session is on Opus 4 at high: Sonnet 4's high is not the session's, nor is its own effort.
     await command(app, "/model");
     await app.waitFor("Sonnet 4 (claude-sonnet-4)");
     await app.press(KEY.down, KEY.down, KEY.enter);
     await app.waitFor("Effort for Sonnet 4");
-    expect(app.rows().find((row) => row.includes("high"))).not.toContain("this session");
+    expect(app.rows().find((row) => row.includes("High"))).not.toContain("this session");
     expect(app.rows().find((row) => row.includes("the model's own"))).not.toContain("this session");
     // Opus 4's high still is.
     await app.press(KEY.esc);
     await app.waitFor("Models for work on desk");
     await app.press(KEY.up, KEY.up, KEY.enter);
     await app.waitFor("Effort for Opus 4");
-    expect(app.rows().find((row) => row.includes("high"))).toContain("this session");
+    expect(app.rows().find((row) => row.includes("High"))).toContain("this session");
   });
 });
 

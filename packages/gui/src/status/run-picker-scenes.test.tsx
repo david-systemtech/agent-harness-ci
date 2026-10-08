@@ -18,10 +18,10 @@ it("opens Other models beside the favourites on the desktop", async () => {
   expect(await gallery.ready).toBe(true);
   const models = screen.getByRole("group", { name: "Models" });
   // The scene draws the columns alone, with no Settings to open, so no Edit favourites row.
-  expect(rows(models)).toEqual(["Sample model 3 (sample-model-3)", "Sample model 7 (sample-model-7)", "Sample model 12 (sample-model-12)", "Sample model 1 (sample-model-1)", "Other models"]);
+  expect(rows(models)).toEqual(["Sample model 3 (sample-model-3)", "Sample model 7 (sample-model-7)", "Sample model 11 (sample-model-11)", "Fable 5.1 (fable)", "Other models"]);
   const others = await screen.findByRole("menu", { name: "Other models" });
   expect(rows(others)).toHaveLength(11);
-  expect(rows(others)[0]).toBe("Sample model 2 (sample-model-2)");
+  expect(rows(others)[0]).toBe("Opus 5.5 (opus)");
 });
 
 it("opens Other models as a page of the phone's run sheet with a tap", async () => {
