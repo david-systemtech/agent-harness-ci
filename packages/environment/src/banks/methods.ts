@@ -19,7 +19,7 @@ export const bankMethods = (banks: BankService, credentials: BankCredentials, sy
   "banks.list": async () => ({ banks: await banks.list() }),
   "banks.get": async (params) => {
     const bank = await banks.get(params.bankId);
-    if (bank === null) throw new ContractError({ code: "not_found", message: `No bank ${params.bankId} is registered on this environment.`, data: {} });
+    if (bank === null) throw new ContractError({ code: "not_found", message: "That notebook is not on this computer.", data: { bankId: params.bankId } });
     return { bank };
   },
   "banks.register": banks.register,

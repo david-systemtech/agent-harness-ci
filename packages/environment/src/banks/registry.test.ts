@@ -186,7 +186,7 @@ describe("the 8 KB rule", () => {
       status: "rejected",
       error: {
         code: "conflict",
-        message: expect.stringMatching(/^The fixed tiers of bank-one, bank-two and bank-three would come to \d+ bytes for every account in every repository, over the 8192-byte limit\.$/),
+        message: "With this notebook, what agents read at the start would be too long. Turn another notebook off first.",
         data: { reason: "index_too_large", limitBytes: 8192, banks: ["bank-one", "bank-two", "bank-three"], scopes: [{ account: "all", repository: "all" }] },
       },
     });
@@ -316,7 +316,7 @@ describe("banks.verify", () => {
     t.clock.advance(60_000);
     const later = new Date(Date.parse(MANUAL_CLOCK_START) + 60_000).toISOString();
     const [after] = (await client.request("banks.verify", { bankId: bank.id })).banks;
-    expect(after?.status).toEqual({ ...bank.status, reachable: { state: "unreachable", reason: `its repository at ${checkout} is not there`, since: later } });
+    expect(after?.status).toEqual({ ...bank.status, reachable: { state: "unreachable", reason: `its repository at ${checkout} is not there`, cause: "folder-missing", since: later } });
   });
 
   it("keeps an owner last found unresolved, and a pull request last found holding BANK.md, while the forge does not answer: nothing is recorded", async () => {

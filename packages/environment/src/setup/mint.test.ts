@@ -310,10 +310,15 @@ describe("setup.mint", () => {
     const t = await start();
     const client = await t.client();
     const unknown = await mint(client, { step: "instructions", subject: "bank-9", variant: "first" });
-    expect(unknown.receipt).toMatchObject({ status: "rejected", error: { code: "not_found", data: { kind: "subject", step: "instructions", subject: "bank-9" } } });
+    expect(unknown.receipt).toMatchObject({ status: "rejected", error: {
+        code: "not_found",
+        message: "What this conversation was for is no longer here. Choose Check again.",
+        data: { kind: "subject", step: "instructions", subject: "bank-9" },
+      },
+    });
     for (const step of ["permissions", "appearance"] as const) {
       const plain = await mint(client, { step, variant: "first" });
-      expect(plain.receipt, step).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "no_llm_step", step } } });
+      expect(plain.receipt, step).toMatchObject({ status: "rejected", error: { code: "conflict", message: "This step has no conversation to start.", data: { reason: "no_llm_step", step } } });
     }
     expect((await client.request("sessions.list", {})).sessions).toEqual([]);
     expect(t.adapter.runs).toEqual([]);

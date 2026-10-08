@@ -114,7 +114,7 @@ const appendBankEvent = (t: TestEnvironment, type: string, payload: Record<strin
 
 describe("the Memory bank step's checks", () => {
   it("answers skipped with memory-bank.present's line when no bank is registered", async () => {
-    const skipped = { step: "memory-bank", state: "skipped", reason: "No memory bank is registered on this environment.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
+    const skipped = { step: "memory-bank", state: "skipped", reason: "No notebook yet. Optional.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
     expect(await checkMemoryBank(await (await start()).client())).toEqual(skipped);
   });
 
@@ -167,8 +167,9 @@ describe("the Memory bank step's checks", () => {
       failing: [],
       actions: ["revise"],
       targets: [target("revise", bank)],
-      // The pull request is named once: the landing's line names it, so the manifest's does not again (#1698).
-      reason: `${ALL_HOLD} ${bank.name} is landed and awaiting your review: ${forge.origin}/acme/bank/pulls/7.`,
+      // The pull request is named once: the manifest's line says the description waits, so the landing's does not again (#1698, #1854).
+      reason: `${ALL_HOLD} ${bank.name}'s description is waiting for your approval on ${new URL(forge.origin).host}.`,
+      details: [bank.name, `${forge.origin}/acme/bank/pulls/7`],
     });
     expect(existsSync(join(checkout, "BANK.md"))).toBe(false);
   });
@@ -185,7 +186,7 @@ describe("the Memory bank step's checks", () => {
     git(path, "add", "BANK.md");
     git(path, "commit", "--quiet", "-m", "Describe the bank.");
     forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, sha: git(path, "rev-parse", "HEAD").trim(), state: "open" });
-    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest", "memory-bank.landing"], reason: expect.stringContaining("orientation_missing") });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest", "memory-bank.landing"], details: expect.arrayContaining([expect.stringContaining("orientation_missing")]) });
     expect((await client.request("banks.get", { bankId: bank.id })).bank?.status.manifest.state).toBe("missing");
   });
 
@@ -211,7 +212,8 @@ describe("the Memory bank step's checks", () => {
     expect(await checkMemoryBank(client)).toEqual({
       step: "memory-bank",
       state: "needs-attention",
-      reason: expect.stringMatching(/^The BANK\.md of maya-memory on main fails the validator's rule retired_key: .+ Revise it\.$/),
+      reason: "maya-memory's description has a problem: it uses keys from an older layout.",
+      details: [expect.stringMatching(/^maya-memory: retired_key: .+/)],
       failing: ["memory-bank.manifest"],
       actions: ["revise"],
       targets: [target("revise", invalid)],
@@ -224,7 +226,7 @@ describe("the Memory bank step's checks", () => {
     const missing = await register(client, gitBank(changed(PERSONAL_BANK, { "BANK.md": null }), "david-memory"));
     expect([missing.name, missing.kind, missing.line, missing.status.manifest]).toEqual(["david-memory", null, null, { state: "missing", since: MANUAL_CLOCK_START }]);
     expect(await checkMemoryBank(client)).toMatchObject({
-      reason: "david-memory has no BANK.md on main: Revise to write one.",
+      reason: "david-memory needs a description.",
       failing: ["memory-bank.manifest"],
       actions: ["revise"],
       targets: [target("revise", missing)],
@@ -239,10 +241,39 @@ describe("the Memory bank step's checks", () => {
     const unreachable = await register(client, checkout);
     expect(await checkMemoryBank(client)).toMatchObject({
       state: "needs-attention",
-      reason: `acme cannot be reached: ${forge.origin} has no repository acme/bank. Check again once it answers.`,
+      reason: `The repository for acme is missing on ${new URL(forge.origin).host}.`,
+      details: [`acme: ${forge.origin} has no repository acme/bank`],
       failing: ["memory-bank.reachable"],
       actions: ["check-again"],
       targets: [target("check-again", unreachable)],
+    });
+  });
+
+  it("names a forge account missing on this computer, never a repository to check, when the forge refuses an anonymous read", async () => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    const client = await (await start()).client();
+    const checkout = teamBank(forge);
+    const bank = await register(client, checkout);
+    const host = new URL(forge.origin).host;
+    expect(await checkMemoryBank(client)).toMatchObject({
+      state: "needs-attention",
+      reason: `acme needs a forge account for ${host} on this computer.`,
+      details: [expect.stringMatching(/^acme: No forge account on this environment covers /)],
+      failing: ["memory-bank.reachable"],
+      targets: [target("check-again", bank)],
+    });
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.status.reachable).toMatchObject({ state: "unreachable", cause: "no-forge-account" });
+  });
+
+  it("names the computer a bank was copied from when its forge account is there and not here", async () => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    const client = await (await start()).client();
+    await register(client, teamBank(forge), { copiedFrom: { environmentId: randomUUID(), environmentName: "office-server" } });
+    expect(await checkMemoryBank(client)).toMatchObject({
+      reason: `Your ${new URL(forge.origin).host} account is connected on office-server, not here. Connect it here too.`,
+      failing: ["memory-bank.reachable"],
     });
   });
 
@@ -252,7 +283,8 @@ describe("the Memory bank step's checks", () => {
     const gone = await register(client, checkout);
     rmSync(checkout, { recursive: true, force: true });
     expect(await checkMemoryBank(client)).toMatchObject({
-      reason: `maya-memory cannot be reached: its repository at ${checkout} is not there. Check again once it answers.`,
+      reason: "maya-memory's folder on this computer is missing.",
+      details: [`maya-memory: its repository at ${checkout} is not there`],
       failing: ["memory-bank.reachable"],
       targets: [target("check-again", gone)],
     });
@@ -267,20 +299,22 @@ describe("the Memory bank step's checks", () => {
     expect(await checkMemoryBank(client)).toEqual({
       step: "memory-bank",
       state: "needs-attention",
-      reason: "The owner sam-ortiz of the team bank acme does not resolve on its forge.",
+      reason: `${new URL(forge.origin).host} does not know sam-ortiz, listed as an owner of acme.`,
       failing: ["memory-bank.owners"],
       actions: [],
       checkedAt: MANUAL_CLOCK_START,
     });
     users(forge, { "maya-reyes": false });
-    expect((await checkMemoryBank(client)).reason).toBe("The owners maya-reyes and sam-ortiz of the team bank acme do not resolve on its forge.");
+    const host = new URL(forge.origin).host;
+    expect((await checkMemoryBank(client)).reason).toBe(`${host} does not know maya-reyes, listed as an owner of acme. ${host} does not know sam-ortiz, listed as an owner of acme.`);
   });
 
   it("needs attention on orientation names that name no memory, beside the validator's refusal of them", async () => {
     const client = await (await start()).client();
     await register(client, gitBank(changed(PERSONAL_BANK, { "BANK.md": markdown(personalManifest({ orientation: ["secrets-layout", "who-is-who"] })) }), "maya-memory"));
     expect(await checkMemoryBank(client)).toMatchObject({
-      reason: expect.stringContaining("The orientation of maya-memory names who-is-who, which is no memory in the bank."),
+      reason: expect.stringContaining("maya-memory's summary names notes that do not exist."),
+      details: expect.arrayContaining(["maya-memory: who-is-who"]),
       failing: ["memory-bank.manifest", "memory-bank.orientation"],
     });
   });
@@ -296,7 +330,8 @@ describe("the Memory bank step's checks", () => {
       failing: [],
       actions: ["revise"],
       targets: [target("revise", bank)],
-      reason: `${ALL_HOLD} maya-memory is landed and awaiting your review: ${pullRequest}.`,
+      reason: `${ALL_HOLD} maya-memory's latest changes are waiting for your approval on git.example.test.`,
+      details: ["maya-memory", pullRequest],
     });
     appendBankEvent(t, "bank.landed", { bankId: bank.id, sessionId: null, pullRequest, files: [] });
     expect(await checkMemoryBank(client)).toMatchObject({ state: "done", failing: [], reason: ALL_HOLD });
@@ -308,7 +343,8 @@ describe("the Memory bank step's checks", () => {
     const bank = await register(client, gitBank(PERSONAL_BANK, "maya-memory"));
     appendBankEvent(t, "bank.landing-failed", { bankId: bank.id, sessionId: null, step: "push", reason: "The forge refused the push." });
     expect(await checkMemoryBank(client)).toMatchObject({
-      reason: "The last landing on maya-memory failed at its push step: The forge refused the push. Check again once a landing passes.",
+      reason: "The last change to maya-memory could not be saved.",
+      details: ["maya-memory: push: The forge refused the push."],
       failing: ["memory-bank.landing"],
       actions: ["check-again"],
       targets: [target("check-again", bank)],
@@ -328,9 +364,9 @@ describe("the Memory bank step's checks", () => {
     const team = await register(client, checkout);
     expect(await checkMemoryBank(client)).toMatchObject({
       reason:
-        `acme cannot be reached: ${forge.origin} has no repository acme/bank. Check again once it answers. ` +
-        "david-memory has no BANK.md on main: Revise to write one. " +
-        "The owner sam-ortiz of the team bank acme does not resolve on its forge.",
+        `The repository for acme is missing on ${new URL(forge.origin).host}. ` +
+        "david-memory needs a description. " +
+        `${new URL(forge.origin).host} does not know sam-ortiz, listed as an owner of acme.`,
       failing: ["memory-bank.reachable", "memory-bank.manifest", "memory-bank.owners"],
       actions: ["check-again", "revise"],
       targets: [target("check-again", team), target("revise", missing)],
@@ -658,7 +694,11 @@ describe("the describe session", () => {
     const answer = await mint(client, { step: "memory-bank", subject: bank.id, variant: "first" });
     expect(answer.receipt).toMatchObject({
       status: "rejected",
-      error: { code: "conflict", data: { reason: "git_failed", operation: "clone", diagnostic: "exit_128" } },
+      error: {
+        code: "conflict",
+        message: `agent-harness could not get ${bank.name} ready to describe. Choose Describe it to try again.`,
+        data: { reason: "git_failed", operation: "clone", diagnostic: "exit_128" },
+      },
     });
     expect(JSON.stringify(answer)).not.toContain("token-for-tests");
   });
@@ -671,9 +711,12 @@ describe("the describe session", () => {
     rmSync(checkout, { recursive: true, force: true });
     expect((await mint(client, { step: "memory-bank", subject: gone.id, variant: "first" })).receipt).toMatchObject({
       status: "rejected",
-      error: { code: "conflict", data: { reason: "bank_missing", bankId: gone.id } },
+      error: { code: "conflict", message: `${gone.name}'s folder on this computer is missing.`, data: { reason: "bank_missing", bankId: gone.id, path: checkout } },
     });
-    expect((await mint(client, { step: "memory-bank", variant: "first" })).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "bank_missing" } } });
+    expect((await mint(client, { step: "memory-bank", variant: "first" })).receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", message: "Choose which notebook to describe.", data: { reason: "bank_missing" } },
+    });
     expect((await mint(client, { step: "memory-bank", subject: "bank-9", variant: "first" })).receipt).toMatchObject({
       status: "rejected",
       error: { code: "not_found", data: { kind: "subject", step: "memory-bank", subject: "bank-9" } },

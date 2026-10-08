@@ -69,6 +69,9 @@ export const REGISTERED_SYNC_BLOCKED = "Sync paused for registered checkout";
 /** What the purpose of the BankService's forge reads is called, for a missing origin's record. */
 const VERIFY_PURPOSE = "verify a memory bank";
 
+/** Why a verification could not reach a bank, and the cause the Memory bank step names, where it found one. */
+type Unreachable = Omit<Extract<BankStatus["reachable"], { state: "unreachable" }>, "state" | "since">;
+
 /** The describe sessions' branches (`banks/describe.ts`), whose open pull requests hold a `BANK.md` awaiting review. */
 const DESCRIBE_BRANCHES = "refs/heads/setup/describe-*";
 
@@ -200,12 +203,8 @@ const overLimit = (banks: readonly Weighed[], added: Weighed): Omit<BankIndexCon
   return { bytes, limitBytes: BANK_INDEX_BUDGET.fixedBytes, banks: all.map((bank) => bank.name).filter((name) => over.has(name)), scopes };
 };
 
-/** Where the fixed tiers come past the limit, as a sentence names it. */
-const scopeWords = ({ account, repository }: BankIndexConflict["scopes"][number]): string =>
-  `${account === "all" ? "every account" : `the account ${account}`} in ${repository === "all" ? "every repository" : repository}`;
-
-/** "a", "a and b", "a, b and c". */
-const listed = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+/** The refusal of a bank whose fixed tiers would come past the limit (setup-copy.md §5.8): the banks, bytes and scopes are in its data. */
+const TOO_LONG_AT_START = "With this notebook, what agents read at the start would be too long. Turn another notebook off first.";
 
 export interface BankServiceOptions {
   readonly log: EventLog;
@@ -293,8 +292,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     const weighed = listBanks(reader).filter((bank) => bank.id !== entry.id && bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
     const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
     if (conflict === null) return null;
-    const [first] = conflict.scopes;
-    return { code: "conflict", message: `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`, data: { reason: "index_too_large", ...conflict } };
+    return { code: "conflict", message: TOO_LONG_AT_START, data: { reason: "index_too_large", ...conflict } };
   };
 
   /** The bank's record from its entry and reading, its shared aliases those `others` claim too. */
@@ -325,17 +323,19 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   /** Whether the remote answers for the repository, or why not. */
-  const reachableRemote = async (location: Extract<BankLocation, { kind: "remote" }>): Promise<string | null> => {
+  const reachableRemote = async (location: Extract<BankLocation, { kind: "remote" }>): Promise<Unreachable | null> => {
     const answer = await forge.repositories.get({ origin: location.origin, repository: location.repository, purpose: VERIFY_PURPOSE });
     switch (answer.outcome) {
       case "done":
         return null;
       case "unreachable":
-        return `${location.origin} did not answer: ${answer.message}`;
+        return { reason: `${location.origin} did not answer: ${answer.message}` };
       case "failed":
-        return answer.status === 404 ? `${location.origin} has no repository ${location.repository}` : `${location.origin} answered HTTP ${answer.status}: ${answer.message}`;
+        return answer.status === 404
+          ? { reason: `${location.origin} has no repository ${location.repository}`, cause: "repository-missing" }
+          : { reason: `${location.origin} answered HTTP ${answer.status}: ${answer.message}` };
       case "refused":
-        return answer.error.message;
+        return { reason: answer.error.message, ...(answer.error.code === "forge_account_missing" && { cause: "no-forge-account" }) };
     }
   };
 
@@ -400,12 +400,14 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status" | "checkoutOwnership">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
     const since = clock.now().toISOString();
     const read = await readCheckout(entry.checkout, entry);
-    const unreadable = "problem" in read ? (existsSync(entry.checkout) ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : `its repository at ${entry.checkout} is not there`) : null;
+    const unreadable: Unreachable | null = "problem" in read
+      ? (existsSync(entry.checkout) ? { reason: `its repository at ${entry.checkout} cannot be read: ${read.problem}` } : { reason: `its repository at ${entry.checkout} is not there`, cause: "folder-missing" })
+      : null;
     // A checkout git cannot read fails the bank wherever its remote is; a readable one with a remote fails when its forge does not have it.
     const syncProblem = entry.checkoutOwnership !== "managed" && entry.status.reachable.state === "unreachable" && entry.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)
-      ? entry.status.reachable.reason : null;
+      ? { reason: entry.status.reachable.reason } : null;
     const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null) ?? syncProblem;
-    const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since };
+    const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", ...unreachable, since };
     // A checkout that cannot be read says nothing new of what it holds: those parts stay as last found.
     if ("problem" in read) return { status: { ...entry.status, reachable }, reading: null };
     const { reading } = read;
@@ -506,17 +508,17 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
   const register: BankService["register"] = { prepare: (params) => prepareRegister(params) };
   const create: BankService["create"] = options.creation === undefined ? {
-    prepare: () => { throw new ContractError({ code: "not_found", message: "Bank creation is unavailable on this service.", data: {} }); },
+    prepare: () => { throw new ContractError({ code: "not_found", message: "agent-harness on this computer cannot create notebooks.", data: {} }); },
   } : createBankCommand({
     ...options.creation,
     register: (params, personalDefaults) => prepareRegister(params, personalDefaults, "managed"),
     async admit(bankId, name, files) {
       await readAll();
-      if (bankEver(reader, bankId)) throw new ContractError({ code: "conflict", message: `A bank ${bankId} was registered already.`, data: { reason: "exists", bankId } });
-      if (nameHolder(reader, name) !== null) throw new ContractError({ code: "conflict", message: `Another bank is named ${name}.`, data: { reason: "name_taken", name } });
+      if (bankEver(reader, bankId)) throw new ContractError({ code: "conflict", message: "This notebook was made already.", data: { reason: "exists", bankId } });
+      if (nameHolder(reader, name) !== null) throw new ContractError({ code: "conflict", message: `You already have a notebook named ${name}.`, data: { reason: "name_taken", name } });
       const weighed = listBanks(reader).filter((bank) => bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
       const conflict = overLimit(weighed, { name, accounts: "all", repositories: "all", bytes: fixedBytes(readingFrom(files, { name, role: "read-write" })) });
-      if (conflict !== null) throw new ContractError({ code: "conflict", message: "The bank would exceed the fixed-tier limit.", data: { reason: "index_too_large", ...conflict } });
+      if (conflict !== null) throw new ContractError({ code: "conflict", message: TOO_LONG_AT_START, data: { reason: "index_too_large", ...conflict } });
     },
   });
 
@@ -687,12 +689,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     publish: {
       async prepare(params, context) {
         const bank = liveBank(reader, params.bankId);
-        if (!bank) throw new ContractError({ code: "not_found", message: "No such bank is registered.", data: {} });
-        if (bank.location.kind !== "local") throw new ContractError({ code: "conflict", message: "Only a local-only bank can be published.", data: { reason: "not_local_only", bankId: bank.id } });
-        if (!bank.enabled || bank.role !== "read-write") throw new ContractError({ code: "bank_read_only", message: "Enable a writable bank before publishing it.", data: { bank: bank.name } });
-        if (!lander || !options.creation) throw new ContractError({ code: "not_found", message: "Bank publication is unavailable.", data: {} });
+        if (!bank) throw new ContractError({ code: "not_found", message: "That notebook is not on this computer.", data: {} });
+        if (bank.location.kind !== "local") throw new ContractError({ code: "conflict", message: `${bank.name} is already on a forge.`, data: { reason: "not_local_only", bankId: bank.id } });
+        if (!bank.enabled || bank.role !== "read-write") throw new ContractError({ code: "bank_read_only", message: `Turn on ${bank.name}, with changes allowed, before you move it.`, data: { bank: bank.name } });
+        if (!lander || !options.creation) throw new ContractError({ code: "not_found", message: "agent-harness on this computer cannot move notebooks to a forge.", data: {} });
         const release = lander.reserve(bank.id);
-        if (!release) throw new ContractError({ code: "conflict", message: "A landing is already in progress for this bank.", data: { reason: "landing_in_progress", bankId: bank.id } });
+        if (!release) throw new ContractError({ code: "conflict", message: `${bank.name} is saving a change. Try again in a moment.`, data: { reason: "landing_in_progress", bankId: bank.id } });
         context.onUndo(release);
         try {
           const publication = await prepareBankPublication({ bank, commandId: params.commandId, transferIssues: params.transferIssues === true, dataDir: options.dataDir, forge: options.creation.forge, scrub: options.scrub });
@@ -706,7 +708,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
           return (_params, command) => {
             try {
               const current = liveBank(reader, bank.id);
-              if (!current || current.location.kind !== "local") return { aggregate: stream, rejected: { code: "conflict", message: "The bank changed while publication was prepared.", data: { reason: "not_local_only", bankId: bank.id } } };
+              if (!current || current.location.kind !== "local") return { aggregate: stream, rejected: { code: "conflict", message: `${bank.name} changed while it was being prepared. Try again.`, data: { reason: "not_local_only", bankId: bank.id } } };
               log.append(stream, [
                 { type: "bank.updated", payload: { bankId: bank.id, location: publication.location, credential: "forge", credentialEntry: null, credentialReference: null } },
                 { type: "bank.review-held", payload: publication.review },
