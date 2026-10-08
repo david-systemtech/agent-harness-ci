@@ -402,9 +402,11 @@ describe("Default account and model", () => {
     const app = await opened({ desk: { accounts: [{ label: "personal" }], models: [{ accountId: "account-1", models: [
       { id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" },
       { id: "claude-sonnet-5-5", family: "sonnet", tier: 2, efforts: ["high"], label: null },
-    ] }] } });
+    ] }], settings: { "accounts.defaultModelFamily": "sonnet" } } });
     const defaults = await openRow(app, "Default account and model");
-    await app.user.click(await within(defaults).findByRole("button", { name: /^Model family:/ }));
+    const trigger = await within(defaults).findByRole("button", { name: "Model family: Sonnet 5.5" });
+    expect(within(trigger).getByText("claude-sonnet-5-5").className).toContain("font-mono");
+    await app.user.click(trigger);
     const picker = await screen.findByLabelText("New-session defaults");
     expect(within(await within(picker).findByRole("menuitem", { name: "Fable 5.1" })).getByText("fable").className).toContain("font-mono");
     expect(within(within(picker).getByRole("menuitem", { name: "Sonnet 5.5" })).getByText("claude-sonnet-5-5").className).toContain("font-mono");

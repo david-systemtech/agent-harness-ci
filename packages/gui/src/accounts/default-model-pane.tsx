@@ -119,7 +119,7 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
     <SettingsGroup title="New sessions">
       <DefaultTrigger name="Default account" stage="Accounts" words={selectedWords("accounts.defaultAccount")} writable={writable} narrow={narrow} icon={KeyRound}
         note="The account a new session starts on." columns={columns} />
-      <DefaultTrigger name="Model family" stage="Models" words={selectedWords("accounts.defaultModelFamily")} machine={selectedModel?.label ? selectedModel.id : undefined} writable={writable} narrow={narrow} icon={Cpu}
+      <DefaultTrigger name="Model family" stage="Models" words={selectedWords("accounts.defaultModelFamily")} machine={selectedModel === undefined ? undefined : modelWords(selectedModel).machine} writable={writable} narrow={narrow} icon={Cpu}
         note="Use the strongest model in this family." columns={columns} />
       <DefaultTrigger name="Effort" stage={efforts.length > 0 || valueOf("accounts.defaultEffort") !== null ? "Effort" : "Models"} words={selectedWords("accounts.defaultEffort")} writable={writable} narrow={narrow} icon={Gauge}
         note="How much reasoning the model uses." columns={columns} />
