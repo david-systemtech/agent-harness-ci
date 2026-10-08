@@ -36,7 +36,7 @@ const signInAgain = (account: AccountRecord): SetupTarget => ({ action: "sign-in
 const accountPresent = (accounts: readonly AccountRecord[]): StateCheckAnswer =>
   accounts.length > 0 || { reason: "No account is added on this environment: Sign in adds one." };
 
-/** Every account is signed in: each that is not is named, in the store's order, with Sign in again. */
+/** Every account is signed in: each that is not is named, in the store's order, with Sign in again, or Check again for one whose status could not be read. */
 const everySignedIn = (accounts: readonly AccountRecord[]): StateCheckAnswer => {
   const lines: string[] = [];
   const details: string[] = [];

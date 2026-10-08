@@ -53,7 +53,7 @@ const scriptedRegistry = () => {
   };
   const setupSteps: SetupSteps = {
     steps: [
-      scriptedStep("account", { stateChecks: [{ id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again"] }] }),
+      scriptedStep("account", { stateChecks: [{ id: "account.signed-in", holds: "All your accounts are signed in.", actions: ["sign-in-again"] }] }),
       scriptedStep("permissions", { stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
       scriptedStep("appearance"),
     ],
@@ -207,7 +207,12 @@ describe("environment.subscribe's snapshot", () => {
     // The start pass is under way: Account's check waits on its late state check.
     await late.call(1);
     const [permissions, appearance] = (await snapshot(t, client)).setup ?? [];
-    expect(permissions).toMatchObject({ step: "permissions", state: "needs-attention", reason: "Could not check permissions.denylist: the denylist cannot be read." });
+    expect(permissions).toMatchObject({
+      step: "permissions",
+      state: "needs-attention",
+      reason: "agent-harness could not finish checking this step. Choose Check again.",
+      details: ["permissions.denylist: the denylist cannot be read"],
+    });
     expect(appearance).toMatchObject({ step: "appearance", state: "done" });
     expect((await snapshot(t, client)).setup).toHaveLength(2);
 

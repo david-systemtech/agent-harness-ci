@@ -216,7 +216,7 @@ describe("a result in a newer environment's vocabulary", () => {
     actions: ["sign-in-again", "check-again"],
     checkedAt: "2026-09-29T08:00:00.000Z",
   } as const;
-  const done = { step: "account", state: "done", reason: "Every account is signed in.", failing: [], actions: [], checkedAt: "2026-09-29T08:00:00.000Z" } as const;
+  const done = { step: "account", state: "done", reason: "All your accounts are signed in.", failing: [], actions: [], checkedAt: "2026-09-29T08:00:00.000Z" } as const;
 
   it("offers no action this build does not know, nor a target serving one, and setup.check's answer reads whole", () => {
     const rotate = { action: "rotate-token", kind: "forge-account", id: "https://git.example.com", label: "david on git.example.com" };

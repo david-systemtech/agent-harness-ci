@@ -76,7 +76,7 @@ interface LooseStep {
   readonly writes: readonly string[];
   readonly writesState?: readonly { readonly method: string; readonly parts: readonly string[] }[];
   readonly confirms?: readonly { readonly key: string; readonly value: unknown; readonly sentence: string; readonly acknowledgement: string; readonly records: string }[];
-  readonly checks: readonly { readonly key: string; readonly check: (value: unknown) => true | string }[];
+  readonly checks: readonly { readonly key: string; readonly check: (value: unknown) => true | { readonly reason: string; readonly details: readonly string[] } }[];
   readonly stateChecks: readonly { readonly id: string; readonly holds: string; readonly actions: readonly string[] }[];
   readonly links: readonly ({ readonly row: string } | { readonly step: string })[];
   readonly skippable: boolean;

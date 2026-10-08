@@ -192,7 +192,8 @@ describe("binding", () => {
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
     expect((await client.request("setup.check", { step: "your-machines" })).results[0]).toMatchObject({
       state: "needs-attention",
-      reason: "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20): pick one it holds, or turn LAN binding off.",
+      reason: "The network address 192.0.2.10 is no longer on this computer.",
+      details: ["network.bindLan: 192.0.2.10", "Addresses this computer holds: 192.168.1.20"],
       failing: ["your-machines.lan"],
       actions: ["check-again"],
     });

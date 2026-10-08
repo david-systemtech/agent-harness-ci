@@ -24,8 +24,8 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   return t;
 };
 
-/** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
-const ALL_HOLD = "Every account is signed in.";
+/** The step's line when every check holds on one account: what was found, never its checks' conditions (#1698; setup-copy.md §5.1). */
+const ONE_HOLDS = "claude-max is signed in.";
 
 /** An environment holding `ids` as configured accounts, each answering its status as `status` scripts it; with its client. */
 const withAccounts = async (ids: readonly string[], status: (account: AccountRef) => AuthStatus) => {
@@ -58,7 +58,7 @@ describe("the Account step with no account", () => {
 describe("the Account step with accounts", () => {
   it("is done with one account signed in", async () => {
     const { client } = await withAccounts(["claude-max"], (account) => signedInAs(`${account.id}@example.com`));
-    expect(await checkAccount(client)).toEqual({ step: "account", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    expect(await checkAccount(client)).toEqual({ step: "account", state: "done", reason: ONE_HOLDS, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
   });
 
   it("names one expired account with Sign in again targeting it", async () => {
@@ -74,7 +74,7 @@ describe("the Account step with accounts", () => {
     });
   });
 
-  it("names each account signed out, expired or unreadable, in the store's order, and not one signed in", async () => {
+  it("names each account signed out, expired or unreadable, in the store's order, and not one signed in, offering Check again for the unreadable one, its error in details", async () => {
     const statuses: Record<string, AuthStatus> = {
       personal: signedInAs("personal@example.com"),
       work: signedInAs(null),
@@ -87,10 +87,11 @@ describe("the Account step with accounts", () => {
       step: "account",
       state: "needs-attention",
       reason:
-        "work is signed out: Sign in again. The sign-in of lab has expired: Sign in again. The status of spare could not be read (The binary could not be run): Sign in again.",
+        "work is signed out: Sign in again. The sign-in of lab has expired: Sign in again. agent-harness could not read spare's sign-in. Choose Check again.",
+      details: ["spare: The binary could not be run."],
       failing: ["account.signed-in"],
-      actions: ["sign-in-again"],
-      targets: [target("work"), target("lab"), target("spare")],
+      actions: ["sign-in-again", "check-again"],
+      targets: [target("work"), target("lab")],
       checkedAt: MANUAL_CLOCK_START,
     });
   });

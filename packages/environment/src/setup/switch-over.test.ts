@@ -54,7 +54,7 @@ describe("switch-over's eleven callable Health checks (#1192)", () => {
     expect(results.map((result) => result.step)).toEqual(STEP_ORDER);
     for (const result of results) {
       expect(result.state, result.step).toBe("needs-attention");
-      expect(result.reason, result.step).toContain("Could not check");
+      expect(result.reason, result.step).toBe("agent-harness could not finish checking this step. Choose Check again.");
       expect(result.failing.length, result.step).toBeGreaterThan(0);
       expect(result.failing.every((id) => id.startsWith(`${result.step}.`)), result.step).toBe(true);
     }
@@ -180,7 +180,7 @@ describe("the registered checks on the Environment clock", () => {
     expect((await snapshot(t, client)).setup!.find((result) => result.step === "instructions")).toEqual(good);
     t.clock.advance(1);
     const failed = await checking;
-    expect(failed).toMatchObject({ state: "needs-attention", reason: "could not check: timed out after 5 s", failing: ["instructions.orientation-renders"], actions: ["check-again"], lastGood: { state: "done", reason: good.reason, checkedAt: good.checkedAt } });
+    expect(failed).toMatchObject({ state: "needs-attention", reason: "Checking took too long. Choose Check again.", failing: ["instructions.orientation-renders"], actions: ["check-again"], lastGood: { state: "done", reason: good.reason, checkedAt: good.checkedAt } });
     expect(await changed("instructions")).toEqual(failed);
     finish({ text: "# Orientation", unreadRegistries: [] });
     expect((await snapshot(t, client)).setup!.find((result) => result.step === "instructions")).toEqual(failed);

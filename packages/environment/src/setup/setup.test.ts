@@ -67,8 +67,8 @@ describe("setup.check", () => {
     ]);
     for (const result of results) expect(result.checkedAt, result.step).toBe(MANUAL_CLOCK_START);
     const permissions = results.find((result) => result.step === "permissions");
-    // The default is off on a machine whose probe cannot enforce workspace: the line says so, never "enforced" (#1698).
-    expect(permissions?.reason).toBe("Containment is off, and the denylist holds its presets.");
+    // The default is off on a machine whose probe cannot enforce workspace: the line says so, never that agents are sandboxed (#1698).
+    expect(permissions?.reason).toBe("Set. Agents are not sandboxed.");
   });
 
   it("checks one step when asked for it, at the time it runs", async () => {
@@ -90,37 +90,44 @@ describe("setup.check", () => {
 });
 
 describe("the Your machines step's health line", () => {
-  it("reports not-root from what permissions.settings.get answers as isRoot, and when done says the version it is ready on, its updates and its reach (#1698)", async () => {
+  it("reports not-root from what permissions.settings.get answers as isRoot, and when done says the computer is ready by its name and its updates, its version and reach in details (#1698, #1836)", async () => {
     const t = await start({ harnessVersion: "0.1.3" });
     const client = await t.client();
     expect((await client.request("permissions.settings.get", {})).isRoot).toBe(false);
     // With auto-update off, the release channel's check holds without a check (#346).
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
+    const name = "Desk";
+    await client.request("environment.rename", { commandId: randomUUID(), name });
     expect(await check(client, "your-machines")).toMatchObject({
       state: "done",
-      reason: "Ready on 0.1.3, updates off, reachable from this machine only.",
+      reason: `${name} is ready. Automatic updates are off.`,
+      details: ["Version: 0.1.3", "Updates: off", "Reachable from: this computer only"],
       failing: [],
     });
   });
 });
 
 describe("each step's line when done (#1698)", () => {
-  it("says what was found in one sentence, never the checks' conditions joined, Carry over naming a source data folder nothing was brought over from", async () => {
+  it("says what was found in plain words, never the checks' conditions joined, Carry over saying what a source data folder nothing was brought over from holds, its path in details (#1836)", async () => {
     const dataFolder = tempDir();
     writeFileSync(join(dataFolder, "profiles.json"), JSON.stringify({ version: 1, profiles: ["a", "b", "c"].map((id) => ({ id, providerId: "claude", configDir: join(dataFolder, id) })) }));
     writeFileSync(join(dataFolder, "memory-banks.json"), JSON.stringify({ version: 1, banks: [{ slug: "notebook" }], default: "notebook" }));
     const t = await start({ harnessVersion: "0.1.3", stateImportSource: machinePointedAt({ dataFolder, home: tempDir() }) });
     const client = await t.client();
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
+    const name = "Desk";
+    await client.request("environment.rename", { commandId: randomUUID(), name });
     const { results } = await client.request("setup.check", {});
-    expect(Object.fromEntries(results.filter((result) => result.state === "done").map((result) => [result.step, result.reason]))).toEqual({
-      account: "Every account is signed in.",
-      "carry-over": `Past work found in ${dataFolder}: 3 profiles, 1 bank. Not brought over yet.`,
-      "your-machines": "Ready on 0.1.3, updates off, reachable from this machine only.",
-      instructions: "The orientation block renders.",
-      permissions: "Containment is off, and the denylist holds its presets.",
-      appearance: "The theme meets the contrast rules.",
+    const done = results.filter((result) => result.state === "done");
+    expect(Object.fromEntries(done.map((result) => [result.step, result.reason]))).toEqual({
+      account: "claude-max is signed in.",
+      "carry-over": "Found earlier work you can bring over: 3 profiles, 1 bank.",
+      "your-machines": `${name} is ready. Automatic updates are off.`,
+      instructions: "Agents get your notes and a summary of this computer.",
+      permissions: "Set. Agents are not sandboxed.",
+      appearance: "Your theme is easy to read.",
     });
+    expect(done.find((result) => result.step === "carry-over")?.details).toEqual([`Folder: ${dataFolder}`]);
     for (const result of results.filter((each) => each.state === "done")) expect(result.reason, result.step).not.toMatch(/\bor\b/);
   });
 });
@@ -130,7 +137,7 @@ describe("the Permissions step's check", () => {
     const t = await start();
     const client = await t.client();
     expect((await client.request("permissions.settings.get", {})).values["permissions.containment.default"]).toBe("off");
-    expect(await check(client, "permissions")).toMatchObject({ state: "done", reason: "Containment is off, and the denylist holds its presets." });
+    expect(await check(client, "permissions")).toMatchObject({ state: "done", reason: "Set. Agents are not sandboxed.", details: ["permissions.containment.default: off"] });
   });
 
   it("needs attention when the default is workspace and the probe finds no mechanism, naming containment with the Linux package hint", async () => {
@@ -138,7 +145,7 @@ describe("the Permissions step's check", () => {
     const first = await startTestEnvironment({ dataDir, containment: bubblewrapProbe() });
     const admin = await first.client();
     expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } })).receipt).toMatchObject({ status: "accepted" });
-    expect(await check(admin, "permissions")).toMatchObject({ state: "done", reason: "Sessions are contained to their workspace, and the denylist holds its presets." });
+    expect(await check(admin, "permissions")).toMatchObject({ state: "done", reason: "Set. Agents stay inside the project folder." });
     await first.close();
 
     // The same environment started again on a machine where bubblewrap is gone: the stored default no longer holds.
@@ -196,7 +203,7 @@ describe("the Permissions step's check", () => {
     });
     expect((await admin.request("permissions.denylist.get", {})).denylist.browserDomains).toEqual([]);
     // Its line names the section the person emptied rather than saying the denylist is whole (#1698).
-    expect(await check(admin, "permissions")).toMatchObject({ state: "done", failing: [], reason: "Containment is off, and the denylist's browser domains section is emptied." });
+    expect(await check(admin, "permissions")).toMatchObject({ state: "done", failing: [], reason: "Set. Agents are not sandboxed. You emptied the browser domains always-ask list." });
   });
 
   it("is never skipped, even on a fresh environment where Forges, with no forge account, is", async () => {
@@ -222,7 +229,7 @@ describe("the Appearance step's check (ADR 0023; #391)", () => {
     expect((await client.request("settings.get", { keys: ["appearance.theme"] })).values["appearance.theme"]).toEqual(DEFAULT_THEME);
     expect(await check(client, "appearance")).toMatchObject({
       state: "done",
-      reason: "The theme meets the contrast rules.",
+      reason: "Your theme is easy to read.",
       failing: [],
       actions: [],
     });
@@ -326,7 +333,8 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     expect(timedOut).toEqual({
       step: "account",
       state: "needs-attention",
-      reason: "could not check: timed out after 5 s",
+      reason: "Checking took too long. Choose Check again.",
+      details: ["Stopped after 5 seconds."],
       failing: ["account.late"],
       actions: ["check-again"],
       checkedAt: after(4_999),
@@ -335,10 +343,10 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
   });
 
   it.each([
-    ["local", 5_000, "could not check: timed out after 5 s"],
-    ["network", 10_000, "could not check: timed out after 10 s"],
-    ["git", 30_000, "could not check: timed out after 30 s"],
-  ] as const)("times a step of the %s budget class out at its seconds and never before, the line naming them", async (budget, ms, line) => {
+    ["local", 5_000, "Stopped after 5 seconds."],
+    ["network", 10_000, "Stopped after 10 seconds."],
+    ["git", 30_000, "Stopped after 30 seconds."],
+  ] as const)("times a step of the %s budget class out at its seconds and never before, the line saying it took too long, its details naming them", async (budget, ms, stopped) => {
     const late = lateCheck();
     const t = await start({
       setupSteps: {
@@ -357,7 +365,13 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     const timedOut = check(client, "account");
     await late.call(3);
     t.clock.advance(ms);
-    expect(await timedOut).toMatchObject({ state: "needs-attention", reason: line, failing: ["account.late"], actions: ["check-again"] });
+    expect(await timedOut).toMatchObject({
+      state: "needs-attention",
+      reason: "Checking took too long. Choose Check again.",
+      details: [stopped],
+      failing: ["account.late"],
+      actions: ["check-again"],
+    });
   });
 
   it("carries no last good result on a timeout when none is cached, the cached result needing attention with none, and a late answer that holds does not become one", async () => {
@@ -374,7 +388,7 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     const call = await late.call(2);
     t.clock.advance(5_000);
     const result = await first;
-    expect(result).toMatchObject({ state: "needs-attention", reason: "could not check: timed out after 5 s" });
+    expect(result).toMatchObject({ state: "needs-attention", reason: "Checking took too long. Choose Check again." });
     expect(result).not.toHaveProperty("lastGood");
 
     call.answer(true);
@@ -409,7 +423,8 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     (await present.call(3)).fail(new Error("the store is locked"));
     expect(await failing).toMatchObject({
       state: "needs-attention",
-      reason: "Could not check account.present: the store is locked.",
+      reason: "agent-harness could not finish checking this step. Choose Check again.",
+      details: ["account.present: the store is locked"],
       lastGood: { state: "skipped", reason: "No account is added.", checkedAt: MANUAL_CLOCK_START },
     });
 
@@ -446,7 +461,7 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     slowCall.answer(true);
     expect((await first).results.map((result) => [result.step, result.state, result.reason])).toEqual([
       ["account", "done", "Set up here."],
-      ["your-machines", "needs-attention", "could not check: timed out after 5 s"],
+      ["your-machines", "needs-attention", "Checking took too long. Choose Check again."],
       ["appearance", "done", "Set up here."],
     ]);
 
@@ -456,7 +471,7 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     await answersSettled();
     t.clock.advance(10_000);
     expect((await second).results.map((result) => [result.step, result.state, result.reason])).toEqual([
-      ["account", "needs-attention", "could not check: timed out after 10 s"],
+      ["account", "needs-attention", "Checking took too long. Choose Check again."],
       ["your-machines", "done", "Set up here."],
       ["appearance", "done", "Set up here."],
     ]);
@@ -489,9 +504,10 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     expect(await result).toEqual({
       step: "permissions",
       state: "needs-attention",
-      reason: "Could not check permissions.late: the probe went away. Could not check permissions.throws: the log is closed.",
+      reason: "agent-harness could not finish checking this step. Choose Check again.",
+      details: ["permissions.late: the probe went away", "permissions.throws: the log is closed"],
       failing: ["permissions.late", "permissions.throws"],
-      actions: ["restore"],
+      actions: ["check-again"],
       checkedAt: MANUAL_CLOCK_START,
     });
   });
@@ -552,14 +568,15 @@ describe("a skippable step's skip check (#308)", () => {
     (await present.call(2)).fail(new Error("the store is locked"));
     expect(await rejected).toMatchObject({
       state: "needs-attention",
-      reason: "Could not check your-machines.present: the store is locked.",
+      reason: "agent-harness could not finish checking this step. Choose Check again.",
+      details: ["your-machines.present: the store is locked"],
       failing: ["your-machines.present"],
     });
 
     const timedOut = check(client, "your-machines");
     await present.call(3);
     t.clock.advance(5_000);
-    expect(await timedOut).toMatchObject({ state: "needs-attention", reason: "could not check: timed out after 5 s", failing: ["your-machines.present"], actions: ["check-again"] });
+    expect(await timedOut).toMatchObject({ state: "needs-attention", reason: "Checking took too long. Choose Check again.", failing: ["your-machines.present"], actions: ["check-again"] });
     expect(other.calls()).toBe(0);
   });
 });
@@ -571,7 +588,7 @@ describe("the items a result's actions apply to (#568)", () => {
     steps: [
       scriptedStep("account", {
         stateChecks: [
-          { id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again" as const] },
+          { id: "account.signed-in", holds: "All your accounts are signed in.", actions: ["sign-in-again" as const] },
           { id: "account.sources", holds: "Every source is pulled.", actions: ["pull-now" as const, "sign-in-again" as const] },
         ],
       }),

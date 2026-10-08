@@ -34,7 +34,7 @@ import { describeRepositoryAt } from "./describe-repository.js";
 const { onCleanup, tempDir } = useCleanups();
 
 /** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
-const ALL_HOLD = "Every bank is reachable.";
+const ALL_HOLD = "Your notebook is ready.";
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
@@ -127,7 +127,8 @@ describe("the Memory bank step's checks", () => {
     expect(await checkMemoryBank(client)).toEqual({
       step: "memory-bank",
       state: "done",
-      reason: ALL_HOLD,
+      reason: "Your 2 notebooks are ready.",
+      details: ["maya-memory", "acme"],
       failing: [],
       actions: ["revise"],
       targets: [target("revise", personal), target("revise", team)],
@@ -372,7 +373,7 @@ describe("the Memory bank step's checks", () => {
     t.clock.advance(30_000);
     expect(await answer).toMatchObject({
       state: "needs-attention",
-      reason: "could not check: timed out after 30 s",
+      reason: "Checking took too long. Choose Check again.",
       failing: ["memory-bank.reachable", "memory-bank.manifest", "memory-bank.orientation", "memory-bank.owners", "memory-bank.landing"],
       actions: ["check-again"],
       lastGood: { state: "done", reason: ALL_HOLD, checkedAt: MANUAL_CLOCK_START },
@@ -707,6 +708,7 @@ describe("the describe session", () => {
       step: "memory-bank",
       state: "done",
       reason: ALL_HOLD,
+      details: ["maya-memory"],
       failing: [],
       actions: ["revise"],
       // The bank takes the name its landed BANK.md gives it.

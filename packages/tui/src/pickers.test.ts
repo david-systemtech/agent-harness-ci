@@ -708,11 +708,11 @@ describe("/setup", () => {
     await app.waitFor("Set up on desk: 7 of 9 done, 1 need attention (Permissions). Run it in the desktop window.");
     await command(app, "/setup");
     await app.waitFor(/Account.*done/);
-    await app.waitFor("Choose your agent’s account");
+    await app.waitFor("Sign in to Claude");
     // Outcome hints make rows two lines; move to the steps below the fold.
     for (let row = 0; row < 6; row++) await app.press(KEY.down);
     await app.waitFor(/Browser.*skipped/);
-    await app.waitFor("See and use web pages");
+    await app.waitFor("Let agents use Chrome");
     await app.press(KEY.down);
     await app.waitFor(/Permissions.*needs attention.*The denylist could not be read\./);
     await app.waitFor("7 done, 1 needs attention, 1 skipped");

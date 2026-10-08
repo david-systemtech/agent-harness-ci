@@ -324,7 +324,8 @@ describe("updates.begin", () => {
     expect(t.env.readiness()).toBe("draining");
     // The host-side updater's own check fails beside it here: no updater has polled this container.
     expect(result).toMatchObject({ state: "needs-attention", failing: ["your-machines.host-updater", "your-machines.ready"], actions: ["check-again"] });
-    expect(result?.reason).toContain("The environment has been draining since 2026-09-24 00:00 UTC, past its 30-minute cap: Check again once it has restarted.");
+    expect(result?.reason).toContain("agent-harness has been restarting for over 30 minutes. Choose Check again once it is back.");
+    expect(result?.details).toContain("Restarting since: 2026-09-24T00:00:00.000Z");
   });
 
   it("keeps the process running once its runs are done: no client hears bye, and the environment stays open, draining", async () => {

@@ -68,8 +68,8 @@ const labelOn = (bao: FakeOpenBao, label = "OpenBao"): string => `${label} at ${
 /** The target of `action` on `connection`, labelled as on `bao`. */
 const targetOf = (action: string, connection: KeyManagerConnectionRecord, bao: FakeOpenBao) => ({ action, kind: "key-manager-connection", id: connection.id, label: labelOn(bao, connection.label) });
 
-/** The step's line when every check holds: one sentence of what was found, never its checks' conditions (#1698). */
-const ALL_HOLD = "Every key-manager connection is signed in and reachable.";
+/** The step's line when every check holds on its one connection: what was found, never its checks' conditions (#1698; setup-copy.md §5.7). */
+const ALL_HOLD = "Connected to OpenBao.";
 
 /** The manual clock's time `ms` after its start. */
 const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
@@ -112,7 +112,7 @@ posix("the Key manager step with connections", () => {
     await added(client, { address: other.address, ca: other.ca, credential: approle() });
     const asked = [bao.requests.length, other.requests.length];
 
-    expect(await checkKeyManager(client)).toEqual({ step: "key-manager", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    expect(await checkKeyManager(client)).toEqual({ step: "key-manager", state: "done", reason: "2 key managers connected.", details: ["OpenBao"], failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
     const lookUps = (fake: FakeOpenBao, from: number) => fake.requests.slice(from).filter((request) => request.path === "auth/token/lookup-self");
     expect([lookUps(bao, asked[0] ?? 0), lookUps(other, asked[1] ?? 0)]).toEqual([[{ method: "GET", path: "auth/token/lookup-self" }], [{ method: "GET", path: "auth/token/lookup-self" }]]);
   });
@@ -299,7 +299,8 @@ posix("the verification setup.check awaits (ADR 0031's ten seconds)", () => {
     expect(timedOut).toEqual({
       step: "key-manager",
       state: "needs-attention",
-      reason: "could not check: timed out after 10 s",
+      reason: "Checking took too long. Choose Check again.",
+      details: ["Stopped after 10 seconds."],
       failing: ["key-manager.signed-in", "key-manager.reachable", "key-manager.run-tokens", "key-manager.cli"],
       actions: ["check-again"],
       checkedAt: after(MINUTE),
