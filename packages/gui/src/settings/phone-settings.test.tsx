@@ -97,14 +97,14 @@ it("opens the full web checklist and exposes all eleven registered steps from it
   const drawer = await screen.findByRole("dialog", { name: "Set up steps" });
   expect(within(drawer).getByRole("navigation", { name: "Set up steps" }).querySelectorAll("li")).toHaveLength(11);
   await app.user.click(within(drawer).getByRole("button", { name: "Permissions" }));
-  expect(await within(setup).findByRole("heading", { name: "Permissions" })).toBeDefined();
+  expect(await within(setup).findByRole("region", { name: "Permissions" })).toBeDefined();
   expect(within(setup).getByRole("button", { name: "Continue" })).toBeDefined();
   for (const step of STEP_ORDER) {
     await app.user.click(within(setup).getByRole("button", { name: "Set up steps" }));
     const navigation = await screen.findByRole("dialog", { name: "Set up steps" });
     await app.user.click(within(navigation).getByRole("button", { name: STEP_LABELS[step] }));
-    expect(await within(setup).findByRole("heading", { name: STEP_LABELS[step], level: 2 })).toBeDefined();
-    expect(within(setup).getByRole("button", { name: step === "appearance" ? "Finish" : "Continue" })).toBeDefined();
+    expect(await within(setup).findByRole("region", { name: STEP_LABELS[step] })).toBeDefined();
+    expect(within(setup).getByRole("button", { name: step === "appearance" ? "Finish set up" : "Continue" })).toBeDefined();
   }
   expect(screen.queryByRole("button", { name: /Run here|Start service|Install service/i })).toBeNull();
 });

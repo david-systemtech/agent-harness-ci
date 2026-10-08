@@ -1,4 +1,5 @@
 import type { BankJoinPreview, CarryOverInventory, StepId, StepResult } from "@agent-harness/contracts";
+import type { ScriptedSetup } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
@@ -20,12 +21,23 @@ export const joinPreview: BankJoinPreview = {
   rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
 };
 
-type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "sign-in-refused" | "host-updater";
+type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" | "sign-in" | "sign-in-refused" | "host-updater" | "rail-states";
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
 const NEVER_POLLED: Partial<StepResult> = {
   state: "needs-attention", reason: "This container is not kept up to date yet. Set up the updater on the host computer.",
   failing: ["your-machines.host-updater"], actions: ["how-to-set-up", "check-again"],
+};
+
+/**
+ * setup-copy.md §4.4: the rail with every state a computer's results give at once, Done, Needs a fix, Not set up,
+ * Checking and Not available (a step its version does not have), the last one shown (#1839).
+ */
+const RAIL_STATES: ScriptedSetup = {
+  "carry-over": { state: "needs-attention", reason: "2 chats could not be read. Choose Check again." },
+  "your-machines": { state: "skipped", reason: "Only on this computer." },
+  forges: { state: "pending", reason: "Checking…" },
+  "key-manager": null,
 };
 
 /** A provider's authorize link at its real length, which once printed over eight lines (#1690); every value is invented. */
@@ -36,7 +48,7 @@ export const SIGN_IN_URL = "https://provider.example.test/oauth/authorize?code=t
 /** Full checklist, real cards and a frozen scripted environment; look.md §12 and §13. */
 async function prepareRegion(kind: SetupRegion) {
   const signIn = kind === "sign-in" || kind === "sign-in-refused";
-  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || signIn ? "account" : kind === "host-updater" ? "your-machines" : kind;
+  const target: StepId = kind === "bank-preview" || kind === "authoring" ? "memory-bank" : kind === "close-confirmation" || signIn ? "account" : kind === "host-updater" ? "your-machines" : kind === "rail-states" ? "key-manager" : kind;
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["setup", "banks", "browser", "workspaceChecks"],
     accounts: kind === "account" || kind === "close-confirmation" ? [] : signIn
@@ -44,6 +56,7 @@ async function prepareRegion(kind: SetupRegion) {
       : [{ label: "Project", directory: { kind: "adopted", path: "/accounts/project" } }],
     sessions: kind === "authoring" ? [{ title: "Set up: Memory bank", tags: ["setup", "memory-bank"] }] : [],
     ...(kind === "host-updater" && { setup: { "your-machines": NEVER_POLLED } }),
+    ...(kind === "rail-states" && { setup: RAIL_STATES }),
   }] }, { firstLaunch: true });
   const desk = prepared.world.environment("desk");
   desk.wire.answer("browser.status", () => ({ result: {

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ENVIRONMENT_STREAM_KIND, registry, type BankRecord, type EventFrame, type Frame, type ParamsOf, type ResponseOf, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { changed, markdown, PERSONAL_BANK, personalManifest, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
+import { changed, markdown, PERSONAL_BANK, personalManifest, TEAM_BANK, teamManifest } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
@@ -16,6 +16,7 @@ import type { WireClient } from "../../test/wire-client.js";
 import { branchesOf, git } from "../../test/workspaces.js";
 import * as gitRunner from "../workspace/git.js";
 import { TRIGGER_WINDOW_MS } from "../setup/scheduler.js";
+import { forgeAccountMissing } from "../forge/missing-origins.js";
 import { describeRepositoryAt } from "./describe-repository.js";
 
 /**
@@ -352,6 +353,62 @@ describe("the Memory bank step's checks", () => {
     expect(await checkMemoryBank(client)).toMatchObject({ failing: ["memory-bank.landing"] });
     appendBankEvent(t, "bank.landed", { bankId: bank.id, sessionId: null, pullRequest: null, files: ["projects/personal/homelab/memories/backup-schedule.md"] });
     expect(await checkMemoryBank(client)).toMatchObject({ state: "done", failing: [] });
+  });
+
+  it("keeps a landing refused for want of a forge account while no forge account here covers the bank's origin, even where the bank reads reachable", async () => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    const t = await start();
+    const client = await t.client();
+    const checkout = teamBank(forge);
+    forge.answer(null, "GET /api/v1/repos/acme/bank", { status: 200, body: { full_name: "acme/bank", private: false, default_branch: "main", html_url: `${forge.origin}/acme/bank` } });
+    const bank = await register(client, checkout);
+    const reason = forgeAccountMissing(forge.origin, "it asked for a credential").message;
+    appendBankEvent(t, "bank.landing-failed", { bankId: bank.id, sessionId: null, step: "fetch", reason });
+    expect(await checkMemoryBank(client)).toMatchObject({
+      reason: `The last change to acme could not be saved to ${new URL(forge.origin).host}.`,
+      details: [`acme: fetch: ${reason}`],
+      failing: ["memory-bank.landing"],
+      targets: [target("check-again", bank)],
+    });
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.status).toMatchObject({ reachable: { state: "reachable" }, landing: { state: "failed", step: "fetch", reason } });
+  });
+
+  it.each([
+    ["now", (origin: string) => forgeAccountMissing(origin, "it asked for a credential").message],
+    ["before #1850 reworded it", (origin: string) => `No forge account on this environment covers ${origin}, and it asked for a credential: add one in Set up, Forges.`],
+  ])("clears a landing refused for want of a forge account, worded as %s, once one here covers the bank's origin and the bank reads reachable (#1900)", async (_wording, refusal) => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, teamBank(forge));
+    appendBankEvent(t, "bank.landing-failed", { bankId: bank.id, sessionId: null, step: "fetch", reason: refusal(forge.origin) });
+    expect(await checkMemoryBank(client)).toMatchObject({ failing: ["memory-bank.reachable", "memory-bank.landing"] });
+    forge.user(TOKEN, DAVID);
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "done", failing: [], reason: ALL_HOLD });
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.status).toMatchObject({ reachable: { state: "reachable" }, landing: { state: "ok" } });
+  });
+
+  it("keeps a landing refused for want of a forge account on another origin, and any other failure, once the bank's own origin is covered", async () => {
+    const t = await start();
+    const client = await t.client();
+    const forge = await forgeFor(client);
+    const team = await register(client, teamBank(forge));
+    // A second remote bank on the same covered forge, so only the refusal's origin keeps it.
+    const beta = gitBank(changed(TEAM_BANK, { "BANK.md": markdown(teamManifest({ name: "beta" }), "\n# How agents use this bank\n") }), "beta");
+    git(beta, "remote", "add", "origin", `${forge.origin}/acme/beta.git`);
+    forge.repository(TOKEN, "acme/beta");
+    const other = await register(client, beta);
+    const elsewhere = forgeAccountMissing("https://other.example.test", "it asked for a credential").message;
+    appendBankEvent(t, "bank.landing-failed", { bankId: team.id, sessionId: null, step: "push", reason: "The forge refused the push." });
+    appendBankEvent(t, "bank.landing-failed", { bankId: other.id, sessionId: null, step: "fetch", reason: elsewhere });
+    expect(await checkMemoryBank(client)).toMatchObject({
+      failing: ["memory-bank.landing"],
+      details: ["acme: push: The forge refused the push.", `beta: fetch: ${elsewhere}`],
+    });
+    expect((await client.request("banks.get", { bankId: other.id })).bank.status).toMatchObject({ reachable: { state: "reachable" }, landing: { state: "failed", reason: elsewhere } });
   });
 
   it("names every failing bank in one line, each check's lines in the registry's order", async () => {

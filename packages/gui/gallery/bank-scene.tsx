@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
 import { STEP_CARDS } from "../src/setup/cards.js";
 import { useChecklist } from "../src/setup/checklist-window.js";
+import type { SceneViewport } from "./scene-registry.js";
+import { settingsGeometry } from "./settings-scene.js";
 import { prepareWorld, startWorld } from "./world.js";
 
 const since = "2026-10-02T00:00:00.000Z";
@@ -30,8 +32,8 @@ const OpenBank = () => {
   return null;
 };
 
-/** The live app and bank workflows over fake records; no browser or service is launched. */
-export async function bankScene(setup: boolean) {
+/** The live app and bank workflows over fake records, `listed` in place of the two notebooks where given; no browser or service is launched. */
+export async function bankScene(setup: boolean, listed?: (personal: BankRecord) => readonly BankRecord[]) {
   const prepared = await prepareWorld({ environments: [{
     name: "desk", reach: "local", capabilities: ["banks", "forge", "setup"],
     ...(setup ? { setup: { "memory-bank": { state: "skipped" as const, reason: "No banks attached yet." } } } : {}),
@@ -41,7 +43,8 @@ export async function bankScene(setup: boolean) {
   const desk = prepared.world.environment("desk");
   const personal = notebook();
   const shared = team(personal);
-  desk.wire.answer("banks.list", () => ({ result: { banks: setup ? [] : [personal, shared] } }));
+  const banks = setup ? [] : listed?.(personal) ?? [personal, shared];
+  desk.wire.answer("banks.list", () => ({ result: { banks } }));
   const holders = await startWorld(prepared, prepared.paired);
   return function BankScene({ ladder }: { readonly ladder: LadderName }) {
     const [ready, setReady] = useState(false);
@@ -79,3 +82,12 @@ export async function bankScene(setup: boolean) {
     return <>{ready && <span hidden data-bank-scene-ready />}<App {...holders} clock={prepared.clock} shell={prepared.shell} version={prepared.version} macOS={false} stepCards={setup ? { ...STEP_CARDS, account: OpenBank } : STEP_CARDS} /></>;
   };
 }
+
+/** look.md §12.1–12.3: bounded Settings, bank cards and compact facts. */
+export const bankSettingsGeometry = (viewport: SceneViewport) => [
+  ...settingsGeometry(viewport),
+  { selector: "[data-bank-content]", width: Math.min(viewport.width >= 1280 ? 1440 : 1000, viewport.width - 48) - 256 },
+  { selector: "[data-bank-card]", width: viewport.width >= 1280 ? 541 : 720, contentFits: true },
+  { selector: "[data-bank-card]", paddingLeft: 16, paddingTop: 16 },
+  { selector: "[data-bank-card] button[data-size='default']", height: 32 },
+];

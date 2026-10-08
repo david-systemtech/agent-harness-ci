@@ -118,6 +118,13 @@ export interface SetupStepView {
   readonly result: SetupResultView | null;
   /** This client asked `setup.check` about it half a second ago or more, and has had no answer yet. Never for a check this client did not ask. */
   readonly pending: boolean;
+  /**
+   * The environment's version does not have it: this client's latest
+   * `setup.check` of every step was answered without it, and it has no
+   * result. Never while no such answer has come, so a result still on its
+   * way is not missing.
+   */
+  readonly missing: boolean;
 }
 
 /** The registered steps by state, and the ones needing attention by id, in the checklist's order. */
@@ -254,6 +261,8 @@ export const createSetup = (host: SetupHost): Setup => {
   /** What this client's own checks answered, by environment and step: kept beside the stream's, since a result that only refreshes its checked-at is never noticed. */
   const answers = new Map<string, Map<StepId, StepResult>>();
   const asks = new Set<Ask>();
+  /** The steps the latest answer to a check of every step gave a result for, by environment: every step it registers. */
+  const covered = new Map<string, ReadonlySet<string>>();
   /** Moves whenever an answer is applied or an ask changes, so the views recompute. */
   const version = writable(0);
   const changed = () => version.update((n) => n + 1);
@@ -275,6 +284,7 @@ export const createSetup = (host: SetupHost): Setup => {
     };
     const now = host.now(environmentId).getTime();
     const asking = [...asks].filter((ask) => ask.environmentId === environmentId && ask.due);
+    const registers = covered.get(environmentId);
     const steps = STEP_ORDER.map((id): SetupStepView => {
       const held = latest(streamed.get(id), answered?.get(id));
       return {
@@ -285,6 +295,7 @@ export const createSetup = (host: SetupHost): Setup => {
         skippable: SKIPPABLE.has(id),
         result: held === undefined ? null : resultView(held, now, hearing),
         pending: asking.some((ask) => ask.step === undefined || ask.step === id),
+        missing: held === undefined && registers !== undefined && !registers.has(id),
       };
     });
     return { environmentId, reach, steps, counts: countsOf(steps) };
@@ -363,6 +374,7 @@ export const createSetup = (host: SetupHost): Setup => {
           const before = held.get(result.step);
           if (before === undefined || Date.parse(result.checkedAt) >= Date.parse(before.checkedAt)) held.set(result.step, result);
         }
+        if (step === undefined) covered.set(environmentId, new Set(answer.result.results.map((result) => result.step)));
       }
       // A failure within the half second changes nothing shown.
       if (answer.ok || ask.due) changed();
@@ -370,6 +382,7 @@ export const createSetup = (host: SetupHost): Setup => {
     },
     forget(environmentId) {
       answers.delete(environmentId);
+      covered.delete(environmentId);
       views.delete(environmentId);
       wakes.get(environmentId)?.cancel();
       wakes.delete(environmentId);
