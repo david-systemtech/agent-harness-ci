@@ -206,6 +206,9 @@ const DefaultColumns = ({ initial, narrow, writable, options, valueOf, save, acc
   </div>;
 };
 
+/** What a person focuses on purpose, as against a container that catches a dropped focus. */
+const CONTROL = "button, input, select, textarea, a[href], [role^='menuitem'], [contenteditable='true'], [tabindex]:not([tabindex='-1'])";
+
 /**
  * Where the keyboard goes once the list is drawn again after an edit: a
  * favourite's button, or (no `id`) Add a favourite. Where that is gone or
@@ -244,6 +247,9 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
     const last = touched.current;
     if (last === undefined || saving) return;
     touched.current = undefined;
+    // A control the person moved to before the answer keeps the keyboard; a dropped focus (the body, the dialog) is taken back.
+    const active = document.activeElement;
+    if (active?.matches(CONTROL) === true && section.current?.contains(active) === false) return;
     const row = last.id === undefined ? undefined : list.current?.querySelector<HTMLElement>(`[data-favourite="${CSS.escape(last.id)}"]`);
     const buttons = [...(row?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
     const adding = add.current?.disabled === false ? add.current : undefined;

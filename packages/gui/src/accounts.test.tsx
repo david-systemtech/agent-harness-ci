@@ -612,6 +612,8 @@ describe("Favourite models (ticket 1821)", () => {
     const button = (name: string) => within(section).getByRole("button", { name });
 
     // A second Remove before the first is answered is not taken; had it been, its list would bring Opus back.
+    // Pressed as a person would: the keyboard on it, then the click.
+    button("Remove Claude Opus 5").focus();
     fireEvent.click(button("Remove Claude Opus 5"));
     expect(button("Remove claude-sonnet-5").hasAttribute("disabled")).toBe(true);
     expect(button("Add a favourite").hasAttribute("disabled")).toBe(true);
@@ -646,6 +648,18 @@ describe("Favourite models (ticket 1821)", () => {
     const laptop = await openRow(app, "Default account and model", "laptop");
     const readOnly = await within(laptop).findByRole("region", { name: "Favourite models" });
     for (const button of within(readOnly).getAllByRole("button")) expect(button.hasAttribute("disabled"), button.getAttribute("aria-label") ?? "").toBe(true);
+  });
+
+  it("leaves the keyboard where the person took it before the write was answered", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5", "claude-sonnet-5"] } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-opus-5", "claude-sonnet-5"]));
+    fireEvent.click(within(section).getByRole("button", { name: "Remove Claude Opus 5" }));
+    const elsewhere = within(row).getByRole("button", { name: /^Default account:/ });
+    elsewhere.focus();
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5"]));
+    expect(document.activeElement).toBe(elsewhere);
   });
 
   it("keeps the keyboard in the section when the last favourite is removed and no signed-in account lists a model to add", async () => {
