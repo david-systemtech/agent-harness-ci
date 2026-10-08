@@ -1,4 +1,4 @@
-import type { PromptKind } from "@agent-harness/contracts";
+import { describeDenylistMatch, type DenylistMatch, type PromptKind } from "@agent-harness/contracts";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import type { LadderName } from "@agent-harness/theme";
 import { useEffect, useState } from "react";
@@ -6,6 +6,8 @@ import { App, type AppProps } from "../src/app.js";
 import { showSession } from "../src/grid/layout.js";
 import type { SceneGeometry } from "./scene-registry.js";
 import { prepareWorld, startWorld } from "./world.js";
+
+const protectedKey: DenylistMatch = { section: "paths", entry: { id: "private-keys", pattern: "/workspace/keys/**", note: "Protected keys", enabled: true, preset: false }, matched: "/workspace/keys/private-key" };
 
 const prompts: Readonly<Record<PromptKind, ScriptedPrompt>> = {
   permission: {
@@ -22,10 +24,10 @@ const prompts: Readonly<Record<PromptKind, ScriptedPrompt>> = {
     kind: "plan", summary: "Check the receipts", toolName: "ExitPlanMode", input: null, mode: "plan", ceiling: "acceptEdits",
     plan: "## Check the receipts\n\n" + Array.from({ length: 32 }, (_, at) => `${at + 1}. Compare the recorded amount with the summary and explain any difference.\n`).join("\n"),
   },
+  // As the environment's gate asks it: the summary and the reason both name the match as a sentence, which the card says once (#1905).
   denylist: {
-    kind: "denylist", summary: "Read a protected key", toolName: "Read", reason: "This path matches a denylist entry.",
-    input: { file_path: "/workspace/keys/private-key" }, blockedPath: "/workspace/keys/private-key",
-    denylist: [{ section: "paths", entry: { id: "private-keys", pattern: "/workspace/keys/**", note: "Protected keys", enabled: true, preset: false }, matched: "/workspace/keys/private-key" }],
+    kind: "denylist", summary: `Read: ${describeDenylistMatch(protectedKey)}`, toolName: "Read", reason: describeDenylistMatch(protectedKey),
+    input: { file_path: "/workspace/keys/private-key" }, denylist: [protectedKey],
   },
 };
 

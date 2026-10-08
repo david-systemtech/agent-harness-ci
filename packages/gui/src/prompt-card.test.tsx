@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
+import { describeDenylistMatch, type DenylistMatch } from "@agent-harness/contracts";
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions, type ScriptedEnvironment } from "../test/harness.js";
@@ -224,14 +225,17 @@ describe("an approval", () => {
   });
 
   // ADR 0006: the denylist holds in every mode, and the person present may allow a denylisted call once (#1820).
+  // As the environment's gate asks it: the summary and the reason both name the match as a sentence.
+  const matched: DenylistMatch = { section: "paths", entry: { id: "preset:data-directory", pattern: "/var/lib/harness", note: "The harness's own data directory: its event log, keys and accounts.", enabled: true, preset: true }, matched: "/var/lib/harness/sessions" };
   const dataDirectory: ScriptedPrompt = {
     kind: "denylist",
     toolName: "Bash",
     input: { command: "ls /var/lib/harness/sessions" },
-    summary: "Bash: ls /var/lib/harness/sessions",
+    summary: `Bash: ${describeDenylistMatch(matched)}`,
+    reason: describeDenylistMatch(matched),
     mode: "bypassPermissions",
     ceiling: "bypassPermissions",
-    denylist: [{ section: "paths", entry: { id: "preset:data-directory", pattern: "/var/lib/harness", note: "The harness's own data directory: its event log, keys and accounts.", enabled: true, preset: true }, matched: "/var/lib/harness/sessions" }],
+    denylist: [matched],
   };
 
   it("offers a denylist prompt of a bypassPermissions run Deny and Allow once, never remembered, and names its entry in words", async () => {
@@ -240,10 +244,11 @@ describe("an approval", () => {
     const shown = card() as HTMLElement;
     expect(within(shown).getByRole("heading").textContent).toBe("Denylist · Bash");
     expect(within(shown).getAllByRole("button", { name: /^(Deny|Allow)/ }).map((found) => found.getAttribute("aria-label") ?? found.textContent)).toEqual(["Deny", "Allow once"]);
+    // What was asked, then why it is on the denylist, then what the agent may do instead: each once (#1905).
+    expect(shown.textContent).toContain("Bash: /var/lib/harness/sessions");
+    expect(shown.textContent).not.toContain("is on the denylist");
     const entry = within(within(shown).getByRole("list", { name: "On the denylist" })).getByRole("listitem").textContent;
-    expect(entry).toMatch(/is on the denylist \(paths: \/var\/lib\/harness\)/);
-    expect(entry).toContain("This is the environment's data directory: its event log, keys and accounts.");
-    expect(entry).toMatch(/Instead, the agent may /);
+    expect(entry).toBe("This is the environment's data directory: its event log, keys and accounts.Instead, the agent may work in its own working directory, and ask you for anything it needs from the environment's records.");
     expect(shown.textContent).not.toContain("The same entry as before");
     await press(app, MOD_ENTER);
     expect((await sentAnswers(env, 1))[0]).toEqual({ commandId: expect.any(String), promptId, sessionId: session, decision: "allow" });

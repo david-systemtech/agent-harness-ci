@@ -2,12 +2,14 @@
 import { readFileSync } from "node:fs";
 import { phoneLayoutMedia } from "../frame/phone-frame.js";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { DATA_DIRECTORY_PRESET_ID, describeDenylistMatch, type DenylistMatch, type PromptKind } from "@agent-harness/contracts";
+import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 import type { SceneModule } from "../../gallery/scene-registry.js";
 import { platform, script, route } from "../../gallery/scenes/phone-gallery-conversation.js";
 
-async function phone(kind: "permission" | "question" | "plan" = "permission", width = 390) {
+async function phone(kind: PromptKind = "permission", width = 390, more: ScriptedPrompt = {}) {
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation(query => (width < 640 ? query === "(width < 640px)" : query.includes("pointer: coarse"))
     ? Object.assign(new EventTarget(), { matches: true, media: query, onchange: null, addListener: () => undefined, removeListener: () => undefined }) : original(query));
@@ -18,7 +20,7 @@ async function phone(kind: "permission" | "question" | "plan" = "permission", wi
   const scene: SceneModule = { platform, ...(script && { script }), route, readySelector: '[aria-label="Parked prompt"]', arrangeWeb: world => {
     const env = world.environment("desk"), sessionId = env.sessionId();
     env.startRun(sessionId, "Check receipts");
-    env.openPrompt(sessionId, { promptId: "long-request", kind, ceiling: "acceptEdits", mode: "plan", summary: "Review receipts", toolName: "Bash", reason: "Explain the full reason. ".repeat(50), input: { command: "printf receipts\n".repeat(80) }, plan: "Check every receipt.\n\n".repeat(80), questions: [{ header: "Checks", question: "Which checks?", multiSelect: true, options: [{ label: "Totals", description: "Compare every receipt total. ".repeat(50) }] }] });
+    env.openPrompt(sessionId, { promptId: "long-request", kind, ceiling: "acceptEdits", mode: "plan", summary: "Review receipts", toolName: "Bash", reason: "Explain the full reason. ".repeat(50), input: { command: "printf receipts\n".repeat(80) }, plan: "Check every receipt.\n\n".repeat(80), questions: [{ header: "Checks", question: "Which checks?", multiSelect: true, options: [{ label: "Totals", description: "Compare every receipt total. ".repeat(50) }] }], ...more });
   } };
   const gallery = await mountGallery(root, "phone-long-test", "light", { "phone-long-test": scene }, { platform: "web", textSize: 20 });
   onTestFinished(async () => { await gallery.close(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -73,6 +75,19 @@ it("keeps the full permission and denial note in Details, preserving them on Clo
   fireEvent.click(within(reopened).getByRole("button", { name: "Deny" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Parked prompt" })).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message" })));
+});
+
+it("says a one-match denylist card's request, why and what instead once each in Details", async () => {
+  // #1905: the phone's Details said the match's sentence three times.
+  // As the environment's gate asks it: the summary and the reason both name the match as a sentence.
+  const match: DenylistMatch = { section: "paths", entry: { id: DATA_DIRECTORY_PRESET_ID, pattern: "/srv/harness", note: "", enabled: true, preset: true }, matched: "/srv/harness/environment.json" };
+  await phone("denylist", 390, { toolName: "Read", input: { file_path: match.matched }, summary: `Read: ${describeDenylistMatch(match)}`, reason: describeDenylistMatch(match), denylist: [match] });
+  fireEvent.click(within(screen.getByRole("region", { name: "Parked prompt" })).getByRole("button", { name: "Details" }));
+  const sheet = await screen.findByRole("dialog", { name: "Denylist" });
+  expect(sheet.textContent).not.toContain("is on the denylist");
+  expect(within(sheet).getAllByText("Read: /srv/harness/environment.json")).toHaveLength(1);
+  const entry = within(within(sheet).getByRole("list", { name: "On the denylist" })).getByRole("listitem");
+  expect(entry.textContent).toBe("This is the environment's data directory: its event log, keys and accounts.Instead, the agent may work in its own working directory, and ask you for anything it needs from the environment's records.");
 });
 
 it("keeps question choices and IME words across dismissal and sends only after composition", async () => {

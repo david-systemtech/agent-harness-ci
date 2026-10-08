@@ -1,6 +1,6 @@
-import { DATA_DIRECTORY_PRESET_ID, PromptOpenedPayload, type DenylistMatch, type PromptAnsweredPayload } from "@agent-harness/contracts";
+import { DATA_DIRECTORY_PRESET_ID, describeDenylistMatch, PromptOpenedPayload, type DenylistMatch, type PromptAnsweredPayload } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { denylistMatchWords, denylistRepeatWords } from "./denylist.js";
+import { denylistCardWords, denylistMatchWords, denylistRepeatWords } from "./denylist.js";
 
 /**
  * What a denylist prompt's card says beside its answers (#1820): the entry
@@ -55,6 +55,46 @@ describe("an entry in words", () => {
     expect(sudo.instead).toMatch(/run it yourself/);
     expect(denylistMatchWords(match({ id: "keys", pattern: "/srv/keys/**", note: " ", preset: false })).protects).toBe("Entry /srv/keys/**, on the denylist's paths with no note.");
     for (const section of ["browserDomains", "hosts"] as const) expect(denylistMatchWords(match({ id: "x", pattern: "*.example.test", note: "", section })).instead).toMatch(/^Instead, the agent may /);
+  });
+});
+
+describe("a card that says each thing once (#1905)", () => {
+  // As the environment's gate asks it: the summary and the reason both name the first match.
+  const gated = (toolName: string, matches: readonly DenylistMatch[]): PromptOpenedPayload => {
+    const [first] = matches;
+    const named = first === undefined ? "" : describeDenylistMatch(first);
+    return { ...denylisted("0199a100-0000-4000-8000-0000000000f1", matches), toolName, summary: `${toolName}: ${named}`, reason: matches.length > 1 ? `${named}, and ${matches.length - 1} more` : named };
+  };
+
+  it("names what was asked, then why the one entry is on the denylist, then what the agent may do instead, without the entry's sentence again", () => {
+    const card = denylistCardWords(gated("Read", [match({ pattern: "/data", matched: "/data/environment.json" })]));
+    expect(card).toEqual({
+      asked: "Read: /data/environment.json",
+      entries: [{ heading: undefined, protects: "This is the environment's data directory: its event log, keys and accounts.", instead: expect.stringMatching(/^Instead, the agent may work in its own working directory/) }],
+    });
+  });
+
+  it("names one thing the call touched once, beside each entry it matched", () => {
+    const ssh = match({ id: "preset:~/.ssh", pattern: "~/.ssh/**", note: "SSH keys.", matched: "/srv/harness/.ssh/id" });
+    const card = denylistCardWords(gated("Read", [match({ matched: "/srv/harness/.ssh/id" }), ssh]));
+    expect(card?.asked).toBe("Read: /srv/harness/.ssh/id");
+    expect(card?.entries.map((entry) => [entry.heading, entry.protects])).toEqual([
+      [undefined, "This is the environment's data directory: its event log, keys and accounts."],
+      [undefined, "Entry ~/.ssh/**: SSH keys."],
+    ]);
+  });
+
+  it("lists each match once, saying which thing matched which entry when the call touched several", () => {
+    const data = match({ matched: "/srv/harness/events.db" });
+    const sudo = match({ id: "preset:sudo *", pattern: "sudo *", note: "Runs a command as another user.", section: "commandPatterns", matched: "sudo cat /srv/harness/events.db" });
+    const card = denylistCardWords(gated("Bash", [data, sudo, data]));
+    expect(card?.asked).toBe("Bash: /srv/harness/events.db, sudo cat /srv/harness/events.db");
+    expect(card?.entries.map((entry) => entry.heading)).toEqual([describeDenylistMatch(data), describeDenylistMatch(sudo)]);
+  });
+
+  it("leaves a prompt with no match, or of another kind, to its summary and reason", () => {
+    expect(denylistCardWords(gated("Read", []))).toBeUndefined();
+    expect(denylistCardWords({ ...gated("Read", [match()]), kind: "permission" })).toBeUndefined();
   });
 });
 
