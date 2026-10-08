@@ -1,5 +1,5 @@
 import { phoneFrameSmoke as phoneSafeAreaSmoke } from "./phone-frame-smoke.js";
-import { phoneDocument, phoneFrameSmoke, phonePaneSmoke, phoneReconnectSmoke, reachable } from "../test/web-client/phone-surfaces.js";
+import { phoneDocument, phoneFrameSmoke, phoneNewSessionSmoke, phonePaneSmoke, phoneReconnectSmoke, reachable } from "../test/web-client/phone-surfaces.js";
 import { phoneFallback } from "../test/web-client/phone-fallback.js";
 import { phoneRefusalSmoke } from "./phone-refusal-smoke.js";
 import { phoneRunPickerSmoke } from "./phone-run-picker-smoke.js";
@@ -135,6 +135,7 @@ try {
         await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
       }
       await phoneFrameSmoke(page, name);
+      await phoneNewSessionSmoke(page, `Hosted phone conversation (${name})`);
       console.log(`WEB-SMOKE PHASE ${name} permission conversation: start`);
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Allow this scripted reply.");
       await page.getByRole("button", { name: /^Send/ }).click();
