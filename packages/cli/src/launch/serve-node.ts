@@ -90,7 +90,11 @@ export const serveNode = (dataDir: string, version: string, platform: NodeJS.Pla
     writeFileDurably(source, version, fs, platform);
     return { node: copy };
   } catch (error) {
-    fs.rmSync(partial, { force: true });
+    try {
+      fs.rmSync(partial, { force: true });
+    } catch {
+      // Held too, as by the scan that held its rename: the next try's `clearPartials` removes it.
+    }
     return { node: own, problem: error instanceof Error ? error.message : String(error), ...(heldOnWindows(error, platform) && { held: true as const }) };
   }
 };

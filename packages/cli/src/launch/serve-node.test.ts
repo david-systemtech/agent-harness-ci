@@ -83,6 +83,20 @@ describe("the Node a version's serve runs from", () => {
     expect(serveNode(dataDir, "0.1.8", "win32")).toEqual({ node: stable(dataDir) });
   });
 
+  it("says the copy was held, and throws nothing, when the staged Node it could not rename in is held too, as by an on-access scan", () => {
+    const dataDir = dataDirectory("0.1.8", "0.1.9");
+    serveNode(dataDir, "0.1.8", "win32");
+    const hold = () => {
+      throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+    };
+    const scanned = { ...nodeFs, renameSync: hold, rmSync: (path: nodeFs.PathLike, options?: nodeFs.RmOptions) => (String(path).endsWith(".partial") ? hold() : nodeFs.rmSync(path, options)) };
+    const own = join(versionDirectory(dataDir, "0.1.9"), "node", "node.exe");
+    expect(serveNode(dataDir, "0.1.9", "win32", scanned)).toEqual({ node: own, problem: expect.stringContaining("EBUSY"), held: true });
+    // What it staged goes at the next try, once the hold has ended.
+    expect(serveNode(dataDir, "0.1.9", "win32")).toEqual({ node: stable(dataDir) });
+    expect(readdirSync(join(dataDir, SERVE_NODE_DIRECTORY)).sort()).toEqual(["node.exe", SERVE_NODE_SOURCE_FILE]);
+  });
+
   it("says the copy was not held when it failed for another reason, which waiting does not end", () => {
     const dataDir = dataDirectory("0.1.9");
     // A folder where the copy goes: it cannot be renamed over.
