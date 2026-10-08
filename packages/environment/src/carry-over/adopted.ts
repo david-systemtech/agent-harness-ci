@@ -23,11 +23,9 @@ export type AdoptedAccount = AccountFacts & { readonly directory: string };
 /** The adopted account `accountId` names, as `account` holds it, or why it cannot be carried over. */
 export const adoptedAccount = (account: (id: string) => AccountFacts | null, accountId: string): AdoptedAccount | CarryOverRefusal => {
   const facts = account(accountId);
-  if (facts === null) return { code: "not_found", message: `No account ${accountId} is on this environment.`, data: { kind: "account", accountId } };
-  if (!facts.adopted || facts.directory === null) {
-    const message = `The account ${accountId} has a directory of the environment's own, which holds nothing to carry over; only an adopted directory does.`;
-    return { code: "conflict", message, data: { reason: "not_adopted", accountId } };
-  }
+  if (facts === null) return { code: "not_found", message: "This account is not on this computer.", data: { kind: "account", accountId } };
+  // Its directory is the environment's own, which holds nothing to carry over: only an adopted one does.
+  if (!facts.adopted || facts.directory === null) return { code: "conflict", message: "This account has no Claude Code folder to bring over.", data: { reason: "not_adopted", accountId } };
   return { ...facts, directory: facts.directory };
 };
 
