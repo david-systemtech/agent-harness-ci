@@ -18,6 +18,7 @@ import { createInstaller } from "./install.js";
 import { LAUNCHER_VERSION_FILE, writeLauncherVersion } from "./launcher-version.js";
 import { pruning, removeVersion, snapshotsIn } from "./prune.js";
 import { discardSnapshot, finishMarkedRestore, hasSnapshot, restoreSnapshot, snapshotNeeds, takeSnapshot, writeOutcomeRecord } from "./snapshot.js";
+import { serveNode } from "./serve-node.js";
 import { readServiceState, writeServiceState, type PendingUpdate, type ServiceState } from "./state.js";
 import { completeVersions, isComplete, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
 
@@ -156,6 +157,8 @@ export interface LauncherOptions {
   readonly freeBytes?: (dataDir: string) => number;
   /** The launcher's own version: the version whose folder it runs from. Preset: its package's (`LAUNCHER_VERSION`). */
   readonly version?: string;
+  /** The platform whose Node the child runs on (`serveNode`): on Windows, one copy at a path no update changes. Preset: the running one. */
+  readonly platform?: NodeJS.Platform;
 }
 
 export interface Launcher {
@@ -764,7 +767,9 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
 
   /** Spawns `version`'s `serve`: the trial of `trial` when given, which fails unless it says `prepared` within the deadline. */
   const run = (version: string, trial?: PendingUpdate) => {
-    const [node, entry] = versionCommand(versionDirectory(dataDir, version));
+    const [, entry] = versionCommand(versionDirectory(dataDir, version));
+    const { node, problem } = serveNode(dataDir, version, options.platform);
+    if (problem !== undefined) log(`${version} runs on its own Node, which Windows Firewall may ask about again, since the copy could not be made: ${problem}`);
     const serve = ["serve", "--data-dir", dataDir, ...(port === undefined ? [] : ["--port", String(port)]), ...(name === undefined ? [] : ["--name", name])];
     const started: Child = {
       process: spawn(node, [entry, ...serve], { stdio: ["ignore", output, output, "ipc"], env: options.env ?? process.env }),

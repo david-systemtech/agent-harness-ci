@@ -102,7 +102,14 @@ interface Running {
  * starts it.
  */
 const launch = (
-  options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number; version?: string; endChild?: (child: ChildProcess) => void } = {},
+  options: {
+    dataDir?: string;
+    port?: number;
+    freeBytes?: (dataDir: string) => number;
+    version?: string;
+    endChild?: (child: ChildProcess) => void;
+    platform?: NodeJS.Platform;
+  } = {},
 ): Running => {
   const dataDir = options.dataDir ?? dataDirectory();
   if (options.dataDir === undefined) {
@@ -120,6 +127,7 @@ const launch = (
     freeBytes: options.freeBytes ?? (() => 2 ** 40),
     ...(version === undefined ? {} : { version }),
     endChild: options.endChild,
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
   });
   const stop = async (): Promise<number> => {
     const nextAsk = setInterval(() => {
@@ -639,6 +647,40 @@ describe.runIf(posix)("the launcher switching versions for an update", () => {
     // The trial's deadline went with its commit, and the watch's end waits.
     expect(running.timer.pending()).toEqual([10 * 60_000]);
     expect(heardBy(running, 1)).toContain("committed");
+  });
+});
+
+describe.runIf(posix)("the Node the launcher runs a version on (#1910)", () => {
+  /** Gives `version` in `dataDir` a Windows Node: its own Node, behind a script that first notes the path it was run from and the version it came with. */
+  const windowsNode = (dataDir: string, version: string, runs: string): void => {
+    const folder = join(dataDir, "versions", version, "node");
+    writeFileSync(join(folder, "node.exe"), `#!/bin/sh\necho "$0 ${version}" >> '${runs}'\nexec '${join(folder, "bin", "node")}' "$@"\n`);
+    chmodSync(join(folder, "node.exe"), 0o755);
+  };
+
+  it("runs every version on Windows from one Node path, holding the version's own Node, so an update is no new program to the firewall", async () => {
+    const dataDir = beforeAnUpdate([switching()]);
+    const runs = join(dataDir, "node-runs.txt");
+    for (const version of ["0.4.0", "0.5.0"]) windowsNode(dataDir, version, runs);
+    const running = launch({ dataDir, platform: "win32" });
+    await running.events("committed", 2);
+    const stable = join(dataDir, "node", "node.exe");
+    expect(readFileSync(runs, "utf8").trim().split("\n")).toEqual([`${stable} 0.4.0`, `${stable} 0.5.0`]);
+    expect(readdirSync(join(dataDir, "node")).sort()).toEqual(["node.exe", "version"]);
+  });
+
+  it("runs a version on its own Node, and says why, when the Windows copy cannot be made", async () => {
+    const dataDir = dataDirectory();
+    installVersion(dataDir, "0.5.0");
+    writeServiceState(dataDir, state("0.5.0"));
+    const runs = join(dataDir, "node-runs.txt");
+    windowsNode(dataDir, "0.5.0", runs);
+    // A folder where the copy goes: it cannot be renamed over.
+    mkdirSync(join(dataDir, "node", "node.exe"), { recursive: true });
+    const running = launch({ dataDir, platform: "win32" });
+    await running.events("committed");
+    expect(readFileSync(runs, "utf8").trim()).toBe(`${join(dataDir, "versions", "0.5.0", "node", "node.exe")} 0.5.0`);
+    expect(running.log()).toContainEqual(expect.stringMatching(/^launcher: 0\.5\.0 runs on its own Node, which Windows Firewall may ask about again, since the copy could not be made: /));
   });
 });
 
