@@ -788,7 +788,7 @@ describe("the Forges card's words (#1849)", () => {
     let asked = 0;
     wire.answer("forge.detect", () => {
       asked += 1;
-      return { error: { code: "invalid_params", message: "The URL names no forge." } };
+      return { error: { code: "invalid_params", message: "The URL names no forge.", data: {} } };
     });
     for (const typed of ["github.com/you/project", "hello", "  "]) {
       expect(await detectForge(runtime, env, typed)).toEqual({ ok: false, unrecognised: false, line: "Enter an address like https://github.com/you/project.", details: [] });
