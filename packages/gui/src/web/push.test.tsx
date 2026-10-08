@@ -14,7 +14,7 @@ const setup = (permission: NotificationPermission = "default") => {
 };
 it("permission is requested only on Enable, then Test and Disable explicitly manage the registration", async () => {
   const { controller, actions } = setup();
-  render(<PushControls controller={controller} fallback={[]} />);
+  render(<PushControls controller={controller} admin={false} fallback={[]} />);
   expect(actions).toEqual([]);
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Enable push" }));
@@ -78,7 +78,7 @@ it("preserves a browser subscription replaced while Test is pending", async () =
 });
 it("denial explains browser settings, Home Screen installation and configured fallback status", async () => {
   const { controller, actions } = setup("denied");
-  render(<PushControls controller={controller} fallback={[{ id: "fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "ready", failure: null }]} />);
+  render(<PushControls controller={controller} admin={false} fallback={[{ id: "fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "ready", failure: null }]} />);
   expect(screen.getByText(/Permission was refused/)).toBeDefined();
   expect(screen.getByText(/fallback · ready/)).toBeDefined();
   expect(screen.getByText(/iOS.*16.4.*Home Screen/)).toBeDefined();
@@ -87,7 +87,7 @@ it("denial explains browser settings, Home Screen installation and configured fa
 it("installed iOS and HTTPS requirements are explained without a permission request", async () => {
   const permission = vi.fn(async () => "granted" as const);
   const controller = new PushController({ secure: true, supported: true, ios: true, standalone: false }, { permission: () => "default", requestPermission: permission, subscription: async () => null, subscribe: async () => subscription, unsubscribe: async () => undefined }, { key: async () => "key", registered: async () => true, set: async () => undefined, remove: async () => undefined, test: async () => "sent" });
-  render(<PushControls controller={controller} fallback={[]} />);
+  render(<PushControls controller={controller} admin={false} fallback={[]} />);
   expect(screen.getByText(/Add this client to your Home Screen/)).toBeDefined();
   expect(screen.queryByRole("button", { name: "Enable push" })).toBeNull();
   expect(permission).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ it("installed iOS and HTTPS requirements are explained without a permission requ
 it("chooses an enabled global fallback even when push APIs are unavailable", async () => {
   const deniedBrowser = { permission: () => "default" as const, requestPermission: async () => "denied" as const, subscription: async () => null, subscribe: async () => { throw new Error("Unavailable"); }, unsubscribe: async () => { throw new Error("Unavailable"); } };
   const controller = new PushController({ secure: false, supported: false, ios: false, standalone: false }, deniedBrowser, { key: async () => "key", registered: async () => true, set: async () => undefined, remove: async () => undefined, test: async () => "retry" });
-  render(<PushControls controller={controller} fallback={[{ id: "fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "ready", failure: null }]} onFallback={() => { void controller.useFallback(); }} />);
+  render(<PushControls controller={controller} admin={false} fallback={[{ id: "fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "ready", failure: null }]} onFallback={() => { void controller.useFallback(); }} />);
   await userEvent.setup().click(screen.getByRole("button", { name: "Use fallback" }));
   expect(await screen.findByText(/Using the configured webhook fallback/)).toBeDefined();
 });
@@ -119,4 +119,13 @@ it("names an iPad that asks for desktop sites by its touch screen, not as the Ma
   const desktopSafari = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15";
   expect(pushTargetLabel(desktopSafari, new Date(2026, 9, 6, 13, 4), 5)).toBe("Safari on iPad, enabled 6 Oct, 13:04");
   expect(pushTargetLabel(desktopSafari, new Date(2026, 9, 6, 13, 4), 0)).toBe("Safari on Mac, enabled 6 Oct, 13:04");
+});
+
+it("with no webhook fallback, points an admin at the route form in this sheet and a reader at an admin", () => {
+  const { controller } = setup();
+  const view = render(<PushControls controller={controller} admin fallback={[]} />);
+  expect(screen.getByText(/No webhook fallback is configured/).textContent).toMatch(/Add a webhook route above/);
+  expect(document.body.textContent).not.toMatch(/ask an environment admin/i);
+  view.rerender(<PushControls controller={controller} admin={false} fallback={[]} />);
+  expect(screen.getByText(/No webhook fallback is configured/).textContent).toMatch(/Ask an environment admin/);
 });

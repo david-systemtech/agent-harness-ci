@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AttentionTargetStatus } from "@agent-harness/contracts";
 import { AttentionSettingsPane } from "../src/web/attention-settings.js";
+import { PushController, PushControls } from "../src/web/push.js";
 
 /** Actual Settings leaf, bounded to the phone viewport without a desktop shell. */
 export const phoneAttentionScene = (width: number, height: number, failed: boolean) => function PhoneAttentionScene() {
@@ -19,7 +21,23 @@ export const phoneAttentionScene = (width: number, height: number, failed: boole
     <div ref={scroll} data-attention-scroll className="min-h-0 overflow-y-auto">
       <AttentionSettingsPane targets={targets} admin={false} busy={false} onRefresh={() => undefined}
         onConfigure={(id, enabled, completion) => setTargets(current => current.map(target => target.id === id ? { ...target, enabled, completion } : target))}
-        onRemove={id => setTargets(current => current.filter(target => target.id !== id))} />
+        onRemove={id => setTargets(current => current.filter(target => target.id !== id))} onAddRoute={async () => false} onTest={() => undefined} />
+    </div>
+  </main>;
+};
+/** The sheet on an environment with no delivery target, push section included as the app places it, for an admin or a reader (ticket 1808). */
+export const phoneAttentionEmptyScene = (admin: boolean) => function PhoneAttentionEmptyScene() {
+  const [anchor, setAnchor] = useState<Element | null>(null);
+  const scroll = useRef<HTMLDivElement>(null);
+  useEffect(() => setAnchor(scroll.current?.querySelector("[data-attention-settings]") ?? null), []);
+  const controller = useMemo(() => new PushController({ secure: true, supported: true, ios: false, standalone: false },
+    { permission: () => "default", requestPermission: async () => "granted", subscription: async () => null, subscribe: async () => { throw new Error("Gallery has no push gateway."); }, unsubscribe: async () => undefined },
+    { key: async () => "key-for-tests", registered: async () => false, set: async () => undefined, remove: async () => undefined, test: async () => "retry" }), []);
+  return <main data-phone-attention style={{ width: "min(390px,100vw)", maxWidth: 390, height: "min(844px,100dvh)", margin: "auto" }} className="flex min-w-0 flex-col overflow-hidden bg-abyss p-4 text-ink">
+    <h1 className="mb-3 shrink-0 text-base font-semibold">Attention</h1>
+    <div ref={scroll} data-attention-scroll className="min-h-0 overflow-y-auto">
+      <AttentionSettingsPane targets={[]} admin={admin} busy={false} onRefresh={() => undefined} onConfigure={() => undefined} onRemove={() => undefined} onAddRoute={async () => false} onTest={() => undefined} />
+      {anchor && createPortal(<PushControls controller={controller} admin={admin} fallback={[]} />, anchor)}
     </div>
   </main>;
 };
@@ -29,4 +47,16 @@ export const phoneAttentionGeometry = [
   { selector: "[data-attention-settings] article", wordsIntact: true },
   { selector: "[data-attention-settings] button", minimumHeight: 44 },
   { selector: "[data-attention-settings] label", minimumHeight: 44 },
+];
+/** With no target there is no card; an admin's sheet carries the route form, a reader's none. */
+export const phoneAttentionEmptyGeometry = (admin: boolean) => [
+  { selector: "[data-phone-attention]", maxWidth: 390 },
+  { selector: "[data-attention-settings]", contentFits: true },
+  { selector: "[data-attention-settings] button", minimumHeight: 44 },
+  { selector: "[data-phone-push]", contentFits: true },
+  ...(admin ? [
+    { selector: "[data-attention-settings] form", contentFits: true, wordsIntact: true },
+    { selector: "[data-attention-settings] form label", minimumHeight: 44 },
+    { selector: "[data-attention-settings] form input", minimumHeight: 44 },
+  ] : []),
 ];

@@ -60,7 +60,7 @@ it("loads the webhook transport and sends a signed generic HTTPS session link to
   await attempt(t, 6000);
   expect(receiver.received).toHaveLength(1);
   verified(receiver, t, sessionId);
-  expect((await client.request("attention.targets.list", {})).targets).toEqual([{ id: "fallback", transport: "webhook", enabled: true, completion: false, global: true, state: "ready", failure: null }]);
+  expect((await client.request("attention.targets.list", {})).targets).toEqual([{ id: "fallback", transport: "webhook", webhookEndpoint: "attention", enabled: true, completion: false, global: true, state: "ready", failure: null }]);
 });
 
 it("rechecks the host denylist when delivering an already configured endpoint", async () => {
