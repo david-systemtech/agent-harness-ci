@@ -12,7 +12,7 @@ const bank: BankRecord = {
   defaultFor: [], pins: [], mergeOverride: "none", privateCopy: false, credential: "forge", importedFrom: null,
   copiedFrom: null, createdAt: since, memories: 0, folders: 0, line: null, sharedAliases: [],
   status: {
-    reachable: { state: "unreachable", since, reason: `No forge account on this environment covers ${origin}, and it refused an anonymous read (HTTP 403): add one in Set up, Forges.` },
+    reachable: { state: "unreachable", since, reason: `agent-harness needed a forge for forge.example.test:5526 and found none. Add forge.example.test:5526. (${origin}: it refused an anonymous read (HTTP 403))` },
     manifest: { state: "invalid", rule: "manifest_fact_missing", since, message: "BANK.md lacks entities." },
     orientation: { missing: [], since }, owners: { unresolved: [], since }, lastSync: null,
     landing: { state: "ok", since },
@@ -30,7 +30,7 @@ it("explains an account held on another environment and opens Forges on the bank
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   expect(await within(card).findByText(`A forge account for ${origin} is connected on server, but this bank belongs to desk. Connect a forge account on desk for this bank.`)).toBeDefined();
-  expect(within(card).getByText(/No forge account on this environment covers/)).toBeDefined();
+  expect(within(card).getByText(/^agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
   expect(within(card).getByText("BANK.md lacks entities.")).toBeDefined();
   expect(app.environment("desk").requests("forge.accounts.add")).toHaveLength(0);
   await app.user.click(within(card).getByRole("button", { name: "Connect forge on desk" }));
@@ -95,7 +95,7 @@ it.each(cases)("compares another environment's account with %s", async (_, accou
   if (!local) await waitFor(() => expect(app.environment("server").requests("forge.accounts.list").length).toBeGreaterThan(0));
   if (matches) expect(await within(card).findByText(/is connected on server, but this bank belongs to desk/)).toBeDefined();
   else {
-    expect(await within(card).findByText(/No forge account on this environment covers/)).toBeDefined();
+    expect(await within(card).findByText(/agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
     expect(within(card).queryByText(/is connected on server/)).toBeNull();
     if (local) expect(within(card).queryByRole("button", { name: "Connect forge on desk" })).toBeNull();
   }

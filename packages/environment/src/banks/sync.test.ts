@@ -419,7 +419,7 @@ describe("banks.sync", () => {
 });
 
 describe("a fetch the forge asked a credential for", () => {
-  it("records why, the origin and the cause, not only the line that a forge is needed (#1850)", async () => {
+  it("records the plain line that a forge is needed, the origin and the cause after it (#1850)", async () => {
     let refuse = false;
     const { t, client, bank } = await start({ banksGit: async (request, git) => {
       if (!refuse) return git(request);
@@ -430,7 +430,7 @@ describe("a fetch the forge asked a credential for", () => {
     refuse = true;
     t.clock.jump(1_000);
     const after = await pull(client, bank);
-    expect(after?.status.reachable).toMatchObject({ state: "unreachable", reason: expect.stringMatching(/^[a-z]+:\/\/[^ ]+: it asked for a credential$/) });
+    expect(after?.status.reachable).toMatchObject({ state: "unreachable", reason: expect.stringMatching(/^agent-harness needed a forge for [^ ]+ and found none\. Add [^ ]+\. \([a-z]+:\/\/[^ ]+: it asked for a credential\)$/) });
   });
 });
 

@@ -134,12 +134,13 @@ export interface NoPrimaryForgeRefusal {
 export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | KindUnsupportedError;
 
 /**
- * A refusal's cause, as a record that keeps one line of it says it: its details where it has them (the origin and the
- * forge's answer behind `forge_account_missing`'s plain line, #1850), else its line.
+ * A refusal as a record that keeps one line of it says it: its plain line, then its details in brackets where it has
+ * them (the origin and the forge's answer behind `forge_account_missing`, #1850), so a client showing the line leads
+ * with the plain words and a step's Details keep the cause.
  */
-export const refusalCause = (error: ForgeRefusal): string => {
+export const refusalReason = (error: ForgeRefusal): string => {
   const details = "details" in error.data ? (error.data.details ?? []) : [];
-  return details.length > 0 ? details.join(" ") : error.message;
+  return details.length > 0 ? `${error.message} (${details.join(" ")})` : error.message;
 };
 
 /** What an operation came to: the forge's reply, or a refusal before it reached the forge. */
