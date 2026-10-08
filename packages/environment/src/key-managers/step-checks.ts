@@ -234,7 +234,12 @@ export const keyManagerStateChecks = ({
     if (missing === null) return answer;
     // Connect it: the sign-in, on Key managers, where a connection is added.
     if (answer === true || answer.holds === true) return { reason: missing.reason, details: missing.details, actions: ["sign-in-again"] };
-    return { ...answer, reason: `${answer.reason} ${missing.reason}`, details: [...(answer.details ?? []), ...missing.details] };
+    return {
+      ...answer,
+      reason: `${answer.reason} ${missing.reason}`,
+      details: [...(answer.details ?? []), ...missing.details],
+      actions: [...new Set([...(answer.actions ?? []), "sign-in-again" as const])],
+    };
   },
   "key-manager.reachable": async () => reachable(await verify()),
   "key-manager.run-tokens": async () => runTokensMint(await verify()),

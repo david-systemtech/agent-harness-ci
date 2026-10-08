@@ -199,6 +199,19 @@ describe("key-manager.signed-in on a connection that is not ready yet (#1852)", 
       actions: ["sign-in-again"],
     });
   });
+
+  it("offers Sign in again beside Check again when a connection is not ready yet and forge tokens name one not connected here", async () => {
+    const signing = standing("Work vault", { kind: "signing-in", message: "Signing in to OpenBao at https://bao.example.test:8200." });
+
+    expect(await signedInOver([signing], ["connection-gone"])).toMatchObject({
+      reason: "Work vault is not ready yet. Choose Check again. Some forge tokens are kept in a key manager that is not connected here. Connect it.",
+      details: [
+        `Work vault at https://bao.example.test:8200 (connection-signing-in): Signing in to OpenBao at https://bao.example.test:8200.`,
+        "Key-manager connections that forge accounts name and this computer does not hold: connection-gone",
+      ],
+      actions: ["check-again", "sign-in-again"],
+    });
+  });
 });
 
 posix("key-manager.signed-in with a credential", () => {
