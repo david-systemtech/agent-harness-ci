@@ -277,7 +277,7 @@ export {
   worstState,
 } from "./setup/checklist.js";
 export { installLines, type InstallLines, type InstallTarget } from "./setup/install-lines.js";
-export { plainRefusal, type PlainRefusal, type Refusal } from "./words/refusal.js";
+export { plainRefusal, type PlainRefusal, type RefusedAnswer } from "./words/refusal.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,

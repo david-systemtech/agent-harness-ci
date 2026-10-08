@@ -1,10 +1,9 @@
 import { DenylistSection, ManagedToolName, SETTINGS, type MethodName, type RegisteredStepId, type RunnableToolAction, type SettingsRowId, type SetupAction, type SetupTarget, type StepId, type UpdateWhen } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { restoreDenylistPresets } from "../permissions/actions.js";
-import { saveSetting } from "../settings/editor.js";
 import { adminCall } from "../status/actions.js";
 import { uuidv7 } from "../ids.js";
-import { oneLine } from "../transcript/format.js";
+import { plainRefusal, type PlainRefusal } from "../words/refusal.js";
 import { isRegisteredStep } from "./checklist.js";
 
 /**
@@ -25,10 +24,10 @@ import { isRegisteredStep } from "./checklist.js";
  * binds its verbs to the browser's methods (#548, #593).
  */
 
-/** Each action in words, as a button names it: ADR 0031's names and the step decisions' verbs. */
+/** Each action in words, as a button names it: ADR 0031's names and the step decisions' verbs, as setup-copy.md words them. */
 export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = {
   "sign-in-again": "Sign in again",
-  "pull-now": "Pull now",
+  "pull-now": "Update now",
   "check-again": "Check again",
   unpair: "Unpair",
   "pair-another": "Pair another",
@@ -39,11 +38,11 @@ export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = 
   restore: "Restore",
   move: "Move",
   "start-service": "Start",
-  "import-again": "Import again",
-  "try-again": "Try again",
+  "import-again": "Bring them over",
+  "try-again": "Continue it",
   "write-it-myself": "Write it myself",
-  "start-over": "Start over",
-  revise: "Revise",
+  "start-over": "Start again",
+  revise: "Fix the description",
 };
 
 /** The steps with a restore of their own: the Permissions step's denylist presets and the Appearance step's preset theme. */
@@ -186,28 +185,44 @@ export const setupActions = (step: ActingStep, result: { readonly actions: reado
     return targets.map((target) => offer(`${action} ${target.kind} ${target.id}`, [target]));
   });
 
-/** How an action carried out on the environment went, in one line. */
+/** How an action carried out on the environment went, in one line, with the raw words behind a refusal for Details. */
 export interface ActionOutcome {
   readonly ok: boolean;
   readonly line: string;
+  readonly details?: readonly string[];
 }
+
+/** A refused action's outcome: the refusal in plain words (setup-copy.md §3), for the button `action` names. */
+const refusedOutcome = ({ line, details }: PlainRefusal): ActionOutcome & { readonly ok: false } => ({ ok: false, line, details });
 
 /** What Update now did: its line and, when taken, the update it took. */
 export interface UpdateNowOutcome extends ActionOutcome {
   readonly updateId?: string;
 }
 
-/** Pull each named source, continuing past refusals, and report its sync rather than just its command receipt. */
+/**
+ * Update now on each named collection (`skills.sources.pull`), continuing
+ * past refusals, each reported by its sync rather than its command receipt,
+ * in the Skills step's words (setup-copy.md §5.9): a refusal through the
+ * refusal mapper, a failed sync `{collection} could not update.`, its words
+ * in Details.
+ */
 export const pullSetupSources = async (runtime: Pick<Runtime, "requests">, environmentId: string, sources: readonly NamedItem[], now: () => Date): Promise<ActionOutcome> => {
+  const verb = SETUP_ACTION_WORDS["pull-now"];
   const outcomes: ActionOutcome[] = [];
   for (const source of sources) {
     const answer = await adminCall(() => runtime.requests.call(environmentId, "skills.sources.pull", { commandId: uuidv7(now()), sourceId: source.id }));
-    const sync = answer.ok ? answer.result?.source.sync : undefined;
-    const ok = answer.ok && sync?.outcome === "ok";
-    const reason = !answer.ok ? answer.line : sync === undefined ? "the environment answered no sync result." : sync.outcome === "failed" ? sync.line : sync.outcome === "layout_moved" ? "The source's layout moved; its last good snapshot was kept." : undefined;
-    outcomes.push({ ok, line: `${source.label}: ${ok ? "Source pulled." : `Not pulled: ${oneLine(reason ?? "No sync result.")}`}` });
+    if (!answer.ok) {
+      const refusal = plainRefusal(answer.refusal, verb);
+      outcomes.push({ ok: false, line: `${source.label}: ${refusal.line}`, details: refusal.details });
+      continue;
+    }
+    const sync = answer.result?.source.sync;
+    if (sync?.outcome === "ok") outcomes.push({ ok: true, line: `${source.label} is up to date.` });
+    else if (sync?.outcome === "layout_moved") outcomes.push({ ok: false, line: `${source.label} no longer has skills where they were. Choose its folders again.` });
+    else outcomes.push({ ok: false, line: `${source.label} could not update. Choose ${verb}.`, details: sync?.outcome === "failed" ? [sync.line] : ["No sync result."] });
   }
-  return { ok: outcomes.every((outcome) => outcome.ok), line: outcomes.map((outcome) => outcome.line).join(" ") };
+  return { ok: outcomes.every((outcome) => outcome.ok), line: outcomes.map((outcome) => outcome.line).join(" "), details: outcomes.flatMap((outcome) => outcome.details ?? []) };
 };
 
 /**
@@ -215,7 +230,7 @@ export const pullSetupSources = async (runtime: Pick<Runtime, "requests">, envir
  * Permissions step's `permissions.denylist.restorePresets`, which puts back
  * the presets the sections named lost, or every section's with none named;
  * the Appearance step's `settings.update` of the preset theme (#391). A
- * refusal is "Not restored: <why>".
+ * refusal is said through the refusal mapper.
  */
 export const restoreStep = async (
   runtime: Pick<Runtime, "requests">,
@@ -224,13 +239,14 @@ export const restoreStep = async (
   commandId: string,
   sections?: readonly DenylistSection[],
 ): Promise<ActionOutcome> => {
+  const verb = SETUP_ACTION_WORDS.restore;
   if (step === "appearance") {
     const preset = SETTINGS["appearance.theme"].preset;
-    const saved = await saveSetting(runtime, environmentId, "appearance.theme", preset, { commandId });
-    return saved.ok ? { ok: true, line: `Restored the ${preset.name} theme.` } : { ok: false, line: `Not restored: ${saved.line}` };
+    const saved = await adminCall(() => runtime.requests.call(environmentId, "settings.update", { commandId, values: { "appearance.theme": preset } }));
+    return saved.ok ? { ok: true, line: `Restored the ${preset.name} theme.` } : refusedOutcome(plainRefusal(saved.refusal, verb));
   }
-  const { ok, line } = await restoreDenylistPresets(runtime, environmentId, sections, commandId);
-  return { ok, line };
+  const restored = await restoreDenylistPresets(runtime, environmentId, sections, commandId);
+  return restored.ok ? { ok: true, line: restored.line } : refusedOutcome(plainRefusal(restored.refusal, verb));
 };
 
 /**
@@ -240,7 +256,7 @@ export const restoreStep = async (
  * Drain and update now (#825), which takes the waiting update and drains at
  * once. Says which version it goes to, naming the environment, with the
  * update it took, whose line holds only while that update is pending (#1749);
- * a refusal is "Not updated: <why>".
+ * a refusal is said through the refusal mapper.
  */
 export const updateEnvironment = async (
   runtime: Pick<Runtime, "requests">,
@@ -250,7 +266,7 @@ export const updateEnvironment = async (
   when: UpdateWhen = "idle",
 ): Promise<UpdateNowOutcome> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "updates.apply", { commandId, when }));
-  if (!answer.ok) return { ok: false, line: `Not updated: ${answer.line}` };
+  if (!answer.ok) return refusedOutcome(plainRefusal(answer.refusal, "Update now"));
   const toVersion = answer.result?.toVersion;
   const taken = answer.result === undefined ? {} : { updateId: answer.result.updateId };
   if (when === "now") return { ok: true, ...taken, line: toVersion === undefined ? `Draining ${name} to update it.` : `Draining ${name} to update to ${toVersion}.` };

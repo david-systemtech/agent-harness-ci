@@ -7,7 +7,7 @@
  */
 
 /** A refusal as the request layer or a rejected receipt carries it: `RequestFailure` and `WireError` alike. */
-export interface Refusal {
+export interface RefusedAnswer {
   readonly code: string;
   readonly message: string;
   /** The environment's structured data; absent on a failure this client met itself, before or instead of an answer. */
@@ -144,7 +144,7 @@ const REASONS: Readonly<Record<string, Readonly<Record<string, Words>>>> = {
 };
 
 /** The reason a refusal names in its data, if any. */
-const reasonOf = ({ code, data }: Refusal): string | undefined => {
+const reasonOf = ({ code, data }: RefusedAnswer): string | undefined => {
   const reason = data?.[code === "unavailable" ? "readiness" : "reason"];
   return typeof reason === "string" ? reason : undefined;
 };
@@ -157,7 +157,7 @@ const reasonOf = ({ code, data }: Refusal): string | undefined => {
  * apart: its `unreachable` is a lost connection, the wire's a site that did
  * not answer.
  */
-export const plainRefusal = (refusal: Refusal, verb: string): PlainRefusal => {
+export const plainRefusal = (refusal: RefusedAnswer, verb: string): PlainRefusal => {
   const reason = reasonOf(refusal);
   const words = (reason === undefined ? undefined : REASONS[refusal.code]?.[reason]) ?? (refusal.data === undefined ? OWN : WIRE)[refusal.code];
   return {
