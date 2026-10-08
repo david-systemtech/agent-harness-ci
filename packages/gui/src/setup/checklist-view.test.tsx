@@ -169,7 +169,7 @@ describe("the lines before there is a step to show", () => {
     const app = await renderApp({ environments: [{ name: "laptop", reach: "paired" }] });
     await app.user.keyboard("{Control>},{/Control}");
     const settings = await screen.findByRole("region", { name: "Settings" });
-    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open Set up" }));
     expect(within(rail()).getAllByRole("listitem")).toHaveLength(11);
     await act(async () => { await app.runtime.connections.remove(app.environment("laptop").environmentId); });
     expect(await within(checklist()).findByText("Choose a computer to set up.")).toBeDefined();
