@@ -23,9 +23,13 @@
         "apt",
         "dnf",
         "script",
-        "npm"
+        "npm",
+        "scoop",
+        "mise",
+        "asdf",
+        "manual"
       ],
-      "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package, which it only updates."
+      "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package; scoop, mise or asdf, the package manager's own upgrade of the package the tool was installed as; manual, a binary placed by hand, updated by the vendor's self-update or, for bao, its release archive checked against the published checksums. Only the first five install; the others only update."
     },
     "platforms": {
       "minItems": 1,
@@ -70,7 +74,7 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 512,
+                "maxLength": 2048,
                 "pattern": "^[^\\p{Cc}]+$",
                 "description": "One argument, given to the program as one word whatever it holds; never a control character."
               },
@@ -101,7 +105,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 512,
+            "maxLength": 2048,
             "pattern": "^[^\\p{Cc}]+$",
             "description": "One argument, given to the program as one word whatever it holds; never a control character."
           },
@@ -110,6 +114,13 @@
         "description": "One step of a command: its programs, each one's output piped into the next."
       },
       "description": "The update command, for the tool installed by this method."
+    },
+    "package": {
+      "description": "For scoop, mise and asdf, the package the update names where the argument {package} stands: the one the tool's realpath is installed under (scoop/apps/<name>, mise/installs/<name>, .asdf/installs/<name>), else this, the registry's name for it, for a shim.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
     }
   },
   "required": [

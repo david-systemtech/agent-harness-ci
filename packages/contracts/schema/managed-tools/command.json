@@ -15,7 +15,7 @@
       "items": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 512,
+        "maxLength": 2048,
         "pattern": "^[^\\p{Cc}]+$",
         "description": "One argument, given to the program as one word whatever it holds; never a control character."
       },

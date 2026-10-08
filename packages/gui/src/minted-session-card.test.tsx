@@ -246,6 +246,20 @@ describe("the minted session on its card", () => {
     expect(select("Authoring effort").value).toBe("low");
   });
 
+  it("names the authoring models and efforts as the pickers do", async () => {
+    await openCard({
+      accounts: [{ id: "account-1", label: "Work" }],
+      models: [{ accountId: "account-1", models: [{ id: "fable", family: "fable", tier: 3, efforts: ["high", "xhigh"], label: "Fable" }, { id: "large-model", family: "large", tier: 1, efforts: [], label: "Large" }] }],
+      settings: { "accounts.defaultAccount": "account-1" },
+    });
+    const model = screen.getByRole("combobox", { name: "Authoring model" });
+    expect(await within(model).findByRole("option", { name: "Fable 5.1 (fable)" })).toBeDefined();
+    expect(within(model).getByRole("option", { name: "Large (large-model)" })).toBeDefined();
+    const effort = screen.getByRole("combobox", { name: "Authoring effort" });
+    await waitFor(() => expect(within(effort).getByRole("option", { name: "High" })).toBeDefined());
+    expect(within(effort).getByRole("option", { name: "Extra high" })).toBeDefined();
+  });
+
   it("keeps its picker choices and attached session across a detour to a Settings row", async () => {
     const app = await openCard({
       accounts: [{ id: "account-1", label: "Work" }],

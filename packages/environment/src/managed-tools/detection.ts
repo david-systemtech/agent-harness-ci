@@ -1,6 +1,6 @@
-import { accessSync, constants, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
-import { ManagedToolVersion, type ManagedToolInstallMethod, type ManagedToolName } from "@agent-harness/contracts";
+import { ManagedToolVersion, updateCommand, type ManagedToolInstallMethod, type ManagedToolName, type ToolCommand, type ToolCommandEntry } from "@agent-harness/contracts";
 
 /**
  * Detecting a managed tool (key-managers spec, "Managed tools"; ADR 0026):
@@ -101,6 +101,65 @@ export const methodFromShape = (tool: ManagedToolName, found: FoundTool): Manage
     if (shape !== undefined) return shape[1];
   }
   return null;
+};
+
+/** The package directories of Scoop, mise and asdf, whose next part is the package a tool was installed as. */
+const PACKAGE_DIRECTORY = /\/(?:scoop\/apps|mise\/installs|\.asdf\/installs)\/([^/]+)\//i;
+
+/**
+ * The package a tool's realpath is installed under by Scoop, mise or asdf
+ * (`scoop/apps/<name>/`, `mise/installs/<name>/`, `.asdf/installs/<name>/`),
+ * which their update names (#1833); null for any other place, a shim among
+ * them (`drivenUpdate` reads a shim's package from the directories beside it).
+ */
+export const installedPackage = (realpath: string): string | null => PACKAGE_DIRECTORY.exec(realpath.replaceAll("\\", "/"))?.[1] ?? null;
+
+/**
+ * Places a system package manager may own a file in, read with its
+ * separators as `/`: `/usr` but its `local`, `/bin`, `/sbin`, MacPorts'
+ * `/opt/local`, Nix's store and snap's, anchored; cargo's and Chocolatey's
+ * anywhere. Detection asks dpkg and rpm alone, so pacman's, apk's and these
+ * read as manual (#1833).
+ */
+const SYSTEM_PLACE = [/^\/(?:usr\/(?!local\/)|bin\/|sbin\/|opt\/local\/|nix\/store\/|snap\/)/, /\/\.cargo\/bin\//, /\/chocolatey\//i];
+
+/** Whether a tool's realpath is somewhere a system package manager may own it, so no self-update replaces it (#1833). */
+export const heldBySystem = (realpath: string): boolean => {
+  const slashed = realpath.replaceAll("\\", "/");
+  return SYSTEM_PLACE.some((place) => place.test(slashed));
+};
+
+/** A shim directory of Scoop, mise or asdf, whose root (`scoop`, `mise`, `.asdf`) holds the packages' directory too. */
+const SHIM = /^(.*\/(scoop|mise|\.asdf))\/shims\/[^/]+$/i;
+
+/**
+ * Which of `own` (a tool's own package names) a shim of Scoop, mise or asdf
+ * at `file` stands for: the first whose package directory exists beside the
+ * shims (`scoop/apps/<name>`, `mise/installs/<name>`, `.asdf/installs/<name>`).
+ * A shim does not say which package it runs (mise's is a link to mise
+ * itself), so one for a tool npm installed into their Node is none (#1833).
+ */
+const shimPackage = (file: string, own: readonly string[]): string | null => {
+  const shim = SHIM.exec(file.replaceAll("\\", "/"));
+  if (shim === null) return null;
+  const packages = `${shim[1]}/${shim[2]?.toLowerCase() === "scoop" ? "apps" : "installs"}`;
+  return own.find((name) => existsSync(`${packages}/${name}`)) ?? null;
+};
+
+/**
+ * The update `entry` runs for a tool found at `found`, else null when the
+ * table must not drive it (#1833): a bare binary somewhere a system package
+ * manager may own it; for Scoop, mise and asdf, a package other than the
+ * tool's own (`npm i -g` into a Node they installed), read from the
+ * realpath's package directory, else from the package directories beside
+ * a shim, whose upgrade would update that package instead.
+ */
+export const drivenUpdate = (entry: ToolCommandEntry, found: FoundTool): ToolCommand | null => {
+  if (entry.method === "manual") return heldBySystem(found.realpath) ? null : entry.update;
+  if (entry.package === undefined) return entry.update;
+  const own = [entry.package, entry.tool];
+  const installedAs = installedPackage(found.realpath) ?? shimPackage(found.path, own) ?? shimPackage(found.realpath, own);
+  return installedAs !== null && own.includes(installedAs) ? updateCommand(entry, installedAs) : null;
 };
 
 /** A version in a tool's `--version`, with an optional leading `v`, standing alone: not part of a longer dotted run or a word. */

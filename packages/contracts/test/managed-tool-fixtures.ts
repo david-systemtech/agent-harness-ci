@@ -43,6 +43,7 @@ const claude = {
 };
 const hung = { ...gh, version: null, latest: null, status: "below-minimum" };
 const copied = { ...gh, realpath: "/home/david/.local/share/mise/installs/gh/2.63.2/bin/gh", method: "mise", action: "copy", command: "brew install gh" };
+const typedOut = { ...gh, method: "unknown", status: "method-unknown", action: "terminal", command: "brew install gh" };
 const field = { name: "Running", value: "npm-global (2.1.283)" };
 const warning = { issue: "Running native installation but config install method is 'unknown'", fix: "Run claude install to update configuration" };
 const doctorRead = { outcome: "read", method: "npm", fields: [field, { name: "Config install method", value: "unknown" }], warnings: [warning] };
@@ -63,6 +64,7 @@ const aptInstall = [
 const entry = { tool: "gh", method: "homebrew", platforms: ["darwin", "linux"], needs: ["brew"], install: brewInstall, update: [[["brew", "upgrade", "gh"]]] };
 const toolTerminal = { id: terminalId, owner: "managed-tools", sessionId: null, openedAt: at, cols: 80, rows: 24, exitCode: null, signal: null };
 const runStarted = { tool: "gh", action: "install", method: "homebrew", terminalId, command: "brew install gh" };
+const typedOutStarted = { tool: "op", action: "terminal", method: "homebrew", terminalId, command: "brew install --cask 1password-cli" };
 const runFinished = { tool: "gh", action: "install", method: "homebrew", terminalId, exitCode: 0, signal: null, cause: "exited", verification: { tool: "gh", outcome: "passed", reason: "gh auth status passed." } };
 const notRunnable = { code: "tool_not_runnable", message: "gh installed by mise is not updated by the harness.", data: { tool: "gh", action: "update", command: "brew install gh" } };
 
@@ -85,9 +87,9 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   },
   "managed-tools/install-method.json": { valid: ["homebrew", "winget", "npm", "native", "apt", "dnf", "manual", "unknown"], invalid: ["brew", "cargo", ""] },
   "managed-tools/status.json": { valid: ["current", "update-available", "below-minimum", "not-installed", "method-unknown"], invalid: ["outdated", "installed", ""] },
-  "managed-tools/action.json": { valid: ["install", "update", "copy"], invalid: ["upgrade", "ignore", ""] },
+  "managed-tools/action.json": { valid: ["install", "update", "terminal", "copy"], invalid: ["upgrade", "ignore", ""] },
   "managed-tools/row.json": {
-    valid: [gh, missing, claude, hung, copied],
+    valid: [gh, missing, claude, hung, copied, typedOut],
     invalid: [{ ...gh, status: "outdated" }, { ...gh, version: "v2.63.2" }, { ...gh, path: "" }, { tool: "gh", status: "current", action: "update" }, { ...copied, command: "brew install gh\nrm -rf ~" }],
   },
   "managed-tools/verifiable-name.json": { valid: ["bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["claude", "codex", ""] },
@@ -106,21 +108,26 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   },
   "managed-tools/events/tools.updated.json": { valid: [{ tools: [gh] }, { tools: [missing, claude] }], invalid: [{ tools: [] }, {}, { tools: [{ ...gh, action: "ignore" }] }] },
   "managed-tools/command-platform.json": { valid: ["darwin", "linux", "win32"], invalid: ["macos", "windows", ""] },
-  "managed-tools/command-method.json": { valid: ["homebrew", "winget", "apt", "dnf", "script", "npm"], invalid: ["native", "manual", "brew", ""] },
+  "managed-tools/command-method.json": { valid: ["homebrew", "winget", "apt", "dnf", "script", "npm", "scoop", "mise", "asdf", "manual"], invalid: ["native", "unknown", "brew", ""] },
   "managed-tools/installable-name.json": { valid: ["claude", "bao", "gh"], invalid: ["vault", "codex", ""] },
   "managed-tools/command.json": { valid: [brewInstall, aptInstall], invalid: [[], [[]], [[[]]], "brew install gh", [[["brew", "install", "gh\nrm -rf ~"]]]] },
   "managed-tools/command-entry.json": {
-    valid: [entry, { ...entry, method: "npm", install: null }, { ...entry, method: "apt", platforms: ["linux"], needs: ["apt-get", "sudo", "curl"], install: aptInstall }],
-    invalid: [{ ...entry, tool: "vault" }, { ...entry, platforms: [] }, { ...entry, method: "manual" }, { ...entry, update: null }, { ...entry, needs: ["brew install"] }],
+    valid: [
+      entry,
+      { ...entry, method: "npm", install: null },
+      { ...entry, method: "apt", platforms: ["linux"], needs: ["apt-get", "sudo", "curl"], install: aptInstall },
+      { ...entry, method: "mise", needs: ["mise"], install: null, update: [[["mise", "upgrade", "{package}"]]], package: "github-cli" },
+    ],
+    invalid: [{ ...entry, tool: "vault" }, { ...entry, platforms: [] }, { ...entry, method: "native" }, { ...entry, update: null }, { ...entry, needs: ["brew install"] }, { ...entry, package: "--all" }, { ...entry, package: "../gh" }],
   },
   "managed-tools/command-line.json": { valid: ["brew install gh", "curl -Ls --proto '=https' https://cli.doppler.com/install.sh | sh"], invalid: ["", "brew install gh\nbrew install doppler", "a\rb"] },
-  "managed-tools/runnable-action.json": { valid: ["install", "update"], invalid: ["copy", ""] },
+  "managed-tools/runnable-action.json": { valid: ["install", "update", "terminal"], invalid: ["copy", ""] },
   "managed-tools/run-conflict-reason.json": { valid: ["tool_run_in_progress", "exists", "pty_unavailable"], invalid: ["in_progress", ""] },
   "managed-tools/errors/tool_not_runnable.json": {
     valid: [notRunnable, { ...notRunnable, data: { tool: "vault", action: "update", command: null } }],
     invalid: [{ ...notRunnable, code: "conflict" }, { ...notRunnable, data: { tool: "gh", action: "copy", command: null } }, { ...notRunnable, data: { tool: "gh", action: "update", command: "a\nb" } }],
   },
-  "managed-tools/events/tool.run-started.json": { valid: [runStarted], invalid: [{ ...runStarted, tool: "vault" }, { ...runStarted, command: "" }, { ...runStarted, terminalId: "t-1" }] },
+  "managed-tools/events/tool.run-started.json": { valid: [runStarted, typedOutStarted], invalid: [{ ...runStarted, tool: "vault" }, { ...runStarted, command: "" }, { ...runStarted, terminalId: "t-1" }] },
   "managed-tools/events/tool.run-finished.json": {
     valid: [runFinished, { ...runFinished, exitCode: null, cause: "closed", verification: null }, { ...runFinished, exitCode: -1, cause: "failed" }],
     invalid: [{ ...runFinished, cause: "deleted" }, { ...runFinished, exitCode: 1.5 }, { ...runFinished, verification: undefined }],

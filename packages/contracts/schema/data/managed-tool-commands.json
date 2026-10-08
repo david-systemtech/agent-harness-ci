@@ -204,6 +204,103 @@
       ]
     },
     {
+      "tool": "claude",
+      "method": "scoop",
+      "platforms": [
+        "win32"
+      ],
+      "needs": [
+        "scoop"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "scoop",
+            "update",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "claude-code"
+    },
+    {
+      "tool": "claude",
+      "method": "mise",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "mise"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "mise",
+            "upgrade",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "claude"
+    },
+    {
+      "tool": "claude",
+      "method": "asdf",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "asdf"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "asdf",
+            "install",
+            "{package}",
+            "latest"
+          ]
+        ],
+        [
+          [
+            "asdf",
+            "set",
+            "--home",
+            "{package}",
+            "latest"
+          ]
+        ]
+      ],
+      "package": "claude"
+    },
+    {
+      "tool": "claude",
+      "method": "manual",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "claude"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "claude",
+            "update"
+          ]
+        ]
+      ]
+    },
+    {
       "tool": "bao",
       "method": "homebrew",
       "platforms": [
@@ -399,6 +496,123 @@
             "dnf",
             "upgrade",
             "openbao"
+          ]
+        ]
+      ]
+    },
+    {
+      "tool": "bao",
+      "method": "scoop",
+      "platforms": [
+        "win32"
+      ],
+      "needs": [
+        "scoop"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "scoop",
+            "update",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "openbao"
+    },
+    {
+      "tool": "bao",
+      "method": "mise",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "mise"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "mise",
+            "upgrade",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "openbao"
+    },
+    {
+      "tool": "bao",
+      "method": "asdf",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "asdf"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "asdf",
+            "install",
+            "{package}",
+            "latest"
+          ]
+        ],
+        [
+          [
+            "asdf",
+            "set",
+            "--home",
+            "{package}",
+            "latest"
+          ]
+        ]
+      ],
+      "package": "openbao"
+    },
+    {
+      "tool": "bao",
+      "method": "manual",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "curl",
+        "tar"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "sh",
+            "-c",
+            "set -eu; current=$(command -v bao) || { echo \"bao is not on the PATH.\" >&2; exit 1; }; target=$(readlink -f \"$current\" 2>/dev/null || printf %s \"$current\"); case $(uname -s) in Linux) os=linux ;; Darwin) os=darwin ;; *) echo \"OpenBao publishes no archive for $(uname -s).\" >&2; exit 1 ;; esac; case $(uname -m) in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; *) echo \"OpenBao publishes no archive for $(uname -m).\" >&2; exit 1 ;; esac; tag=$(curl -fsSLI -o /dev/null -w %{url_effective} https://github.com/openbao/openbao/releases/latest); tag=${tag##*/}; version=${tag#v}; case $version in [0-9]*) ;; *) echo \"The latest OpenBao release could not be read.\" >&2; exit 1 ;; esac; archive=openbao_${version}_${os}_${arch}.tar.gz; base=https://github.com/openbao/openbao/releases/download/$tag; dir=$(mktemp -d); trap \"rm -rf $dir\" EXIT; echo \"Downloading $archive and its checksums.\"; curl -fsSL -o \"$dir/$archive\" \"$base/$archive\"; curl -fsSL -o \"$dir/checksums.txt\" \"$base/checksums.txt\"; expected=$(awk -v name=\"$archive\" \"\\$2 == name { print \\$1 }\" \"$dir/checksums.txt\"); actual=$( (sha256sum \"$dir/$archive\" 2>/dev/null || shasum -a 256 \"$dir/$archive\") | awk \"{ print \\$1 }\"); if [ -z \"$expected\" ] || [ \"$expected\" != \"$actual\" ]; then echo \"The checksum of $archive does not match the release checksums: nothing was replaced.\" >&2; exit 1; fi; tar -xzf \"$dir/$archive\" -C \"$dir\" bao; if [ -w \"$(dirname \"$target\")\" ]; then install -m 0755 \"$dir/bao\" \"$target\"; else sudo install -m 0755 \"$dir/bao\" \"$target\"; fi; echo \"Installed OpenBao $version at $target.\""
+          ]
+        ]
+      ]
+    },
+    {
+      "tool": "bao",
+      "method": "manual",
+      "platforms": [
+        "win32"
+      ],
+      "needs": [
+        "powershell"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "iex",
+            "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; $target = (Get-Command bao -CommandType Application -TotalCount 1).Source; $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }; $tag = (Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/openbao/openbao/releases/latest').tag_name; $version = $tag.TrimStart('v'); $archive = 'openbao_' + $version + '_windows_' + $arch + '.zip'; $base = 'https://github.com/openbao/openbao/releases/download/' + $tag + '/'; $dir = Join-Path $env:TEMP ('openbao-' + [guid]::NewGuid()); New-Item -ItemType Directory -Path $dir | Out-Null; try { Write-Host ('Downloading ' + $archive + ' and its checksums.'); Invoke-WebRequest -UseBasicParsing -Uri ($base + $archive) -OutFile (Join-Path $dir $archive); Invoke-WebRequest -UseBasicParsing -Uri ($base + 'checksums.txt') -OutFile (Join-Path $dir 'checksums.txt'); $expected = Get-Content (Join-Path $dir 'checksums.txt') | Where-Object { ($_ -split ' +')[1] -eq $archive } | ForEach-Object { ($_ -split ' +')[0] }; $actual = (Get-FileHash -Algorithm SHA256 (Join-Path $dir $archive)).Hash; if (-not $expected -or $expected -ne $actual) { throw ('The checksum of ' + $archive + ' does not match the release checksums: nothing was replaced.') }; Expand-Archive -Path (Join-Path $dir $archive) -DestinationPath $dir; Copy-Item -Force (Join-Path $dir 'bao.exe') $target; Write-Host ('Installed OpenBao ' + $version + ' at ' + $target + '.') } finally { Remove-Item -Recurse -Force $dir }"
           ]
         ]
       ]
@@ -657,6 +871,102 @@
       ]
     },
     {
+      "tool": "doppler",
+      "method": "scoop",
+      "platforms": [
+        "win32"
+      ],
+      "needs": [
+        "scoop"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "scoop",
+            "update",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "doppler"
+    },
+    {
+      "tool": "doppler",
+      "method": "mise",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "mise"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "mise",
+            "upgrade",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "doppler"
+    },
+    {
+      "tool": "doppler",
+      "method": "asdf",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "asdf"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "asdf",
+            "install",
+            "{package}",
+            "latest"
+          ]
+        ],
+        [
+          [
+            "asdf",
+            "set",
+            "--home",
+            "{package}",
+            "latest"
+          ]
+        ]
+      ],
+      "package": "doppler"
+    },
+    {
+      "tool": "doppler",
+      "method": "manual",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "doppler"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "doppler",
+            "update"
+          ]
+        ]
+      ]
+    },
+    {
       "tool": "op",
       "method": "homebrew",
       "platforms": [
@@ -898,6 +1208,82 @@
       ]
     },
     {
+      "tool": "op",
+      "method": "scoop",
+      "platforms": [
+        "win32"
+      ],
+      "needs": [
+        "scoop"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "scoop",
+            "update",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "1password-cli"
+    },
+    {
+      "tool": "op",
+      "method": "mise",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "mise"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "mise",
+            "upgrade",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "1password"
+    },
+    {
+      "tool": "op",
+      "method": "asdf",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "asdf"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "asdf",
+            "install",
+            "{package}",
+            "latest"
+          ]
+        ],
+        [
+          [
+            "asdf",
+            "set",
+            "--home",
+            "{package}",
+            "latest"
+          ]
+        ]
+      ],
+      "package": "1password-cli"
+    },
+    {
       "tool": "bws",
       "method": "script",
       "platforms": [
@@ -964,6 +1350,82 @@
           ]
         ]
       ]
+    },
+    {
+      "tool": "bws",
+      "method": "scoop",
+      "platforms": [
+        "win32"
+      ],
+      "needs": [
+        "scoop"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "scoop",
+            "update",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "bws"
+    },
+    {
+      "tool": "bws",
+      "method": "mise",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "mise"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "mise",
+            "upgrade",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "bitwarden-secrets-manager"
+    },
+    {
+      "tool": "bws",
+      "method": "asdf",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "asdf"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "asdf",
+            "install",
+            "{package}",
+            "latest"
+          ]
+        ],
+        [
+          [
+            "asdf",
+            "set",
+            "--home",
+            "{package}",
+            "latest"
+          ]
+        ]
+      ],
+      "package": "bitwarden-secrets-manager"
     },
     {
       "tool": "gh",
@@ -1163,6 +1625,82 @@
           ]
         ]
       ]
+    },
+    {
+      "tool": "gh",
+      "method": "scoop",
+      "platforms": [
+        "win32"
+      ],
+      "needs": [
+        "scoop"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "scoop",
+            "update",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "gh"
+    },
+    {
+      "tool": "gh",
+      "method": "mise",
+      "platforms": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "needs": [
+        "mise"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "mise",
+            "upgrade",
+            "{package}"
+          ]
+        ]
+      ],
+      "package": "github-cli"
+    },
+    {
+      "tool": "gh",
+      "method": "asdf",
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "needs": [
+        "asdf"
+      ],
+      "install": null,
+      "update": [
+        [
+          [
+            "asdf",
+            "install",
+            "{package}",
+            "latest"
+          ]
+        ],
+        [
+          [
+            "asdf",
+            "set",
+            "--home",
+            "{package}",
+            "latest"
+          ]
+        ]
+      ],
+      "package": "github-cli"
     }
   ]
 }

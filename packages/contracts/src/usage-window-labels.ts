@@ -23,3 +23,13 @@ export const usageWindowLabel = (window: string): string => {
   const model = modelName(window);
   return model === undefined ? "Other limit" : `Weekly, ${model}`;
 };
+
+const WEEKLY_SCOPE = "Weekly, ";
+
+/** A meter's caption beside its ring: a weekly bucket goes by what it scopes (`Fable`), as the ring's tooltip names the whole window. */
+export const usageWindowMeterLabel = (window: string): string => {
+  const label = usageWindowLabel(window);
+  if (!label.startsWith(WEEKLY_SCOPE)) return label;
+  const scope = label.slice(WEEKLY_SCOPE.length);
+  return scope.charAt(0).toUpperCase() + scope.slice(1);
+};

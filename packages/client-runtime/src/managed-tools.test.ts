@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { noticeEvent } from "../test/events.js";
 import { usePaired } from "../test/paired.js";
 import { runTool, verifyTool } from "./managed-tools/actions.js";
-import { toolRunWords } from "./managed-tools/words.js";
+import { runWords, toolRunWords } from "./managed-tools/words.js";
 import { flush } from "./testing/fake-wire.js";
 import { MANUAL_CLOCK_START } from "./testing/in-memory-platform.js";
 
@@ -65,6 +65,20 @@ describe("a tool run", () => {
       line: "Not run: A bao install is running on this environment; package managers lock, so one tool run runs at a time.",
       command: null,
     });
+  });
+
+  it("as Run in a terminal pane is sent as tools.run's terminal action, answering the tool terminal that holds the vendor's command until Enter (#1833)", async () => {
+    const { runtime, wire, env } = await paired({ capabilities: ["managedTools"] });
+    const held = "printf '%s\\n\\n%s ' 'brew install gh' 'Press Enter to run it here, or Ctrl+C to cancel.' && sh -c 'read -r answer' && brew install gh";
+    const asked: Record<string, unknown>[] = [];
+    wire.answer("tools.run", (params) => {
+      asked.push(params);
+      return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { terminal: { ...terminal, id: params["id"] }, tool: "gh", action: "terminal", method: "homebrew", command: held, doctor: null } } };
+    });
+    expect(runWords({ tool: "gh" }, "terminal")).toBe("Run in a terminal pane");
+    const outcome = await runTool(runtime, env, "gh", "terminal", new Date(MANUAL_CLOCK_START));
+    expect(asked).toEqual([{ commandId: expect.any(String), tool: "gh", action: "terminal", id: expect.stringMatching(/^[0-9a-f-]{36}$/) }]);
+    expect(outcome).toEqual({ ok: true, run: expect.objectContaining({ action: "terminal", terminal: expect.objectContaining({ id: asked[0]?.["id"], owner: "managed-tools" }), command: held }) });
   });
 
   it("is not sent where the environment does not offer managedTools", async () => {

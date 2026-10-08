@@ -1,6 +1,6 @@
 import type { AccountCatalogue, AccountRecord, AmbientProbe, ModelEntry } from "@agent-harness/contracts";
 import type { UsageGauge } from "../projections/accounts.js";
-import { ACCOUNT_STATUS_WORDS, modelName, readingWords } from "../status/words.js";
+import { ACCOUNT_STATUS_WORDS, effortName, modelName, readingWords } from "../status/words.js";
 import { clockTime } from "../transcript/format.js";
 
 /**
@@ -81,7 +81,7 @@ export const effortChoices = (catalogues: readonly AccountCatalogue[], family: s
 export const DEFAULT_CHOICE_WORDS = {
   "accounts.defaultAccount": { unset: "The first account adopted or added", missing: (id: string) => `${id} (no longer held: runs take the first account)` },
   "accounts.defaultModelFamily": { unset: "The account's strongest model", missing: (family: string) => `${family} (not offered: runs take the strongest model)` },
-  "accounts.defaultEffort": { unset: "The model's own", missing: (effort: string) => `${effort} (not offered: runs take the model's own)` },
+  "accounts.defaultEffort": { unset: "The model's own", missing: (effort: string) => `${effortName(effort)} (not offered: runs take the model's own)` },
 } as const;
 
 /** Who a gauge pools, as it is headed: the identity's email, or an account never read, which is a gauge of its own. */
