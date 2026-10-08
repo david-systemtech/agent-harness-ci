@@ -77,6 +77,7 @@ export const forgeEventPayload = (type: ForgeEventType, account: ForgeAccountRec
     "forge.account.git-rejected": { forgeAccountId, origin: account.origin },
     "forge.account.removed": { forgeAccountId },
     "forge.origin-missing": { origin: "https://git.example.com", operation: "read a skill source" },
+    "forge.origin-answered": { origin: "https://git.example.com", operation: "read a skill source" },
   };
   return FORGE_EVENT_PAYLOADS[type].parse({ ...base[type], ...fields }) as Record<string, unknown>;
 };

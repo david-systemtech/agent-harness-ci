@@ -209,6 +209,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "forge.account.git-rejected":
         case "forge.account.removed":
         case "forge.origin-missing":
+        case "forge.origin-answered":
           return;
         // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) are `key-manager-notices.ts`'s,
         // which reads history too; Move's events raise none: its answer and the cached keyManagers.move.list show them (#384).
