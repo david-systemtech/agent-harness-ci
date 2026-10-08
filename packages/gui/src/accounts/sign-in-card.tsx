@@ -237,6 +237,8 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
       if (departed.current || ended.current) return;
       ended.current = true;
       setStopped(refused);
+      // The environment's sign-in may still wait for a code: the card ends it, so it holds no sign-in after this one.
+      void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4());
     });
   };
 

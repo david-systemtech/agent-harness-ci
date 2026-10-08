@@ -266,8 +266,8 @@ Added when the dialog was built (#1843), where the lines above did not reach the
 - Each end that is not a success or a person's cancel (a refused code, a failed CLI, an expiry, a cancel the system made) keeps
   the dialog open as a notice (§1.14): its first sentence is the title, the second the description, then **Start again** and
   Details (`Details:` the environment's own words). The footer's **Cancel the sign-in** becomes **Close**, which says nothing
-  more where the dialog was opened. Start again cancels a sign-in still running (a code refused before the CLI saw it) and signs
-  the same account in afresh.
+  more where the dialog was opened. A code agent-harness refused before the CLI saw it ends the sign-in that waited for it, and
+  Start again signs the same account in afresh.
 - When the account was removed: `The sign-in stopped because {label} was removed.` (no Start again; an information notice).
 - `{m}` in `{m} min left` is whole minutes rounded up; from one minute down it reads `Less than a minute left.`
 - A start refused without the holder's name (an older agent-harness): `Another sign-in is running. Finish or cancel it first.`

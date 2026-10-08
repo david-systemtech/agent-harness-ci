@@ -699,6 +699,26 @@ describe("sign-in", () => {
     expect(screen.getByRole("dialog", { name: "Sign in to Claude" })).toBe(card);
   });
 
+  it("says a code the environment refused as Claude's refusal, and cancels the sign-in left waiting, so Close frees it", async () => {
+    const { app, env } = await opened([desk({
+      accounts: [{ id: "account-1", label: "work", identity: WORK }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }],
+      receipts: { "accounts.signin.code": { rejected: "conflict", message: "The sign-in of personal is starting, not awaiting a code.", data: { reason: "not_awaiting_code" } } },
+    })]);
+    await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
+    const card = await screen.findByRole("dialog", { name: "Sign in to Claude" });
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=for-tests" });
+    await app.user.click(await within(card).findByRole("button", { name: "The page did not open?" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Code" }), "code-for-tests#for-tests{Enter}");
+    const notice = await within(card).findByRole("alert");
+    expect(notice.textContent).toContain("Claude did not accept this code.");
+    await app.user.click(within(notice).getByRole("button", { name: "Details" }));
+    expect(within(notice).getByText(/conflict \(not_awaiting_code\): The sign-in of personal is starting, not awaiting a code\./)).toBeTruthy();
+    await waitFor(() => expect(sent(env, "accounts.signin.cancel")).toEqual([expect.objectContaining({ accountId: "account-2" })]));
+    await app.user.click(within(card).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(sent(env, "accounts.signin.cancel")).toHaveLength(1);
+  });
+
   it("keeps the dialog open on an expiry and a failed CLI, each with Start again, and Close then leaves without a line", async () => {
     for (const [state, title] of [["expired", "The sign-in ran out of time."], ["failed", "The sign-in did not finish."]] as const) {
       const { app, env, card, lineBefore } = await signingIn();
