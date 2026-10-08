@@ -319,7 +319,7 @@ describe("the step registry", () => {
     expect(skills.stateChecks.map((check) => [check.id, check.actions])).toEqual([
       ["skills.present", []],
       ["skills.sources-synced", ["pull-now"]],
-      ["skills.sources-yield", ["pull-now"]],
+      ["skills.sources-yield", ["choose-folders"]],
       ["skills.source-limit", []],
       ["skills.own-directory", []],
     ]);

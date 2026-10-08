@@ -257,12 +257,14 @@ export type SkillSetMember = z.infer<typeof SkillSetMember>;
  * `unreachable`'s `data.problem`: the forge refused the credential or asked
  * for one no forge account gives (`authentication`), there is no such
  * repository or branch (`not_found`), the host could not be reached in time
- * (`network`), or git failed otherwise (`git_failed`, with its `fatal:` line).
+ * (`network`), git is not installed on the environment's computer
+ * (`git_missing`, its spawn's ENOENT; #1855), or git failed otherwise
+ * (`git_failed`, with its `fatal:` line).
  */
-export const SKILL_PROBE_PROBLEMS = ["authentication", "not_found", "network", "git_failed"] as const;
+export const SKILL_PROBE_PROBLEMS = ["authentication", "not_found", "network", "git_missing", "git_failed"] as const;
 export const SkillProbeProblem = z.enum(SKILL_PROBE_PROBLEMS).meta({
   description:
-    "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line).",
+    "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_missing (git is not installed on the environment's computer; data.line holds the spawn's ENOENT), git_failed (git failed otherwise; data.line holds its fatal: line).",
 });
 export type SkillProbeProblem = z.infer<typeof SkillProbeProblem>;
 
