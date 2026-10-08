@@ -324,7 +324,7 @@ describe("updates.begin", () => {
     const result = await machines();
     expect(t.env.readiness()).toBe("draining");
     // The host-side updater's own check fails beside it here: no updater has polled this container.
-    expect(result).toMatchObject({ state: "needs-attention", failing: ["your-machines.host-updater", "your-machines.ready"], actions: ["check-again"] });
+    expect(result).toMatchObject({ state: "needs-attention", failing: ["your-machines.host-updater", "your-machines.ready"], actions: ["how-to-set-up", "check-again"] });
     expect(result?.reason).toContain("agent-harness has been restarting for over 30 minutes. Choose Check again once it is back.");
     expect(result?.details).toContain("Restarting since: 2026-09-24T00:00:00.000Z");
   });
@@ -592,7 +592,7 @@ describe("the host-side updater's poll", () => {
     expect(await flags(t)).toEqual({ discovery: expect.not.arrayContaining(["self-update"]), hello: expect.not.arrayContaining(["self-update"]) });
   });
 
-  it("holds the Your machines step's host-updater check while one came in the last hour, and needs attention before the first and after an hour, offering check-again; under a launcher, in a container or not, it holds with none", async () => {
+  it("holds the Your machines step's host-updater check while one came in the last hour, and needs attention before the first, offering How to set it up and check-again, and after an hour, offering check-again alone; under a launcher, in a container or not, it holds with none", async () => {
     for (const launched of [{ containerDetector: IN_CONTAINER, launcher: testLauncher({ present: true }) }, { launcher: testLauncher({ present: true }) }]) {
       const native = await startTestEnvironment(launched);
       onCleanup(() => native.close());
@@ -605,7 +605,7 @@ describe("the host-side updater's poll", () => {
       const [result] = (await client.request("setup.check", { step: "your-machines" })).results;
       return { failing: result?.failing.includes("your-machines.host-updater"), actions: result?.actions, reason: result?.reason, times: result?.times, details: result?.details };
     };
-    expect(await hostUpdaterCheck()).toMatchObject({ failing: true, actions: expect.arrayContaining(["check-again"]), reason: expect.stringContaining("This container is not kept up to date yet. Set up the updater on the host computer.") });
+    expect(await hostUpdaterCheck()).toMatchObject({ failing: true, actions: ["how-to-set-up", "check-again"], reason: expect.stringContaining("This container is not kept up to date yet. Set up the updater on the host computer.") });
 
     await client.request("updates.status", { hostUpdater: true });
     expect(await hostUpdaterCheck()).toMatchObject({ failing: false });
@@ -619,5 +619,7 @@ describe("the host-side updater's poll", () => {
       times: [{ text: "more than an hour ago, at 2026-09-24 00:00 UTC", at: at(0) }],
       details: expect.arrayContaining([`Host updater's last poll: ${at(0)}`]),
     });
+    // The updater ran once, so it is set up: the line asks only that it still runs (setup-copy.md §5.4; #1883).
+    expect((await hostUpdaterCheck()).actions).toEqual(["check-again"]);
   });
 });

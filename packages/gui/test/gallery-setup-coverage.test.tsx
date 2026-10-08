@@ -17,6 +17,23 @@ it("captures the real Account gate with disabled Skip and Continue", async () =>
 });
 
 
+// setup-copy.md §5.4's never-polled line with its How to set it up open beside it (#1883).
+it("captures Your machines' never-polled container line with the host updater's setup open, its commands to copy", async () => {
+  const Scene = setupRegionScene("host-updater");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const machines = await screen.findByRole("region", { name: "Your machines" });
+    expect(await within(machines).findByText("This container is not kept up to date yet. Set up the updater on the host computer.")).toBeDefined();
+    const sheet = await within(machines).findByRole("region", { name: "Set up the updater on the host computer" });
+    expect(sheet.hasAttribute("data-host-updater-setup")).toBe(true);
+    expect([...sheet.querySelectorAll("pre")].map((command) => command.textContent)).toEqual([
+      "cd /opt/agent-harness && docker compose up -d && chmod +x host-updater.sh",
+      "*/5 * * * * /opt/agent-harness/host-updater.sh >>/opt/agent-harness/host-updater.log 2>&1",
+    ]);
+    expect(within(machines).getByRole("button", { name: "Check again" })).toBeDefined();
+  } finally { view.unmount(); }
+});
+
 it.each<[StepId, string]>([["your-machines", "Your machines"], ["forges", "Forges"], ["key-manager", "Key manager"], ["instructions", "Instructions"], ["permissions", "Permissions"], ["appearance", "Appearance"]])("captures the real %s card and its persistent footer", async (step, label) => {
   const Scene = setupRegionScene(step);
   const view = render(<Scene ladder="light" />);
