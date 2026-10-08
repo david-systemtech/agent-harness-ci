@@ -18,6 +18,15 @@
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
           "description": "The connection the key manager was asked for."
+        },
+        "details": {
+          "description": "What the key manager or the environment said behind the plain message, one line each, for Details: addresses, paths, HTTP statuses and system error codes. Absent when there is nothing more.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]*$"
+          }
         }
       },
       "required": [
@@ -30,5 +39,5 @@
     "message",
     "data"
   ],
-  "description": "The key manager's certificate did not verify against the connection's pinned CA, or, with none pinned, against the system's trusted CAs: nothing was changed. The message says why; data names the connection."
+  "description": "The key manager's certificate did not verify against the connection's pinned CA, or, with none pinned, against the system's trusted CAs: nothing was changed. The message says why in plain words; data names the connection, and its details the raw words."
 }

@@ -12,7 +12,7 @@ import { useChecklist } from "./checklist-window.js";
 import { HealthDot } from "./health-dot.js";
 import { ReachLine } from "./reach-line.js";
 import { STEP_ICONS, StepCard } from "./step-card.js";
-import { useCheckOnOpen, useSetupView } from "./use-setup.js";
+import { useCheckOnFocus, useCheckOnOpen, useSetupView } from "./use-setup.js";
 
 /**
  * Set up as the whole window (docs/specs/gui.md, "Set up in the window";
@@ -20,7 +20,7 @@ import { useCheckOnOpen, useSetupView } from "./use-setup.js";
  * `environment` pane picked, else the home environment) and Close across the
  * top, the eleven steps on a rail with their dots, and the chosen step's
  * card beside it. Opening it, or pointing it at another environment, checks
- * every step there.
+ * every step there; the window regaining focus checks the shown step again.
  */
 export const ChecklistView = () => {
   const phone = usePhoneSettings();
@@ -28,6 +28,7 @@ export const ChecklistView = () => {
   const picked = usePickedEnvironment();
   const view = useSetupView(picked?.environmentId);
   useCheckOnOpen(picked?.environmentId);
+  useCheckOnFocus(picked?.environmentId, shown);
   const heading = useId();
   const railId = useId();
   const [railOpen, setRailOpen] = useState(false);

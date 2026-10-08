@@ -41,6 +41,7 @@ export const SETUP_ACTIONS = [
   "write-it-myself",
   "start-over",
   "revise",
+  "check-certificate",
 ] as const;
 
 /** What a client does for each action (the Set up specification, "Actions"), the items it applies to being the result's targets that name it. */
@@ -63,6 +64,7 @@ const SETUP_ACTION_MEANINGS: { readonly [Action in (typeof SETUP_ACTIONS)[number
   "write-it-myself": "opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor",
   "start-over": "starts a new authoring session for the step, the old one staying",
   revise: "starts an authoring session that revises the step's artefact",
+  "check-certificate": "opens the certificate check of each key-manager connection it targets, where a person reviews the certificate it presents and trusts it",
 };
 
 export const SetupAction = z.enum(SETUP_ACTIONS).meta({

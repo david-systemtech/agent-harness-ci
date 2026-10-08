@@ -150,7 +150,8 @@ describe("banks.sync", () => {
     const health = await client.request("setup.check", { step: "memory-bank" });
     expect(health.results).toEqual(expect.arrayContaining([expect.objectContaining({
       failing: expect.arrayContaining(["memory-bank.reachable"]),
-      reason: expect.stringMatching(/commit or stash/i),
+      reason: expect.stringContaining(`agent-harness cannot reach ${bank.name}. Choose Check again.`),
+      details: expect.arrayContaining([expect.stringMatching(/commit or stash/i)]),
     })]));
 
     git(checkout, "checkout", "--", "BANK.md");

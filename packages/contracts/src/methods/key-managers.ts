@@ -68,6 +68,17 @@ import { commandParams, defineMethod } from "../method.js";
  * after a Move found its target was one the login cannot write.
  */
 
+/**
+ * The raw words behind a refusal whose message is a plain line
+ * (setup-copy.md §3 and §5.7): what the key manager or the environment
+ * said, with its addresses, paths, HTTP statuses and system error codes,
+ * one line each, for Details.
+ */
+const refusalDetails = z
+  .array(z.string().min(1).regex(/^[^\r\n]*$/))
+  .optional()
+  .meta({ description: "What the key manager or the environment said behind the plain message, one line each, for Details: addresses, paths, HTTP statuses and system error codes. Absent when there is nothing more." });
+
 /** The key manager refused the credential, or it signs in as root, which the harness never holds. */
 export const KEY_MANAGER_VERIFICATION_FAILURES = ["rejected", "root_token"] as const;
 export const KeyManagerVerificationFailedError = errorSchema(
@@ -77,17 +88,18 @@ export const KeyManagerVerificationFailedError = errorSchema(
     reason: z.enum(KEY_MANAGER_VERIFICATION_FAILURES).meta({
       description: "rejected: the key manager refused the credential. root_token: it signs in with the root policy, which the harness never holds.",
     }),
+    details: refusalDetails,
   }),
 ).meta({
   description: "The key manager refused the credential, or it signs in as root, which the harness never holds: nothing was stored. data names the connection and the reason.",
 });
 export type KeyManagerVerificationFailedError = z.infer<typeof KeyManagerVerificationFailedError>;
 
-const connectionData = z.object({ connectionId: KeyManagerConnectionId.meta({ description: "The connection the key manager was asked for." }) });
+const connectionData = z.object({ connectionId: KeyManagerConnectionId.meta({ description: "The connection the key manager was asked for." }), details: refusalDetails });
 
 /** The key manager did not answer, or answered that it could not now. */
 export const UnreachableError = errorSchema("unreachable", connectionData).meta({
-  description: "The key manager could not be reached, or answered that it could not answer now: nothing was changed. The message says what failed; data names the connection.",
+  description: "The key manager could not be reached, or answered that it could not answer now: nothing was changed. The message says what failed in plain words; data names the connection, and its details the raw words.",
 });
 export type UnreachableError = z.infer<typeof UnreachableError>;
 
@@ -100,23 +112,27 @@ export type SealedError = z.infer<typeof SealedError>;
 /** The key manager's certificate did not verify against the pinned CA, or with none pinned against the system's. */
 export const CertificateRejectedError = errorSchema("certificate_rejected", connectionData).meta({
   description:
-    "The key manager's certificate did not verify against the connection's pinned CA, or, with none pinned, against the system's trusted CAs: nothing was changed. The message says why; data names the connection.",
+    "The key manager's certificate did not verify against the connection's pinned CA, or, with none pinned, against the system's trusted CAs: nothing was changed. The message says why in plain words; data names the connection, and its details the raw words.",
 });
 export type CertificateRejectedError = z.infer<typeof CertificateRejectedError>;
 
 /** The address a certificate preview was asked of could not be reached, or answered no TLS handshake. */
 export const AddressUnreachableError = errorSchema(
   "unreachable",
-  z.object({ address: KeyManagerAddress.meta({ description: "The address the preview was asked of, as its origin." }) }),
+  z.object({ address: KeyManagerAddress.meta({ description: "The address the preview was asked of, as its origin." }), details: refusalDetails }),
 ).meta({
-  description: "The address could not be reached, or completed no TLS handshake within ten seconds: no certificate was read. The message says what failed; data names the address.",
+  description: "The address could not be reached, or completed no TLS handshake within ten seconds: no certificate was read. The message says what failed in plain words; data names the address, and its details the raw words.",
 });
 export type AddressUnreachableError = z.infer<typeof AddressUnreachableError>;
 
 /** This environment has no provider for the key manager a credential is for. */
 export const ProviderUnavailableError = errorSchema(
   "provider_unavailable",
-  z.object({ provider: KeyManagerProvider, connectionId: KeyManagerConnectionId.optional().meta({ description: "The existing connection, when the refusal concerns one." }) }),
+  z.object({
+    provider: KeyManagerProvider,
+    connectionId: KeyManagerConnectionId.optional().meta({ description: "The existing connection, when the refusal concerns one." }),
+    details: refusalDetails,
+  }),
 ).meta({ description: "This environment cannot sign in to the provider: nothing was stored. data names the provider and, when an existing connection is involved, its id." });
 export type ProviderUnavailableError = z.infer<typeof ProviderUnavailableError>;
 

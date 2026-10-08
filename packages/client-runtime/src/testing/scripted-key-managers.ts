@@ -224,16 +224,23 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
   });
   const notFound = (id: unknown): FakeAnswer => rejected("not_found", `No key-manager connection ${String(id)} is on this environment.`, { kind: "key_manager_connection" });
   const invalid = (path: string, message: string): FakeAnswer => ({ error: invalidParams([{ code: "custom", path: [path], message }], message) });
-  /** A provider this version's environment cannot sign in to or move into yet (#377 to #379), as it refuses one. */
+  /** A provider this version's environment cannot sign in to or move into yet (#377 to #379), as it refuses one: a sign-in in setup-copy.md §5.7's words, what was met in details (#1852). */
   const unavailable = (provider: KeyManagerProvider, what: string, after: string): FakeAnswer =>
-    rejected("provider_unavailable", `This environment cannot ${what} ${PROVIDER_NAMES[provider]} yet${what === "sign in to" ? ": add the connection without a credential, and sign it in with a version that can" : ""}.${after}`, {
-      provider,
-    });
+    what === "sign in to"
+      ? rejected("provider_unavailable", `agent-harness cannot connect to ${PROVIDER_NAMES[provider]} on this computer yet.`, {
+          provider,
+          details: [`No ${PROVIDER_NAMES[provider]} provider is loaded on this environment.`, after.trim()],
+        })
+      : rejected("provider_unavailable", `This environment cannot ${what} ${PROVIDER_NAMES[provider]} yet.${after}`, { provider });
 
   /** How a sign-in with `credential` against `address` pinning `ca` goes: signed in, refused, or held back by a certificate the environment does not trust. */
   const tryCredential = (address: string, ca: string | null, credential: KeyManagerCredential, connectionId: string): "signed-in" | "untrusted" | FakeAnswer => {
     if ((script.rejects ?? []).includes(secretOf(credential))) {
-      return rejected("verification_failed", `OpenBao at ${address} refused the credential (HTTP 400: invalid role or secret ID). Nothing was stored.`, { connectionId, reason: "rejected" });
+      return rejected("verification_failed", "OpenBao did not accept these details. Check them and try again.", {
+        connectionId,
+        reason: "rejected",
+        details: [`OpenBao at ${address} refused the credential (HTTP 400: invalid role or secret ID).`, "Nothing was stored."],
+      });
     }
     return untrusted.has(address) && ca !== certificateOf(address).pem ? "untrusted" : "signed-in";
   };
