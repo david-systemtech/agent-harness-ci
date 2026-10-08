@@ -619,6 +619,18 @@ export {
 } from "./accounts/words.js";
 export { adoptAccount, modelPreset, presetModelDefaults, relabelAccount, removeAccount, type AccountOutcome, type ModelPreset } from "./accounts/actions.js";
 export {
+  RECOMMENDED_MODELS,
+  addFavourite,
+  favouriteCandidates,
+  moveFavourite,
+  pickerModels,
+  pinWords,
+  recommendedModels,
+  removeFavourite,
+  type ModelGroup,
+  type PickerModels,
+} from "./accounts/favourites.js";
+export {
   DENYLIST_SECTION_NAMES,
   DENYLIST_TEST_KIND_NAMES,
   NOTHING_TO_REVIEW,

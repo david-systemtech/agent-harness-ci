@@ -2931,6 +2931,10 @@
       "title": "DefaultEffort"
     },
     {
+      "path": "settings/keys/accounts.favouriteModels.json",
+      "title": "FavouriteModels"
+    },
+    {
       "path": "settings/keys/providers.processIdleMinutes.json",
       "title": "ProcessIdleMinutes"
     },

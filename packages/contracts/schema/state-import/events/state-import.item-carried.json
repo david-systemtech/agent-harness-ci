@@ -44,9 +44,10 @@
         "draft",
         "routine",
         "skill-source",
-        "skill-always-on"
+        "skill-always-on",
+        "favourite-models"
       ],
-      "description": "The owning service kind for a carried Bank/default, instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection, dev site, page policy or a disabled local Routine, tracked Skill repository or Account Skill choice."
+      "description": "The owning service kind for a carried Bank/default, instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection, dev site, page policy, a disabled local Routine, tracked Skill repository or Account Skill choice, or the favourite models made of the models chosen in the source."
     },
     "sourceDirectory": {
       "description": "The canonical listed Claude directory retained as an import source for an Account or Session mapping, including a secondary directory. No credentials.",

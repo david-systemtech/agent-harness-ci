@@ -19,9 +19,10 @@ const image = (width = 100, height = 100, changed = 0) => {
 
 it("plans distinct captures for every run-picker scene and viewport", async () => {
   const scenes = (await sceneFiles(new URL("../gallery/scenes", import.meta.url).pathname)).filter((scene) => scene.startsWith("run-picker"));
-  expect(scenes).toHaveLength(2);
+  // The picker, its compact sheet, and Other models open (#1821).
+  expect(scenes).toHaveLength(3);
   const names = scenes.flatMap((scene) => [captureName(scene, 1400), captureName(scene, 1024)]);
-  expect(new Set(names).size).toBe(4);
+  expect(new Set(names).size).toBe(6);
 });
 
 describe("gallery comparisons", () => {

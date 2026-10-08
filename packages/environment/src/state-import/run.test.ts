@@ -176,18 +176,22 @@ describe("an import", () => {
       ["state-import", "state-import.item-carried"],
       ["state-import", "state-import.item-carried"],
       ["state-import", "state-import.item-carried"],
+      ["state-import", "state-import.item-carried"],
       ["environment", "state-import.finished"],
     ]);
     const [started, ...rest] = events;
     const finished = rest.pop();
     expect(started?.payload).toEqual({ importId: commandId, sourceKey });
-    expect(rest.map((event) => event.payload)).toEqual(
-      ["p1", "p2", "p4"].map((sourceId, index) => ({ importId: commandId, sourceKey, store: "instructions", sourceId, kind: "instruction", targetId: instructions[index]?.id, origin: "import" })),
-    );
+    expect(rest.map((event) => event.payload)).toEqual([
+      ...["p1", "p2", "p4"].map((sourceId, index) => ({ importId: commandId, sourceKey, store: "instructions", sourceId, kind: "instruction", targetId: instructions[index]?.id, origin: "import" })),
+      // The model the source chose for its one session, made the favourite models (#1821).
+      { importId: commandId, sourceKey, store: "preferences", sourceId: "favourite-models", kind: "favourite-models", targetId: "accounts.favouriteModels", origin: "import" },
+    ]);
+    expect((await client.request("settings.get", { keys: ["accounts.favouriteModels"] })).values).toEqual({ "accounts.favouriteModels": ["opus"] });
     expect(finished?.payload).toEqual({ carried: carried({ instructions: 3 }), ...OMISSIONS });
     // Each item is a command of its own, under an id that is not the parent's, correlated with the import.
     const childIds = rest.map((event) => event.commandId);
-    expect(new Set(childIds).size).toBe(3);
+    expect(new Set(childIds).size).toBe(4);
     expect(childIds).not.toContain(commandId);
     expect(finished?.commandId).toBe(commandId);
     for (const event of [...rest, finished]) expect(event?.correlationId).toBe(commandId);
@@ -272,7 +276,8 @@ describe("the coordinator", () => {
       clientLocal: CLIENT_LOCAL,
       dryRun: false,
     });
-    expect(importEvents(t).map((event) => event.type)).toEqual(["state-import.started", "state-import.finished"]);
+    // The preferences did not change: their favourite models carry.
+    expect(importEvents(t).map((event) => event.type)).toEqual(["state-import.started", "state-import.item-carried", "state-import.finished"]);
     expect((await client.request("instructions.list", {})).instructions).toEqual([]);
     expect((await run(client, false)).result).toMatchObject({ carried: carried({ instructions: 2 }) });
   });

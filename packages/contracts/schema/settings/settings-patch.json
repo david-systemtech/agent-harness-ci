@@ -83,6 +83,16 @@
       ],
       "description": "The reasoning effort a run with none of its own takes, when its model takes that effort; null, or an effort the model does not take, for the model's own. The Account step presets it to high."
     },
+    "accounts.favouriteModels": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "description": "The model ids the account and model picker offers first, in the order the person put them, each once, at most 20; empty for the provider's recommended models. A model the selected account does not list is passed over."
+    },
     "providers.processIdleMinutes": {
       "type": "integer",
       "minimum": 1,

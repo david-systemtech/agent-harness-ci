@@ -578,6 +578,133 @@ describe("Default account and model", () => {
   });
 });
 
+describe("Favourite models (ticket 1821)", () => {
+  const favourites = (region: HTMLElement) => within(within(region).getByRole("list", { name: "Favourite models, in order" })).getAllByRole("listitem").map((item) => item.getAttribute("data-favourite"));
+  const signedOut = { id: "account-2", label: "work", status: { state: "signed-out" as const, checkedAt: null, detail: null } };
+
+  it("adds from the models the signed-in accounts offer, by account, keeps the person's order, moves and removes, each written as the whole list", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal" }, signedOut], models: MODELS } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    expect(within(section).getByText("No favourites yet: the model picker offers the provider's recommended models.")).toBeDefined();
+
+    await app.user.click(within(section).getByRole("button", { name: "Add a favourite" }));
+    let menu = await screen.findByRole("menu", { name: "Models to add" });
+    // The signed-out account's haiku is not offered.
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"))).toEqual(["Claude Opus 5 (claude-opus-5)", "claude-sonnet-5"]);
+    await app.user.click(within(menu).getByRole("menuitem", { name: "claude-sonnet-5" }));
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual(["claude-sonnet-5"]));
+    // The keyboard comes back to Add a favourite once the write is answered.
+    await waitFor(() => expect(document.activeElement).toBe(within(section).getByRole("button", { name: "Add a favourite" })));
+
+    await app.user.click(within(section).getByRole("button", { name: "Add a favourite" }));
+    menu = await screen.findByRole("menu", { name: "Models to add" });
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"))).toEqual(["Claude Opus 5 (claude-opus-5)"]);
+    await app.user.click(within(menu).getByRole("menuitem", { name: "Claude Opus 5 (claude-opus-5)" }));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5", "claude-opus-5"]));
+    expect(within(section).getByRole("button", { name: "Add a favourite" }).hasAttribute("disabled")).toBe(true);
+    // With nothing left to add, the section keeps the keyboard.
+    await waitFor(() => expect(document.activeElement).toBe(section.querySelector("[tabindex='-1']")));
+
+    const up = within(section).getByRole("button", { name: "Move Claude Opus 5 up" });
+    expect(within(section).getByRole("button", { name: "Move claude-sonnet-5 up" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(up);
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual(["claude-opus-5", "claude-sonnet-5"]));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-opus-5", "claude-sonnet-5"]));
+    // The keyboard stays on the favourite it moved, on the move it can still make.
+    expect(document.activeElement).toBe(within(section).getByRole("button", { name: "Move Claude Opus 5 down" }));
+
+    await app.user.click(within(section).getByRole("button", { name: "Remove claude-sonnet-5" }));
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual(["claude-opus-5"]));
+    expect(favourites(section)).toEqual(["claude-opus-5"]);
+  });
+
+  it("holds the list until a write is answered, so a quick second edit starts from the first, and keeps the keyboard in the list after a removal", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5", "claude-sonnet-5", "retired-model", "older-model"] } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-opus-5", "claude-sonnet-5", "retired-model", "older-model"]));
+    const button = (name: string) => within(section).getByRole("button", { name });
+
+    // A second Remove before the first is answered is not taken; had it been, its list would bring Opus back.
+    // Pressed as a person would: the keyboard on it, then the click.
+    button("Remove Claude Opus 5").focus();
+    fireEvent.click(button("Remove Claude Opus 5"));
+    expect(button("Remove claude-sonnet-5").hasAttribute("disabled")).toBe(true);
+    expect(button("Add a favourite").hasAttribute("disabled")).toBe(true);
+    fireEvent.click(button("Remove claude-sonnet-5"));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5", "retired-model", "older-model"]));
+    expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual(["claude-sonnet-5", "retired-model", "older-model"]);
+    // The keyboard goes to the next favourite's Remove.
+    await waitFor(() => expect(document.activeElement).toBe(button("Remove claude-sonnet-5")));
+
+    // From the last favourite, to the one before it; from the only one, to Add a favourite.
+    await app.user.click(button("Remove older-model"));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5", "retired-model"]));
+    await waitFor(() => expect(document.activeElement).toBe(button("Remove retired-model")));
+    await app.user.click(button("Remove retired-model"));
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5"]));
+    await waitFor(() => expect(document.activeElement).toBe(button("Remove claude-sonnet-5")));
+    await app.user.click(button("Remove claude-sonnet-5"));
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual([]));
+    await waitFor(() => expect(document.activeElement).toBe(button("Add a favourite")));
+  });
+
+  it("keeps a favourite no account lists, said so, until it is removed, and is read-only without admin", async () => {
+    const app = await opened({
+      desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["retired-model", "claude-opus-5"] } },
+      laptop: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5"] }, scopes: ["read", "sessions:write", "runs:drive", "terminal"] },
+    });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["retired-model", "claude-opus-5"]));
+    expect(within(section).getByText("No signed-in account lists it: the picker passes it over.")).toBeDefined();
+
+    const laptop = await openRow(app, "Default account and model", "laptop");
+    const readOnly = await within(laptop).findByRole("region", { name: "Favourite models" });
+    for (const button of within(readOnly).getAllByRole("button")) expect(button.hasAttribute("disabled"), button.getAttribute("aria-label") ?? "").toBe(true);
+  });
+
+  it("names a favourite as the model picker does, the display table's name over the provider's label", async () => {
+    const models: ScriptedEnvironment["models"] = [{ accountId: "account-1", models: [
+      { id: "opus", family: "opus", tier: 2, efforts: ["low", "high"], label: "Opus" },
+      { id: "haiku", family: "haiku", tier: 1, efforts: [], label: "Haiku" },
+    ] }];
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models, settings: { "accounts.favouriteModels": ["opus"] } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    const item = await within(section).findByRole("listitem");
+    await waitFor(() => expect(item.textContent).toBe("Opus 5.5opus"));
+    expect(within(section).getByRole("button", { name: "Remove Opus 5.5" })).toBeDefined();
+    await app.user.click(within(section).getByRole("button", { name: "Add a favourite" }));
+    const menu = await screen.findByRole("menu", { name: "Models to add" });
+    expect(within(menu).getAllByRole("menuitem").map((entry) => entry.textContent)).toEqual(["Haiku 4.5haiku"]);
+  });
+
+  it("leaves the keyboard where the person took it before the write was answered", async () => {
+    const app = await opened({ desk: { accounts: [{ label: "personal" }], models: MODELS, settings: { "accounts.favouriteModels": ["claude-opus-5", "claude-sonnet-5"] } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-opus-5", "claude-sonnet-5"]));
+    fireEvent.click(within(section).getByRole("button", { name: "Remove Claude Opus 5" }));
+    const elsewhere = within(row).getByRole("button", { name: /^Default account:/ });
+    elsewhere.focus();
+    await waitFor(() => expect(favourites(section)).toEqual(["claude-sonnet-5"]));
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("keeps the keyboard in the section when the last favourite is removed and no signed-in account lists a model to add", async () => {
+    const app = await opened({ desk: { accounts: [signedOut], models: MODELS, settings: { "accounts.favouriteModels": ["retired-model"] } } });
+    const row = await openRow(app, "Default account and model");
+    const section = await within(row).findByRole("region", { name: "Favourite models" });
+    await waitFor(() => expect(favourites(section)).toEqual(["retired-model"]));
+    await app.user.click(within(section).getByRole("button", { name: "Remove retired-model" }));
+    await waitFor(() => expect(app.environment("desk").settings()["accounts.favouriteModels"]).toEqual([]));
+    expect(within(section).getByRole("button", { name: "Add a favourite" }).hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(document.activeElement).toBe(section.querySelector("[tabindex='-1']")));
+  });
+});
+
 /** A gauge's windows, each as its row reads. */
 const windows = (gauge: HTMLElement) =>
   within(within(gauge).getByRole("list", { name: "Windows" }))

@@ -15,6 +15,7 @@
           "accounts.defaultAccount",
           "accounts.defaultModelFamily",
           "accounts.defaultEffort",
+          "accounts.favouriteModels",
           "providers.processIdleMinutes",
           "permissions.defaultCeiling",
           "permissions.unattended.mode",
@@ -42,7 +43,7 @@
           "network.bindLan",
           "instructions.orientation"
         ],
-        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount, network.bindTailnet, network.bindLan, instructions.orientation."
+        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, accounts.favouriteModels, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount, network.bindTailnet, network.bindLan, instructions.orientation."
       },
       "uniqueItems": true
     }

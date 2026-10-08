@@ -24,6 +24,8 @@ const models = [
 export const script: Script = { environments: [{ environmentId, name: "desk", reach: "local", icon: "desktop", colour: "teal", accounts,
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- Scripted environment fixtures supply the session summary.
   sessions: [{ id: sessionId, title: "Run choices", accountId: "account-1", model: "fable" }], models: [{ accountId: "account-1", live: true, models }],
+  // Three favourites pinned (#1821): they head the models, the session's own model after them, the eleven others under Other models.
+  settings: { "accounts.favouriteModels": ["sample-model-3", "sample-model-7", "sample-model-11"] },
 }] };
 const usageWindow = (window: string, utilisation: number) => ({ window, utilisation, observedAt: "2026-09-24T00:00:00.000Z", resetsAt: "2026-09-24T05:00:00.000Z", verdict: null });
 /** Accounts hold two plan windows, one or none in turn, so the rows show they keep one height (#1822). */
@@ -45,7 +47,7 @@ const Popup = ({ compact }: { readonly compact: boolean }) => {
   </Menu>;
 };
 
-/** Both scenes draw the production columns over the scripted runtime. */
+/** Each scene draws the production columns over the scripted runtime. */
 export const RunPickerScene = ({ compact = false }: { readonly compact?: boolean }) => {
   const environments = useObservable(useRuntime().projections.environments);
   return <main className="flex min-h-screen items-end bg-abyss p-6 text-ink">
