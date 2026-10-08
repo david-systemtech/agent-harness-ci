@@ -1065,7 +1065,7 @@ describe("scopes", () => {
     await focusRail(app);
     await cursorTo(app, "Train tidy");
     await app.press("p");
-    await app.waitFor("sessions:write");
+    await app.waitFor("cannot start sessions");
     expect(app.frame()).not.toContain("pending");
     expect(app.frame()).not.toContain("↻");
     expect(sent(app, "laptop", "sessions.pin")).toEqual([]);

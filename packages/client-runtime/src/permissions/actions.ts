@@ -1,5 +1,6 @@
 import { DenylistInput, describeDenylistMatch, type Denylist, type DenylistEntry, type DenylistSection, type DenylistTestKind } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
+import type { RefusedAnswer } from "../words/refusal.js";
 import { adminCall } from "../status/actions.js";
 import { DENYLIST_SECTION_NAMES, sectionGrammar } from "./words.js";
 
@@ -53,7 +54,7 @@ export const editedSection = (entries: readonly DenylistEntry[], edit: DenylistE
 export type DenylistSaved = { readonly ok: true; readonly denylist: Denylist | undefined } | { readonly ok: false; readonly line: string };
 
 /** What a restore did, in one line either way, with the denylist the environment answered. */
-export type DenylistRestored = { readonly ok: true; readonly denylist: Denylist | undefined; readonly line: string } | { readonly ok: false; readonly line: string };
+export type DenylistRestored = { readonly ok: true; readonly denylist: Denylist | undefined; readonly line: string } | { readonly ok: false; readonly line: string; readonly refusal: RefusedAnswer };
 
 /**
  * Why a section's entries cannot be sent, in one line: a pattern its
@@ -102,7 +103,7 @@ export const restoreDenylistPresets = async (
   commandId: string,
 ): Promise<DenylistRestored> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "permissions.denylist.restorePresets", { commandId, ...(sections !== undefined && { sections: [...sections] }) }));
-  if (!answer.ok) return { ok: false, line: `Not restored: ${answer.line}` };
+  if (!answer.ok) return { ok: false, line: `Not restored: ${answer.line}`, refusal: answer.refusal };
   const count = answer.result?.restored.length;
   return { ok: true, denylist: answer.result?.denylist, line: count === undefined ? "Restored the denylist's presets." : `Restored the denylist's presets: ${count} put back.` };
 };

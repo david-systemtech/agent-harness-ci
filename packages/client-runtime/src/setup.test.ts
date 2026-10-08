@@ -7,7 +7,7 @@ import { attentionResult, doneResult, skippedResult } from "../test/setup.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
-import { countsWords, rowHealth, stepLine } from "./setup/checklist.js";
+import { countsWords, rowHealth, stepLine, stepNote } from "./setup/checklist.js";
 import { fakeShell, inMemoryDocuments, inMemoryPlatform, inMemorySecrets, MANUAL_CLOCK_START, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
 import { whenWords } from "./transcript/format.js";
 
@@ -93,7 +93,7 @@ describe("projections.setup from the snapshot and the notices", () => {
     expect(setup.read().counts).toEqual({ registered: 2, done: 1, needsAttention: 0, skipped: 0, attention: [] });
     expect(rowHealth(setup.read(), "environments.machines")).toBe("pending");
     expect(rowHealth(setup.read(), "setup.checklist")).toBe("pending");
-    expect(countsWords(setup.read().counts)).toBe("1 done, 0 need attention, 0 skipped, 1 checking");
+    expect(countsWords(setup.read().counts)).toBe("1 done · 0 need a fix · 0 not set up · 1 checking");
     environment.event(noticeEvent(4, env, "setup.result-changed", doneResult("your-machines")));
     await flush();
     expect(rowHealth(setup.read(), "environments.machines")).toBe("done");
@@ -590,6 +590,12 @@ describe("each result's age", () => {
     return step === undefined ? undefined : stepLine(step, runtime.environmentNow(env));
   };
 
+  /** That step's muted second line: when it was checked, or that nothing changed since. */
+  const noteOf = (runtime: Runtime, env: string, id: string) => {
+    const step = runtime.projections.setup(env).read().steps.find((one) => one.id === id);
+    return step === undefined ? undefined : stepNote(step, runtime.environmentNow(env), "desk");
+  };
+
   it("is counted on the environment's clock for a followed result, which reads unchanged since its checked-at and never older than its cadence, as nothing is heard of a re-check that finds nothing new (#671)", async () => {
     const { runtime, clock, env, environment, adding } = await paired({ skewMs: 10 * MINUTE });
     // Checked ten minutes ago as the environment tells the time, which runs ten minutes ahead of this client's.
@@ -602,13 +608,13 @@ describe("each result's age", () => {
       ["your-machines", 10 * MINUTE, false, false],
       ["forges", 10 * MINUTE, false, false],
     ]);
-    const unchanged = `(unchanged since ${whenWords(MANUAL_CLOCK_START, runtime.environmentNow(env))})`;
-    expect(lineOf(runtime, env, "your-machines")).toBe(`your-machines holds. ${unchanged}`);
+    const unchanged = `No change since ${whenWords(MANUAL_CLOCK_START, runtime.environmentNow(env))}.`;
+    expect([lineOf(runtime, env, "your-machines"), noteOf(runtime, env, "your-machines")]).toEqual(["your-machines holds.", unchanged]);
 
     // Past Forges' fifteen minutes and Your machines' hour, with no event, each says the same.
     clock.advance(60 * MINUTE);
     await flush();
-    expect(lineOf(runtime, env, "your-machines")).toBe(`your-machines holds. ${unchanged}`);
+    expect([lineOf(runtime, env, "your-machines"), noteOf(runtime, env, "your-machines")]).toEqual(["your-machines holds.", unchanged]);
     expect(runtime.projections.setup(env).read().steps.find((step) => step.id === "forges")?.result).toMatchObject({ asked: false, olderThanCadence: false });
   });
 
@@ -625,7 +631,7 @@ describe("each result's age", () => {
       ["your-machines", 10 * MINUTE, true, false],
       ["forges", 10 * MINUTE, true, false],
     ]);
-    expect(lineOf(runtime, env, "your-machines")).toBe("your-machines holds.");
+    expect([lineOf(runtime, env, "your-machines"), noteOf(runtime, env, "your-machines")]).toEqual(["your-machines holds.", undefined]);
 
     // Forges' cadence is fifteen minutes (its forge accounts' status); Your machines' the hour.
     clock.advance(5 * MINUTE + 1);
@@ -641,14 +647,14 @@ describe("each result's age", () => {
       ["your-machines", 16 * MINUTE + 1, true, false],
       ["forges", 16 * MINUTE + 1, true, true],
     ]);
-    expect(lineOf(runtime, env, "forges")).toBe("Nothing is set up for forges. (checked 16 min ago)");
+    expect([lineOf(runtime, env, "forges"), noteOf(runtime, env, "forges")]).toEqual(["Nothing is set up for forges.", "Last checked 16 min ago."]);
     clock.advance(44 * MINUTE);
     await flush();
     expect(ages(runtime, env)).toEqual([
       ["your-machines", 60 * MINUTE + 1, true, true],
       ["forges", 60 * MINUTE + 1, true, true],
     ]);
-    expect(lineOf(runtime, env, "your-machines")).toBe("your-machines holds. (checked 1 h ago)");
+    expect([lineOf(runtime, env, "your-machines"), noteOf(runtime, env, "your-machines")]).toEqual(["your-machines holds.", "Last checked 1 h ago."]);
   });
 
   it("reads an answer of this client's own as followed once its step's cadence has passed on an environment with the setup flag, which has checked it again unasked by then (#671)", async () => {
@@ -657,7 +663,7 @@ describe("each result's age", () => {
     clock.advance(MINUTE);
     expect(await runtime.setup.check(env, "forges")).toMatchObject({ ok: true });
     expect(resultOf(runtime, env, "forges")).toMatchObject({ asked: true, olderThanCadence: false, stale: false });
-    expect(lineOf(runtime, env, "forges")).toBe("forges holds.");
+    expect([lineOf(runtime, env, "forges"), noteOf(runtime, env, "forges")]).toEqual(["forges holds.", undefined]);
 
     clock.advance(15 * MINUTE);
     await flush();
@@ -665,7 +671,7 @@ describe("each result's age", () => {
     clock.advance(1);
     await flush();
     expect(resultOf(runtime, env, "forges")).toMatchObject({ asked: false, olderThanCadence: false, stale: false });
-    expect(lineOf(runtime, env, "forges")).toBe(`forges holds. (unchanged since ${whenWords(after(MINUTE), runtime.environmentNow(env))})`);
+    expect([lineOf(runtime, env, "forges"), noteOf(runtime, env, "forges")]).toEqual(["forges holds.", `No change since ${whenWords(after(MINUTE), runtime.environmentNow(env))}.`]);
   });
 
   it("words a time its reason names as this client words a past time, in place of the environment's words for it, counted again a minute at a time while the result is followed (#1742)", async () => {
@@ -680,9 +686,8 @@ describe("each result's age", () => {
     await adding;
     onTestFinished(runtime.projections.setup(env).subscribe(() => undefined));
     await flush();
-    const unchanged = `(unchanged since ${whenWords(MANUAL_CLOCK_START, runtime.environmentNow(env))})`;
     const line = () => lineOf(runtime, env, "your-machines");
-    expect(line()).toBe(`The host-side updater last polled ${pastTimeWords(polledAt, runtime.environmentNow(env))}: check that it still runs. ${unchanged}`);
+    expect(line()).toBe(`The host-side updater last polled ${pastTimeWords(polledAt, runtime.environmentNow(env))}: check that it still runs.`);
     expect(line()).toMatch(/^The host-side updater last polled 2 h ago, at [^:]+:\d\d: /);
     expect(line()).not.toContain("UTC");
 

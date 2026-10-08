@@ -12,6 +12,7 @@ import {
   gaugeWho,
   identityWords,
   modelName,
+  needsWord,
   percent,
   pooledWords,
   readingWords,
@@ -21,6 +22,7 @@ import {
   reviewRunWords,
   setupReachWords,
   stepLine,
+  stepNote,
   windowWords,
   type AccountsAnswer,
   type EnvironmentView,
@@ -32,6 +34,7 @@ import {
 import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
+  PRODUCT_NAME,
   STEP_HINTS,
   type AccountRecord,
   type ContainmentLevel,
@@ -262,42 +265,47 @@ export const reviewLines = (answer: ReviewAnswer, titleOf: (sessionId: string) =
   ]);
 };
 
-/** Counts, reach and the desktop pointer under the Set up health rows. */
+/** Counts, reach and the pointer to the fix under the Set up health rows (setup-copy.md §4.5). */
 export const setupLines = (view: SetupView, name: string, checking: boolean, failed: string | null, live: boolean): readonly (readonly Span[])[] => {
-  const reach = view.reach.status === "unreachable" && view.reach.since !== null
-    ? `${name} is unreachable since ${clockTime(view.reach.since)}: cached results are stale.`
-    : setupReachWords(view.reach, name);
+  const reach = setupReachWords(view.reach, name);
   return [
     [{ text: countsWords(view.counts) }],
     ...(reach === undefined ? [] : [[{ text: reach, color: TERMINAL_ROLES.warning }]]),
     ...(checking ? [[{ text: "Checking Set up…", dim: true }]] : []),
-    ...(failed === null ? [] : [[{ text: `Set up could not be checked: ${failed}`, color: TERMINAL_ROLES.warning }]]),
+    ...(failed === null ? [] : [[{ text: `${PRODUCT_NAME} could not check ${name}. Run /setup to try again.`, color: TERMINAL_ROLES.warning }], [{ text: `Details: ${failed}`, dim: true }]]),
     ...(!live ? [[{ text: "Live Set up updates are unavailable on this environment; /setup checks again.", dim: true }]] : []),
-    [{ text: "Run it in the desktop window.", dim: true }],
+    [{ text: "Press Enter on a step to run its fix, or open Set up in the desktop app.", dim: true }],
   ];
 };
 
-/** The header follows the session's environment, independently of the checklist card. */
+/** The header follows the session's environment, independently of the checklist card (setup-copy.md §4.5). */
 export const setupHeader = (view: SetupView, name: string): string | undefined => {
-  if (view.counts.needsAttention === 0) return undefined;
-  const names = view.steps.filter((step) => view.counts.attention.includes(step.id)).map((step) => step.label).join(", ");
-  return `Set up on ${name}: ${view.counts.done} of ${view.counts.registered} done, ${view.counts.needsAttention} need attention (${names}). Run it in the desktop window.`;
+  const { done, registered, needsAttention, attention } = view.counts;
+  if (needsAttention === 0) return undefined;
+  const names = view.steps.filter((step) => attention.includes(step.id)).map((step) => step.label).join(", ");
+  return `Set up on ${name}: ${done} of ${registered} done, ${needsAttention} ${needsWord(needsAttention)} a fix (${names}).`;
 };
 
-/** One selectable health line per step this environment registers. */
-export const setupRows = (view: SetupView, now: Date): readonly PanelRow[] => view.steps.filter((step) => step.registered).map((step) => ({
+/** A step's line, and beneath it when it was checked, or that it may be out of date: `name` is the environment's. */
+export const setupStepWords = (step: SetupStepView, now: Date, name: string): string => {
+  const note = stepNote(step, now, name);
+  return note === undefined ? stepLine(step, now) : `${stepLine(step, now)} ${note}`;
+};
+
+/** One selectable health line per step this environment registers, on the environment `name`. */
+export const setupRows = (view: SetupView, now: Date, name: string): readonly PanelRow[] => view.steps.filter((step) => step.registered).map((step) => ({
   key: step.id,
-  cells: [setupStepSpan(step, now)],
+  cells: [setupStepSpan(step, now, name)],
   under: { text: `  ${STEP_HINTS[step.id]}`, dim: true },
   dim: step.result?.state === "skipped",
 }));
 
-const setupStepSpan = (step: SetupStepView, now: Date): Span => {
+const setupStepSpan = (step: SetupStepView, now: Date, name: string): Span => {
   const state = step.result?.state;
   if (state === undefined) return { text: `${step.label}: ${stepLine(step, now)}`, dim: true };
   const attention = state === "needs-attention";
   return {
-    text: `${attention ? "!" : state === "done" ? "●" : "○"} ${step.label}: ${STEP_STATE_WORDS[state]}${attention || state === "pending" || step.pending || step.result?.stale || step.result?.olderThanCadence ? ` — ${stepLine(step, now)}` : ""}`,
+    text: `${attention ? "!" : state === "done" ? "●" : "○"} ${step.label}: ${STEP_STATE_WORDS[state]}${attention || state === "pending" || step.pending || step.result?.stale || step.result?.olderThanCadence ? ` — ${setupStepWords(step, now, name)}` : ""}`,
     dim: state === "skipped",
     ...(attention && { color: TERMINAL_ROLES.warning }),
   };

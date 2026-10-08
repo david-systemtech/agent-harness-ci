@@ -1,8 +1,9 @@
-import { oneLine, pullSetupSources } from "@agent-harness/client-runtime";
+import { oneLine, pullSetupSources, type ActionOutcome } from "@agent-harness/client-runtime";
 import { CATALOGUE, catalogueTickStates, SKILL_SOURCE_LIMIT, type CatalogueSkillEntry, type CatalogueTickState } from "@agent-harness/contracts";
 import { TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
+import { Outcome } from "../setup/outcome.js";
 import { StepStatus } from "../setup/step-status.js";
 import { Button, Dialog, DialogContent } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
@@ -24,8 +25,8 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
   const clock = useClock();
   const view = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
   const read = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.get", {}), [runtime, environmentId]));
-  const [line, setLine] = useState<string | undefined>(undefined);
-  const say = (message: string) => setLine(oneLine(message));
+  const [said, setSaid] = useState<Pick<ActionOutcome, "line" | "details"> | undefined>(undefined);
+  const say = (message: string) => setSaid({ line: oneLine(message) });
   const [pulling, setPulling] = useState(false);
   const skills = read.result;
   const ticks = catalogueTickStates(CATALOGUE.skills, skills?.sources ?? []);
@@ -45,7 +46,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
                 setPulling(true);
                 try {
                   const outcome = await pullSetupSources(runtime, environmentId, sources.map((source) => ({ id: source.id, label: `${source.identity} — ${source.folder}` })), () => clock.now());
-                  say(sources.length === 0 ? "No unpinned source to pull." : outcome.line);
+                  setSaid(sources.length === 0 ? { line: "No unpinned source to pull." } : outcome);
                 } finally {
                   setPulling(false);
                 }
@@ -57,7 +58,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
       {view !== undefined && view.phase !== "ready" && <p className="text-sm text-amber">Stale: {reachWords(runtime, view)}. Skills as this window last read them, read-only.</p>}
       {!namedPull && pull.status === "absent" && step.result?.actions.includes("pull-now") && <p className="text-sm text-ink-faint">{pull.message}</p>}
       {read.error !== null && <p className="text-sm text-amber">{oneLine(read.error.message)}</p>}
-      {line !== undefined && <p role="status" className="text-sm text-ink-muted">{line}</p>}
+      {said !== undefined && <Outcome outcome={said} role="status" className="text-sm text-ink-muted" />}
       <section aria-label="Skills catalogue" className="flex flex-col gap-3">
         <h3 className="font-semibold">Skills catalogue</h3>
         {CATALOGUE.skills.map((entry) => (

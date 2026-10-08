@@ -307,7 +307,7 @@ it("keeps admin verbs visible and dim with their scope reason, and keeps cached 
   await within(pane()).findByText("Draft a clear note.");
   expect(within(pane()).getByRole("button", { name: "Create skill" }).hasAttribute("disabled")).toBe(true);
   expect(within(pane()).getByRole("button", { name: "Probe repository" }).hasAttribute("disabled")).toBe(true);
-  expect(within(pane()).getAllByText(/admin/).length).toBeGreaterThan(0);
+  expect(within(pane()).getAllByText(/change settings or sign in accounts/).length).toBeGreaterThan(0);
   update({ ...initial(), accounts: [...initial().accounts, { accountId: "local", channel: "none", reason: "This adapter cannot append instructions." }] });
   await within(pane()).findByText("This adapter cannot append instructions.");
   expect(within(pane()).getByRole("switch", { name: "Every prompt draft on Local" }).hasAttribute("disabled")).toBe(true);

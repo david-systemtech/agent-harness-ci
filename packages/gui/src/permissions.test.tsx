@@ -194,7 +194,7 @@ describe("the permission settings", () => {
   it("is read-only without admin with the capability's line said once, and shows an unreachable environment's values as last read, read-only", async () => {
     const app = await opened({ laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"], containment: NO_BUBBLEWRAP } });
     const laptop = await openPermissions(app, "laptop");
-    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
     await waitFor(() => expect(levels(laptop)).toHaveLength(3));
     for (const radio of within(laptop).getAllByRole("radio")) expect(radio.hasAttribute("disabled")).toBe(true);
@@ -453,7 +453,7 @@ describe("the Unattended review", () => {
 
     const laptop = await openPermissions(app, "laptop");
     const cannot = within(laptop).getByRole("region", { name: "Unattended review" });
-    expect(await within(cannot).findByText("This client was paired with laptop without the sessions:write scope.")).toBeDefined();
+    expect(await within(cannot).findByText("This app has limited access to laptop, so it cannot start sessions. Pair again with full access to change this.")).toBeDefined();
     expect(within(cannot).getByRole("button", { name: "Mark seen" }).hasAttribute("disabled")).toBe(true);
   });
 });

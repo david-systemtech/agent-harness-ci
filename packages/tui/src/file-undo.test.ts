@@ -59,8 +59,8 @@ describe("/undo", () => {
   });
 
   it.each([
-    [{ capabilities: [] }, "fileUndo"],
-    [{ scopes: ["read"] }, "terminal scope"],
+    [{ capabilities: [] }, "runs an older agent-harness without this"],
+    [{ scopes: ["read"] }, "cannot use terminals or files"],
   ] satisfies [Partial<ScriptedEnvironment>, string][])("keeps unavailable undo in the slash menu with its reason", async (options, reason) => {
     const { app, env } = await launch(options);
     await app.type("/undo");

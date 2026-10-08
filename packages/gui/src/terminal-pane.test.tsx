@@ -300,7 +300,7 @@ describe("the Terminal pane", () => {
     const menu = await openHeaderMenu(app);
     const terminal = within(menu).getByRole("menuitem", { name: "Terminal" });
     expect(terminal.getAttribute("aria-disabled")).toBe("true");
-    expect(terminal.textContent).toContain("This client was paired with desk without the terminal scope.");
+    expect(terminal.textContent).toContain("This app has limited access to desk, so it cannot use terminals or files. Pair again with full access to change this.");
     expect(env.requests("terminals.open")).toEqual([]);
   });
 });
