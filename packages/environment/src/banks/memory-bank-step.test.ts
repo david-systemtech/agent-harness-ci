@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ENVIRONMENT_STREAM_KIND, registry, type BankRecord, type EventFrame, type Frame, type ParamsOf, type ResponseOf, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { changed, markdown, PERSONAL_BANK, personalManifest, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
+import { changed, markdown, PERSONAL_BANK, personalManifest, TEAM_BANK, teamManifest } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
@@ -396,14 +396,19 @@ describe("the Memory bank step's checks", () => {
     const client = await t.client();
     const forge = await forgeFor(client);
     const team = await register(client, teamBank(forge));
-    const other = await register(client, gitBank(PERSONAL_BANK, "maya-memory"));
+    // A second remote bank on the same covered forge, so only the refusal's origin keeps it.
+    const beta = gitBank(changed(TEAM_BANK, { "BANK.md": markdown(teamManifest({ name: "beta" }), "\n# How agents use this bank\n") }), "beta");
+    git(beta, "remote", "add", "origin", `${forge.origin}/acme/beta.git`);
+    forge.repository(TOKEN, "acme/beta");
+    const other = await register(client, beta);
     const elsewhere = forgeAccountMissing("https://other.example.test", "it asked for a credential").message;
     appendBankEvent(t, "bank.landing-failed", { bankId: team.id, sessionId: null, step: "push", reason: "The forge refused the push." });
     appendBankEvent(t, "bank.landing-failed", { bankId: other.id, sessionId: null, step: "fetch", reason: elsewhere });
     expect(await checkMemoryBank(client)).toMatchObject({
       failing: ["memory-bank.landing"],
-      details: ["acme: push: The forge refused the push.", `maya-memory: fetch: ${elsewhere}`],
+      details: ["acme: push: The forge refused the push.", `beta: fetch: ${elsewhere}`],
     });
+    expect((await client.request("banks.get", { bankId: other.id })).bank.status).toMatchObject({ reachable: { state: "reachable" }, landing: { state: "failed", reason: elsewhere } });
   });
 
   it("names every failing bank in one line, each check's lines in the registry's order", async () => {
