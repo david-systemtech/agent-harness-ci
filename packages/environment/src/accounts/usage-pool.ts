@@ -54,6 +54,10 @@ import { currentWindow, isFresh, type LiveRunLoad } from "./handoff.js";
  *   host's account lookup, the store), answers that account unavailable too,
  *   reported and not held: one account's fault never fails the others'
  *   readings.
+ * - **A stop ends a read quietly**: once the pool closes, an ask, and a
+ *   read that was in flight, answers the stop's `unavailable` ("The
+ *   environment is stopping."), touching neither the store nor the log,
+ *   which close after it, and reporting nothing (#1899).
  * - **A run's `plan.limit` folds in**: the pool
  *   hears the log, maps the run to its account through the runs table, and
  *   folds the verdict into that account's window: the verdict, and the
@@ -135,6 +139,14 @@ interface Held {
 interface LiveRun extends LiveRunLoad {
   readonly accountId: string;
 }
+
+/**
+ * What a read answers once the pool has closed: the environment is stopping,
+ * as its other methods and its wire say. Its store and log close next, so a
+ * read the stop caught touches neither and is not reported.
+ */
+const stopping = (): ContractError =>
+  new ContractError({ code: "unavailable", message: "The environment is stopping.", data: { readiness: "draining" } });
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -275,19 +287,22 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
           const { reading: mapped, at } = fromAdapter(record, raw, handedAt);
           next = { reading: mapped, at, retry: false };
         } catch (error) {
+          if (closed) throw stopping();
           console.error(`Reading the plan usage of the account ${record.label} failed:`, error);
           // Stamped when it was asked, not when it failed: it read nothing, so a verdict heard while it was under way is
           // newer than it and folds in below, rather than being lost with the reading it replaces.
           next = { reading: unavailable(record, record.identity, askedAt.toISOString(), `Could not read plan usage: ${messageOf(error)}`), at: askedAt.getTime(), retry: true };
         }
       }
+      // The stop caught the read: the store and the log under it are closing, so it ends here, neither held nor reported.
+      if (closed) throw stopping();
       // A verdict heard while the read was under way is newer than it: folded in.
       let folded = next.reading;
       for (const verdict of arrivedDuring.get(accountId) ?? []) folded = foldVerdict(folded, verdict) ?? folded;
       next = { ...next, reading: folded };
       // Held only for the account as it is now: not one removed, nor one the store has since given another identity.
       const current = accounts.list().find((account) => account.id === accountId);
-      if (!closed && current !== undefined && sameIdentity(current.identity, record.identity)) hold(accountId, next);
+      if (current !== undefined && sameIdentity(current.identity, record.identity)) hold(accountId, next);
       return next.reading;
     })().finally(() => {
       inFlight.delete(accountId);
@@ -307,6 +322,7 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
     try {
       return await readOne(record);
     } catch (error) {
+      if (closed) throw stopping();
       console.error(`Reading the plan usage of the account ${record.label} failed in the environment:`, error);
       return unavailable(record, record.identity, clock.now().toISOString(), `Could not read plan usage: ${messageOf(error)}`);
     }
@@ -347,6 +363,7 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
 
   return {
     async read(accountId) {
+      if (closed) throw stopping();
       const records = accounts.list();
       const chosen = accountId === undefined ? records : records.filter((record) => record.id === accountId);
       if (accountId !== undefined && chosen.length === 0) {

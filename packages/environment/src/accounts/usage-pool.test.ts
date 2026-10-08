@@ -2,7 +2,8 @@ import type { AccountRecord, AccountUsage, UsageWindow } from "@agent-harness/co
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
-import { fakeAdapter, usageOf, usageWindow } from "../../test/fake-adapter.js";
+import { fakeAdapter, gate, usageOf, usageWindow } from "../../test/fake-adapter.js";
+import type { UsageReading } from "../adapter/contract.js";
 import { openEventLog } from "../event-log/event-log.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import { USAGE_MAX_AGE_MS, rankAccounts } from "./handoff.js";
@@ -12,7 +13,8 @@ import { createUsagePool, foldVerdict, sameReading, type PlanVerdict } from "./u
  * The pool's fold and its notice rule as pure functions: a run's verdict
  * folded into a reading, and what counts as a change. The pool's own reads,
  * sharing and notices are the wire's (`usage.test.ts`); a fault around a
- * read, which the wire cannot stage, is the pool's own, below.
+ * read, which the wire cannot stage, and the refusal a read the pool's close
+ * caught answers, are the pool's own, below.
  */
 
 const { onCleanup } = useCleanups();
@@ -194,5 +196,87 @@ describe("a fault around one account's read", () => {
     expect(readings[1]).toMatchObject({ windows: [], unavailableReason: "Could not read plan usage: The account table is locked." });
     expect(await pool.read("broken")).toEqual([expect.objectContaining({ accountId: "broken", windows: [] })]);
     expect(reported).toHaveBeenCalledWith(expect.stringContaining("broken"), expect.any(Error));
+  });
+});
+
+describe("a read still in flight when the pool closes", () => {
+  const stopping = { code: "unavailable", message: "The environment is stopping.", data: { readiness: "draining" } };
+
+  /** A pool over one signed-in account whose adapter read waits on `held`, and whose account list reads the log, as the store's does. */
+  const heldPool = (settle: () => Promise<UsageReading>) => {
+    const clock = manualClock();
+    const log = openEventLog({ path: ":memory:", clock: () => clock.now() });
+    onCleanup(() => log.close());
+    const record: AccountRecord = {
+      id: "work",
+      provider: "fake",
+      label: "work",
+      directory: { kind: "adopted", path: "/nonexistent/work" },
+      identity: { provider: "fake", email: "work@example.com", organisation: null },
+      status: { state: "signed-in", checkedAt: null, detail: null },
+      createdAt: clock.now().toISOString(),
+    };
+    const { descriptor } = fakeAdapter({ clock });
+    const listed = vi.fn(() => {
+      log.read("SELECT 1");
+      return [record];
+    });
+    const usage = vi.fn(settle);
+    const pool = createUsagePool({
+      log,
+      clock,
+      environmentId: "environment",
+      accounts: { list: listed },
+      host: {
+        account: (id) => ({ id: id ?? "work", directory: "/nonexistent/work", adopted: true, signedIn: true, identity: null, descriptor, models: [] }),
+        usage,
+      },
+    });
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => reported.mockRestore());
+    /** Closes the pool, then the log under it, as the environment does. */
+    const stop = (): void => {
+      pool.close();
+      log.close();
+    };
+    return { pool, listed, usage, reported, stop };
+  };
+
+  it("answers the stop's refusal, touching neither the closed log nor the console, when the held read answers after the close", async () => {
+    const held = gate();
+    const { pool, listed, usage, reported, stop } = heldPool(async () => {
+      await held.opened;
+      return usageOf("work@example.com", [usageWindow("five_hour", 0.4)], new Date(READ));
+    });
+    const asked = pool.read();
+    await vi.waitFor(() => expect(usage).toHaveBeenCalledOnce());
+    const listedBefore = listed.mock.calls.length;
+    stop();
+    held.open();
+    await expect(asked).rejects.toMatchObject(stopping);
+    expect(listed.mock.calls.length).toBe(listedBefore);
+    expect(reported).not.toHaveBeenCalled();
+  });
+
+  it("answers the stop's refusal, unreported, when the held read fails after the close", async () => {
+    const held = gate();
+    const { pool, reported, usage, stop } = heldPool(async () => {
+      await held.opened;
+      throw new Error("The provider process was stopped.");
+    });
+    const asked = pool.read();
+    await vi.waitFor(() => expect(usage).toHaveBeenCalledOnce());
+    stop();
+    held.open();
+    await expect(asked).rejects.toMatchObject(stopping);
+    expect(reported).not.toHaveBeenCalled();
+  });
+
+  it("answers an ask after the close with the stop's refusal, reading neither the log nor the adapter", async () => {
+    const { pool, listed, usage, stop } = heldPool(async () => usageOf("work@example.com", [], new Date(READ)));
+    stop();
+    await expect(pool.read()).rejects.toMatchObject(stopping);
+    expect(listed).not.toHaveBeenCalled();
+    expect(usage).not.toHaveBeenCalled();
   });
 });
