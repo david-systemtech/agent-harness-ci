@@ -56,6 +56,7 @@ describe("settings.get", () => {
         "accounts.defaultAccount": null,
         "accounts.defaultModelFamily": null,
         "accounts.defaultEffort": null,
+        "accounts.favouriteModels": [],
         "providers.processIdleMinutes": 30,
         ...presetPermissionSettings(),
         "updates.autoUpdate": true,
