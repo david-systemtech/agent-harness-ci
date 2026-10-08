@@ -247,7 +247,7 @@ describe("projections.browsers: the browser dock", () => {
     const w = await world();
     const view = await picker(w, "laptop", (v) => rowOf(v, "headless")?.unavailable?.reason !== "unknown");
     expect(rowOf(view, "dock")).toBeUndefined();
-    expect(view.dock).toEqual({ status: "absent", reason: "no-shell", message: "This client cannot embed a browser: its shell has no shell.webView." });
+    expect(view.dock).toEqual({ status: "absent", reason: "no-shell", message: "This app cannot show a web page inside the window here.", details: ["shell.webView"] });
   });
 });
 

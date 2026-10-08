@@ -85,7 +85,7 @@ it("refits after a viewport event, retains the hidden PTY and closes it only fro
 it("explains deliberate re-pairing without terminal authority and sends no terminal requests", async () => {
   const { app, pane, env } = await phone(false);
   expect(pane.getByText(/Custom pairing code with terminal scope/)).toBeDefined();
-  expect(pane.getByText(/without the terminal scope/)).toBeDefined();
+  expect(pane.getByText(/so it cannot use terminals or files/)).toBeDefined();
   expect((pane.getByRole("button", { name: "Ctrl" }) as HTMLButtonElement).disabled).toBe(true);
   await app.user.click(pane.getByRole("button", { name: "Tab" }));
   for (const method of ["terminals.open", "terminals.list", "terminals.subscribe", "terminals.write"] as const) expect(env.requests(method)).toEqual([]);

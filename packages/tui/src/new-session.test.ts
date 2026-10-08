@@ -408,14 +408,14 @@ describe("a worktree", () => {
     const app = await launch({ desk: withReview({ scopes }) });
     await headingTo(app, "desk");
     await app.press(KEY.enter);
-    await app.waitFor("Browse desk's directories (This client was paired with desk without the terminal scope.)");
+    await app.waitFor("Browse desk's directories (This app has limited access to desk, so it cannot use terminals");
     await rowTo(app, "A worktree");
     await app.press(KEY.enter);
-    await app.waitFor("Browse desk's directories (This client was paired with desk without the terminal scope.)");
+    await app.waitFor("Browse desk's directories (This app has limited access to desk, so it cannot use terminals");
     await app.type("/work/harness");
     await app.press(KEY.enter);
     await app.waitFor("A worktree of harness on desk: its branch");
-    await app.waitFor("This client was paired with desk without the terminal scope.");
+    await app.waitFor("This app has limited access to desk, so it cannot use terminals or files.");
     expect(sent(app, "desk", "workspaces.inspect")).toEqual([]);
     await app.type("fix/rail");
     await rowTo(app, "Branch fix/rail");

@@ -377,7 +377,7 @@ describe("without admin", () => {
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     await screen.findByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist()).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
-    expect(await within(step()).findAllByText("Read-only: This client was paired with desk without the admin scope.")).toHaveLength(1);
+    expect(await within(step()).findAllByText("Read-only: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toHaveLength(1);
     const home = await connection("OpenBao or Vault", "Home OpenBao");
     for (const name of ["Sign in to another", "Verify now"]) expect(within(tile("OpenBao or Vault")).getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
     for (const name of ["Doppler", "1Password", "Bitwarden Secrets Manager"]) expect(within(tile(name)).getByRole("button", { name: "Sign in" }).hasAttribute("disabled")).toBe(true);

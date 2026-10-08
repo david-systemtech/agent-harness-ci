@@ -243,7 +243,7 @@ describe("/environment", () => {
     await app.waitFor("● desk ready");
     await openActions(app, 1);
     await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("Cannot list the client sessions on laptop: This client was paired with laptop without the admin scope.");
+    await app.waitFor("Cannot list the client sessions on laptop: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     expect(app.environment("laptop").requests("access.sessions.list")).toHaveLength(0);
   });
 });
@@ -357,7 +357,7 @@ describe("/environment rename, icon and colour", () => {
   it("answers the three with the capability's line without admin, sending nothing and opening no picker", async () => {
     const app = await withSessions({ scopes: SCOPES.filter((s) => s !== "admin") });
     await app.waitFor("● desk ready");
-    const refusal = "This client was paired with desk without the admin scope.";
+    const refusal = "This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.";
     await run(app, "/environment rename Tower");
     await app.waitFor(`Cannot rename desk: ${refusal}`);
     await run(app, "/environment icon");

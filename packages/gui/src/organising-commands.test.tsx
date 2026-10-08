@@ -259,7 +259,7 @@ describe("a command the connection cannot send", () => {
     const app = await settled(await two({ laptop: { scopes: ["read", "runs:drive"] } }));
     app.open("laptop", 0);
     await screen.findByRole("region", { name: "Transcript" });
-    const reason = "This client was paired with laptop without the sessions:write scope.";
+    const reason = "This app has limited access to laptop, so it cannot start sessions. Pair again with full access to change this.";
     for (const typed of ["/pin", "/title Tidier", "/archive", "/group Ops", "/tag later", "/settle", "/snooze 2h"]) {
       await send(app, typed);
       expect(await screen.findByText(reason), typed).toBeDefined();

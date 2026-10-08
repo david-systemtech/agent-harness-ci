@@ -145,7 +145,7 @@ describe("while no run can start", () => {
 
   it("locks the composer with the capability's line while the client lacks the scope to run", async () => {
     await opened({ scopes: ["read", "sessions:write"] });
-    await screen.findByText("Locked: This client was paired with desk without the runs:drive scope.");
+    await screen.findByText("Locked: This app has limited access to desk, so it cannot run agents. Pair again with full access to change this.");
   });
 });
 
@@ -427,8 +427,8 @@ const WINDOW_COMMANDS = [
   "/modeSet the permission mode for the next turn",
   "/attachSend an image or file with the next message",
   "/diffWhat this conversation changed, and the working tree's diff",
-  "/undodesk does not offer fileUndo; a version that does is needed.",
-  "/checkdesk does not offer workspaceChecks; a version that does is needed.",
+  "/undodesk runs an older agent-harness without this. Update desk to use it.",
+  "/checkdesk runs an older agent-harness without this. Update desk to use it.",
   "/pinKeep this conversation at the top of its folder",
   "/titleName this conversation",
   "/tasksBackground work: what is running, and what a delegated agent did",

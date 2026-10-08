@@ -100,7 +100,7 @@ describe("Add a machine", () => {
     const app = await opened({}, { shell: Object.assign(fakeShell(), { camera: undefined }) });
     const add = within(await openMachines(app)).getByRole("region", { name: "Add a machine" });
     expect(within(add).queryByRole("button", { name: "Scan a QR" })).toBeNull();
-    expect(within(add).getByText("Scan a QR: This client cannot scan a QR code with a camera: its shell has no shell.camera.")).toBeDefined();
+    expect(within(add).getByText("Scan a QR: This app cannot scan a QR code here. Paste the link instead.")).toBeDefined();
   });
 
   it("shows a copyable install line per platform from this machine's release, with its channel and the name typed, and the container's compose snippet, with them too, and the updater's documentation", async () => {

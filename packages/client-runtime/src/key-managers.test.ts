@@ -74,8 +74,8 @@ describe("the key-manager and managed-tool methods without their flags", () => {
     const { runtime, wire, env } = await paired({ capabilities: ["forge"] });
     let asked = 0;
     for (const method of ["keyManagers.list", "tools.list"]) wire.answer(method, () => (asked++, { result: {} }));
-    const keyManagers = { status: "absent", reason: "unsupported", message: "desk does not offer keyManagers; a version that does is needed." } as const;
-    const managedTools = { status: "absent", reason: "unsupported", message: "desk does not offer managedTools; a version that does is needed." } as const;
+    const keyManagers = { status: "absent", reason: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it.", details: ["keyManagers"] } as const;
+    const managedTools = { status: "absent", reason: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it.", details: ["managedTools"] } as const;
     for (const method of ["keyManagers.list", "keyManagers.move.list", "keyManagers.connections.add", "keyManagers.connections.signIn", "keyManagers.move.copyValue"] as const) {
       expect(runtime.capability(env, method), method).toEqual(keyManagers);
     }
@@ -407,14 +407,14 @@ describe("copying a key-manager connection to other environments", () => {
     expect(exists).toEqual({ environmentId: laptop, status: "refused", error: held });
     expect(copied).toMatchObject({ status: "copied", result: { address: "https://bao.example.com:8200", status: { kind: "awaiting-sign-in" } } });
     expect(onServer).toHaveLength(1);
-    expect(scope).toMatchObject({ error: { code: "scope", message: "This client was paired with phone without the admin scope." } });
+    expect(scope).toMatchObject({ error: { code: "scope", message: "This app has limited access to phone, so it cannot change settings or sign in accounts. Pair again with full access to change this." } });
     expect(unreachable).toMatchObject({ error: { code: "unreachable" } });
     expect(unknown).toMatchObject({ error: { code: "unreachable" } });
 
     const bare = await pairedMany([], [{ name: "desk" }, { name: "old" }]);
     const [bareDesk, old] = bare.ids as [string, string];
     expect(await bare.runtime.keyManagers.copy(bareDesk, connection, [old])).toEqual([
-      { environmentId: old, status: "refused", error: { code: "unsupported", message: "old does not offer keyManagers; a version that does is needed." } },
+      { environmentId: old, status: "refused", error: { code: "unsupported", message: "old runs an older agent-harness without this. Update old to use it." } },
     ]);
   });
 });
