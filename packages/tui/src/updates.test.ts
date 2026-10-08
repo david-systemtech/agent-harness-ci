@@ -106,7 +106,7 @@ describe("An environment's update on its card in /environment", () => {
 
     laptop.setUpdates({ status: { pending: { state: "staging", updateId: UPDATE_ID, toVersion: "0.6.1", source: "request" } } });
     laptop.notice("environment.update-pending", { ...WAITING, toVersion: "0.6.1" });
-    await cardShows(app, "Staging 0.6.1: downloading and installing it.");
+    await cardShows(app, "Downloading 0.6.1…");
   });
 
   it("sends Update now as updates.apply when idle to the card's environment, and says where it goes", async () => {
@@ -250,7 +250,7 @@ describe("The newer client's offer on an environment's card", () => {
       { version: "0.6.0" },
     );
     await openCard(app, 0);
-    await cardShows(app, "Staging 0.6.0: downloading and installing it.");
+    await cardShows(app, "Downloading 0.6.0…");
     expect(card(app)).not.toContain("This client runs");
     expect(card(app)).not.toContain("Update desk to");
 
