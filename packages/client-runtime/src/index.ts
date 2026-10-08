@@ -607,6 +607,7 @@ export {
   labelProblem,
   sendSignInCode,
   signInEnd,
+  signInFailed,
   signInLeftWords,
   startSignIn,
   type AccountAdded,
