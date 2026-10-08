@@ -437,7 +437,7 @@ describe("About's Managed tools", () => {
     await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open Set up" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
-    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool" }));
+    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool (leaves Set up)" }));
 
     await waitFor(() => expect(document.activeElement).toBe(section()));
     expect(await row("OpenBao CLI")).toBeDefined();
@@ -460,7 +460,7 @@ describe("About's Managed tools", () => {
     await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open Set up" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
-    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool" }));
+    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool (leaves Set up)" }));
     await waitFor(() => expect(document.activeElement).toBe(section()));
 
     await app.user.keyboard("{Control>},{/Control}");
