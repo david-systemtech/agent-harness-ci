@@ -183,6 +183,12 @@ describe("the container image", () => {
     expect(installed).toContain("openssh-client");
   });
 
+  it("pins none of the managed tools, so a managed tool's Update runs in the container's tool terminal as on any machine (#1833)", () => {
+    const words = finalStage().flatMap((line) => line.split(/\s+/));
+    for (const tool of ["claude", "@anthropic-ai/claude-code", "claude-code", "bao", "openbao", "vault", "doppler", "op", "1password-cli", "bws", "gh"]) expect(words, tool).not.toContain(tool);
+    expect(finalStage().filter((line) => /\bnpm (?:install|i) (?:-g|--global)\b|\/usr\/local\/bin\/(?!agent-harness\b)/.test(line))).toEqual([]);
+  });
+
   it("starts the environment with serve on /data, as that user", () => {
     const stage = finalStage();
     expect(stage.at(-2)).toBe('ENTRYPOINT ["agent-harness"]');

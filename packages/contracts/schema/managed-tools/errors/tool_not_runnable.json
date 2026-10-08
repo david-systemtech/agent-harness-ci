@@ -30,9 +30,10 @@
           "type": "string",
           "enum": [
             "install",
-            "update"
+            "update",
+            "terminal"
           ],
-          "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+          "description": "What tools.run does: install (a tool not installed), update (one installed by a method the harness drives; for one it does not, as terminal) or terminal (the vendor's documented command, run in the tool terminal once a person presses Enter there); a Copy row runs nothing."
         },
         "command": {
           "anyOf": [
@@ -47,7 +48,7 @@
               "type": "null"
             }
           ],
-          "description": "The vendor's documented command, to copy and run where the harness cannot: the vendor script's update for a tool it installed by hand, else the install the table has for this platform. Null when there is none: vault, which the harness never installs or updates."
+          "description": "The vendor's documented command, to copy and run where the harness cannot: a bare binary's update, else the vendor script's, for an installed tool, else the install the table has for this platform. Null when there is none: vault, which the harness never installs or updates."
         }
       },
       "required": [
@@ -62,5 +63,5 @@
     "message",
     "data"
   ],
-  "description": "The harness does not run this tool's install or update here: a Copy-only row (installed by hand, or by mise, asdf or Scoop, or not known how), a tool no method available on the environment installs, or vault, which is never installed; data.command is the vendor's documented command to copy."
+  "description": "The harness does not run this tool's install or update here: a tool no method available on the environment installs, a tool the table has no command for on this platform, or vault, which is never installed or updated; data.command is the vendor's documented command to copy, where there is one."
 }
