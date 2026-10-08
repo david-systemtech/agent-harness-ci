@@ -136,6 +136,7 @@ describe("StateBadge and HealthDot", () => {
     const { container } = render(<StateBadge state={state} />);
     const badge = container.firstElementChild as HTMLElement;
     expect(badge.textContent).toBe(word);
+    expect(badge.querySelector(":scope > [data-state-word]")?.textContent).toBe(word);
     expect(badge.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     expect(badge.querySelector("[data-health-dot]")).not.toBeNull();
     expect(screen.queryByRole("img")).toBeNull();

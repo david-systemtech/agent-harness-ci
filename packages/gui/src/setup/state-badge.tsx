@@ -17,7 +17,7 @@ export const StateBadge = ({ state, className }: { readonly state: SetupState; r
     <span data-state-badge={state} className={classes("inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-ink-muted", className)}>
       <HealthDot state={state} />
       <Icon aria-hidden="true" className={classes("size-3.5 shrink-0", ink)} />
-      {STATE_WORDS[state]}
+      <span data-state-word>{STATE_WORDS[state]}</span>
     </span>
   );
 };

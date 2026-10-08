@@ -61,5 +61,5 @@ export const setupPartsGeometry = ({ width, height }: SceneViewport): readonly S
   { selector: "[data-notice-tone] > svg", width: 16, height: 16 },
   { selector: "[data-step-intro] > p:first-child", fontSize: 11 },
   { selector: "[data-step-intro] > h2", fontSize: 20 },
-  { selector: "[data-state-badge]", unbroken: true },
+  { selector: "[data-state-badge] > [data-state-word]", unbroken: true },
 ];
