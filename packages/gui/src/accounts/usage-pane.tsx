@@ -3,9 +3,10 @@ import {
   NO_PLAN_READING,
   NO_WINDOWS_READ,
   gaugeWho,
+  listedReadingsOf,
   pooledWords,
-  readingsOf,
   resetWords,
+  silentLimitsWords,
   windowWords,
   type EnvironmentAnswer,
   type EnvironmentView,
@@ -25,7 +26,8 @@ import { useObservable, useRuntime } from "../window-context.js";
  * identity, so one login signed in on two environments is one gauge. Each is
  * headed by who it pools, lists the accounts it pools by label and
  * environment, then each window with its bar, percent and reset, or the
- * reason it has none. Under the gauges, each environment not reached (its
+ * reason it has none; unknown limits that say nothing are only counted
+ * (#1893). Under the gauges, each environment not reached (its
  * readings pooled as this window last read them) or whose read failed. The
  * row writes nothing, so it has no read-only line.
  */
@@ -47,10 +49,10 @@ export const UsagePane = () => {
   );
 };
 
-/** One gauge: who it pools, the accounts it pools, and its windows or why it has none. */
+/** One gauge: who it pools, the accounts it pools, and its windows (unknown limits that say nothing only counted) or why it has none. */
 const Gauge = ({ gauge, views }: { readonly gauge: UsageGauge; readonly views: readonly EnvironmentView[] }) => {
   const heading = useId();
-  const readings = readingsOf(gauge);
+  const { readings, silent } = listedReadingsOf(gauge);
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-2 rounded-lg border border-hairline bg-panel p-3">
       <h3 id={heading} className="text-sm font-medium text-ink">
@@ -62,22 +64,21 @@ const Gauge = ({ gauge, views }: { readonly gauge: UsageGauge; readonly views: r
           return <PooledAccount key={`${environmentId} ${accountId}`} environmentId={environmentId} accountId={accountId} environment={view === undefined ? "an environment" : nameOf(view)} />;
         })}
       </ul>
-      {readings.length === 0 ? (
-        <p className="text-sm text-ink-faint">{gauge.unavailableReason ?? NO_WINDOWS_READ}</p>
-      ) : (
+      {readings.length === 0 && silent === 0 && <p className="text-sm text-ink-faint">{gauge.unavailableReason ?? NO_WINDOWS_READ}</p>}
+      {readings.length > 0 && (
         <ul aria-label="Windows" className="flex flex-col gap-1 text-sm text-ink">
           {readings.map((reading) => {
             const reset = resetWords(reading.resetsAt);
             return (
               <li key={reading.window} className="flex flex-wrap items-center gap-2">
                 <span className="w-20">{`${windowWords(reading.window)} `}</span>
-                <WindowReading reading={reading} />
-                {reset !== undefined && <span className="text-2xs text-ink-faint">, {reset}</span>}
+                <WindowReading reading={reading} suffix={reset === undefined ? undefined : <span className="text-2xs text-ink-faint">, {reset}</span>} />
               </li>
             );
           })}
         </ul>
       )}
+      {silent > 0 && <p className="text-2xs text-ink-faint">{silentLimitsWords(silent)}</p>}
     </section>
   );
 };
