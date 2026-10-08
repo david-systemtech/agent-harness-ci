@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { ContractError } from "@agent-harness/contracts";
+import { ContractError, UNKNOWN_FORGE_CAPABILITIES } from "@agent-harness/contracts";
+import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
@@ -149,11 +150,42 @@ describe("forge.orgs.list", () => {
       data: { origin: forge.origin, status: 401, details: [expect.stringContaining("HTTP 401")] },
     });
 
+    // A token answering as another user, now or as an older build recorded it, never says where to fix it: the person is there.
+    forge.user(TOKEN, { login: "someone", id: 7 });
+    expect(await refused()).toEqual({
+      code: "credential_unavailable",
+      message: `The token for ${site} belongs to someone, not david. Add a token for david.`,
+      data: { origin: forge.origin },
+    });
+
     await forge.close();
     expect(await refused()).toEqual({
       code: "unreachable",
       message: `${site} did not answer. Check the internet connection, then choose Check again.`,
       data: { origin: forge.origin, details: [expect.any(String)] },
+    });
+
+    // As an older build recorded it, never verified again: the same line, the other user unnamed.
+    t.env.log.append(
+      { kind: "environment", id: t.env.id },
+      [
+        {
+          type: "forge.account.verified",
+          payload: {
+            forgeAccountId: account.id,
+            identity: { login: "david", userId: "42" },
+            capabilities: UNKNOWN_FORGE_CAPABILITIES,
+            tokenInformation: null,
+            problem: { kind: "identity-changed", since: MANUAL_CLOCK_START, message: "The credential now answers as eve (user 7), not david (user 42): replace it in Set up, Forges." },
+          },
+        },
+      ],
+      { actor: "system:forge" },
+    );
+    expect(await refused()).toEqual({
+      code: "credential_unavailable",
+      message: `The token for ${site} belongs to another user, not david. Add a token for david.`,
+      data: { origin: forge.origin },
     });
   });
 });

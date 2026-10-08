@@ -47,6 +47,17 @@ export const belongsToOther = (site: string, other: string, login: string): Advi
   todo: `Add a token for ${login}.`,
 });
 
+/** A token that answers as another user, as `belongsToOther` says it with remedies: the line a verification writes since #1850. */
+const BELONGS_TO_OTHER = /^The token for .+ belongs to .+, not .+\. Add a token for .+\.$/;
+
+/**
+ * A recorded identity-changed problem's line: its own, or, for a line an older
+ * build recorded (such an account is never verified again), §5.6's with the
+ * other user unnamed. `login` is the forge account's, null when not known.
+ */
+export const identityChangedLine = (site: string, login: string | null, recorded: string): string =>
+  BELONGS_TO_OTHER.test(recorded) || login === null ? recorded : adviceLine(belongsToOther(site, "another user", login));
+
 /** The token runs out within thirty days, as a problem says it between verifications. */
 export const runsOutSoon = (site: string): Advice => ({ what: `The token for ${site} runs out soon.`, todo: "Add a new one before then." });
 

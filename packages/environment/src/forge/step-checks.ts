@@ -11,12 +11,12 @@ import {
   NO_FORGE,
   accountWords,
   adviceLine,
-  belongsToOther,
   cannotRead,
   checkingReads,
   ghGaveNoToken,
   ghLoginCommand,
   ghSignedOutAdvice,
+  identityChangedLine,
   neededElsewhere,
   noToken,
   ranOut,
@@ -94,9 +94,6 @@ const IDENTITY_ACTIONS: { readonly [Kind in IdentityProblem]: SetupAction } = {
   unreachable: "check-again",
 };
 
-/** A token that answers as another user, as setup-copy.md §5.6 says it: the line a verification writes since #1850. */
-const BELONGS_TO_OTHER = /^The token for .+ belongs to .+, not .+\. Add a token for .+\.$/;
-
 /**
  * A forge account's identity problem as the step's line says it. A token
  * that answers as another user, and a forge that did not answer or answered
@@ -115,10 +112,8 @@ const identityLine = (account: ForgeAccountRecord, kind: IdentityProblem, proble
       return adviceLine(tokenRefused(site, account.identity?.login ?? null));
     case "credential-unavailable":
       return account.credential.kind === "gh" ? ghGaveNoToken(forgeAccountLabel(account)) : savedTokenUnreadable(forgeAccountLabel(account), account.credential.kind === "reference");
-    case "identity-changed": {
-      const login = account.identity?.login;
-      return BELONGS_TO_OTHER.test(problem.message) || login === undefined ? problem.message : adviceLine(belongsToOther(site, "another user", login));
-    }
+    case "identity-changed":
+      return identityChangedLine(site, account.identity?.login ?? null, problem.message);
     case "unreachable":
       return problem.message;
   }
