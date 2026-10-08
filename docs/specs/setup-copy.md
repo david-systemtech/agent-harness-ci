@@ -218,7 +218,21 @@ quoted from the files named; a builder greps for them.
 - Lines: done `{label} is signed in.` / `All {n} accounts are signed in.`; none `No Claude account yet. Sign in to start.`;
   signed out `{label} is signed out. Sign in again to use it.`; expired `{label}'s sign-in has run out. Sign in again to keep using it.`;
   unreadable `agent-harness could not read {label}'s sign-in. Choose Check again.` (offers Check again, not Sign in again; Details: the read's error);
-  several `{n} accounts need to sign in again: {labels}.` (one button each).
+  several `{n} accounts need to sign in again: {labels}.` (one button each); several unreadable
+  `agent-harness could not read the sign-ins of {n} accounts: {labels}. Choose Check again.`
+- A new account from **Sign in with Claude** is added as `Claude account` (`Claude account 2`, …) and takes its email as its label once
+  signed in, while it still has that name. More options: `Label for the new account`, hint `Leave it empty to name the account by its email.`
+- Rows (#1842): `Email` (`Not known until it signs in`), `Status` (`Signed in` / `Signed out` / `Sign-in ran out` / `Cannot read the sign-in`);
+  More options: field `Name`, **Rename**, **Remove…**; Details: `Folder: {path} (Claude Code's own, used in place)` /
+  `Folder: {path} (made by agent-harness)`, `Plan: {reading}`, and for an unreadable read `Sign-in read: {error}`.
+- Messages (#1842): used `{label} is signed in.`; renamed `Renamed {old} to {new}.`; removed `Removed {label}.` /
+  `Removed {label} and deleted its sign-in and history.`; a name on one line only `Use one line.`. Remove dialog: title `Remove {label}?`,
+  description `Claude Code stays signed in on {computer}.` / `Its sign-in and history stay on {computer} unless you delete them too.`
+- Refusals of **Use this sign-in** besides the table's: Claude Code not there `Claude Code is not on this computer. Sign in with Claude instead.`;
+  not looked for yet `agent-harness has not looked for Claude Code on this computer yet. Try again in a moment.`; no email to name it by
+  `This sign-in has no email to name the account by. Enter a name.` The folder is the refusal's data, shown under Details.
+- Default account picker: unset `Your first account`; a removed one `The account you chose was removed. New sessions use your first account.`
+  (the table's `{label} was removed. …` cannot name it: the setting keeps only the removed account's id).
 
 | Old | New |
 | --- | --- |
