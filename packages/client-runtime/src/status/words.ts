@@ -80,6 +80,24 @@ export const readingsOf = (gauge: UsageGauge | undefined): readonly Reading[] =>
 /** Compact meters show only recognised windows; details retain every limit. */
 export const meterReadingsOf = (gauge: UsageGauge | undefined): readonly Reading[] => readingsOf(gauge).filter((reading) => isKnownUsageWindow(reading.window));
 
+/** Whether a reading says something: how full its window is, or that the provider refuses it. */
+const saysSomething = (reading: Reading): boolean => reading.utilisation !== null || reading.pressure === "out";
+
+/**
+ * A gauge's windows for a list that names each (#1893): every known window,
+ * and the unknown limits that say something; the unknown ones that say
+ * nothing only counted, as identical `Other limit —` rows tell a person
+ * nothing. The status line's details keep every limit.
+ */
+export const listedReadingsOf = (gauge: UsageGauge | undefined): { readonly readings: readonly Reading[]; readonly silent: number } => {
+  const readings = readingsOf(gauge);
+  const listed = readings.filter((reading) => isKnownUsageWindow(reading.window) || saysSomething(reading));
+  return { readings: listed, silent: readings.length - listed.length };
+};
+
+/** How many unknown limits a list left out for saying nothing: `2 other limits give no reading.` */
+export const silentLimitsWords = (count: number): string => (count === 1 ? "1 other limit gives no reading." : `${count} other limits give no reading.`);
+
 /**
  * The unknown limits of a one-line summary as one item: the one with a value
  * as `Other limit 37%`, several as the fullest and how many are refused
@@ -87,7 +105,7 @@ export const meterReadingsOf = (gauge: UsageGauge | undefined): readonly Reading
  * is, as identical labels with `—` tell a person nothing.
  */
 const otherLimitsWords = (readings: readonly Reading[]): string | undefined => {
-  const said = readings.filter((reading) => reading.utilisation !== null || reading.pressure === "out");
+  const said = readings.filter(saysSomething);
   if (said.length <= 1) return said[0] === undefined ? undefined : `${said[0].label} ${said[0].value}`;
   const read = said.flatMap((reading) => (reading.utilisation === null ? [] : [reading.utilisation]));
   const refused = said.filter((reading) => reading.pressure === "out").length;
