@@ -25,5 +25,5 @@ export const HOST_UPDATER_SETUP: HostUpdaterSetup = {
       text: "*/5 * * * * /opt/agent-harness/host-updater.sh >>/opt/agent-harness/host-updater.log 2>&1",
     },
   ],
-  after: "Once it has run, choose Check again. A systemd timer works too: docs/host-updater.md has both.",
+  after: "Once it has run, choose Check again. A systemd timer works too: docs/host-updater.md in that release's source has both.",
 };

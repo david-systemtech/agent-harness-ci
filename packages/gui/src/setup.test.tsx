@@ -482,18 +482,20 @@ describe("a step's named actions", () => {
       ["Start agent-harness and make the updater runnable", "cd /opt/agent-harness && docker compose up -d && chmod +x host-updater.sh"],
       ["Run the updater every five minutes: add this line with crontab -e, as the user that runs docker", "*/5 * * * * /opt/agent-harness/host-updater.sh >>/opt/agent-harness/host-updater.log 2>&1"],
     ]);
-    expect(within(sheet).getByText("Once it has run, choose Check again. A systemd timer works too: docs/host-updater.md has both.")).toBeDefined();
+    expect(within(sheet).getByText("Once it has run, choose Check again. A systemd timer works too: docs/host-updater.md in that release's source has both.")).toBeDefined();
     // Showing how asks the environment nothing.
     const asked = desk.requests("setup.check").length;
     await app.user.click(within(sheet).getByRole("button", { name: "Close" }));
     expect(within(machines).queryByRole("region", { name: "Set up the updater on the host computer" })).toBeNull();
     expect(desk.requests("setup.check")).toHaveLength(asked);
 
-    // Once the updater has polled, the late line asks only that it still runs.
+    // Once the updater has polled, the late line asks only that it still runs, and an open setup goes.
+    await app.user.click(within(machines).getByRole("button", { name: "How to set it up" }));
     desk.setSetup({ "your-machines": { state: "needs-attention", reason: "The host-side updater last polled more than an hour ago.", failing: ["your-machines.host-updater"], actions: ["check-again"] } });
     await app.user.click(within(machines).getByRole("button", { name: "Check again" }));
     expect(await within(machines).findByText(/^The host-side updater last polled/)).toBeDefined();
     expect(within(machines).queryByRole("button", { name: "How to set it up" })).toBeNull();
+    expect(within(machines).queryByRole("region", { name: "Set up the updater on the host computer" })).toBeNull();
   });
 });
 
