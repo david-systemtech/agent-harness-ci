@@ -65,8 +65,8 @@ it("asks before leaving without an account and keeps setup available after relau
   await screen.findByRole("region", { name: "Account" });
   expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
   await again.user.click(screen.getByRole("button", { name: "Appearance" }));
-  expect(screen.getByRole("button", { name: "Finish" })).toBeDefined();
-  await again.user.click(screen.getByRole("button", { name: "Finish" }));
+  expect(screen.getByRole("button", { name: "Finish set up" })).toBeDefined();
+  await again.user.click(screen.getByRole("button", { name: "Finish set up" }));
   expect(screen.getByRole("dialog", { name: "Leave set up without an account?" })).toBeDefined();
   await again.user.click(screen.getByRole("button", { name: "Keep setting up" }));
   expect(screen.getByRole("region", { name: "Appearance" })).toBeDefined();

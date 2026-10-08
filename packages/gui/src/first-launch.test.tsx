@@ -105,10 +105,10 @@ describe("first launch", () => {
         .getAllByRole("button")
         .map((step) => step.getAttribute("aria-label")),
     ).toEqual(["Account", "Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions", "Appearance"]);
-    expect(await within(steps).findByRole("img", { name: "Permissions: Needs a fix" })).toBeDefined();
-    expect(within(steps).getByRole("img", { name: "Account: Done" })).toBeDefined();
+    expect(await within(steps).findByRole("button", { name: "Permissions", description: / Needs a fix / })).toBeDefined();
+    expect(within(steps).getByRole("button", { name: "Account", description: / Done / })).toBeDefined();
     expect(within(setup).getByRole("region", { name: "Account" })).toBeDefined();
-    expect(within(within(setup).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("desk");
+    expect(within(within(setup).getByRole("combobox", { name: "Setting up" })).getByRole("option", { selected: true }).textContent).toBe("desk");
     expect(serviceCalls(app)).toEqual(["service.status", "service.install", "service.start"]);
   });
 
