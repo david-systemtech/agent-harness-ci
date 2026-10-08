@@ -81,8 +81,9 @@ describe("the status line", () => {
     await opened();
     const account = within(statusLine()).getByRole("button", { name: /^Account:/ });
     // A wrapping row breaks its lines at each chip's basis before anything shrinks, so at its full width the account would push the
-    // last chips onto a second line, which a short stacked pane cuts off (look.md §10.5, "Account shrinks first"; #1865).
-    expect(account.parentElement!.className.split(" ")).toEqual(expect.arrayContaining(["flex", "min-w-0", "max-w-max", "grow", "basis-[48px]"]));
+    // last chips onto a second line, which a short stacked pane cuts off (look.md §10.5, "Account shrinks first"; #1865). The basis is
+    // 60px, not smaller: where the row wraps anyway, a smaller one packs a chip beside the account and leaves it a single letter.
+    expect(account.parentElement!.className.split(" ")).toEqual(expect.arrayContaining(["flex", "min-w-0", "max-w-max", "grow", "basis-[60px]"]));
     expect(account.className.split(" ")).toEqual(expect.arrayContaining(["shrink", "min-w-0", "max-w-[240px]"]));
   });
 
