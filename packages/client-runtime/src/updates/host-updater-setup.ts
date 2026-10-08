@@ -8,7 +8,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
  * after. Every renderer says the same.
  */
 export interface HostUpdaterSetup {
-  readonly title: string;
+  readonly heading: string;
   readonly intro: string;
   /** Each command, under what it does. */
   readonly commands: readonly { readonly label: string; readonly text: string }[];
@@ -16,7 +16,7 @@ export interface HostUpdaterSetup {
 }
 
 export const HOST_UPDATER_SETUP: HostUpdaterSetup = {
-  title: "Set up the updater on the host computer",
+  heading: "Set up the updater on the host computer",
   intro: `On the computer that runs Docker, put compose.yaml and host-updater.sh from the same ${PRODUCT_NAME} release in one folder, such as /opt/agent-harness. Then, in that folder:`,
   commands: [
     { label: `Start ${PRODUCT_NAME} and make the updater runnable`, text: "cd /opt/agent-harness && docker compose up -d && chmod +x host-updater.sh" },
