@@ -159,7 +159,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
       if (added.kind === "added") {
         ended.current = true;
         close();
-        return say(added.line, false);
+        return say(added.line, added.ok);
       }
       attend(added.account);
       if (departed.current) return;

@@ -77,10 +77,10 @@ export const signInLeftWords = (remainingMs: number): string => (remainingMs <= 
 export const fallbackOf = (signIn: SignIn, directory: string | undefined): string =>
   directory !== undefined && (/^[a-z]:/i.test(directory) || directory.includes("\\")) ? signIn.fallback.powershell : signIn.fallback.posix;
 
-/** What adding an account did: refused, added with no sign-in to follow (said in one line), or added with its sign-in started. */
+/** What adding an account did: refused, added with no sign-in to follow (said in one line, `ok` false when its sign-in did not start), or added with its sign-in started. */
 export type AccountAdded =
   | { readonly kind: "refused"; readonly line: string }
-  | { readonly kind: "added"; readonly line: string }
+  | { readonly kind: "added"; readonly ok: boolean; readonly line: string }
   | { readonly kind: "signing-in"; readonly account: AccountRecord };
 
 /**
@@ -93,9 +93,9 @@ export const addAccount = async (runtime: Runtime, environmentId: string, label:
   const answer = await adminCall(() => runtime.requests.call(environmentId, "accounts.add", { commandId, label }));
   if (!answer.ok) return { kind: "refused", line: `Not added: ${answer.line}` };
   const result = answer.result;
-  if (!result) return { kind: "added", line: `${label} was added on ${environment}.` };
+  if (!result) return { kind: "added", ok: true, line: `${label} was added on ${environment}.` };
   if (!result.signIn.started) {
-    return { kind: "added", line: `${label} was added on ${environment}, but its sign-in did not start: ${result.signIn.message ?? "the environment gave no reason"}` };
+    return { kind: "added", ok: false, line: `${label} was added on ${environment}, but its sign-in did not start: ${result.signIn.message ?? "the environment gave no reason"}` };
   }
   return { kind: "signing-in", account: result.account };
 };
