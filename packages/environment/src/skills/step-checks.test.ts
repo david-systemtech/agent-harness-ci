@@ -29,9 +29,9 @@ const startWithSources = (forge: SkillRepositories, options: TestEnvironmentOpti
 describe("the Skills step through setup.check", () => {
   it("skips only with nothing tracked and an empty own directory, then checks an own skill", async () => {
     const { client } = await start();
-    expect(await check(client)).toMatchObject({ state: "skipped", failing: [], actions: [] });
+    expect(await check(client)).toMatchObject({ state: "skipped", reason: "No skills added. Optional.", failing: [], actions: [] });
     await send(client, "skills.own.create", { name: "local-skill", description: "A skill of my own." });
-    expect(await check(client)).toMatchObject({ state: "done", failing: [], actions: [] });
+    expect(await check(client)).toMatchObject({ state: "done", reason: "Your own skills are ready.", failing: [], actions: [] });
   });
   it("checks healthy tracked sources with local reads, fetching nothing", async () => {
     const forge = skillRepositories(tempDir);
@@ -40,7 +40,7 @@ describe("the Skills step through setup.check", () => {
     const { client } = await startWithSources(forge, { skillsGit: async (request, git) => { gitCalls += 1; return git(request); } });
     await add(client, "david/healthy");
     const before = gitCalls;
-    expect(await check(client)).toMatchObject({ state: "done", failing: [], actions: [] });
+    expect(await check(client)).toMatchObject({ state: "done", reason: "Your skills are up to date.", failing: [], actions: [] });
     expect(gitCalls).toBe(before);
   });
 
@@ -56,12 +56,13 @@ describe("the Skills step through setup.check", () => {
     for (const source of [first, second]) await send(client, "skills.sources.pull", { sourceId: source.id });
     const result = await check(client);
     expect(result).toMatchObject({ state: "needs-attention", failing: ["skills.sources-synced"], actions: ["pull-now"], targets: [
-      { action: "pull-now", kind: "skill-source", id: first.id },
-      { action: "pull-now", kind: "skill-source", id: second.id },
+      { action: "pull-now", kind: "skill-source", id: first.id, label: "david/first (skills)" },
+      { action: "pull-now", kind: "skill-source", id: second.id, label: "david/second (skills)" },
     ] });
-    expect(result.reason).toContain(first.url);
-    expect(result.reason).toContain(second.url);
-    expect(result.reason).not.toContain(pinned.url);
+    // setup-copy.md §5.9: each failed collection by its name; the address and git's words in details.
+    expect(result.reason).toBe("david/first (skills) could not update. Choose Update now. david/second (skills) could not update. Choose Update now.");
+    expect(result.details).toEqual(expect.arrayContaining([expect.stringContaining(first.url), expect.stringContaining(second.url)]));
+    expect(result.reason).not.toContain("pinned");
   });
 
   it("uses the last successful attempt's seven-hour grace, including unchanged pulls, while a scheduled fetch is held", async () => {
@@ -83,8 +84,9 @@ describe("the Skills step through setup.check", () => {
       t.clock.advance(1);
       const result = await check(client);
       expect(result).toMatchObject({ state: "needs-attention", failing: ["skills.sources-synced"], actions: ["pull-now"], targets: [{ id: source.id }] });
-      expect(result.reason).toContain(source.url);
-      expect(result.reason).not.toContain(pinned.url);
+      // Out of date is told apart from a failed update.
+      expect(result.reason).toBe("david/fresh (skills) has not updated for over 7 hours. Choose Update now.");
+      expect(result.details).toEqual(expect.arrayContaining([expect.stringContaining(source.url)]));
     } finally { gate = null; release(); await send(client, "skills.sources.pull", { sourceId: source.id }); }
   });
 
@@ -96,10 +98,11 @@ describe("the Skills step through setup.check", () => {
     for (const name of ["first", "second"]) forge.commit(`david/${name}`, { "moved/tdd/SKILL.md": skill("tdd") });
     for (const source of sources) await send(client, "skills.sources.pull", { sourceId: source.id });
     const result = await check(client);
-    expect(result).toMatchObject({ state: "needs-attention", failing: ["skills.sources-synced", "skills.sources-yield"], actions: ["pull-now"] });
-    expect(result.targets?.map((target) => target.id)).toEqual(sources.map((source) => source.id));
-    for (const source of sources) expect(result.reason).toContain(source.url);
-    expect(result.reason).toContain("moved");
+    // A moved layout asks to choose folders again, not to update: it is no failed update.
+    expect(result).toMatchObject({ state: "needs-attention", failing: ["skills.sources-yield"], actions: ["choose-folders"] });
+    expect(result.targets).toEqual(sources.map((source, index) => ({ action: "choose-folders", kind: "skill-source", id: source.id, label: `david/${["first", "second"][index]} (skills)` })));
+    expect(result.reason).toBe("david/first (skills) no longer has skills where they were. Choose its folders again. david/second (skills) no longer has skills where they were. Choose its folders again.");
+    expect(result.details).toEqual(expect.arrayContaining([expect.stringContaining("moved")]));
     expect((await client.request("skills.get", {})).sources.map((source) => source.skillCount)).toEqual([1, 1]);
   });
 
@@ -120,8 +123,8 @@ describe("the Skills step through setup.check", () => {
     for (let index = 1; index <= 20; index += 1) importSource(index, [{ name: "tdd", path: "tdd", description: "Do TDD.", invocation: "model+slash", problems: [] }]);
     expect(await check(client)).toMatchObject({ state: "done", failing: [] });
     const empty = importSource(21, []);
-    expect(await check(client)).toMatchObject({ state: "needs-attention", failing: ["skills.sources-yield", "skills.source-limit"], actions: ["pull-now"], targets: [{ id: empty }] });
-    expect((await check(client)).reason).toContain("21");
+    expect(await check(client)).toMatchObject({ state: "needs-attention", failing: ["skills.sources-yield", "skills.source-limit"], actions: ["choose-folders"], targets: [{ id: empty }] });
+    expect((await check(client)).reason).toContain("You follow 21 collections. The limit is 20. Remove 1.");
   });
 
   it("never skips an unreadable own directory, and treats an unrecognised file as nonempty", async () => {
@@ -133,8 +136,9 @@ describe("the Skills step through setup.check", () => {
     writeFileSync(join(own, "commands"), "Not a readable directory.");
     const result = await check(client);
     expect(result).toMatchObject({ state: "needs-attention", failing: ["skills.own-directory"], actions: [] });
-    expect(result.reason).toContain(own);
-    expect(result.reason).not.toMatch(/[\r\n]/);
+    expect(result.reason).toBe("agent-harness cannot open your own skills folder. Check that it exists.");
+    expect(result.details).toEqual([expect.stringContaining(own)]);
+    expect(result.details?.[0]).not.toMatch(/[\r\n]/);
   });
 
 });
