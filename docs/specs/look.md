@@ -835,9 +835,10 @@ Run, Account, Usage, Capabilities, Tools; groups lg/hairline/inset 60/x 8/y 6,
 mono values. Hand-off rows lg/hairline/x 12/y 8, candidate identity/auth/model/
 capacity and blocked reason, fallback continuity action; busy protects dismissal.
 The provider sign-in dialog is max 512 and max-height 100dvh−4rem: its title and
-close X above and Send the code and Cancel the sign-in in the footer stay in the
-window while the middle (QR, page link, code, terminal command) scrolls; the page
-link folds to two mono lines beside Copy and Open the sign-in page.
+close X above and Sign in and Cancel the sign-in (Close once it stopped) in the
+footer stay in the window while the middle (the numbered steps with the QR, the
+code, the terminal fold, a stop's notice) scrolls; the page link is never drawn,
+only copied (Copy link) and kept in Details (setup-copy.md §5.2, #1843).
 Delete session warns if running, finishes running check before enabling delete.
 Workspace picker names that a new session may be needed. Pairing forms put
 labels above fields and actions below, never in a narrow side column.
