@@ -85,11 +85,25 @@ export type BankCopiedFrom = z.infer<typeof BankCopiedFrom>;
 
 const since = Timestamp.meta({ description: "When this part of the status last changed: never when it was last verified." });
 
+/** What a verification found behind an unreachable bank, where it is one of these (setup-copy.md §5.8; #1854). */
+export const BANK_UNREACHABLE_CAUSES = ["folder-missing", "no-forge-account", "repository-missing"] as const;
+
 /** Whether its remote answers, or a local-only bank's repository is there. */
 export const BankReachability = z
   .discriminatedUnion("state", [
     z.object({ state: z.literal("reachable"), since }),
-    z.object({ state: z.literal("unreachable"), reason: z.string().min(1).meta({ description: "Why it could not be reached, in a sentence." }), since }),
+    z.object({
+      state: z.literal("unreachable"),
+      reason: z.string().min(1).meta({ description: "Why it could not be reached, in a sentence." }),
+      cause: z
+        .enum(BANK_UNREACHABLE_CAUSES)
+        .optional()
+        .meta({
+          description:
+            "What the verification found behind it: folder-missing, its checkout is not on this machine; no-forge-account, no forge account here covers its origin and the forge refused an anonymous read; repository-missing, its forge answered that the repository is not there. Absent for any other cause, and on a status recorded before causes were.",
+        }),
+      since,
+    }),
   ])
   .meta({ description: "Whether the bank's checkout can be read and, for a bank with a remote, the remote answered; why not, when not." });
 export type BankReachability = z.infer<typeof BankReachability>;
