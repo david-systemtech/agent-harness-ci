@@ -207,7 +207,8 @@ describe("accounts.adopt", () => {
     expect(account.label).toBe("Personal");
     const again = await command(client, "accounts.adopt", {});
     expect(again.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "already_added", accountId: account.id } } });
-    expect(again.receipt.status === "rejected" && again.receipt.error.message).toMatch(/already added as Personal/);
+    // setup-copy.md §5.1: the holder by its label, with no path or id in the line.
+    expect(again.receipt.status === "rejected" && again.receipt.error.message).toBe("This sign-in is already used by Personal.");
     expect(accountEvents(t)).toHaveLength(3);
   });
 
@@ -219,7 +220,11 @@ describe("accounts.adopt", () => {
     await client.request("accounts.probe", {});
     const signedOut = await command(client, "accounts.adopt", {});
     expect(signedOut.receipt).toMatchObject({ status: "rejected", error: { data: { reason: "ambient_unavailable" } } });
-    expect(signedOut.receipt.status === "rejected" && signedOut.receipt.error.message).toMatch(/not signed in/);
+    // setup-copy.md §5.1: no method to call and no path in the line; the directory is the refusal's data.
+    expect(signedOut.receipt.status === "rejected" && signedOut.receipt.error).toMatchObject({
+      message: "Claude Code on this computer is not signed in. Sign in with Claude instead.",
+      data: { reason: "ambient_unavailable", directory: ambient },
+    });
     expect(accountEvents(t)).toEqual([]);
   });
 
@@ -230,7 +235,7 @@ describe("accounts.adopt", () => {
     const owned = (await applied(client, "accounts.add", { label: "DAVID@example.com" })).account;
     await client.request("accounts.probe", {});
     const taken = await command(client, "accounts.adopt", {});
-    expect(taken.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "label_taken", accountId: owned.id } } });
+    expect(taken.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { message: "Another account is already called david@example.com. Choose another name.", data: { reason: "label_taken", accountId: owned.id } } });
   });
 });
 
@@ -286,7 +291,7 @@ describe("accounts.add", () => {
     // The sign-in went to David's login again.
     t.adapter.setStatus(statusBy(ambient, { [added.directory.path]: DAVID }));
     const outcome = await signIn.finish(added.id);
-    expect(outcome).toEqual({ signedIn: false, reason: "identity_held", message: `${DAVID} is already added as ${DAVID}.` });
+    expect(outcome).toEqual({ signedIn: false, reason: "identity_held", message: `This sign-in is already used by ${DAVID}.` });
     expect(existsSync(added.directory.path)).toBe(false);
     expect((await list(client)).map((account) => account.id)).toEqual([adopted.id]);
     expect(accountEvents(t, added.id)).toEqual([

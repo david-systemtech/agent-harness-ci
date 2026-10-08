@@ -6,6 +6,7 @@ import {
   ContractError,
   ENVIRONMENT_STREAM_KIND,
   invalidParams,
+  PRODUCT_NAME,
   type AccountCatalogue,
   type AccountChange,
   type AccountIdentity,
@@ -220,6 +221,9 @@ const classify = (provider: string, status: AuthStatus): Observed => {
 
 const describeIdentity = (identity: AccountIdentity): string => (identity.organisation === null ? identity.email : `${identity.email} (${identity.organisation})`);
 
+/** The refusal of a sign-in another account already holds, by that account's label (setup-copy.md §5.1). */
+const alreadyUsed = (holder: string): string => `This sign-in is already used by ${holder}.`;
+
 /** Whether `path` is `root` or lies inside it. */
 const within = (path: string, root: string): boolean => path === root || path.startsWith(`${root}${sep}`);
 
@@ -358,7 +362,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
           // The sign-in's refusal (ADR 0018): one identity is one account, so the new account goes with its directory. An
           // account that has been signed in may have run, and its directory hold history: it is only warned of, below.
           warning = `The sign-in of ${current.label} yielded ${describeIdentity(identity)}, which is already added as ${holder.label}; ${current.label} was removed and its directory deleted.`;
-          refusals.set(accountId, `${describeIdentity(identity)} is already added as ${holder.label}.`);
+          refusals.set(accountId, alreadyUsed(holder.label));
           log.append(
             accountStream(accountId),
             [
@@ -547,7 +551,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   const labelTaken = (aggregate: StreamRef, label: string, except?: string) => {
     const holder = accountByLabel(reader, label);
     if (holder === null || holder.id === except) return null;
-    return conflict(aggregate, "label_taken", `The label ${label} is taken by another account on this environment, ignoring case.`, { accountId: holder.id });
+    return conflict(aggregate, "label_taken", `Another account is already called ${label}. Choose another name.`, { accountId: holder.id });
   };
 
   const finished = async (accountId: string): Promise<SignInOutcome> => {
@@ -581,12 +585,11 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     const { provider, directory } = source;
     const holder = accountByDirectory(reader, directory) ?? (source.identity === null ? null : accountByIdentity(reader, source.identity));
     if (holder !== null) {
-      const what = holder.directory.path === directory ? directory : describeIdentity(source.identity as AccountIdentity);
-      return conflict(aggregate, "already_added", `${what} is already added as ${holder.label}.`, { accountId: holder.id });
+      return conflict(aggregate, "already_added", alreadyUsed(holder.label), { accountId: holder.id, directory });
     }
     const label = AccountLabel.safeParse(labelGiven ?? source.identity?.email);
     if (!label.success) {
-      const message = "The directory's login has no email to label the account with; give a label.";
+      const message = "This sign-in has no email to name the account by. Enter a name.";
       throw new ContractError(invalidParams([{ code: "custom", path: ["label"], message }], message));
     }
     const taken = labelTaken(aggregate, label.data);
@@ -657,20 +660,19 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
 
     adopt(params, context) {
       const adapter = adapterFor(params.provider);
-      const { provider, displayName } = adapter.descriptor;
+      const { provider } = adapter.descriptor;
       const accountId = randomUUID();
       const aggregate = accountStream(accountId);
       const reading = ambient.get(provider);
       if (reading === undefined || reading.directory === null || !reading.present || !reading.signedIn) {
-        const why =
+        // setup-copy.md §5.1: the line names no method and no path; the directory, where there is one, is the refusal's data.
+        const line =
           reading === undefined
-            ? "has not been read; call accounts.probe"
-            : reading.directory === null
-              ? "does not exist for this provider"
-              : !reading.present
-                ? `is not there (${reading.directory})`
-                : `is not signed in (${reading.directory}); sign in with ${displayName}'s own CLI, then call accounts.probe`;
-        return conflict(aggregate, "ambient_unavailable", `The machine's own ${displayName} directory ${why}.`);
+            ? `${PRODUCT_NAME} has not looked for Claude Code on this computer yet. Try again in a moment.`
+            : reading.directory === null || !reading.present
+              ? "Claude Code is not on this computer. Sign in with Claude instead."
+              : "Claude Code on this computer is not signed in. Sign in with Claude instead.";
+        return conflict(aggregate, "ambient_unavailable", line, reading === undefined || reading.directory === null ? {} : { directory: reading.directory });
       }
       return adoptObserved({ ...reading, directory: reading.directory }, params.label, context, accountId, reading);
     },
