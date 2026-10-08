@@ -527,6 +527,17 @@ describe("the hand-off offer and picker", () => {
     expect(await within(statusLine()).findByText(out.message as string)).toBeTruthy();
   });
 
+  it("wraps the hand-off offer whole onto the status line's next row rather than squeezing it into what the chips leave, its sentence in its tooltip", async () => {
+    await opened([desk({ recommendation: out })]);
+    const sentence = await within(statusLine()).findByText(out.message as string);
+    // A basis of 0 never moves to the next line of a wrapping row (look.md §10.5, whole-chip wrap; #1892).
+    const offer = sentence.parentElement!;
+    expect(offer.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "max-w-full"]));
+    expect(offer.className.split(" ")).not.toContain("flex-1");
+    expect(sentence.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "truncate"]));
+    expect(sentence.getAttribute("title")).toBe(out.message);
+  });
+
   it("keeps the hand-off open and refuses duplicates and dismissal until the environment answers", async () => {
     const { app, env } = await opened([desk({ recommendation: out })]);
     env.setUsage([reading("account-1", WORK, [window("five_hour", 1, "rejected")])]);
