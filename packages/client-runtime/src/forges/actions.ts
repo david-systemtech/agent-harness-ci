@@ -43,8 +43,10 @@ export const ADDRESS_EXAMPLE = "https://github.com/you/project";
  */
 export type Detection = { readonly ok: true; readonly found: ResultOf<"forge.detect"> } | (ForgeRefused & { readonly unrecognised: boolean });
 
-/** Asks the environment which forge a URL is on and where to mint its token (`forge.detect`, an `admin` query). */
+/** Asks the environment which forge a URL is on and where to mint its token (`forge.detect`, an `admin` query); an address that names no site is refused here, asking nothing. */
 export const detectForge = async (runtime: Pick<Runtime, "requests">, environmentId: string, url: string): Promise<Detection> => {
+  // The environment reads the address with the same normaliser: one that names no site is said here, sending nothing.
+  if (normaliseRemote(url.trim()) === null) return { ...refusedHere(`Enter an address like ${ADDRESS_EXAMPLE}.`), unrecognised: false };
   const answer = await runtime.requests.call(environmentId, "forge.detect", { url: url.trim() });
   if (answer.ok) return { ok: true, found: answer.result };
   return { ok: false, ...forgeRefusal(answer.error, typedSite(url), "Check address"), unrecognised: answer.error.code === "not_a_forge" };

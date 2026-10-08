@@ -435,7 +435,7 @@ describe("handing this computer's gh over", () => {
     });
     expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toEqual({
       ok: false,
-      error: { code: "gh-unavailable", message: "The gh on this computer could not be read: gh exited with status 4" },
+      error: { code: "gh-failed", message: "The gh on this computer could not be read: gh exited with status 4" },
     });
     shell.answer("gh.token", async () => TOKEN);
     expect(await runtime.forges.handOverGh(env, { url: "/home/david/bank" })).toMatchObject({ ok: false, error: { code: "invalid_params" } });
@@ -752,6 +752,11 @@ describe("the Forges card's words (#1849)", () => {
     expect(line("conflict", { reason: "origin_held" })).toBe("code.example.test is already connected.");
     expect(line("verification_failed", { origin: "https://code.example.test", status: 401 })).toBe("code.example.test did not accept this token. Check that you copied all of it, or create a new one.");
     expect(line("gh-unavailable")).toBe("The gh tool is not signed in to code.example.test.");
+    // A gh that is signed in but fails to give its token is not told to sign in; its own cause is in Details.
+    expect(line("gh-failed")).toBe("The gh tool did not give a token for code.example.test.");
+    expect(forgeRefusal({ code: "gh-failed", message: "The gh on this computer could not be read: gh exited with status 4" }, site, "Use gh").details).toEqual([
+      "gh-failed: The gh on this computer could not be read: gh exited with status 4",
+    ]);
     expect(line("identity_mismatch", { expected: { login: "david", userId: "42" }, found: { login: "milo", userId: "7" } })).toBe("This token belongs to milo, not david. Add a token for david.");
     expect(line("alias_identity_mismatch", { expected: { login: "david", userId: "42" }, found: null, status: 401 })).toBe(
       "code.example.test did not accept the token for david, so it is not another address for this site. Nothing was changed.",
@@ -776,5 +781,18 @@ describe("the Forges card's words (#1849)", () => {
     expect(await detectForge(runtime, env, "https://code.example.test/team/project")).toMatchObject({ ok: false, unrecognised: true, line: "agent-harness does not recognise this site. Choose what it runs." });
     expect(await addPastedForge({ runtime, clock }, env, { url: "https://code.example.test/team/project", kind: "gitea", token: TOKEN })).toMatchObject({ ok: true, line: "david on code.example.test is connected." });
     expect(sent).toMatchObject({ url: "https://code.example.test/team/project", kind: "gitea" });
+  });
+
+  it("says an address that names no site in the field's own words and sends no lookup", async () => {
+    const { runtime, wire, env } = await paired();
+    let asked = 0;
+    wire.answer("forge.detect", () => {
+      asked += 1;
+      return { error: { code: "invalid_params", message: "The URL names no forge." } };
+    });
+    for (const typed of ["github.com/you/project", "hello", "  "]) {
+      expect(await detectForge(runtime, env, typed)).toEqual({ ok: false, unrecognised: false, line: "Enter an address like https://github.com/you/project.", details: [] });
+    }
+    expect(asked).toBe(0);
   });
 });

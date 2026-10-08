@@ -405,7 +405,9 @@ quoted from the files named; a builder greps for them.
   no token and **Add a new token** for the rest; the capability list is `What the token can do`; under `Other addresses for this site` the field is
   `Another address for this site` with **Add address**, answering `{alias} is another address for {login} on {host}.` or `{alias} did not answer. It is
   used once it answers as {login}.`, and refusing `{alias} is this site's own address.`, `{alias} is already another address for this site.` or, empty,
-  `Enter the other address.`; gh signed out shows its command in mono with Copy (`The command to run there`).
+  `Enter the other address.`; gh signed out shows its command in mono with Copy (`The command to run there`); a hand-over whose gh fails rather than
+  being signed out reads `The gh tool did not give a token for {host}.`, gh's own cause in Details; an address that names no site is said once typing
+  pauses, and Enter before the kind is known checks the address.
 
 ### 5.7 Key manager (gui/src/key-managers/*; environment/src/key-managers/*)
 - Title `Use a key manager?` Why `If you keep passwords and keys in one, agents can fetch them when they need them.`

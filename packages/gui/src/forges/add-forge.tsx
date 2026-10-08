@@ -101,9 +101,12 @@ export const AddForge = ({ environmentId, environmentName, computer, close, say 
   const site = typedSite(found?.origin ?? url);
   const pages = found?.tokenPages ?? (kind !== undefined && origin !== undefined ? forgeTokenPages(kind, origin) : []);
 
+  // Check address, pressed or Enter before the kind is known: an empty field says what to enter.
+  const checkTyped = () => (url.trim() === "" ? setRefused({ line: `Enter an address like ${ADDRESS_EXAMPLE}.`, details: [] }) : check(url));
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (kind === undefined) return;
+    if (kind === undefined) return checkTyped();
     if (token.trim() === "") return setRefused({ line: "Paste the token here.", details: [] });
     setRefused(undefined);
     setSending(true);
@@ -125,7 +128,7 @@ export const AddForge = ({ environmentId, environmentName, computer, close, say 
         </Field>
         <div className="flex flex-wrap gap-2">
           {/* Never dimmed for an empty field, which would leave its reason unsaid: the press says what to enter. */}
-          <Button icon={RefreshCw} label="Check address" disabled={lookup.state === "checking"} onClick={() => (url.trim() === "" ? setRefused({ line: `Enter an address like ${ADDRESS_EXAMPLE}.`, details: [] }) : check(url))}>
+          <Button icon={RefreshCw} label="Check address" disabled={lookup.state === "checking"} onClick={checkTyped}>
             Check address
           </Button>
         </div>

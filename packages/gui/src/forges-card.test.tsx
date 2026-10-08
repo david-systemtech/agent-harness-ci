@@ -259,6 +259,22 @@ describe("Add a forge", () => {
     expect(within(add).getByLabelText("Token")).toHaveProperty("value", TOKEN);
   });
 
+  it("says an address that names no site in the field's words once typing pauses, asking nothing, and checks one on Enter before its kind is known", async () => {
+    const app = await opened();
+    const add = await openAdd(app);
+    const field = within(add).getByRole("textbox", { name: ADDRESS });
+    await app.user.type(field, "github.com/you/project");
+    act(() => app.clock.advance(DETECT_PAUSE_MS));
+    expect(await within(add).findByText("Enter an address like https://github.com/you/project.")).toBeDefined();
+    expect(within(add).queryByText(/could not use what was sent/)).toBeNull();
+    expect(app.environment("desk").requests("forge.detect")).toEqual([]);
+    // Enter before the kind is known checks the address, as Check address does, rather than doing nothing.
+    await app.user.clear(field);
+    await app.user.type(field, "https://git.example.test/team/project{Enter}");
+    expect(await within(add).findByText("1. Create a token on git.example.test.")).toBeDefined();
+    expect(app.environment("desk").requests("forge.detect").map((request) => request.params)).toEqual([{ url: "https://git.example.test/team/project" }]);
+  });
+
   it("shows no GitLab walkthrough, and no expiry warning on a token the forge says expires", async () => {
     const expiresAt = new Date(Date.parse(MANUAL_CLOCK_START) + 10 * 86_400_000).toISOString();
     const expiring = { kind: "expiring" as const, since: MANUAL_CLOCK_START, message: "The token expires at 11 Oct 09:00: replace it in Set up, Forges before then." };
@@ -350,6 +366,19 @@ describe("the gh paths", () => {
     await app.user.click(install);
     expect(await within(step()).findByRole("region", { name: "Installing GitHub CLI" })).toBeDefined();
     expect(app.environment("desk").requests("tools.run").map((request) => request.params)).toEqual([{ commandId: expect.any(String), id: expect.any(String), tool: "gh", action: "install" }]);
+  });
+
+  it("leaves Install gh in the status line, dimmed with its reason, where the list cannot draw it: a read-only grant", async () => {
+    await opened({
+      capabilities: ["forge", "managedTools"],
+      scopes: ["read", "sessions:write", "runs:drive", "terminal"],
+      managedTools: { runs: { gh: { command: "brew install gh" } } },
+      setup: { forges: { state: "needs-attention", reason: "The gh tool is not installed. Install it to use your GitHub sign-in.", failing: ["forges.gh"], actions: ["install"], targets: [{ action: "install", kind: "tool", id: "gh", label: "gh" }] } },
+    });
+    expect(await within(step()).findAllByText("The gh tool is not installed. Install it to use your GitHub sign-in.")).not.toHaveLength(0);
+    const install = within(step()).getByRole("button", { name: /^Install gh/ });
+    expect(install.hasAttribute("disabled")).toBe(true);
+    expect(install.closest("[data-gh-route]")).toBeNull();
   });
 
   it("offers Update gh where gh is older than the minimum, and how to sign it in or Add a token instead where it is signed in nowhere", async () => {

@@ -252,6 +252,8 @@ const forgeRefusalLine = ({ code, data }: RefusedAnswer, site: string): string |
       return `${site} did not accept this token. Check that you copied all of it, or create a new one.`;
     case "gh-unavailable":
       return `The gh tool is not signed in to ${site}.`;
+    case "gh-failed":
+      return `The gh tool did not give a token for ${site}.`;
     case "identity_mismatch": {
       const found = loginIn(data?.["found"]);
       const expected = loginIn(data?.["expected"]);
