@@ -2666,6 +2666,11 @@
               "type": "string",
               "minLength": 1,
               "description": "What the harness was doing there when it was refused, in a few words."
+            },
+            "repository": {
+              "description": "The repository the operation was refused, `owner/name`; absent when it named none.",
+              "type": "string",
+              "minLength": 1
             }
           },
           "required": [
@@ -2700,13 +2705,19 @@
               "type": "string",
               "minLength": 1,
               "description": "The operation its last record names, which the forge has now answered."
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The repository its last record names, `owner/name`, which that operation has now read."
             }
           },
           "required": [
             "origin",
-            "operation"
+            "operation",
+            "repository"
           ],
-          "description": "forge.origin-answered: the operation a missing origin was last recorded for read it anonymously after all, so the record counts no more."
+          "description": "forge.origin-answered: the operation a missing origin was last recorded for read the repository it was refused anonymously after all, so the record counts no more."
         }
       },
       "required": [

@@ -230,7 +230,7 @@ describe("an origin no forge account covers", () => {
       error: { code: "forge_account_missing", data: { origin: forge.origin, step: "forges" } },
     });
     expect(forge.requests).toHaveLength(requests);
-    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["forge.origin-missing", { origin: forge.origin, operation: "read the release channel" }]]);
+    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["forge.origin-missing", { origin: forge.origin, operation: "read the release channel", repository: "david/bank" }]]);
   });
 
   it("clears an origin's missing record once the operation refused there reads it anonymously, as forge.origin-answered, and keeps it for another operation's read", async () => {
@@ -252,14 +252,35 @@ describe("an origin no forge account covers", () => {
     expect(await channel()).toMatchObject({ outcome: "done" });
     expect(t.env.forge.missingOrigins()).toEqual([]);
     expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([
-      ["forge.origin-missing", { origin: forge.origin, operation: "read the release channel" }],
-      ["forge.origin-answered", { origin: forge.origin, operation: "read the release channel" }],
+      ["forge.origin-missing", { origin: forge.origin, operation: "read the release channel", repository: "someone/tool" }],
+      ["forge.origin-answered", { origin: forge.origin, operation: "read the release channel", repository: "someone/tool" }],
     ]);
 
     // Cleared, the next refusal there records the origin again at once, not a day after the last record.
     forge.answer(null, "GET /api/v3/repos/someone/tool/releases", { status: 404, body: { message: "Not Found" } });
     expect(await channel()).toMatchObject({ outcome: "refused", error: { code: "forge_account_missing" } });
     expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "read the release channel", recordedAt: "2026-09-24T06:00:00.000Z" }]);
+  });
+
+  it("keeps an origin's missing record while the same operation reads only another repository there, so a private and a public repository under one purpose do not clear it", async () => {
+    const forge = await fakeForge();
+    const t = await start({ forgeFetch: forge.fetch });
+    const client = await t.client();
+    forge.answer(null, "GET /api/v3/repos/david/bank", { status: 404, body: { message: "Not Found" } });
+    forge.answer(null, "GET /api/v3/repos/david/notes", { status: 200, body: repositoryBody(forge, "david/notes", false) });
+    const from = t.env.log.head();
+    const verify = (repository: string) => t.env.forge.repositories.get({ origin: forge.origin, kind: "github", repository, purpose: "verify a memory bank" });
+
+    expect(await verify("david/bank")).toMatchObject({ outcome: "refused", error: { code: "forge_account_missing" } });
+    expect(await verify("david/notes")).toMatchObject({ outcome: "done" });
+    t.clock.advance(30 * 60_000);
+    expect(await verify("david/bank")).toMatchObject({ outcome: "refused" });
+    expect(await verify("david/notes")).toMatchObject({ outcome: "done" });
+
+    expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "verify a memory bank", recordedAt: MANUAL_CLOCK_START }]);
+    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([
+      ["forge.origin-missing", { origin: forge.origin, operation: "verify a memory bank", repository: "david/bank" }],
+    ]);
   });
 
   it("answers a 403 whose body says GitHub's rate limit, with no rate-limit header, unreachable, recording nothing", async () => {

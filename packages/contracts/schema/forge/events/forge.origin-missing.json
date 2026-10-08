@@ -12,6 +12,11 @@
       "type": "string",
       "minLength": 1,
       "description": "What the harness was doing there when it was refused, in a few words."
+    },
+    "repository": {
+      "description": "The repository the operation was refused, `owner/name`; absent when it named none.",
+      "type": "string",
+      "minLength": 1
     }
   },
   "required": [

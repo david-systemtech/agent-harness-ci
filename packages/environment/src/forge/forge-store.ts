@@ -35,7 +35,7 @@ import type { Reader } from "../sessions/session-tables.js";
  * keyed on (#315). `forge_origins` holds the canonical origin and every
  * alias of each forge account the environment holds, one forge account per origin;
  * `forge_missing_origins` the last `forge.origin-missing` of each origin, until a
- * `forge.origin-answered` for the operation it names clears it; the partial
+ * `forge.origin-answered` for the operation and repository it names clears it; the partial
  * unique indexes hold one slug per live forge account and one primary,
  * which the ForgeService checks before it appends.
  */
@@ -71,6 +71,7 @@ export const FORGE_ACCOUNTS_TABLES = {
   forge_missing_origins: `CREATE TABLE forge_missing_origins (
     origin TEXT PRIMARY KEY,
     operation TEXT NOT NULL,
+    repository TEXT,
     recorded_at TEXT NOT NULL
   ) STRICT`,
 } as const;
@@ -176,17 +177,18 @@ const removed = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountRe
 /** The last time a harness operation was refused on `origin` for want of a forge account, and what it was doing. */
 const originMissing = (db: ProjectionDb, event: EventEnvelope, payload: ForgeOriginMissingPayload): void => {
   db.run(
-    `INSERT INTO forge_missing_origins (origin, operation, recorded_at) VALUES (?, ?, ?)
-     ON CONFLICT (origin) DO UPDATE SET operation = excluded.operation, recorded_at = excluded.recorded_at`,
+    `INSERT INTO forge_missing_origins (origin, operation, repository, recorded_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (origin) DO UPDATE SET operation = excluded.operation, repository = excluded.repository, recorded_at = excluded.recorded_at`,
     payload.origin,
     payload.operation,
+    payload.repository ?? null,
     event.occurredAt,
   );
 };
 
-/** An origin's missing record answered after all: the operation it names read the origin anonymously. */
+/** An origin's missing record answered after all: the operation it names read the repository it names anonymously. */
 const originAnswered = (db: ProjectionDb, payload: ForgeOriginAnsweredPayload): void => {
-  db.run("DELETE FROM forge_missing_origins WHERE origin = ? AND operation = ?", payload.origin, payload.operation);
+  db.run("DELETE FROM forge_missing_origins WHERE origin = ? AND operation = ? AND repository = ?", payload.origin, payload.operation, payload.repository);
 };
 
 /**
@@ -315,6 +317,10 @@ export interface MissingOrigin {
   readonly operation: string;
   readonly recordedAt: string;
 }
+
+/** Whether `origin`'s last missing record names `operation` refused on `repository`. */
+export const missingOn = (reader: Reader, origin: string, operation: string, repository: string): boolean =>
+  reader.all("SELECT 1 FROM forge_missing_origins WHERE origin = ? AND operation = ? AND repository = ?", origin, operation, repository).length > 0;
 
 /** Every origin a harness operation was refused on for want of a forge account, with its last record, oldest first. */
 export const missingOrigins = (reader: Reader): MissingOrigin[] =>

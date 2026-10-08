@@ -375,6 +375,7 @@ export const ForgeOriginMissingPayload = z
   .object({
     origin: ForgeOrigin.meta({ description: "The origin no forge account covers." }),
     operation: z.string().min(1).meta({ description: "What the harness was doing there when it was refused, in a few words." }),
+    repository: z.string().min(1).optional().meta({ description: "The repository the operation was refused, `owner/name`; absent when it named none." }),
   })
   .meta({ description: "forge.origin-missing: a harness operation was refused on an origin no forge account covers; recorded at most daily per origin." });
 export type ForgeOriginMissingPayload = z.infer<typeof ForgeOriginMissingPayload>;
@@ -383,8 +384,9 @@ export const ForgeOriginAnsweredPayload = z
   .object({
     origin: ForgeOrigin.meta({ description: "The origin recorded as missing, which answered an anonymous read." }),
     operation: z.string().min(1).meta({ description: "The operation its last record names, which the forge has now answered." }),
+    repository: z.string().min(1).meta({ description: "The repository its last record names, `owner/name`, which that operation has now read." }),
   })
-  .meta({ description: "forge.origin-answered: the operation a missing origin was last recorded for read it anonymously after all, so the record counts no more." });
+  .meta({ description: "forge.origin-answered: the operation a missing origin was last recorded for read the repository it was refused anonymously after all, so the record counts no more." });
 export type ForgeOriginAnsweredPayload = z.infer<typeof ForgeOriginAnsweredPayload>;
 
 /**

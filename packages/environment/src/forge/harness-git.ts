@@ -33,8 +33,9 @@ import type { RunSecret, RunSecrets } from "./run-secrets.js";
  * operation and void when it ends. On an origin none covers, the chain is
  * reset with no helper, so git reads anonymously; when the forge asks for a
  * credential all the same, the operation is refused `forge_account_missing`
- * and the origin is recorded as missing; one it answers clears a missing
- * record naming the same operation (#1891).
+ * and the origin is recorded as missing, naming the repository; one it
+ * answers clears a missing record naming the same operation and repository
+ * (#1891).
  *
  * git's standard error, which it answers, passes the scrub registry's
  * `scrubOutput` while the operation's secret is still registered: registered
@@ -96,10 +97,10 @@ export interface HarnessGitOptions {
   readonly command: readonly string[] | undefined;
   /** The environment's loopback address, where the helper asks; undefined until the environment listens. */
   readonly address: () => Address | undefined;
-  /** Records that `operation` was refused on `origin` for want of a forge account. */
-  readonly originMissing: (origin: ForgeOrigin, operation: string) => void;
-  /** Hears that `operation` ran on `origin` anonymously, which clears a missing record naming it. */
-  readonly originAnswered: (origin: ForgeOrigin, operation: string) => void;
+  /** Records that `operation` was refused on `origin`'s `repository` for want of a forge account. */
+  readonly originMissing: (origin: ForgeOrigin, operation: string, repository: string) => void;
+  /** Hears that `operation` ran on `origin`'s `repository` anonymously, which clears a missing record naming both. */
+  readonly originAnswered: (origin: ForgeOrigin, operation: string, repository: string) => void;
   /** Configuration every operation is given after its own: a test's `insteadOf`, which sends a forge's URL to a local repository. Preset none. */
   readonly config?: readonly GitConfigEntry[];
 }
@@ -165,9 +166,9 @@ export const createHarnessGit =
       release();
     }
     if (account === null && options.fallback === undefined) {
-      if (git.ok) options.originAnswered(origin, request.purpose);
+      if (git.ok) options.originAnswered(origin, request.purpose, remote.path);
       else if (PROMPT_REFUSED.test(git.stderr)) {
-        options.originMissing(origin, request.purpose);
+        options.originMissing(origin, request.purpose, remote.path);
         return { outcome: "refused", error: forgeAccountMissing(origin, "it asked for a credential") };
       }
     }
