@@ -350,22 +350,38 @@ describe("the Set up pane", () => {
     expect(within(steps()).getByRole("button", { name: "Permissions" }).getAttribute("aria-current")).toBe("step");
   });
 
-  it("keeps Check everything again busy only on the computer it is checking", async () => {
+  it("keeps Check everything again busy, and what it found, to each computer it checks", async () => {
     const app = await twoEnvironments();
+    const desk = app.environment("desk");
+    const laptop = app.environment("laptop");
     const pane = await setupPane(app);
+    const picker = () => within(pane).getByRole("combobox", { name: "Environment" });
     await within(pane).findByText("4 done · 1 needs a fix · 1 not set up");
-    const release = app.environment("desk").holdSetupChecks();
+    const release = desk.holdSetupChecks();
+    desk.setSetup({ permissions: {} });
     await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
     expect(within(pane).getByRole("button", { name: "Checking…" }).hasAttribute("disabled")).toBe(true);
 
-    await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "laptop");
+    // laptop is not being checked, so its button is free, and its own check passes while desk's still runs.
+    await app.user.selectOptions(picker(), "laptop");
     await within(pane).findByText("5 done · 1 needs a fix · 0 not set up");
-    expect(within(pane).getByRole("button", { name: "Check everything again" }).hasAttribute("disabled")).toBe(false);
     expect(within(pane).queryByRole("button", { name: "Checking…" })).toBeNull();
+    laptop.setSetup({ appearance: {} });
+    await app.user.click(within(pane).getByRole("button", { name: "Check everything again" }));
+    expect(await within(pane).findByText("Everything on laptop is set up.")).toBeDefined();
+
+    // Back on desk, its first check is still running.
+    await app.user.selectOptions(picker(), "desk");
+    expect((await within(pane).findByRole("button", { name: "Checking…" })).hasAttribute("disabled")).toBe(true);
     release();
+    expect(await within(pane).findByText("Everything on desk is set up.")).toBeDefined();
+
+    // desk's answer leaves what laptop's check found.
+    await app.user.selectOptions(picker(), "laptop");
+    expect(await within(pane).findByText("Everything on laptop is set up.")).toBeDefined();
   });
 
-  it("says a check that could not run as an alert naming the computer,with Details holding the refusal, and keeps it to the computer it was for", async () => {
+  it("says a check that could not run as an alert naming the computer, with Details holding the refusal, and keeps it to the computer it was for", async () => {
     const app = await twoEnvironments();
     const desk = app.environment("desk");
     const pane = await setupPane(app);

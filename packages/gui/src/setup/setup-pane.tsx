@@ -15,8 +15,8 @@ import { StateBadge } from "./state-badge.js";
 import { useDetails } from "./use-details.js";
 import { useCheckOnOpen, useSetupView } from "./use-setup.js";
 
-/** What the last Check everything again found, on the environment it checked: every step fine, or the check refused. */
-type Checked = { readonly environmentId: string } & ({ readonly passed: true } | { readonly passed: false; readonly refusal: RefusedAnswer });
+/** What the last Check everything again on an environment found: every step fine, or the check refused. */
+type Checked = { readonly passed: true } | { readonly passed: false; readonly refusal: RefusedAnswer };
 
 /**
  * The Set up pane, `setup.checklist` (ADR 0027; docs/specs/gui.md, "Set up
@@ -35,9 +35,9 @@ export const SetupPane = () => {
   const { open: openChecklist } = useChecklist();
   const { open: openRow } = useSettings();
   const details = useDetails();
-  /** The environment a Check everything again is running on. */
-  const [checking, setChecking] = useState<string | undefined>(undefined);
-  const [checked, setChecked] = useState<Checked | undefined>(undefined);
+  /** The environments a Check everything again is running on, and what the last one on each found. */
+  const [checking, setChecking] = useState<ReadonlySet<string>>(new Set());
+  const [checked, setChecked] = useState<ReadonlyMap<string, Checked>>(new Map());
   if (picked === undefined || view === undefined) return null;
   const { environmentId } = picked;
   const name = nameOf(picked);
@@ -45,19 +45,28 @@ export const SetupPane = () => {
   /** A step's line and, after it, when it was checked or that it may be out of date. */
   const said = (step: SetupStepView) => [stepLine(step, now), stepNote(step, now, name)].filter((words) => words !== undefined).join(" ");
   const refused = `${PRODUCT_NAME} could not check ${name}.`;
-  const shown = checked?.environmentId === environmentId ? checked : undefined;
-  const busy = checking === environmentId;
+  const shown = checked.get(environmentId);
+  const busy = checking.has(environmentId);
+
+  /** Sets, or with undefined clears, what this environment's check found, leaving every other's. */
+  const found = (result: Checked | undefined) =>
+    setChecked((all) => {
+      const next = new Map(all);
+      if (result === undefined) next.delete(environmentId);
+      else next.set(environmentId, result);
+      return next;
+    });
 
   const checkEverything = async () => {
-    setChecked(undefined);
-    setChecking(environmentId);
-    const answer = await runtime.setup.check(environmentId).finally(() => setChecking((running) => (running === environmentId ? undefined : running)));
-    if (!answer.ok) return setChecked({ environmentId, passed: false, refusal: answer.error });
+    found(undefined);
+    setChecking((running) => new Set(running).add(environmentId));
+    const answer = await runtime.setup.check(environmentId).finally(() => setChecking((running) => new Set([...running].filter((id) => id !== environmentId))));
+    if (!answer.ok) return found({ passed: false, refusal: answer.error });
     const { counts } = runtime.projections.setup(environmentId).read();
     const first = counts.attention[0];
     if (first !== undefined) openChecklist(first);
     // All pass: each answer done, or skipped, which counts as fine; one still pending has not passed (setup-copy.md §4.5).
-    else if (counts.done + counts.skipped === counts.registered) setChecked({ environmentId, passed: true });
+    else if (counts.done + counts.skipped === counts.registered) found({ passed: true });
   };
 
   return (
