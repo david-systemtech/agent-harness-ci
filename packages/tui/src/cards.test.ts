@@ -1,5 +1,5 @@
 import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
-import { DATA_DIRECTORY_PRESET_ID } from "@agent-harness/contracts";
+import { DATA_DIRECTORY_PRESET_ID, describeDenylistMatch, type DenylistMatch } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp } from "../test/harness.js";
 
@@ -150,7 +150,7 @@ describe("the permission card", () => {
       },
       "⛔ Denylist",
     );
-    expect(app.frame()).toContain("is on the denylist");
+    expect(prose(app)).toContain("Entry ~/.ssh/**, on the denylist's paths with no note.");
     expect(app.frame()).not.toContain("for this session");
     await app.press(KEY.down, KEY.down, KEY.down);
     expect(app.frame()).toContain("❯ Allow once");
@@ -159,13 +159,28 @@ describe("the permission card", () => {
     expect(answersSent(env)[0]).toEqual({ commandId: expect.any(String), promptId: expect.any(String), sessionId: SESSION, decision: "allow" });
   });
 
+  const eventLog: DenylistMatch = { section: "paths", entry: { id: DATA_DIRECTORY_PRESET_ID, pattern: "/srv/harness", note: "", enabled: true, preset: true }, matched: "/srv/harness/events.db" };
   const dataDirectory: ScriptedPrompt = {
     kind: "denylist",
     toolName: "Read",
     input: { file_path: "/srv/harness/events.db" },
     summary: "Read: /srv/harness/events.db",
-    denylist: [{ section: "paths", entry: { id: DATA_DIRECTORY_PRESET_ID, pattern: "/srv/harness", note: "", enabled: true, preset: true }, matched: "/srv/harness/events.db" }],
+    denylist: [eventLog],
   };
+
+  it("says a one-match card's request, why and what instead once each, as the gate asks it (#1905)", async () => {
+    const { app, env } = await opened();
+    // The environment's gate names the match as a sentence in both the summary and the reason.
+    await park(app, env, { ...dataDirectory, summary: `Read: ${describeDenylistMatch(eventLog)}`, reason: describeDenylistMatch(eventLog) }, "⛔ Denylist");
+    // The card's rows only: the status line names the waiting prompt by its summary.
+    const rows = app.rows();
+    const top = rowOf(app, "⛔ Denylist");
+    const card = rows.slice(top, rows.findIndex((row, at) => at > top && row.includes("╰"))).join("\n");
+    expect(card).not.toContain("is on the denylist");
+    expect(card.split("Read: /srv/harness/events.db")).toHaveLength(2);
+    expect(rowOf(app, "Read: /srv/harness/events.db")).toBeLessThan(rowOf(app, "its event log"));
+    expect(rowOf(app, "its event log")).toBeLessThan(rowOf(app, "Instead, the agent may work"));
+  });
 
   it("says in words what each matched entry protects and what the agent may do instead (#1828)", async () => {
     const { app, env } = await opened();

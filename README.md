@@ -38,6 +38,24 @@ These early builds are not signed. If the browser flags the download as
 uncommon, choose to keep it. If Windows shows **Windows protected your
 PC**, choose **More info**, then **Run anyway**.
 
+The first time your environment binds its tailnet or a LAN address, Windows
+Defender Firewall asks whether Node.js (`node.exe`) may accept connections:
+keep **Private networks** ticked and choose **Allow access**, which may ask
+for an administrator's approval. The environment runs on
+`%LOCALAPPDATA%\agent-harness\node\node.exe`, a path no update changes, so
+Windows keeps your answer and does not ask again when it updates. Earlier
+releases ran on each version's own `node.exe`, so each update asked again
+and left two `node.exe` rules behind. The update from such a release to
+this one can still ask, up to twice: it first runs on its own `node.exe`
+under the earlier release's launcher, and then, once that launcher hands
+over, on the path above. To remove those old rules, run
+this in PowerShell as administrator, with your Windows user name in place
+of `<you>`:
+
+```powershell
+Get-NetFirewallApplicationFilter | Where-Object Program -like 'C:\Users\<you>\AppData\Local\agent-harness\versions\*' | Get-NetFirewallRule | Remove-NetFirewallRule
+```
+
 Uninstall from **Settings > Apps**, or run the installed
 `Uninstall agent-harness.exe /S`. This stops and unregisters your local
 environment task. Updates keep the task installed. Your environment data

@@ -1261,8 +1261,12 @@ const SECTION_NAMES: Readonly<Record<DenylistSection, string>> = {
 /** The longest a match's value is quoted in a sentence about it. */
 const QUOTED_MAX = 60;
 
-/** A value on one short line: its first line with anything on it, white space collapsed, cut with an ellipsis. */
-const quoted = (value: string): string => {
+/**
+ * What matched an entry on one short line, as a sentence about the match
+ * quotes it: its first line with anything on it, white space collapsed, cut
+ * with an ellipsis.
+ */
+export const quoteDenylistMatched = (value: string): string => {
   const line =
     value
       .split(/\r\n|\r|\n/)
@@ -1276,4 +1280,4 @@ const quoted = (value: string): string => {
  * model's message: the section and the entry, with what matched it cut to
  * one short line, so a long command or a heredoc is never repeated whole.
  */
-export const describeDenylistMatch = (match: DenylistMatch): string => `${quoted(match.matched)} is on the denylist (${SECTION_NAMES[match.section]}: ${match.entry.pattern})`;
+export const describeDenylistMatch = (match: DenylistMatch): string => `${quoteDenylistMatched(match.matched)} is on the denylist (${SECTION_NAMES[match.section]}: ${match.entry.pattern})`;

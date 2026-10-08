@@ -878,8 +878,8 @@ focusable disabled wrapper, not only on pointer hover. Session and PR tooltips
 may include the rich facts described in §9 and gui.md. Focus shows a tooltip
 only when it follows the keyboard or comes before any input. The phone layout
 (the media test the phone frame uses) asks more: only focus after a Tab press
-shows one, so focus the app moves itself (a side sheet restored on reload
-takes it) floats nothing over the window's notices, and no tooltip there
+shows one, so focus the app moves itself (a side sheet opened from its edge
+handle takes it) floats nothing over the window's notices, and no tooltip there
 carries a key legend ("Enter / Space"), as nothing on a phone presses it.
 
 ### 11.3 Palette, banners and transient toasts

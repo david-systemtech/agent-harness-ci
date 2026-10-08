@@ -44,7 +44,9 @@ it.each(["permission", "question", "plan", "denylist"] as const)("draws the %s p
     if (kind === "denylist") {
       expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
       expect(within(card).queryByRole("button", { name: "Allow for this session" })).toBeNull();
-      expect(within(card).getByRole("list", { name: "On the denylist" }).textContent).toContain("private-key");
+      expect(card.textContent).toContain("Read: /workspace/keys/private-key");
+      expect(card.textContent).not.toContain("is on the denylist");
+      expect(within(card).getByRole("list", { name: "On the denylist" }).textContent).toContain("Entry /workspace/keys/**: Protected keys");
     }
     expect(await gallery.ready).toBe(true);
     await waitFor(() => expect(container.dataset["galleryReady"]).toBe(`prompt-${kind}`));

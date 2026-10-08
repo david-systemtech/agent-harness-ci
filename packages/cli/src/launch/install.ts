@@ -116,7 +116,7 @@ class StagedVersionLost extends Error {
  * image Windows releases a moment later, or a file just written that an
  * on-access scan has open. It passes once the hold ends.
  */
-const heldOnWindows = (error: unknown, platform: NodeJS.Platform): boolean =>
+export const heldOnWindows = (error: unknown, platform: NodeJS.Platform): boolean =>
   platform === "win32" && ["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? "");
 
 /** Whether `staged` is a folder directly in the staging area of `dataDir` (links resolved), never a link to one. */

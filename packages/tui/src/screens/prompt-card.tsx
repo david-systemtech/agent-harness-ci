@@ -1,6 +1,6 @@
-import { choiceRows, denylistMatchWords, oneLine } from "@agent-harness/client-runtime";
+import { choiceRows, denylistCardWords, oneLine } from "@agent-harness/client-runtime";
 import { Box, Text } from "ink";
-import { describeDenylistMatch, type PromptOpenedPayload, type PromptQuestion } from "@agent-harness/contracts";
+import type { PromptOpenedPayload, PromptQuestion } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { currentQuestion, isQuestion, type CardState } from "../cards/prompt.js";
 
@@ -8,8 +8,8 @@ import { currentQuestion, isQuestion, type CardState } from "../cards/prompt.js"
  * The permission, question and plan card on screen (docs/specs/tui.md,
  * "Cards"): a bordered box below
  * the transcript and above the composer, in the colour of its kind, with
- * what is asked, the call's input, a denylist prompt's matches with what
- * each protects and what the agent may do instead, and when the run asked
+ * what is asked, the call's input, a denylist prompt's matches, each once
+ * (#1905), with what each protects and what the agent may do instead, and when the run asked
  * about the same entry before (#1828), a plan's text, the rows with the
  * cursor, the note, and a hint line in the keys of the map in force. A
  * function of its props: the state is the app's.
@@ -67,6 +67,8 @@ export const PromptCard = (props: PromptCardProps) => {
   const count = prompt.questions?.length ?? 0;
   const facts = [props.place, props.ttl].filter((fact) => fact !== undefined).join(" · ");
   const planLines = prompt.kind === "plan" ? (prompt.plan ?? "").split("\n") : [];
+  // A denylist prompt's summary and reason name its match as a sentence its entries say again; it says each thing once instead (#1905).
+  const denylist = denylistCardWords(prompt);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={colour} paddingX={1} flexShrink={0}>
       <Text wrap="truncate-end">
@@ -77,23 +79,22 @@ export const PromptCard = (props: PromptCardProps) => {
         {question && count > 1 && <Text dimColor>{`  ${state.question + 1}/${count}`}</Text>}
         {facts.length > 0 && <Text dimColor>{`  ${facts}`}</Text>}
       </Text>
-      {question ? <Text wrap="truncate-end">{question.question}</Text> : prompt.kind !== "plan" && <Text wrap="truncate-end">{oneLine(prompt.summary, 300)}</Text>}
-      {prompt.reason !== null && <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">{oneLine(prompt.reason, 300)}</Text>}
+      {question ? <Text wrap="truncate-end">{question.question}</Text> : prompt.kind !== "plan" && <Text wrap="truncate-end">{oneLine(denylist?.asked ?? prompt.summary, 300)}</Text>}
+      {denylist === undefined && prompt.reason !== null && <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">{oneLine(prompt.reason, 300)}</Text>}
       {prompt.blockedPath !== null && <Text dimColor wrap="truncate-end">path: {prompt.blockedPath}</Text>}
-      {prompt.denylist?.map((match, at) => {
-        const words = denylistMatchWords(match);
-        return (
-          <Box key={at} flexDirection="column">
+      {denylist?.entries.map((entry, at) => (
+        <Box key={at} flexDirection="column">
+          {entry.heading !== undefined && (
             <Text color={TERMINAL_ROLES.danger} wrap="truncate-end">
-              {describeDenylistMatch(match)}
+              {entry.heading}
             </Text>
-            <Box paddingLeft={2} flexDirection="column">
-              <Text>{words.protects}</Text>
-              <Text dimColor>{words.instead}</Text>
-            </Box>
+          )}
+          <Box paddingLeft={2} flexDirection="column">
+            <Text>{entry.protects}</Text>
+            <Text dimColor>{entry.instead}</Text>
           </Box>
-        );
-      })}
+        </Box>
+      ))}
       {props.repeat !== undefined && (
         <Text color={TERMINAL_ROLES.danger} bold>
           {props.repeat}
