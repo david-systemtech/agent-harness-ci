@@ -128,6 +128,16 @@ const unwrapped = (text: string): string => {
   }
 };
 
+/**
+ * Whether a pairing link reaches only the computer that made it: its address
+ * is loopback (127.0.0.0/8, localhost, ::1), as an environment bound to
+ * loopback alone hands out, which no other device can use (#1847).
+ */
+export const pairingLinkIsLocal = (link: string): boolean => {
+  const host = parsePairingLink(link)?.origin.replace(/^[a-z]+:\/\//i, "").replace(/:\d+$/, "").toLowerCase();
+  return host !== undefined && (/^127(\.\d{1,3}){3}$/.test(host) || host === "localhost" || host === "[::1]");
+};
+
 /** The origin and canonical code in what was pasted or typed, or why there are none. */
 export const parsePairingInput = (
   input: PairingInput,

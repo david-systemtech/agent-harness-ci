@@ -187,6 +187,7 @@ export {
 } from "./forges/actions.js";
 export {
   pairingDeepLink,
+  pairingLinkIsLocal,
   parsePairingInput,
   type PairingFailure,
   type PairingFailureReason,

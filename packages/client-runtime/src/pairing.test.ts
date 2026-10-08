@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { Address } from "../../environment/src/serve/http.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { notJsonAt, originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
-import { pairingDeepLink, parsePairingInput } from "./pairing.js";
+import { pairingDeepLink, pairingLinkIsLocal, parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 import { CredentialAccessUnansweredError, isCredentialAccessUnanswered, PairingCodeSpentError, StoredCredentialUnavailableError } from "./credential-unavailable.js";
 
@@ -60,6 +60,17 @@ describe("reading what David pastes or types", () => {
       ok: false,
       failure: { reason: "invalid-address", message: "Enter the other computer's address, like my-server or 192.168.1.20." },
     });
+  });
+});
+
+describe("a link only this computer can use", () => {
+  it("is one whose address is loopback, and no other", () => {
+    for (const link of ["http://127.0.0.1:7433/pair#K7Q2MXH4RT", "http://127.4.5.6/pair#K7Q2MXH4RT", "http://localhost:7433/pair#K7Q2MXH4RT", "http://[::1]:7433/pair#K7Q2MXH4RT"]) {
+      expect(pairingLinkIsLocal(link), link).toBe(true);
+    }
+    for (const link of ["http://100.64.0.7:7433/pair#K7Q2MXH4RT", "http://desk.tail1234.ts.net:7433/pair#K7Q2MXH4RT", "https://127.0.0.1.example.test/pair#K7Q2MXH4RT", "not a link"]) {
+      expect(pairingLinkIsLocal(link), link).toBe(false);
+    }
   });
 });
 

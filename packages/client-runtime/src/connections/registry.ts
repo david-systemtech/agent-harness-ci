@@ -1128,7 +1128,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           await revokeNew(answer.socket);
           answer.socket.close();
         }
-        return pairingFailed("refused", "Full access could not be confirmed. Use a full-access code made with My own client. This phone's pairing has not changed.");
+        return pairingFailed("refused", "Full access could not be confirmed. Use a full-access code made for Me. This phone's pairing has not changed.");
       }
 
       // Re-pairing in place gives up the client session the connection held: it is revoked before the new token is kept, over the
