@@ -816,9 +816,11 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       const running = `Running: ${harnessVersion}`;
       const findings: Finding[] = [];
       // A newest no check has read yet is not behind: whether the channel is read is the release channel's check.
-      // It stays on a pin only while the pin runs; a pin it does not run yet is an update on its way, which the lines below speak for.
+      // It stays on a pin only while the pin runs. A pin staging or held is an update on its way, which the lines below speak for;
+      // one that is neither (withdrawn, passed over, failed, its install refused) leaves the machine plainly behind.
       const pinRuns = pinnedVersion === harnessVersion;
-      if ((pinRuns || !autoUpdate) && newest !== null && newer(newest, harnessVersion)) {
+      const pinOnItsWay = pinnedVersion !== null && ((held.state !== "current" && held.update.toVersion === pinnedVersion) || staging?.toVersion === pinnedVersion);
+      if ((pinnedVersion === null ? !autoUpdate : !pinOnItsWay) && newest !== null && newer(newest, harnessVersion)) {
         findings.push({
           reason: pinRuns ? `${name} stays on ${harnessVersion} because it is pinned. ${newest} is available.` : `Version ${newest} is available. Choose Update now.`,
           details: [running, `Newest on the channel: ${newest}`, `Updates: ${pinnedVersion === null ? "off" : `pinned to ${pinnedVersion}`}`],

@@ -748,6 +748,20 @@ describe("the Your machines step's updates check", () => {
     }
   });
 
+  it("needs attention while a pin that does not run is neither staging nor pending, its install refused", async () => {
+    const { fake, client } = await withReleases({ launch: { install: () => ({ type: "refused", reason: "preflight" }) } });
+    fake.publish(release("0.4.9"), release("0.5.0"));
+    await setUpdates(client, { "updates.pinnedVersion": "0.4.9" });
+    // The check the pin began, which staged 0.4.9 and was refused; Set up's ask within its minute reads nothing again.
+    await check(client);
+    expect(await machines(client)).toEqual({
+      failing: ["your-machines.updates"],
+      actions: ["update"],
+      reason: "Version 0.5.0 is available. Choose Update now.",
+      details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: pinned to 0.4.9"],
+    });
+  });
+
   it("needs attention while the target is blocked, saying what unblocks it", async () => {
     const { fake, client } = await withReleases();
     fake.publish(release("0.7.0", { manifest: { launcherProtocol: 2 } }));
