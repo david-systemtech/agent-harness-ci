@@ -24,9 +24,9 @@ it.each(["light", "dark"] as const)("draws Settings bank records and their measu
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("settings-banks"));
   const dialog = await screen.findByRole("dialog", { name: "Settings" });
   const bank = within(dialog).getByRole("region", { name: "project-memory" });
-  expect(within(bank).getByRole("button", { name: "Publish" })).toBeDefined();
-  expect(within(bank).getByRole("button", { name: "Describe this bank" })).toBeDefined();
-  expect(within(dialog).getByRole("button", { name: "Awaiting owner review" })).toBeDefined();
+  expect(within(bank).getByRole("button", { name: "Move to your forge" })).toBeDefined();
+  expect(within(bank).getByRole("button", { name: "Describe it" })).toBeDefined();
+  expect(within(dialog).getByRole("button", { name: "Open the review" })).toBeDefined();
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([
     { selector: "[data-settings-dialog]", width: 1352, height: 852 },
     { selector: "[data-bank-card]", paddingLeft: 16, paddingTop: 16 },
@@ -42,7 +42,7 @@ it("draws a team bank whose landing, refused for want of a forge account, the co
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("settings-bank-landing-cleared"));
   const dialog = await screen.findByRole("dialog", { name: "Settings" });
   const bank = within(dialog).getByRole("region", { name: "team-memory" });
-  expect(within(bank).getByText("Remote")).toBeDefined();
+  expect(within(bank).getByText("On git.example.test")).toBeDefined();
   expect(within(bank).queryByRole("alert")).toBeNull();
   expect(within(bank).queryByText(/found none/)).toBeNull();
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([{ selector: "[data-bank-card]", paddingLeft: 16, paddingTop: 16 }]));
@@ -56,10 +56,10 @@ it.each(["light", "dark"] as const)("draws the setup choices with navigation out
   expect(await gallery.ready).toBe(true);
   await waitFor(() => expect(container.dataset["galleryReady"]).toBe("setup-memory-bank"));
   const card = await screen.findByRole("region", { name: "Memory bank" });
-  expect(within(card).getByText("Facts your agents keep")).toBeDefined();
-  expect(within(card).getByText("No banks attached yet.")).toBeDefined();
-  expect(within(card).getByRole("radiogroup", { name: "Bank kind" })).toBeDefined();
-  expect(within(card).getByRole("textbox", { name: "Bank name" })).toBeDefined();
+  expect(within(card).getByText("No notebook yet. Optional.")).toBeDefined();
+  expect(within(card).getByRole("radiogroup", { name: "What would you like?" })).toBeDefined();
+  expect(within(card).getByText("Forge: member on git.example.test")).toBeDefined();
+  expect(within(card).getByRole("textbox", { name: "Name" })).toBeDefined();
   const footer = screen.getByRole("navigation", { name: "Step navigation" });
   expect(container.querySelector("[data-setup-scroll]")?.contains(footer)).toBe(false);
   expect(within(footer).getByRole("button", { name: "Continue" })).toBeDefined();
@@ -89,4 +89,46 @@ it("measures the setup field wrappers rather than uncapped inputs", async () => 
     vi.spyOn(input, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 200, 32));
   }
   expect(measureSceneGeometry()).toEqual([]);
+});
+
+/** The Set up Memory bank scene `name`, mounted at 1400x900 once ready, its card. */
+const setupBankScene = async (name: string) => {
+  vi.stubGlobal("innerWidth", 1400);
+  vi.stubGlobal("innerHeight", 900);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, name, "dark");
+  close = gallery.close;
+  expect(await gallery.ready).toBe(true);
+  await waitFor(() => expect(container.dataset["galleryReady"]).toBe(name));
+  return screen.findByRole("region", { name: "Memory bank" });
+};
+
+// setup-copy.md §5.8's states for the gallery (#1853): no forge, the form's empty field, describing, joined.
+it("draws the Memory bank step with no forge yet: the row says so with Go to Forges, and Create stays enabled", async () => {
+  const card = await setupBankScene("setup-memory-bank-no-forge");
+  expect(within(card).getByText("No forge yet.")).toBeDefined();
+  expect(within(card).getByRole("button", { name: "Go to Forges" })).toBeDefined();
+  expect(within(card).getByRole("button", { name: "Create notebook" }).hasAttribute("disabled")).toBe(false);
+  expect(within(card).getByRole("button", { name: "Keep it on this computer for now" })).toBeDefined();
+});
+
+it("draws the Memory bank form after Create notebook was pressed with the Name empty", async () => {
+  const card = await setupBankScene("setup-memory-bank-form-empty");
+  expect(within(card).getByRole("alert").textContent).toBe("Error: Enter a name.");
+  expect(within(card).getByRole("textbox", { name: "Name" }).getAttribute("aria-invalid")).toBe("true");
+});
+
+it("draws a notebook just created, with what Describe it does beside it", async () => {
+  const card = await setupBankScene("setup-memory-bank-describing");
+  const notebook = within(card).getByRole("region", { name: "project-memory" });
+  expect(within(notebook).getByText("Now describe your notebook. An agent asks a few questions and writes the description.")).toBeDefined();
+  expect(within(notebook).getByRole("button", { name: "Describe it" })).toBeDefined();
+  expect(within(notebook).getByText("Description: missing")).toBeDefined();
+});
+
+it("draws a joined team notebook with its badges in words", async () => {
+  const card = await setupBankScene("setup-memory-bank-joined");
+  const notebook = within(card).getByRole("region", { name: "team-memory" });
+  expect([...notebook.querySelectorAll("[data-bank-badge]")].map((badge) => badge.textContent)).toEqual(["Team", "On", "On git.example.test", "Description: ready"]);
 });
