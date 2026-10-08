@@ -91,8 +91,42 @@ it("keeps model choices across accounts when the environment default is selected
   const pane = await screen.findByRole("region", { name: "Routines" });
   await app.user.click(within(pane).getByRole("button", { name: "New routine" }));
   const form = within(pane).getByRole("form", { name: "New routine" });
-  expect(await within(form).findByRole("option", { name: "Large" })).toBeDefined();
-  expect(within(form).getByRole("option", { name: "Small" })).toBeDefined();
+  expect(await within(form).findByRole("option", { name: "Large (large)" })).toBeDefined();
+  expect(within(form).getByRole("option", { name: "Small (small)" })).toBeDefined();
+});
+
+it("names models and efforts as the pickers do and stores the model id and the raw effort", async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", models: [
+    { accountId: "account-1", models: [{ id: "fable", family: "fable", tier: 3, efforts: ["high", "xhigh"], label: "Fable" }] },
+  ] }] });
+  act(() => app.shell.openDeepLink(settingsDeepLink("routines.routines")));
+  const pane = await screen.findByRole("region", { name: "Routines" });
+  await app.user.click(within(pane).getByRole("button", { name: "New routine" }));
+  const form = within(pane).getByRole("form", { name: "New routine" });
+  await app.user.type(within(form).getByRole("textbox", { name: "Name" }), "Weekly check");
+  await app.user.type(within(form).getByRole("textbox", { name: "Workspace" }), "/projects/sample");
+  await app.user.type(within(form).getByRole("textbox", { name: "Instructions" }), "Review the project.");
+  await app.user.selectOptions(within(form).getByRole("combobox", { name: "Model" }), await within(form).findByRole("option", { name: "Fable 5.1 (fable)" }));
+  expect(within(form).getByRole("option", { name: "Extra high" })).toBeDefined();
+  await app.user.selectOptions(within(form).getByRole("combobox", { name: "Effort" }), within(form).getByRole("option", { name: "High" }));
+  await app.user.click(within(form).getByRole("button", { name: "Create" }));
+  expect(app.environment("desk").requests("routines.create")[0]?.params).toMatchObject({ definition: { model: "fable", effort: "high" } });
+});
+
+it("names a saved model and effort the environment no longer offers as the pickers do", async () => {
+  const routine = routineFixture();
+  routine.definition.model = "claude-opus-5-5";
+  routine.definition.effort = "xhigh";
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, {}, (world) => {
+    world.environment("desk").wire.answer("routines.list", () => ({ result: { routines: [routine] } }));
+  });
+  act(() => app.shell.openDeepLink(settingsDeepLink("routines.routines")));
+  const pane = await screen.findByRole("region", { name: "Routines" });
+  const card = await within(pane).findByRole("region", { name: "Morning digest" });
+  await app.user.click(within(card).getByRole("button", { name: "Edit" }));
+  const form = within(card).getByRole("form", { name: "Edit routine" });
+  expect(within(form).getByRole("option", { name: "Opus 5.5 (unavailable)" })).toBeDefined();
+  expect(within(form).getByRole("option", { name: "Extra high (unavailable)" })).toBeDefined();
 });
 
 it("requires an explicit time zone when editing a saved routine", async () => {
