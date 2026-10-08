@@ -18,7 +18,7 @@ import { PermissionsCard } from "../permissions/permissions-card.js";
  * specification, "Cards"; docs/specs/gui.md, "Set up in the window"; #573):
  * each card ticket adds its step's here, and a step with none keeps the
  * fallback card (`step-card.tsx`), its line, named actions, Check now and
- * home row. A card is drawn under the step's name and dot, above the
+ * home row. A card is drawn under the step's head (`StepIntro`), above the
  * checklist's Continue, Skip for now and Finish, which are the checklist's;
  * the verbs a result offers that are the card's to carry out (`CardAction`:
  * the authoring and import verbs) are bound by the card, and until a step

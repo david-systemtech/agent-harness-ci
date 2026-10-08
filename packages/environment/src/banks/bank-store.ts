@@ -68,7 +68,7 @@ const updated = (db: ProjectionDb, { bankId, ...changes }: BankUpdatedPayload): 
   rewrite(db, bankId, (entry) => ({ ...entry, ...set }));
 };
 
-/** A landing that failed holds the step and reason until one lands. */
+/** A landing that failed holds the step and reason until one lands, or a verification finds the forge account it lacked now here (#1900). */
 const landingFailed = (db: ProjectionDb, event: EventEnvelope, { bankId, step, reason }: BankLandingFailedPayload): void =>
   rewrite(db, bankId, (entry) => ({ ...entry, status: { ...entry.status, landing: { state: "failed", step, reason, since: event.occurredAt } } }));
 

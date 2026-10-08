@@ -30,6 +30,17 @@ export const forgeAccountMissing = (origin: ForgeOrigin, why: string): ForgeAcco
   data: { origin, step: "forges", details: [`${origin}: ${why}`] },
 });
 
+/** How that refusal's message on `origin` began before #1850 reworded it, which a failed landing stored then still carries. */
+const earlierOpening = (origin: ForgeOrigin): string => `No forge account on this environment covers ${origin}, and `;
+
+/** Whether `message` is that refusal's on `origin`, in its wording now or before #1850: a record that kept only the message, as a failed landing's reason does, still names its cause (#1900). */
+export const isForgeAccountMissingOn = (message: string, origin: ForgeOrigin): boolean =>
+  message.startsWith(neededElsewhere(siteOf(origin))) || message.startsWith(earlierOpening(origin));
+
+/** Whether a forge account among `accounts` serves `origin`, at its own origin or a verified alias. */
+export const coversOrigin = (accounts: readonly Pick<ForgeAccountRecord, "origin" | "aliases">[], origin: ForgeOrigin): boolean =>
+  accounts.some((account) => servedOrigins(account).includes(origin));
+
 /** How long after an origin's last record another refusal there records nothing. */
 export const MISSING_ORIGIN_RECORD_MS = 24 * 60 * 60_000;
 
@@ -72,8 +83,8 @@ export const createMissingOrigins = ({ log, clock, stream, reader, accounts }: M
     });
   },
   counted() {
-    const covered = new Set(accounts().flatMap(servedOrigins));
+    const held = accounts();
     const now = clock.now().getTime();
-    return missingOrigins(reader).filter((missing) => !covered.has(missing.origin) && now - Date.parse(missing.recordedAt) < MISSING_ORIGIN_COUNTS_MS);
+    return missingOrigins(reader).filter((missing) => !coversOrigin(held, missing.origin) && now - Date.parse(missing.recordedAt) < MISSING_ORIGIN_COUNTS_MS);
   },
 });

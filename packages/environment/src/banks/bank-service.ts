@@ -16,6 +16,7 @@ import {
   type BankIndexConflict,
   type BankLocation,
   type BankJoinPreview,
+  type BankLandingStatus,
   type BankManifestStatus,
   type BankRecord,
   type BankDraft,
@@ -28,6 +29,7 @@ import { readBankMarkdown, validateBank, type BankFiles } from "@agent-harness/c
 import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
+import { coversOrigin, isForgeAccountMissingOn } from "../forge/missing-origins.js";
 import { refusalReason } from "../forge/operations.js";
 import { joinBank, previewBank } from "./join.js";
 import { prepareBankPublication } from "./publish.js";
@@ -139,6 +141,16 @@ const keepSince = (held: BankStatus, found: BankStatus): BankStatus => {
   };
 };
 
+/**
+ * The bank's held landing, unless it failed for want of a forge account on the bank's own origin and the bank now
+ * reads reachable with a forge account here covering that origin: its cause is gone, so the failure and its advice to
+ * add an account are cleared as of `since` (#1900). Any other failure holds until a landing passes.
+ */
+const settledLanding = ({ location, status: { landing } }: Pick<BankEntry, "location" | "status">, reachable: BankStatus["reachable"], covered: (origin: string) => boolean, since: string): BankLandingStatus =>
+  landing.state === "failed" && location.kind === "remote" && reachable.state === "reachable" && isForgeAccountMissingOn(landing.reason, location.origin) && covered(location.origin)
+    ? { state: "ok", since }
+    : landing;
+
 
 /** The entity aliases a bank's BANK.md claims, in lower case, by its name. */
 interface Claim {
@@ -213,8 +225,8 @@ export interface BankServiceOptions {
   readonly environmentId: string;
   readonly dataDir: string;
   readonly scrub: Pick<ScrubRegistry, "check">;
-  /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
-  readonly forge: Pick<ForgeService, "repositories" | "pullRequests" | "users" | "git">;
+  /** The ForgeService's reads, which a remote bank's verification takes by its origin, and its forge accounts. */
+  readonly forge: Pick<ForgeService, "list" | "repositories" | "pullRequests" | "users" | "git">;
   readonly credentials: Pick<BankCredentials, "git">;
   readonly creation?: {
     readonly dataDir: string;
@@ -444,7 +456,8 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       if (name !== undefined || kind !== undefined) {
         log.append(stream, [{ type: "bank.updated", payload: { bankId: entry.id, ...(name !== undefined && { name }), ...(kind !== undefined && { kind }) } }], { tx, actor: BANKS_ACTOR });
       }
-      const status = keepSince(held.status, found);
+      const kept = keepSince(held.status, found);
+      const status: BankStatus = { ...kept, landing: settledLanding(held, kept.reachable, (origin) => coversOrigin(forge.list(), origin), clock.now().toISOString()) };
       if (JSON.stringify(status) === JSON.stringify(held.status)) return;
       log.append(stream, [{ type: "bank.verified", payload: { bankId: entry.id, status } }], { tx, actor: BANKS_ACTOR });
     });

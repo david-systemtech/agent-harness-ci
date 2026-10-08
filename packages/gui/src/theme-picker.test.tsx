@@ -406,9 +406,9 @@ describe("on the Appearance card", () => {
     await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
     const checklist = await screen.findByRole("region", { name: "Set up" });
     const rail = within(checklist).getByRole("navigation", { name: "Set up steps" });
-    await within(rail).findByRole("img", { name: /^Appearance: / });
+    await within(rail).findByRole("button", { name: "Appearance", description: / (Done|Needs a fix|Not set up|Checking) / });
     await app.user.click(within(rail).getByRole("button", { name: "Appearance" }));
-    await app.user.selectOptions(within(checklist).getByRole("combobox", { name: "Environment" }), "laptop");
+    await app.user.selectOptions(within(checklist).getByRole("combobox", { name: "Setting up" }), "laptop");
     const card = within(checklist).getByRole("region", { name: "Appearance" });
     const picker = within(card).getByRole("region", { name: "The environment's theme" });
     expect(await within(picker).findByText("Default, on laptop")).toBeDefined();
