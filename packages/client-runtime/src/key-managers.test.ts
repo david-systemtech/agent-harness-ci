@@ -7,7 +7,7 @@ import { CA_FOR_TESTS, KEY_MANAGER_EVENT_TYPES, keyManagerEventPayload, keyManag
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { createRuntimeWithSeams } from "./internal.js";
-import { addConnection, formProblem, type ConnectionForm } from "./key-managers/actions.js";
+import { addConnection, copyValue, formProblem, moveItems, setBasePath, setInjected, updateConnection, type ConnectionForm } from "./key-managers/actions.js";
 import { connectionHealth } from "./key-managers/words.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
@@ -525,6 +525,13 @@ describe("what Connect says (setup-copy.md §5.7; #1851)", () => {
     }
   });
 
+  it("names the address the refusal holds where the form sent none: a second 1Password connection to one account", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    refusingAs(wire, "conflict", "The raw words.", { reason: "connection_exists", provider: "onepassword", address: "https://my.1password.test", connectionId: randomUUID() });
+    const refused = await addConnection({ runtime, clock }, env, { ...form, provider: "onepassword", label: "Mine", address: "" }, token);
+    expect(refused).toMatchObject({ ok: false, code: "conflict", line: "1Password at https://my.1password.test is connected already." });
+  });
+
   it("says a refusal of this client's own, the computer not reached, as the request layer's plain line", async () => {
     const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
     wire.discovery("unreachable");
@@ -532,6 +539,42 @@ describe("what Connect says (setup-copy.md §5.7; #1851)", () => {
     await flush();
     const refused = await addConnection({ runtime, clock }, env, form, token);
     expect(refused).toMatchObject({ ok: false, line: "This app cannot reach that computer right now. Choose Connect OpenBao to try again." });
+  });
+});
+
+describe("what the card's other commands say when refused (setup-copy.md §3, raw refusals; #1851)", () => {
+  const connection = keyManagerRecord({ label: "Home OpenBao", address: "https://bao.home.test:8200" });
+  /** Rejects every `method` with `code`, its raw words and data. */
+  const refusing = (wire: FakeWire, method: string, code: string, data: Record<string, unknown> = {}) =>
+    wire.answer(method as never, () => ({ result: { receipt: { status: "rejected", sequence: 1, changed: false, reason: code, error: { code, message: `The raw words of ${method}.`, data } } } }));
+
+  it("says each in plain words for the button that asked, its raw words under Details", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    const sender = { runtime, clock };
+    for (const method of ["keyManagers.connections.setInjected", "keyManagers.connections.setBasePath", "keyManagers.move", "keyManagers.move.copyValue"]) refusing(wire, method, "internal");
+    const item = { kind: "forge-account", id: randomUUID() } as const;
+    const said = [
+      [await setInjected(sender, env, connection, "Let every run use Home OpenBao's keys"), "Let every run use Home OpenBao's keys", "keyManagers.connections.setInjected"],
+      [await setBasePath(sender, env, connection, "personal/harness", "Move them"), "Move them", "keyManagers.connections.setBasePath"],
+      [await moveItems(sender, env, connection, "all", new Map(), "Move all"), "Move all", "keyManagers.move"],
+      [await copyValue(sender, env, connection, item), "Copy value", "keyManagers.move.copyValue"],
+    ] as const;
+    for (const [answer, verb, method] of said) {
+      expect(answer, method).toMatchObject({ ok: false, line: `agent-harness ran into a problem. Choose ${verb} to try again.`, details: [expect.stringContaining(`The raw words of ${method}.`)] });
+    }
+  });
+
+  it("says a refused update as a sign-in is said, for the address it was given", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    refusing(wire, "keyManagers.connections.update", "certificate_rejected");
+    expect(await updateConnection({ runtime, clock }, env, connection, { ca: CA_FOR_TESTS }, "Trust this certificate")).toMatchObject({
+      ok: false,
+      code: "certificate_rejected",
+      line: "agent-harness does not trust this site's certificate.",
+      details: [expect.stringContaining("The raw words of keyManagers.connections.update.")],
+    });
+    refusing(wire, "keyManagers.connections.update", "unreachable", { details: [] });
+    expect(await updateConnection({ runtime, clock }, env, connection, { address: "https://127.0.0.1:1" }, "Save")).toMatchObject({ line: "agent-harness could not reach https://127.0.0.1:1. Check the address." });
   });
 });
 

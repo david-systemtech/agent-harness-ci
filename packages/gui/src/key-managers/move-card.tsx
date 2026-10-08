@@ -9,6 +9,16 @@ import { Dialog, DialogContent, Input, Select } from "../ui/index.js";
 import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 import { RefusalLine } from "./refusal-line.js";
 
+/** What a Move card's last action said: a line, or a refusal's plain line with its raw words for Details. */
+interface Said {
+  readonly ok: boolean;
+  readonly line: string;
+  readonly details?: readonly string[] | undefined;
+}
+
+/** A line a Move card's action said; a refusal as an alert, its raw words under Details. */
+const SaidLine = ({ said }: { readonly said: Said }) => (said.ok ? <p className="text-sm text-ink-muted">{said.line}</p> : <RefusalLine line={said.line} details={said.details} />);
+
 /** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
 interface Copied {
   readonly value: string;
@@ -72,7 +82,7 @@ export const MoveCard = ({ environmentId, connections, writable, ref }: MoveCard
  * `keyManagers.move.list` holds, named as people know them; each Move's
  * lines and what each item offers next (Overwrite, Copy value, Verify the
  * paste), a value Copy value answered while its dialog is open, and a
- * refusal of the whole Move or of a copy.
+ * refusal of the whole Move or of a copy, said for the button that asked.
  */
 const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord, writable: boolean) => {
   const runtime = useRuntime();
@@ -80,7 +90,7 @@ const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord,
   const sender = { runtime, clock };
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
   const [lines, setLines] = useState<readonly MoveLine[]>([]);
-  const [line, setLine] = useState<string | undefined>(undefined);
+  const [said, setSaid] = useState<Said | undefined>(undefined);
   const [followUps, setFollowUps] = useState<ReadonlyMap<string, MoveFollowUp>>(new Map());
   const [copied, setCopied] = useState<Copied | undefined>(undefined);
   const [sending, setSending] = useState(false);
@@ -89,17 +99,17 @@ const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord,
   // A Move or a copy on its way takes no second press.
   const acting = !writable || sending;
 
-  /** Sets the base path first when `basePath` differs from the one set, then moves. */
-  const move = (which: "all" | readonly KeyManagerMoveItemRef[], options: MoveOptions = {}, basePath?: string) => {
-    setLine(undefined);
+  /** Sets the base path first when `basePath` differs from the one set, then moves; a refusal is said for the button `verb`. */
+  const move = (which: "all" | readonly KeyManagerMoveItemRef[], verb: string, options: MoveOptions = {}, basePath?: string) => {
+    setSaid(undefined);
     setSending(true);
-    const placed = basePath === undefined || basePath.trim() === connection.basePath ? Promise.resolve(null) : setBasePath(sender, environmentId, connection, basePath);
+    const placed = basePath === undefined || basePath.trim() === connection.basePath ? Promise.resolve(null) : setBasePath(sender, environmentId, connection, basePath, verb);
     void placed.then(async (set) => {
       if (set !== null && !set.ok) return set;
-      return moveItems(sender, environmentId, connection, which, names, options);
+      return moveItems(sender, environmentId, connection, which, names, verb, options);
     }).then((answer) => {
       setSending(false);
-      if (!answer.ok) return setLine(answer.line);
+      if (!answer.ok) return setSaid(answer);
       if (!("lines" in answer)) return;
       setLines(answer.lines);
       setFollowUps((held) => new Map([...held, ...answer.lines.map((each) => [each.item.id, each.followUp] as const)]));
@@ -109,7 +119,7 @@ const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord,
     setSending(true);
     void copyValue(sender, environmentId, connection, item).then((answer) => {
       setSending(false);
-      if (!answer.ok) return setLine(answer.line);
+      if (!answer.ok) return setSaid(answer);
       setFollowUps((held) => new Map([...held, [item.id, "verify"]]));
       setCopied({ value: answer.value, reference: answer.reference });
     });
@@ -120,7 +130,7 @@ const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord,
     switch (followUps.get(item.id)) {
       case "overwrite":
         return (
-          <Button icon={ArrowRight} label="Overwrite" disabled={moving} onClick={() => move([ref], { overwrite: true })}>
+          <Button icon={ArrowRight} label="Overwrite" disabled={moving} onClick={() => move([ref], "Overwrite", { overwrite: true })}>
             Overwrite
           </Button>
         );
@@ -132,7 +142,7 @@ const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord,
         );
       case "verify":
         return (
-          <Button icon={RefreshCw} label="Verify the paste" disabled={moving} onClick={() => move([ref], { verifyOnly: true })}>
+          <Button icon={RefreshCw} label="Verify the paste" disabled={moving} onClick={() => move([ref], "Verify the paste", { verifyOnly: true })}>
             Verify the paste
           </Button>
         );
@@ -141,12 +151,12 @@ const useMoves = (environmentId: string, connection: KeyManagerConnectionRecord,
     }
   };
   const dialog = copied === undefined ? null : <CopiedValueDialog environmentId={environmentId} label={connection.label} copied={copied} close={() => setCopied(undefined)} />;
-  return { listed, items, lines, line, setLine, acting, sender, move, followUp, dialog };
+  return { listed, items, lines, said, setSaid, acting, sender, move, followUp, dialog };
 };
 
 /** The Move card's part for the connection it goes into, at its base path: the base path, the items with their targets, the Move's lines and follow-ups. */
 const MoveInto = ({ environmentId, connection, writable }: { readonly environmentId: string; readonly connection: KeyManagerConnectionRecord; readonly writable: boolean }) => {
-  const { listed, items, lines, line, setLine, acting, sender, move, followUp, dialog } = useMoves(environmentId, connection, writable);
+  const { listed, items, lines, said, setSaid, acting, sender, move, followUp, dialog } = useMoves(environmentId, connection, writable);
   const [typed, setTyped] = useState<string | undefined>(undefined);
   // While the base path typed differs from the one set, a Move would go to the one set: it waits for Set the base path.
   const editing = typed !== undefined && typed.trim() !== (connection.basePath ?? connection.suggestedBasePath ?? "");
@@ -162,7 +172,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
         </Field>
         <Button icon={Pencil} label="Set the base path"
           disabled={acting || basePath.trim() === "" || basePath.trim() === connection.basePath}
-          onClick={() => void setBasePath(sender, environmentId, connection, basePath).then((set) => setLine(set.line))}
+          onClick={() => void setBasePath(sender, environmentId, connection, basePath, "Set the base path").then(setSaid)}
         >
           Set the base path
         </Button>
@@ -182,7 +192,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
                 <span className="min-w-0 break-all font-mono text-xs text-ink-muted">{target === undefined ? "Set a base path to see where it goes." : `To ${referenceLocator(target)}`}</span>
                 <span className="ml-auto flex gap-2">
                   {followUp(item, moving)}
-                  <Button icon={ArrowRight} label="Move" disabled={moving || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
+                  <Button icon={ArrowRight} label="Move" disabled={moving || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }], "Move")}>
                     Move
                   </Button>
                 </span>
@@ -192,11 +202,11 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
         </ul>
       )}
       {connection.basePath !== null && items.length > 0 && (
-        <Button icon={ArrowRight} label="Move all" variant="default" className="self-start" disabled={moving} onClick={() => move("all")}>
+        <Button icon={ArrowRight} label="Move all" variant="default" className="self-start" disabled={moving} onClick={() => move("all", "Move all")}>
           Move all
         </Button>
       )}
-      {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
+      {said !== undefined && <SaidLine said={said} />}
       {lines.length > 0 && (
         <ul aria-label="What the Move did" className="flex flex-col gap-1 text-sm text-ink">
           {lines.map((each) => (
@@ -232,7 +242,8 @@ export const MoveSavedTokens = ({ environmentId, connections, writable, focused 
   const [chosen, choose] = useState<string | undefined>(undefined);
   const connection = connections.find((each) => each.id === chosen) ?? connections.find((each) => each.id === presetOf(connections));
   if (connection === undefined) return null;
-  return <MoveSavedInto key={`${connection.id} ${connection.basePath ?? ""}`} environmentId={environmentId} connections={connections} connection={connection} choose={choose} writable={writable} focused={focused} />;
+  // Keyed by the connection alone: Move them sets the base path itself, and the Move in flight keeps its lines and follow-ups past that.
+  return <MoveSavedInto key={connection.id} environmentId={environmentId} connections={connections} connection={connection} choose={choose} writable={writable} focused={focused} />;
 };
 
 const MoveSavedInto = ({
@@ -245,7 +256,7 @@ const MoveSavedInto = ({
 }: Omit<MoveSavedTokensProps, "connections"> & { readonly connections: readonly KeyManagerConnectionRecord[]; readonly connection: KeyManagerConnectionRecord; readonly choose: (id: string) => void }) => {
   const heading = useId();
   const section = useRef<HTMLElement>(null);
-  const { items, lines, line, acting, move, followUp, dialog } = useMoves(environmentId, connection, writable);
+  const { items, lines, said, acting, move, followUp, dialog } = useMoves(environmentId, connection, writable);
   const [typed, setTyped] = useState<string | undefined>(undefined);
   const folder = typed ?? connection.basePath ?? connection.suggestedBasePath ?? "";
   const drawn = items.length > 0 || lines.length > 0;
@@ -275,12 +286,12 @@ const MoveSavedInto = ({
           <Field label={`Folder in ${connection.label}`}>
             <Input value={folder} disabled={!writable} onChange={(event) => setTyped(event.target.value)} />
           </Field>
-          <Button icon={ArrowRight} label="Move them" variant="default" className="self-start" disabled={acting || folder.trim() === ""} onClick={() => move("all", {}, folder)}>
+          <Button icon={ArrowRight} label="Move them" variant="default" className="self-start" disabled={acting || folder.trim() === ""} onClick={() => move("all", "Move them", {}, folder)}>
             Move them
           </Button>
         </>
       )}
-      {line !== undefined && <RefusalLine line={line} />}
+      {said !== undefined && <SaidLine said={said} />}
       {lines.length > 0 && (
         <ul aria-label="What the Move did" className="flex flex-col gap-2 text-sm text-ink">
           {lines.map((each) => (

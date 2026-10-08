@@ -115,7 +115,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
     if (Object.keys(changes).length === 0) return close();
     setLine(undefined);
     setSending(true);
-    void updateConnection(sender, environmentId, connection, changes).then((updated) => {
+    void updateConnection(sender, environmentId, connection, changes, "Save").then((updated) => {
       setSending(false);
       if (!updated.ok) return setLine(updated.line);
       close();

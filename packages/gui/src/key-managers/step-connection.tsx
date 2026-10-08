@@ -70,7 +70,7 @@ export const StepConnection = ({ view, connection, writable }: { readonly view: 
           environmentId={environmentId}
           address={connection.address}
           close={close}
-          trust={(ca) => void updateConnection({ runtime, clock }, environmentId, connection, { ca }).then((updated) => setSaid(updated.ok ? { ok: true, line: updated.line } : updated))}
+          trust={(ca) => void updateConnection({ runtime, clock }, environmentId, connection, { ca }, "Trust this certificate").then((updated) => setSaid(updated.ok ? { ok: true, line: updated.line } : updated))}
         />
       )}
     </section>

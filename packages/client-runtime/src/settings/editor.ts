@@ -13,6 +13,7 @@ import {
 } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { adminCall, type AdminOutcome } from "../status/actions.js";
+import type { RefusedAnswer } from "../words/refusal.js";
 
 /**
  * The generic settings editor both renderers draw (docs/specs/tui.md,
@@ -112,8 +113,8 @@ const CONFIRMATIONS: readonly Confirmation[] = STEP_REGISTRY.flatMap((step): rea
 export const confirmationOf = (key: SettingsKey, value: unknown): Confirmation | undefined =>
   CONFIRMATIONS.find((confirmation) => confirmation.key === key && confirmation.value === value);
 
-/** How a write went: the values the environment answered with (the key's among them), or the one line that says why not. */
-export type SettingSaved = { readonly ok: true; readonly values: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly line: string };
+/** How a write went: the values the environment answered with (the key's among them), or the one line that says why not, with the refusal where the request or the environment answered one. */
+export type SettingSaved = { readonly ok: true; readonly values: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly line: string; readonly refusal?: RefusedAnswer };
 
 export interface SaveOptions {
   /** The command's id: an `admin` command sent directly, never queued, answered from its stored receipt when sent again. */
@@ -124,7 +125,7 @@ export interface SaveOptions {
 
 /** A write's outcome: the values the environment answered with, or, from a retry answered by its stored receipt, the value sent. */
 const savedFrom = (answer: AdminOutcome<SettingsWriter>, written: Readonly<Record<string, unknown>>): SettingSaved =>
-  answer.ok ? { ok: true, values: answer.result?.values ?? written } : { ok: false, line: answer.line };
+  answer.ok ? { ok: true, values: answer.result?.values ?? written } : { ok: false, line: answer.line, refusal: answer.refusal };
 
 /**
  * Writes `value` to `key` on the environment through the method that writes

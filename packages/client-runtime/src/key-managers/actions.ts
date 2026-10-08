@@ -110,17 +110,23 @@ const SIGN_IN_REFUSALS: Readonly<Record<string, (name: string, address: string, 
   conflict: (name, address, reason) => (reason === "connection_exists" ? `${name} at ${address} is connected already.` : undefined),
 };
 
+/** A refusal as `plainRefusal` says it for the button `verb`, with its code. */
+const refusedWith = (refusal: RefusedAnswer, verb: string): KeyManagerOutcome & { readonly ok: false } => ({ ok: false, ...plainRefusal(refusal, verb), code: refusal.code });
+
 /**
  * A sign-in's refusal (`keyManagers.connections.add`, `.signIn`, `.update`)
  * as setup-copy.md §5.7 says it, naming the provider and the address signed
- * in to, whatever words the environment used; any other refusal, and this
- * client's own (no data: the computer not reached), as `plainRefusal` says it
- * for the button `verb`. Details hold the raw words and `data.details`.
+ * in to (the refusal's own `data.address` where it names one: 1Password's
+ * form sends none), whatever words the environment used; any other refusal,
+ * and this client's own (no data: the computer not reached), as
+ * `plainRefusal` says it for the button `verb`. Details hold the raw words
+ * and `data.details`.
  */
 export const signInRefusal = (refusal: RefusedAnswer, provider: KeyManagerProvider, address: string, verb: string): KeyManagerOutcome & { readonly ok: false } => {
   const plain = plainRefusal(refusal, verb);
   const reason = typeof refusal.data?.["reason"] === "string" ? refusal.data["reason"] : undefined;
-  const line = refusal.data === undefined ? undefined : SIGN_IN_REFUSALS[refusal.code]?.(KEY_MANAGER_PROVIDER_NAMES[provider], address, reason);
+  const named = typeof refusal.data?.["address"] === "string" && refusal.data["address"] !== "" ? refusal.data["address"] : address;
+  const line = refusal.data === undefined ? undefined : SIGN_IN_REFUSALS[refusal.code]?.(KEY_MANAGER_PROVIDER_NAMES[provider], named, reason);
   return { ok: false, line: line ?? plain.line, details: plain.details, code: refusal.code };
 };
 
@@ -194,16 +200,20 @@ export type ConnectionChanges = Pick<ParamsOf<"keyManagers.connections.update">,
  * Changes a connection's label, address, CA or token role
  * (`keyManagers.connections.update`): a new address or CA is signed in
  * against with the credential the environment keeps, and refused as a
- * sign-in is, changing nothing. Accepting a certificate's anchor pins it
- * here, as the CA.
+ * sign-in is, changing nothing, said as `signInRefusal` says it for the
+ * button `verb`. Accepting a certificate's anchor pins it here, as the CA.
  */
-export const updateConnection = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, changes: ConnectionChanges): Promise<KeyManagerOutcome> =>
-  connectionOutcome(
-    await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.update", { commandId: uuidv7(clock.now()), connectionId: connection.id, ...changes })),
-    "Updated",
-    "Not updated",
-    connection.label,
-  );
+export const updateConnection = async (
+  { runtime, clock }: KeyManagerSender,
+  environmentId: string,
+  connection: KeyManagerConnectionRecord,
+  changes: ConnectionChanges,
+  verb: string,
+): Promise<KeyManagerOutcome> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.update", { commandId: uuidv7(clock.now()), connectionId: connection.id, ...changes }));
+  if (!answer.ok) return signInRefusal(answer.refusal, connection.provider, changes.address ?? connection.address, verb);
+  return connectionOutcome(answer, "Updated", "Not updated", connection.label);
+};
 
 /** The certificate a key manager presents, as the preview reads it, or why it could not be read. */
 export type CertificatePreview = { readonly ok: true; readonly certificate: KeyManagerCertificate } | { readonly ok: false; readonly line: string };
@@ -292,20 +302,20 @@ export const setPolicies = async ({ runtime, clock }: KeyManagerSender, environm
     connection.label,
   );
 
-/** Makes the connection the one of its provider whose variables runs receive (`keyManagers.connections.setInjected`). */
-export const setInjected = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> => {
+/** Makes the connection the one of its provider whose variables runs receive (`keyManagers.connections.setInjected`); a refusal as `plainRefusal` says it for the control `verb`. */
+export const setInjected = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, verb: string): Promise<KeyManagerOutcome> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.setInjected", { commandId: uuidv7(clock.now()), connectionId: connection.id }));
-  return answer.ok ? { ok: true, connection: answer.result?.connection ?? null, line: `Runs receive the variables of ${connection.label} from their next start.` } : { ok: false, line: `Not changed: ${answer.line}` };
+  return answer.ok ? { ok: true, connection: answer.result?.connection ?? null, line: `Runs receive the variables of ${connection.label} from their next start.` } : refusedWith(answer.refusal, verb);
 };
 
-/** Sets where Move keeps the harness's secrets on the connection (`keyManagers.connections.setBasePath`). */
-export const setBasePath = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, basePath: string): Promise<KeyManagerOutcome> => {
+/** Sets where Move keeps the harness's secrets on the connection (`keyManagers.connections.setBasePath`); a refusal as `plainRefusal` says it for the button `verb`. */
+export const setBasePath = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, basePath: string, verb: string): Promise<KeyManagerOutcome> => {
   const answer = await adminCall(() =>
     runtime.requests.call(environmentId, "keyManagers.connections.setBasePath", { commandId: uuidv7(clock.now()), connectionId: connection.id, basePath: basePath.trim() }),
   );
   return answer.ok
     ? { ok: true, connection: answer.result?.connection ?? null, line: `Move keeps the harness's secrets on ${connection.label} under ${basePath.trim()}.` }
-    : { ok: false, line: `The base path was not set: ${answer.line}` };
+    : refusedWith(answer.refusal, verb);
 };
 
 /**
@@ -340,7 +350,8 @@ export interface MoveOptions {
  * Moves stored tokens into the connection (`keyManagers.move`): the items
  * named, or all; each answered in one line, named as people know it
  * (`names`, by item id), with what it offers next. A refusal of the whole
- * Move (no base path, not signed in) is one line.
+ * Move (no base path, not signed in) is one line, as `plainRefusal` says it
+ * for the button `verb`.
  */
 export const moveItems = async (
   { runtime, clock }: KeyManagerSender,
@@ -348,8 +359,9 @@ export const moveItems = async (
   connection: KeyManagerConnectionRecord,
   items: "all" | readonly KeyManagerMoveItemRef[],
   names: ReadonlyMap<string, string>,
+  verb: string,
   options: MoveOptions = {},
-): Promise<{ readonly ok: true; readonly lines: readonly MoveLine[] } | { readonly ok: false; readonly line: string }> => {
+): Promise<{ readonly ok: true; readonly lines: readonly MoveLine[] } | (KeyManagerOutcome & { readonly ok: false })> => {
   const answer = await adminCall(() =>
     runtime.requests.call(environmentId, "keyManagers.move", {
       commandId: uuidv7(clock.now()),
@@ -359,7 +371,7 @@ export const moveItems = async (
       ...(options.verifyOnly === true && { verifyOnly: true }),
     }),
   );
-  if (!answer.ok) return { ok: false, line: `Nothing was moved: ${answer.line}` };
+  if (!answer.ok) return refusedWith(answer.refusal, verb);
   const results = answer.result?.items ?? [];
   return {
     ok: true,
@@ -372,7 +384,7 @@ export const moveItems = async (
 };
 
 /** An item's stored value, answered once for a person to paste at its target, or why it was not. */
-export type CopiedValue = { readonly ok: true; readonly value: string; readonly reference: KeyManagerMoveLocator } | { readonly ok: false; readonly line: string };
+export type CopiedValue = { readonly ok: true; readonly value: string; readonly reference: KeyManagerMoveLocator } | { readonly ok: false; readonly line: string; readonly details?: readonly string[] };
 
 /**
  * Answers an item's stored value once (`keyManagers.move.copyValue`, sent
@@ -382,7 +394,7 @@ export type CopiedValue = { readonly ok: true; readonly value: string; readonly 
  */
 export const copyValue = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, item: KeyManagerMoveItemRef): Promise<CopiedValue> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.move.copyValue", { commandId: uuidv7(clock.now()), connectionId: connection.id, item }));
-  if (!answer.ok) return { ok: false, line: `The value was not copied: ${answer.line}` };
+  if (!answer.ok) return { ok: false, ...plainRefusal(answer.refusal, "Copy value") };
   if (answer.result === undefined) return { ok: false, line: "The value was copied once already; move the item again to copy it again." };
   return { ok: true, value: answer.result.value, reference: answer.result.reference };
 };

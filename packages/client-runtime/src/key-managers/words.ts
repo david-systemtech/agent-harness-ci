@@ -235,6 +235,13 @@ export const injectionSwitchWords = (label: string): string => `Let every run us
 /** The line under a connection's switch, saying where one run's answer is changed. */
 export const INJECTION_SWITCH_HINT = "You can turn this off for one account, routine or bot in Settings.";
 
+/**
+ * What turning a connection's switch off does beyond that connection, said while it is on: it denies
+ * `credentials.injection`, the one answer every supplier reads, so runs lose the forges' credentials too
+ * (the environment's injection setting, #315, #368).
+ */
+export const INJECTION_SWITCH_OFF_WORDS = "Turning it off stops every key manager's keys and the forges' credentials for runs here.";
+
 /** What Move saved tokens asks (setup-copy.md §5.7): how many tokens agent-harness keeps itself, and whether to move them into `label`. */
 export const moveOfferWords = (count: number, label: string): string =>
   count === 1 ? `${PRODUCT_NAME} keeps 1 token itself. Move it into ${label}?` : `${PRODUCT_NAME} keeps ${count} tokens itself. Move them into ${label}?`;

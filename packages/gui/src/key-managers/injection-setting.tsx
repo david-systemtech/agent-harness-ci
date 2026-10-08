@@ -1,10 +1,11 @@
 import { KeyRound } from "lucide-react";
-import { INJECTION_SWITCH_HINT, INJECTION_WORDS, injectionSwitchWords, overridesWith, setInjected, type EnvironmentView } from "@agent-harness/client-runtime";
+import { INJECTION_SWITCH_HINT, INJECTION_SWITCH_OFF_WORDS, INJECTION_WORDS, injectionSwitchWords, overridesWith, plainRefusal, setInjected, type EnvironmentView, type PlainRefusal } from "@agent-harness/client-runtime";
 import { INJECTION_ANSWERS, type InjectionAnswer, type KeyManagerConnectionRecord, type SettingsKey } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { nameOf } from "../connections/words.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { Select, Switch, Tooltip } from "../ui/index.js";
+import { RefusalLine } from "./refusal-line.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 
 /** An account's choice: its own answer, or the environment's (`inherit`, no entry in the map). */
@@ -80,7 +81,7 @@ const useInjection = (view: EnvironmentView) => {
     setLine(undefined);
     void settings.save(key, value).then((saved) => !saved.ok && setLine(`Not saved: ${saved.line}`));
   };
-  return { values: settings.values, writable, save, line };
+  return { values: settings.values, writable, save, write: settings.save, line };
 };
 
 /**
@@ -92,33 +93,40 @@ const useInjection = (view: EnvironmentView) => {
  * (`keyManagers.connections.setInjected`) where it is not and allows
  * injection where it is denied; turning it off denies injection
  * (`settings.update`), which an account, routine or bot's own answer in
- * Settings outranks.
+ * Settings outranks. That one answer is every supplier's, so while it is on
+ * the switch says turning it off stops the forges' credentials too. A
+ * refusal of either is said as `plainRefusal` says it for the switch.
  */
 export const ConnectionSwitch = ({ view, connection, writable }: { readonly view: EnvironmentView; readonly connection: KeyManagerConnectionRecord; readonly writable: boolean }) => {
   const runtime = useRuntime();
   const clock = useClock();
   const label = useId();
-  const { values, writable: settable, save, line } = useInjection(view);
-  const [refused, setRefused] = useState<string | undefined>(undefined);
+  const { values, writable: settable, write } = useInjection(view);
+  const [refused, setRefused] = useState<PlainRefusal | undefined>(undefined);
   if (values === null) return null;
+  const words = injectionSwitchWords(connection.label);
   const allowed = ((values["credentials.injection"] as InjectionAnswer | undefined) ?? "allow") === "allow";
-  const change = (on: boolean) => {
+  const on = allowed && connection.injects;
+  const allow = (answer: InjectionAnswer) =>
+    void write("credentials.injection", answer).then((saved) => !saved.ok && setRefused(saved.refusal === undefined ? { line: saved.line, details: [] } : plainRefusal(saved.refusal, words)));
+  const change = (next: boolean) => {
     setRefused(undefined);
-    if (!on) return save("credentials.injection", "deny");
-    if (!connection.injects) void setInjected({ runtime, clock }, view.environmentId, connection).then((set) => !set.ok && setRefused(set.line));
-    if (!allowed) save("credentials.injection", "allow");
+    if (!next) return allow("deny");
+    if (!connection.injects) void setInjected({ runtime, clock }, view.environmentId, connection, words).then((set) => !set.ok && setRefused({ line: set.line, details: set.details ?? [] }));
+    if (!allowed) allow("allow");
   };
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-3 text-sm text-ink">
         <Tooltip content="Let every run use its keys" keys="Space to toggle">
-          <Switch aria-labelledby={label} checked={allowed && connection.injects} disabled={!writable || !settable} onCheckedChange={change} />
+          <Switch aria-labelledby={label} checked={on} disabled={!writable || !settable} onCheckedChange={change} />
         </Tooltip>
         <KeyRound aria-hidden="true" className="size-4 shrink-0 text-ink-muted" />
-        <span id={label}>{injectionSwitchWords(connection.label)}</span>
+        <span id={label}>{words}</span>
       </div>
       <p className="text-xs text-ink-muted">{INJECTION_SWITCH_HINT}</p>
-      {(refused ?? line) !== undefined && <p role="alert" className="text-sm text-signal"><span className="sr-only">Error: </span>{refused ?? line}</p>}
+      {on && <p className="text-xs text-ink-muted">{INJECTION_SWITCH_OFF_WORDS}</p>}
+      {refused !== undefined && <RefusalLine line={refused.line} details={refused.details} />}
     </div>
   );
 };

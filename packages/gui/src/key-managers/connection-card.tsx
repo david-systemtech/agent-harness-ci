@@ -112,7 +112,7 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
           Verify now
         </Button>
         {!connection.injects && (
-          <Button icon={Plus} label="Inject its variables" disabled={!writable || sending} onClick={() => send(() => setInjected(sender, environmentId, connection))}>
+          <Button icon={Plus} label="Inject its variables" disabled={!writable || sending} onClick={() => send(() => setInjected(sender, environmentId, connection, "Inject its variables"))}>
             Inject its variables
           </Button>
         )}
@@ -132,7 +132,7 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
           environmentId={environmentId}
           address={connection.address}
           close={close}
-          trust={(ca) => void updateConnection(sender, environmentId, connection, { ca }).then((updated) => say(updated.line))}
+          trust={(ca) => void updateConnection(sender, environmentId, connection, { ca }, "Trust this certificate").then((updated) => say(updated.line))}
         />
       )}
       {open === "sign-in" && <SignInAgain {...dialog} again={!awaiting} />}

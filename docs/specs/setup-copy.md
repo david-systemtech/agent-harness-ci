@@ -432,6 +432,8 @@ quoted from the files named; a builder greps for them.
   question drops `I do not use one` and nothing is chosen: choosing one connects another. The form's name (preset to `{provider}`), and Doppler's and Bitwarden's
   preset address, sit in More options with the mount, token role and certificate; a connection's policy ticks and its tool's row sit in one More options under
   the connections. Move with one token reads `agent-harness keeps 1 token itself. Move it into {label}?`.
+  While a connection's switch is on it also says `Turning it off stops every key manager's keys and the forges' credentials for runs here.`: off denies
+  `credentials.injection`, the one answer every supplier reads (whether it should turn off that connection alone is #1956).
 
 ### 5.8 Memory bank (gui/src/banks/*, gui/src/setup/minted-session-card.tsx; environment/src/banks/*)
 - Title `Give your agents a notebook`. Why `Agents write down what they learn, so the next session already knows it.`

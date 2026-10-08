@@ -275,10 +275,14 @@ describe("a connection", () => {
     await waitFor(() => expect(desk.requests("keyManagers.connections.setInjected")).toHaveLength(1));
     await waitFor(() => expect(injection.getAttribute("aria-checked")).toBe("true"));
     expect(desk.requests("settings.update")).toEqual([]);
+    // Off denies the one answer every supplier reads, which the switch says while it is on.
+    const offWords = "Turning it off stops every key manager's keys and the forges' credentials for runs here.";
+    expect(within(home).getByText(offWords)).toBeDefined();
 
     await app.user.click(injection);
     await waitFor(() => expect(desk.settings()["credentials.injection"]).toBe("deny"));
     await waitFor(() => expect(injection.getAttribute("aria-checked")).toBe("false"));
+    expect(within(home).queryByText(offWords)).toBeNull();
     await app.user.click(injection);
     await waitFor(() => expect(desk.settings()["credentials.injection"]).toBe("allow"));
     await waitFor(() => expect(injection.getAttribute("aria-checked")).toBe("true"));
@@ -421,6 +425,8 @@ describe("Move saved tokens", () => {
     expect(desk.requests("keyManagers.move")[0]?.params).toMatchObject({ items: "all" });
     expect(desk.keyManagerValue("personal/harness/forge-github")).toBe("stored-token-for-tests-github");
     expect(desk.keyManagerValue("personal/harness/forge-git-example")).toBe("stored-token-for-tests-git-example");
+    // Setting the base path on the way changes the connection; the Move it started still says what it did.
+    await waitFor(async () => expect(await moved()).toHaveLength(2));
   });
 
   it("offers Copy value once where the login cannot write, and a verify-only Move of the paste finishes", async () => {
