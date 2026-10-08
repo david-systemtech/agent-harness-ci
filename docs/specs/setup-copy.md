@@ -525,6 +525,10 @@ quoted from the files named; a builder greps for them.
   (Unpair is in More options, not offered as the fix); old extension `The Chrome extension is out of date. In chrome://extensions, choose reload on agent-harness.` **Copy chrome://extensions**;
   ports busy `Chrome cannot reach agent-harness because the ports it needs are busy. Close other apps, then restart agent-harness.` Details;
   files missing `The extension's files are missing from this install. Reinstall agent-harness.` Details; phone or web `Connecting Chrome works only in the desktop app.`
+  The two the code needs beside these (#1857): the listener down for a reason other than busy ports `Chrome cannot reach agent-harness. Restart agent-harness.` Details;
+  the desktop app with agent-harness not running on this computer `agent-harness is not running on this computer, so Chrome cannot connect to it.`
+- Each step's tick is named `Step {n}: done` or `Step {n}: not done yet`. Steps 1 and 2 tick on their Copy, 1 to 4 once Chrome found the extension;
+  step 5's code is minted only then, while no Chrome is paired or after Pair another (More options), and 6 ticks on this visit's save.
 
 ### 5.12 Permissions (gui/src/permissions/*; environment/src/permissions/*; contracts/src/settings.ts descriptions)
 - Title `Choose when agents ask you`. Why `This is the most any session may do without asking. A session can always ask more often.`
