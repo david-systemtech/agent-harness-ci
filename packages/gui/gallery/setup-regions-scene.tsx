@@ -25,8 +25,8 @@ type SetupRegion = StepId | "bank-preview" | "authoring" | "close-confirmation" 
 
 /** setup-copy.md §5.4: how desk is reached in the Your machines scenes that answer "Also from my other devices" (#1846); every address is invented. */
 const MACHINES_BINDING: Partial<Record<SetupRegion, EnvironmentBinding>> = {
-  "machines-tailscale": { tailnet: { address: "100.101.102.103", name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: ["192.168.1.20"] },
-  "machines-unreachable": { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: ["192.168.1.20"] },
+  "machines-tailscale": { tailnet: { address: "198.51.100.7", name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: ["192.0.2.20"] },
+  "machines-unreachable": { tailnet: null, tailnetFound: null, tailscaleInstalled: false, lan: null, lanAddresses: ["192.0.2.20"] },
 };
 
 /** setup-copy.md §5.4: a container no host updater has polled, its line offering How to set it up (#1883). */
