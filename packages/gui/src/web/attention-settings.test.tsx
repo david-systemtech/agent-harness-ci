@@ -41,13 +41,13 @@ it("lets an admin add a named signed-webhook route and test a global webhook rou
   expect((screen.getByLabelText("Signing secret") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Signing secret") as HTMLInputElement).type).toBe("password");
   view.rerender(<AttentionSettingsPane targets={[
-    { id: "phone-attention", transport: "webhook", webhookEndpoint: "phone-attention", enabled: true, completion: false, global: true, state: "ready", failure: null },
+    { id: "phone-route", transport: "webhook", webhookEndpoint: "phone-attention", enabled: true, completion: false, global: true, state: "ready", failure: null },
     { id: "push-client-session-1", label: "Chrome on Android, enabled 6 Oct, 13:04", transport: "push", enabled: true, completion: false, global: false, state: "ready", failure: null },
   ]} admin busy={false} onConfigure={vi.fn()} onRemove={vi.fn()} onRefresh={vi.fn()} onAddRoute={add} onTest={test} />);
   expect(screen.getByText(/Signed webhook · Global route/)).toBeDefined();
-  expect(screen.getAllByRole("button", { name: /^Test / }).map(button => button.getAttribute("aria-label"))).toEqual(["Test phone-attention"]);
-  await user.click(screen.getByRole("button", { name: "Test phone-attention" }));
-  expect(test).toHaveBeenCalledWith("phone-attention", "phone-attention");
+  expect(screen.getAllByRole("button", { name: /^Test / }).map(button => button.getAttribute("aria-label"))).toEqual(["Test phone-route"]);
+  await user.click(screen.getByRole("button", { name: "Test phone-route" }));
+  expect(test).toHaveBeenCalledWith("phone-route", "phone-attention");
 });
 
 it("keeps the typed route when the environment refuses it", async () => {
@@ -196,14 +196,17 @@ it("an admin client makes the named endpoint and its global route from Attention
 
 it("writes a route's outcome beside the Add route button and a test's on its route row, where the admin tapped, and scrolls each into view", async () => {
   const { desk, user, fill } = await openAdminSheet();
-  const scrolled: Element[] = [];
-  vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) { scrolled.push(this); });
+  // Each scroll is recorded with the rows on screen when it ran: a row rendered above the line after it scrolled pushes it out of view.
+  const scrolled: { readonly textContent: string | null; readonly rows: readonly (string | null)[] }[] = [];
+  vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+    scrolled.push({ textContent: this.textContent, rows: [...document.querySelectorAll("[data-attention-settings] article h3")].map(heading => heading.textContent) });
+  });
   const addRoute = screen.getByRole("button", { name: "Add route" });
   await fill("routine-hook");
   await waitFor(() => expect(besideButton(addRoute)).toBe("An endpoint named routine-hook already exists on this environment. Choose another name."));
   await fill("phone-attention");
   await waitFor(() => expect(besideButton(addRoute)).toBe("Webhook route phone-attention saved. Test it to check that its receiver takes the signed post."));
-  expect(scrolled.at(-1)?.textContent).toMatch(/^Webhook route phone-attention saved/);
+  await waitFor(() => expect(scrolled.at(-1)).toEqual({ textContent: expect.stringMatching(/^Webhook route phone-attention saved/), rows: expect.arrayContaining(["phone-attention"]) }));
   // Nothing the admin did is written above the panes, out of view of the button tapped.
   expect(screen.getAllByRole("status").filter(line => !line.closest("form, article"))).toEqual([]);
   const test = await screen.findByRole("button", { name: "Test phone-attention" });
