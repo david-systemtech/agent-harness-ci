@@ -304,6 +304,21 @@ quoted from the files named; a builder greps for them.
 | `Client-local values applied/not applied` + `…local grant…` | `Window preferences` · `Applied to this window.` / `These apply only on {name}'s own computer.` |
 | `{label}: {raw store message}` failures; labels with doc paths or issue numbers | plain label + Details; no repository paths or issue numbers on screen |
 
+- Earlier work, the words the table leaves open (#1845). `{counts in words}` names each kind above zero (`2 accounts, 1 memory bank,
+  3 routines, 4 instructions, 2 skill collections, 1 key manager`, then `your terminal history` when that folder is found); Details holds
+  the folders' paths and `The list of {kind} could not be read.` for a list that is there but unreadable. A preview with nothing new:
+  `There is nothing new to bring over. Nothing has been changed yet.`; `Brought over` then the counts, or `Everything is already here.`
+  `Needs you` lists what must be entered again, each with **Go to {step}**, then the failed items (an alert, `Error: ` hidden, each
+  `{label}: {line}`). A forge that is connected but refused: `Your forge {host} could not open this skill collection. Check its token in
+  Forges.` → **Go to Forges**. An SSH source no forge serves: `{host} did not let this computer in over SSH. Check this computer's SSH
+  key and its known-hosts entry for {host}.` Details: the refusal. An unreadable store: `agent-harness could not read this part of your
+  earlier work.` Details: its diagnostic. A skill collection is labelled by its repository's name (`Skill collection {name}`), the
+  repository and folder in Details. Two profiles sharing a projects folder: `{label} and {owner} share one projects folder, so their
+  chats and notes come over once, with {owner}.` Details: their source ids. Window preferences read `Theme`, `Text size` (`(was {n})`
+  when clamped), `Reading width`, `Show thinking`, `Last open in Settings: {row label}`; a preview says neither applied line. Refusals are
+  the mapper's (§3): `no_source` `No earlier work is on this computer any more.`; `import_in_progress` `Bringing over is under way
+  already. Wait for it to finish.`
+
 ### 5.4 Your machines (gui/src/machines/your-machines-card.tsx, reachability.tsx; environment/src/updates/*, setup/state-checks.ts)
 - Title `Use agent-harness from other devices?` Why `Reach this computer's agents from your phone or another computer.`
 - Question: `Only on this computer` (pre-selected while nothing else is paired) / `Also from my other devices`.
