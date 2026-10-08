@@ -3,6 +3,7 @@ import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { PROTOCOL_VERSION, SCOPES } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { pairingLine } from "./commands/pair.js";
 
 /**
  * Pairing both ways (docs/specs/tui.md, "First launch"): `/pair <link>` and
@@ -103,6 +104,14 @@ describe("/pair", () => {
     await app.waitFor(words);
     expect(rowsWith(app.frame(), "Not paired")).toHaveLength(1);
     expect(app.runtime().connections.list.read().map((r) => r.environmentId)).toEqual([LOCAL_PLACEHOLDER_ID]);
+  });
+
+  it("says the raw failure behind the plain line after it, as the GUI's Details holds it, and nothing more without one", () => {
+    const failure = { reason: "unreachable", message: "Nothing answered at laptop.test:7433." } as const;
+    expect(pairingLine({ status: "failed", failure: { ...failure, details: ["http://laptop.test:7433: fetch failed", "ECONNREFUSED"] } }, [])).toBe(
+      "Not paired: Nothing answered at laptop.test:7433. Details: http://laptop.test:7433: fetch failed; ECONNREFUSED",
+    );
+    expect(pairingLine({ status: "failed", failure }, [])).toBe("Not paired: Nothing answered at laptop.test:7433.");
   });
 });
 

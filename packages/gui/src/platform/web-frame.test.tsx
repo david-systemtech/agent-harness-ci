@@ -68,6 +68,31 @@ it("pairs without a desktop shell, discloses the minted grant and opens a shared
   history.replaceState(null, "", "/");
 });
 
+it("says a handed link's refusal as the pairing alert, the raw failure in its Details, never in the line", async () => {
+  const clock = manualClock();
+  const world = scriptedWorld(clock, { environments: [{ name: "desk", reach: "unpaired", discovery: "nothing" }] });
+  const view = Object.assign(Object.create(window) as Window & typeof globalThis, { indexedDB: new IDBFactory() });
+  const platform: BrowserPlatform = { ...browserPlatform(view, "0.0.0"), clock,
+    fetch: (url, request) => world.fetch(url.replace(/^https:/, "http:"), request),
+    webSocket: (url, handlers) => world.webSocket(url.replace(/^wss:/, "ws:"), handlers),
+  };
+  const runtime = createRuntime(platform);
+  await runtime.start();
+  const presentation = await openPresentation(platform.documents);
+  presentation.set("runLocalEnvironment", false); presentation.set("firstLaunchDone", true);
+  const link = world.environment("desk").wire.link.replace(/^http:/, "https:");
+  const app = render(<App runtime={runtime} presentation={presentation} clock={clock} version="0.0.0" macOS={false} web={{ platform, route: { pairing: { link } } }} />);
+  onTestFinished(async () => { app.unmount(); await runtime.close(); await presentation.close(); });
+  const host = new URL(link).host;
+  const line = await screen.findByText(`Nothing answered at ${host}. Check that the other computer is on and that both are connected to Tailscale.`);
+  const alert = line.closest("[data-pairing-refusal]");
+  expect(alert?.getAttribute("role")).toBe("alert");
+  expect(alert?.textContent).not.toContain("http");
+  await userEvent.setup().click(within(alert as HTMLElement).getByRole("button", { name: "Details" }));
+  expect(within(alert as HTMLElement).getByText(/Nothing answered at https?:\/\//, { selector: "pre" })).toBeDefined();
+  history.replaceState(null, "", "/");
+});
+
 it("bounds browser surfaces when only the visual viewport shrinks for the keyboard", () => {
   vi.stubGlobal("innerWidth", 390);
   onTestFinished(() => { vi.unstubAllGlobals(); });
