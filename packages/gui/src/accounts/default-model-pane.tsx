@@ -206,10 +206,14 @@ const DefaultColumns = ({ initial, narrow, writable, options, valueOf, save, acc
   </div>;
 };
 
-/** Where the keyboard goes once the list is drawn again after an edit: a favourite's button, or Add a favourite once the list is empty. */
+/**
+ * Where the keyboard goes once the list is drawn again after an edit: a
+ * favourite's button, or (no `id`) Add a favourite. Where that is gone or
+ * disabled, the section itself takes it, so the keyboard stays here.
+ */
 interface Touched {
   readonly id: string | undefined;
-  readonly edit: "up" | "down" | "remove";
+  readonly edit?: "up" | "down" | "remove";
 }
 
 /**
@@ -233,16 +237,17 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
   const [saving, setSaving] = useState(false);
   const list = useRef<HTMLOListElement>(null);
   const add = useRef<HTMLButtonElement>(null);
+  const section = useRef<HTMLDivElement>(null);
   const touched = useRef<Touched | undefined>(undefined);
   const favourites = (settings.values?.["accounts.favouriteModels"] as readonly string[] | undefined) ?? [];
   useLayoutEffect(() => {
     const last = touched.current;
     if (last === undefined || saving) return;
     touched.current = undefined;
-    if (last.id === undefined) return add.current?.focus();
-    const row = list.current?.querySelector<HTMLElement>(`[data-favourite="${CSS.escape(last.id)}"]`);
+    const row = last.id === undefined ? undefined : list.current?.querySelector<HTMLElement>(`[data-favourite="${CSS.escape(last.id)}"]`);
     const buttons = [...(row?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
-    (buttons.find((button) => button.dataset["edit"] === last.edit) ?? buttons[0])?.focus();
+    const adding = add.current?.disabled === false ? add.current : undefined;
+    (buttons.find((button) => button.dataset["edit"] === last.edit) ?? buttons[0] ?? adding ?? section.current)?.focus();
   }, [favourites, saving]);
   if (settings.values === null) return null;
   const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present" && !saving;
@@ -271,13 +276,13 @@ const FavouriteModels = ({ view }: { readonly view: EnvironmentView }) => {
   };
   // After a removal the keyboard goes to the next favourite's Remove, the previous one's for the last, or Add a favourite.
   const afterRemoving = (index: number): Touched => ({ id: favourites[index + 1] ?? favourites[index - 1], edit: "remove" });
-  const candidate = (entry: ModelEntry) => <MenuItem key={entry.id} aria-label={modelName(entry)} onSelect={() => void save(addFavourite(favourites, entry.id))} className="items-start text-xs">
+  const candidate = (entry: ModelEntry) => <MenuItem key={entry.id} aria-label={modelName(entry)} onSelect={() => void save(addFavourite(favourites, entry.id), { id: undefined })} className="items-start text-xs">
     <Cpu aria-hidden="true" className="mt-0.5 size-3" />
     <span className="min-w-0 flex-1"><span className="block">{entry.label ?? entry.id}</span>{entry.label !== null && <span className="block font-mono text-2xs text-ink-muted">{entry.id}</span>}</span>
   </MenuItem>;
   return (
     <SettingsGroup title="Favourite models">
-      <div className="flex flex-col gap-2 text-xs text-ink">
+      <div ref={section} tabIndex={-1} className="flex flex-col gap-2 text-xs text-ink outline-none">
         <p className="text-2xs text-ink-faint">The account and model picker offers these first, in this order; every other model is under Other models.</p>
         {favourites.length === 0 ? <p className="text-ink-muted">No favourites yet: the model picker offers the provider's recommended models.</p> : (
           <ol ref={list} aria-label="Favourite models, in order" className="flex flex-col gap-1">
