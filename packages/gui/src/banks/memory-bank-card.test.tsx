@@ -6,7 +6,7 @@ import { renderApp } from "../../test/harness.js";
 
 const since = "2026-10-05T00:00:00.000Z";
 const origin = "https://forge.example.test:5526";
-const refusal = `No forge account on this environment covers ${origin}, and it asked for a credential: add one in Set up, Forges.`;
+const refusal = "agent-harness needed a forge for forge.example.test:5526 and found none. Add forge.example.test:5526.";
 const team: BankRecord = {
   id: "0199aa00-0000-4000-8000-000000000004", name: "team-memory", kind: "team",
   location: { kind: "remote", origin, repository: "owner/team-memory" },
@@ -41,5 +41,5 @@ it("keeps a landing refused for want of a forge account, with its fix, while no 
 it("says nothing of that landing once the environment's verification has cleared it, a verified account covering the bank's reachable origin", async () => {
   const card = await cardOf({ ...team, status: { ...team.status, landing: { state: "ok", since: "2026-10-08T12:00:40.000Z" } } }, [{ origin, kind: "forgejo", identity: { login: "member", userId: "42" } }]);
   expect(within(card).queryByRole("alert")).toBeNull();
-  expect(within(card).queryByText(/add one in Set up, Forges/)).toBeNull();
+  expect(within(card).queryByText(/found none/)).toBeNull();
 });

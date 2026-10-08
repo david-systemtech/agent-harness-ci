@@ -44,7 +44,7 @@ it("draws a team bank whose landing, refused for want of a forge account, the co
   const bank = within(dialog).getByRole("region", { name: "team-memory" });
   expect(within(bank).getByText("Remote")).toBeDefined();
   expect(within(bank).queryByRole("alert")).toBeNull();
-  expect(within(bank).queryByText(/add one in Set up, Forges/)).toBeNull();
+  expect(within(bank).queryByText(/found none/)).toBeNull();
   expect(JSON.parse(container.dataset["galleryGeometry"] ?? "[]")).toEqual(expect.arrayContaining([{ selector: "[data-bank-card]", paddingLeft: 16, paddingTop: 16 }]));
 });
 
