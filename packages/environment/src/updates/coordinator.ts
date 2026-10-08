@@ -816,9 +816,11 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       const running = `Running: ${harnessVersion}`;
       const findings: Finding[] = [];
       // A newest no check has read yet is not behind: whether the channel is read is the release channel's check.
-      if ((!autoUpdate || pinnedVersion !== null) && newest !== null && newer(newest, harnessVersion)) {
+      // It stays on a pin only while the pin runs; a pin it does not run yet is an update on its way, which the lines below speak for.
+      const pinRuns = pinnedVersion === harnessVersion;
+      if ((pinRuns || !autoUpdate) && newest !== null && newer(newest, harnessVersion)) {
         findings.push({
-          reason: pinnedVersion === null ? `Version ${newest} is available. Choose Update now.` : `${name} stays on ${pinnedVersion} because it is pinned. ${newest} is available.`,
+          reason: pinRuns ? `${name} stays on ${harnessVersion} because it is pinned. ${newest} is available.` : `Version ${newest} is available. Choose Update now.`,
           details: [running, `Newest on the channel: ${newest}`, `Updates: ${pinnedVersion === null ? "off" : `pinned to ${pinnedVersion}`}`],
         });
       }

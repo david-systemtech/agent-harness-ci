@@ -718,7 +718,7 @@ describe("the Your machines step's updates check", () => {
 
   it("needs attention with auto-update off or a version pinned while the channel's newest is newer than what runs, offering update", async () => {
     const { fake, client } = await withReleases();
-    fake.publish(release("0.4.5"), release("0.5.0"));
+    fake.publish(release(RUNNING), release("0.4.5"), release("0.5.0"));
     await setUpdates(client, { "updates.autoUpdate": false });
     await check(client);
     expect(await machines(client)).toEqual({
@@ -727,13 +727,25 @@ describe("the Your machines step's updates check", () => {
       reason: "Version 0.5.0 is available. Choose Update now.",
       details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: off"],
     });
-    await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": "0.4.5" });
+    await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": RUNNING });
     await check(client);
     await rename(client, "Desk");
     expect(await machines(client)).toMatchObject({
-      reason: `Desk stays on 0.4.5 because it is pinned. 0.5.0 is available.`,
-      details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: pinned to 0.4.5"],
+      reason: `Desk stays on 0.4.1 because it is pinned. 0.5.0 is available.`,
+      details: ["Running: 0.4.1", "Newest on the channel: 0.5.0", "Updates: pinned to 0.4.1"],
     });
+  });
+
+  it("does not say a machine stays on a pin it does not run yet", async () => {
+    for (const pinnedVersion of ["0.4.5", "0.5.0"]) {
+      const { fake, client } = await withReleases();
+      fake.publish(release("0.4.5"), release("0.5.0"));
+      await setUpdates(client, { "updates.pinnedVersion": pinnedVersion });
+      await check(client);
+      const { failing, reason } = await machines(client);
+      expect(failing).toEqual([]);
+      expect(reason).not.toMatch(/because it is pinned/);
+    }
   });
 
   it("needs attention while the target is blocked, saying what unblocks it", async () => {
