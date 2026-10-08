@@ -1,5 +1,5 @@
 import { PRODUCT_NAME, forgeApiBase, type ForgeIdentity, type ForgeKind, type ForgeOrigin, type ForgeTokenInformation, type ForgeTokenKind, type PullRequestState } from "@agent-harness/contracts";
-import { forgeCall, forgeDownload, forgeGet, forgePages, type CallOptions, type ForgeHttpOptions, type PageOptions, type Paged, type Reply } from "./forge-http.js";
+import { forgeCall, forgeDownload, forgeGet, forgePages, type CallOptions, type ForgeHttpOptions, type PageOptions, type Paged, type Reply, type Unanswered } from "./forge-http.js";
 
 export type { CallOptions, ForgeFetch } from "./forge-http.js";
 
@@ -21,6 +21,20 @@ export type { CallOptions, ForgeFetch } from "./forge-http.js";
 /** How long one call to a forge may take (ADR 0031's budget), past which the forge counts as unreachable. */
 export const FORGE_CALL_TIMEOUT_MS = 10_000;
 
+/** The forge could not answer now: one line saying why, and the status of a forge that answered it could not (a server error, a rate limit); absent when no answer came. */
+export interface Unreachable {
+  readonly outcome: "unreachable";
+  readonly message: string;
+  readonly status?: number;
+}
+
+/** `unanswered` at `origin` as a provider's answer: its line, with `tail` before the full stop, and its status. */
+const unreachableAt = (origin: ForgeOrigin, unanswered: Unanswered, tail = ""): Unreachable => ({
+  outcome: "unreachable",
+  message: `The forge at ${origin} ${unanswered.message}${tail}.`,
+  ...(unanswered.status !== undefined && { status: unanswered.status }),
+});
+
 /** What a forge's identity endpoint answered for a token. */
 export type IdentityAnswer =
   /** The token is someone's: who, and what the answer said of the token. */
@@ -28,7 +42,7 @@ export type IdentityAnswer =
   /** The forge answered, and not with a user: the token refused (401, 403), or no user endpoint of this kind there. */
   | { readonly outcome: "refused"; readonly status: number; readonly message: string }
   /** The forge did not answer, or answered that it could not now (a server error, a rate limit, a timeout). */
-  | { readonly outcome: "unreachable"; readonly message: string };
+  | Unreachable;
 
 /** What a read probe found. */
 export type ReadAnswer =
@@ -37,13 +51,13 @@ export type ReadAnswer =
   /** The forge refused it (401, 403, a 404 for a repository hidden or gone): its status. */
   | { readonly outcome: "failed"; readonly status: number }
   /** The forge could not answer now; the capability is left as it was. */
-  | { readonly outcome: "unreachable"; readonly message: string };
+  | Unreachable;
 
 /** What a list read found: its items, or why it could not be read. */
 export type ListAnswer<T> =
   | { readonly outcome: "listed"; readonly items: readonly T[] }
   | { readonly outcome: "failed"; readonly status: number }
-  | { readonly outcome: "unreachable"; readonly message: string };
+  | Unreachable;
 
 /** What an operation's call came back with. */
 export type ForgeReply<T> =
@@ -52,7 +66,7 @@ export type ForgeReply<T> =
   /** The forge answered, and not with what was asked: its status (a 2xx with an answer that is not one), and one line saying so. */
   | { readonly outcome: "failed"; readonly status: number; readonly message: string }
   /** The forge could not answer now: no answer, a server error, a rate limit. */
-  | { readonly outcome: "unreachable"; readonly message: string };
+  | Unreachable;
 
 /** This repository's access, read with this operation's credential, never inferred from account-wide capabilities. */
 export interface ForgeRepositoryCapabilities {
@@ -469,7 +483,7 @@ const everyOf =
  * own line; no answer unreachable.
  */
 const replied = <T>(origin: ForgeOrigin, reply: Reply, what: string, read: (body: unknown) => T | null): ForgeReply<T> => {
-  if (reply.outcome === "unanswered") return { outcome: "unreachable", message: `The forge at ${origin} ${reply.message}.` };
+  if (reply.outcome === "unanswered") return unreachableAt(origin, reply);
   const { status, body } = reply;
   if (status < 200 || status >= 300) return { outcome: "failed", status, message: `The forge at ${origin} answered HTTP ${status}${forgeLine(body)}.` };
   const value = read(body);
@@ -494,7 +508,7 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
   const pullRequestOfKind = pullRequestOf(dialect.merged);
   /** A list's pages as an operation's reply. */
   const listed = <T>(origin: ForgeOrigin, paged: Paged, what: string, read: (item: unknown) => T | null): ForgeReply<T[]> => {
-    if (paged.outcome === "unanswered") return { outcome: "unreachable", message: `The forge at ${origin} ${paged.message}.` };
+    if (paged.outcome === "unanswered") return unreachableAt(origin, paged);
     if (paged.outcome === "failed") return { outcome: "failed", status: paged.status, message: `The forge at ${origin} answered HTTP ${paged.status} and no list of ${what}.` };
     const values = everyOf(read)(paged.items);
     return values === null ? { outcome: "failed", status: 200, message: `The forge at ${origin} answered a list holding something other than ${what}.` } : { outcome: "done", status: 200, value: values };
@@ -503,13 +517,13 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
   /** A probe of one read: 2xx verified, a forge that cannot answer now unreachable, any other status failed with it. */
   const probe = async (origin: ForgeOrigin, path: string, token: string, call?: CallOptions): Promise<ReadAnswer> => {
     const reply = await get(origin, path, token, call);
-    if (reply.outcome === "unanswered") return { outcome: "unreachable", message: `The forge at ${origin} ${reply.message}.` };
+    if (reply.outcome === "unanswered") return unreachableAt(origin, reply);
     return reply.status >= 200 && reply.status < 300 ? { outcome: "verified" } : { outcome: "failed", status: reply.status };
   };
 
   const repositories: ForgeProvider["repositories"] = async (origin, token, limit, call) => {
     const paged = await pages(origin, "/user/repos", token, { limit }, call);
-    if (paged.outcome === "unanswered") return { outcome: "unreachable", message: `The forge at ${origin} ${paged.message}.` };
+    if (paged.outcome === "unanswered") return unreachableAt(origin, paged);
     if (paged.outcome === "failed") return paged;
     return { outcome: "listed", items: paged.items.map(fullNameOf).filter((name): name is string => name !== null) };
   };
@@ -517,7 +531,7 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
   return {
     async identity(origin, token, call) {
       const reply = await get(origin, "/user", token, call);
-      if (reply.outcome === "unanswered") return { outcome: "unreachable", message: `The forge at ${origin} ${reply.message}; it could not say who the token is now.` };
+      if (reply.outcome === "unanswered") return unreachableAt(origin, reply, "; it could not say who the token is now");
       const { status } = reply;
       if (status === 401 || status === 403) return { outcome: "refused", status, message: `The forge at ${origin} refused the token (HTTP ${status}).` };
       const identity = status >= 200 && status < 300 ? userOf(reply.body) : null;
@@ -632,7 +646,7 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
       const url = dialect.assetUrl(origin, fullName, asset);
       if (url === null) return { outcome: "failed", status: 200, message: `The forge at ${origin} listed the asset ${asset.name} with no download address the harness can read.` };
       const downloaded = await forgeDownload(options, url, { ...headers(token), accept: "application/octet-stream" }, destination, call);
-      if (downloaded.outcome === "unanswered") return { outcome: "unreachable", message: `The forge at ${origin} ${downloaded.message}.` };
+      if (downloaded.outcome === "unanswered") return unreachableAt(origin, downloaded);
       if (downloaded.outcome === "failed") return { outcome: "failed", status: downloaded.status, message: `The forge at ${origin} answered HTTP ${downloaded.status}${forgeLine(downloaded.body)}.` };
       return { outcome: "done", status: downloaded.status, value: { size: downloaded.size, sha256: downloaded.sha256 } };
     },

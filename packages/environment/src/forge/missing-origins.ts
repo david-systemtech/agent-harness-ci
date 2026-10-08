@@ -3,6 +3,7 @@ import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { missingOn, missingOrigins, type MissingOrigin } from "./forge-store.js";
+import { neededElsewhere, siteOf } from "./lines.js";
 import { servedOrigins } from "./git-helper.js";
 import { FORGE_ACTOR } from "./verifier.js";
 
@@ -22,11 +23,11 @@ import { FORGE_ACTOR } from "./verifier.js";
  * repository is never answered.
  */
 
-/** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the origin and the Forges step. */
+/** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the site plainly, `why` in details and the Forges step in data. */
 export const forgeAccountMissing = (origin: ForgeOrigin, why: string): ForgeAccountMissingError => ({
   code: "forge_account_missing",
-  message: `No forge account on this environment covers ${origin}, and ${why}: add one in Set up, Forges.`,
-  data: { origin, step: "forges" },
+  message: neededElsewhere(siteOf(origin)),
+  data: { origin, step: "forges", details: [`${origin}: ${why}`] },
 });
 
 /** How long after an origin's last record another refusal there records nothing. */

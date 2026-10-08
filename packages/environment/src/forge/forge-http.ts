@@ -83,12 +83,24 @@ export interface ForgeHttpOptions {
   readonly entityTags: EntityTags;
 }
 
+/**
+ * No answer now: none came, the forge's own error (408, 5xx), or a rate
+ * limit; one line saying which, and the status of a forge that answered it
+ * could not answer now, so a person is told it is not answering properly
+ * rather than that it did not answer (setup-copy.md §5.6).
+ */
+export interface Unanswered {
+  readonly outcome: "unanswered";
+  readonly message: string;
+  /** The status the forge answered with; absent when no answer came. */
+  readonly status?: number;
+}
+
 /** What a call came back with. */
 export type Reply =
   /** The forge answered: its status (a 304's is the kept answer's), headers and body. */
   | { readonly outcome: "answered"; readonly status: number; readonly headers: Headers; readonly body: unknown }
-  /** No answer now: none came, the forge's own error (408, 5xx), or a rate limit; one line saying which. */
-  | { readonly outcome: "unanswered"; readonly message: string };
+  | Unanswered;
 
 /** Statuses that say the forge cannot answer now, rather than that it refuses: a timeout, a rate limit, a server error. */
 const isTransient = (status: number): boolean => status === 408 || status === 429 || status >= 500;
@@ -157,14 +169,14 @@ export interface ForgeRequest {
  * limit was met, and a server error; null for every other status, which the
  * caller reads.
  */
-const unansweredStatus = (response: Response, text: string, http: ForgeHttpOptions, call: CallOptions, anonymous: boolean): Extract<Reply, { outcome: "unanswered" }> | null => {
+const unansweredStatus = (response: Response, text: string, http: ForgeHttpOptions, call: CallOptions, anonymous: boolean): Unanswered | null => {
   const { status } = response;
   const pause = pauseOf(response.headers, http.now());
   if (pause !== null) call.onPause?.(pause);
   const limiting = `is rate-limiting ${anonymous ? `anonymous reads (HTTP ${status})` : "this token"}`;
-  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `${limiting} until ${pause.toISOString()}` };
-  if (status === 403 && saysRateLimited(text)) return { outcome: "unanswered", message: anonymous ? limiting : `${limiting} (HTTP 403)` };
-  return isTransient(status) ? { outcome: "unanswered", message: `answered HTTP ${status}` } : null;
+  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `${limiting} until ${pause.toISOString()}`, status };
+  if (status === 403 && saysRateLimited(text)) return { outcome: "unanswered", message: anonymous ? limiting : `${limiting} (HTTP 403)`, status };
+  return isTransient(status) ? { outcome: "unanswered", message: `answered HTTP ${status}`, status } : null;
 };
 
 /**
@@ -227,7 +239,7 @@ const sameOrigin = (url: string, other: string): boolean => {
 export type Paged =
   | { readonly outcome: "listed"; readonly items: readonly unknown[] }
   | { readonly outcome: "failed"; readonly status: number }
-  | { readonly outcome: "unanswered"; readonly message: string };
+  | Unanswered;
 
 /** How much of a list to read. */
 export interface PageOptions {
@@ -279,7 +291,7 @@ export type Downloaded =
   | { readonly outcome: "downloaded"; readonly status: number; readonly size: number; readonly sha256: string }
   /** The forge answered with no bytes: its status and body. */
   | { readonly outcome: "failed"; readonly status: number; readonly body: unknown }
-  | { readonly outcome: "unanswered"; readonly message: string };
+  | Unanswered;
 
 /** `headers` without the token, for a request to another origin than the one the download began on. */
 const withoutAuthorization = (headers: Record<string, string>): Record<string, string> =>

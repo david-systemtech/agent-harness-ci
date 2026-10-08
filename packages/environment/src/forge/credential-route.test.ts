@@ -1,9 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { GitCredentialAnswer, GitCredentialError, type ForgeAccountRecord } from "@agent-harness/contracts";
+import { GitCredentialAnswer, GitCredentialError, UNKNOWN_FORGE_CAPABILITIES, type ForgeAccountRecord } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, forgeEvents, gitHost, pasted, remove, saidBack, update, verify, type RouteAnswer } from "../../test/forge.js";
 import { NO_INTERFACES, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -176,7 +177,7 @@ describe("the credential route", () => {
     const asked = await ask(t.address, secret.value, getFor(copy));
     expect(asked.status).toBe(503);
     expect(GitCredentialError.parse(asked.body)).toMatchObject({ code: "credential_unavailable", data: { origin: forge.origin } });
-    expect(JSON.stringify(asked.body)).toContain("Set up, Forges");
+    expect(JSON.stringify(asked.body)).toContain(`${forge.origin.replace("http://", "")} has no token yet. Add one.`);
   });
 
   it("gives nothing for a forge account whose credential answers as another user, which is unused until replaced", async () => {
@@ -193,6 +194,26 @@ describe("the credential route", () => {
     expect(asked.status).toBe(503);
     expect(GitCredentialError.parse(asked.body)).toEqual({ code: "credential_unavailable", message: changed?.problem?.message, data: { origin: forge.origin } });
     expect(JSON.stringify(asked.body)).not.toContain(TOKEN);
+
+    // As an older build recorded it, never verified again: said as setup-copy.md §5.6 says it, the other user unnamed (#1850).
+    t.env.log.append(
+      { kind: "environment", id: t.env.id },
+      [
+        {
+          type: "forge.account.verified",
+          payload: {
+            forgeAccountId: account.id,
+            identity: { login: "david", userId: "42" },
+            capabilities: UNKNOWN_FORGE_CAPABILITIES,
+            tokenInformation: null,
+            problem: { kind: "identity-changed", since: MANUAL_CLOCK_START, message: "The credential now answers as someone (user 7), not david (user 42): replace it in Set up, Forges." },
+          },
+        },
+      ],
+      { actor: "system:forge" },
+    );
+    const old = await ask(t.address, secret.value, getFor(account));
+    expect(GitCredentialError.parse(old.body)).toMatchObject({ message: `The token for ${forge.origin.replace("http://", "")} belongs to another user, not david. Add a token for david.` });
   });
 
   it("refuses a body that is not git's attributes, and never reads a password in one", async () => {

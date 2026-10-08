@@ -160,12 +160,16 @@ describe("forge.accounts.add", () => {
 
     const busy = await added(client, { url: forge.origin, kind: "forgejo" });
     expect(busy).toMatchObject({ identity: null, primary: true, problem: { kind: "unreachable", since: MANUAL_CLOCK_START } });
-    expect(busy.problem?.message).toContain(forge.origin);
+    expect(busy.problem).toMatchObject({
+      message: `${forge.origin.replace("http://", "")} is not answering properly right now. Choose Check again later.`,
+      details: [`The forge at ${forge.origin} answered HTTP 503; it could not say who the token is now.`],
+    });
 
     const nowhere = await unreachableOrigin(onCleanup);
     const gone = await added(client, { url: nowhere, kind: "gitea", credential: pasted(OTHER_TOKEN) });
     expect(gone).toMatchObject({ identity: null, primary: false, problem: { kind: "unreachable", since: MANUAL_CLOCK_START } });
-    expect(gone.problem?.message).toMatch(new RegExp(`^The forge at ${nowhere.replaceAll(".", "\\.")} could not be reached: [^\\n]+\\.$`));
+    expect(gone.problem?.message).toBe(`${nowhere.replace("http://", "")} did not answer. Check the internet connection, then choose Check again.`);
+    expect(gone.problem?.details).toEqual([expect.stringMatching(new RegExp(`^The forge at ${nowhere.replaceAll(".", "\\.")} could not be reached: [^\\n]+; it could not say who the token is now\\.$`))]);
     expect(await saidBack(t, [TOKEN, OTHER_TOKEN])).toEqual(["[redacted]", "[redacted]"]);
   });
 
@@ -469,7 +473,7 @@ describe("a problem kept across a replaced credential", () => {
     const replaced = await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
 
     expect(replaced.result?.account).toMatchObject({ problem: { kind: "unreachable", since: MANUAL_CLOCK_START }, statusSince: MANUAL_CLOCK_START });
-    expect(replaced.result?.account.problem?.message).toContain("HTTP 502");
+    expect(replaced.result?.account.problem?.details?.join(" ")).toContain("HTTP 502");
     expect((await list(client))[0]).toEqual(replaced.result?.account);
   });
 });

@@ -368,7 +368,16 @@
               "type": "string",
               "minLength": 1,
               "pattern": "^[^\\n]*$",
-              "description": "One line for people: what is wrong and what to do."
+              "description": "One plain line for people: what is wrong and what to do. It holds no HTTP status, user id or exact time: those are in details."
+            },
+            "details": {
+              "description": "The raw facts behind the line; absent when there are none, and on a problem recorded before details were.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\r\\n]*$"
+              }
             }
           },
           "required": [
@@ -376,7 +385,7 @@
             "since",
             "message"
           ],
-          "description": "A forge account's problem: which, since when, and one line saying what to do."
+          "description": "A forge account's problem: which, since when, one plain line saying what to do, and the raw facts behind it."
         },
         {
           "type": "null"

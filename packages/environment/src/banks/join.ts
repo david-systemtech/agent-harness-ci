@@ -43,7 +43,10 @@ const unreadable = (origin: string, answer: Exclude<ForgeAnswer<ForgeRepositoryC
         : answer.error.code === "kind_unsupported" ? "GitLab is not supported yet."
         : answer.error.code === "credential_unavailable" ? `Your account on ${host} needs a fix first.`
         : `${host} would not show this notebook to agent-harness. Try again in a moment.`;
-      return new ContractError({ ...answer.error, message, data: { ...answer.error.data, details: [answer.error.message] } });
+      // The forge's own words: the refusal's details where it has them (#1850), else its line, unless that is this one.
+      const own = "details" in answer.error.data ? answer.error.data.details : undefined;
+      const details = own ?? (answer.error.message === message ? [] : [answer.error.message]);
+      return new ContractError({ ...answer.error, message, data: { ...answer.error.data, ...(details.length > 0 && { details }) } });
     }
     case "unreachable":
       return new ContractError({ code: "unreachable", message: `agent-harness could not reach ${host}. Check the link and the internet connection.`, data: { origin, details: [answer.message] } });

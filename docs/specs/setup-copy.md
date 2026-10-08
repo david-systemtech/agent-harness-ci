@@ -371,6 +371,18 @@ quoted from the files named; a builder greps for them.
   token refused `{host} did not accept this token. Check that you copied all of it, or create a new one.` Details; gh signed out `The gh tool is not signed in to {host}.` Details: the command.
 - Changing the kind or looking the site up again keeps the token already typed (today it is emptied).
 - Every environment line drops "in Set up, Forges" (the person is there) and moves HTTP statuses, user ids and times into Details.
+- Lines the code needs beyond these (#1850): a forge that answered it cannot answer now (HTTP 5xx, a rate limit) `{host} is not answering properly right now. Choose Check again later.`,
+  the unreachable line kept for no answer at all; the token run out `The token for {host} has run out. Add a new one.`; expiring's `{when}` is `in {n} days`, or `within a day`,
+  the exact time in Details, and a forge account's own problem says `The token for {host} runs out soon. Add a new one before then.` (it is written once per verification);
+  unreadable from a stored token without a key manager is the line without its second sentence; from gh `agent-harness cannot get the token for {login} on {host} from the gh tool.`,
+  gh's own cause in Details; missing permission for both reads `The token for {host} cannot read code or read releases. Create a new token with those permissions and add it.`;
+  gh not looked for yet `agent-harness has not looked for the gh tool yet. Choose Check again.`, gh failing `The gh tool did not give a token for {login} on {host}.`;
+  {computer} in gh signed out is `this computer`; no main lists the forges to choose from in Details; needed elsewhere is also the refusal of an operation with no forge,
+  what it was doing in Details. A token no forge account holds yet (a carry-over check) says only the first sentence. Add messages: another user on update
+  `This token belongs to {found}, not {expected}. Add a token for {expected}.`; an address for this site that is not one `{alias} did not accept the token for {login}, so it is not another address for this site. Nothing was changed.` /
+  `{alias} knows this token as another user, so it is not another address for this site. Nothing was changed.`; listing owners, a token the forge gives no list of organisations
+  `The token for {host} cannot list organisations. Create a new token with that permission and add it.` (a refused token, a server error and no answer read as above, what the forge answered in Details);
+  a token an older build recorded as another user's reads `The token for {host} belongs to another user, not {login}. Add a token for {login}.`, its old line in Details.
 - **Move to your key manager** shows only while a key manager is connected, as **Keep this token in your key manager**.
 
 ### 5.7 Key manager (gui/src/key-managers/*; environment/src/key-managers/*)

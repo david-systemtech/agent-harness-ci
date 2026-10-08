@@ -219,22 +219,21 @@ describe("a link that cannot be read (setup-copy.md §5.8; #1854)", () => {
     await expect(refusal).rejects.toMatchObject({
       code: "forge_account_missing",
       message: `agent-harness cannot see a notebook at this link. If it is private, add a forge for ${new URL(forge.origin).host} first.`,
-      data: { origin: forge.origin, step: "forges", details: [expect.stringMatching(/^No forge account on this environment covers /)] },
+      data: { origin: forge.origin, step: "forges", details: [expect.stringMatching(new RegExp(`^${forge.origin}: `))] },
     });
   });
 
-  it("says GitLab is not supported yet, the forge's own words in details", async () => {
+  it("says GitLab is not supported yet, the kind in data", async () => {
     const forge = await startFakeForge();
     onCleanup(() => forge.close());
     forge.answer(null, "GET /api/v4/version", { status: 401, body: { message: "401 Unauthorized" } });
     const t = await startTestEnvironment({ forgeFetch: (url, init) => forge.fetch(url, init) });
     onCleanup(() => t.close());
     const client = await t.client();
-    await expect(client.request("banks.join.preview", { url: `${forge.origin}/acme/memory.git` })).rejects.toMatchObject({
-      code: "kind_unsupported",
-      message: "GitLab is not supported yet.",
-      data: { origin: forge.origin, kind: "gitlab", details: [expect.stringContaining("is GitLab")] },
-    });
+    const refused = client.request("banks.join.preview", { url: `${forge.origin}/acme/memory.git` });
+    await expect(refused).rejects.toMatchObject({ code: "kind_unsupported", message: "GitLab is not supported yet.", data: { origin: forge.origin, kind: "gitlab" } });
+    // The forge's line is the same line, so details would only repeat it.
+    await expect(refused).rejects.toSatisfy((error: { data: object }) => !("details" in error.data));
   });
 
   it("says the forge account needs a fix when its credential answers as someone else, the forge's words in details", async () => {
@@ -244,7 +243,7 @@ describe("a link that cannot be read (setup-copy.md §5.8; #1854)", () => {
     await expect(client.request("banks.join.preview", { url: `${forge.origin}/acme/memory.git` })).rejects.toMatchObject({
       code: "credential_unavailable",
       message: `Your account on ${new URL(forge.origin).host} needs a fix first.`,
-      data: { origin: forge.origin, details: [expect.stringContaining("replace it in Set up, Forges")] },
+      data: { origin: forge.origin, details: [`The token for ${new URL(forge.origin).host} belongs to someone, not david. Add a token for david.`] },
     });
   });
 

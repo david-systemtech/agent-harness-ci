@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeDetails",
+  "type": "array",
+  "items": {
+    "type": "string",
+    "minLength": 1,
+    "pattern": "^[^\\r\\n]*$"
+  },
+  "description": "The raw facts behind the plain line, which a client shows under Details and copies with Copy details, never in the line itself: what the forge or a tool answered, HTTP statuses, user ids and exact times, each one line."
+}
