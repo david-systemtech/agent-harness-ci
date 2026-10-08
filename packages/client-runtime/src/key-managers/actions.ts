@@ -277,10 +277,10 @@ export const removeConnection = async ({ runtime, clock }: KeyManagerSender, env
   return { ok: true, line: `Removed ${connection.label}.` };
 };
 
-/** Verifies the connection now (`keyManagers.connections.verify`), which records what it finds: where it stands after, in one line; a refusal in plain words (`plainRefusal`). */
-export const verifyConnection = async (runtime: Pick<Runtime, "requests">, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> => {
+/** Verifies the connection now (`keyManagers.connections.verify`), which records what it finds: where it stands after, in one line; a refusal in plain words (`plainRefusal`) for the button `verb`. */
+export const verifyConnection = async (runtime: Pick<Runtime, "requests">, environmentId: string, connection: KeyManagerConnectionRecord, verb: string): Promise<KeyManagerOutcome> => {
   const answer = await runtime.requests.call(environmentId, "keyManagers.connections.verify", { connectionId: connection.id });
-  if (!answer.ok) return { ok: false, ...plainRefusal(answer.error, "Check again"), code: answer.error.code };
+  if (!answer.ok) return refusedWith(answer.error, verb);
   const verified = answer.result.connections.find((each) => each.id === connection.id) ?? null;
   return { ok: true, connection: verified, line: verified === null ? `${connection.label} is no longer on this environment.` : `Verified ${verified.label}: ${verified.status.message}` };
 };

@@ -542,6 +542,30 @@ describe("policies and injection", () => {
     expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["Runs"]).toBe("They do not receive its variables: it serves the harness's references only.");
     expect(app.environment("desk").requests("keyManagers.connections.setInjected")).toHaveLength(1);
   });
+
+  it("says a refused Inject its variables on its card in plain words with the raw words under Details, until a dialog's verb answers", async () => {
+    const app = await opened({
+      receipts: { "keyManagers.connections.setInjected": { rejected: "conflict", message: "Another change to Work OpenBao is on its way." } },
+      keyManagers: {
+        connections: [
+          { label: "Home OpenBao", address: "https://bao.home.test" },
+          { label: "Work OpenBao", address: "https://bao.work.test", injects: false, injectedVariables: [] },
+        ],
+      },
+    });
+    await openKeyManagers(app);
+    const work = await card("Work OpenBao");
+    await app.user.click(within(work).getByRole("button", { name: "Inject its variables" }));
+    expect((await within(work).findByRole("alert")).textContent).toBe("Error: This cannot be done right now. Wait a moment, then choose Inject its variables.");
+    expect(within(work).getByRole("region", { name: "Details" }).textContent).toContain("Another change to Work OpenBao is on its way.");
+
+    await app.user.click(within(work).getByRole("button", { name: "Edit" }));
+    const edit = await dialog("Edit Work OpenBao");
+    await app.user.type(within(edit).getByRole("textbox", { name: "Label" }), " 2");
+    await app.user.click(within(edit).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(within(pane()).getByRole("region", { name: "Work OpenBao 2" })).toBeDefined());
+    expect(within(within(pane()).getByRole("region", { name: "Work OpenBao 2" })).queryByRole("alert")).toBeNull();
+  });
 });
 
 /** The Move card. */

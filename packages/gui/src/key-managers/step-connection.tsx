@@ -42,7 +42,7 @@ export const StepConnection = ({ view, connection, writable }: { readonly view: 
     if (chosen === "sign-in" || chosen === "sign-in-again") return setOpen("sign-in");
     if (chosen === "check-certificate") return setOpen("certificate");
     setVerifying(true);
-    void verifyConnection(runtime, environmentId, connection).then((verified) => {
+    void verifyConnection(runtime, environmentId, connection, CONNECTION_FIX_WORDS[chosen]).then((verified) => {
       setVerifying(false);
       // A verification that answered shows in the health line; only a refusal is said.
       if (!verified.ok) setSaid(verified);

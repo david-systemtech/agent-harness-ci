@@ -60,7 +60,11 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
   const now = clock.now();
   const [open, setOpen] = useState<Open>(null);
   const [sending, setSending] = useState(false);
-  const [refused, setRefused] = useState<KeyManagerOutcome & { readonly ok: false }>();
+  // A refusal is said on the card while the connection stands as it did when it was refused, and until another verb answers.
+  const standing = `${connection.status.kind} ${connection.status.since} ${connection.injects}`;
+  const [refusal, setRefusal] = useState<{ readonly outcome: KeyManagerOutcome & { readonly ok: false }; readonly standing: string }>();
+  const refused = refusal?.standing === standing ? refusal.outcome : undefined;
+  const setRefused = (outcome: (KeyManagerOutcome & { readonly ok: false }) | undefined) => setRefusal(outcome === undefined ? undefined : { outcome, standing });
   /** Says what a verb did in the pane, or its refusal on the card in plain words, its raw words under Details. */
   const answer = (done: KeyManagerOutcome) => (done.ok ? say(done.line) : setRefused(done));
   /** Sends a verb answered in one line, taking no second press while it is on its way. */
@@ -76,7 +80,16 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
   const kind = connection.status.kind;
   const awaiting = kind === "awaiting-sign-in";
   const close = () => setOpen(null);
-  const dialog = { environmentId, connection, close, say };
+  // What a dialog's verb did goes to the pane, and a refusal said before it is no longer the card's news.
+  const dialog = {
+    environmentId,
+    connection,
+    close,
+    say: (line: string) => {
+      setRefused(undefined);
+      say(line);
+    },
+  };
   const advice = KEY_MANAGER_STATUS_ADVICE[kind];
   return (
     <section data-access-card aria-labelledby={heading} className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-3">
@@ -114,7 +127,7 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
         <Button icon={LogIn} label={awaiting ? "Sign in" : "Sign in again"} variant={SIGN_IN_FIXES.has(kind) ? "default" : "ghost"} disabled={!writable} onClick={() => setOpen("sign-in")}>
           {awaiting ? "Sign in" : "Sign in again"}
         </Button>
-        <Button icon={RefreshCw} label="Verify now" disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection))}>
+        <Button icon={RefreshCw} label="Verify now" disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection, "Verify now"))}>
           Verify now
         </Button>
         {!connection.injects && (

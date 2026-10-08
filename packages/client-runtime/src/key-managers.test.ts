@@ -7,7 +7,7 @@ import { CA_FOR_TESTS, KEY_MANAGER_EVENT_TYPES, keyManagerEventPayload, keyManag
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { createRuntimeWithSeams } from "./internal.js";
-import { addConnection, copyValue, formProblem, moveItems, setBasePath, setInjected, updateConnection, type ConnectionForm } from "./key-managers/actions.js";
+import { addConnection, copyValue, formProblem, moveItems, setBasePath, setInjected, updateConnection, verifyConnection, type ConnectionForm } from "./key-managers/actions.js";
 import { connectionHealth } from "./key-managers/words.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
@@ -561,6 +561,18 @@ describe("what the card's other commands say when refused (setup-copy.md §3, ra
     ] as const;
     for (const [answer, verb, method] of said) {
       expect(answer, method).toMatchObject({ ok: false, line: `agent-harness ran into a problem. Choose ${verb} to try again.`, details: [expect.stringContaining(`The raw words of ${method}.`)] });
+    }
+  });
+
+  it("says a refused verification for the button that asked: Check again on the step's card, Verify now in Settings", async () => {
+    const { runtime, wire, env } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    wire.answer("keyManagers.connections.verify", () => ({ error: { code: "not_found", message: "The raw words of the verification.", data: {} } }));
+    for (const verb of ["Check again", "Verify now"]) {
+      expect(await verifyConnection(runtime, env, connection, verb), verb).toMatchObject({
+        ok: false,
+        line: `agent-harness could not find what this needs. Choose ${verb} to try again.`,
+        details: [expect.stringContaining("The raw words of the verification.")],
+      });
     }
   });
 
