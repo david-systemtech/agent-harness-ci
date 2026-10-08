@@ -3,6 +3,7 @@ import { Plus, SquarePlus } from "lucide-react";
 import type { DragEvent, ReactNode } from "react";
 import { GRID_FULL, type SplitDirection } from "../grid/layout.js";
 import { usePaneGrid } from "../grid/grid.js";
+import { usePhoneFrame } from "../frame/phone-frame.js";
 import { useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { useSettings } from "../settings/settings-window.js";
 import { Button, MenuItem, Tooltip, type ButtonProps } from "../ui/index.js";
@@ -23,8 +24,8 @@ import { OFF_GRID } from "./words.js";
  * grid's line saying why. At eight panes every way of adding a pane is
  * refused with the grid's reason. A heading's control carries its
  * environment; the header's the focused pane's. Settings, over the grid,
- * gives the window back to the grid as a surface is shown, whose message box
- * takes the focus.
+ * and on a phone the session drawer, give the window back to the grid as a
+ * surface is shown, whose message box takes the focus (#1902).
  */
 
 /** The drag data a New session control carries: the environment it carries, as JSON. */
@@ -41,10 +42,12 @@ export interface StartNewSession {
 export const useStartNewSession = (): StartNewSession => {
   const grid = usePaneGrid();
   const settings = useSettings();
+  const phone = usePhoneFrame();
   const { askFocus } = useSurfaces();
   const shown = (id: string | undefined) => {
     if (id === undefined) return;
     settings.close();
+    if (phone.narrow) phone.showDrawer(false);
     askFocus(id);
   };
   return {

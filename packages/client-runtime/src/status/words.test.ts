@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containmentWords, effortName, elapsedClock, gaugeOf, modelChoiceWords, modelDisplayName, modelName, pressureOf, readingWords, readingsOf, meterReadingsOf, spendOf, windowLabel, windowOut } from "./words.js";
+import { containmentWords, effortName, elapsedClock, gaugeOf, listedReadingsOf, modelChoiceWords, modelDisplayName, modelName, pressureOf, readingWords, readingsOf, meterReadingsOf, silentLimitsWords, spendOf, windowLabel, windowOut } from "./words.js";
 
 /** The status line's and the pickers' words, as both renderers say them (docs/specs/tui.md, "Status, usage, pickers"; #147, moved here by #402). */
 
@@ -26,6 +26,16 @@ describe("a plan window", () => {
     expect(readingWords({ ...gauge, windows: [window("five_hour", 0.42), window("iguana_necktie", 0.6), window("walrus_hat", 0.12, "rejected")] })).toBe(
       "5-hour 42% · Other limits: highest 60%, 1 out",
     );
+  });
+
+  it("lists every known window and only the unknown limits that say something, counting the ones that say nothing (#1893)", () => {
+    const listed = listedReadingsOf({ ...gauge, windows: [window("five_hour", 0.42), window("extra_usage", null), window("iguana_necktie", 0), window("walrus_hat", null), window("otter_scarf", null, "rejected"), window("mole_cap", null)] });
+    expect(listed.readings.map((reading) => `${reading.label} ${reading.value}`)).toEqual(["5-hour 42%", "Extra usage —", "Other limit 0%", "Other limit — out"]);
+    expect(listed.silent).toBe(2);
+    expect(listedReadingsOf({ ...gauge, windows: [window("walrus_hat", null)] })).toEqual({ readings: [], silent: 1 });
+    expect(listedReadingsOf(undefined)).toEqual({ readings: [], silent: 0 });
+    expect(silentLimitsWords(1)).toBe("1 other limit gives no reading.");
+    expect(silentLimitsWords(2)).toBe("2 other limits give no reading.");
   });
 
   it("is named as a gauge names it", () => {

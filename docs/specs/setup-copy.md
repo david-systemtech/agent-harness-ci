@@ -320,7 +320,11 @@ quoted from the files named; a builder greps for them.
   late update `The update to {v} is waiting for running sessions to finish.`; host updater late `The update to {v} has not started. Check the updater on the host computer.`;
   launcher too old `Version {v} needs a newer installer. Reinstall agent-harness from the {v2} download.` ({v2} is the target, or the running version when its own newer installer is what is missing) Details: the command;
   update failed `The update to {v} did not work. {name} still runs {v0}. Choose Update now to try again.` Details;
-  container never polled `This container is not kept up to date yet. Set up the updater on the host computer.` **How to set it up**;
+  container never polled `This container is not kept up to date yet. Set up the updater on the host computer.` **How to set it up** (action `how-to-set-up`, on this line alone, #1883),
+  which opens beside the line `Set up the updater on the host computer`: `On the computer that runs Docker, put compose.yaml and host-updater.sh from the same agent-harness release in one folder, such as /opt/agent-harness. Then, in that folder:`,
+  each command to copy under its label, `Start agent-harness and make the updater runnable` `cd /opt/agent-harness && docker compose up -d && chmod +x host-updater.sh` and
+  `Run the updater every five minutes: add this line with crontab -e, as the user that runs docker` `*/5 * * * * /opt/agent-harness/host-updater.sh >>/opt/agent-harness/host-updater.log 2>&1`,
+  then `Once it has run, choose Check again. A systemd timer works too: docs/host-updater.md in that release's source has both.` **Close** (client-runtime/src/updates/host-updater-setup.ts);
   host updater stale `The host's updater last ran {when}. Check that it still runs every five minutes.`;
   no name `This computer has no name. Give it one in More options.`; draining long `agent-harness has been restarting for over 30 minutes. Choose Check again once it is back.`;
   starting `agent-harness is still starting. This takes a few seconds.`;

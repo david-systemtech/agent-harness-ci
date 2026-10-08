@@ -192,6 +192,18 @@ describe("the model picker", () => {
     expect(within(statusLine()).getByRole("button", { name: /^Model:/ })).toBe(document.activeElement);
   });
 
+  it("marks the effort the status line shows as this session's from either chip, when the effort came from the default (ticket 1896)", async () => {
+    const { app, env, session } = await opened([desk({ models })]);
+    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    env.endRun(session, runId);
+    await within(statusLine()).findByRole("button", { name: "Model: Opus - High" });
+    const marked = (menu: HTMLElement) =>
+      within(within(menu).getByRole("group", { name: "Effort" })).getAllByRole("menuitem").filter((item) => item.textContent?.includes("this session")).map((item) => item.getAttribute("aria-label"));
+    expect(marked(await openPicker(app, "Account"))).toEqual(["High"]);
+    await app.user.keyboard("{Escape}");
+    expect(marked(await openPicker(app, "Model"))).toEqual(["High"]);
+  });
+
   it("moves within a column and tabs between columns, with permission and browser submenus", async () => {
     const { app } = await opened([desk({ models })]);
     const menu = await openPicker(app, "Model");
@@ -526,6 +538,17 @@ describe("the hand-off offer and picker", () => {
     await waitFor(() => expect(within(statusLine()).queryByText(out.message as string)).toBeNull());
     env.endRun(session, runId);
     expect(await within(statusLine()).findByText(out.message as string)).toBeTruthy();
+  });
+
+  it("wraps the hand-off offer whole onto the status line's next row rather than squeezing it into what the chips leave, its sentence in its tooltip", async () => {
+    await opened([desk({ recommendation: out })]);
+    const sentence = await within(statusLine()).findByText(out.message as string);
+    // A basis of 0 never moves to the next line of a wrapping row (look.md §10.5, whole-chip wrap; #1892).
+    const offer = sentence.parentElement!;
+    expect(offer.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "max-w-full"]));
+    expect(offer.className.split(" ")).not.toContain("flex-1");
+    expect(sentence.className.split(" ")).toEqual(expect.arrayContaining(["min-w-0", "truncate"]));
+    expect(sentence.getAttribute("title")).toBe(out.message);
   });
 
   it("keeps the hand-off open and refuses duplicates and dismissal until the environment answers", async () => {

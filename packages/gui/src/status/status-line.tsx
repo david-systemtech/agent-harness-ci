@@ -91,7 +91,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
         {/* Account shrinks first (look.md §10.5): a wrapping row breaks its lines at each chip's basis before anything shrinks, so
             the account enters the row at 60px and grows back to its own width, capped at the chip's 240px, before another chip wraps.
             60px fits the short 1024 × 768 stacked panes on one row; a smaller basis leaves a single letter where the row wraps anyway. */}
-        <span className={compact ? "contents" : "flex min-w-0 max-w-max grow basis-[60px]"}><AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} /></span>
+        <span className={compact ? "contents" : "flex min-w-0 max-w-max grow basis-[60px]"}><AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model} /></span>
         <ModelPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model} />
         <ModePicker
           environmentId={environmentId}
@@ -142,19 +142,24 @@ const PhonePickerCommand = ({ environmentId, command, open }: { readonly environ
   return null;
 };
 
-/** Spend remains in status; the composer owns the single activity and elapsed-time tail. */
+/**
+ * Spend remains in status; the composer owns the single activity and elapsed-time tail. It enters the row at its own width, so it
+ * wraps whole onto the next line when the chips leave too little (look.md §10.5); with a basis of 0 it never wrapped and read "7."
+ * beside a docked side pane (#1892). It shrinks, its value in the tooltip, only where a whole line is narrower than it.
+ */
 const RunLine = ({ facts }: { readonly facts: StatusFacts }) => {
   const { spend } = facts;
   if (spend === undefined) return null;
-  return <p className="min-w-0 flex-1 truncate" aria-label="Run status">{`${formatTokens(spend.tokens)} tok${spend.costUsd === null ? "" : ` · ${formatUsd(spend.costUsd)}`}`}</p>;
+  const said = `${formatTokens(spend.tokens)} tok${spend.costUsd === null ? "" : ` · ${formatUsd(spend.costUsd)}`}`;
+  return <p className="min-w-0 max-w-full truncate" aria-label="Run status" title={said}>{said}</p>;
 };
 
-/** The hand-off offer: the recommendation's sentence, and the button that opens the hand-off picker. */
+/** The hand-off offer: the recommendation's sentence, and the button that opens the hand-off picker; it wraps whole as the spend does. */
 const HandoffOffer = ({ offer }: { readonly offer: string }) => {
   const openHandoff = useHandoffPicker();
   return (
-    <p className="flex min-w-0 flex-1 items-center gap-2 text-amber">
-      <span className="min-w-0 truncate">{offer}</span>
+    <p className="flex min-w-0 max-w-full items-center gap-2 text-amber">
+      <span className="min-w-0 truncate" title={offer}>{offer}</span>
       <Tooltip content="Hand off · /handoff" keys="Enter to open"><Button className="h-[22px] max-w-[240px] shrink-0 gap-1 rounded-md bg-wash px-1.5 text-2xs [&_svg]:size-3" onClick={() => openHandoff()}><ArrowRightLeft aria-hidden="true" />Hand off…</Button></Tooltip>
     </p>
   );

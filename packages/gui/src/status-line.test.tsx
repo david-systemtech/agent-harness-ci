@@ -292,6 +292,24 @@ describe("the run", () => {
     expect(within(statusLine()).queryByText("idle")).toBeNull();
   });
 
+  it("enters the row at the spend's own width, so a narrow column wraps it whole, and names it in full in its tooltip", async () => {
+    const { env, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "usage.reported", {
+      runId,
+      models: [{ model: "claude-opus-4", inputTokens: 3000, outputTokens: 500, cacheReadTokens: 68_000, cacheWriteTokens: 1500, costUsd: 0.03, contextWindow: null }],
+    });
+    const spend = await within(statusLine()).findByLabelText("Run status");
+    await waitFor(() => expect(spend.textContent).toBe("73k tok · $0.030"));
+    // A wrapping row breaks its lines at each item's basis, and a basis of 0 never moves to the next line: in a column about 640px
+    // wide the spend took the 11px the chips left and read "7." (look.md §10.5, whole-chip wrap; #1892). At its own width it wraps
+    // whole, and where even a whole line is too narrow it truncates with the value in its tooltip.
+    const classes = spend.className.split(" ");
+    expect(classes).toEqual(expect.arrayContaining(["min-w-0", "max-w-full", "truncate"]));
+    expect(classes).not.toContain("flex-1");
+    expect(spend.getAttribute("title")).toBe("73k tok · $0.030");
+  });
+
   it("says a run parked on a prompt waits for you", async () => {
     const { env, session } = await opened();
     env.startRun(session, "Fix the receipts");
