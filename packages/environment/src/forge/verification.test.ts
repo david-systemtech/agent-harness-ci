@@ -168,6 +168,13 @@ describe("what a verification finds", () => {
       details: [`The forge at ${forge.origin} answered HTTP 503; it could not say who the token is now.`],
     });
 
+    // Another server error says the same line: the record's details still follow what the forge answered.
+    t.clock.advance(MINUTE);
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 502 });
+    const [stillBusy] = await verify(client, account.id);
+    expect(stillBusy?.problem).toEqual({ ...busy?.problem, details: [`The forge at ${forge.origin} answered HTTP 502; it could not say who the token is now.`] });
+    expect((await list(client))[0]?.problem).toEqual(stillBusy?.problem);
+
     // Still unreachable, now for want of a connection: the same problem, since it began, its line saying so now.
     t.clock.advance(MINUTE);
     const from = t.env.log.head();

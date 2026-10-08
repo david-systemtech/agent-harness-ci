@@ -126,8 +126,13 @@ export const keepSince = (before: ForgeProblem | null, found: ForgeProblem | nul
 
 const describeIdentity = (identity: ForgeIdentity): string => `${identity.login} (user ${identity.userId})`;
 
-/** Whether a client shows another problem: another kind, or another line, as a forge that did not answer now answering with a server error, or a line recorded before setup-copy.md §5.6's. */
-const problemChanged = (before: ForgeProblem | null, after: ForgeProblem | null): boolean => before?.kind !== after?.kind || before?.message !== after?.message;
+/**
+ * Whether a client shows another problem: another kind, another line (a forge that did not answer now answering with a
+ * server error, or a line recorded before setup-copy.md §5.6's), or other details under the same line (HTTP 502 after
+ * 503, or a rate limit's pause, which Check again later waits for).
+ */
+const problemChanged = (before: ForgeProblem | null, after: ForgeProblem | null): boolean =>
+  before?.kind !== after?.kind || before?.message !== after?.message || JSON.stringify(before?.details ?? []) !== JSON.stringify(after?.details ?? []);
 
 /** `2026-10-15 12:00 UTC`: an instant to the minute, for a line a person reads. */
 export const readableMinute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
