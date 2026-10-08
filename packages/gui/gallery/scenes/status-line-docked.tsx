@@ -12,7 +12,11 @@ export const script: Script = { environments: [{
   files: ["README.md", "package.json", "src/totals.ts", "test/totals.test.ts"],
 }] };
 
-/** A side pane docked beside the session narrows its column: at 1280 × 800 to about 640px, where #1892 saw the spend read "7.". */
+/**
+ * A side pane docked beside the session narrows its column: at 1280 × 800 to about 640px, where #1892 saw the spend read "7.".
+ * At 1024 × 768 the card is under 900px, so the pane opens as the overlay sheet instead; the narrow capture is that sheet case,
+ * not a docked column.
+ */
 export const presentation: Partial<PresentationValues> = {
   paneLayout: { rows: [{ id: "row-1", height: 100, panes: [{ id: "pane-1", width: 100, session }] }], focused: "pane-1" },
   sideColumns: { [sideColumnKey(session)]: { open: ["files"], shown: "files", hidden: false } },
