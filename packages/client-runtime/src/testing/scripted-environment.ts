@@ -34,6 +34,8 @@ import {
   type EnvironmentIcon,
   type Mode,
   type SettingsValues,
+  type SignInCause,
+  type SignInStart,
   type SignInState,
   UpdatesStatus,
   type AttachmentInput,
@@ -184,7 +186,7 @@ export interface ScriptedEnvironment {
    * What `accounts.add` says of the sign-in it starts: preset it starts one, unless a sign-in that has not ended holds
    * the environment, which `accounts.signin.start` is refused for too (`signin_running`), as the director runs one at a time.
    */
-  readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
+  readonly addSignIn?: SignInStart;
   /**
    * What `accounts.probe` reads of the machine's own Claude directory, `/home/milo/.claude`, which `accounts.adopt`
    * adopts while it is there and signed in: preset not there.
@@ -394,7 +396,7 @@ export interface EnvironmentHandle
   /** Holds every answer to `sessions.rewind` until the release is called, each then answered as the environment stands at the release. */
   holdRewinds(): () => void;
   /** Moves the environment's sign-in to `state`, as its director does, and says so with `signin.updated`. */
-  signIn(state: SignInState, fields?: { readonly url?: string | null; readonly error?: string | null }): void;
+  signIn(state: SignInState, fields?: { readonly url?: string | null; readonly error?: string | null; readonly cause?: SignInCause }): void;
   /** The environment's latest sign-in; null before any. */
   currentSignIn(): SignIn | null;
   /** Changes what `accounts.handoff.recommend` answers, said with a `usage.updated` notice as the environment says a reading changed. */
@@ -1551,9 +1553,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
 
   // The sign-in director (ADR 0018): one sign-in at a time, moved by the handle as the provider's CLI would move it.
   let signIn: SignIn | null = null;
-  const moveSignIn = (state: SignInState, fields: { readonly url?: string | null; readonly error?: string | null } = {}) => {
+  const moveSignIn = (state: SignInState, fields: { readonly url?: string | null; readonly error?: string | null; readonly cause?: SignInCause } = {}) => {
     if (!signIn) throw new Error(`${spec.name} has no sign-in to move.`);
-    signIn = checked(SignIn, { ...signIn, state, ...(fields.url !== undefined && { url: fields.url }), ...(fields.error !== undefined && { error: fields.error }) });
+    signIn = checked(SignIn, { ...signIn, state, ...(fields.url !== undefined && { url: fields.url }), ...(fields.error !== undefined && { error: fields.error }), ...(fields.cause !== undefined && { cause: fields.cause }) });
     if (state === "done") {
       const at = accounts.findIndex((a) => a.id === signIn?.accountId);
       const held = accounts[at];
@@ -1582,8 +1584,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   /** The sign-in that has not ended, which holds the environment: one at a time, as the director runs them. */
   const runningSignIn = (): SignIn | null => (signIn !== null && !(SIGN_IN_ENDED_STATES as readonly SignInState[]).includes(signIn.state) ? signIn : null);
   /** What the director says of a sign-in held by `running`'s account. */
-  const heldMessage = (running: SignIn) =>
-    `A sign-in is already running for ${accounts.find((a) => a.id === running.accountId)?.label ?? running.accountId}; cancel it, or wait for it to end.`;
+  const holderOf = (running: SignIn) => accounts.find((a) => a.id === running.accountId)?.label ?? running.accountId;
+  const heldMessage = (running: SignIn) => `A sign-in is already running for ${holderOf(running)}; cancel it, or wait for it to end.`;
   wire.answer("accounts.signin.get", () => ({ result: { signIn } }));
   wire.answer("accounts.add", (params) => {
     const refused = rejection("accounts.add");
@@ -1594,7 +1596,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start =
-      spec.addSignIn ?? (running === null ? { started: true, message: null } : { started: false, message: `${heldMessage(running)} Sign ${label} in with accounts.signin.start once it has.` });
+      spec.addSignIn ??
+      (running === null ? { started: true, message: null } : { started: false, reason: "signin_running", message: `${heldMessage(running)} Sign ${label} in once it has ended.` });
     if (start.started) startSignIn(account.id);
     return acceptedWith({ account, signIn: start });
   });
@@ -1602,7 +1605,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("accounts.signin.start");
     if (refused) return refused;
     const running = runningSignIn();
-    if (running !== null) return accountRefusal("signin_running", heldMessage(running), { accountId: running.accountId });
+    if (running !== null) return accountRefusal("signin_running", heldMessage(running), { accountId: running.accountId, label: holderOf(running) });
     return acceptedWith({ signIn: startSignIn(String(params["accountId"])) });
   });
   wire.answer("accounts.signin.code", (params) => {
