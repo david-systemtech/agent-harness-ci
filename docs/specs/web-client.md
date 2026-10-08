@@ -262,7 +262,11 @@ One delivery failure never stops a run. The default payload is only
 “A session needs you” and the canonical HTTPS session link, without transcript,
 prompt text, secrets or session title. Completion delivery remains opt-in and
 quiet (ADR 0008). Clients with `read` manage only their own targets; global
-routes require `admin`. Settings shows transport status and failures.
+routes require `admin`. Settings shows transport status and failures. An
+admin client adds a signed-webhook route there: the named endpoint (URL and
+pasted secret, through `routines.endpoints.set`) and the global route naming
+it, then tests it (`routines.endpoints.test`); status names a webhook route's
+endpoint, never its URL or secret.
 
 Opt-in Web Push uses HTTPS, a service worker and VAPID. Enable/Test/Disable are
 explicit; feature-detect support and denial. On supported iOS/iPadOS 16.4+,
