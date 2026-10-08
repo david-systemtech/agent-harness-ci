@@ -98,6 +98,8 @@ export interface TestEnvironmentOptions {
   readonly hostname?: string;
   /** The operating system an environment's preset icon follows; preset: the machine's. */
   readonly platform?: NodeJS.Platform;
+  /** The Node the environment says it runs on (`EnvironmentOptions.execPath`); preset: this process's. */
+  readonly execPath?: string;
   /** The environment's own IANA time zone; preset: the process's. */
   readonly timeZone?: string;
   /** Startup hooks, to hold the startup gate. */
@@ -386,6 +388,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.channel !== undefined && { channel: options.channel }),
     ...(options.hostname !== undefined && { hostname: options.hostname }),
     ...(options.platform !== undefined && { platform: options.platform }),
+    ...(options.execPath !== undefined && { execPath: options.execPath }),
     ...(options.timeZone !== undefined && { timeZone: options.timeZone }),
     ...(options.harnessVersion !== undefined && { harnessVersion: options.harnessVersion }),
     ...(options.hooks !== undefined && { hooks: options.hooks }),

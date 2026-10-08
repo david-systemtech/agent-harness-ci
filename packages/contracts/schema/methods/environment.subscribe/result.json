@@ -172,7 +172,7 @@
               "type": "boolean"
             },
             "firewallAsksOnce": {
-              "description": "Present on Windows, whose firewall asks the person once, at the environment's first start that binds an address beside loopback, whether to let its Node accept connections; the environment runs on a Node whose path no update changes, so the answer holds through updates (#1910). Absent elsewhere and from an older environment.",
+              "description": "Present on Windows when the environment runs on the launcher's copy of Node, whose path no update changes: its firewall asks the person once, at the first start that binds an address beside loopback, whether to let that Node accept connections, and the answer holds through updates (#1910). Absent elsewhere, on another Node (a foreground serve, or a version the launcher could not copy), and from an older environment.",
               "type": "boolean",
               "const": true
             },

@@ -45,7 +45,10 @@ for an administrator's approval. The environment runs on
 `%LOCALAPPDATA%\agent-harness\node\node.exe`, a path no update changes, so
 Windows keeps your answer and does not ask again when it updates. Earlier
 releases ran on each version's own `node.exe`, so each update asked again
-and left two `node.exe` rules behind. To remove those old rules, run
+and left two `node.exe` rules behind. The update from such a release to
+this one can still ask, up to twice: it first runs on its own `node.exe`
+under the earlier release's launcher, and then, once that launcher hands
+over, on the path above. To remove those old rules, run
 this in PowerShell as administrator, with your Windows user name in place
 of `<you>`:
 
