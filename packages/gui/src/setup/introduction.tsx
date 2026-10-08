@@ -134,7 +134,7 @@ export const Introduction = ({ home, onBegin, onLater }: {
           <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-raised"><StateIcon aria-hidden="true" className={state === "ready" ? "size-4 text-mint" : failure !== undefined ? "size-4 text-amber" : BUSY.has(state) ? "size-4 animate-spin text-cyan" : "size-4 text-ink-muted"} /></div>
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             {failure !== undefined
-              ? <p role="alert" className="text-sm font-medium"><span className="sr-only">Error: </span>{status}</p>
+              ? <p role="alert" className="text-sm font-medium text-signal"><span className="sr-only">Error: </span>{status}</p>
               : <p role="status" className="text-sm font-medium">{status}</p>}
             {description !== undefined && <p className="text-sm text-ink-muted">{description}</p>}
             {!runHere && <RunHereSwitch />}
