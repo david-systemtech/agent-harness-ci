@@ -59,6 +59,7 @@ import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
 import { detectForge, unreadable, type Detection } from "./detection.js";
+import { accountWords, adviceLine, alreadyConnected, noToken, notAnAlias, notAnswering, savedTokenUnreadable, siteOf, tokenOfOther, tokenRefusedAtAdd, unreachableAtAdd } from "./lines.js";
 import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 import { createForgeMoveSource } from "./move-source.js";
 import { createForgeInjection } from "./injection.js";
@@ -384,16 +385,22 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
   const identify = (kind: ForgeKind, origin: ForgeOrigin, token: string): Promise<IdentityAnswer> => forgeProvider(kind, providerOptions).identity(origin, token);
 
-  /** A problem of `kind` since now. */
-  const problemNow = (kind: ForgeProblem["kind"], message: string): ForgeProblem => ({ kind, since: clock.now().toISOString(), message });
+  /** A problem of `kind` since now: its plain line (setup-copy.md §5.6), and the raw facts behind it. */
+  const problemNow = (kind: ForgeProblem["kind"], message: string, details: readonly string[] = []): ForgeProblem => ({
+    kind,
+    since: clock.now().toISOString(),
+    message,
+    ...(details.length > 0 && { details: [...details] }),
+  });
 
-  /** The problem a forge that did not answer leaves, since now. */
-  const unreachable = (message: string): ForgeProblem => problemNow("unreachable", message);
+  /** The problem a forge that did not answer an add leaves, since now. */
+  const unreachable = (origin: ForgeOrigin, answer: Extract<IdentityAnswer, { outcome: "unreachable" }>): ForgeProblem =>
+    problemNow("unreachable", adviceLine(notAnswering(siteOf(origin), answer.status)), [answer.message]);
 
-  const needsCredential = (): ForgeProblem => problemNow("needs-credential", "This forge account has no credential on this environment: give it one in Set up, Forges.");
+  const needsCredential = (origin: ForgeOrigin): ForgeProblem => problemNow("needs-credential", noToken(siteOf(origin)));
 
   /** The host `gh` names an origin's instance by: github.com, or an Enterprise host with its port. */
-  const ghHost = (origin: ForgeOrigin): string => origin.replace(/^https?:\/\//, "");
+  const ghHost = siteOf;
 
   /** What a credential is read for: a forge account, as held or as an add or update is about to give it. */
   interface CredentialTarget {
@@ -414,7 +421,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     const { id, credential } = target;
     switch (credential.kind) {
       case "none":
-        return { outcome: "unavailable", problem: needsCredential() };
+        return { outcome: "unavailable", problem: needsCredential(target.origin) };
       case "stored": {
         let token: string | undefined;
         try {
@@ -423,18 +430,23 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
           console.error(`Reading the vault entry ${credential.entry} failed:`, error);
         }
         if (token === undefined) {
-          return { outcome: "unavailable", problem: problemNow("credential-unavailable", "The environment's vault holds no token for this forge account: give it a credential again in Set up, Forges.") };
+          return {
+            outcome: "unavailable",
+            problem: problemNow("credential-unavailable", savedTokenUnreadable(accountWords(target.origin, target.login), false), [`This computer's vault holds no entry ${credential.entry}.`]),
+          };
         }
         return { outcome: "resolved", token, release: () => undefined };
       }
       case "gh": {
         const answer = await gh.token(ghHost(target.origin), credential.login);
-        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message) };
+        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message, answer.details) };
         return { outcome: "resolved", token: answer.token, release: register(id, answer.token, target.kind, target.login) };
       }
       case "reference": {
         const answer = await keyManagers.resolve({ reference: credential.reference, owner: `forge:${id}`, purpose });
-        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message), refusal: answer.code };
+        if (answer.outcome === "unavailable") {
+          return { outcome: "unavailable", problem: problemNow("credential-unavailable", savedTokenUnreadable(accountWords(target.origin, target.login), true), [answer.message]), refusal: answer.code };
+        }
         const own = register(id, answer.value, target.kind, target.login);
         return {
           outcome: "resolved",
@@ -520,7 +532,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const originHeld = (origins: readonly ForgeOrigin[], except?: string) => {
     for (const origin of origins) {
       const holder = originHolder(reader, origin);
-      if (holder !== null && holder !== except) return conflict("origin_held", `${origin} is already held by another forge account on this environment.`, { origin, forgeAccountId: holder });
+      if (holder !== null && holder !== except) return conflict("origin_held", alreadyConnected(siteOf(origin)), { origin, forgeAccountId: holder });
     }
     return null;
   };
@@ -535,10 +547,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const aliasMismatch = (origin: ForgeOrigin, expected: ForgeIdentity, found: ForgeIdentity | null, status: number) =>
     ({
       code: "alias_identity_mismatch",
-      message:
-        found === null
-          ? `${origin} refused the credential (HTTP ${status}) that answers as ${expected.login} on the forge account's origin: it is not the same forge. Nothing was changed.`
-          : `${origin} answers the credential as ${found.login} (user ${found.userId}), not ${expected.login} (user ${expected.userId}): it is not the same forge. Nothing was changed.`,
+      message: notAnAlias(siteOf(origin), expected.login, found === null),
       data: { origin, expected, found, status },
     }) as const;
 
@@ -590,7 +599,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   };
 
   const verificationFailed = (origin: ForgeOrigin, answer: Extract<IdentityAnswer, { outcome: "refused" }>) =>
-    ({ code: "verification_failed", message: `${answer.message} Nothing was stored.`, data: { origin, status: answer.status } }) as const;
+    ({ code: "verification_failed", message: tokenRefusedAtAdd(siteOf(origin)), data: { origin, status: answer.status, details: [answer.message] } }) as const;
 
   /** An add's or update's refusal of a reference that did not resolve: the refusal its resolve answered. */
   const referenceRefused = (connectionId: string, refusal: ReferenceRefusal, problem: ForgeProblem) =>
@@ -678,7 +687,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const check = async <Code extends string>({ target, given, context, formed, purpose, refuse, aliases }: CheckRequest<Code>): Promise<Checked<Code>> => {
     const { id, origin, kind } = target;
     const unverified = aliases.map((alias): ForgeAlias => ({ origin: alias, verifiedAt: null }));
-    if (given.kind === "none") return { source: { kind: "none" }, identity: null, problem: needsCredential(), held: null, aliases: unverified };
+    if (given.kind === "none") return { source: { kind: "none" }, identity: null, problem: needsCredential(origin), held: null, aliases: unverified };
     /** What the forge answers `token`: a refusal, the caller's refusal of who answered, an alias's mismatch, or the identity, problem and aliases to record. */
     const heardWith = async (token: string): Promise<Checked<Code> | Omit<Accepted, "source" | "held">> => {
       const answer = await identify(kind, origin, token);
@@ -688,7 +697,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       if (refused !== null) return { rejected: refused };
       const checked = await checkAliases(kind, token, identity, aliases);
       if (checked.rejected !== undefined) return checked;
-      return { identity, problem: answer.outcome === "unreachable" ? unreachable(answer.message) : null, aliases: checked.aliases };
+      return { identity, problem: answer.outcome === "unreachable" ? unreachable(origin, answer) : null, aliases: checked.aliases };
     };
     if (given.kind === "stored") {
       const heard = await heardWith(given.token);
@@ -760,7 +769,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
   /** Why detection found no forge a forge account is added for at `origin`: GitLab's, none, or none that answered. */
   const undetected = (origin: ForgeOrigin, found: Exclude<Detection, { outcome: "detected" }>) =>
-    found.outcome === "unreachable" ? ({ code: "unreachable", message: found.message, data: { origin } } as const) : unreadable(origin, found);
+    found.outcome === "unreachable" ? ({ code: "unreachable", message: unreachableAtAdd(siteOf(origin)), data: { origin, details: [found.message] } } as const) : unreadable(origin, found);
 
   const add: ForgeAdd = {
     async prepare(params, context) {
@@ -816,7 +825,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const identityMismatch = (forgeAccountId: string, expected: ForgeIdentity, found: ForgeIdentity) =>
     ({
       code: "identity_mismatch",
-      message: `The new credential answers as ${found.login} (user ${found.userId}), not ${expected.login} (user ${expected.userId}): nothing was changed.`,
+      message: tokenOfOther(found.login, expected.login),
       data: { forgeAccountId, expected, found },
     }) as const;
 
@@ -959,7 +968,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         forgeAccountId, origin, kind, credential, aliases: [],
         slug: deriveForgeSlug(origin, accounts.map((account) => account.slug)),
         identity: null, primary: accounts.length === 0, clearedPrimary: null,
-        problem: credential.kind === "none" ? needsCredential() : problemNow("credential-unavailable", "Sign in to the Key manager to use this preserved reference."),
+        problem: credential.kind === "none" ? needsCredential(origin) : problemNow("credential-unavailable", savedTokenUnreadable(siteOf(origin), true), ["A preserved key-manager reference, not yet read."]),
         copiedFrom: null,
       };
       log.append(stream, [{ type: "forge.account.added", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });

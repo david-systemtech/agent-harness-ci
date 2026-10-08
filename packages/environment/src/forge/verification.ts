@@ -8,7 +8,8 @@ import {
   type ForgeProblem,
   type ForgeTokenInformation,
 } from "@agent-harness/contracts";
-import type { CallOptions, ForgeProvider, IdentityAnswer, ReadAnswer } from "./providers.js";
+import { adviceLine, type Advice, belongsToOther, notAnswering, runsOutSoon, siteOf, tokenRefused } from "./lines.js";
+import type { CallOptions, ForgeProvider, IdentityAnswer, ReadAnswer, Unreachable } from "./providers.js";
 
 /**
  * One verification of a credential (forge spec, "Verification"; ADR 0020),
@@ -27,14 +28,18 @@ import type { CallOptions, ForgeProvider, IdentityAnswer, ReadAnswer } from "./p
  *   same repository, else following `readRepository`, which grants release
  *   reads on every kind. A read the forge refuses (401, 403, a 404) is
  *   failed with its status, keeping when it was last verified; one it could
- *   not answer now is left as it was. Writes are never probed: they stay as
- *   use has shown them.
+ *   not answer now is left as it was, and the forge account is `unreachable`
+ *   until a verification reads it again, so a forge that met a server error
+ *   is never done (#1850). Writes are never probed: they stay as use has
+ *   shown them.
  * - **Aliases** are asked on their own origin, and verified only when they
  *   answer as the same login and user id; a refusal or another identity
  *   leaves one unverified; no answer leaves it as it was.
  * - **Expiry.** A token expiring within thirty days is `expiring`.
  * - **A problem of the kind there was** keeps its since-time, so the status
  *   a person sees holds since it began.
+ * - **Lines** are setup-copy.md §5.6's (`lines.ts`): what the forge
+ *   answered, its statuses and the user ids are the problem's details.
  */
 
 /** A token expiring within this long is `expiring` (ADR 0033's rule, for every kind that reports expiry). */
@@ -121,12 +126,17 @@ export const keepSince = (before: ForgeProblem | null, found: ForgeProblem | nul
 
 const describeIdentity = (identity: ForgeIdentity): string => `${identity.login} (user ${identity.userId})`;
 
+/** Whether a client shows another problem: another kind, or another line, as a forge that did not answer now answering with a server error, or a line recorded before setup-copy.md §5.6's. */
+const problemChanged = (before: ForgeProblem | null, after: ForgeProblem | null): boolean => before?.kind !== after?.kind || before?.message !== after?.message;
+
 /** `2026-10-15 12:00 UTC`: an instant to the minute, for a line a person reads. */
 export const readableMinute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
 
-/** How a problem's line ends: what a person does about it, for a forge account; nothing more for a credential no forge account holds yet. */
+/** Whom a problem's line is about, and how it ends. */
 export interface ReconcileOptions {
-  /** Whether the lines name the forge account's remedy in Set up, Forges; preset: they do. */
+  /** The forge's origin, whose host the lines name. */
+  readonly origin: ForgeOrigin;
+  /** Whether the lines say what a person does about the problem, for a forge account; preset: they do. A credential no forge account holds yet says only what happened. */
   readonly remedies?: boolean;
 }
 
@@ -134,24 +144,31 @@ export interface ReconcileOptions {
  * What `found` makes of `known` at `now`: the state to hold, and whether it
  * changed anything a client shows.
  */
-export const reconcile = (known: Known, found: Found, now: Date, options: ReconcileOptions = {}): Reconciled => {
-  /** `line`, with `remedy` after it for a forge account. */
-  const advised = (line: string, remedy: string): string => (options.remedies === false ? `${line}.` : `${line}: ${remedy}.`);
+export const reconcile = (known: Known, found: Found, now: Date, options: ReconcileOptions): Reconciled => {
+  const site = siteOf(options.origin);
   const at = now.toISOString();
-  const problemNow = (kind: ForgeProblem["kind"], message: string): ForgeProblem => ({ kind, since: at, message });
+  const problemNow = (kind: ForgeProblem["kind"], advice: Advice, details: readonly string[]): ForgeProblem => ({
+    kind,
+    since: at,
+    message: adviceLine(advice, options.remedies !== false),
+    ...(details.length > 0 && { details: [...new Set(details)] }),
+  });
+  /** The problem a forge that could not answer leaves: one that answered it cannot now (a server error) is not answering properly, one that gave no answer did not answer. */
+  const unanswered = (answers: readonly Unreachable[]): ForgeProblem =>
+    problemNow("unreachable", notAnswering(site, answers.find((answer) => answer.status !== undefined)?.status), answers.map((answer) => answer.message));
   const unchanged = { ...known, changed: false, aliasesChanged: false };
   /** Only the problem changes: the rest stays as it was known. */
   const withProblem = (problem: ForgeProblem): Reconciled => {
     const kept = keepSince(known.problem, problem);
-    return { ...unchanged, problem: kept, changed: known.problem?.kind !== kept?.kind };
+    return { ...unchanged, problem: kept, changed: problemChanged(known.problem, kept) };
   };
   switch (found.outcome) {
     case "unavailable":
       return withProblem(found.problem);
     case "refused":
-      return withProblem(problemNow("credential-rejected", options.remedies === false ? found.message : `${found.message} Give this forge account a new credential in Set up, Forges.`));
+      return withProblem(problemNow("credential-rejected", tokenRefused(site, known.identity?.login ?? null), [found.message]));
     case "unreachable":
-      return withProblem(problemNow("unreachable", found.message));
+      return withProblem(unanswered([found]));
     case "identified":
       break;
   }
@@ -159,7 +176,7 @@ export const reconcile = (known: Known, found: Found, now: Date, options: Reconc
   if (reads === null) {
     const expected = known.identity ?? identity;
     return withProblem(
-      problemNow("identity-changed", advised(`The credential now answers as ${describeIdentity(identity)}, not ${describeIdentity(expected)}`, "replace it in Set up, Forges")),
+      problemNow("identity-changed", belongsToOther(site, identity.login, expected.login), [`The token answers as ${describeIdentity(identity)}, not ${describeIdentity(expected)}.`]),
     );
   }
   const capabilities: ForgeCapabilities = {
@@ -169,7 +186,12 @@ export const reconcile = (known: Known, found: Found, now: Date, options: Reconc
   };
   const expiresAt = tokenInformation.expiresAt;
   const expiring = expiresAt !== null && Date.parse(expiresAt) - now.getTime() <= EXPIRING_WITHIN_MS;
-  const problem = keepSince(known.problem, expiring ? problemNow("expiring", advised(`The token expires at ${readableMinute(expiresAt)}`, "replace it in Set up, Forges before then")) : null);
+  // A read the forge could not answer now leaves the forge account unreachable until one does: what it may read is not known.
+  const unansweredReads = [reads.readRepository, reads.readReleases].filter((answer): answer is Unreachable => answer.outcome === "unreachable");
+  const problem = keepSince(
+    known.problem,
+    unansweredReads.length > 0 ? unanswered(unansweredReads) : expiring ? problemNow("expiring", runsOutSoon(site), [`Runs out at: ${expiresAt}`]) : null,
+  );
   const aliases = known.aliases.map((alias): ForgeAlias => {
     const answer = found.aliases.get(alias.origin);
     if (answer === undefined || answer.outcome === "unreachable") return alias;
@@ -180,7 +202,7 @@ export const reconcile = (known: Known, found: Found, now: Date, options: Reconc
     known.identity?.login !== identity.login ||
     known.identity.userId !== identity.userId ||
     JSON.stringify(known.tokenInformation) !== JSON.stringify(tokenInformation) ||
-    known.problem?.kind !== problem?.kind ||
+    problemChanged(known.problem, problem) ||
     !sameCapability(known.capabilities.readRepository, capabilities.readRepository) ||
     !sameCapability(known.capabilities.readReleases, capabilities.readReleases);
   const aliasesChanged = aliases.some((alias, index) => (alias.verifiedAt === null) !== (known.aliases[index]?.verifiedAt === null));

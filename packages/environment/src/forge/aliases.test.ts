@@ -54,22 +54,32 @@ describe("aliases on forge.accounts.add", () => {
     expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload["aliases"]])).toEqual([["forge.account.added", account.aliases]]);
     // The alias is held as the canonical origin is: no other forge account may take it.
     const again = await add(client, { url: tailnet.origin, kind: "gitea" });
-    expect(rejection(again.receipt)).toMatchObject({ reason: "conflict", data: { reason: "origin_held", origin: tailnet.origin, forgeAccountId: account.id } });
+    expect(rejection(again.receipt)).toEqual({
+      reason: "conflict",
+      message: `${tailnet.origin.replace("http://", "")} is already connected.`,
+      data: { reason: "origin_held", origin: tailnet.origin, forgeAccountId: account.id },
+    });
   });
 
-  it("refuses an alias answering as another login or user id, or refusing the credential, with alias_identity_mismatch, and stores nothing", async () => {
+  it("refuses an alias answering as another login or user id, or refusing the credential, with alias_identity_mismatch in plain words, the ids and status in data, and stores nothing", async () => {
     const { t, forge, tailnet, client } = await withTwoOrigins();
     const from = t.env.log.head();
 
     tailnet.user(TOKEN, { login: "david", id: 7 });
     const other = await add(client, { url: forge.origin, kind: "forgejo", aliases: [tailnet.origin] });
-    expect(rejection(other.receipt)).toMatchObject({
+    const alias = tailnet.origin.replace("http://", "");
+    expect(rejection(other.receipt)).toEqual({
       reason: "alias_identity_mismatch",
+      message: `${alias} knows this token as another user, so it is not another address for this site. Nothing was changed.`,
       data: { origin: tailnet.origin, expected: { login: "david", userId: "42" }, found: { login: "david", userId: "7" }, status: 200 },
     });
     tailnet.answer(TOKEN, "GET /api/v1/user", { status: 401 });
     const refused = await add(client, { url: forge.origin, kind: "forgejo", aliases: [tailnet.origin] });
-    expect(rejection(refused.receipt)).toMatchObject({ reason: "alias_identity_mismatch", data: { origin: tailnet.origin, found: null, status: 401 } });
+    expect(rejection(refused.receipt)).toMatchObject({
+      reason: "alias_identity_mismatch",
+      message: `${alias} did not accept the token for david, so it is not another address for this site. Nothing was changed.`,
+      data: { origin: tailnet.origin, found: null, status: 401 },
+    });
 
     expect(await list(client)).toEqual([]);
     expect(await forgeEvents(client, from)).toEqual([]);

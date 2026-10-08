@@ -1,10 +1,31 @@
-import { GH_MINIMUM_VERSION, type ForgeAccountRecord, type ForgeCapabilityName, type ForgeProblemKind, type GhProbe, type SetupAction, type SetupTarget, type StateCheckId } from "@agent-harness/contracts";
+import { GH_MINIMUM_VERSION, type ForgeAccountRecord, type ForgeCapabilityName, type ForgeProblem, type ForgeProblemKind, type GhProbe, type SetupAction, type SetupTarget, type StateCheckId } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { StateChecker } from "../setup/check.js";
 import type { Clock } from "../serve/clock.js";
 import type { ForgeService } from "./forge-service.js";
 import type { MissingOrigin } from "./forge-store.js";
-import { EXPIRING_WITHIN_MS, readableMinute } from "./verification.js";
+import {
+  CHOOSE_MAIN,
+  GH_MISSING,
+  GH_OLD,
+  NO_FORGE,
+  accountWords,
+  adviceLine,
+  cannotRead,
+  checkingReads,
+  ghGaveNoToken,
+  ghLoginCommand,
+  ghSignedOutAdvice,
+  neededElsewhere,
+  noToken,
+  ranOut,
+  runsOutIn,
+  savedTokenUnreadable,
+  siteOf,
+  tokenRefused,
+  type Read,
+} from "./lines.js";
+import { EXPIRING_WITHIN_MS } from "./verification.js";
 
 /**
  * The Forges step's state checks (forge spec, "The Forges step"; setup
@@ -16,18 +37,20 @@ import { EXPIRING_WITHIN_MS, readableMinute } from "./verification.js";
  * environment's own schedule and none on a client's, and otherwise await
  * one, never past a pause the forge asked for (#680). They share it: a
  * verification asked for while one runs for the same credential joins it
- * (`verifier.ts`). A failing line names each forge
- * account, as its login on its origin's host, and the action that fixes it.
+ * (`verifier.ts`). A failing line is setup-copy.md §5.6's: it names each
+ * forge by its site and says the one thing to do, with the action that does
+ * it; HTTP statuses, user ids, exact times and what a forge or `gh` answered
+ * are in details (#1850).
  */
 
 /** The Forges step's state checks, by id. */
 type ForgesStateCheckId = Extract<StateCheckId, `forges.${string}`>;
 
-/** A forge account's origin without its scheme: its host, with the port an origin names, as `gh` names an Enterprise host too. */
-const hostOf = (account: ForgeAccountRecord): string => account.origin.replace(/^https?:\/\//, "");
+/** A forge account's site: its origin's host, with the port an origin names. */
+const hostOf = (account: ForgeAccountRecord): string => siteOf(account.origin);
 
 /** A forge account as a person reads it: its login on its origin's host, or the host until the forge has answered who it is. */
-const forgeAccountLabel = (account: ForgeAccountRecord): string => (account.identity === null ? hostOf(account) : `${account.identity.login} on ${hostOf(account)}`);
+const forgeAccountLabel = (account: ForgeAccountRecord): string => accountWords(account.origin, account.identity?.login ?? null);
 
 /** The forge account `action` applies to. */
 const forgeAccountTarget = (action: SetupAction, account: ForgeAccountRecord): SetupTarget => ({
@@ -37,88 +60,118 @@ const forgeAccountTarget = (action: SetupAction, account: ForgeAccountRecord): S
   label: forgeAccountLabel(account),
 });
 
-/** One forge account's failure of a check: its line, and the forge account its action applies to. */
+/** One forge account's failure of a check: its line, the raw facts behind it, and the forge account its action applies to. */
 interface Finding {
   readonly line: string;
-  readonly target: SetupTarget;
+  readonly details?: readonly string[];
+  readonly target?: SetupTarget;
 }
 
-/** A check's answer from its findings: it holds with none, else one line naming each, with their targets. */
-const answerOf = (findings: readonly Finding[]): StateCheckAnswer =>
-  findings.length === 0 ? true : { reason: findings.map((finding) => finding.line).join(" "), targets: findings.map((finding) => finding.target) };
+/** What a failure offers when it applies to `targets`: their actions alone, so a line's one fix is the one offered (a forge not answering properly offers no Sign in again). */
+const offering = (targets: readonly SetupTarget[]) => ({ targets, actions: [...new Set(targets.map((target) => target.action))] });
+
+/** A check's answer from its findings: it holds with none, else one line naming each, with their details, targets and those targets' actions. */
+const answerOf = (findings: readonly Finding[]): StateCheckAnswer => {
+  if (findings.length === 0) return true;
+  const details = findings.flatMap((finding) => finding.details ?? []);
+  const targets = findings.flatMap((finding) => (finding.target === undefined ? [] : [finding.target]));
+  return { reason: findings.map((finding) => finding.line).join(" "), ...(details.length > 0 && { details }), ...(targets.length > 0 && offering(targets)) };
+};
 
 /** At least one forge account is on the environment. */
-const forgesPresent = (accounts: readonly ForgeAccountRecord[]): StateCheckAnswer =>
-  accounts.length > 0 || { reason: "No forge account is on this environment." };
+const forgesPresent = (accounts: readonly ForgeAccountRecord[]): StateCheckAnswer => accounts.length > 0 || { reason: NO_FORGE };
 
-/** The problems that say a forge account does not answer as the identity it was added with, each with its action and line. */
-const IDENTITY_PROBLEMS: { readonly [Kind in Exclude<ForgeProblemKind, "expiring">]: { readonly action: SetupAction; readonly line: (account: ForgeAccountRecord) => string } } = {
-  "needs-credential": { action: "sign-in-again", line: (account) => `${forgeAccountLabel(account)} has no credential on this environment: Sign in again to give it one.` },
-  "credential-rejected": { action: "sign-in-again", line: (account) => `The forge refused the credential of ${forgeAccountLabel(account)}: Sign in again to give it a new one.` },
-  "credential-unavailable": { action: "sign-in-again", line: (account) => `The credential of ${forgeAccountLabel(account)} could not be read: Sign in again to give it a new one.` },
-  "identity-changed": {
-    action: "sign-in-again",
-    line: (account) => `The credential of ${forgeAccountLabel(account)} now answers as another user: Sign in again as ${account.identity?.login ?? "the user it was added as"}.`,
-  },
-  unreachable: { action: "check-again", line: (account) => `${forgeAccountLabel(account)} did not answer its verification: Check again once its forge is reachable.` },
+/** A problem that says a forge account does not answer as the identity it was added with. */
+type IdentityProblem = Exclude<ForgeProblemKind, "expiring">;
+
+/** The action that fixes each identity problem: a new token, or asking again a forge that did not answer. */
+const IDENTITY_ACTIONS: { readonly [Kind in IdentityProblem]: SetupAction } = {
+  "needs-credential": "sign-in-again",
+  "credential-rejected": "sign-in-again",
+  "credential-unavailable": "sign-in-again",
+  "identity-changed": "sign-in-again",
+  unreachable: "check-again",
 };
+
+/**
+ * A forge account's identity problem as the step's line says it. A token
+ * that answers as another user, and a forge that did not answer or answered
+ * with a server error, are the problem's own line, which the verification
+ * that found it wrote; the rest are said from what the record holds.
+ */
+const identityLine = (account: ForgeAccountRecord, kind: IdentityProblem, problem: ForgeProblem): string => {
+  const site = hostOf(account);
+  switch (kind) {
+    case "needs-credential":
+      return noToken(site);
+    case "credential-rejected":
+      return adviceLine(tokenRefused(site, account.identity?.login ?? null));
+    case "credential-unavailable":
+      return account.credential.kind === "gh" ? ghGaveNoToken(forgeAccountLabel(account)) : savedTokenUnreadable(forgeAccountLabel(account), account.credential.kind === "reference");
+    case "identity-changed":
+    case "unreachable":
+      return problem.message;
+  }
+};
+
+/** The raw facts behind a problem: its details, after its own line when the step's line says it otherwise. */
+const problemDetails = (line: string, problem: ForgeProblem): readonly string[] => [...(problem.message === line ? [] : [problem.message]), ...(problem.details ?? [])];
 
 /** Whether the forge account answers as the identity it was added with: no problem but an expiring token. */
 const answersAsItself = (account: ForgeAccountRecord): boolean => account.problem === null || account.problem.kind === "expiring";
 
-/** Each forge account answers as the identity it was added with (`sign-in-again` for its credential, `check-again` for a forge that did not answer). */
+/** Each forge account answers as the identity it was added with (`sign-in-again` for its token, `check-again` for a forge that did not answer). */
 const identitiesHold = (accounts: readonly ForgeAccountRecord[]): StateCheckAnswer =>
   answerOf(
     accounts.flatMap((account) => {
       const { problem } = account;
       if (problem === null || problem.kind === "expiring") return [];
-      const { action, line } = IDENTITY_PROBLEMS[problem.kind];
-      return [{ line: line(account), target: forgeAccountTarget(action, account) }];
+      const line = identityLine(account, problem.kind, problem);
+      return [{ line, details: problemDetails(line, problem), target: forgeAccountTarget(IDENTITY_ACTIONS[problem.kind], account) }];
     }),
   );
 
 /** The reads a verification probes, as a line names them. */
-const READS: readonly (readonly [ForgeCapabilityName, string])[] = [
-  ["readRepository", "repositories"],
-  ["readReleases", "releases"],
+const READS: readonly (readonly [ForgeCapabilityName, Read])[] = [
+  ["readRepository", "read code"],
+  ["readReleases", "read releases"],
 ];
 
 /**
  * Every read of each forge account passes: each read a verification probes
- * is verified (`check-again`). A read the forge refused is named with the
- * status it answered, one it has not answered yet as such. A forge account
- * that does not answer as its identity is `forges.identity`'s to name, its
- * reads never probed.
+ * is verified (`check-again`). A read the forge refused is named as what the
+ * token cannot do, the status it answered in details; one it has not
+ * answered yet is still being checked. A forge account that does not answer
+ * as its identity is `forges.identity`'s to name, its reads never probed.
  */
 const readsHold = (accounts: readonly ForgeAccountRecord[]): StateCheckAnswer =>
   answerOf(
     accounts.filter(answersAsItself).flatMap((account) => {
-      const refused = READS.filter(([name]) => account.capabilities[name].state === "failed").map(([name, what]) => {
-        const { status } = account.capabilities[name];
-        return status === null ? what : `${what} (HTTP ${status})`;
-      });
-      const unanswered = READS.filter(([name]) => account.capabilities[name].state === "unknown").map(([, what]) => what);
-      if (refused.length === 0 && unanswered.length === 0) return [];
-      const clauses = [
-        ...(refused.length > 0 ? [`was refused reading ${refused.join(" and ")}`] : []),
-        ...(unanswered.length > 0 ? [`has no answer yet reading ${unanswered.join(" and ")}`] : []),
-      ];
-      const remedy = refused.length > 0 ? "Check again once its token may read them." : "Check again once its forge answers.";
-      return [{ line: `${forgeAccountLabel(account)} ${clauses.join(", and ")}: ${remedy}`, target: forgeAccountTarget("check-again", account) }];
+      const refused = READS.filter(([name]) => account.capabilities[name].state === "failed");
+      const unanswered = READS.filter(([name]) => account.capabilities[name].state === "unknown");
+      const target = forgeAccountTarget("check-again", account);
+      if (refused.length > 0) {
+        const details = refused.map(([name]) => {
+          const { status } = account.capabilities[name];
+          return `${forgeAccountLabel(account)}: ${name} ${status === null ? "was refused" : `answered HTTP ${status}`}`;
+        });
+        return [{ line: cannotRead(hostOf(account), refused.map(([, read]) => read)), details, target }];
+      }
+      return unanswered.length > 0 ? [{ line: checkingReads(hostOf(account)), target }] : [];
     }),
   );
 
 /**
  * Exactly one forge account is primary (ADR 0012): removing the primary
- * leaves none until a person chooses one, which the line asks naming the
- * forge accounts to choose from. The card's Make primary is the fix, no verb
- * of the vocabulary, so the check offers no action.
+ * leaves none until a person chooses one, which the line asks, the forge
+ * accounts to choose from in details. The card's Make main is the fix, no
+ * verb of the vocabulary, so the check offers no action.
  */
 const onePrimary = (accounts: readonly ForgeAccountRecord[]): StateCheckAnswer => {
   const primaries = accounts.filter((account) => account.primary);
   if (primaries.length === 1) return true;
-  if (primaries.length === 0) return { reason: `No forge account is primary: choose ${accounts.map(forgeAccountLabel).join(" or ")} with Make primary.` };
-  return { reason: `${primaries.map(forgeAccountLabel).join(" and ")} are all primary: choose one with Make primary.` };
+  if (primaries.length === 0) return { reason: CHOOSE_MAIN, details: [`Forges to choose from: ${accounts.map(forgeAccountLabel).join(", ")}`] };
+  return { reason: CHOOSE_MAIN, details: [`Main forges: ${primaries.map(forgeAccountLabel).join(", ")}`] };
 };
 
 /** `gh` as the tool `action` applies to (ADR 0026's Managed tools row): Install or Update. */
@@ -130,59 +183,59 @@ const ghTarget = (action: SetupAction): SetupTarget => ({ action, kind: "tool", 
  * to the forge account's host as its login (`sign-in-again`), as `gh auth
  * status` reports them (ADR 0032). `gh` is asked only when a forge account
  * reads it. Signed in is asked of a `gh` at the minimum alone, the first
- * that reads a token per login.
+ * that reads a token per login. Its version, the minimum and the forge
+ * accounts that read it are in details.
  */
 const ghHolds = async (accounts: readonly ForgeAccountRecord[], probe: () => Promise<GhProbe>): Promise<StateCheckAnswer> => {
   const readers = accounts.flatMap((account) => (account.credential.kind === "gh" ? [{ account, login: account.credential.login }] : []));
   if (readers.length === 0) return true;
   const gh = await probe();
-  const labels = readers.map(({ account }) => forgeAccountLabel(account)).join(" and ");
-  if (!gh.installed) return { reason: `gh is not installed on this environment for ${labels}: Install gh ${GH_MINIMUM_VERSION} or later.`, targets: [ghTarget("install")] };
+  const usedBy = `used by ${readers.map(({ account }) => forgeAccountLabel(account)).join(", ")}`;
+  if (!gh.installed) return { reason: GH_MISSING, details: [`Needs gh ${GH_MINIMUM_VERSION} or later, ${usedBy}`], ...offering([ghTarget("install")]) };
   if (!gh.meetsMinimum) {
-    const which = gh.version === null ? "gh on this environment reports no version, so it may be older" : `gh ${gh.version} on this environment is older`;
-    return { reason: `${which} than ${GH_MINIMUM_VERSION} for ${labels}: Update gh.`, targets: [ghTarget("update")] };
+    const which = gh.version === null ? "gh reports no version" : `gh ${gh.version}`;
+    return { reason: GH_OLD, details: [`${which} (needs ${GH_MINIMUM_VERSION} or later), ${usedBy}`], ...offering([ghTarget("update")]) };
   }
   return answerOf(
     readers
       .filter(({ account, login }) => !gh.accounts.some((signedIn) => signedIn.host === hostOf(account) && signedIn.login === login))
       .map(({ account, login }) => ({
-        line: `gh on this environment is not signed in to ${hostOf(account)} as ${login}: Sign in again.`,
+        line: ghSignedOutAdvice(hostOf(account)),
+        details: [ghLoginCommand(hostOf(account), login)],
         target: forgeAccountTarget("sign-in-again", account),
       })),
   );
 };
 
+const DAY_MS = 24 * 60 * 60_000;
+
 /**
  * No forge account's token expires within thirty days of `now` (ADR 0033's
  * rule, for every kind that reports an expiry: what the last verification
- * read), naming each that does with the time (`sign-in-again`).
+ * read), naming each that does with the days left, the exact time in
+ * details (`sign-in-again`).
  */
 const nothingExpiring = (accounts: readonly ForgeAccountRecord[], now: Date): StateCheckAnswer =>
   answerOf(
     accounts.flatMap((account) => {
       const expiresAt = account.tokenInformation?.expiresAt ?? null;
-      if (expiresAt === null || Date.parse(expiresAt) - now.getTime() > EXPIRING_WITHIN_MS) return [];
-      const line =
-        Date.parse(expiresAt) <= now.getTime()
-          ? `The token of ${forgeAccountLabel(account)} expired at ${readableMinute(expiresAt)}: Sign in again to give it a new one.`
-          : `The token of ${forgeAccountLabel(account)} expires at ${readableMinute(expiresAt)}: Sign in again to give it a new one before then.`;
-      return [{ line, target: forgeAccountTarget("sign-in-again", account) }];
+      if (expiresAt === null) return [];
+      const left = Date.parse(expiresAt) - now.getTime();
+      if (left > EXPIRING_WITHIN_MS) return [];
+      const line = left <= 0 ? ranOut(hostOf(account)) : runsOutIn(hostOf(account), Math.ceil(left / DAY_MS));
+      return [{ line, details: [`Runs out at: ${expiresAt}`], target: forgeAccountTarget("sign-in-again", account) }];
     }),
   );
 
 /**
  * No missing origin counts (forge spec, "No forge account"): each origin a
  * harness operation was refused on for want of a forge account, recorded
- * within seven days and covered by none since, is named with the operation
- * and when. Adding a forge account for it is the card's Add a forge, no verb
- * of the vocabulary, so the check offers no action.
+ * within seven days and covered by none since, is named by its site, the
+ * operation and when in details. Adding a forge account for it is the card's
+ * Add a forge, no verb of the vocabulary, so the check offers no action.
  */
 const originsCovered = (missing: readonly MissingOrigin[]): StateCheckAnswer =>
-  missing.length === 0 || {
-    reason: missing
-      .map(({ origin, operation, recordedAt }) => `No forge account covers ${origin}, where the harness could not ${operation} at ${readableMinute(recordedAt)}: add a forge account for it.`)
-      .join(" "),
-  };
+  answerOf(missing.map(({ origin, operation, recordedAt }) => ({ line: neededElsewhere(siteOf(origin)), details: [`${origin}: could not ${operation} at ${recordedAt}`] })));
 
 export interface ForgesStateChecksOptions {
   readonly forge: ForgeService;

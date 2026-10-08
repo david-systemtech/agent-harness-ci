@@ -218,8 +218,8 @@ describe("an origin no forge account covers", () => {
       outcome: "refused",
       error: {
         code: "forge_account_missing",
-        message: `No forge account on this environment covers ${forge.origin}, and it refused an anonymous read (HTTP 404): add one in Set up, Forges.`,
-        data: { origin: forge.origin, step: "forges" },
+        message: `agent-harness needed a forge for ${forge.origin.replace("http://", "")} and found none. Add ${forge.origin.replace("http://", "")}.`,
+        data: { origin: forge.origin, step: "forges", details: [`${forge.origin}: it refused an anonymous read (HTTP 404)`] },
       },
     });
     expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "read the release channel", recordedAt: MANUAL_CLOCK_START }]);
@@ -277,8 +277,8 @@ describe("an origin no forge account covers", () => {
       outcome: "refused",
       error: {
         code: "forge_account_missing",
-        message: `No forge account on this environment covers ${walled.origin}, and it refused an anonymous read (HTTP 401): add one in Set up, Forges.`,
-        data: { origin: walled.origin, step: "forges" },
+        message: `agent-harness needed a forge for ${walled.origin.replace("http://", "")} and found none. Add ${walled.origin.replace("http://", "")}.`,
+        data: { origin: walled.origin, step: "forges", details: [`${walled.origin}: it refused an anonymous read (HTTP 401)`] },
       },
     });
     expect(await read(gitlab.origin)).toMatchObject({ outcome: "refused", error: { code: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } } });
@@ -538,7 +538,7 @@ describe("a forge account's credential", () => {
 
     expect(await t.env.forge.repositories.get({ origin: copy.origin, repository: "david/bank", purpose: "check a bank" })).toEqual({
       outcome: "refused",
-      error: { code: "credential_unavailable", message: expect.stringContaining("Set up, Forges"), data: { origin: copy.origin } },
+      error: { code: "credential_unavailable", message: `${copy.origin.replace("http://", "")} has no token yet. Add one.`, data: { origin: copy.origin } },
     });
     expect(copy.requests).toHaveLength(requests);
 
