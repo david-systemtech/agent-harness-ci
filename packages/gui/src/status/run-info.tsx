@@ -29,11 +29,12 @@ const LatestRun = ({ environmentId, sessionId }: RunInfoProps) => {
   const runtime = useRuntime();
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
+  const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
   const run = projection.runs.at(-1);
   if (run === undefined) return <p className="px-4 pb-3 text-sm text-ink-faint">{NO_RUN_YET}</p>;
   const policy = projection.policies[run.runId];
   const account = accounts.value?.find((candidate) => candidate.id === run.accountId);
-  const facts = runInfoFacts(run, policy, account);
+  const facts = runInfoFacts(run, policy, account, catalogues.value);
   const tools = projection.items.filter((item) => item.kind === "tool-call" && item.runId === run.runId);
   const groups = [
     { name: "Run", terms: ["Started by", "Model", "Effort", "Ending"] },

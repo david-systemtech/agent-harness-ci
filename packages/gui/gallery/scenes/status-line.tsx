@@ -10,7 +10,7 @@ const accounts = shares.map((share, index) => ({ id: `account-${index + 1}`, lab
 export const script: Script = { environments: [{
   environmentId, name: "desk", reach: "local", icon: "desktop", colour: "teal", accounts, provider: { contextReadings: true },
   settings: { "permissions.containment.default": "workspace" },
-  sessions: sessionIds.map((id, index) => ({ id, title: `Usage ${Math.round((shares[index] ?? 0) * 100)}%`, accountId: `account-${index + 1}`, model: "claude-opus-4", mode: index === 2 ? "bypassPermissions" : "auto" })),
+  sessions: sessionIds.map((id, index) => ({ id, title: `Usage ${Math.round((shares[index] ?? 0) * 100)}%`, accountId: `account-${index + 1}`, model: "fable", mode: index === 2 ? "bypassPermissions" : "auto" })),
 }] };
 
 export const presentation: Partial<PresentationValues> = {
@@ -30,8 +30,8 @@ export const arrange = (world: ScriptedWorld): void => {
     ],
   })));
   sessionIds.forEach((sessionId, index) => {
-    const { runId } = env.startRun(sessionId, "Check the receipts", [], { model: "claude-opus-4", effort: "high" });
-    env.emit(sessionId, "context.reported", { runId, model: "claude-opus-4", contextTokens: Math.round((shares[index] ?? 0) * 200_000), contextWindow: 200_000 });
+    const { runId } = env.startRun(sessionId, "Check the receipts", [], { model: "fable", effort: "high" });
+    env.emit(sessionId, "context.reported", { runId, model: "fable", contextTokens: Math.round((shares[index] ?? 0) * 200_000), contextWindow: 200_000 });
   });
 };
 

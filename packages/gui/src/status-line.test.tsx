@@ -79,12 +79,12 @@ describe("the status line", () => {
 
   it("shows the environment's badge, the account's label and identity, model and effort, the mode badge and the containment default marked so", async () => {
     const { env, session } = await opened();
-    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "fable", effort: "high" });
     env.endRun(session, runId);
     const line = await screen.findByRole("region", { name: "Status line" });
     expect(await within(line).findByRole("button", { name: "Account: work milo@work.test" })).toBeTruthy();
     expect(within(line).getByText("desk")).toBeTruthy();
-    expect(within(line).getByRole("button", { name: "Model: claude-opus-4 high" }).textContent).toBe("claude-opus-4 high");
+    expect(within(line).getByRole("button", { name: "Model: Fable 5.1 - High" }).textContent).toBe("Fable 5.1 - High");
     expect(within(line).getByRole("button", { name: "Mode: auto" }).textContent).toBe("auto");
     expect(await within(line).findByRole("button", { name: "Containment: workspace (default)" })).toBeTruthy();
   });
@@ -318,7 +318,7 @@ describe("run info", () => {
     expect(fact("Started by")).toBe("client, attended");
     await waitFor(() => expect(fact("Account")).toBe("work (milo@work.test)"));
     expect(fact("Model")).toBe("claude-opus-4");
-    expect(fact("Effort")).toBe("high");
+    expect(fact("Effort")).toBe("High");
     expect(fact("Mode")).toBe("auto, clamped from bypassPermissions to the ceiling auto");
     expect(fact("Containment")).toBe("workspace (the environment's default), enforced by bubblewrap");
     expect(fact("Tokens")).toBe("4.0k (1.5k in, 2.0k cache read, 0 cache write, 500 out)");
