@@ -78,6 +78,8 @@ export type ClientSessionSummary = ResultOf<"access.sessions.list">["sessions"][
 export interface SocketRef {
   readonly socketId: string;
   readonly remoteAddress?: string | undefined;
+  /** The Tailscale login the proxy in front of the web origin named. */
+  readonly login?: string;
 }
 
 /**
@@ -441,7 +443,7 @@ export const createClientSessions = (options: ClientSessionsOptions): ClientSess
         accessLog.record(
           tx,
           "socket.opened",
-          { clientSessionId: id, socketId: socket.socketId, remoteAddress: socket.remoteAddress ?? null },
+          { clientSessionId: id, socketId: socket.socketId, remoteAddress: socket.remoteAddress ?? null, ...(socket.login !== undefined && { login: socket.login }) },
           { actor: { kind: "client_session", id } },
         ),
       );

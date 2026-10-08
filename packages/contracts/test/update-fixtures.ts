@@ -114,6 +114,7 @@ const status = {
   releaseSource,
   newest: "0.5.0",
   lastCheck: { at, result: "ok" },
+  lastReadAt: at,
   target: { version: "0.5.0", source: "channel" },
   passedOver: null,
   pending: { state: "waiting", ...pending, waitsOn: { reason: "run-running", until: null } },
@@ -130,6 +131,7 @@ const statuses: Fixtures = {
       manager: { kind: "outside", lastPoll: at },
       newest: null,
       lastCheck: null,
+      lastReadAt: at,
       target: null,
       passedOver: passedOver.valid[0],
       pending: { state: "ready", ...pending, image },
@@ -137,6 +139,8 @@ const statuses: Fixtures = {
       failedVersions: ["0.5.0"],
       installed: [],
     },
+    // From an environment that predates the last read (#1812).
+    { ...status, lastReadAt: undefined },
   ],
   invalid: [
     { ...status, manager: undefined },
@@ -145,6 +149,7 @@ const statuses: Fixtures = {
     { ...status, installed: "0.4.2" },
     { ...status, releaseSource: undefined },
     { ...status, target: undefined },
+    { ...status, lastReadAt: "yesterday" },
   ],
 };
 const taken: Fixtures = { valid: [{ updateId, toVersion: "0.5.0" }], invalid: [{ updateId: "u-1", toVersion: "0.5.0" }, { updateId }] };

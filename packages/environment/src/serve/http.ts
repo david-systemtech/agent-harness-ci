@@ -76,7 +76,7 @@ export const sendJson = (
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
 /** The host part of a Host header, lower-cased, without its port; undefined when the header is malformed. */
-const hostOf = (header: string): string | undefined => {
+export const hostOf = (header: string): string | undefined => {
   const value = header.trim().toLowerCase();
   if (value === "::1") return "[::1]";
   if (value.startsWith("[")) {

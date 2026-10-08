@@ -17,6 +17,7 @@ import {
 import type { Tx } from "../event-log/event-log.js";
 import type { PairingRow, PairingTable } from "../event-log/pairings.js";
 import type { Clock } from "../serve/clock.js";
+import type { ClientAddressOf } from "../serve/client-address.js";
 import type { RouteHandler } from "../serve/http.js";
 import { SYSTEM, type AccessLog, type Attribution } from "./access-log.js";
 import { DEFAULT_CEILING, type ClientSessions } from "./client-sessions.js";
@@ -182,8 +183,9 @@ export interface PairRouteOptions {
   readonly pairings: Pick<Pairings, "exchange">;
   /** Opens the one transaction an exchange writes in, refused or not: a code found expired records its expiry. */
   readonly atomically: <T>(work: (tx: Tx) => T) => T;
-  /** Every exchange, refused or not, spends from its remote address's bucket. */
+  /** Every exchange, refused or not, spends from its client address's bucket. */
   readonly rateLimiter: RateLimiter;
+  readonly clientAddress: ClientAddressOf;
   readonly readiness: () => EnvironmentReadiness;
 }
 
@@ -198,6 +200,7 @@ export const pairRoute = (options: PairRouteOptions): RouteHandler =>
     body: PairRequest,
     what: "a pairing exchange",
     rateLimiter: options.rateLimiter,
+    clientAddress: options.clientAddress,
     readiness: options.readiness,
     exchange: (body) => {
       if (body.protocolVersion !== PROTOCOL_VERSION) {

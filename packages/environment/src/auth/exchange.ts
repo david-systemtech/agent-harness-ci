@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import {
   invalidParams,
   type ClientSessionCredential,
@@ -10,6 +10,7 @@ import {
   type UnavailableError,
 } from "@agent-harness/contracts";
 import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
+import type { ClientAddress, ClientAddressOf } from "../serve/client-address.js";
 import type { RateLimiter } from "./rate-limit.js";
 
 /** The most an exchange's body may be; a label is at most 200 characters. */
@@ -37,12 +38,14 @@ export interface ExchangeRouteOptions<T, E> {
   /** What the body must be, and how to name it in a refusal. */
   readonly body: BodySchema<T>;
   readonly what: string;
-  /** Every exchange past `admit`, refused or not, spends from its remote address's bucket. */
+  /** Every exchange past `admit`, refused or not, spends from its client address's bucket. */
   readonly rateLimiter: RateLimiter;
+  /** Where an exchange came from: the TCP peer, or the client a proxy in front of the web origin forwarded. */
+  readonly clientAddress: ClientAddressOf;
   /** The environment's readiness; the exchange answers `unavailable` unless it is `ready`. */
   readonly readiness: () => EnvironmentReadiness;
   /** A check before anything else, the rate limit included: the bootstrap exchange's loopback gate. */
-  readonly admit?: (request: IncomingMessage) => Refusal<E> | undefined;
+  readonly admit?: (client: ClientAddress) => Refusal<E> | undefined;
   /** The exchange itself, synchronous so no two exchanges interleave. */
   readonly exchange: (body: T) => Outcome<Refusal<E>>;
 }
@@ -62,10 +65,11 @@ export const exchangeRoute =
   async (request, response) => {
     const refuse = (status: number, error: E | RouteError, headers?: Record<string, string>) => answer(response, status, error, headers);
     try {
-      const refused = options.admit?.(request);
+      const client = options.clientAddress(request);
+      const refused = options.admit?.(client);
       if (refused) return refuse(refused.status, refused.error, refused.headers);
 
-      const taken = options.rateLimiter.take(request.socket.remoteAddress ?? "");
+      const taken = options.rateLimiter.take(client.address ?? "");
       if (!taken.ok) {
         const seconds = Math.ceil(taken.retryAfterMs / 1000);
         return refuse(

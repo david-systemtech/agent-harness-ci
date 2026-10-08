@@ -91,7 +91,7 @@ const eventLine = (event: Pick<EventEnvelope, "type" | "payload">, labelOf: (cli
     }
     case "socket.opened": {
       const read = payloadOf(type.data, event.payload);
-      return read && `${labelOf(read.clientSessionId)} connected${read.remoteAddress === null ? "" : ` from ${read.remoteAddress}`}.`;
+      return read && `${labelOf(read.clientSessionId)} connected${read.remoteAddress === null ? "" : ` from ${read.remoteAddress}`}${read.login === undefined ? "" : ` as ${read.login}`}.`;
     }
     case "socket.closed": {
       const read = payloadOf(type.data, event.payload);
