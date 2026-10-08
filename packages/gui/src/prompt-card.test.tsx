@@ -223,23 +223,43 @@ describe("an approval", () => {
     await waitFor(() => expect(within(transcript).getByRole("article", { name: "Permission" }).textContent).toBe("Bash: rm -rf build — denied: use make clean instead"));
   });
 
-  it("names a denylist prompt's entry and never offers or dispatches an approval", async () => {
+  // ADR 0006: the denylist holds in every mode, and the person present may allow a denylisted call once (#1820).
+  const dataDirectory: ScriptedPrompt = {
+    kind: "denylist",
+    toolName: "Bash",
+    input: { command: "ls /var/lib/harness/sessions" },
+    summary: "Bash: ls /var/lib/harness/sessions",
+    mode: "bypassPermissions",
+    ceiling: "bypassPermissions",
+    denylist: [{ section: "paths", entry: { id: "preset:data-directory", pattern: "/var/lib/harness", note: "The harness's own data directory: its event log, keys and accounts.", enabled: true, preset: true }, matched: "/var/lib/harness/sessions" }],
+  };
+
+  it("offers a denylist prompt of a bypassPermissions run Deny and Allow once, never remembered, and names its entry in words", async () => {
     const { app, env, session } = await opened();
-    const promptId = await park(env, session, {
-      kind: "denylist",
-      toolName: "Read",
-      input: { file_path: "/home/milo/.ssh/id_ed25519" },
-      summary: "Read: /home/milo/.ssh/id_ed25519",
-      denylist: [{ section: "paths", entry: { id: "ssh", pattern: "~/.ssh/**", note: "", enabled: true, preset: true }, matched: "/home/milo/.ssh/id_ed25519" }],
-    });
+    const promptId = await park(env, session, dataDirectory);
     const shown = card() as HTMLElement;
-    expect(within(shown).getByRole("heading").textContent).toBe("Denylist · Read");
-    expect(within(within(shown).getByRole("list", { name: "On the denylist" })).getByRole("listitem").textContent).toMatch(/is on the denylist .*~\/\.ssh\/\*\*/);
-    expect(within(shown).queryByRole("button", { name: /Allow/ })).toBeNull();
+    expect(within(shown).getByRole("heading").textContent).toBe("Denylist · Bash");
+    expect(within(shown).getAllByRole("button", { name: /^(Deny|Allow)/ }).map((found) => found.getAttribute("aria-label") ?? found.textContent)).toEqual(["Deny", "Allow once"]);
+    const entry = within(within(shown).getByRole("list", { name: "On the denylist" })).getByRole("listitem").textContent;
+    expect(entry).toMatch(/is on the denylist \(paths: \/var\/lib\/harness\)/);
+    expect(entry).toContain("This is the environment's data directory: its event log, keys and accounts.");
+    expect(entry).toMatch(/Instead, the agent may /);
+    expect(shown.textContent).not.toContain("The same entry as before");
     await press(app, MOD_ENTER);
-    expect(answersSent(env)).toEqual([]);
+    expect((await sentAnswers(env, 1))[0]).toEqual({ commandId: expect.any(String), promptId, sessionId: session, decision: "allow" });
+  });
+
+  it("allows a denylist prompt once by a click, and says when the run asks about the same entry again", async () => {
+    const { app, env, session } = await opened();
+    const first = await park(env, session, dataDirectory);
     await app.user.click(button("Deny"));
-    expect((await sentAnswers(env, 1))[0]).toEqual({ commandId: expect.any(String), promptId, sessionId: session, decision: "deny" });
+    expect((await sentAnswers(env, 1))[0]).toMatchObject({ promptId: first, decision: "deny" });
+    await waitFor(() => expect(card()).toBeNull());
+
+    const again = await park(env, session, { ...dataDirectory, summary: "Bash: cat /var/lib/harness/sessions/log" });
+    expect((card() as HTMLElement).textContent).toContain("The same entry as before: this run already asked about /var/lib/harness once (last denied).");
+    await app.user.click(button("Allow once"));
+    expect((await sentAnswers(env, 2))[1]).toEqual({ commandId: expect.any(String), promptId: again, sessionId: session, decision: "allow" });
   });
 });
 
