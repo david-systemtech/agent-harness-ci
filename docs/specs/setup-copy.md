@@ -519,7 +519,8 @@ quoted from the files named; a builder greps for them.
   4. `Choose Load unpacked, paste the folder location and confirm.` Ticked: `Chrome found the extension.`
   5. (shown once step 4 ticks) `Choose the agent-harness extension's icon, then Options, and type this code:` {CODE} `{m} min left` (renews by itself; no Stop box)
   6. Optional: `Sites you are building` textarea, hint `One site per line, like localhost:3000. Agents may run scripts on these sites.`
-  - **Use my Chrome for agents** (was Done); disabled line `Pair Chrome first (step 5).`; after `Agents now use your Chrome.`
+  - **Use my Chrome for agents** (was Done); disabled line `Pair Chrome first (step 5).`; after `Agents now use your Chrome.`,
+    or, when every account already has a browser chosen and nothing was written, `Every account already has a browser chosen, so nothing changed.` (#1857)
 - The listening address, the ports and the browser glossary go in Details / fold `How agents use Chrome`.
 - Lines: skip `Chrome is not connected. Optional.`; done `Chrome is connected.`; closed `Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.`
   (Unpair is in More options, not offered as the fix); old extension `The Chrome extension is out of date. In chrome://extensions, choose reload on agent-harness.` **Copy chrome://extensions**;
@@ -529,6 +530,7 @@ quoted from the files named; a builder greps for them.
   the desktop app with agent-harness not running on this computer `agent-harness is not running on this computer, so Chrome cannot connect to it.`
 - Each step's tick is named `Step {n}: done` or `Step {n}: not done yet`. Steps 1 and 2 tick on their Copy, 1 to 4 once Chrome found the extension;
   step 5's code is minted only then, while no Chrome is paired or after Pair another (More options), and 6 ticks on this visit's save.
+  After Pair another, a Chrome already paired ticks nothing: 1 to 4 tick once Chrome finds the new, unpaired extension, and stay ticked once it pairs.
 
 ### 5.12 Permissions (gui/src/permissions/*; environment/src/permissions/*; contracts/src/settings.ts descriptions)
 - Title `Choose when agents ask you`. Why `This is the most any session may do without asking. A session can always ask more often.`

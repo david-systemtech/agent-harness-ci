@@ -86,18 +86,16 @@ export const BrowserCard = (props: StepCardProps) => {
         <Button variant="outline" className="self-start" disabled={!pairable} onClick={() => pairAnother((n) => (n ?? -1) + 1)}><Plus aria-hidden="true" />Pair another</Button>
         {said !== null && (said.details === undefined ? <p role="status">{said.line}</p> : <BrowserProblem line={said.line} details={details(said.line, said.details)} />)}
       </MoreOptions>
-      {local !== undefined && <BrowserDetails {...props} environmentId={local.environmentId} />}
+      {local === undefined ? <BrowserDetails {...props} /> : <LocalBrowserDetails {...props} environmentId={local.environmentId} />}
     </div>
   );
 };
 
-/** Details of the step (setup-copy.md §3): its line and raw words, and the extension's folder and listening address. */
-const BrowserDetails = ({ environmentId, step }: StepCardProps) => {
+/** Details of the step (setup-copy.md §3): its line and raw words, then `facts` about agent-harness on this computer. */
+const BrowserDetails = ({ environmentId, step, facts = [] }: StepCardProps & { readonly facts?: readonly string[] }) => {
   const runtime = useRuntime();
-  const status = useObservable(useMemo(() => runtime.requests.cached(environmentId, "browser.status", {}), [runtime, environmentId]));
   const details = useBrowserDetails(environmentId);
   const { result } = step;
-  const facts = status.result === null ? [] : [`Extension folder: ${status.result.folder.path}`, ...listenerLines(status.result.listener), `Extension shipped: ${status.result.shippedVersion ?? "none"}`];
   const shown = details(stepLine(step, runtime.environmentNow(environmentId)), [...(result?.details ?? []), ...facts]);
   return <TechnicalDetails {...shown} report={{
     ...shown.report,
@@ -106,15 +104,26 @@ const BrowserDetails = ({ environmentId, step }: StepCardProps) => {
   }} />;
 };
 
+/** The step's Details with the extension's folder and listening address on this computer. */
+const LocalBrowserDetails = (props: StepCardProps) => {
+  const runtime = useRuntime();
+  const status = useObservable(useMemo(() => runtime.requests.cached(props.environmentId, "browser.status", {}), [runtime, props.environmentId]));
+  const facts = status.result === null ? [] : [`Extension folder: ${status.result.folder.path}`, ...listenerLines(status.result.listener), `Extension shipped: ${status.result.shippedVersion ?? "none"}`];
+  return <BrowserDetails {...props} facts={facts} />;
+};
+
 /**
  * The numbered steps (setup-copy.md §5.11), shared with Settings' Pair another
  * Chrome: 1 and 2 tick on their Copy, and 1 to 4 once Chrome found the
  * extension, which shows step 5; its code is minted only then, and only while
  * no Chrome is paired or a new pairing was asked for (`another`, null for
  * none), and 5 ticks once the pairing it waits for is made. 6, the sites, ticks
- * on this visit's save.
+ * on this visit's save. A pairing asked for waits for its own Chrome: a Chrome
+ * already paired ticks nothing, an unpaired extension seen since the ask does,
+ * and the ticks stay once that extension pairs. `again` names the button that
+ * asks for another pairing, for a code that could not be made.
  */
-export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, showSites = true }: { readonly environmentId: string; readonly accountsEnvironmentId: string; readonly another: number | null; readonly showSites?: boolean }) => {
+export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, again = "Pair another", showSites = true }: { readonly environmentId: string; readonly accountsEnvironmentId: string; readonly another: number | null; readonly again?: string; readonly showSites?: boolean }) => {
   const runtime = useRuntime();
   const details = useBrowserDetails(environmentId);
   const status = useObservable(useMemo(() => runtime.requests.cached(environmentId, "browser.status", {}), [runtime, environmentId]));
@@ -122,7 +131,10 @@ export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, 
   const [copiedFolder, copyFolder] = useState(false);
   const [copiedPage, copyPage] = useState(false);
   const chromes = listed.result?.chromes ?? [];
-  const loaded = chromes.length > 0 || (status.result?.unpairedConnected ?? false);
+  const seen = status.result?.unpairedConnected ?? false;
+  const [found, setFound] = useState({ another, seen });
+  if (found.another !== another || (seen && !found.seen)) setFound({ another, seen });
+  const loaded = seen || (another === null ? chromes.length > 0 : found.another === another && found.seen);
   const folder = status.result?.folder;
   const listener = status.result?.listener;
   const problem = (line: string, raw: readonly string[]) => <BrowserProblem line={line} details={details(line, raw)} />;
@@ -150,7 +162,7 @@ export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, 
           {loaded && <p>Chrome found the extension.</p>}
           {listener?.state === "not-listening" && problem(listener.reason === "port-in-use" ? PORTS_BUSY : NOT_LISTENING, listenerLines(listener))}
         </BrowserSubstep>
-        {loaded && listed.result !== null && <Pair key={another ?? -1} environmentId={environmentId} chromes={chromes} asked={another !== null} />}
+        {loaded && listed.result !== null && <Pair key={another ?? -1} environmentId={environmentId} chromes={chromes} asked={another !== null} again={again} />}
         {listed.error !== null && refusal(listed.error)}
         {showSites && <BrowserSites environmentId={environmentId} />}
       </ol>
@@ -160,12 +172,12 @@ export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another, 
 };
 
 /** Step 5: a code while it waits for a pairing, the first or one asked for; each Pair another starts a fresh wait. */
-const Pair = ({ environmentId, chromes, asked }: { readonly environmentId: string; readonly chromes: readonly PairedChrome[]; readonly asked: boolean }) => {
+const Pair = ({ environmentId, chromes, asked, again }: { readonly environmentId: string; readonly chromes: readonly PairedChrome[]; readonly asked: boolean; readonly again: string }) => {
   const [before] = useState(() => new Set(chromes.map((chrome) => chrome.id)));
   const completed = chromes.some((chrome) => !before.has(chrome.id));
   const waiting = (asked || chromes.length === 0) && !completed;
   return <BrowserSubstep number={5} label={STEPS.code} complete={!waiting}>
-    {waiting && <BrowserPairingCode environmentId={environmentId} />}
+    {waiting && <BrowserPairingCode environmentId={environmentId} again={again} />}
   </BrowserSubstep>;
 };
 

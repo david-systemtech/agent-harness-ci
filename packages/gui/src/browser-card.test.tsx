@@ -57,9 +57,9 @@ const opened = async (given: Partial<ScriptedEnvironment> = {}, local = true, in
       status.unpairedConnected = true;
       act(() => desk.notice("extension.seen", { protocolVersion: PROTOCOL_VERSION, extensionVersion: "0.1.0" }));
     },
-    pair: () => {
-      chromes = [chromeOf(app.clock.now().toISOString())];
-      desk.notice("chrome.updated", { chromeId: chromes[0]?.id, name: "Work Chrome", change: "paired" });
+    pair: (chrome = chromeOf(app.clock.now().toISOString())) => {
+      chromes = [...chromes.filter((paired) => paired.id !== chrome.id), chrome];
+      desk.notice("chrome.updated", { chromeId: chrome.id, name: chrome.name, change: "paired" });
     },
   };
 };
@@ -194,6 +194,17 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
     });
   });
 
+  it("Use my Chrome for agents says nothing changed, and writes nothing, when every account already has a browser chosen", async () => {
+    const chosen = { chrome: { environmentId: "0199aa00-0000-4000-8000-000000000099", chromeId: null } };
+    const { app, desk, pair } = await opened({ accounts: [{ label: "work" }], settings: { "browser.reach": { "account-1": chosen } } });
+    act(pair);
+    await waitFor(() => expect(tick(5)).toBe("Step 5: done"));
+    await app.user.click(within(card()).getByRole("button", { name: "Use my Chrome for agents" }));
+    expect(await within(card()).findByText("Every account already has a browser chosen, so nothing changed.")).toBeDefined();
+    expect(within(card()).queryByText("Agents now use your Chrome.")).toBeNull();
+    expect(desk.requests("settings.update")).toHaveLength(0);
+  });
+
   it("keeps the browser glossary in the fold How agents use Chrome, naming the paired Chrome, never a placeholder", async () => {
     const { app, pair } = await opened();
     act(pair);
@@ -208,7 +219,7 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
 
   it("says Chrome is closed without offering Unpair as the fix; Unpair and Pair another sit in More options", async () => {
     const id = chromeOf("2026-09-24T00:00:00.000Z").id;
-    const { app, desk, pair } = await opened({
+    const { app, desk, pair, seen } = await opened({
       setup: {
         browser: {
           state: "needs-attention",
@@ -227,6 +238,7 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
     expect(within(card()).queryByRole("button", { name: /Pair another/ })).toBeNull();
     await moreOptions(app.user);
     await app.user.click(within(card()).getByRole("button", { name: "Pair another" }));
+    seen();
     expect(await within(card()).findByDisplayValue("ABCD2345")).toBeDefined();
     expect(tick(5)).toBe("Step 5: not done yet");
     desk.wire.answer("browser.chromes.unpair", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { chrome: chromeOf(app.clock.now().toISOString()) } } }));
@@ -279,6 +291,16 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
     expect(desk.requests("browser.pairing.code")).toHaveLength(0);
   });
 
+  it("keeps the step's own details, which Chrome and which versions, in Details without a local environment", async () => {
+    const outdated = "The Chrome extension is out of date. In chrome://extensions, choose reload on agent-harness.";
+    const { app } = await opened({
+      setup: { browser: { state: "needs-attention", reason: outdated, failing: ["browser.extension-current"], actions: ["check-again"], details: ["Work Chrome: extension 0.0.9, this computer ships 0.1.0"] } },
+    }, false);
+    expect(await within(card()).findByText(outdated)).toBeDefined();
+    for (const details of within(card()).getAllByRole("button", { name: "Details" })) await app.user.click(details);
+    expect(within(card()).getAllByText(/Work Chrome: extension 0\.0\.9, this computer ships 0\.1\.0/).length).toBeGreaterThan(0);
+  });
+
   it("says connecting Chrome works only in the desktop app in a browser tab, and mints no code there", async () => {
     const world = await startWebWorld({ environments: [{ name: "desk", reach: "paired" }] }, { settingsRow: "setup.checklist" });
     const view = render(<App {...world} web={{ platform: world.platform, route: {} }} />);
@@ -327,16 +349,37 @@ describe("the Browser card in Set up (setup-copy.md §5.11)", () => {
   });
 
   it("opens an already paired Chrome with every step ticked and no code, and Pair another preserves unsaved sites", async () => {
-    const { app, desk } = await opened({}, true, true);
+    const { app, desk, seen } = await opened({}, true, true);
     await waitFor(() => expect(tick(5)).toBe("Step 5: done"));
     expect(desk.requests("browser.pairing.code")).toHaveLength(0);
     const sites = within(card()).getByRole("textbox", { name: "Sites you are building" });
     await app.user.type(sites, "app.example.test");
     await moreOptions(app.user);
     await app.user.click(within(card()).getByRole("button", { name: "Pair another" }));
+    seen();
     expect(await within(card()).findByDisplayValue("ABCD2345")).toBeDefined();
     await app.user.click(within(card()).getByRole("button", { name: "Pair another" }));
     await waitFor(() => expect(desk.requests("browser.pairing.code")).toHaveLength(2));
     expect((within(card()).getByRole("textbox", { name: "Sites you are building" }) as HTMLTextAreaElement).value).toBe("app.example.test");
+  });
+
+  it("starts Pair another with steps 1 to 4 unticked and no code until Chrome finds the new extension, and keeps them ticked once it pairs", async () => {
+    const { app, desk, status, seen, pair } = await opened({}, true, true);
+    await waitFor(() => expect(tick(5)).toBe("Step 5: done"));
+    await moreOptions(app.user);
+    await app.user.click(within(card()).getByRole("button", { name: "Pair another" }));
+    await waitFor(() => expect(tick(4)).toBe("Step 4: not done yet"));
+    expect([1, 2, 3].map(tick)).toEqual(["Step 1: not done yet", "Step 2: not done yet", "Step 3: not done yet"]);
+    expect(within(card()).queryByText("Chrome found the extension.")).toBeNull();
+    expect(within(card()).queryByRole("heading", { name: STEPS[4] })).toBeNull();
+    expect(desk.requests("browser.pairing.code")).toHaveLength(0);
+    seen();
+    expect(await within(card()).findByDisplayValue("ABCD2345")).toBeDefined();
+    expect([1, 2, 3, 4].map(tick)).toEqual(["Step 1: done", "Step 2: done", "Step 3: done", "Step 4: done"]);
+    status.unpairedConnected = false;
+    act(() => pair({ ...chromeOf(app.clock.now().toISOString()), id: "0199aa00-0000-4000-8000-000000000042", name: "Personal Chrome" }));
+    await waitFor(() => expect(tick(5)).toBe("Step 5: done"));
+    expect([1, 2, 3, 4].map(tick)).toEqual(["Step 1: done", "Step 2: done", "Step 3: done", "Step 4: done"]);
+    expect(within(card()).queryByRole("textbox", { name: "Pairing code" })).toBeNull();
   });
 });

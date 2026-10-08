@@ -11,7 +11,8 @@ const USE = "Use my Chrome for agents";
 /**
  * Use my Chrome for agents (setup-copy.md §5.11): it re-reads the account list
  * and reach immediately before writing, and presets My Chrome only for the
- * accounts still at per-session, keeping every other choice. Held, with its
+ * accounts still at per-session, keeping every other choice; when every
+ * account already has a browser chosen it writes nothing and says so. Held, with its
  * reason in view, until a Chrome is paired. Beneath it, the fold How agents
  * use Chrome holds the browser glossary, each paired Chrome by its name.
  */
@@ -21,7 +22,7 @@ export const BrowserDone = ({ environmentId, chromeEnvironmentId, chromes }: { r
   const details = useBrowserDetails(environmentId);
   const reasonId = useId();
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
   const [refused, refuse] = useState<PlainRefusal | null>(null);
   const [glossary, showGlossary] = useState(false);
   const paired = chromes.length > 0;
@@ -44,19 +45,19 @@ export const BrowserDone = ({ environmentId, chromeEnvironmentId, chromes }: { r
       const saved = await adminCall(() => runtime.requests.call(environmentId, "settings.update", { commandId: uuidv7(clock.now()), values: { "browser.reach": reach } }));
       if (!saved.ok) return stop(plainRefusal(saved.refusal, USE));
     }
-    setDone(true);
+    setDone(preset.length > 0 ? "Agents now use your Chrome." : "Every account already has a browser chosen, so nothing changed.");
     setBusy(false);
   };
   const writable = runtime.capability(environmentId, "settings.update").status === "present";
   return (
     <section aria-label={USE} className="flex flex-col gap-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="default" className="self-start" aria-describedby={paired ? undefined : reasonId} disabled={!paired || !writable || busy || done} onClick={() => void finish()}>
+        <Button variant="default" className="self-start" aria-describedby={paired ? undefined : reasonId} disabled={!paired || !writable || busy || done !== null} onClick={() => void finish()}>
           <Check aria-hidden="true" />{USE}
         </Button>
         {!paired && <p id={reasonId} className="text-xs text-ink-muted">Pair Chrome first (step 5).</p>}
       </div>
-      {done && <p role="status" data-browser-after>Agents now use your Chrome.</p>}
+      {done !== null && <p role="status" data-browser-after>{done}</p>}
       {refused !== null && <BrowserProblem line={refused.line} details={details(refused.line, refused.details)} />}
       <Fold summary="How agents use Chrome" open={glossary} onOpenChange={showGlossary}>
         <dl data-browser-definitions className="grid min-w-0 grid-cols-1 gap-x-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] [&_dt]:py-2 [&_dt]:font-medium [&_dd]:py-2 [&_dd]:text-ink-muted">

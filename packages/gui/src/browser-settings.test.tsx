@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
-import type { BrowserStatus, PairedChrome } from "@agent-harness/contracts";
+import { PROTOCOL_VERSION, type BrowserStatus, type PairedChrome } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp } from "../test/harness.js";
 
@@ -8,12 +8,13 @@ const chrome: PairedChrome = {
   id: "0199aa00-0000-4000-8000-000000000041", name: "Work Chrome", pairedAt: "2026-09-24T00:00:00.000Z",
   lastConnectedAt: "2026-09-24T00:00:00.000Z", lastReportedVersion: "0.1.0", connected: true, outdated: false,
 };
-const status: BrowserStatus = {
+const statusOf = (): BrowserStatus => ({
   listener: { state: "listening", port: 47615 }, folder: { path: "/test/extension", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false,
   headless: { allowRuns: false, availability: { available: true, source: { kind: "launched", executable: "/test/chromium" } }, liveContexts: 0 },
-};
+});
 const opened = async () => {
   let chromes = [chrome];
+  const status = statusOf();
   const app = await renderApp(
     { environments: [{ name: "desk", reach: "local", accounts: [{ id: "work", label: "Work" }] }] },
     {},
@@ -27,15 +28,29 @@ const opened = async () => {
   await screen.findByText("No session is open. Choose one from the sidebar.");
   act(() => app.shell.openDeepLink(settingsDeepLink("access.browser")));
   const pane = await screen.findByRole("region", { name: "Browser" });
-  return { app, desk, pane, list: (next: PairedChrome[]) => { chromes = next; desk.notice("chrome.updated", { chromeId: chrome.id, name: chrome.name, change: "renamed" }); } };
+  return {
+    app,
+    desk,
+    pane,
+    list: (next: PairedChrome[]) => { chromes = next; desk.notice("chrome.updated", { chromeId: chrome.id, name: chrome.name, change: "renamed" }); },
+    /** The new Chrome loaded the extension, which opened its socket unpaired: steps 1 to 4 tick and step 5 asks for a code. */
+    seen: () => {
+      status.unpairedConnected = true;
+      act(() => desk.notice("extension.seen", { protocolVersion: PROTOCOL_VERSION, extensionVersion: "0.1.0" }));
+    },
+  };
 };
 
 describe("the Browser settings pane", () => {
   it("numbers the steps, copies the live code, and renews it by itself with no Stop box (setup-copy.md §5.11)", async () => {
-    const { app, desk, pane } = await opened();
+    const { app, desk, pane, seen } = await opened();
     desk.wire.answer("browser.pairing.code", () => ({ result: { code: "ABCD2345", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
     await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
     const steps = await within(pane).findByRole("list", { name: "Connect Chrome" });
+    // The Chrome already paired is not the one being added: nothing ticks and no code is asked for until the new one is found.
+    expect(within(steps).queryByText("Chrome found the extension.")).toBeNull();
+    expect(desk.requests("browser.pairing.code")).toHaveLength(0);
+    seen();
     expect(within(steps).getByRole("heading", { name: "Copy this folder location." })).toBeDefined();
     expect(within(steps).queryByRole("checkbox")).toBeNull();
     expect(within(pane).getAllByRole("textbox", { name: "Sites you are developing" })).toHaveLength(1);
@@ -85,9 +100,10 @@ describe("the Browser settings pane", () => {
   });
 
   it("reports a pairing refusal in one plain line, its raw words under Details (setup-copy.md §3)", async () => {
-    const { app, desk, pane } = await opened();
+    const { app, desk, pane, seen } = await opened();
     desk.wire.answer("browser.pairing.code", () => ({ error: { code: "forbidden", message: "Pairing is locked.\nThe environment refused the code request.", data: {} } }));
     await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
+    seen();
     const alert = await within(pane).findByRole("alert");
     expect(alert.textContent).toMatch(/^Error: /);
     expect(within(pane).queryByText(/Pairing is locked/)).toBeNull();
@@ -112,12 +128,21 @@ describe("the Browser settings pane", () => {
     expect(await screen.findByRole("button", { name: "Browser: My Chrome: Work Chrome" })).toBeDefined();
   });
 
+  it("names the button it has, Pair another Chrome, when a code cannot be made", async () => {
+    const { app, desk, pane, seen } = await opened();
+    desk.wire.answer("browser.pairing.code", () => ({ error: { code: "internal", message: "The code store failed.", data: {} } }));
+    await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
+    seen();
+    expect(await within(pane).findByText("agent-harness ran into a problem. Choose Pair another Chrome to try again.")).toBeDefined();
+  });
+
   it("starts pairing here and completes when the new Chrome is listed, then unpairs it", async () => {
-    const { app, desk, pane, list } = await opened();
+    const { app, desk, pane, list, seen } = await opened();
     desk.wire.answer("browser.pairing.code", () => ({ result: { code: "ABCD2345", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
     const pair = await within(pane).findByRole("button", { name: "Pair another Chrome" });
     act(() => pair.focus());
     await app.user.keyboard("{Enter}");
+    seen();
     expect(await within(pane).findByDisplayValue("ABCD2345")).toBeDefined();
     const added = { ...chrome, id: "0199aa00-0000-4000-8000-000000000042", name: "Personal Chrome" };
     act(() => list([chrome, added]));

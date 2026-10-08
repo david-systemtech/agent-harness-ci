@@ -62,7 +62,7 @@ export const minutesLeft = (ms: number): string => `${Math.max(1, Math.ceil(ms /
  * Chrome found the extension, and again by itself when it runs out, outside
  * the request cache, since an expired cached code cannot pair. No Stop box.
  */
-export const BrowserPairingCode = ({ environmentId }: { readonly environmentId: string }) => {
+export const BrowserPairingCode = ({ environmentId, again }: { readonly environmentId: string; readonly again: string }) => {
   const runtime = useRuntime();
   const clock = useClock();
   const details = useBrowserDetails(environmentId);
@@ -79,14 +79,14 @@ export const BrowserPairingCode = ({ environmentId }: { readonly environmentId: 
     if (!mintable) return;
     void runtime.requests.call(environmentId, "browser.pairing.code", {}).then((answer) => {
       if (!active) return;
-      if (!answer.ok) return setFailure(plainRefusal(answer.error, "Pair another"));
+      if (!answer.ok) return setFailure(plainRefusal(answer.error, again));
       const left = Date.parse(answer.result.expiresAt) - runtime.environmentNow(environmentId).getTime();
       setMinted({ code: answer.result.code, until: new Date(clock.now().getTime() + left) });
     });
     return () => {
       active = false;
     };
-  }, [runtime, clock, environmentId, generation, mintable]);
+  }, [runtime, clock, environmentId, generation, mintable, again]);
   useEffect(() => {
     if (minted === null) return;
     const timer = clock.setTimeout(renew, Math.max(0, minted.until.getTime() - clock.now().getTime()));
