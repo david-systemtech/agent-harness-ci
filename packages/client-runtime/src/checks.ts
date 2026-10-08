@@ -22,6 +22,10 @@ export interface ChecksView extends EnvironmentAnswer<WorkspaceCheck> {
 /** What both Clients call a Workspace check, so a bare path and "is off" never stand for it (#1826). */
 export const checkWords = {
   name: "After-edit check",
+  labelled: (text: string) => `After-edit check: ${text}`,
+  command: (command: string) => `After-edit check: $ ${command}`,
+  reading: "Reading After-edit check…",
+  running: "After-edit check running on the Environment.",
   off: "After-edit check: off",
   offFor: (workspace: string) => `After-edit check: off for ${workspace}.`,
   saved: "After-edit check saved for this Workspace.",

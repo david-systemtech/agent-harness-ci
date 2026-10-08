@@ -43,7 +43,7 @@ describe("Workspace checks in the GUI", () => {
   });
 
   it("says above the composer what the check is, in one labelled line, with the workspace and how to turn it on in its tooltip", async () => {
-    const { change } = await opened();
+    const { app, change } = await opened();
     const strip = await screen.findByRole("region", { name: "Workspace check" });
     await waitFor(() => expect(strip.textContent).toBe("After-edit check: off"));
     expect(strip.querySelectorAll("p")).toHaveLength(1);
@@ -55,6 +55,8 @@ describe("Workspace checks in the GUI", () => {
     act(() => change("pnpm test"));
     await waitFor(() => expect(strip.textContent).toBe("After-edit check: $ pnpm test"));
     expect(strip.textContent).not.toContain("/canonical/repo");
+    await enter(app, "/check");
+    await screen.findByText("After-edit check: $ pnpm test", { selector: '[role="status"]' });
     act(() => (strip.querySelector("[tabindex]") as HTMLElement).focus());
     await waitFor(() => expect(screen.getByRole("tooltip").textContent).toMatch(/^\$ pnpm test · Workspace: \/canonical\/repo\./));
   });
@@ -63,6 +65,13 @@ describe("Workspace checks in the GUI", () => {
     await opened({ capabilities: [] });
     const strip = await screen.findByRole("region", { name: "Workspace check" });
     expect(strip.textContent).toBe("After-edit check: desk does not offer workspaceChecks; a version that does is needed.");
+  });
+
+  it("names the after-edit check when reading it fails", async () => {
+    const { app, env } = await opened();
+    env.wire.answer("checks.get", () => ({ error: { code: "forbidden", message: "Reading the check was refused.", data: {} } }));
+    app.open("desk", 1);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Workspace check" }).textContent).toBe("After-edit check: Reading the check was refused."));
   });
 });
 
@@ -111,7 +120,7 @@ it.each([
   expect(option.getAttribute("aria-disabled")).toBe("true");
   expect(option.textContent).toContain(availability.message);
   await enter(app, "/check now");
-  await screen.findByText(availability.message, { selector: '[role="status"]' });
+  await screen.findByText(`After-edit check: ${availability.message}`, { selector: '[role="status"]' });
   expect(env.requests("checks.run")).toHaveLength(0);
   expect(env.requests("checks.set")).toHaveLength(0);
 });
@@ -128,7 +137,7 @@ it("reports unset, busy, refused and accepted manual execution without local she
   await screen.findByText("forbidden: Terminal grant revoked.");
   env.wire.answer("checks.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true }, result: { terminalId: TERMINAL } } }));
   await enter(app, "/check now");
-  await screen.findByText("Check running on the Environment.");
+  await screen.findByText("After-edit check running on the Environment.");
   expect(env.requests("checks.run")).toHaveLength(5);
   expect(env.requests("terminals.run")).toHaveLength(0);
   expect(env.requests("runs.start")).toHaveLength(0);
@@ -183,7 +192,7 @@ it("dims checks while unreachable and does not enqueue configuration or executio
   await enter(app, "/check now");
   const optionReason = app.runtime.projections.checks(env.environmentId, env.sessionId()).read().availability;
   if (optionReason.status !== "absent") throw new Error("Checks should be unreachable.");
-  await screen.findByText(optionReason.message, { selector: '[role="status"]' });
+  await screen.findByText(`After-edit check: ${optionReason.message}`, { selector: '[role="status"]' });
   await enter(app, "/check printf never");
   expect(env.requests("checks.run")).toHaveLength(0);
   expect(env.requests("checks.set")).toHaveLength(0);
@@ -207,7 +216,7 @@ it("invalidates changed commands and manual now resets identical automatic failu
     return { result: { receipt: { status: "accepted", sequence: event.sequence, changed: true }, result: { terminalId } } };
   });
   await enter(app, "/check now");
-  await screen.findByText("Check running on the Environment.");
+  await screen.findByText("After-edit check running on the Environment.");
   expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull();
   act(() => env.emit(session, "checks.finished", { ...finished, terminalId: "0199aa00-0000-4000-8000-000000000008" }));
   await screen.findByRole("button", { name: "Send failure" });

@@ -15,17 +15,17 @@ export const useWorkspaceChecks = (environmentId: string, sessionId: string, say
   const runtime = useRuntime();
   const view = useObservable(useMemo(() => runtime.projections.checks(environmentId, sessionId), [runtime, environmentId, sessionId]));
   useSlashCommand("check", (argument) => {
-    if (view.availability.status === "absent") return say(view.availability.message);
+    if (view.availability.status === "absent") return say(checkWords.labelled(view.availability.message));
     const form = argument.trim();
     if (form === "") {
       void runtime.checks.get(environmentId, sessionId).then((answer) => {
         runtime.requests.refresh(environmentId, "checks.get", { sessionId });
-        say(!answer.ok ? answer.error.message : answer.result.command === null ? checkWords.offFor(answer.result.workspace) : `$ ${answer.result.command}`);
+        say(!answer.ok ? answer.error.message : answer.result.command === null ? checkWords.offFor(answer.result.workspace) : checkWords.command(answer.result.command));
       });
     } else if (form === "now") {
       void runtime.checks.run(environmentId, sessionId).then((answer) => {
         const error = !answer.ok ? answer.error : answer.result.receipt.status === "rejected" ? answer.result.receipt.error : undefined;
-        say(error === undefined ? "Check running on the Environment." : `${error.data?.["reason"] ?? error.code}: ${error.message}`);
+        say(error === undefined ? checkWords.running : `${error.data?.["reason"] ?? error.code}: ${error.message}`);
       });
     } else {
       void runtime.checks.set(environmentId, sessionId, form === "off" ? null : argument).then((answer) => {
@@ -46,7 +46,7 @@ export const WorkspaceCheck = ({ view, sendFailure, sending, compact = false }: 
     return <Dialog>
       <DialogTrigger asChild><Button aria-label={`${checkWords.name}: ${state}`}><Icon aria-hidden="true" className="size-4" /></Button></DialogTrigger>
       <PhoneComposerSheet title={checkWords.name}>
-        {view.availability.status === "absent" ? <p className="text-sm text-ink-muted">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : <>
+        {view.availability.status === "absent" ? <p className="text-sm text-ink-muted">{view.availability.message}</p> : view.value === null ? <p>{view.error?.message ?? checkWords.reading}</p> : <>
           {view.value.command === null ? <p>{checkWords.off}</p> : <pre className="overflow-x-auto rounded-none bg-abyss p-2 text-sm">{`$ ${view.value.command}`}</pre>}
           <p className="break-all font-mono text-sm">{checkWords.workspace(view.value.workspace)}</p>
           <p className="text-sm text-ink-muted">{checkWords.explain}</p>
@@ -56,7 +56,7 @@ export const WorkspaceCheck = ({ view, sendFailure, sending, compact = false }: 
     </Dialog>;
   }
   return <section aria-label="Workspace check" className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
-    {view.availability.status === "absent" ? <p className="text-ink-faint">{`${checkWords.name}: ${view.availability.message}`}</p> : view.value === null ? <p>{view.error?.message ?? "Reading Workspace check…"}</p> : (
+    {view.availability.status === "absent" ? <p className="text-ink-faint">{checkWords.labelled(view.availability.message)}</p> : view.value === null ? <p>{view.error === null ? checkWords.reading : checkWords.labelled(view.error.message)}</p> : (
       // The Workspace chip above names the folder; the label says what the check is, its tooltip where it runs and how to set it.
       <Tooltip content={`${view.value.command === null ? "" : `$ ${view.value.command} · `}${checkWords.workspace(view.value.workspace)}. ${checkWords.explain}`}>
         {view.value.command === null

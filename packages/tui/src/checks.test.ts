@@ -36,6 +36,8 @@ describe("/check", () => {
     await enter("/check pnpm test  ");
     await app.waitFor("After-edit check saved");
     expect(command).toBe("pnpm test  ");
+    await enter("/check");
+    await app.waitFor("After-edit check: $ pnpm test");
     reason = "check_running";
     await enter("/check now");
     await app.waitFor("check_running");
