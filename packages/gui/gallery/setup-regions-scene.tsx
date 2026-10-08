@@ -158,6 +158,8 @@ export function setupRegionScene(kind: SetupRegion) {
           if (!finished && look !== undefined && !look.disabled) { finished = true; look.click(); }
           const details = [...(scroll?.querySelectorAll<HTMLButtonElement>('[role="alert"] button') ?? [])].find((candidate) => candidate.textContent === "Details");
           if (details?.getAttribute("aria-expanded") === "false") details.click();
+          // The link's field sits below the catalogue: bring it and the refusal under it into the capture.
+          if (details?.getAttribute("aria-expanded") === "true" && scroll !== null) scroll.scrollTop += field.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 48;
           return;
         }
         if (kind === "host-updater") {
