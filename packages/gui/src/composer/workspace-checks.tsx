@@ -20,7 +20,7 @@ export const useWorkspaceChecks = (environmentId: string, sessionId: string, say
     if (form === "") {
       void runtime.checks.get(environmentId, sessionId).then((answer) => {
         runtime.requests.refresh(environmentId, "checks.get", { sessionId });
-        say(!answer.ok ? answer.error.message : answer.result.command === null ? checkWords.offFor(answer.result.workspace) : checkWords.command(answer.result.command));
+        say(!answer.ok ? checkWords.labelled(answer.error.message) : answer.result.command === null ? checkWords.offFor(answer.result.workspace) : checkWords.command(answer.result.command));
       });
     } else if (form === "now") {
       void runtime.checks.run(environmentId, sessionId).then((answer) => {

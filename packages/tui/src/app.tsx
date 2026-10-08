@@ -1311,11 +1311,11 @@ export const App = (props: AppProps) => {
         if (!opened) { say("Open a Session to configure its Workspace check."); return true; }
         const { environmentId, sessionId } = opened;
         const available = runtime.capability(environmentId, "checks.get");
-        if (available.status === "absent") { say(available.message); return true; }
+        if (available.status === "absent") { say(checkWords.labelled(available.message)); return true; }
         if (command.action === "get") {
           void runtime.checks.get(environmentId, sessionId).then(async (answer) => {
             runtime.requests.refresh(environmentId, "checks.get", { sessionId });
-            if (!answer.ok) { say(answer.error.message); return; }
+            if (!answer.ok) { say(checkWords.labelled(answer.error.message)); return; }
             let imported: string | undefined;
             if (answer.result.command === null && props.stateDir !== undefined && viewOf(environmentId)?.kind === "local") {
               try {
