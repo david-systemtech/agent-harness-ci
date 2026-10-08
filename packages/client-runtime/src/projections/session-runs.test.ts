@@ -594,11 +594,11 @@ describe("the verbs on a runtime", () => {
     const codex = { ...(capabilities as AdapterCapabilities), provider: "codex", displayName: "Codex", fork: false, rewind: false };
     const { runs } = await opened({ providers: [capabilities as AdapterCapabilities, codex], accountId: "codex-1", scopes: ["read", "sessions:write"] });
     expect(runs.read().verbs).toEqual({
-      readNow: { status: "absent", reason: "scope", message: "This client was paired with desk without the runs:drive scope." },
-      withdraw: { status: "absent", reason: "scope", message: "This client was paired with desk without the runs:drive scope." },
+      readNow: { status: "absent", reason: "scope", message: "This app has limited access to desk, so it cannot run agents. Pair again with full access to change this.", details: ["runs:drive"] },
+      withdraw: { status: "absent", reason: "scope", message: "This app has limited access to desk, so it cannot run agents. Pair again with full access to change this.", details: ["runs:drive"] },
       fork: { status: "absent", reason: "adapter", message: "Codex cannot fork a session." },
-      rewind: { status: "absent", reason: "scope", message: "This client was paired with desk without the runs:drive scope." },
-      undoRewind: { status: "absent", reason: "scope", message: "This client was paired with desk without the runs:drive scope." },
+      rewind: { status: "absent", reason: "scope", message: "This app has limited access to desk, so it cannot run agents. Pair again with full access to change this.", details: ["runs:drive"] },
+      undoRewind: { status: "absent", reason: "scope", message: "This app has limited access to desk, so it cannot run agents. Pair again with full access to change this.", details: ["runs:drive"] },
     });
   });
 
@@ -625,7 +625,7 @@ describe("the verbs on a runtime", () => {
     flags["sessions.fork"] = "containment:workspace";
     onTestFinished(() => void delete flags["sessions.fork"]);
     const { runs } = await opened();
-    expect(runs.read().verbs.fork).toEqual({ status: "absent", reason: "unsupported", message: "desk does not offer containment:workspace; a version that does is needed." });
+    expect(runs.read().verbs.fork).toEqual({ status: "absent", reason: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it.", details: ["containment:workspace"] });
   });
 
   it("refuse every run verb at once while the environment is unreachable, and keep fork, which queues", async () => {

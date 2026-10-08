@@ -97,9 +97,14 @@ the list is at the end).
 | `{name} has not been reached yet.` | `This app has not reached {name} yet.` + **Try again** |
 | a failed `setup.check` (silent today) | `agent-harness could not run the check. Choose Check again.` Details: the refusal |
 | a failed Start (silent outside the introduction) | `agent-harness did not start on {name}. Choose Start to try again.` Details: the failure |
-| `This client was paired with {env} without the {scope} scope.` (client-runtime/src/capabilities.ts) | `This app has limited access to {env}, so it cannot {verb}. Pair again with full access to change this.` verbs: admin `change settings or sign in accounts`; terminal `use terminals or files`; sessions:write `start sessions`; runs:drive `run agents` |
+| `This client was paired with {env} without the {scope} scope.` (client-runtime/src/capabilities.ts) | `This app has limited access to {env}, so it cannot {verb}. Pair again with full access to change this.` verbs: admin `change settings or sign in accounts`; terminal `use terminals or files`; sessions:write `start sessions`; runs:drive `run agents`; read `see what is on it`. Details: `{scope}` |
 | `{env} does not offer {flag}; a version that does is needed.` | `{env} runs an older agent-harness without this. Update {env} to use it.` Details: `{flag}` |
-| `This client cannot {purpose}: its shell has no {member}.` | `This app cannot {purpose} here.` + the alternative (`Copy the link instead.`) |
+| `This client cannot {purpose}: its shell has no {member}.` | `This app cannot {purpose} here.` + the alternative where there is one (`Copy the link instead.`, `Paste the link instead.`, `Add a token instead.`, `Type the folder's path instead.`, `Select the text and copy it instead.`, `Connect to another computer instead.`). Details: `{member}` |
+| `{env} is newer than this client: update this client.` (client-runtime/src/connections/block-words.ts) | `{env} runs a newer agent-harness than this app. Update this app.` |
+| `{env} is older than this client: update {env} to this client's version.` / `…, and cannot update itself from here.` | `{env} runs an older agent-harness than this app. Update {env}.` / `… Update it on that computer.` |
+| `This client's access to {env} was revoked: pair it again.` / `… expired: …` | `This app's access to {env} was taken away. Pair again.` / `This app's access to {env} has run out. Pair again.` (this computer's own: `Try again.`) |
+| `Stored credentials for {env} could not be read: pair it again.` | `This app cannot read its saved key for {env}. Pair again.` |
+| `The address kept for {env} now reaches another environment.` / `{env} is blocked.` | `The address saved for {env} now reaches a different computer.` / `This app cannot connect to {env}.` |
 | `Read-only: {line}` | `You can look but not change this. {line}` |
 | raw refusals `Not {verb}ed: {message}` | `{Plain line from the refusal mapper}` Details: `{message}`; the mapper (client-runtime) words each error code and reason; unknown ones read `Something went wrong. Choose {verb} to try again.` |
 | text cut at 120 characters by `oneLine` (banks, skills cards) | never cut: the plain line is short and the rest is in Details |
@@ -189,7 +194,9 @@ Words stay: `Leave set up without an account?` / `You can look around, but you w
 - Header chip: `Set up: {n} to fix` (never cut: the chip grows to fit); it opens Set up at the first step that needs a fix.
 - After Check everything again opens Set up on a step, that step's card says `Checked just now.` above its notice, so the jump is explained.
 - Terminal UI `/setup`: header `Set up on {name}: {d} of {m} done, {n} {needs|need} a fix ({steps}).`; the closing line
-  `Press Enter on a step to run its fix, or open Set up in the desktop app.` (was "Run it in the desktop window."); state words as §3.
+  `Press Enter on a step to run its fix, or open Set up in the desktop app.` (was "Run it in the desktop window."); state words as §3,
+  a step's second line after its line on the same row. A refused check: `agent-harness could not check {name}. Run /setup to try again.`
+  and, dim beneath, `Details: {the refusal}` (the terminal has no Check everything again; `/setup` checks again).
 
 ## 5. The steps
 
@@ -303,7 +310,7 @@ quoted from the files named; a builder greps for them.
   updates (`Update automatically`, channel `Stable` / `Beta`); link **All settings for this computer** (Settings › Your machines; leaves Set up).
   Browser origins, the sandbox list and the grant note are not on this card. A limited pairing shows one line `This app has limited access to {name}.` with **What does this mean?** (#1631's sheet).
 - Lines: done `{name} is ready. It updates itself.` / `{name} is ready. Automatic updates are off.` / `{name} is ready. The host's updater keeps it up to date.` /
-  pinned `{name} is ready. It stays on version {v}.`; restarting within its 30 minutes `{name} is restarting.` and the same second sentence; Details: `Version: {v}`, `Updates: {on | off | pinned to {v} | by the host's updater}`, and `Tailscale address: {ip} ({tailnet name})`, `Local network address: {ip}` or `Reachable from: this computer only`;
+  pinned `{name} is ready. It stays on version {v}.`, and while the pin does not run yet (its update waits for idle, or never comes) `{name} is ready. It runs version {v0} and is pinned to {v}.`; restarting within its 30 minutes `{name} is restarting.` and the same second sentence; Details: `Version: {v0}` (the running version), `Updates: {on | off | pinned to {v} | by the host's updater}`, and `Tailscale address: {ip} ({tailnet name})`, `Local network address: {ip}` or `Reachable from: this computer only`;
   pending `Checking for updates. This takes about two minutes after start.`; late first check `The first update check is late. Choose Check again.`;
   not read `agent-harness has not checked for updates {in the last day | yet}. Choose Check again.`; read failed `agent-harness could not check for updates.
   Check the internet connection, then choose Check again.` Details; root `agent-harness runs as the administrator (root) account, which is unsafe. Restart it as your own user.` Details;
@@ -381,7 +388,7 @@ quoted from the files named; a builder greps for them.
   no answer `{label} did not answer. Check the address and the connection, then choose Check again.`; sealed `{label} is locked (sealed). Unlock it, then choose Check again.`;
   certificate `agent-harness does not trust {label}'s security certificate. Choose Check certificate to review it.` **Check certificate**;
   cannot make run keys `{label} lets agent-harness sign in but not make keys for agents. Ask whoever runs {label} to allow it.` Details: the path and a copyable policy line;
-  tool missing `The {tool} tool is not installed on {computer}. Install it so agents can use {label}.` **Install {tool}**; tool old `… is out of date.` **Update {tool}**;
+  tool missing `The {tool} tool is not installed on {computer}. Install it so agents can use {label}.` **Install {tool}**; tool old `The {tool} tool on {computer} is out of date. Update it so agents can use {label}.` **Update {tool}**;
   not ready (provider unavailable, signing in) `{label} is not ready yet. Choose Check again.` (these now count: the step is not Done while they show);
   references `Some forge tokens are kept in a key manager that is not connected here. Connect it.` Details: ids.
 - Sign-in messages: refused `{provider} did not accept these details. Check them and try again.`; unreachable `agent-harness could not reach {address}. Check the address.`;
@@ -410,6 +417,46 @@ quoted from the files named; a builder greps for them.
   waiting `{bank}'s description is waiting for your approval on {host}.` **Open the review**; summary names missing notes `{bank}'s summary names notes that do not exist.` **Fix the description**;
   owners `{host} does not know {login}, listed as an owner of {bank}.` **Fix the description**; saving failed `The last change to {bank} could not be saved to {host}.` **Check again** Details;
   conversation stopped `The describing conversation stopped.` **Continue it** · **Write it myself** · **Start again** Details: the provider's words.
+- How the environment picks the unreachable cause (one per notebook, #1854): its folder is not on this computer; else no forge account here covers
+  its forge (a notebook copied from another computer names that computer, `copiedFrom`); else its forge answers that the repository is not there;
+  else the plain line. Details hold `{bank}: {what the check saw}`. Lines the code needs beyond the list above: a description problem's `{plain rule}`
+  is one phrase per validator rule, the rule id and its message in Details (environment/src/banks/step-checks.ts `PLAIN_RULES`, for example retired_key
+  `it uses keys from an older layout`, orientation_missing `its summary names a note that does not exist`, secret_shaped `it holds something that
+  looks like a password`; a rule this build does not know `it does not follow the notebook's rules`); saving failed on a notebook kept on this computer only
+  `The last change to {bank} could not be saved.`; a reviewed change other than the description `{bank}'s latest changes are waiting for your approval on {host}.`
+  **Open the review**. The pull request's address is in Details.
+- Refusals (each with Details: the raw message, statuses, git's words and paths; never in the line):
+  join and preview, the forge did not answer `agent-harness could not reach {host}. Check the link and the internet connection.`; any other answer
+  `{host} would not show this notebook to agent-harness. Try again in a moment.`; GitLab `GitLab is not supported yet.`; an account with a problem
+  `Your account on {host} needs a fix first.`; the copy could not be read `agent-harness could not copy this notebook
+  from {host}. Try again in a moment.`; too slow `Reading the notebook took too long. Try again.`; its description has a problem
+  `This notebook's description has a problem, so it cannot be joined. Ask an owner to fix it.`; it holds a secret `This notebook holds something
+  that looks like a password, so it cannot be joined. Ask an owner to remove it.`; a name already used `You already have a notebook named {name}.`;
+  too big at start as Create (adding or turning on a notebook too)
+  Create: `Enter a different folder name for each project.`; no main forge `Choose your main forge first, or keep the notebook on this computer.`
+  **Go to Forges**; the chosen account gone `That forge account is no longer connected. Choose another one.`; an account with a problem
+  `Your account on {host} needs a fix first.` **Go to Forges**; GitLab `GitLab is not supported yet.`; an owner not offered `Choose the owner from the list.`;
+  the facts do not make a notebook `These answers do not make a notebook agent-harness can use. Check the names and try again.`; a missing part
+  `This copy of agent-harness is missing a part. Reinstall agent-harness.`; a folder could not be set up `agent-harness could not set up the notebook's
+  folder on this computer.`; the forge did not answer `agent-harness could not reach {host}. Check the internet connection, then try again.`; the
+  repository was not made `{host} did not make the notebook's repository. Check that your token can create repositories.`; the first save
+  `The repository was made on {host}, but agent-harness could not save the notebook to it.`; a notebook of that name
+  `You already have a notebook named {name}.`; the answers hold a secret `Your answers hold something that looks like a password. Take it out and
+  try again.`; a folder of that name `You already have a notebook or folder named {name}. Choose another name.`; creating is not offered `agent-harness on this computer cannot create notebooks.`;
+  made already `This notebook was made already.`; too big at start `With this notebook, what agents read at the start would be too long. Turn another notebook off first.`
+  Publish (move a notebook to your forge): no main forge `Choose your main forge before you move this notebook to it.` **Go to Forges**; an account with a
+  problem, GitLab, a missing part, the forge did not answer and the repository was not made as Create; a description that cannot move
+  `{bank} needs a working description before it can move to your forge.` **Fix the description**; a file that is not a plain file
+  `A file in {bank}'s folder is not a plain file, so it cannot move.`; a file or follow-up holds a secret `{bank} holds something that looks like
+  a password. Take it out before it moves to your forge.`; preparing `agent-harness could not get {bank} ready to move.`; the copy
+  `The repository was made on {host}, but agent-harness could not copy {bank} to it.`; reading it back `{bank} is on {host}, but agent-harness
+  could not read it back for your review. Choose Check again.`; gone `That notebook is not on this computer.`; already on a forge
+  `{bank} is already on a forge.`; the review or a follow-up not taken `{host} did not accept the move of {bank}. Try again in a moment.`; turned off or read-only `Turn on {bank}, with changes allowed, before you move it.`; not offered
+  `agent-harness on this computer cannot move notebooks to a forge.`; busy `{bank} is saving a change. Try again in a moment.`;
+  changed `{bank} changed while it was being prepared. Try again.`
+  Describe: no notebook named `Choose which notebook to describe.`; gone `{bank} is no longer one of your notebooks.`; its folder `{bank}'s folder on this
+  computer is missing.`; its copy for describing `agent-harness could not get {bank} ready to describe. Choose Describe it to try again.`
+  A conversation a step does not have `This step has no conversation to start.`; its subject gone `What this conversation was for is no longer here. Choose Check again.`
 - Badges on a notebook: `Personal` / `Team`, `On` / `Off`, `On this computer only` / `On {host}`; the rest in Details. `Manifest: {state}` becomes `Description: ready / missing / has a problem / waiting for approval`.
 
 ### 5.9 Skills (gui/src/skills/skills-card.tsx, sources.tsx; environment/src/skills/*)
@@ -418,7 +465,7 @@ quoted from the files named; a builder greps for them.
   `You can follow up to 20 collections.` shows once, above the list, from 15 on.
 - More options › `Add from a link`: `Repository address` **Look for skills** → `Found {n} skill folders:` ticks **Add selected**.
 - Skill members, always-on switches and repository trust are not in Set up (Settings › Skills, link **All skill settings**).
-- Lines: skip `No skills added. Optional.`; done `Your skills are up to date.` (own only: `Your own skills are ready.`);
+- Lines: skip `No skills added. Optional.`; done `Your skills are up to date.` (own only: `Your own skills are ready.`); after Update now `{collection} is up to date.`;
   update failed `{collection} could not update. Choose Update now.`; out of date `{collection} has not updated for over 7 hours. Choose Update now.`;
   moved `{collection} no longer has skills where they were. Choose its folders again.` (card button **Choose folders**);
   too many `You follow {n} collections. The limit is 20. Remove {n-20}.`; own folder `agent-harness cannot open your own skills folder. Check that it exists.` Details.

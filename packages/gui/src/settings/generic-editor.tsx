@@ -36,11 +36,11 @@ export const reachWords = (runtime: Runtime, view: EnvironmentView): string => {
 
 /**
  * `reach` and what follows from it: one clause after a colon; or, after a
- * line that already says what to do after a colon of its own (a block's
- * sentence, #1772), a sentence of its own.
+ * line that already says what to do in a clause or a sentence of its own (a
+ * block's, #1772; a limited pairing's, #1837), a sentence of its own.
  */
 export const afterReach = (reach: string, rest: string): string =>
-  reach.includes(": ") ? `${reach}. ${rest.charAt(0).toUpperCase()}${rest.slice(1)}` : `${reach}: ${rest}`;
+  /[:.] /.test(reach) ? `${reach}. ${rest.charAt(0).toUpperCase()}${rest.slice(1)}` : `${reach}: ${rest}`;
 
 /** Why nothing shown of an environment not ready can be written, over what this window read of it, if anything. */
 export const readOnlyLine = (runtime: Runtime, view: EnvironmentView, read: boolean, reach: string = reachWords(runtime, view)): string =>

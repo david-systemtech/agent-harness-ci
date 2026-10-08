@@ -281,13 +281,13 @@ describe("the side column", () => {
     await openPane(app, "Files");
     const files = screen.getByRole("menuitem", { name: "Files" });
     expect(files.getAttribute("aria-disabled")).toBe("true");
-    expect(files.textContent).toMatch(/without the terminal scope\.$/);
+    expect(files.textContent).toMatch(/so it cannot use terminals or files\. Pair again with full access to change this\.$/);
     expect(screen.queryByRole("region", { name: "Files" })).toBeNull();
     await app.user.keyboard("{Escape}");
 
     await openPane(app, "Tasks");
     expect(named("Tasks").getAttribute("aria-disabled")).toBeNull();
     await openMenu(app);
-    expect((await screen.findByRole("menuitem", { name: /^Diff/ })).textContent).toMatch(/without the terminal scope\.$/);
+    expect((await screen.findByRole("menuitem", { name: /^Diff/ })).textContent).toMatch(/so it cannot use terminals or files\. Pair again with full access to change this\.$/);
   });
 });

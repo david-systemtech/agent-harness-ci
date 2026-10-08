@@ -194,7 +194,7 @@ it("offers a revoked phone Pair again on its blocked line, outside every menu, a
   const { runtime, env, link } = await pairedPhone();
   act(() => env.wire.server.bye("revoked"));
   const line = await blockedLine();
-  expect(line.textContent).toContain("This client's access to desk was revoked: pair it again.");
+  expect(line.textContent).toContain("This app's access to desk was taken away. Pair again.");
   expect(line.textContent).not.toContain("choose Pair.");
   const again = within(line).getByRole("button", { name: "Pair again" });
   expect(screen.queryByRole("menu")).toBeNull();
@@ -213,6 +213,6 @@ it("says a phone blocked by a newer environment needs this client updated, with 
   const { env } = await pairedPhone();
   act(() => env.wire.server.bye("protocol", { protocolVersion: PROTOCOL_VERSION + 1 }));
   const line = await blockedLine();
-  expect(line.textContent).toBe("desk is newer than this client: update this client.");
+  expect(line.textContent).toBe("desk runs a newer agent-harness than this app. Update this app.");
   expect(within(line).queryByRole("button")).toBeNull();
 });

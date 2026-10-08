@@ -25,9 +25,9 @@ describe("Your machines' line when done", () => {
       details: ["Version: 0.1.3", "Updates: on", "Reachable from: this computer only"],
     });
     expect(yourMachinesLine("desk", "0.1.3", ready, { ...values, "updates.autoUpdate": false }).reason).toBe("desk is ready. Automatic updates are off.");
-    expect(yourMachinesLine("desk", "0.1.3", ready, { ...values, "updates.pinnedVersion": "0.1.2" })).toMatchObject({
-      reason: "desk is ready. It stays on version 0.1.2.",
-      details: ["Version: 0.1.3", "Updates: pinned to 0.1.2", "Reachable from: this computer only"],
+    expect(yourMachinesLine("desk", "0.1.3", ready, { ...values, "updates.pinnedVersion": "0.1.3" })).toMatchObject({
+      reason: "desk is ready. It stays on version 0.1.3.",
+      details: ["Version: 0.1.3", "Updates: pinned to 0.1.3", "Reachable from: this computer only"],
     });
     expect(yourMachinesLine("desk", "0.1.3", { ...ready, updatesManagedOutside: true }, values).reason).toBe("desk is ready. The host's updater keeps it up to date.");
 
@@ -45,6 +45,17 @@ describe("Your machines' line when done", () => {
     ]);
     expect(yourMachinesLine("desk", "0.1.3", { ...ready, activity: { state: "draining", drainingSince: "2026-10-06T08:00:00.000Z" } }, values).reason).toBe(
       "desk is restarting. It updates itself.",
+    );
+  });
+
+  it("names the version that runs, beside the pin, while the pin does not run yet (#1890)", () => {
+    const values = presetSettings();
+    expect(yourMachinesLine("desk", "0.4.1", ready, { ...values, "updates.pinnedVersion": "0.4.5" })).toMatchObject({
+      reason: "desk is ready. It runs version 0.4.1 and is pinned to 0.4.5.",
+      details: ["Version: 0.4.1", "Updates: pinned to 0.4.5", "Reachable from: this computer only"],
+    });
+    expect(yourMachinesLine("desk", "0.4.1", { ...ready, activity: { state: "draining", drainingSince: "2026-10-06T08:00:00.000Z" } }, { ...values, "updates.pinnedVersion": "0.4.5" }).reason).toBe(
+      "desk is restarting. It runs version 0.4.1 and is pinned to 0.4.5.",
     );
   });
 

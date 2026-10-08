@@ -376,7 +376,7 @@ describe("where the theme cannot be written", () => {
     const app = await renderApp({ environments: [{ name: "laptop", reach: "paired", scopes: ["read", "sessions:write", "runs:drive", "terminal"], settings: { "appearance.theme": LAGOON } }] });
     const picker = await openTheme(app);
     const ui = controls(picker);
-    expect(await within(picker).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(picker).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(picker).getAllByText(/^Read-only:/)).toHaveLength(1);
     expect(await within(picker).findByText("Lagoon, on laptop")).toBeDefined();
     for (const radio of within(ui.shipped()).getAllByRole("radio")) expect((radio as HTMLInputElement).disabled).toBe(true);

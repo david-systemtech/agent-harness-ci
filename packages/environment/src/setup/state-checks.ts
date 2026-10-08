@@ -140,7 +140,9 @@ export const lanHolds = (lan: string | null, held: readonly string[]): StateChec
  * Your machines' line when done (#1698; setup-copy.md §5.4): the computer is
  * ready, or restarting within its cap, by its name, and how it is kept up to
  * date; the version it runs, its updates and where it can be reached beside
- * this computer in details.
+ * this computer in details. A pin that does not run yet names the version
+ * that runs beside it (#1890): the update to it may still wait for idle, or
+ * never come.
  */
 export const yourMachinesLine = (name: string, version: string, { activity, updatesManagedOutside, binding }: EnvironmentStatus, values: SettingsValues): Finding => {
   const pinned = values["updates.pinnedVersion"];
@@ -149,7 +151,7 @@ export const yourMachinesLine = (name: string, version: string, { activity, upda
     : !values["updates.autoUpdate"]
       ? ["off", "Automatic updates are off."]
       : pinned !== null
-        ? [`pinned to ${pinned}`, `It stays on version ${pinned}.`]
+        ? [`pinned to ${pinned}`, pinned === version ? `It stays on version ${pinned}.` : `It runs version ${version} and is pinned to ${pinned}.`]
         : ["on", "It updates itself."];
   const tailnet = binding?.tailnet ?? null;
   const reach = [
@@ -235,6 +237,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     ...forgesStateChecks({ forge: options.forge, clock: options.clock }),
     ...keyManagerStateChecks({
       connections: () => options.keyManagerConnections.list(),
+      computer: () => options.look().name,
       requiredConnections: () => options.forge.list().flatMap((account) => account.credential.kind === "reference" ? [account.credential.reference.connectionId] : []),
       verify: () => options.keyManagerConnections.verify(),
       toolRows: async () => (await options.managedTools.list()).tools,

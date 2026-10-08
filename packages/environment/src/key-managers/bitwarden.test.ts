@@ -122,7 +122,11 @@ it("rejects a bad token, signs in an awaiting connection, and exposes SDK load f
   expect(rejection((await add(client, { provider: "bitwarden", address, credential: token("refused-token-for-tests") })).receipt)).toMatchObject({ reason: "verification_failed" });
   const connection = await added(client, { provider: "bitwarden", address });
   sdk.unavailable();
-  expect(rejection((await signIn(client, { connectionId: connection.id, credential: token(BITWARDEN_TEST_TOKEN) })).receipt)).toMatchObject({ reason: "provider_unavailable", message: expect.stringContaining("native binding missing") });
+  expect(rejection((await signIn(client, { connectionId: connection.id, credential: token(BITWARDEN_TEST_TOKEN) })).receipt)).toMatchObject({
+    reason: "provider_unavailable",
+    message: "agent-harness cannot connect to Bitwarden Secrets Manager on this computer yet.",
+    data: { details: [expect.stringContaining("native binding missing"), "Nothing was changed."] },
+  });
   sdk.unavailable(false);
   expect((await signIn(client, { connectionId: connection.id, credential: token(BITWARDEN_TEST_TOKEN) })).result?.connection).toMatchObject({ status: { kind: "signed-in" }, method: null });
   const reference = { provider: "bitwarden", connectionId: connection.id, secretId: randomUUID(), key: "fake-key" } as const;

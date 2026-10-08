@@ -372,7 +372,7 @@ describe("agent-harness ls", () => {
 
     expect(await list(on, { currentDirectory: here, environment: "nowhere" })).toEqual(failed("No environment named nowhere is known here."));
     expect(await list(on, { currentDirectory: here, environment: "laptop", all: true })).toEqual(
-      failed("The sessions on laptop could not be read: This client was paired with laptop without the read scope."),
+      failed("The sessions on laptop could not be read: This app has limited access to laptop, so it cannot see what is on it. Pair again with full access to change this."),
     );
 
     desk.wire.answer("sessions.list", () => ({ error: { code: "internal", message: "The database is locked.", data: {} } }));

@@ -25,9 +25,15 @@ const { onCleanup, tempDir } = useCleanups();
 /** Whether this test runs as root, which can read any directory. */
 const RUNNING_AS_ROOT = process.getuid?.() === 0;
 
+/**
+ * Starts an environment once its own setup checks have settled: the start
+ * pass appends their results in the background, so a test that pins the
+ * log head before them reads a head the next result moves (#1889).
+ */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
+  await t.env.setup.startPass;
   return t;
 };
 

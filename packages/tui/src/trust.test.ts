@@ -79,7 +79,7 @@ it.each(["/trust", "/trust decline"])("explains why %s needs admin without sendi
   await app.type(command);
   await app.press(KEY.enter);
   await app.waitFor("Cannot decide repository trust:");
-  expect(app.frame()).toContain("admin");
+  expect(app.frame()).toContain("so it cannot change settings");
   expect(app.frame()).toContain("Trust https://forge.test/milo/receipts?");
   expect(env.requests("trust.decide")).toEqual([]);
   expect(env.requests("runs.start")).toEqual([]);

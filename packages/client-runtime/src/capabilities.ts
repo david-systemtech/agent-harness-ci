@@ -5,6 +5,7 @@ import {
   registry,
   type KnownCapabilityFlag,
   type MethodName,
+  type Scope,
 } from "@agent-harness/contracts";
 import { blockWords } from "./connections/block-words.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/records.js";
@@ -16,6 +17,8 @@ import { SHELL_MEMBERS, hasShellMember, type Shell, type ShellMember } from "./s
  * `capability(environmentId, name)` and shows the answer's one line when it
  * is absent, so both renderers say the same thing (ADR 0004). No renderer
  * reads flags or scopes itself, and support is never inferred from a version.
+ * The line is plain (setup-copy.md §3): a scope, flag or shell member is
+ * named only in the answer's details.
  */
 
 /**
@@ -55,39 +58,66 @@ export type AbsentReason = "unsupported" | "scope" | "unreachable" | "not-ready"
 
 export type CapabilityAnswer =
   | { readonly status: "present" }
-  | { readonly status: "absent"; readonly reason: AbsentReason; readonly message: string };
+  | {
+      readonly status: "absent";
+      readonly reason: AbsentReason;
+      readonly message: string;
+      /** The raw names behind the line, for Details: the flag, scope or shell member missing. */
+      readonly details?: readonly string[];
+    };
 
 const PRESENT: CapabilityAnswer = { status: "present" };
-const absent = (reason: AbsentReason, message: string): CapabilityAnswer => ({ status: "absent", reason, message });
+const absent = (reason: AbsentReason, message: string, ...details: readonly string[]): CapabilityAnswer => ({ status: "absent", reason, message, ...(details.length > 0 && { details }) });
 
-/** What each shell member lets a client do, for the line that says it cannot. */
-const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
-  "shell.dialogs": "open the system's file dialogs",
-  "shell.window": "set its window's title, badge or background colour",
-  "shell.notifications.show": "show system notifications",
-  "shell.notifications.onActivate": "open what a clicked notification is about",
-  "shell.tray": "show a tray icon",
-  "shell.deepLinks.onOpen": `open ${PRODUCT_NAME} links`,
-  "shell.webView": "embed a browser",
-  "shell.preview": "show a preview",
-  "shell.installer.bundledServer": "hand its local environment the server it carries",
-  "shell.update": "update itself",
-  "shell.service": "install, start or check the local environment's service",
-  "shell.clipboard": "use the clipboard",
-  "shell.openExternal": "open links in the system browser",
-  "shell.localGrant.read": "read the local environment's grant",
-  "shell.credentialAccess.read": "tell when the local environment waits on the OS keychain",
-  "shell.secrets": "keep secrets in the system keychain",
-  "shell.secrets.protection": "tell whether the system keychain protects the tokens it keeps",
-  "shell.http": "reach an environment over HTTP from outside the page",
-  "shell.network": "declare the addresses its window may connect to",
-  "shell.system": "tell which machine and user it runs as",
-  "shell.gh": "read the gh signed in on this computer",
-  "shell.camera": "scan a QR code with a camera",
+/** What each shell member lets a client do, for the line that says it cannot, and what to do instead where there is something. */
+const SHELL_MEMBER_PURPOSE: Record<ShellMember, { readonly purpose: string; readonly instead?: string }> = {
+  "shell.dialogs": { purpose: "open the system's file dialogs", instead: "Type the folder's path instead." },
+  "shell.window": { purpose: "change its window's title, badge or colour" },
+  "shell.notifications.show": { purpose: "show system notifications" },
+  "shell.notifications.onActivate": { purpose: "open what a clicked notification is about" },
+  "shell.tray": { purpose: "show a tray icon" },
+  "shell.deepLinks.onOpen": { purpose: `open ${PRODUCT_NAME} links` },
+  "shell.webView": { purpose: "show a web page inside the window" },
+  "shell.preview": { purpose: "show a preview" },
+  "shell.installer.bundledServer": { purpose: `set up ${PRODUCT_NAME} on this computer`, instead: "Connect to another computer instead." },
+  "shell.update": { purpose: "update itself" },
+  "shell.service": { purpose: `start ${PRODUCT_NAME} on this computer`, instead: "Connect to another computer instead." },
+  "shell.clipboard": { purpose: "use the clipboard", instead: "Select the text and copy it instead." },
+  "shell.openExternal": { purpose: "open links in your browser", instead: "Copy the link instead." },
+  "shell.localGrant.read": { purpose: `connect to ${PRODUCT_NAME} on this computer`, instead: "Connect to another computer instead." },
+  "shell.credentialAccess.read": { purpose: "tell when this computer's keychain is asking for permission" },
+  "shell.secrets": { purpose: "keep passwords in this computer's keychain" },
+  "shell.secrets.protection": { purpose: "tell whether this computer's keychain protects the tokens it keeps" },
+  "shell.http": { purpose: "reach other computers from this page" },
+  "shell.network": { purpose: "choose which computers its window may connect to" },
+  "shell.system": { purpose: "tell which computer and user it runs as" },
+  "shell.gh": { purpose: "use the gh tool signed in on this computer", instead: "Add a token instead." },
+  "shell.camera": { purpose: "scan a QR code", instead: "Paste the link instead." },
 };
 
-/** The line a shell member's absence is said with. */
-export const noShellMessage = (member: ShellMember): string => `This client cannot ${SHELL_MEMBER_PURPOSE[member]}: its shell has no ${member}.`;
+/** The line a shell member's absence is said with: what this app cannot do here, and what to do instead (setup-copy.md §3). */
+export const noShellMessage = (member: ShellMember): string => {
+  const { purpose, instead } = SHELL_MEMBER_PURPOSE[member];
+  return `This app cannot ${purpose} here.${instead === undefined ? "" : ` ${instead}`}`;
+};
+
+/** What a client session without each scope cannot do, for the line of a limited pairing (setup-copy.md §3). */
+const SCOPE_VERBS: Record<Scope, string> = {
+  read: "see what is on it",
+  "sessions:write": "start sessions",
+  "runs:drive": "run agents",
+  terminal: "use terminals or files",
+  admin: "change settings or sign in accounts",
+};
+
+const limited = (environment: string, scope: Scope): CapabilityAnswer =>
+  absent("scope", `This app has limited access to ${environment}, so it cannot ${SCOPE_VERBS[scope]}. Pair again with full access to change this.`, scope);
+
+const older = (environment: string, flag: KnownCapabilityFlag): CapabilityAnswer =>
+  absent("unsupported", `${environment} runs an older ${PRODUCT_NAME} without this. Update ${environment} to use it.`, flag);
+
+/** The line a connection this client does not have is said with. */
+const NOT_CONNECTED = "This client has no connection to that environment.";
 
 const isShellMember = (name: string): name is ShellMember => (SHELL_MEMBERS as readonly string[]).includes(name);
 const isFlag = (name: string): name is KnownCapabilityFlag => (CAPABILITY_FLAG_LIST as readonly string[]).includes(name);
@@ -95,9 +125,9 @@ const isFlag = (name: string): name is KnownCapabilityFlag => (CAPABILITY_FLAG_L
 /** The answer for `name` on the connection `record` (undefined when there is none), with the platform's `shell`. */
 export const answerCapability = (name: CapabilityName, record: ConnectionRecord | undefined, shell: Shell | undefined): CapabilityAnswer => {
   if (isShellMember(name)) {
-    return hasShellMember(shell, name) ? PRESENT : absent("no-shell", noShellMessage(name));
+    return hasShellMember(shell, name) ? PRESENT : absent("no-shell", noShellMessage(name), name);
   }
-  if (!record) return absent("unreachable", "This client has no connection to that environment.");
+  if (!record) return absent("unreachable", NOT_CONNECTED);
   if (record.environmentId === LOCAL_PLACEHOLDER_ID) {
     // Nothing is connected until the local environment answers and is listed under its own id; only the shell is asked of it.
     if (record.phase === "disabled") return absent("unreachable", "This machine's local environment is disabled on this client.");
@@ -127,12 +157,10 @@ export const answerCapability = (name: CapabilityName, record: ConnectionRecord 
       return absent("unreachable", `${environment} cannot be reached.`);
   }
   const flag = isFlag(name) ? name : isMethodName(name) ? METHOD_FLAGS[name] : undefined;
-  if (flag !== undefined && !record.descriptor.capabilities.includes(flag)) {
-    return absent("unsupported", `${environment} does not offer ${flag}; a version that does is needed.`);
-  }
+  if (flag !== undefined && !record.descriptor.capabilities.includes(flag)) return older(environment, flag);
   if (isMethodName(name)) {
     const scope = registry[name].scope;
-    if (!record.scopes.includes(scope)) return absent("scope", `This client was paired with ${environment} without the ${scope} scope.`);
+    if (!record.scopes.includes(scope)) return limited(environment, scope);
   }
   return PRESENT;
 };
@@ -144,11 +172,11 @@ export const answerCapability = (name: CapabilityName, record: ConnectionRecord 
  * gating it, if any, whatever the phase, as dispatch checks them.
  */
 export const answerQueuedCommand = (method: MethodName, record: ConnectionRecord | undefined): CapabilityAnswer => {
-  if (!record || record.environmentId === LOCAL_PLACEHOLDER_ID) return absent("unreachable", "This client has no connection to that environment.");
+  if (!record || record.environmentId === LOCAL_PLACEHOLDER_ID) return absent("unreachable", NOT_CONNECTED);
   const name = record.descriptor.name;
   const { scope } = registry[method];
-  if (!record.scopes.includes(scope)) return absent("scope", `This client was paired with ${name} without the ${scope} scope.`);
+  if (!record.scopes.includes(scope)) return limited(name, scope);
   const flag = METHOD_FLAGS[method];
-  if (flag !== undefined && !record.descriptor.capabilities.includes(flag)) return absent("unsupported", `${name} does not offer ${flag}; a version that does is needed.`);
+  if (flag !== undefined && !record.descriptor.capabilities.includes(flag)) return older(name, flag);
   return PRESENT;
 };

@@ -23,6 +23,10 @@ export interface BankRecord {
   readonly checkout: string;
   /** Local-only describe commits land through the environment rather than a remote push. */
   readonly localOnly?: boolean;
+  /** The host of its forge, as a line names it; null for a bank kept on this machine only. */
+  readonly host: string | null;
+  /** The name of the environment its record was copied from, when it was copied. */
+  readonly copiedFrom: string | null;
   /** The entities its `BANK.md` names, each with its aliases. */
   readonly entities: readonly { readonly name: string; readonly aliases: readonly string[] }[];
   /** Its scope folders holding memories, `projects/{org}/{project}/` with an area or not. */
@@ -48,6 +52,8 @@ export const bankRecords = (service: BankService): BankRecords => {
       enabled: entry.enabled,
       checkout: entry.checkout,
       localOnly: entry.location.kind === "local",
+      host: entry.location.kind === "remote" ? new URL(entry.location.origin).host : null,
+      copiedFrom: entry.copiedFrom?.environmentName ?? null,
       entities: index?.entities.map(({ name, aliases }) => ({ name, aliases })) ?? [],
       scopes: index?.orgs.flatMap((org) => org.folders.map((folder) => `projects/${folder.path}`)) ?? [],
       status: entry.status,
