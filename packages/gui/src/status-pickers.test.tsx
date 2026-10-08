@@ -113,6 +113,17 @@ describe("the mode picker", () => {
     expect((await screen.findByRole("tooltip")).textContent).toContain(`Mode: BYPASS · /mode · ${BYPASS}`);
   });
 
+  it("keeps one mode notice: a later set replaces the earlier one's, and a clamp takes it away", async () => {
+    const { app } = await opened([desk({ hello: { ceiling: "auto" } })]);
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
+    await waitFor(() => expect(feedback()).toEqual(["Mode: plan."]));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^auto/ }));
+    await waitFor(() => expect(feedback()).toEqual(["Mode: auto."]));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(paneLine()).toBe("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto)."));
+    await waitFor(() => expect(feedback()).toEqual([]));
+  });
+
   it("clears an earlier clamp's line once a mode is set as asked", async () => {
     const { app } = await opened([desk({ hello: { ceiling: "auto" } })]);
     await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));

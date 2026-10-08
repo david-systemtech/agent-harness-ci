@@ -38,7 +38,7 @@ it.each(["composer-idle", "composer-running", "composer-slash", "composer-bypass
     const menu = await screen.findByRole("listbox", { name: "Commands" });
     expect(within(menu).getAllByRole("option").length).toBeGreaterThan(0);
   } else if (scene === "composer-bypass") {
-    // #1823: the mode button shows bypassPermissions, the change is said once in the transient lane, and no line stands under the composer.
+    // #1823: the scene's composition only: the mode button showing bypassPermissions and the scene's own notice in the transient lane. What a mode set says is status-pickers.test.tsx's.
     expect(within(screen.getByRole("region", { name: "Status line" })).getByRole("button", { name: "Mode: BYPASS" })).toBeDefined();
     expect(within(screen.getByRole("region", { name: /^Status feedback/ })).getByText(/^Mode: bypassPermissions\. The agent will act without asking/)).toBeDefined();
     expect(screen.queryByText(/without asking/, { selector: "[data-composer-column] *" })).toBeNull();
