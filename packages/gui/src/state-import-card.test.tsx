@@ -138,7 +138,7 @@ describe("State import on Carry over", () => {
     app.environment("desk").wire.answer("stateImport.detect", () => ({ result: detection() }));
     answerRun(app);
     await screen.findByRole("region", { name: "Set up" });
-    await app.user.selectOptions(screen.getByRole("combobox", { name: "Environment" }), app.environment("desk").environmentId);
+    await app.user.selectOptions(screen.getByRole("combobox", { name: "Setting up" }), app.environment("desk").environmentId);
     await app.user.click(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Carry over" }));
     await screen.findByRole("region", { name: "State import" });
     await app.user.click(section().getByRole("button", { name: "Import" }));

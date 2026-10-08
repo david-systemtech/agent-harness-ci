@@ -210,6 +210,7 @@ describe("the Account card in Set up", () => {
     expect(within(step()).getByText("work is signed in on desk.")).toBeDefined();
     await waitFor(() => expect(next().hasAttribute("disabled")).toBe(false));
     expect(within(step()).queryByText("Sign in to continue. Account is the one required step.")).toBeNull();
+    expect(within(step()).getByText("Account is the one required step.")).toBeDefined();
     await app.user.click(next());
     expect(within(checklist()).getByRole("region", { name: "Carry over" })).toBeDefined();
   });

@@ -191,6 +191,7 @@ Words stay: `Leave set up without an account?` / `You can look around, but you w
 - No computer picked: `Choose a computer to set up.`; still loading: `Reading {name}'s setup…`.
 - Footer: **Back**, **Skip for now**, **Continue**; step 11 **Finish set up**. On Account, Skip and Continue are disabled and the
   visible line beside them reads `Sign in to continue. Account is the one required step.`
+  Once an account is signed in, Continue is enabled and Skip stays disabled, so the line reads `Account is the one required step.`
 
 ### 4.5 Settings › Set up pane (setup-pane.tsx) and header chip (setup-line.tsx)
 - Counts: `{d} done · {n} need a fix · {s} not set up` (`· {p} checking` while any). One-word forms: `1 needs a fix`.
