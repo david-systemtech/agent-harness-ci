@@ -78,7 +78,7 @@ describe("About", () => {
 
     desk.setUpdates({ status: { pending: { state: "staging", updateId: UPDATE_ID, toVersion: "0.6.1", source: "request" } } });
     desk.notice("environment.update-pending", { ...WAITING, toVersion: "0.6.1" });
-    expect(await within(updates).findByText("Staging 0.6.1: downloading and installing it.")).toBeDefined();
+    expect(await within(updates).findByText("Downloading 0.6.1…")).toBeDefined();
   });
 
   it("says an unreadable bundled Claude Code, and a pin that holds the version with auto-update off", async () => {

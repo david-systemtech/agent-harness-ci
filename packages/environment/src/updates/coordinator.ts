@@ -4,6 +4,7 @@ import {
   ContractError,
   DRAIN_CAP_MS,
   ENVIRONMENT_STREAM_KIND,
+  PRODUCT_NAME,
   ReleaseVersion,
   UpdateCancelledPayload,
   UpdatePendingPayload,
@@ -26,6 +27,7 @@ import type { AdapterHost } from "../adapter/host.js";
 import { formatActor, type EventInput, type EventLog, type JsonObject, type StreamRef } from "../event-log/event-log.js";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { Finding } from "../setup/check.js";
 import type { AnswerTo, LauncherChannel } from "../serve/launcher.js";
 import type { DrainCause } from "../serve/lifecycle.js";
 import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PrepareContext } from "../serve/methods.js";
@@ -184,9 +186,11 @@ export interface UpdateCoordinator {
    * The Your machines step's `your-machines.updates`, with `newest` the
    * channel's newest as the last check found it: auto-update effective or
    * that newest running, no update past its deferral cap and its drain,
-   * nothing blocked, and no failed update above the version running.
+   * nothing blocked, and no failed update above the version running; its
+   * lines are setup-copy.md §5.4's, naming the environment by `name`, the
+   * versions, times and launcher's words behind them in details (#1848).
    */
-  machineHolds(newest: string | null): StateCheckAnswer;
+  machineHolds(newest: string | null, name: string): StateCheckAnswer;
   /** Starts hearing the run registry, the minute and the cap; returns the stop. Called once the wire is open. */
   start(): () => void;
   /**
@@ -302,6 +306,8 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
   let staging: Omit<Update, "since"> | undefined;
   /** The target the last check that read the channel found blocked, shown while nothing else is pending. */
   let blocked: ChannelBlock | null = null;
+  /** The target the last check found waiting for a handover to the running version's newer launcher: nothing staged, nothing blocked. */
+  let handoverDueFor: string | null = null;
   let started = false;
   let stopped = false;
   let capTimer: Timer | undefined;
@@ -670,12 +676,15 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
   };
 
   /** Why the update that is pending is past its cap: due to drain at its `deferUntil`, it has not switched by the end of the drain's own cap. */
-  const pastCap = (): string | undefined => {
+  const pastCap = (): Finding | undefined => {
     if (held.state !== "waiting" && held.state !== "draining") return undefined;
     const due = deferUntil(held.update);
     if (clock.now().getTime() <= due.getTime() + DRAIN_CAP_MS) return undefined;
-    if (options.managedOutside && held.state === "waiting") return `The update to ${held.update.toVersion} was due at ${due.toISOString()} and the host-side updater has not begun it.`;
-    return `The update to ${held.update.toVersion} was due at ${due.toISOString()} and has not gone through its drain: it is ${held.state}.`;
+    const { toVersion } = held.update;
+    if (options.managedOutside && held.state === "waiting") {
+      return { reason: `The update to ${toVersion} has not started. Check the updater on the host computer.`, details: [`Update due at: ${due.toISOString()}`] };
+    }
+    return { reason: `The update to ${toVersion} is waiting for running sessions to finish.`, details: [`Update due at: ${due.toISOString()}`, `Update state: ${held.state}`] };
   };
 
   /** Appends that `update` failed at stage `switch` for `reason`, changing nothing, before the environment closes: the version it went from runs again. */
@@ -715,7 +724,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       switch (held.state) {
         case "current":
           if (staging) return { state: "staging", ...staging };
-          return blocked ? { state: "blocked", ...blocked } : { state: "current" };
+          return blocked ? { state: "blocked", reason: blocked.reason, toVersion: blocked.toVersion, message: blocked.message } : { state: "current" };
         case "waiting": {
           const activity = options.activity();
           if (options.managedOutside && readyCause(held, activity) !== undefined) return { state: "ready", ...pendingParts(held.update) };
@@ -782,6 +791,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     async follow(reading, settings) {
       blocked = reading.blocked;
       const { stage, target } = reading;
+      handoverDueFor = target !== null && stage === null && reading.blocked === null ? target.version : null;
       if (stage === null || target === null || staging !== undefined || !channelReplaces(stage.version)) return null;
       // Managed outside, nothing is staged: the target is pending with its image, which the host-side updater pulls.
       if (options.managedOutside) {
@@ -805,20 +815,64 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       withdrawOnCommit(update, context);
     },
 
-    machineHolds(newest) {
+    machineHolds(newest, name) {
       const { autoUpdate, pinnedVersion } = options.settings();
-      const reasons: string[] = [];
+      const running = `Running: ${harnessVersion}`;
+      const { outcomes } = readUpdateHistory(log);
+      const failed = outcomes.failedVersions.filter((version) => newer(version, harnessVersion)).sort(compareReleaseVersions);
+      const findings: Finding[] = [];
+      // A pin that does not run and that nothing below speaks for: Update now would install the pin again, so it is the pin to change.
+      let stuckPin: Finding | undefined;
       // A newest no check has read yet is not behind: whether the channel is read is the release channel's check.
-      if ((!autoUpdate || pinnedVersion !== null) && newest !== null && newer(newest, harnessVersion)) {
-        const off = pinnedVersion === null ? "Auto-update is off" : `Auto-update is off while ${pinnedVersion} is pinned`;
-        reasons.push(`${off}, and this machine runs ${harnessVersion}, behind the channel's newest, ${newest}.`);
+      if (newest !== null && newer(newest, harnessVersion)) {
+        const updates = `Updates: ${pinnedVersion === null ? "off" : `pinned to ${pinnedVersion}`}`;
+        // It stays on a pin only while the pin runs. An update toward the pin (through a stepping stone too) staging or held,
+        // a pin waiting for the launcher handover, a pin the launcher blocks and a pin whose update failed are on their way or
+        // spoken for by the lines below.
+        const towardPin = (update: Omit<Update, "since"> | undefined): boolean => update !== undefined && (update.source === "pin" || update.toVersion === pinnedVersion);
+        const pinSpokenFor =
+          towardPin(held.state === "current" ? undefined : held.update) ||
+          towardPin(staging) ||
+          handoverDueFor === pinnedVersion ||
+          blocked?.toVersion === pinnedVersion ||
+          failed.includes(pinnedVersion ?? "");
+        if (pinnedVersion === harnessVersion) {
+          findings.push({ reason: `${name} stays on ${harnessVersion} because it is pinned. ${newest} is available.`, details: [running, `Newest on the channel: ${newest}`, updates] });
+        } else if (pinnedVersion === null && !autoUpdate) {
+          findings.push({ reason: `Version ${newest} is available. Choose Update now.`, details: [running, `Newest on the channel: ${newest}`, updates] });
+        } else if (pinnedVersion !== null && !pinSpokenFor) {
+          stuckPin = {
+            reason: `${name} is pinned to ${pinnedVersion}, which could not be installed. Unpin it or pin another version.`,
+            details: [running, `Newest on the channel: ${newest}`, updates, `To unpin: ${PRODUCT_NAME} update settings --pinned-version none`],
+          };
+        }
       }
       const overdue = pastCap();
-      if (overdue !== undefined) reasons.push(overdue);
-      if (blocked !== null) reasons.push(blocked.message);
-      const failed = readUpdateHistory(log).outcomes.failedVersions.filter((version) => newer(version, harnessVersion));
-      if (failed.length > 0) reasons.push(`The update to ${failed.join(" and ")} failed, and this machine runs ${harnessVersion}.`);
-      return reasons.length === 0 ? true : { reason: reasons.join(" ") };
+      if (overdue !== undefined) findings.push(overdue);
+      if (blocked !== null) {
+        findings.push({ reason: `Version ${blocked.toVersion} needs a newer installer. Reinstall agent-harness from the ${blocked.installVersion} download.`, details: [blocked.message] });
+      }
+      // A failed pin is named, as Update now tries the pin again.
+      const lastFailed = pinnedVersion !== null && failed.includes(pinnedVersion) ? pinnedVersion : failed.at(-1);
+      if (lastFailed !== undefined) {
+        const last = outcomes.lastOutcome;
+        findings.push({
+          reason: `The update to ${lastFailed} did not work. ${name} still runs ${harnessVersion}. Choose Update now to try again.`,
+          details: [
+            running,
+            `Updates that did not work: ${failed.join(", ")}`,
+            ...(last?.outcome === "failed" ? [`Last update: to ${last.toVersion}, failed at ${last.stage}: ${last.reason}`] : []),
+          ],
+        });
+      }
+      const said = stuckPin === undefined ? findings : [stuckPin, ...findings];
+      if (said.length === 0) return true;
+      return {
+        reason: said.map((finding) => finding.reason).join(" "),
+        details: said.flatMap((finding) => finding.details ?? []),
+        // Update now offered only for a line it answers.
+        ...(findings.length === 0 && { actions: [] }),
+      };
     },
 
     start() {

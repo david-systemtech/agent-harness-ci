@@ -1742,8 +1742,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     containment,
     isRoot,
     dataDir,
-    releaseChannel: () => channelChecks.releaseChannelHolds(),
-    updates: () => updates.machineHolds(channelChecks.status().newest),
+    releaseChannel: (request) => channelChecks.releaseChannelHolds(request),
+    // A client's ask reads the channel again first (#1848), so the step is behind as that read found it.
+    updates: async (request) => {
+      await channelChecks.readAsAsked(request);
+      return updates.machineHolds(channelChecks.status().newest, look.read().name);
+    },
     hostUpdater: () => hostUpdater.holds(),
     forge,
     keyManagerConnections,

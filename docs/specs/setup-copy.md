@@ -314,16 +314,21 @@ quoted from the files named; a builder greps for them.
   pending `Checking for updates. This takes about two minutes after start.`; late first check `The first update check is late. Choose Check again.`;
   not read `agent-harness has not checked for updates {in the last day | yet}. Choose Check again.`; read failed `agent-harness could not check for updates.
   Check the internet connection, then choose Check again.` Details; root `agent-harness runs as the administrator (root) account, which is unsafe. Restart it as your own user.` Details;
-  behind `Version {v} is available. Choose Update now.` (pinned: `{name} stays on {v} because it is pinned. {v2} is available.`);
+  behind `Version {v} is available. Choose Update now.` (pinned, while the pin runs: `{name} stays on {v} because it is pinned. {v2} is available.`;
+  a pin that does not run and is neither on its way, blocked nor failed: `{name} is pinned to {v}, which could not be installed. Unpin it or pin another version.`
+  with no Update now, which would install the pin again; Details: the versions and `To unpin: agent-harness update settings --pinned-version none`);
   late update `The update to {v} is waiting for running sessions to finish.`; host updater late `The update to {v} has not started. Check the updater on the host computer.`;
-  launcher too old `Version {v} needs a newer installer. Reinstall agent-harness from the {v} download.` Details: the command;
+  launcher too old `Version {v} needs a newer installer. Reinstall agent-harness from the {v2} download.` ({v2} is the target, or the running version when its own newer installer is what is missing) Details: the command;
   update failed `The update to {v} did not work. {name} still runs {v0}. Choose Update now to try again.` Details;
   container never polled `This container is not kept up to date yet. Set up the updater on the host computer.` **How to set it up**;
   host updater stale `The host's updater last ran {when}. Check that it still runs every five minutes.`;
   no name `This computer has no name. Give it one in More options.`; draining long `agent-harness has been restarting for over 30 minutes. Choose Check again once it is back.`;
   starting `agent-harness is still starting. This takes a few seconds.`;
   network address gone `The network address {ip} is no longer on this computer.` **Use {held ip}** / **Turn off Wi-Fi network access** Details: addresses.
-- Check again on this step reads the update channel again (today it only re-reads the last result).
+- Check again on this step, and any check this app asks for, reads the update channel again, as Check for updates does: a second ask within a
+  minute answers that read. The environment's own hourly checks of the step read the last result.
+- Update status words on the card (client-runtime/src/updates/words.ts): downloading `Downloading {v}…`; draining `Waiting for running sessions to finish before updating to {v}.`;
+  ready (a container) `{v} is ready. The host's updater installs it.`
 
 ### 5.5 Add a device (gui/src/machines/add-a-machine.tsx, preset-pairing.tsx, pairing-code.tsx; client-runtime/src/access/presets.ts)
 - Part 1 `Connect a phone or computer to this one`. Question `Who is it for?`

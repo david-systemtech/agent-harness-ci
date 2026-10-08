@@ -416,7 +416,7 @@ describe("Your machines' update controls", () => {
 
     app.environment("laptop").setUpdates({ status: { pending: { state: "draining", ...pending, cause: "cap" } } });
     app.environment("laptop").notice("environment.update-started", { updateId: pending.updateId, fromVersion: "0.0.0-fake", toVersion: "0.6.0", cause: "cap" });
-    expect(await within(card(pane, "laptop")).findByText("Draining for the update to 0.6.0: new runs are refused.")).toBeDefined();
+    expect(await within(card(pane, "laptop")).findByText("Waiting for running sessions to finish before updating to 0.6.0.")).toBeDefined();
   });
 
   it("offers Drain and update now only while busy work holds the update, says its refusal in one line, and drops its question once the update no longer waits", async () => {
