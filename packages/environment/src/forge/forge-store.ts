@@ -15,6 +15,7 @@ import {
   type ForgeCredentialSource,
   type ForgeIdentity,
   type ForgeKind,
+  type ForgeOriginAnsweredPayload,
   type ForgeOriginMissingPayload,
   type ForgeProblem,
   type ForgeTokenInformation,
@@ -33,7 +34,8 @@ import type { Reader } from "../sessions/session-tables.js";
  * was added (`credential_generation`), which a run's process environment is
  * keyed on (#315). `forge_origins` holds the canonical origin and every
  * alias of each forge account the environment holds, one forge account per origin;
- * `forge_missing_origins` the last `forge.origin-missing` of each origin; the partial
+ * `forge_missing_origins` the last `forge.origin-missing` of each origin, until a
+ * `forge.origin-answered` for the operation it names clears it; the partial
  * unique indexes hold one slug per live forge account and one primary,
  * which the ForgeService checks before it appends.
  */
@@ -182,6 +184,11 @@ const originMissing = (db: ProjectionDb, event: EventEnvelope, payload: ForgeOri
   );
 };
 
+/** An origin's missing record answered after all: the operation it names read the origin anonymously. */
+const originAnswered = (db: ProjectionDb, payload: ForgeOriginAnsweredPayload): void => {
+  db.run("DELETE FROM forge_missing_origins WHERE origin = ? AND operation = ?", payload.origin, payload.operation);
+};
+
 /**
  * Keeps the read model from the environment stream's forge events. A git
  * rejection and a missing origin change no record: the verification that
@@ -208,6 +215,8 @@ export const forgeAccountsProjector: Projector = {
         return removed(db, event, event.payload as ForgeAccountRemovedPayload);
       case "forge.origin-missing":
         return originMissing(db, event, event.payload as ForgeOriginMissingPayload);
+      case "forge.origin-answered":
+        return originAnswered(db, event.payload as ForgeOriginAnsweredPayload);
     }
   },
 };

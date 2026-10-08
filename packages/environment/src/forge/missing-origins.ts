@@ -12,7 +12,10 @@ import { FORGE_ACTOR } from "./verifier.js";
  * recorded as `forge.origin-missing`, as `system:forge`, at most once a day
  * per origin, and counts, for the Forges step's coverage check (#319), for
  * seven days after its last record, until a forge account covers it (chosen
- * defaults; a day and a week are rolling, from the last record).
+ * defaults; a day and a week are rolling, from the last record), or until
+ * the operation its last record names reads the origin anonymously after
+ * all, recorded as `forge.origin-answered` (#1891): a public repository the
+ * forge refused once in passing needs no forge account.
  */
 
 /** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the origin and the Forges step. */
@@ -40,6 +43,8 @@ export interface MissingOriginsOptions {
 export interface MissingOrigins {
   /** Records that `operation` was refused on `origin`, unless the origin was recorded within the day. */
   record(origin: ForgeOrigin, operation: string): void;
+  /** Clears the origin's record when its last one names `operation`, which the origin has now answered anonymously; a no-op otherwise. */
+  answered(origin: ForgeOrigin, operation: string): void;
   /** The missing origins that count now: recorded within seven days, and served by no forge account. */
   counted(): MissingOrigin[];
 }
@@ -51,6 +56,14 @@ export const createMissingOrigins = ({ log, clock, stream, reader, accounts }: M
       const last = missingOrigins(reader).find((missing) => missing.origin === origin);
       if (last !== undefined && clock.now().getTime() - Date.parse(last.recordedAt) < MISSING_ORIGIN_RECORD_MS) return;
       log.append(stream, [{ type: "forge.origin-missing", payload: { origin, operation } }], { tx, actor: FORGE_ACTOR });
+    });
+  },
+  answered(origin, operation) {
+    const recorded = (): boolean => missingOrigins(reader).some((missing) => missing.origin === origin && missing.operation === operation);
+    // Nearly every anonymous read finds no record, and takes no transaction; one that does is checked again in it.
+    if (!recorded()) return;
+    log.atomically((tx) => {
+      if (recorded()) log.append(stream, [{ type: "forge.origin-answered", payload: { origin, operation } }], { tx, actor: FORGE_ACTOR });
     });
   },
   counted() {

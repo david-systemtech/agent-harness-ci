@@ -58,8 +58,9 @@ import { FORGE_ACTOR, type Verifier } from "./verifier.js";
  *   detection finds (#470), kept for the process once found; the forge
  *   refusing it (401, 403, or a 404, behind which both APIs hide a private
  *   repository) is `forge_account_missing` and records the origin as
- *   missing (#314). Detection finding no forge, as for a forge walled to
- *   anonymous callers, reads on the Gitea API; a GitLab is refused
+ *   missing (#314); the operation it names reading the origin anonymously
+ *   later clears that record (#1891). Detection finding no forge, as for a
+ *   forge walled to anonymous callers, reads on the Gitea API; a GitLab is refused
  *   `kind_unsupported`, not for want of a forge account; one detection
  *   cannot finish answers the read unreachable. A write there is refused
  *   `forge_account_missing` at once.
@@ -192,6 +193,8 @@ export interface ForgeOperationsOptions {
   readonly verifier: Pick<Verifier, "pause" | "used">;
   /** Records that `operation` was refused on `origin` for want of a forge account. */
   readonly originMissing: (origin: ForgeOrigin, operation: string) => void;
+  /** Hears that `operation` read `origin` anonymously, which clears a missing record naming it. */
+  readonly originAnswered: (origin: ForgeOrigin, operation: string) => void;
 }
 
 /** The most organisations an owner list reads (a chosen default): more than anyone picks from. */
@@ -327,6 +330,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     if (found.outcome === "unsupported") return refused(kindUnsupported(origin, found.kind));
     const kind = found.outcome === "detected" ? found.kind : "forgejo";
     const answer = await work({ account: null, origin, provider: provider(kind), token: null, call: {} });
+    if (answer.outcome === "done") options.originAnswered(origin, target.purpose);
     if (answer.outcome !== "failed" || !ASKS_FOR_A_CREDENTIAL.has(answer.status)) return answer;
     options.originMissing(origin, target.purpose);
     return refused(forgeAccountMissing(origin, `it refused an anonymous read (HTTP ${answer.status})`));

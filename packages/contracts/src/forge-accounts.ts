@@ -379,6 +379,14 @@ export const ForgeOriginMissingPayload = z
   .meta({ description: "forge.origin-missing: a harness operation was refused on an origin no forge account covers; recorded at most daily per origin." });
 export type ForgeOriginMissingPayload = z.infer<typeof ForgeOriginMissingPayload>;
 
+export const ForgeOriginAnsweredPayload = z
+  .object({
+    origin: ForgeOrigin.meta({ description: "The origin recorded as missing, which answered an anonymous read." }),
+    operation: z.string().min(1).meta({ description: "The operation its last record names, which the forge has now answered." }),
+  })
+  .meta({ description: "forge.origin-answered: the operation a missing origin was last recorded for read it anonymously after all, so the record counts no more." });
+export type ForgeOriginAnsweredPayload = z.infer<typeof ForgeOriginAnsweredPayload>;
+
 /**
  * The forge's events, on the environment stream (ADR 0020) so that
  * `environment.subscribe` carries them to every client: not a stream per
@@ -393,4 +401,5 @@ export const FORGE_EVENT_PAYLOADS = {
   "forge.account.git-rejected": ForgeAccountGitRejectedPayload,
   "forge.account.removed": ForgeAccountRemovedPayload,
   "forge.origin-missing": ForgeOriginMissingPayload,
+  "forge.origin-answered": ForgeOriginAnsweredPayload,
 } as const;

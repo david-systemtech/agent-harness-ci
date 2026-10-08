@@ -111,7 +111,7 @@ export const createBankCredentials = (options: BankCredentialsOptions): BankCred
         },
       };
       const run = createHarnessGit({ accounts: () => forge.list(), secrets: forge.secrets, scrub, command: options.command, address: options.address,
-        originMissing: () => undefined, ...(options.config !== undefined && { config: options.config }), fallback });
+        originMissing: () => undefined, originAnswered: () => undefined, ...(options.config !== undefined && { config: options.config }), fallback });
       return run(requestOnOrigin);
     },
     async start() {

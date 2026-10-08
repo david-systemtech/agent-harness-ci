@@ -144,6 +144,11 @@
     },
     {
       "type": "string",
+      "const": "forge.origin-answered",
+      "description": "An origin recorded as missing answered the operation it was refused, anonymously; a client withdraws the notice it raised for it."
+    },
+    {
+      "type": "string",
       "const": "bank.added",
       "description": "A bank was registered, created or joined; a client refreshes what it caches of the banks."
     },

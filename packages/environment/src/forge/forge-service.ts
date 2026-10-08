@@ -357,6 +357,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     command: options.harnessCommand,
     address: options.address ?? (() => undefined),
     originMissing: (origin, operation) => missing.record(origin, operation),
+    originAnswered: (origin, operation) => missing.answered(origin, operation),
     ...(options.gitConfig !== undefined && { config: options.gitConfig }),
   });
 
@@ -474,6 +475,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     readCredential: readHeld,
     verifier,
     originMissing: (origin, operation) => missing.record(origin, operation),
+    originAnswered: (origin, operation) => missing.answered(origin, operation),
   });
 
   const links = createPullRequestLinks({
