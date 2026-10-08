@@ -9,6 +9,7 @@ import {
   signOutConnection,
   updateConnection,
   type ConnectionChanges,
+  type KeyManagerOutcome,
   type TypedCredential,
 } from "@agent-harness/client-runtime";
 import type { KeyManagerAuthMethod, KeyManagerConnectionRecord } from "@agent-harness/contracts";
@@ -99,7 +100,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
   const [address, setAddress] = useState(connection.address);
   const [tokenRole, setTokenRole] = useState(connection.tokenRole ?? "");
   const [ca, setCa] = useState<string | null>(connection.ca);
-  const [line, setLine] = useState<string | undefined>(undefined);
+  const [refused, setRefused] = useState<KeyManagerOutcome & { readonly ok: false }>();
   const [sending, setSending] = useState(false);
   const openBao = connection.provider === "openbao";
 
@@ -113,11 +114,11 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
       ...(ca !== connection.ca && { ca }),
     };
     if (Object.keys(changes).length === 0) return close();
-    setLine(undefined);
+    setRefused(undefined);
     setSending(true);
     void updateConnection(sender, environmentId, connection, changes, "Save").then((updated) => {
       setSending(false);
-      if (!updated.ok) return setLine(updated.line);
+      if (!updated.ok) return setRefused(updated);
       close();
       say(updated.line);
     });
@@ -143,7 +144,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
               <CaChoice environmentId={environmentId} address={address} ca={ca} choose={setCa} />
             </>
           )}
-          {line !== undefined && <p className="text-sm text-signal">{line}</p>}
+          {refused !== undefined && <RefusalLine line={refused.line} details={refused.details} />}
           <div className="flex justify-end gap-2">
             <Button icon={X} label="Cancel" onClick={close}>Cancel</Button>
             <Button icon={Pencil} label="Save" variant="default" type="submit" disabled={sending}>

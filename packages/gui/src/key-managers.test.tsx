@@ -370,6 +370,18 @@ describe("the card's verbs", () => {
     expect(params).toMatchObject({ label: "Bao at home", tokenRole: "harness-runs" });
   });
 
+  it("says a refused Edit in plain words, with the environment's reason under Details", async () => {
+    const app = await opened({ keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test" }] } });
+    await openKeyManagers(app);
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Edit" }));
+    const edit = await dialog("Edit Home OpenBao");
+    await app.user.clear(within(edit).getByRole("textbox", { name: "Address" }));
+    await app.user.type(within(edit).getByRole("textbox", { name: "Address" }), "bao.home");
+    await app.user.click(within(edit).getByRole("button", { name: "Save" }));
+    expect((await within(edit).findByRole("alert")).textContent).toBe("Error: agent-harness could not use what was sent. Check what you entered, then choose Save.");
+    expect(within(edit).getByRole("region", { name: "Details" }).textContent).toContain("bao.home is not an http or https origin.");
+  });
+
   it("offers no address in a 1Password connection's Edit, the account URL its token names", async () => {
     const onePassword = { label: "Team 1Password", provider: "onepassword", address: "https://my.1password.com", ca: null, method: null, mount: null, username: null } as const;
     const app = await opened({ keyManagers: { connections: [onePassword] } });

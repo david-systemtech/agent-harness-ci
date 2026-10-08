@@ -15,6 +15,7 @@ import {
   tokenWords,
   updateConnection,
   verifyConnection,
+  type KeyManagerOutcome,
 } from "@agent-harness/client-runtime";
 import type { KeyManagerStatusKind, ListedKeyManagerConnection } from "@agent-harness/contracts";
 import { useId, useState } from "react";
@@ -24,6 +25,7 @@ import { CertificateCheck } from "./certificate-check.js";
 import { ConfirmRemove, ConfirmSignOut, EditConnection, SignInAgain } from "./connection-dialogs.js";
 import { CopyConnection } from "./copy-connection.js";
 import { PolicyTicks } from "./policy-ticks.js";
+import { RefusalLine } from "./refusal-line.js";
 
 /** The dialog a card has open: none, or one of its verbs'. */
 type Open = "certificate" | "sign-in" | "edit" | "sign-out" | "remove" | "copy" | null;
@@ -58,12 +60,16 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
   const now = clock.now();
   const [open, setOpen] = useState<Open>(null);
   const [sending, setSending] = useState(false);
+  const [refused, setRefused] = useState<KeyManagerOutcome & { readonly ok: false }>();
+  /** Says what a verb did in the pane, or its refusal on the card in plain words, its raw words under Details. */
+  const answer = (done: KeyManagerOutcome) => (done.ok ? say(done.line) : setRefused(done));
   /** Sends a verb answered in one line, taking no second press while it is on its way. */
-  const send = (verb: () => Promise<{ readonly line: string }>) => {
+  const send = (verb: () => Promise<KeyManagerOutcome>) => {
     setSending(true);
+    setRefused(undefined);
     void verb().then((done) => {
       setSending(false);
-      say(done.line);
+      answer(done);
     });
   };
   const sender = { runtime, clock };
@@ -132,7 +138,10 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
           environmentId={environmentId}
           address={connection.address}
           close={close}
-          trust={(ca) => void updateConnection(sender, environmentId, connection, { ca }, "Trust this certificate").then((updated) => say(updated.line))}
+          trust={(ca) => {
+            setRefused(undefined);
+            void updateConnection(sender, environmentId, connection, { ca }, "Trust this certificate").then(answer);
+          }}
         />
       )}
       {open === "sign-in" && <SignInAgain {...dialog} again={!awaiting} />}
@@ -140,6 +149,7 @@ export const ConnectionCard = ({ environmentId, connection, writable, say }: Con
       {open === "sign-out" && <ConfirmSignOut {...dialog} />}
       {open === "remove" && <ConfirmRemove {...dialog} />}
       {open === "copy" && <CopyConnection environmentId={environmentId} connection={connection} close={close} />}
+      {refused !== undefined && <RefusalLine line={refused.line} details={refused.details} />}
     </section>
   );
 };
