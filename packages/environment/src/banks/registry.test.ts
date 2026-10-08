@@ -316,7 +316,7 @@ describe("banks.verify", () => {
     t.clock.advance(60_000);
     const later = new Date(Date.parse(MANUAL_CLOCK_START) + 60_000).toISOString();
     const [after] = (await client.request("banks.verify", { bankId: bank.id })).banks;
-    expect(after?.status).toEqual({ ...bank.status, reachable: { state: "unreachable", reason: `its repository at ${checkout} is not there`, since: later } });
+    expect(after?.status).toEqual({ ...bank.status, reachable: { state: "unreachable", reason: `its repository at ${checkout} is not there`, cause: "folder-missing", since: later } });
   });
 
   it("keeps an owner last found unresolved, and a pull request last found holding BANK.md, while the forge does not answer: nothing is recorded", async () => {

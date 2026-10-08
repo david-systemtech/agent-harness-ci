@@ -83,8 +83,8 @@ it("shows a pending scheduled read as neutral checking and leaves it out of the 
   expect(await within(pane).findByText("0 done, 1 needs attention, 0 skipped, 1 checking")).toBeDefined();
 });
 
-it("counts a bank awaiting owner review as done and shows its review URL in the step's line", async () => {
-  const reason = "team-memory is landed and awaiting your review: https://git.example.test/team/memory/pulls/7.";
+it("counts a bank awaiting owner review as done and shows the step's line saying it waits for approval", async () => {
+  const reason = "team-memory's latest changes are waiting for your approval on git.example.test.";
   const app = await firstLaunch({ capabilities: ["setup"], setup: onlySteps({ "memory-bank": { state: "done", reason } }) });
   expect(await within(steps()).findByRole("img", { name: "Memory bank: Done" })).toBeDefined();
   await app.user.click(within(steps()).getByRole("button", { name: "Memory bank" }));
