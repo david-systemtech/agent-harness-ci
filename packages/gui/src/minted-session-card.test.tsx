@@ -113,7 +113,7 @@ describe("the minted session on its card", () => {
     expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
     expect(app.presentation.values.read().firstLaunchDone).toBe(true);
     await app.user.keyboard("{Control>},{/Control}");
-    await app.user.click(await screen.findByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(await screen.findByRole("button", { name: "Open Set up" }));
     await app.user.click(await screen.findByRole("button", { name: "Continue authoring" }));
     expect(await screen.findByRole("status", { name: "Authoring status" })).toBeDefined();
     expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("running");
@@ -279,7 +279,7 @@ describe("the minted session on its card", () => {
     expect(app.presentation.values.read().firstLaunchDone).toBe(false);
     const settings = await screen.findByRole("region", { name: "Settings" });
     await app.user.click(within(within(settings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Set up" }));
-    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(screen.getByRole("button", { name: "Open Set up" }));
     await app.user.click(screen.getByRole("button", { name: "Memory bank" }));
     expect(screen.queryByRole("dialog", { name: "Authoring conversation" })).toBeNull();
     expect(effort().value).toBe("low");
@@ -294,7 +294,7 @@ describe("the minted session on its card", () => {
     await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
     const reopenedSettings = await screen.findByRole("region", { name: "Settings" });
     await app.user.click(within(within(reopenedSettings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Set up" }));
-    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(screen.getByRole("button", { name: "Open Set up" }));
     expect(effort().value).toBe("high");
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(env.liveRun(id)).toBe(runId);

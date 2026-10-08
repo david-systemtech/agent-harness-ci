@@ -10,7 +10,7 @@ import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironme
  * machine a card offering Set up this machine; Install on another machine's
  * lines from this machine's release; each card's code minted by preset with
  * the scopes and ceiling explicit, a preset above this client's own ceiling
- * dim; and Set up's "Set up another machine" opening Add a machine. Driven
+ * dim; and Set up's "Set up another computer" opening Add a machine. Driven
  * through the harness over two scripted environments: `desk`, this
  * machine's, and `laptop`, unpaired until a test pairs it.
  */
@@ -149,11 +149,11 @@ describe("Add a machine", () => {
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", '& ([scriptblock]::Create((curl.exe -fsSL https://github.com/owner/name/releases/download/v0.1.1/install.ps1) -join "`n")) -Channel stable']);
   });
 
-  it("is where Set up's Set up another machine opens, its link's field taking the focus", async () => {
+  it("is where Set up's Set up another computer opens, its link's field taking the focus", async () => {
     const app = await opened();
     await app.user.keyboard("{Control>},{/Control}");
     const settings = await screen.findByRole("region", { name: "Settings" });
-    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Set up another machine" }));
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Set up another computer" }));
     const add = within(within(settings).getByRole("region", { name: "Your machines" })).getByRole("region", { name: "Add a machine" });
     expect(document.activeElement).toBe(within(add).getByRole("textbox", { name: "Pairing link" }));
   });

@@ -434,7 +434,7 @@ describe("About's Managed tools", () => {
     });
     await app.user.keyboard("{Control>},{/Control}");
     const settings = await screen.findByRole("region", { name: "Settings" });
-    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open Set up" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
     await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool" }));
@@ -457,7 +457,7 @@ describe("About's Managed tools", () => {
     });
     await app.user.keyboard("{Control>},{/Control}");
     const settings = await screen.findByRole("region", { name: "Settings" });
-    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open Set up" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
     await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool" }));
