@@ -376,7 +376,7 @@ quoted from the files named; a builder greps for them.
   no answer `{label} did not answer. Check the address and the connection, then choose Check again.`; sealed `{label} is locked (sealed). Unlock it, then choose Check again.`;
   certificate `agent-harness does not trust {label}'s security certificate. Choose Check certificate to review it.` **Check certificate**;
   cannot make run keys `{label} lets agent-harness sign in but not make keys for agents. Ask whoever runs {label} to allow it.` Details: the path and a copyable policy line;
-  tool missing `The {tool} tool is not installed on {computer}. Install it so agents can use {label}.` **Install {tool}**; tool old `… is out of date.` **Update {tool}**;
+  tool missing `The {tool} tool is not installed on {computer}. Install it so agents can use {label}.` **Install {tool}**; tool old `The {tool} tool on {computer} is out of date. Update it so agents can use {label}.` **Update {tool}**;
   not ready (provider unavailable, signing in) `{label} is not ready yet. Choose Check again.` (these now count: the step is not Done while they show);
   references `Some forge tokens are kept in a key manager that is not connected here. Connect it.` Details: ids.
 - Sign-in messages: refused `{provider} did not accept these details. Check them and try again.`; unreachable `agent-harness could not reach {address}. Check the address.`;

@@ -488,10 +488,11 @@ export const STEP_REGISTRY = [
     ],
     stateChecks: [
       { id: "key-manager.present", holds: "At least one key-manager connection is on this environment.", actions: [] },
-      // None awaiting its sign-in, its credential rejected, or its token expired (#383).
-      { id: "key-manager.signed-in", holds: "Every key-manager connection is signed in.", actions: ["sign-in-again"] },
-      // None unreachable, sealed, or with a rejected certificate.
-      { id: "key-manager.reachable", holds: "Every key-manager connection is reachable, unsealed, and presents a certificate that verifies.", actions: ["check-again"] },
+      // None awaiting its sign-in, its credential rejected, or its token expired (#383), each signed in again; none still
+      // signing in or whose provider cannot load here, each checked again (#1852).
+      { id: "key-manager.signed-in", holds: "Every key-manager connection is signed in.", actions: ["sign-in-again", "check-again"] },
+      // None unreachable or sealed, each checked again, or with a rejected certificate, whose certificate is checked (#1852).
+      { id: "key-manager.reachable", holds: "Every key-manager connection is reachable, unsealed, and presents a certificate that verifies.", actions: ["check-again", "check-certificate"] },
       { id: "key-manager.run-tokens", holds: "Every injecting OpenBao connection's login can mint run tokens.", actions: ["check-again"] },
       // ADR 0026's Managed tools rows: a key-manager CLI is required while its connection injects.
       {

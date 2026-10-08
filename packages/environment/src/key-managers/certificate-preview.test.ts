@@ -106,13 +106,21 @@ describe("keyManagers.certificate.preview", () => {
       (error: unknown) => error,
     );
     expect(refused).toBeInstanceOf(ContractError);
-    expect(refused).toMatchObject({ code: "unreachable", message: `${address} could not be reached for its certificate: no TLS handshake within 0.3 seconds.`, data: { address } });
+    expect(refused).toMatchObject({
+      code: "unreachable",
+      message: `agent-harness could not reach ${address}. Check the address.`,
+      data: { address, details: [`${address} could not be reached for its certificate: no TLS handshake within 0.3 seconds.`] },
+    });
   });
 
   it("answers unreachable naming the address for one nothing listens on, invalid_params for one that is not an https origin, and is refused below admin", async () => {
     const { t, client } = await withOpenBao();
 
-    expect(await refusal(preview(client, UNREACHABLE_OPENBAO))).toMatchObject({ code: "unreachable", data: { address: UNREACHABLE_OPENBAO } });
+    // What the socket met, the system's error code, is in details (setup-copy.md §5.7).
+    expect(await refusal(preview(client, UNREACHABLE_OPENBAO))).toMatchObject({
+      code: "unreachable",
+      data: { address: UNREACHABLE_OPENBAO, details: [expect.stringMatching(new RegExp(`^${UNREACHABLE_OPENBAO.replace(/[.]/g, "\\.")} could not be reached for its certificate: .+\\.$`))] },
+    });
     for (const address of ["http://127.0.0.1:8200", "bao.example.com", "https://user:pass@bao.example.com"]) {
       expect(await refusal(preview(client, address)), address).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["address"] })] } });
     }

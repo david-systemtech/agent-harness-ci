@@ -26,6 +26,15 @@
             "root_token"
           ],
           "description": "rejected: the key manager refused the credential. root_token: it signs in with the root policy, which the harness never holds."
+        },
+        "details": {
+          "description": "What the key manager or the environment said behind the plain message, one line each, for Details: addresses, paths, HTTP statuses and system error codes. Absent when there is nothing more.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]*$"
+          }
         }
       },
       "required": [
