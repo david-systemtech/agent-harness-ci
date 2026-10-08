@@ -1,5 +1,5 @@
 import type { EnvironmentView, SetupStepView } from "@agent-harness/client-runtime";
-import { CATALOGUE_SEED_INSTRUCTION_ID, unreadSetupSteps, type OwnedInstructionRow } from "@agent-harness/contracts";
+import { unreadSetupSteps } from "@agent-harness/contracts";
 import { useState } from "react";
 import { Part } from "../settings/part.js";
 import type { StepCardProps } from "../setup/cards.js";
@@ -10,7 +10,7 @@ import { InstructionEditor } from "./instruction-editor.js";
 import { ListedReach, useListedInstructions } from "./instructions-pane.js";
 import { GoToSteps, Orientation } from "./orientation.js";
 import { useOrientationPreview } from "./setup-orientation.js";
-import { SetupSeed } from "./setup-seed.js";
+import { isSetupNote, SetupSeed } from "./setup-seed.js";
 import { SetupSuggestions } from "./suggested-instructions.js";
 
 /**
@@ -31,9 +31,6 @@ export const InstructionsCard = ({ environmentId, step }: StepCardProps) => {
     </>
   );
 };
-
-/** The seeded note, found by its origin or, renamed from an older seed, by its title. */
-const isSetupNote = (row: OwnedInstructionRow) => row.origin?.catalogueId === CATALOGUE_SEED_INSTRUCTION_ID || row.title === "About my setup";
 
 const SetupInstructions = ({ view, step }: { readonly view: EnvironmentView; readonly step: SetupStepView }) => {
   const listed = useListedInstructions(view);

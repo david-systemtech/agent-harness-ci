@@ -12,7 +12,7 @@ import { useRuntime } from "../window-context.js";
 import { InstructionAccounts } from "./instruction-accounts.js";
 
 /** The fold, and the Settings part, that hold what the orientation block tells agents (setup-copy.md §5.10). */
-export const ORIENTATION_TITLE = "What agents are told about this computer";
+const ORIENTATION_TITLE = "What agents are told about this computer";
 
 /**
  * Go to {Step} for each step whose part of this computer's setup the block
