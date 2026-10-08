@@ -2,14 +2,13 @@ import {
   ACCOUNT_STATUS_WORDS,
   effortName,
   identityWords,
-  modelName,
-  readingWords,
+  modelChoiceWords,
   type EnvironmentView,
   type NewSessionChips,
   type NewSessionView,
 } from "@agent-harness/client-runtime";
-import type { WorkspaceRequest } from "@agent-harness/contracts";
-import { useRef, useState, type ComponentType, type ReactNode } from "react";
+import type { ModelEntry, WorkspaceRequest } from "@agent-harness/contracts";
+import { useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { glyphOf } from "../connections/environment-glyphs.js";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
@@ -22,6 +21,7 @@ import { Check, Cpu, Folder, GitBranch, KeyRound, Server, SlidersHorizontal } fr
 import { useSettings } from "../settings/settings-window.js";
 import { checkRequest } from "./check.js";
 import { usePhoneOverlay } from "../ui/phone.js";
+import { AccountChoiceRow, ModelChoices, useFavouriteModels } from "../status/run-picker-lists.js";
 import { RunPickerColumn, RunPickerContent, RunPickerSteps, RunPickerTrigger, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
 import { requestWords } from "./words.js";
 
@@ -32,8 +32,10 @@ import { requestWords } from "./words.js";
  * `projections.newSession`'s preset until one is chosen on it, and changing
  * a chip re-runs the presets after it. An environment no session can start
  * on now is greyed with its reason. The workspace chip opens the workspace
- * picker (`../workspace/picker.tsx`, #421). The row is `CHIPS`, in order: a
- * chip another surface needs (#564's browser) joins it there.
+ * picker (`../workspace/picker.tsx`, #421). The account and model chips
+ * open the status line's account and model lists (`../status/run-picker-lists.tsx`,
+ * #1894). The row is `CHIPS`, in order: a chip another surface needs (#564's
+ * browser) joins it there.
  */
 
 /** What each chip is drawn from, and what choosing on it does. */
@@ -56,8 +58,8 @@ const CHIP = "h-[22px] min-w-0 max-w-[240px] gap-1 rounded-md bg-wash px-1.5 tex
 /** Keep each value on one line, with its full words in the trigger's tooltip. */
 const Face = ({ children }: { readonly children: ReactNode }) => <span className="flex min-w-0 items-center gap-1 truncate">{children}</span>;
 
-/** A chip opening its options, with the account/model dependencies in one popup. */
-const ChipMenu = ({ name, value, children, items, columns = false }: { readonly name: string; readonly value: string; readonly children: ReactNode; readonly items: ReactNode; readonly columns?: boolean }) => {
+/** A chip opening its options, with the account/model dependencies in one popup; its items can close it. */
+const ChipMenu = ({ name, value, children, items, columns = false }: { readonly name: string; readonly value: string; readonly children: ReactNode; readonly items: (close: () => void) => ReactNode; readonly columns?: boolean }) => {
   const phone = usePhoneOverlay();
   const narrow = useNarrowRunPicker() || phone;
   const [open, setOpen] = useState(false);
@@ -71,7 +73,7 @@ const ChipMenu = ({ name, value, children, items, columns = false }: { readonly 
         </RunPickerTrigger>
       </Tooltip>
       <RunPickerContent sheet={columns && narrow} role={columns && narrow ? "dialog" : "menu"} aria-label={columns ? "Run choices" : undefined} {...(columns ? { "aria-labelledby": undefined } : {})} side="top" align="start" className={columns ? "w-auto max-w-[calc(100vw-16px)] rounded-[10px] p-0" : "max-h-[320px] max-w-md overflow-y-auto"}>
-        {items}
+        {items(() => setOpen(false))}
       </RunPickerContent>
     </Menu>
   );
@@ -103,7 +105,7 @@ const EnvironmentChip = ({ view, choose }: ChipProps) => {
     <ChipMenu
       name="Environment"
       value={words}
-      items={
+      items={() =>
         options.length === 0 ? (
           <Nothing>No environment is known here: pair one first.</Nothing>
         ) : (
@@ -128,14 +130,22 @@ const EnvironmentChip = ({ view, choose }: ChipProps) => {
   );
 };
 
+/** The chosen account's models, as the status line's model picker lists them. */
+const ModelOptions = ({ environmentId, accountId, current, narrow, choose, close }: { readonly environmentId: string; readonly accountId: string; readonly current: string | undefined; readonly narrow: boolean; readonly choose: (entry: ModelEntry) => void; readonly close: () => void }) => {
+  const runtime = useRuntime();
+  const catalogues = useObservable(useMemo(() => runtime.projections.models(environmentId), [runtime, environmentId]));
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
+  const favourites = useFavouriteModels(environmentId);
+  return <ModelChoices environmentId={environmentId} catalogues={catalogues.value ?? []} accountId={accountId} favourites={favourites} accounts={accounts.value} current={current} narrow={narrow} dim={false} choose={choose} close={close} />;
+};
+
 /** A new session chooses through its projection; no session or hand-off exists yet. */
-const AccountModelOptions = ({ view, choose, effort, initialStage }: ChipProps & { readonly initialStage: RunStage }) => {
+const AccountModelOptions = ({ view, choose, effort, initialStage, close }: ChipProps & { readonly initialStage: RunStage; readonly close: () => void }) => {
   const settings = useSettings();
   const phone = usePhoneOverlay();
   const narrow = useNarrowRunPicker() || phone;
   const [activeColumn, setActiveColumn] = useState<RunStage>(initialStage);
   const environmentId = view.environment.value;
-  const reading = readingWords(view.account.gauge ?? undefined);
   const model = view.model.value;
   const hasEffort = (model?.efforts.length ?? 0) > 0;
   const active = activeColumn === "Effort" && !hasEffort ? "Models" : activeColumn;
@@ -144,17 +154,27 @@ const AccountModelOptions = ({ view, choose, effort, initialStage }: ChipProps &
     {narrow && <RunPickerSteps stage={active} effort={hasEffort} change={setActiveColumn} />}
     <div className={classes("flex min-w-0 divide-hairline", narrow ? "flex-col divide-y" : "divide-x")}>
       {column("Accounts", <>
-        {environmentId === null || view.account.options.length === 0 ? <Nothing>{environmentId === null ? "Choose an environment first." : "The environment holds no account yet."}</Nothing> : view.account.options.map((account) => <Option
-          key={account.id} selected={account.id === view.account.value?.id} keepOpen={account.status.state === "signed-in"}
-          note={[identityWords(account), account.provider, ACCOUNT_STATUS_WORDS[account.status.state], account.id === view.account.value?.id ? reading : undefined, account.id === view.account.value?.id ? HELD : undefined].filter(Boolean).join(" · ")}
-          onSelect={() => { choose({ account: { environmentId, accountId: account.id } }); if (narrow) setActiveColumn("Models"); }}
-        ><KeyRound aria-hidden="true" className="size-3" /><span className="min-w-0 font-medium">{account.label}</span></Option>)}
+        {environmentId === null || view.account.options.length === 0 ? <Nothing>{environmentId === null ? "Choose an environment first." : "The environment holds no account yet."}</Nothing> : view.account.options.map((account) => <AccountChoiceRow
+          key={account.id} environmentId={environmentId} account={account} icon={KeyRound} selected={account.id === view.account.value?.id}
+          note={[ACCOUNT_STATUS_WORDS[account.status.state], account.provider].join(" · ")}
+          onSelect={() => {
+            choose({ account: { environmentId, accountId: account.id } });
+            // An account not signed in is signed in on the surface, which the picker would cover.
+            if (account.status.state !== "signed-in") close();
+            else if (narrow) setActiveColumn("Models");
+          }}
+        />)}
         {environmentId !== null && <Option onSelect={() => settings.open("accounts.accounts", environmentId)}><KeyRound aria-hidden="true" className="size-3" />{view.account.options.length === 0 ? "Sign in an account" : "Manage accounts"}</Option>}
       </>)}
       {column("Models", <>
-        {view.model.options.length === 0 ? <Nothing>{view.account.value === null ? "Choose an account first: its models are the ones offered." : "The account offers no model yet."}</Nothing> : view.model.options.map((entry) => <Option key={entry.id} selected={entry.id === model?.id} keepOpen={entry.efforts.length > 0} note={entry.id === model?.id ? HELD : undefined} onSelect={() => { choose({ model: entry.id }); if (narrow && entry.efforts.length > 0) setActiveColumn("Effort"); }}>
-          <Cpu aria-hidden="true" className="size-3" />{modelName(entry)}
-        </Option>)}
+        {environmentId === null || view.account.value === null || view.model.options.length === 0 ? <Nothing>{view.account.value === null ? "Choose an account first: its models are the ones offered." : "The account offers no model yet."}</Nothing>
+          : <ModelOptions environmentId={environmentId} accountId={view.account.value.id} current={model?.id} narrow={narrow} close={close}
+            choose={(entry) => {
+              choose({ model: entry.id });
+              // A model with efforts keeps the picker open on them; one without is the whole choice.
+              if (entry.efforts.length === 0) close();
+              else if (narrow) setActiveColumn("Effort");
+            }} />}
       </>)}
       {model !== null && hasEffort && column("Effort", <>
         {[null, ...model.efforts].map(value => <Option key={value ?? "own"} selected={(effort ?? null) === value} onSelect={() => choose({ model: model.id, effort: value })}>
@@ -168,13 +188,14 @@ const AccountModelOptions = ({ view, choose, effort, initialStage }: ChipProps &
 const AccountChip = (props: ChipProps) => {
   const value = props.view.account.value;
   const words = value === null ? "none" : `${value.label} ${identityWords(value)}`;
-  return <ChipMenu name="Account" value={words} columns items={<AccountModelOptions {...props} initialStage="Accounts" />}><KeyRound aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
+  return <ChipMenu name="Account" value={words} columns items={(close) => <AccountModelOptions {...props} initialStage="Accounts" close={close} />}><KeyRound aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
 };
 
 const ModelChip = (props: ChipProps) => {
   const value = props.view.model.value;
-  const words = value === null ? "none" : modelName(value);
-  return <ChipMenu name="Model" value={words} columns items={<AccountModelOptions {...props} initialStage="Models" />}><Cpu aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
+  // As the status line names it (#1824): the provider's name, with the first run's effort.
+  const words = value === null ? "none" : modelChoiceWords({ model: value.id, effort: props.effort ?? null }, value.label);
+  return <ChipMenu name="Model" value={words} columns items={(close) => <AccountModelOptions {...props} initialStage="Models" close={close} />}><Cpu aria-hidden="true" /><span className="truncate">{words}</span></ChipMenu>;
 };
 
 /**
