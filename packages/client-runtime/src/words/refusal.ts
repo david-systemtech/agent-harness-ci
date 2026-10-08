@@ -1,3 +1,5 @@
+import { PRODUCT_NAME } from "@agent-harness/contracts";
+
 /**
  * A refusal in plain words (docs/specs/setup-copy.md §3, "raw refusals";
  * #1837): every wire error code and reason, and the request layer's own
@@ -31,14 +33,14 @@ const said =
 
 const LIMITED = said("This app has limited access to that computer, so it cannot do this. Pair again with full access to change this.");
 const GIVE_MORE = said("This app itself has limited access, so it cannot give more.");
-const PARAMS: Words = (verb) => `agent-harness could not use what was sent. Check what you entered, then choose ${verb}.`;
+const PARAMS: Words = (verb) => `${PRODUCT_NAME} could not use what was sent. Check what you entered, then choose ${verb}.`;
 const CONFLICT: Words = (verb) => `This cannot be done right now. Wait a moment, then choose ${verb}.`;
 const EXISTS = said("That already exists. Choose another name.");
 
 /** The failures this client meets itself, which carry no data: a request never sent, or no answer. */
 const OWN: Readonly<Record<string, Words>> = {
   timeout: (verb) => `There was no answer in time. ${tryAgain(verb)}`,
-  malformed: (verb) => `agent-harness answered in a way this app cannot read. Update this app, then choose ${verb}.`,
+  malformed: (verb) => `${PRODUCT_NAME} answered in a way this app cannot read. Update this app, then choose ${verb}.`,
   unreachable: (verb) => `This app cannot reach that computer right now. ${tryAgain(verb)}`,
   invalid_params: PARAMS,
 };
@@ -50,11 +52,11 @@ const CAPABILITY_LINES: ReadonlySet<string> = new Set(["scope", "unsupported", "
 const WIRE: Readonly<Record<string, Words>> = {
   unauthorized: said("This app's access to that computer has run out. Pair again to keep using it."),
   forbidden: LIMITED,
-  unavailable: (verb) => `agent-harness is not ready yet. Choose ${verb} in a moment.`,
+  unavailable: (verb) => `${PRODUCT_NAME} is not ready yet. Choose ${verb} in a moment.`,
   invalid_params: PARAMS,
-  not_found: (verb) => `agent-harness could not find what this needs. ${tryAgain(verb)}`,
+  not_found: (verb) => `${PRODUCT_NAME} could not find what this needs. ${tryAgain(verb)}`,
   conflict: CONFLICT,
-  internal: (verb) => `agent-harness ran into a problem. ${tryAgain(verb)}`,
+  internal: (verb) => `${PRODUCT_NAME} ran into a problem. ${tryAgain(verb)}`,
   rate_limited: said("Too many tries. Wait one minute, then try again."),
   unreachable: (verb) => `The site did not answer. Check the address and your connection, then choose ${verb}.`,
   pairing_invalid: said("The other computer does not know this code. Check it, or make a new one."),
@@ -64,18 +66,18 @@ const WIRE: Readonly<Record<string, Words>> = {
   out_of_window: said("Choose a time later today, and no more than a year ahead."),
   verification_failed: (verb) => `The sign-in was not accepted. Check it, then choose ${verb}.`,
   sealed: (verb) => `The key manager is locked (sealed). Unlock it, then choose ${verb}.`,
-  certificate_rejected: said("agent-harness does not trust this site's certificate. Check the certificate."),
-  provider_unavailable: said("agent-harness cannot connect to that key manager on this computer yet."),
-  credential_source_unavailable: (verb) => `agent-harness cannot reach the key manager that keeps this key. Connect it, then choose ${verb}.`,
+  certificate_rejected: said(`${PRODUCT_NAME} does not trust this site's certificate. Check the certificate.`),
+  provider_unavailable: said(`${PRODUCT_NAME} cannot connect to that key manager on this computer yet.`),
+  credential_source_unavailable: (verb) => `${PRODUCT_NAME} cannot reach the key manager that keeps this key. Connect it, then choose ${verb}.`,
   reference_not_found: said("The key manager has no key at that place. Check the name."),
-  reference_denied: said("The key manager did not let agent-harness read that key."),
-  cannot_write: said("The key manager does not let agent-harness save there."),
-  kind_unsupported: said("agent-harness cannot work with this kind of forge yet."),
-  not_a_forge: said("agent-harness does not recognise this site as a forge."),
+  reference_denied: said(`The key manager did not let ${PRODUCT_NAME} read that key.`),
+  cannot_write: said(`The key manager does not let ${PRODUCT_NAME} save there.`),
+  kind_unsupported: said(`${PRODUCT_NAME} cannot work with this kind of forge yet.`),
+  not_a_forge: said(`${PRODUCT_NAME} does not recognise this site as a forge.`),
   identity_mismatch: said("This token belongs to a different account. Use a token for the right account."),
   alias_identity_mismatch: said("That address reaches a different account. Check the address."),
   forge_account_missing: said("No forge is added for this site. Add one in Forges."),
-  credential_unavailable: said("agent-harness cannot read a saved token. Add it again."),
+  credential_unavailable: said(`${PRODUCT_NAME} cannot read a saved token. Add it again.`),
   not_a_pull_request: said("That link is not a pull request."),
   bank_read_only: said("You can look at this memory bank but not change it."),
   bank_required: said("Choose a memory bank first."),
@@ -93,16 +95,16 @@ const REASONS: Readonly<Record<string, Readonly<Record<string, Words>>>> = {
     ceiling: GIVE_MORE,
     scope: GIVE_MORE,
     local: said("Only the app on that computer itself can do this."),
-    program: said("A program connected to agent-harness cannot do this."),
+    program: said(`A program connected to ${PRODUCT_NAME} cannot do this.`),
     addressed: said("This question was sent to another app, so only that app can answer it."),
   },
   unavailable: {
-    starting: (verb) => `agent-harness is still starting. Choose ${verb} in a moment.`,
-    draining: (verb) => `agent-harness is restarting. Choose ${verb} in a moment.`,
+    starting: (verb) => `${PRODUCT_NAME} is still starting. Choose ${verb} in a moment.`,
+    draining: (verb) => `${PRODUCT_NAME} is restarting. Choose ${verb} in a moment.`,
   },
   verification_failed: {
     rejected: said("The key manager did not accept these details. Check them and try again."),
-    root_token: said("Use a token that is not the root token. agent-harness never uses root."),
+    root_token: said(`Use a token that is not the root token. ${PRODUCT_NAME} never uses root.`),
   },
   conflict: {
     // An update's (updates.apply, the update route).
@@ -110,14 +112,14 @@ const REASONS: Readonly<Record<string, Readonly<Record<string, Words>>>> = {
     pinned: (verb) => `This computer is pinned to another version. Change or clear the pin, then choose ${verb}.`,
     current: said("This version is running already, or there is nothing newer."),
     schema: said("This version is older than the saved data. Choose a newer version."),
-    launcher: said("This version needs a newer install of agent-harness. Reinstall agent-harness, then update."),
+    launcher: said(`This version needs a newer install of ${PRODUCT_NAME}. Reinstall ${PRODUCT_NAME}, then update.`),
     in_progress: said("An update is under way already. Wait for it to finish."),
-    no_release_access: said("agent-harness cannot read where updates come from. Check that site in Forges."),
+    no_release_access: said(`${PRODUCT_NAME} cannot read where updates come from. Check that site in Forges.`),
     unreachable: (verb) => `The site updates come from did not answer. ${tryAgain(verb)}`,
     manifest: said("This release is incomplete. Wait for a fixed release, or choose another version."),
     artefact: (verb) => `The update did not download correctly. ${tryAgain(verb)}`,
     install: (verb) => `The update did not install. ${tryAgain(verb)}`,
-    no_launcher: said("agent-harness cannot update itself here. Update it the way it was installed."),
+    no_launcher: said(`${PRODUCT_NAME} cannot update itself here. Update it the way it was installed.`),
     not_outside: said("This computer's updates are not run by an outside updater."),
     not_ready: (verb) => `That update is not ready yet. Wait for it, then choose ${verb}.`,
     // A memory bank's.
@@ -131,7 +133,7 @@ const REASONS: Readonly<Record<string, Readonly<Record<string, Words>>>> = {
     firing_running: said("The routine is running now. Wait for it to finish."),
     // A managed tool's run.
     tool_run_in_progress: said("That tool is being set up already. Wait for it to finish."),
-    pty_unavailable: said("This computer cannot open terminals. Reinstall agent-harness."),
+    pty_unavailable: said(`This computer cannot open terminals. Reinstall ${PRODUCT_NAME}.`),
     // A file undo's.
     run_active: (verb) => `An agent is working. Wait for it to finish, then choose ${verb}.`,
     workspace_missing: said("The project folder is missing."),

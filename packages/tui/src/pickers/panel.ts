@@ -34,6 +34,7 @@ import {
 import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
+  PRODUCT_NAME,
   STEP_HINTS,
   type AccountRecord,
   type ContainmentLevel,
@@ -271,7 +272,7 @@ export const setupLines = (view: SetupView, name: string, checking: boolean, fai
     [{ text: countsWords(view.counts) }],
     ...(reach === undefined ? [] : [[{ text: reach, color: TERMINAL_ROLES.warning }]]),
     ...(checking ? [[{ text: "Checking Set up…", dim: true }]] : []),
-    ...(failed === null ? [] : [[{ text: `agent-harness could not check ${name}. Run /setup to try again.`, color: TERMINAL_ROLES.warning }], [{ text: `Details: ${failed}`, dim: true }]]),
+    ...(failed === null ? [] : [[{ text: `${PRODUCT_NAME} could not check ${name}. Run /setup to try again.`, color: TERMINAL_ROLES.warning }], [{ text: `Details: ${failed}`, dim: true }]]),
     ...(!live ? [[{ text: "Live Set up updates are unavailable on this environment; /setup checks again.", dim: true }]] : []),
     [{ text: "Press Enter on a step to run its fix, or open Set up in the desktop app.", dim: true }],
   ];

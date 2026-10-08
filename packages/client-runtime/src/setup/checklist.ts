@@ -1,4 +1,4 @@
-import { FIRST_ROW, REGISTERED_STEP_IDS, agoWords, pastTimeWords, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepResult, type StepState } from "@agent-harness/contracts";
+import { FIRST_ROW, PRODUCT_NAME, REGISTERED_STEP_IDS, agoWords, pastTimeWords, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepResult, type StepState } from "@agent-harness/contracts";
 import type { SetupCounts, SetupReach, SetupStepView, SetupView } from "../projections/setup.js";
 import { clockTime, whenWords } from "../transcript/format.js";
 
@@ -125,7 +125,7 @@ export const setupReachWords = (reach: SetupReach, name: string): string | undef
     case "reachable":
       return undefined;
     case "service-down":
-      return `agent-harness is not running on ${name}. These results are from before it stopped.`;
+      return `${PRODUCT_NAME} is not running on ${name}. These results are from before it stopped.`;
     case "unreachable":
       return reach.since === null ? `This app has not reached ${name} yet.` : `This app cannot reach ${name} (since ${clockTime(reach.since)}). These results may be out of date.`;
   }
