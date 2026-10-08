@@ -51,6 +51,31 @@ it("captures Your machines' never-polled container line with the host updater's 
   } finally { view.unmount(); }
 });
 
+// setup-copy.md §5.9: the catalogue with one collection added, and Add from a link refused for want of git (#1855).
+it("captures the Skills catalogue with one collection added and the rest offered with Add", async () => {
+  const Scene = setupRegionScene("skills");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const skills = await screen.findByRole("region", { name: "Skills" });
+    const unslop = await within(skills).findByRole("region", { name: "Unslop" });
+    expect(await within(unslop).findByText("Added")).toBeDefined();
+    expect(within(unslop).getByRole("button", { name: "Remove" })).toBeDefined();
+    expect(within(within(skills).getByRole("region", { name: "Matt Pocock — engineering" })).getByRole("button", { name: "Add" })).toBeDefined();
+  } finally { view.unmount(); }
+});
+
+it("captures Add from a link refused because git is missing, git's words open under Details", async () => {
+  const Scene = setupRegionScene("skills-link-refusal");
+  const view = render(<Scene ladder="dark" />);
+  try {
+    const skills = await screen.findByRole("region", { name: "Skills" });
+    const alert = await within(skills).findByRole("alert");
+    expect(within(alert).getByText("Git is not installed on desk. Install Git, then try again.")).toBeDefined();
+    expect(await within(alert).findByText(/spawn git ENOENT/)).toBeDefined();
+    expect((within(skills).getByRole("textbox", { name: "Repository address" }) as HTMLInputElement).value).toBe("https://git.example.test/team/procedures");
+  } finally { view.unmount(); }
+});
+
 it.each<[StepId, string]>([["your-machines", "Your machines"], ["forges", "Forges"], ["key-manager", "Key manager"], ["instructions", "Instructions"], ["permissions", "Permissions"], ["appearance", "Appearance"]])("captures the real %s card and its persistent footer", async (step, label) => {
   const Scene = setupRegionScene(step);
   const view = render(<Scene ladder="light" />);
