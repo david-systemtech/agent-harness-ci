@@ -3,7 +3,7 @@ import { homeEnvironment, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-run
 import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/contracts";
 import { ArrowLeft, LogOut } from "lucide-react";
 import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
-import { usePickedEnvironment, useSettings, type SettingsPart } from "../settings/settings-window.js";
+import { useSettings, type SettingsPart } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { Button, Dialog, DialogContent, Tooltip } from "../ui/index.js";
 import { ChecklistAuthoringProvider } from "./authoring-run.js";
@@ -61,8 +61,8 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   const [marked, mark] = usePresentation("firstLaunchDone");
   const runtime = useRuntime();
   const home = homeEnvironment(useObservable(runtime.projections.environments));
-  const picked = usePickedEnvironment();
-  const accounts = useObservable(useMemo(() => runtime.projections.accounts(picked?.environmentId ?? LOCAL_PLACEHOLDER_ID), [runtime, picked?.environmentId])).value;
+  // Leaving without an account asks about the home computer's, whichever computer Set up has picked (setup-copy.md §4.3).
+  const accounts = useObservable(useMemo(() => runtime.projections.accounts(home?.environmentId ?? LOCAL_PLACEHOLDER_ID), [runtime, home?.environmentId])).value;
   const signedIn = accounts?.some((account) => account.status.state === "signed-in") ?? false;
   const [shown, setShown] = useState(!marked);
   const [introduction, setIntroduction] = useState(!marked);

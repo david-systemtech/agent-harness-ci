@@ -333,7 +333,11 @@ export type ShellApplyOutcome =
   | { readonly outcome: "applied" }
   | { readonly outcome: "failed"; readonly failure: "install" | "cleanup"; readonly message: string; readonly byHand?: string };
 
-/** The local environment's service (ADR 0001). */
+/**
+ * The local environment's service (ADR 0001). `install`, `start` and
+ * `status` reject with a `ServiceFailureError`, whose kind
+ * `serviceFailureOf` reads back on the window's side of the bridge.
+ */
 export interface ShellService {
   /** The installed server's pending update, read by its own CLI across a protocol gap. */
   pendingUpdate?(): Promise<PendingUpdate>;
