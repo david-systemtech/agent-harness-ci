@@ -529,7 +529,7 @@ describe("the step registry", () => {
         holds: "Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind.",
         actions: ["update"],
       },
-      { id: "your-machines.host-updater", holds: "No host-side updater manages this environment's updates, or it polled in the last hour.", actions: ["check-again"] },
+      { id: "your-machines.host-updater", holds: "No host-side updater manages this environment's updates, or it polled in the last hour.", actions: ["how-to-set-up", "check-again"] },
       { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
       { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
       { id: "your-machines.lan", holds: "LAN binding is off, or the LAN address it names is one this machine holds.", actions: ["check-again"] },

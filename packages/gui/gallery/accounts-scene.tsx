@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { App } from "../src/app.js";
 import { prepareWorld, startWorld } from "./world.js";
 
-/** The three Accounts panes over the real Settings dialog, with pooled fake readings. */
+/** The three Accounts panes over the real Settings dialog, with pooled fake readings; Usage's also has three unknown limits, one with a value (#1893). */
 export async function accountsScene(row: SettingsRowId, openPicker = false) {
   const identity = { provider: "claude" as const, email: "reader@example.test", organisation: null };
   const prepared = await prepareWorld({ environments: [
@@ -18,6 +18,7 @@ export async function accountsScene(row: SettingsRowId, openPicker = false) {
   const reading: AccountUsage = { accountId: "account-1", identity, windows: [
     { window: "five_hour", utilisation: 0.42, resetsAt: "2026-09-30T14:00:00.000Z", verdict: null, observedAt: "2026-09-30T10:00:00.000Z" },
     { window: "seven_day", utilisation: 0.78, resetsAt: null, verdict: null, observedAt: "2026-09-30T10:00:00.000Z" },
+    ...(row === "accounts.usage" ? ["iguana_necktie", "walrus_hat", "otter_scarf"].map((window, index) => ({ window, utilisation: index === 0 ? 0 : null, resetsAt: index === 0 ? "2026-09-30T08:00:00.000Z" : null, verdict: null, observedAt: "2026-09-30T10:00:00.000Z" })) : []),
   ], readAt: "2026-09-30T10:00:00.000Z", unavailableReason: null };
   prepared.world.environment("desk").setUsage([reading, { accountId: "account-2", identity: null, windows: [], readAt: reading.readAt, unavailableReason: "Sign in again to read this account’s usage." }]);
   prepared.world.environment("laptop").setUsage([reading]);

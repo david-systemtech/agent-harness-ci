@@ -153,7 +153,9 @@ in a bounded inner scroller with contained overscroll; Close, New session and
 footer actions stay reachable above the keyboard. At 390×480 visual bounds with
 offsetTop 120 in a tall layout, search/results and dismissal never scroll the
 document. Dismissal restores focus without a page jump. Selecting a result
-closes the drawer and preserves each session's draft and running work. Selected,
+closes the drawer and preserves each session's draft and running work. New
+session, the drawer's or an environment heading's, closes the drawer and leaves
+the focus in the new session's message box, not on the drawer's trigger. Selected,
 running and waiting rows and explicit touch actions remain readable at text 20.
 
 Use look.md's abyss ground, panel cards, float overlays, hairline edges,

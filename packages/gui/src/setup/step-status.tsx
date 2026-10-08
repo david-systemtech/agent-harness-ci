@@ -22,6 +22,7 @@ import { SignInCard } from "../accounts/sign-in-card.js";
 import { useLocalService } from "../connections/local-service.js";
 import { nameOf } from "../connections/words.js";
 import { ToolTerminal, type ShownRun } from "../managed-tools/tool-terminal.js";
+import { HostUpdaterSetup } from "../machines/host-updater-setup.js";
 import { CopyLine } from "../settings/copy-line.js";
 import { useSettings } from "../settings/settings-window.js";
 import { Button, Tooltip } from "../ui/index.js";
@@ -50,11 +51,12 @@ type Said = Pick<ActionOutcome, "line" | "details">;
  * checklist switched to another environment, an account's sign-in (through
  * `signIn`), the environment's update, or a row of Settings, which leaves the
  * full checklist; a named tool's Install or Update opens its tool terminal
- * on the card, and Pull now reports every named source's sync (#733).
+ * on the card, Pull now reports every named source's sync (#733), and How
+ * to set it up on Your machines shows the host updater's setup (#1883).
  * A verb that is a step card's, on a card that has none, opens the step's
  * home row. What a command did is said through `say`.
  */
-const useSetupActions = (environmentId: string, say: (said: Said | undefined) => void, signIn: (account: NamedItem) => void, restore: CardRestore | undefined, started: (run: ShownRun) => void, refused: (command: string | null) => void) => {
+const useSetupActions = (environmentId: string, say: (said: Said | undefined) => void, signIn: (account: NamedItem) => void, restore: CardRestore | undefined, started: (run: ShownRun) => void, refused: (command: string | null) => void, showHostUpdater: () => void) => {
   const runtime = useRuntime();
   const clock = useClock();
   const service = useLocalService();
@@ -93,6 +95,8 @@ const useSetupActions = (environmentId: string, say: (said: Said | undefined) =>
       }
       case "managed-tools":
         return leave("about.about", environmentId, "managed-tools");
+      case "host-updater-setup":
+        return showHostUpdater();
       case "card":
         return leave(plan.home, environmentId);
       case "row":
@@ -132,9 +136,10 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
   const [signingIn, signIn] = useState<NamedItem | null>(null);
   const [drawn, started] = useState<ShownRun | null>(null);
   const [refusedCommand, refused] = useState<string | null>(null);
+  const [hostUpdater, showHostUpdater] = useState(false);
   const [sending, setSending] = useState(false);
   const inFlight = useRef(false);
-  const act = useSetupActions(environmentId, say, signIn, restore, toolStarted ?? started, refused);
+  const act = useSetupActions(environmentId, say, signIn, restore, toolStarted ?? started, refused, () => showHostUpdater(true));
   const run = async (plan: SetupActionPlan) => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -188,6 +193,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
       {reasons.map((reason) => <p key={reason} className="text-sm text-ink-faint">{reason}</p>)}
       {said !== undefined && <Outcome outcome={said} className="text-sm text-ink-muted" />}
       {refusedCommand !== null && <CopyLine label="The vendor's command, to run yourself" text={refusedCommand} />}
+      {hostUpdater && offered.some(({ plan }) => plan.kind === "host-updater-setup") && <HostUpdaterSetup close={() => showHostUpdater(false)} />}
       {drawn !== null && <ToolTerminal key={drawn.terminal.id} environmentId={environmentId} run={drawn} label={managedTool(drawn.tool).label} close={() => started(null)} />}
       {signingIn !== null && <SignInCard environmentId={environmentId} account={signingIn} close={() => signIn(null)} say={(line) => say({ line })} />}
     </>

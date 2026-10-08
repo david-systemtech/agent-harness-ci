@@ -91,7 +91,7 @@ export const StatusLine = ({ environmentId, sessionId, compact = false }: Status
         {/* Account shrinks first (look.md §10.5): a wrapping row breaks its lines at each chip's basis before anything shrinks, so
             the account enters the row at 60px and grows back to its own width, capped at the chip's 240px, before another chip wraps.
             60px fits the short 1024 × 768 stacked panes on one row; a smaller basis leaves a single letter where the row wraps anyway. */}
-        <span className={compact ? "contents" : "flex min-w-0 max-w-max grow basis-[60px]"}><AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} /></span>
+        <span className={compact ? "contents" : "flex min-w-0 max-w-max grow basis-[60px]"}><AccountPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model} /></span>
         <ModelPicker environmentId={environmentId} sessionId={sessionId} accountId={facts.accountId} model={facts.model} />
         <ModePicker
           environmentId={environmentId}

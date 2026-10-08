@@ -74,7 +74,9 @@ export const createHostUpdaterPolls = (options: HostUpdaterPollsOptions): HostUp
     holds() {
       if (!managedOutside || within(HOST_UPDATER_FRESH_MS)) return true;
       // setup-copy.md §5.4's lines (#1848).
-      if (lastPollAt === undefined) return { reason: "This container is not kept up to date yet. Set up the updater on the host computer." };
+      if (lastPollAt === undefined) {
+        return { reason: "This container is not kept up to date yet. Set up the updater on the host computer.", actions: ["how-to-set-up", "check-again"] };
+      }
       // The poll's time as data, which a client words where it is; the reason's own words for it stand for one that does not (#1742).
       const at = new Date(lastPollAt).toISOString();
       const when = `more than an hour ago, at ${utcMinute(at)}`;
@@ -82,6 +84,8 @@ export const createHostUpdaterPolls = (options: HostUpdaterPollsOptions): HostUp
         reason: `The host's updater last ran ${when}. Check that it still runs every five minutes.`,
         details: [`Host updater's last poll: ${at}`],
         times: [{ text: when, at }],
+        // It has polled, so it is set up: no How to set it up (#1883).
+        actions: ["check-again"],
       };
     },
   };

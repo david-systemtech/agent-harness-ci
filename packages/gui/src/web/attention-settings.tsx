@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { EndpointName, type AttentionTargetStatus, type CommandReceipt } from "@agent-harness/contracts";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import { Bell, RefreshCw, X } from "lucide-react";
 import { Button } from "../ui/button.js";
@@ -18,15 +18,35 @@ export interface AttentionSettingsProps {
   readonly onRefresh: () => void;
   /** Makes the named endpoint and its global route; resolves true once both are saved. */
   readonly onAddRoute: (route: WebhookRouteInput) => Promise<boolean>;
-  /** Posts a signed test to a webhook route's named endpoint. */
-  readonly onTest: (endpoint: string) => void;
+  /** Posts a signed test to a webhook route's named endpoint; the route is the target whose row holds the Test button. */
+  readonly onTest: (id: string, endpoint: string) => void;
+  /** What the admin's last action came to, written where they tapped: on the named target's row, or beside the route form's Add route button. */
+  readonly outcome?: AttentionOutcome | undefined;
 }
+/**
+ * An action's outcome and where it shows: `target` names the row whose button was tapped; absent, the route form's.
+ * `row` names the target row the action's own refresh brings in (a route just saved), which renders above the line and moves it.
+ */
+export interface AttentionOutcome { readonly text: string; readonly target?: string; readonly row?: string }
 /** What an admin types to add a signed-webhook route: the endpoint's name, its URL and its signing secret. */
 export interface WebhookRouteInput { readonly name: string; readonly url: string; readonly secret: string }
 /** A target is named by its label; a push registration's id is an opaque client session id that means nothing to a person. */
 export const attentionTargetLabel = (target: AttentionTargetStatus): string => target.label ?? (target.transport === "push" ? "Web Push registration" : target.id);
+/**
+ * An outcome line, announced, and scrolled into view: the sheet scrolls, and on a phone the button tapped may sit at its edge.
+ * `arrived` turns true once the row the action brings in is on screen; the line scrolls once more then, and never for rows
+ * that come or go later (another client's registration, a poll), so an old outcome never pulls the sheet away from a newer one.
+ */
+const OutcomeLine = ({ text, arrived = false }: { readonly text: string; readonly arrived?: boolean }) => {
+  const line = useRef<HTMLParagraphElement>(null);
+  const rowSeen = useRef(false);
+  const scroll = () => { if (typeof line.current?.scrollIntoView === "function") line.current.scrollIntoView({ block: "nearest" }); };
+  useEffect(() => { rowSeen.current = arrived; scroll(); }, [text]);
+  useEffect(() => { if (arrived && !rowSeen.current) { rowSeen.current = true; scroll(); } }, [arrived]);
+  return <p ref={line} role="status" className="text-ink-muted">{text}</p>;
+};
 /** Status and preference controls never receive a transport's URL, keys or secrets; the route form sends a secret once and never reads it back. */
-export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRemove, onRefresh, onAddRoute, onTest }: AttentionSettingsProps) => (
+export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRemove, onRefresh, onAddRoute, onTest, outcome }: AttentionSettingsProps) => (
   <section data-attention-settings className="flex min-w-0 flex-col gap-3 break-words text-base">
     <p className="text-ink-muted">A waiting ask is delivered after six seconds. No prompt, transcript, session title or secrets appear in the notification.</p>
     <p className="text-ink-muted">In-app Parked asks work while connected. Closed-phone delivery needs an enabled push subscription or a configured webhook fallback.</p>
@@ -45,20 +65,21 @@ export const AttentionSettingsPane = ({ targets, admin, busy, onConfigure, onRem
         <div className="flex flex-wrap gap-2">
           <Button className="h-11" title={`${target.enabled ? "Disable" : "Enable"} ${label}`} aria-label={`${target.enabled ? "Disable" : "Enable"} ${label}`} disabled={locked} onClick={() => onConfigure(target.id, !target.enabled, target.completion, target.global)}>{target.enabled ? "Disable" : "Enable"}</Button>
           <Button className="h-11" title={`Remove ${label}`} aria-label={`Remove ${label}`} disabled={locked} onClick={() => onRemove(target.id, target.global)}>Remove</Button>
-          {testable && <Button className="h-11" title={`Post a signed test to ${testable}`} aria-label={`Test ${label}`} disabled={busy} onClick={() => onTest(testable)}>Test</Button>}
+          {testable && <Button className="h-11" title={`Post a signed test to ${testable}`} aria-label={`Test ${label}`} disabled={busy} onClick={() => onTest(target.id, testable)}>Test</Button>}
         </div>
+        {outcome?.target === target.id && <OutcomeLine text={outcome.text} />}
         <label className="flex min-h-11 cursor-pointer items-center gap-3">
           <input type="checkbox" className="size-5 shrink-0" aria-label={`Routine completions for ${label}`} checked={target.completion} disabled={locked} onChange={event => onConfigure(target.id, target.enabled, event.target.checked, target.global)} />
           <span>Also deliver routine completions (silent outcomes stay quiet)</span>
         </label>
       </article>;
     })}
-    {admin && <WebhookRouteForm busy={busy} onAdd={onAddRoute} />}
+    {admin && <WebhookRouteForm busy={busy} onAdd={onAddRoute} outcome={outcome && outcome.target === undefined ? outcome.text : undefined} arrived={outcome?.row !== undefined && targets.some(target => target.id === outcome.row)} />}
   </section>
 );
 
 /** An admin's way to the closed-phone fallback: the named endpoint (URL and signing secret) and the global route that names it. */
-const WebhookRouteForm = ({ busy, onAdd }: { readonly busy: boolean; readonly onAdd: (route: WebhookRouteInput) => Promise<boolean> }) => {
+const WebhookRouteForm = ({ busy, onAdd, outcome, arrived }: { readonly busy: boolean; readonly onAdd: (route: WebhookRouteInput) => Promise<boolean>; readonly outcome: string | undefined; readonly arrived: boolean }) => {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState("");
@@ -79,6 +100,7 @@ const WebhookRouteForm = ({ busy, onAdd }: { readonly busy: boolean; readonly on
     <label className={field}><span>Signing secret</span><Input className="h-11" type="password" autoComplete="off" value={secret} onChange={event => setSecret(event.target.value)} /></label>
     {problem && <p role="alert" className="text-signal">{problem}</p>}
     <Button type="submit" className="h-11 self-start" disabled={busy}>Add route</Button>
+    {outcome && <OutcomeLine text={outcome} arrived={arrived} />}
   </form>;
 };
 
@@ -91,7 +113,7 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
   const clock = useClock();
   const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "attention.targets.list", {}), [runtime, environmentId]));
   const [busy, setBusy] = useState(false);
-  const [line, setLine] = useState<string>();
+  const [outcome, setOutcome] = useState<AttentionOutcome>();
   const admin = runtime.capability(environmentId, "attention.routes.set").status === "present";
   const refresh = () => runtime.requests.refresh(environmentId, "attention.targets.list", {});
   useEffect(() => {
@@ -100,7 +122,8 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
     return () => timer.cancel();
   }, [clock, runtime, environmentId]);
   const write = async (id: string, global: boolean, preferences?: { readonly enabled: boolean; readonly completion: boolean }) => {
-    setBusy(true); setLine(undefined);
+    setBusy(true); setOutcome(undefined);
+    const setLine = (text: string) => setOutcome({ text, target: id });
     try {
       const commandId = crypto.randomUUID();
       const result = preferences
@@ -128,7 +151,8 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
    * client cannot list, may deliver to it. Adding a route's own name again finishes or replaces it.
    */
   const addRoute = async ({ name, url, secret }: WebhookRouteInput): Promise<boolean> => {
-    setBusy(true); setLine(undefined);
+    setBusy(true); setOutcome(undefined);
+    const setLine = (text: string) => setOutcome({ text });
     const notSaved = (why: string) => { setLine(`Webhook route not saved: ${why}`); refresh(); return false; };
     try {
       const [endpoints, current] = await Promise.all([runtime.requests.call(environmentId, "routines.endpoints.list", {}), routeNaming(name)]);
@@ -153,13 +177,14 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
         if (listed !== true) return notSaved(refusedEndpoint);
       }
       const enabled = refusal(await runtime.requests.call(environmentId, "attention.routes.configure", { commandId: crypto.randomUUID(), id, enabled: true, completion: route?.completion ?? false }).catch(() => null));
-      setLine(enabled === null ? `Webhook route ${name} saved. Test it to check that its receiver takes the signed post.` : `Webhook route ${name} saved but not enabled: ${enabled} Enable it below.`);
+      setOutcome({ text: enabled === null ? `Webhook route ${name} saved. Test it to check that its receiver takes the signed post.` : `Webhook route ${name} saved but not enabled: ${enabled} Enable it on its row above.`, row: id });
       refresh();
       return true;
     } catch { setLine("Could not save the webhook route. Check your connection and admin grant."); return false; }
     finally { setBusy(false); }
   };
-  const test = async (endpoint: string) => {
+  const test = async (id: string, endpoint: string) => {
+    const setLine = (text: string) => setOutcome({ text, target: id });
     setBusy(true); setLine(`Posting a signed test to ${endpoint}…`);
     try {
       const answer = await runtime.requests.call(environmentId, "routines.endpoints.test", { name: endpoint });
@@ -169,10 +194,10 @@ const ConnectedAttention = ({ environmentId }: { readonly environmentId: string 
     finally { setBusy(false); }
   };
   return <>
-    {(line || answer.error) && <p role="status" className="mb-3 text-ink-muted">{line ?? "Could not read attention status. Check your connection and read grant."}</p>}
-    <AttentionSettingsPane targets={answer.result?.targets ?? []} admin={admin} busy={busy} onRefresh={refresh}
+    {answer.error && <p role="status" className="mb-3 text-ink-muted">Could not read attention status. Check your connection and read grant.</p>}
+    <AttentionSettingsPane targets={answer.result?.targets ?? []} admin={admin} busy={busy} outcome={outcome} onRefresh={refresh}
       onConfigure={(id, enabled, completion, global) => { void write(id, global, { enabled, completion }); }} onRemove={(id, global) => { void write(id, global); }}
-      onAddRoute={addRoute} onTest={endpoint => { void test(endpoint); }} />
+      onAddRoute={addRoute} onTest={(id, endpoint) => { void test(id, endpoint); }} />
   </>;
 };
 

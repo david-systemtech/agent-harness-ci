@@ -224,6 +224,22 @@ export async function phoneFrameSmoke(page: Page, engine: string): Promise<void>
   console.log(`PHONE-FRAME PASS ${engine}: 390/360px, keyboard height, both color schemes, touch targets, drawer focus, grant restrictions`);
 }
 
+/** The drawer's New session and an environment heading's each close the drawer and leave the new session's message box focused (#1902); `conversation` is then chosen again. */
+export async function phoneNewSessionSmoke(page: Page, conversation: string): Promise<void> {
+  const trigger = page.getByRole("button", { name: "Show sessions", exact: true });
+  const drawer = page.getByRole("dialog", { name: "Sessions", exact: true });
+  for (const control of [drawer.getByRole("button", { name: "New session", exact: true }), drawer.getByRole("button", { name: /^New session on / }).first()]) {
+    await trigger.click();
+    await control.click();
+    await expect(drawer).toBeHidden();
+    await expect(page.getByRole("region", { name: "New session", exact: true }).getByRole("textbox", { name: "Message", exact: true })).toBeFocused();
+  }
+  await trigger.click();
+  await drawer.locator("[data-sidebar-row]").filter({ hasText: conversation }).click();
+  await expect(drawer).toBeHidden();
+  await expect(page.getByRole("region", { name: "New session", exact: true })).toHaveCount(0);
+}
+
 export async function phoneReconnectSmoke(page: Page, environment: TestEnvironment, sessionId: string, release: () => void, setOriginAvailable: (available: boolean) => void): Promise<void> {
   await expect(page.locator("[data-web-grant]")).toHaveAttribute("data-phase", "ready");
   await page.context().setOffline(true);

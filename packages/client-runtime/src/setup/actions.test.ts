@@ -34,6 +34,15 @@ describe("Set up actions on named items", () => {
       { words: "Check certificate: OpenBao at bao.example.test:8200", plan: { kind: "row", row: "access.key-managers" } },
     ]);
   });
+
+  it("plans How to set it up on Your machines as the host updater's setup, and on any other step as its home row (#1883)", () => {
+    const machines = { id: "your-machines", home: "environments.machines" } as const;
+    expect(setupActions(machines, { actions: ["how-to-set-up", "check-again"] })).toMatchObject([
+      { words: "How to set it up", plan: { kind: "host-updater-setup" } },
+      { words: "Check again", plan: { kind: "check" } },
+    ]);
+    expect(planSetupAction(skills, "how-to-set-up")).toEqual({ kind: "row", row: "knowledge.skills" });
+  });
 });
 
 describe("Set up actions' words (setup-copy.md §3 and the steps)", () => {

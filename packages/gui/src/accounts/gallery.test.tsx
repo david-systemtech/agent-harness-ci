@@ -31,6 +31,8 @@ it.each([
       const pooled = await within(pane).findByRole("region", { name: "reader@example.test" });
       expect(within(pooled).getByRole("list", { name: "Accounts" }).textContent).toBe("Personal on deskTravel on laptop");
       expect(within(pooled).getAllByRole("img")).toHaveLength(2);
+      expect(within(pooled).getAllByText("Other limit")).toHaveLength(1);
+      expect(within(pooled).getByText("2 other limits give no reading.")).toBeDefined();
     }
     expect(JSON.parse(container.dataset["galleryGeometry"] ?? "null")).toEqual(expect.arrayContaining([
       { selector: 'nav[aria-label="Settings rows"]', width: 208 },
