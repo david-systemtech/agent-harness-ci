@@ -34,7 +34,7 @@ it("explains the outcome of every checklist step, including optional steps, in s
   expect(STEP_ORDER.map((id) => STEP_HINTS[id])).toEqual([
     "Sign in to Claude", "Bring your past chats", "Use it from other devices", "Connect GitHub and others",
     "Use your key manager", "A notebook agents keep", "Ready-made agent skills", "Notes every agent reads",
-    "Let agents use Chrome", "When agents ask", "Light, dark and colours",
+    "Let agents use Chrome", "When agents must ask", "Light, dark and colours",
   ]);
 });
 

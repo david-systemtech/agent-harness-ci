@@ -248,12 +248,14 @@ describe("a step's result", () => {
 });
 
 /**
- * No line of any registered step's result holds a raw fact (setup-copy.md
- * §1.7, §3): whatever its checks throw or answer, a check id, a settings key,
- * an ISO time, an HTTP status or a method name is in details, never in the
- * reason (#1836).
+ * No shared line or registry done line of any registered step holds a raw
+ * fact (setup-copy.md §1.7, §3): when a check throws, a value is refused or
+ * the checks take too long, a check id, a settings key, an ISO time, an HTTP
+ * status or a method name is in details, never in the reason (#1836). The
+ * checks run as stubs, so each step's own lines are its own ticket's to keep
+ * plain: Forges' reads line still names an HTTP status until #1850.
  */
-describe("a step's line on every registered step", () => {
+describe("the shared and done lines on every registered step", () => {
   const RAW = "HTTP 503 from forge.accounts.add at 2026-10-08T08:00:00.000Z";
   const methods = Object.keys(registry);
   const checkIds = STEP_REGISTRY.flatMap((step) => step.stateChecks.map((stateCheck) => stateCheck.id));

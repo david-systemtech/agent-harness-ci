@@ -59,7 +59,7 @@ const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
 it("numbers all eleven steps with an outcome hint and distinguishes required from optional", async () => {
   await firstLaunch();
   const rows = within(steps()).getAllByRole("listitem");
-  const hints = ["Sign in to Claude", "Bring your past chats", "Use it from other devices", "Connect GitHub and others", "Use your key manager", "A notebook agents keep", "Ready-made agent skills", "Notes every agent reads", "Let agents use Chrome", "When agents ask", "Light, dark and colours"];
+  const hints = ["Sign in to Claude", "Bring your past chats", "Use it from other devices", "Connect GitHub and others", "Use your key manager", "A notebook agents keep", "Ready-made agent skills", "Notes every agent reads", "Let agents use Chrome", "When agents must ask", "Light, dark and colours"];
   expect(rows).toHaveLength(11);
   for (const [index, row] of rows.entries()) {
     expect(within(row).getByText(String(index + 1))).toBeDefined();

@@ -70,7 +70,7 @@ export const STEP_HINTS: { readonly [Id in (typeof STEP_ORDER)[number]]: string 
   skills: "Ready-made agent skills",
   instructions: "Notes every agent reads",
   browser: "Let agents use Chrome",
-  permissions: "When agents ask",
+  permissions: "When agents must ask",
   appearance: "Light, dark and colours",
 };
 
