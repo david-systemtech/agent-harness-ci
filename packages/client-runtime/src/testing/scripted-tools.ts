@@ -164,9 +164,11 @@ export const scriptedTools = (host: ToolsHost): ScriptedToolsHandle => {
     const row = rows.find((held) => held.tool === tool) ?? rowOf({ tool });
     const run = script.runs?.[tool] ?? {};
     if (run.refused !== undefined) return notRunnable(asked, action, run.refused.message, run.refused.command);
-    if (action === "update" && row.action === "copy") return notRunnable(asked, action, `The harness does not update ${tool} installed that way: run the vendor's command yourself.`, row.command);
+    if (action !== "install" && row.action === "copy") return notRunnable(asked, action, `The harness does not update ${tool} installed that way: run the vendor's command yourself.`, row.command);
+    // Run in a terminal pane runs the row's command, held back until Enter (#1833).
+    if (action === "terminal" && row.command === null) return notRunnable(asked, action, `The harness has no command for ${tool} here: update it the way it was installed.`, null);
     const method = run.method ?? (action === "update" && row.method !== null ? (toolCommandMethodOf(row.method) ?? "homebrew") : "homebrew");
-    const command = run.command ?? `brew ${action === "install" ? "install" : "upgrade"} ${tool}`;
+    const command = run.command ?? (action === "terminal" && row.command !== null ? row.command : `brew ${action === "install" ? "install" : "upgrade"} ${tool}`);
     const terminalId = String(params["id"]).toLowerCase();
     let typed = "";
     /** The command goes on past `sudo`: it prints, then exits as the script says. */

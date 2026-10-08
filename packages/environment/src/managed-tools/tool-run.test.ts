@@ -217,28 +217,71 @@ posix("tools.run's Update", () => {
     expect([apt.method, apt.command]).toEqual(["apt", "sudo apt-get update && sudo apt-get install --only-upgrade gh"]);
   });
 
-  it("is tool_not_runnable for a Copy-only row, answering the vendor's documented command: its script's update for one installed by hand, else the install the table has here; and none for vault", async () => {
+  it("updates what Scoop, mise or asdf installed through its own upgrade, naming the package the realpath is under, and a bare binary by its vendor's update (#1833)", async () => {
+    const path = fakePath();
+    path.install("gh", { at: ".local/share/mise/installs/gh/2.63.2/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    path.install("doppler", { at: ".asdf/installs/doppler/3.80.0/bin/doppler", output: "v3.80.0" });
+    path.install("bao", { output: "OpenBao v2.1.1" });
+    path.install("claude", { output: "2.1.283 (Claude Code)" });
+    const { client, pty } = await withRunner(path);
+
+    const updated: [string, string, string][] = [];
+    for (const tool of ["gh", "doppler", "bao", "claude"] as const) {
+      const result = await ran(client, { tool, action: "update" });
+      updated.push([tool, result.method, result.command]);
+      spawnedAt(pty, updated.length - 1).exit(0);
+      await expect.poll(async () => (await eventsOf(client, "tool.run-finished")).length).toBe(updated.length);
+    }
+    expect(updated.slice(0, 2)).toEqual([
+      ["gh", "mise", "mise upgrade gh"],
+      ["doppler", "asdf", "asdf install doppler latest && asdf set --home doppler latest"],
+    ]);
+    expect(updated[2]?.slice(0, 2)).toEqual(["bao", "manual"]);
+    expect(updated[2]?.[2]).toMatch(/^sh -c 'set -eu; .*checksums\.txt.*install -m 0755/);
+    expect(updated[3]).toEqual(["claude", "manual", "claude update"]);
+  });
+
+  it("runs the vendor's documented command for a tool installed in a way the table cannot drive, held back until Enter in the tool terminal, whether asked as Update or as Run in a terminal pane (#1833)", async () => {
     const path = fakePath();
     programs(path, "brew");
-    path.install("doppler", { output: "v3.80.0" });
-    path.install("gh", { at: ".local/share/mise/installs/gh/2.63.2/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    const bws = path.install("bws", { output: "bws 1.0.0" });
+    path.install("gh", { at: "lib/node_modules/gh/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    const { client, pty } = await withRunner(path, { managedTools: { packageOwner: scriptedPackageOwners({ [bws.file]: "unknown" }) } });
+
+    const terminal = await ran(client, { tool: "bws", action: "terminal" });
+    expect([terminal.tool, terminal.action, terminal.method]).toEqual(["bws", "terminal", "script"]);
+    expect(terminal.command).toBe(
+      "printf '%s\\n\\n%s ' 'curl -fsSL https://bws.bitwarden.com/install | sh' 'Press Enter to run it here, or Ctrl+C to cancel.' && sh -c 'read -r answer' && curl -fsSL https://bws.bitwarden.com/install | sh",
+    );
+    expect(spawnedAt(pty).args).toEqual(["-l", "-c", terminal.command]);
+    spawnedAt(pty).exit(0);
+    await eventOf(client, "tool.run-finished");
+
+    const update = await ran(client, { tool: "gh", action: "update" });
+    expect([update.method, update.command]).toEqual(["homebrew", expect.stringMatching(/^printf .* && sh -c 'read -r answer' && brew install gh$/)]);
+  });
+
+  it("is tool_not_runnable for vault, which the harness never installs or updates, and for a tool not installed, opening nothing", async () => {
+    const path = fakePath();
+    programs(path, "brew");
     path.install("vault", { output: "Vault v1.15.0" });
     const { client, pty } = await withRunner(path);
 
-    const refusal = async (tool: "doppler" | "gh" | "vault") => (await run(client, { tool, action: "update" })).receipt;
-    expect(await refusal("doppler")).toMatchObject({ status: "rejected", reason: "tool_not_runnable", error: { data: { tool: "doppler", action: "update", command: "doppler update" } } });
-    expect(await refusal("gh")).toMatchObject({ reason: "tool_not_runnable", error: { data: { tool: "gh", action: "update", command: "brew install gh" } } });
-    expect(await refusal("vault")).toMatchObject({ reason: "tool_not_runnable", error: { data: { tool: "vault", action: "update", command: null } } });
+    for (const action of ["update", "terminal"] as const) {
+      expect((await run(client, { tool: "vault", action })).receipt).toMatchObject({ status: "rejected", reason: "tool_not_runnable", error: { data: { tool: "vault", action, command: null } } });
+    }
+    expect((await run(client, { tool: "gh", action: "terminal" })).receipt).toMatchObject({ reason: "tool_not_runnable", error: { message: "gh is not installed on this environment: Install it.", data: { command: "brew install gh" } } });
     expect(pty.spawned).toEqual([]);
   });
 
-  it("puts that command on each Copy row tools.list answers, so a client shows it before anything is clicked, and none on a row whose action runs (#426)", async () => {
+  it("puts that command on each terminal row tools.list answers, so a client shows it before anything is clicked, and none on a row whose action runs it directly (#426, #1833)", async () => {
     const path = fakePath();
     programs(path, "brew");
     path.install("doppler", { output: "v3.80.0" });
-    path.install("gh", { at: ".local/share/mise/installs/gh/2.63.2/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    path.install("gh", { at: "lib/node_modules/gh/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
     path.install("vault", { output: "Vault v1.15.0" });
     path.install("op", { at: "homebrew/Caskroom/1password-cli/2.30.0/op", output: "2.30.0" });
+    path.install("bws", { output: "bws 1.0.0" });
     const { client } = await withRunner(path);
 
     const rows = (await client.request("tools.list", {})).tools;
@@ -247,10 +290,10 @@ posix("tools.run's Update", () => {
       claude: ["install", null],
       bao: ["install", null],
       vault: ["copy", null],
-      doppler: ["copy", "doppler update"],
+      doppler: ["update", null],
       op: ["update", null],
-      bws: ["install", null],
-      gh: ["copy", "brew install gh"],
+      bws: ["terminal", "curl -fsSL https://bws.bitwarden.com/install | sh"],
+      gh: ["terminal", "brew install gh"],
     });
   });
 

@@ -103,6 +103,17 @@ export const methodFromShape = (tool: ManagedToolName, found: FoundTool): Manage
   return null;
 };
 
+/** The package directories of Scoop, mise and asdf, whose next part is the package a tool was installed as. */
+const PACKAGE_DIRECTORY = /\/(?:scoop\/apps|mise\/installs|\.asdf\/installs)\/([^/]+)\//i;
+
+/**
+ * The package a tool's realpath is installed under by Scoop, mise or asdf
+ * (`scoop/apps/<name>/`, `mise/installs/<name>/`, `.asdf/installs/<name>/`),
+ * which their update names (#1833); null for any other place, a shim among
+ * them, whose update names the registry's package.
+ */
+export const installedPackage = (realpath: string): string | null => PACKAGE_DIRECTORY.exec(realpath.replaceAll("\\", "/"))?.[1] ?? null;
+
 /** A version in a tool's `--version`, with an optional leading `v`, standing alone: not part of a longer dotted run or a word. */
 const PRINTED_VERSION = /(?<![\w.])v?(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)(?![\w.])/;
 
