@@ -13,6 +13,12 @@ import { classes } from "../ui/classes.js";
 import { RunChoiceRow, RunPickerColumn, moveInColumns, useNarrowRunPicker, type RunStage } from "../status/run-picker-parts.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
+/** A family's model as a picker row says it: its display name, and its id beside it when the two differ (#1867). */
+const modelWords = (model: ModelEntry) => {
+  const words = modelDisplayName(model.id, model.label);
+  return { words, machine: words === model.id ? undefined : model.id };
+};
+
 /** The three defaults the pane picks from lists; the fourth, the process idle time, is typed. */
 type DefaultKey = keyof typeof DEFAULT_CHOICE_WORDS;
 
@@ -96,7 +102,7 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
   const modelListing = runtime.capability(environmentId, "models.list");
   const options = {
     "accounts.defaultAccount": accounts.map((account) => ({ value: account.id, words: accountChoiceWords(account), under: `${identityWords(account)} · ${account.provider}` })),
-    "accounts.defaultModelFamily": families.map(({ family, model }) => ({ value: family, words: model.label ?? model.id, machine: model.label === null ? undefined : model.id, hasEffort: model.efforts.length > 0, under: model.efforts.length > 0 ? "Supports effort" : "Uses its own effort" })),
+    "accounts.defaultModelFamily": families.map(({ family, model }) => ({ value: family, ...modelWords(model), hasEffort: model.efforts.length > 0, under: model.efforts.length > 0 ? "Supports effort" : "Uses its own effort" })),
     "accounts.defaultEffort": efforts.map((effort) => ({ value: effort, words: effort, under: "Reasoning effort for new sessions." })),
   };
   const selectedWords = (key: DefaultKey) => {
@@ -116,7 +122,7 @@ export const DefaultChoices = ({ view }: { readonly view: EnvironmentView }) => 
     <SettingsGroup title="New sessions">
       <DefaultTrigger name="Default account" stage="Accounts" words={selectedWords("accounts.defaultAccount")} writable={writable} narrow={narrow} icon={KeyRound}
         note="The account a new session starts on." columns={columns} />
-      <DefaultTrigger name="Model family" stage="Models" words={selectedWords("accounts.defaultModelFamily")} machine={selectedModel?.label ? selectedModel.id : undefined} writable={writable} narrow={narrow} icon={Cpu}
+      <DefaultTrigger name="Model family" stage="Models" words={selectedWords("accounts.defaultModelFamily")} machine={selectedModel === undefined ? undefined : modelWords(selectedModel).machine} writable={writable} narrow={narrow} icon={Cpu}
         note="Use the strongest model in this family." columns={columns} />
       <DefaultTrigger name="Effort" stage={efforts.length > 0 || valueOf("accounts.defaultEffort") !== null ? "Effort" : "Models"} words={selectedWords("accounts.defaultEffort")} writable={writable} narrow={narrow} icon={Gauge}
         note="How much reasoning the model uses." columns={columns} />
