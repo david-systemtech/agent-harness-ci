@@ -43,6 +43,9 @@ const statusLine = () => screen.getByRole("region", { name: "Status line" });
 /** The pane's one line, under the composer. */
 const paneLine = () => within(screen.getByRole("region", { name: "Session pane" })).queryAllByRole("status").at(-1)?.textContent;
 
+/** What the transient lane says now, newest last (#1823): a mode set as asked is said there, once, not on the pane's line. */
+const feedback = () => [...document.querySelectorAll('[data-sonner-toast]:not([data-removed="true"]) [data-title]')].map((title) => title.textContent);
+
 /** Opens the picker whose button's name starts with `name` (`Mode`), as a person tabbing to it and pressing Enter does. */
 const openPicker = async (app: RenderedApp, name: string) => {
   const button = await within(statusLine()).findByRole("button", { name: new RegExp(`^${name}: `) });
@@ -85,11 +88,38 @@ describe("the mode picker", () => {
     expect(await within(statusLine()).findByRole("button", { name: "Mode: auto" })).toBeTruthy();
   });
 
-  it("sets a mode within the ceiling and says it", async () => {
+  it("sets a mode within the ceiling and says it once, as a transient notice, with no standing line under the composer", async () => {
     const { app } = await opened();
     await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
-    await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
+    expect(paneLine()).toBeUndefined();
     expect(await within(statusLine()).findByRole("button", { name: "Mode: plan" })).toBeTruthy();
+  });
+
+  it("says bypassPermissions once as it changes, with the permissions spec's sentence, and the mode control shows it from then on", async () => {
+    const { app } = await opened();
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(feedback()).toContain(`Mode: bypassPermissions. ${BYPASS}`));
+    expect(paneLine()).toBeUndefined();
+    expect(await within(statusLine()).findByRole("button", { name: "Mode: BYPASS" })).toBeTruthy();
+  });
+
+  it("shows a session in bypassPermissions by the mode control alone: its label and colour, the sentence in its tooltip", async () => {
+    await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4", mode: "bypassPermissions" }] })]);
+    const mode = await within(statusLine()).findByRole("button", { name: "Mode: BYPASS" });
+    expect(mode.querySelector(".text-signal")?.textContent).toBe("BYPASS");
+    expect(paneLine()).toBeUndefined();
+    act(() => mode.focus());
+    expect((await screen.findByRole("tooltip")).textContent).toContain(`Mode: BYPASS · /mode · ${BYPASS}`);
+  });
+
+  it("clears an earlier clamp's line once a mode is set as asked", async () => {
+    const { app } = await opened([desk({ hello: { ceiling: "auto" } })]);
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^BYPASS/ }));
+    await waitFor(() => expect(paneLine()).toBe("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto)."));
+    await app.user.click(within(await openPicker(app, "Mode")).getByRole("menuitem", { name: /^plan/ }));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
+    expect(paneLine()).toBeUndefined();
   });
 });
 
@@ -169,7 +199,7 @@ describe("the model picker", () => {
     expect(modes.className).toContain("w-72");
     act(() => within(modes).getByRole("menuitem", { name: /^plan/ }).focus());
     await app.user.keyboard("{Enter}");
-    await waitFor(() => expect(paneLine()).toBe("Mode: plan."));
+    await waitFor(() => expect(feedback()).toContain("Mode: plan."));
   });
 
   it("shows one dependency at a time at 360px and keeps model and effort choices when going back", async () => {
