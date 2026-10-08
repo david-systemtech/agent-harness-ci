@@ -203,8 +203,18 @@ describe("the Your machines step in Set up", () => {
     act(() => app.clock.advance(5_000));
     await waitFor(() => expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1));
     expect(await within(step()).findByText("agent-harness did not restart on desk.")).toBeDefined();
-    expect(within(step()).getByText("Choose Restart agent-harness to try again.")).toBeDefined();
+    // Restart cannot run while nothing answers: the notice points at the checklist's Start, which can.
+    expect(within(step()).getByText("Choose Start to try again.")).toBeDefined();
+    expect(within(step()).queryByText("Choose Restart agent-harness to try again.")).toBeNull();
     expect(within(step()).queryByText("desk is restarting.")).toBeNull();
+    app.shell.answer("service.start", async () => {
+      desk.wire.answer("environment.status", statusWith(DESK_BINDING));
+      desk.discovery("ready");
+    });
+    await app.user.click(within(checklist()).getByRole("button", { name: "Start" }));
+    expect(await within(step()).findByText(REACHABLE, {}, { timeout: 5_000 })).toBeDefined();
+    // Running again, the computer no longer carries the failed start's notice.
+    expect(within(step()).queryByText("agent-harness did not restart on desk.")).toBeNull();
   });
 
   it("says a paired computer uses Tailscale from its next start, with no restart from this app", async () => {
@@ -225,10 +235,11 @@ describe("the Your machines step in Set up", () => {
     expect(within(reach).queryByText(NEEDS_RESTART)).toBeNull();
   });
 
-  it("says devices on the Wi-Fi network reach the computer once its local network address is bound, whether or not Tailscale is off or installed", async () => {
-    const app = await inSetUp({
-      desk: { settings: { "network.bindTailnet": false, "network.bindLan": "192.168.1.20" }, status: { binding: { ...LOOPBACK_ONLY, lan: "192.168.1.20", lanAddresses: ["192.168.1.20"] } } },
-    });
+  it.each([
+    ["Use Tailscale is off", { "network.bindTailnet": false, "network.bindLan": "192.168.1.20" }, {}],
+    ["Tailscale is not installed", { "network.bindLan": "192.168.1.20" }, { tailscaleInstalled: false }],
+  ] as const)("says devices on the Wi-Fi network reach the computer once its local network address is bound, where %s", async (_case, settings, tailscale) => {
+    const app = await inSetUp({ desk: { settings, status: { binding: { ...LOOPBACK_ONLY, ...tailscale, lan: "192.168.1.20", lanAddresses: ["192.168.1.20"] } } } });
     const reach = await alsoFromOtherDevices(app);
     expect(await within(reach).findByText(ON_WIFI)).toBeDefined();
     expect(reach.getAttribute("data-reach-verdict")).toBe("wifi");

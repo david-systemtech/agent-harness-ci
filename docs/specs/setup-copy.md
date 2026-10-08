@@ -318,7 +318,8 @@ quoted from the files named; a builder greps for them.
   - **Check again** under every line but the first; it reads how the computer is reached again.
   - on Windows, under every line but the first and the Use Tailscale one: `Windows asks once whether Node.js may accept connections. Keep Private networks ticked and choose Allow access.` (#1910)
   - **Restart agent-harness** (this computer's own service, from the desktop app) drains it and starts it again; meanwhile `{name} is restarting.`;
-    if it does not: `agent-harness did not restart on {name}.` `Choose Restart agent-harness to try again.` Details: the refusal.
+    if it does not: `agent-harness did not restart on {name}.` `Choose Restart agent-harness to try again.` Details: the refusal;
+    where it stopped and did not start again, `Choose Start to try again.` (Restart cannot drain what is not running; the checklist's Start can), and that notice goes once it runs again.
   - then **Add a device** (§5.5).
 - More options: name, icon and colour; switch `Use Tailscale` with `On: agent-harness uses Tailscale whenever it is installed.` (the switch is preset on, so it must not read as "Tailscale is working"); switch `Also allow devices on this Wi-Fi network` with `Anyone on this network could try to connect. They still need a pairing code.` (it uses the computer's first local network address; choosing another is Settings'; with none, the switch is off and held, and says `This computer is not on a local network.`);
   updates (`Update automatically`, `Channel` `Stable` / `Beta`); link **All settings for this computer** (Settings › Your machines; leaves Set up).

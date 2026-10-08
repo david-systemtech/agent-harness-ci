@@ -153,6 +153,12 @@ const AllSettings = ({ view }: { readonly view: EnvironmentView }) => {
 /** Where a restart from this app stands: the drain asked, then the start once the service stopped. */
 type RestartProgress = "idle" | "draining" | "starting";
 
+/** What stopped a restart: the drain, refused while the computer still runs, or the start once it had stopped. */
+interface RestartRefusal {
+  readonly step: "drain" | "start";
+  readonly text: string;
+}
+
 /**
  * Restart agent-harness (setup-copy.md §5.4), where the computer's service
  * can restart from this app: this computer's own, with a shell that starts
@@ -169,7 +175,7 @@ const useRestart = (view: EnvironmentView): Restart | undefined => {
   const version = useClientVersion();
   const frame = useWindowFrame();
   const [progress, setProgress] = useState<RestartProgress>("idle");
-  const [refusal, setRefusal] = useState<string | undefined>(undefined);
+  const [refusal, setRefusal] = useState<RestartRefusal | undefined>(undefined);
   const { environmentId, phase } = view;
   const name = nameOf(view);
   useEffect(() => {
@@ -187,9 +193,13 @@ const useRestart = (view: EnvironmentView): Restart | undefined => {
   useEffect(() => {
     if (progress === "starting" && !service.starting && service.failure !== undefined) {
       setProgress("idle");
-      setRefusal(service.failure.text);
+      setRefusal({ step: "start", text: service.failure.text });
     }
   }, [progress, service.starting, service.failure]);
+  // A failed start is over once the computer runs again, however it was started.
+  useEffect(() => {
+    if (phase === "ready") setRefusal((last) => (last?.step === "start" ? undefined : last));
+  }, [phase]);
   const can = view.kind === "local" && service.available.status === "present" && runtime.capability(environmentId, "environment.drain").status === "present";
   // A restart under way, or its refusal, outlasts the drain that makes the computer stop answering.
   if (!can && progress === "idle" && refusal === undefined) return undefined;
@@ -199,18 +209,19 @@ const useRestart = (view: EnvironmentView): Restart | undefined => {
     void drainEnvironment(runtime, environmentId, name, uuidv7(clock.now())).then((outcome) => {
       if (outcome.ok) return;
       setProgress("idle");
-      setRefusal(outcome.line);
+      setRefusal({ step: "drain", text: outcome.line });
     });
   };
   const title = `agent-harness did not restart on ${name}.`;
-  const line = `${title} Choose Restart agent-harness to try again.`;
+  // Stopped and not started again, nothing answers to drain: Start, which the checklist offers then, starts it.
+  const retry = refusal?.step === "start" ? "Choose Start to try again." : "Choose Restart agent-harness to try again.";
   const failure = refusal === undefined ? undefined : (
     <SetupNotice
       tone="error"
       title={title}
-      description="Choose Restart agent-harness to try again."
+      description={retry}
       details={{
-        report: { app: { version, platform: frame?.platform ?? "unknown" }, computer: { name }, line, details: [refusal] },
+        report: { app: { version, platform: frame?.platform ?? "unknown" }, computer: { name }, line: `${title} ${retry}`, details: [refusal.text] },
         copy: (text) => (shell?.clipboard === undefined ? Promise.reject(new Error("This app has no clipboard.")) : shell.clipboard.writeText(text)),
       }}
     />
