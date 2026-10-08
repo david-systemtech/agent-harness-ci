@@ -7,6 +7,7 @@ import {
   STEP_STATE_WORDS,
   aboveCeilingWords,
   countsWords,
+  effortName,
   gaugeOf,
   gaugeWho,
   identityWords,
@@ -163,7 +164,7 @@ export const modelRows = (models: readonly ModelEntry[], current: string | null)
   const names = columnOf(models.map(modelName));
   return models.map((model) => ({
     key: model.id,
-    cells: [{ text: pad(modelName(model), names) }, { text: model.efforts.length > 0 ? model.efforts.join(" · ") : "no effort levels", dim: model.efforts.length === 0 }],
+    cells: [{ text: pad(modelName(model), names) }, { text: model.efforts.length > 0 ? model.efforts.map(effortName).join(" · ") : "no effort levels", dim: model.efforts.length === 0 }],
     dim: false,
     ...(model.id === current && { note: { text: "this session", dim: true } }),
   }));
@@ -172,7 +173,7 @@ export const modelRows = (models: readonly ModelEntry[], current: string | null)
 /** A model's efforts as rows, the model's own first; `current` the session's (null: the model's own), undefined when the session is not on the model. */
 export const effortRows = (model: ModelEntry, current: string | null | undefined): readonly PanelRow[] => [
   { key: "", cells: [{ text: "the model's own" }], dim: false, ...(current === null && { note: { text: "this session", dim: true } }) },
-  ...model.efforts.map((effort) => ({ key: effort, cells: [{ text: effort }], dim: false, ...(effort === current && { note: { text: "this session", dim: true } }) })),
+  ...model.efforts.map((effort) => ({ key: effort, cells: [{ text: effortName(effort) }], dim: false, ...(effort === current && { note: { text: "this session", dim: true } }) })),
 ];
 
 /** The modes, each above the connection's ceiling dim with the ceiling named; the session's marked. */

@@ -202,7 +202,7 @@ it("chooses account, model and effort in separate phone steps and sends the chos
   expect(within(sheet).queryByRole("group", { name: "Models" })).toBeNull();
   await user.click(within(sheet).getByRole("button", { name: "Back: Models" }));
   await user.click(within(sheet).getByRole("button", { name: "Next: Effort" }));
-  await user.click(within(sheet).getByRole("menuitem", { name: "high" }));
+  await user.click(within(sheet).getByRole("menuitem", { name: "High" }));
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   await user.type(box, "Check the receipts");
   await user.click(within(surface).getByRole("button", { name: "Send" }));

@@ -1010,6 +1010,11 @@ the dialog beyond its bounds.
 
 ## 13. Set up
 
+[setup-copy.md](setup-copy.md) owns Set up's words: the introduction, the
+checklist's rail, step cards, status lines and footer, the Settings › Set up
+pane, the header chip and every check line. This section owns the layout;
+where the two disagree on words, setup-copy.md wins.
+
 ### 13.1 First frame: variant A
 
 Show the introduction from the first frame while the environment on this machine
@@ -1035,19 +1040,26 @@ The owner-approved copy is:
 | First, connect your account | Your agent needs a signed-in coding account to start a session. We will help you connect it. | Required to start |
 | Then, make it yours | Bring over past work, connect tools and choose how agents work. Every step after Account is optional. | Skip now, return in Settings |
 
-Service card padding 16, inset/hairline/lg/gap 12,32px raised icon well,
-cyan LoaderCircle while starting, mint ready, amber failure. It says
-“Starting the environment on this machine” and “This background service runs
-your agents and keeps your sessions available. This usually takes a few seconds.”
-While starting: “Waiting for this machine…” and “I’ll set up later”. Beneath:
-“Only Account is required. The rest can wait until you need it.”
+Under the intro cards: “Set up takes about 5 minutes. Have your Claude login
+ready.”
 
-Failure: “The environment could not start on this machine.” and “Try again to
-get this machine ready for your first session.” Offer “Try again”; preserve
-the intro and defer action. Technical error is expandable, never raw IPC text
-as the lead. Ready: “The environment on this machine is ready” and “You can
-sign in and start a session here.” Enable “Begin set up”. Retry cannot start
-duplicate service operations. Leaving now keeps Set up available in Settings.
+Service card padding 16, inset/hairline/lg/gap 12,32px raised icon well,
+cyan LoaderCircle while starting, mint ready, amber failure. Its status line,
+description and buttons for each state are the table of setup-copy.md §4.1.
+Starting: “Starting agent-harness on this computer…” and “This takes a few
+seconds.” (on the first start, “Installing agent-harness on this computer…”
+and “This happens once and takes about a minute.”), with “I’ll set up later”.
+
+Failure: “agent-harness cannot start on this computer.” with the one-line
+cause and fix of setup-copy.md §4.1 (for a failed start, “The background
+service did not start. Choose Try again.”). Offer “Try again”; preserve the
+intro and defer action. The technical error sits behind “Details” with “Copy
+details”, never raw IPC text as the lead. Ready: “agent-harness is ready on this
+computer.” and “Choose Begin set up.” Enable “Begin set up”; it keeps its label
+in every state, and while disabled the visible line beneath it says “Available
+once agent-harness is ready.” “Connect to another computer” replaces “Pair
+instead”. Retry cannot start duplicate service operations. Leaving now keeps
+Set up available in Settings.
 
 ### 13.2 Rail, step card and footer
 
@@ -1062,20 +1074,25 @@ hint even while a health sentence changes; health details belong in the card.
 
 | Step | Tag | Rail hint |
 | --- | --- | --- |
-| 1 Account | Required | Choose your agent’s account |
-| 2 Carry over | Optional | Bring past work with you |
-| 3 Your machines | Optional | Work here or elsewhere |
-| 4 Forges | Optional | Open pull requests |
-| 5 Key manager | Optional | Fetch keys when needed |
-| 6 Memory bank | Optional | Keep a shared notebook |
-| 7 Skills | Optional | Reuse working procedures |
-| 8 Instructions | Optional | Guide every session |
-| 9 Browser | Optional | See and use web pages |
-| 10 Permissions | Optional | Choose when agents ask |
-| 11 Appearance | Optional | Make the window feel right |
+| 1 Account | Required | Sign in to Claude |
+| 2 Carry over | Optional | Bring your past chats |
+| 3 Your machines | Optional | Use it from other devices |
+| 4 Forges | Optional | Connect GitHub and others |
+| 5 Key manager | Optional | Use your key manager |
+| 6 Memory bank | Optional | A notebook agents keep |
+| 7 Skills | Optional | Ready-made agent skills |
+| 8 Instructions | Optional | Notes every agent reads |
+| 9 Browser | Optional | Let agents use Chrome |
+| 10 Permissions | Optional | When agents must ask |
+| 11 Appearance | Optional | Light, dark and colours |
+
+Each rail row shows its state word beside the dot (setup-copy.md §3): Done,
+Needs a fix, Not set up (a skipped step), Checking, Not checked yet, and Not
+available (a step the computer's version does not have).
 
 Card scrolls independently inside a column with min-width/height 0; padding
-x 40/y 34, lede max 56ch, choice/form area max 620px. Title 20/28/600,20px concept
+x 40/y 34, lede max 56ch, choice/form area max 620px. “Step {n} of 11” sits above
+the title, small and muted (11/16, muted). Title 20/28/600,20px concept
 icon, short lead paragraph, one primary action and secondary check/open-pane
 links. Use §12 pane anatomy inside steps; explain the user's outcome before
 technical checks. Numbers, hints and tags do not replace health or permission
@@ -1084,12 +1101,13 @@ projection, preserving per-environment setup state and all eleven actions.
 
 Footer stays visible outside step scrolling, panel/hairline top, x 24/y 14,
 min 67px, gap 14;24px top fade from panel to transparent. Back left; Skip for now
-and Continue right, gap 8,32px buttons; last step Continue becomes Finish.
-Back disabled only at first step. Skip remains visible but disabled on Account
-with reason; steps 2–11 allow it. Continue on Account waits for a signed-in
+and Continue right, gap 8,32px buttons; last step Continue becomes “Finish set
+up”. Back disabled only at first step. Skip for now remains visible but disabled
+on Account, and the visible line beside the buttons reads “Sign in to continue.
+Account is the one required step.”; steps 2–11 allow it. Continue on Account waits for a signed-in
 account; selecting later steps in the rail remains possible. On narrow screens
 wrap footer action groups as whole buttons and keep scroll height for content;
-never clip Continue/Finish below the viewport. Below enough width for rail plus
+never clip Continue/Finish set up below the viewport. Below enough width for rail plus
 card, expose the same numbered steps in a collapsible fixed 280px-max drawer and retain
 current step/Back; do not reduce field/control text to fit.
 
@@ -1104,8 +1122,8 @@ Close stays available. Without a signed-in account it asks once:
 
 Choices: “Leave for now” and “Keep setting up”. Dismissing the confirmation
 keeps Set up; confirming leaves it. Do not repeatedly ask within one close
-action or lock rail navigation. Account empty primary says “Sign in an account”,
-not “another” before one exists. Optional steps can be revisited in Settings;
+action or lock rail navigation. Account's primary says “Sign in with Claude”
+(setup-copy.md §5.1), never “another” before an account exists. Optional steps can be revisited in Settings;
 Finish marks walkthrough completion without pretending skipped health is ready.
 There is no post-Finish guided tour. Existing setup projection owns checks,
 restore, receipts and progress; the intro does not create a second checklist.

@@ -229,6 +229,25 @@ describe("the Terminal pane", () => {
     expect(colourOf(".xterm-fg-7")).toBe(written(toHex(light.abyss)));
   });
 
+  it("opens xterm.js only once its bundled face has loaded, so it measures its cells in that face", async () => {
+    const asked: string[] = [];
+    let loadFace!: () => void;
+    const faceLoaded = new Promise<FontFace[]>((resolve) => { loadFace = () => resolve([]); });
+    const previous = Object.getOwnPropertyDescriptor(document, "fonts");
+    Object.defineProperty(document, "fonts", { configurable: true, value: {
+      check: () => false,
+      load: (font: string) => { asked.push(font); return faceLoaded; },
+      ready: Promise.resolve(),
+    } });
+    onTestFinished(() => { if (previous) Object.defineProperty(document, "fonts", previous); else Reflect.deleteProperty(document, "fonts"); });
+    const { app } = await opened({ terminals: [{ id: FIRST, output: "$ pnpm test" }] });
+    await open(app);
+    await waitFor(() => expect(asked).toEqual(['12px "JetBrains Mono Variable"']));
+    expect(pane().querySelector(".xterm")).toBeNull();
+    await act(async () => { loadFace(); });
+    await drawn(["$ pnpm test"]);
+  });
+
   it("scales a mounted terminal when the window text size changes", async () => {
     const { app } = await opened({ terminals: [{ id: FIRST, output: "$ " }] });
     await open(app);

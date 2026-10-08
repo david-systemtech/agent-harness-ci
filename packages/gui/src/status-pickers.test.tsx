@@ -255,7 +255,7 @@ describe("the model picker", () => {
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "All models" }));
     await app.user.click(result);
     await app.user.keyboard("{Escape}");
-    expect(within(statusLine()).getByRole("button", { name: "Model: model-14" })).toBeTruthy();
+    expect(within(statusLine()).getByRole("button", { name: "Model: Model 14" })).toBeTruthy();
   });
 
   it("keeps accounts and models visible with a reason during a live run and sends no change", async () => {
@@ -266,24 +266,47 @@ describe("the model picker", () => {
     await app.user.click(within(menu).getByRole("menuitem", { name: /^personal/ }));
     await app.user.click(within(menu).getByRole("menuitem", { name: "claude-haiku-4" }));
     expect(sent(env, "sessions.fork")).toEqual([]);
-    expect(within(statusLine()).getByRole("button", { name: /^Model: claude-opus-4/ })).toBeTruthy();
+    expect(within(statusLine()).getByRole("button", { name: /^Model: Opus/ })).toBeTruthy();
   });
 
   it("lists the models of the session's account with their efforts, and the choice goes with the session's next run", async () => {
     const { app, env, session } = await opened([desk({ models })]);
     const menu = await openPicker(app, "Model");
     const opus = await within(menu).findByRole("group", { name: "Effort" });
-    expect(within(opus).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["its own effortthis sessionLet the model choose its effort.", "lowReasoning effort for the next run.", "highReasoning effort for the next run."]);
+    expect(within(opus).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["its own effortthis sessionLet the model choose its effort.", "LowReasoning effort for the next run.", "HighReasoning effort for the next run."]);
     expect(within(menu).getByRole("menuitem", { name: "claude-haiku-4" })).toBeTruthy();
 
-    await app.user.click(within(opus).getByRole("menuitem", { name: "high" }));
-    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on claude-opus-4 at high effort."));
-    expect(within(statusLine()).getByRole("button", { name: "Model: claude-opus-4 high" })).toBeTruthy();
+    await app.user.click(within(opus).getByRole("menuitem", { name: "High" }));
+    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on Opus - High."));
+    expect(within(statusLine()).getByRole("button", { name: "Model: Opus - High" })).toBeTruthy();
 
     const box = screen.getByRole("textbox", { name: "Message" });
     act(() => box.focus());
     await app.user.keyboard("Fix the receipts{Enter}");
     await waitFor(() => expect(sent(env, "runs.start")).toEqual([expect.objectContaining({ sessionId: session, text: "Fix the receipts", model: "claude-opus-4", effort: "high" })]));
+  });
+  it("names the model and effort as the provider does, in the trigger, the rows and the line it says", async () => {
+    const fable = [{ accountId: "account-1", live: false, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["low", "medium", "high"], label: "Fable" }] }];
+    const { app } = await opened([desk({ models: fable })]);
+    const menu = await openPicker(app, "Model");
+    const row = within(menu).getByRole("menuitem", { name: "Fable 5.1 (fable)" });
+    expect(row.textContent).toBe("Fable 5.1fableSupports effort");
+    await app.user.click(row);
+    const efforts = within(menu).getByRole("group", { name: "Effort" });
+    expect(within(efforts).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"))).toEqual(["its own effort", "Low", "Medium", "High"]);
+    await app.user.click(within(efforts).getByRole("menuitem", { name: "High" }));
+    await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on Fable 5.1 - High."));
+    expect(within(statusLine()).getByRole("button", { name: "Model: Fable 5.1 - High" })).toBeTruthy();
+  });
+
+  it("finds a model in a long catalogue by the name its row shows", async () => {
+    const samples = Array.from({ length: 13 }, (_, index) => ({ id: `model-${index}`, family: "sample", tier: index, efforts: [], label: `Model ${index}` }));
+    const listed = [{ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" }, ...samples];
+    const { app } = await opened([desk({ models: [{ accountId: "account-1", live: true, models: listed }] })]);
+    const menu = await openPicker(app, "Model");
+    await app.user.type(within(menu).getByRole("textbox", { name: "Search models" }), "Fable 5.1");
+    expect(within(menu).getByRole("menuitem", { name: "Fable 5.1 (fable)" })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: "Model 1 (model-1)" })).toBeNull();
   });
 });
 
@@ -432,6 +455,14 @@ describe("the hand-off offer and picker", () => {
     expect(await within(dialog).findByText("Not handed off: The account is busy.")).toBeTruthy();
     await app.user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Hand off Receipts on desk" })).toBeNull());
+  });
+
+  it("names each account's models in the hand-off picker as the model picker does", async () => {
+    const fable = [{ accountId: "account-2", live: false, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" }] }];
+    const { app } = await opened([desk({ recommendation: out, models: fable })]);
+    await app.user.click(await within(statusLine()).findByRole("button", { name: "Hand off…" }));
+    const accounts = within(await screen.findByRole("dialog", { name: "Hand off Receipts on desk" })).getByRole("list", { name: "Accounts" });
+    expect(await within(accounts).findByText("Models: Fable 5.1 (fable)")).toBeTruthy();
   });
 
   it("opens the hand-off picker: the environment's accounts with their status and plan readings, the recommended one marked; choosing one forks onto it", async () => {

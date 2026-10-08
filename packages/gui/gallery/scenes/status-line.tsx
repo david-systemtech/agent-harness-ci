@@ -10,7 +10,7 @@ const accounts = shares.map((share, index) => ({ id: `account-${index + 1}`, lab
 export const script: Script = { environments: [{
   environmentId, name: "desk", reach: "local", icon: "desktop", colour: "teal", accounts,
   settings: { "permissions.containment.default": "workspace" },
-  sessions: sessionIds.map((id, index) => ({ id, title: `Usage ${Math.round((shares[index] ?? 0) * 100)}%`, accountId: `account-${index + 1}`, model: "claude-opus-4", mode: index === 2 ? "bypassPermissions" : "auto" })),
+  sessions: sessionIds.map((id, index) => ({ id, title: `Usage ${Math.round((shares[index] ?? 0) * 100)}%`, accountId: `account-${index + 1}`, model: "fable", mode: index === 2 ? "bypassPermissions" : "auto" })),
 }] };
 
 export const presentation: Partial<PresentationValues> = {
@@ -26,7 +26,7 @@ export const arrange = (world: ScriptedWorld): void => {
     accountId: account.id, identity: account.identity, readAt: "2026-09-24T00:00:00.000Z", unavailableReason: null,
     windows: [{ window: "five_hour", utilisation: shares[index] ?? 0, observedAt: "2026-09-24T00:00:00.000Z", resetsAt: "2026-09-24T05:00:00.000Z", verdict: null }],
   })));
-  for (const sessionId of sessionIds) env.startRun(sessionId, "Check the receipts", [], { model: "claude-opus-4", effort: "high" });
+  for (const sessionId of sessionIds) env.startRun(sessionId, "Check the receipts", [], { model: "fable", effort: "high" });
 };
 
 /** look.md §10.5: fixed chips, 24px wrappers, and whole-chip wrapping at narrower capture widths. */
