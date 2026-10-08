@@ -19,6 +19,9 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
 /** How a provider is named to people. */
 export const PROVIDER_NAMES: Record<KeyManagerProvider, string> = { openbao: "OpenBao", doppler: "Doppler", onepassword: "1Password", bitwarden: "Bitwarden Secrets Manager" };
 
+/** This environment cannot load `provider`, as setup-copy.md §5.7 says it: never what to do instead (#1852). */
+export const providerUnavailableLine = (provider: KeyManagerProvider): string => `agent-harness cannot connect to ${PROVIDER_NAMES[provider]} on this computer yet.`;
+
 /**
  * How long one exchange with a key manager may take (ADR 0031's budget): a verification or a certificate preview, past
  * which it is `unreachable`, or a reference's read or a path's list (#370), past which the key manager has not answered.
