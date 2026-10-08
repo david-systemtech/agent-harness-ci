@@ -1,51 +1,75 @@
-import { STEP_HINTS, STEP_ORDER, type StepId } from "@agent-harness/contracts";
+import { STEP_ORDER, type StepId } from "@agent-harness/contracts";
 import { ArrowLeft, ArrowRight, BookOpen, Brain, Check, Download, Globe, KeyRound, Monitor, Palette, Shield, SkipForward, Sparkles, UserRound, type LucideIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { Button, Tooltip } from "../ui/index.js";
 import { useRegisteredCard, type StepCardProps } from "./cards.js";
 import { useChecklist } from "./checklist-window.js";
 import { ContinueHoldContext } from "./continue-hold.js";
-import { HealthDot } from "./health-dot.js";
+import type { SetupState } from "./health-dot.js";
+import { StateBadge } from "./state-badge.js";
+import { StepIntro } from "./step-intro.js";
 import { StepStatus } from "./step-status.js";
+import { STEP_WORDS } from "./step-words.js";
 
-/** The concepts shared by the numbered rail and the card heading. */
+/** Each step's icon, on the Set up pane's rows. */
 export const STEP_ICONS: Readonly<Record<StepId, LucideIcon>> = {
   account: UserRound, "carry-over": Download, "your-machines": Monitor, forges: Globe,
   "key-manager": KeyRound, "memory-bank": Brain, skills: Sparkles, instructions: BookOpen,
   browser: Globe, permissions: Shield, appearance: Palette,
 };
 
+/** The step every computer needs, which Skip for now never passes (setup-copy.md §4.4). */
+const REQUIRED_STEP: StepId = "account";
+
+/** Why the footer holds Skip for now on the required step, and Continue too while nobody is signed in (setup-copy.md §4.4). */
+const REQUIRED = "Account is the one required step.";
+const SIGN_IN_FIRST = `Sign in to continue. ${REQUIRED}`;
+
+export interface StepCardFrameProps extends StepCardProps {
+  /** What the rail draws the step as; Not available puts §4.4's line in place of its card. */
+  readonly state: SetupState;
+  /** The name of the computer Set up is setting up; null for this computer unnamed. */
+  readonly computer: string | null;
+}
+
 /**
- * A step's card in the full checklist (look.md §13.2): its outcome lead,
- * registered card or health fallback, and navigation outside the scrolling
- * content. Back revisits the previous step; optional steps may be left for
- * later without recording health. Finish sets the first-launch mark.
- * A card may hold Continue with a reason through `useHoldContinue`.
+ * A step's card in the full checklist (look.md §13.2; setup-copy.md §3 "Step
+ * page" and §4.4), named by the step's label: its head ("Step {n} of 11",
+ * the heading, the why line, "What is this?"), its registered card or the
+ * health fallback, and Back, Skip for now and Continue (Finish set up on the
+ * last step) outside the scrolling content. A step the computer's version
+ * does not have says so in place of its card. Skip for now leaves an
+ * optional step for later without recording health; Account holds it, and
+ * a card may hold Continue with a reason through `useHoldContinue`. A held
+ * button's reason is visible text beside it, never a tooltip alone.
  */
-export const StepCard = ({ environmentId, step }: StepCardProps) => {
+export const StepCard = ({ environmentId, step, state, computer }: StepCardFrameProps) => {
   const { choose, close } = useChecklist();
-  const heading = useId();
+  const reasonId = useId();
   const Card = useRegisteredCard(step.id) ?? StepStatus;
   const index = STEP_ORDER.indexOf(step.id);
   const next = STEP_ORDER[index + 1];
   const previous = STEP_ORDER[index - 1];
-  const Icon = STEP_ICONS[step.id];
+  const words = STEP_WORDS[step.id];
   const [held, hold] = useState<string | undefined>(undefined);
+  const required = step.id === REQUIRED_STEP;
+  const reason = required ? (held === undefined ? REQUIRED : SIGN_IN_FIRST) : held;
+  const forward = () => next === undefined ? close() : choose(next);
   return (
-    <section aria-labelledby={heading} className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <section aria-label={step.label} className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div data-setup-scroll className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-[34px] md:px-10">
-        <header className="flex items-center gap-2">
-          <Icon aria-hidden="true" className="size-5 text-ink-muted" />
-          <h2 id={heading} className="text-xl leading-7 font-semibold text-ink">
-            {step.label}
-          </h2>
-          <HealthDot state={step.result?.state ?? null} of={step.label} />
-        </header>
-        <p className="max-w-[56ch] text-sm text-ink-muted">{STEP_HINTS[step.id]}</p>
+        <StepIntro step={step.id} title={words.heading} why={words.why} {...(words.what !== undefined && { what: words.what })} />
         <div className="flex w-full max-w-[620px] flex-col gap-4">
-          <ContinueHoldContext value={hold}>
-            <Card environmentId={environmentId} step={step} />
-          </ContinueHoldContext>
+          {state === "unavailable" ? (
+            <p className="flex flex-wrap items-center gap-2 text-sm text-ink">
+              <StateBadge state="unavailable" />
+              <span>{computer ?? "This computer"} runs an older agent-harness without this step. Update {computer ?? "this computer"} to set it up.</span>
+            </p>
+          ) : (
+            <ContinueHoldContext value={hold}>
+              <Card environmentId={environmentId} step={step} />
+            </ContinueHoldContext>
+          )}
         </div>
       </div>
       <footer role="navigation" aria-label="Step navigation" className="relative flex min-h-[67px] shrink-0 flex-wrap items-center justify-between gap-3.5 border-t border-hairline bg-panel px-6 py-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-gradient-to-t before:from-panel before:to-transparent">
@@ -53,18 +77,14 @@ export const StepCard = ({ environmentId, step }: StepCardProps) => {
           <Button variant="outline" disabled={previous === undefined} onClick={() => { if (previous !== undefined) choose(previous); }}><ArrowLeft aria-hidden="true" />Back</Button>
         </Tooltip>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {held !== undefined && <p className="max-w-[32ch] text-xs text-ink-muted">{held}</p>}
-          <Tooltip content={step.id === "account" ? "Skip for now · Account is required to start a session" : "Skip for now"} keys={step.id === "account" ? undefined : "Tab, Enter"}>
-            <span tabIndex={step.id === "account" ? 0 : undefined}>
-              <Button variant="outline" disabled={step.id === "account"} onClick={() => next === undefined ? close() : choose(next)}><SkipForward aria-hidden="true" />Skip for now</Button>
-            </span>
+          {reason !== undefined && <p id={reasonId} className="max-w-[32ch] text-xs text-ink-muted">{reason}</p>}
+          <Tooltip content="Skip for now" keys="Tab, Enter">
+            <Button variant="outline" disabled={required} aria-describedby={required ? reasonId : undefined} onClick={forward}><SkipForward aria-hidden="true" />Skip for now</Button>
           </Tooltip>
-          <Tooltip content={`${next === undefined ? "Finish" : "Continue"}${held === undefined ? "" : ` · ${held}`}`} keys="Tab, Enter">
-            <span tabIndex={held === undefined ? undefined : 0}>
-              <Button variant="default" disabled={held !== undefined} onClick={() => next === undefined ? close() : choose(next)}>
-                {next === undefined ? <Check aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}{next === undefined ? "Finish" : "Continue"}
-              </Button>
-            </span>
+          <Tooltip content={next === undefined ? "Finish set up" : "Continue"} keys="Tab, Enter">
+            <Button variant="default" disabled={held !== undefined} aria-describedby={held === undefined ? undefined : reasonId} onClick={forward}>
+              {next === undefined ? <Check aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}{next === undefined ? "Finish set up" : "Continue"}
+            </Button>
           </Tooltip>
         </div>
       </footer>

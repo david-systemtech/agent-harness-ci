@@ -427,6 +427,30 @@ describe("this client's own check", () => {
     await flush();
     expect(seen.flat()).toEqual([]);
   });
+
+  it("reads a step missing only once an answer about every step leaves it out, never while its result is on its way or after a check of one step", async () => {
+    const { runtime, wire, env } = await withResults();
+    const missing = () => runtime.projections.setup(env).read().steps.flatMap((step) => (step.missing ? [step.id] : []));
+    const checks = heldChecks(wire);
+    expect(missing()).toEqual([]);
+
+    const one = runtime.setup.check(env, "forges");
+    checks.answer([doneResult("forges", { checkedAt: after(1) })]);
+    await one;
+    expect(missing()).toEqual([]);
+
+    const all = runtime.setup.check(env);
+    await flush();
+    expect(missing()).toEqual([]);
+    checks.answer([doneResult("account", { checkedAt: after(2) }), doneResult("forges", { checkedAt: after(2) }), doneResult("permissions", { checkedAt: after(2) })]);
+    await all;
+    expect(missing()).toEqual(["carry-over", "your-machines", "key-manager", "memory-bank", "skills", "instructions", "browser", "appearance"]);
+
+    const again = runtime.setup.check(env);
+    checks.answer((["account", "forges", "key-manager", "permissions"] as const).map((id) => doneResult(id, { checkedAt: after(3) })));
+    await again;
+    expect(missing()).toEqual(["carry-over", "your-machines", "memory-bank", "skills", "instructions", "browser", "appearance"]);
+  });
 });
 
 describe("an environment without the setup flag", () => {
