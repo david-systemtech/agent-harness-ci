@@ -30,7 +30,8 @@ export const UsageRing = ({ reading, size = "regular" }: { readonly reading: Rea
  */
 export const UsageRings = ({ gauge }: { readonly gauge: UsageGauge | undefined }) => {
   const words = readingWords(gauge);
-  const line = <span data-usage-rings role={words === undefined ? undefined : "group"} aria-label={words} className="mt-1 flex h-4 items-center gap-1">
+  // An empty title keeps the row's native title from drawing over this tooltip.
+  const line = <span data-usage-rings role={words === undefined ? undefined : "group"} aria-label={words} title="" className="mt-1 flex h-4 items-center gap-1">
     {meterReadingsOf(gauge).map((reading) => <UsageRing key={reading.window} reading={reading} size="compact" />)}
   </span>;
   return words === undefined ? line : <Tooltip content={words}>{line}</Tooltip>;

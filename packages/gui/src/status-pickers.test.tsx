@@ -301,6 +301,8 @@ describe("the account picker", () => {
     expect([ring.getAttribute("width"), ring.querySelector("[data-usage-arc]")?.getAttribute("style")]).toEqual(["16", "stroke-dasharray: 42 100;"]);
     // Every account row keeps its one fixed-height ring line, whether it holds two rings, one or none.
     for (const row of [work, spare, personal]) expect(row.querySelectorAll("[data-usage-rings].h-4")).toHaveLength(1);
+    // The row's native title stops at the ring line, so it never draws over the rings' own tooltip.
+    expect([work.title.startsWith("work milo@work.test"), work.querySelector("[data-usage-rings]")?.getAttribute("title")]).toEqual([true, ""]);
     expect(within(personal).getByRole("group", { name: "Not signed in." })).toBeTruthy();
     await app.user.hover(within(work).getByRole("group", { name: "5-hour 42% · Weekly 80%" }));
     expect((await screen.findByRole("tooltip")).textContent).toBe("5-hour 42% · Weekly 80%");
