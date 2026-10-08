@@ -299,9 +299,10 @@ describe("a key-manager reference", () => {
     const client = await t.client();
 
     const refused = await add(client, { url: forge.origin, kind: "forgejo", credential: referenced });
+    // The refusal is the key manager's own line, which names the connection; the problem's plain line says less.
     expect(rejection(refused.receipt)).toEqual({
       reason: "credential_source_unavailable",
-      message: `agent-harness cannot read the saved token for ${forge.origin.replace("http://", "")}. Sign in to your key manager. Nothing was changed.`,
+      message: expect.stringMatching(new RegExp(`${connectionId}.* Nothing was changed\\.$`)),
       data: { connectionId },
     });
     expect(await list(client)).toEqual([]);

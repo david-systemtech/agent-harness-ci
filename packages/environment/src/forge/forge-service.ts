@@ -601,9 +601,12 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const verificationFailed = (origin: ForgeOrigin, answer: Extract<IdentityAnswer, { outcome: "refused" }>) =>
     ({ code: "verification_failed", message: tokenRefusedAtAdd(siteOf(origin)), data: { origin, status: answer.status, details: [answer.message] } }) as const;
 
-  /** An add's or update's refusal of a reference that did not resolve: the refusal its resolve answered. */
+  /**
+   * An add's or update's refusal of a reference that did not resolve: the refusal its resolve answered, in the key
+   * manager's own line (the problem's first detail), which names what to check; the problem's plain line says less.
+   */
   const referenceRefused = (connectionId: string, refusal: ReferenceRefusal, problem: ForgeProblem) =>
-    ({ code: refusal, message: `${problem.message} Nothing was changed.`, data: { connectionId } }) as const;
+    ({ code: refusal, message: `${problem.details?.[0] ?? problem.message} Nothing was changed.`, data: { connectionId } }) as const;
 
   /** A command's rejection, answered as the handler it prepares. */
   const rejecting =
