@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Ceiling, registry, type EventEnvelope, type EventFrame, type ManagedToolRow, type ParamsOf, type ResponseOf, type Scope, type ToolCommandEntry } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
@@ -282,6 +282,37 @@ posix("tools.run's Update", () => {
     }
     for (const command of held) expect(command).toMatch(/ && sh -c 'read -r answer' && /);
     expect(held.join("\n")).not.toMatch(/mise upgrade|asdf install|checksums\.txt/);
+  });
+
+  it("drives a mise or asdf shim only when their package directory holds the tool's own package, and offers no self-update for a file a system package manager may own (#1833)", async () => {
+    const path = fakePath();
+    const mise = join(path.root, ".local/share/mise");
+    const asdf = join(path.root, ".asdf");
+    for (const directory of [join(mise, "shims"), join(mise, "installs/github-cli/2.63.2"), join(asdf, "shims"), join(asdf, "installs/nodejs/22.11.0")]) mkdirSync(directory, { recursive: true });
+    path.append(join(mise, "shims"));
+    path.append(join(asdf, "shims"));
+    // mise's shims are links to mise itself; asdf's are scripts naming the plugin, here the Node `npm i -g` put claude into.
+    symlinkSync(fakeToolPath(join(path.root, "mise-itself")).install("mise", { output: "gh version 2.63.2 (2024-12-05)" }).file, join(mise, "shims/gh"));
+    path.install("claude", { at: ".asdf/shims/claude", link: null, output: "2.1.283 (Claude Code)" });
+    path.install("doppler", { at: ".cargo/bin/doppler", output: "v3.80.0" });
+    const { client, pty } = await withRunner(path);
+
+    const rows = (await client.request("tools.list", {})).tools;
+    expect(Object.fromEntries(rows.filter((row) => ["claude", "gh", "doppler"].includes(row.tool)).map((row) => [row.tool, [row.method, row.action]]))).toEqual({
+      claude: ["asdf", "terminal"],
+      gh: ["mise", "update"],
+      doppler: ["manual", "terminal"],
+    });
+    const commands: string[] = [];
+    for (const tool of ["gh", "claude", "doppler"] as const) {
+      commands.push((await ran(client, { tool, action: "update" })).command);
+      spawnedAt(pty, commands.length - 1).exit(0);
+      await expect.poll(async () => (await eventsOf(client, "tool.run-finished")).length).toBe(commands.length);
+    }
+    expect(commands[0]).toBe("mise upgrade github-cli");
+    for (const command of commands.slice(1)) expect(command).toMatch(/ && sh -c 'read -r answer' && /);
+    expect(commands[1]).not.toMatch(/asdf install/);
+    expect(commands[2]).not.toMatch(/doppler update/);
   });
 
   it("is tool_not_runnable for vault, which the harness never installs or updates, and for a tool not installed, opening nothing", async () => {

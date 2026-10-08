@@ -30,7 +30,7 @@ import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, PreparedCommand } from "../serve/methods.js";
 import type { ToolTerminals } from "../terminals/service.js";
 import { commandLine, confirmedLine } from "./command-line.js";
-import { documentedTable, drivenUpdate } from "./detection.js";
+import { drivenUpdate, heldBySystem } from "./detection.js";
 import type { ToolDoctor } from "./doctor.js";
 import { MANAGED_TOOLS_ACTOR, type ManagedTools } from "./registry.js";
 import type { ToolVerifier } from "./verify.js";
@@ -154,7 +154,7 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
 
   /** The vendor's documented command for `tool` at `realpath`, which a refusal answers for a person to copy (`documentedCommand`); null where the table has none here. */
   const documented = (tool: ManagedToolName, realpath: string | null, available: (program: string) => boolean): string | null => {
-    const command = tablePlatform === null ? null : documentedCommand(tool, realpath !== null, tablePlatform, available, documentedTable(commands, realpath));
+    const command = tablePlatform === null ? null : documentedCommand(tool, realpath !== null && !heldBySystem(realpath), tablePlatform, available, commands);
     return command === null ? null : line(command);
   };
 
@@ -175,14 +175,15 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
       if (entry === null || entry.install === null) return `No way to install ${tool} is available on this environment: run the vendor's command yourself.`;
       return { entry, command: entry.install, confirmed: false };
     }
-    if (row.status === "not-installed" || row.method === null || row.realpath === null) return `${tool} is not installed on this environment: Install it.`;
+    if (row.status === "not-installed" || row.method === null || row.path === null || row.realpath === null) return `${tool} is not installed on this environment: Install it.`;
     if (tablePlatform === null) return `The harness has no commands for ${platform}: update ${tool} the way it was installed.`;
     const method = action === "update" ? toolCommandMethodOf(row.method) : null;
     const entry = method === null ? null : toolCommandEntry(tool, method, tablePlatform, commands);
-    const command = entry === null ? null : drivenUpdate(entry, row.realpath);
+    const command = entry === null ? null : drivenUpdate(entry, { path: row.path, realpath: row.realpath });
     if (entry !== null && command !== null) return { entry, command, confirmed: false };
-    // Installed in a way the table does not drive here, or Run in a terminal pane asked: the vendor's command, once a person presses Enter.
-    const documented = documentedChoice(tool, true, tablePlatform, available, documentedTable(commands, row.realpath));
+    // Installed in a way the table does not drive here, or Run in a terminal pane asked: the vendor's command, once a person presses Enter,
+    // never a self-update over a file a system package manager may own.
+    const documented = documentedChoice(tool, !heldBySystem(row.realpath), tablePlatform, available, commands);
     return documented === null ? `The harness has no command for ${tool} installed ${METHOD_WORDS[row.method]} here: update it the way it was installed.` : { ...documented, confirmed: true };
   };
 

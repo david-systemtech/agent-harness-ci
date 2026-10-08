@@ -1,4 +1,4 @@
-import { accessSync, constants, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
 import { ManagedToolVersion, updateCommand, type ManagedToolInstallMethod, type ManagedToolName, type ToolCommand, type ToolCommandEntry } from "@agent-harness/contracts";
 
@@ -110,7 +110,7 @@ const PACKAGE_DIRECTORY = /\/(?:scoop\/apps|mise\/installs|\.asdf\/installs)\/([
  * The package a tool's realpath is installed under by Scoop, mise or asdf
  * (`scoop/apps/<name>/`, `mise/installs/<name>/`, `.asdf/installs/<name>/`),
  * which their update names (#1833); null for any other place, a shim among
- * them, whose update names the registry's package.
+ * them (`drivenUpdate` reads a shim's package from the directories beside it).
  */
 export const installedPackage = (realpath: string): string | null => PACKAGE_DIRECTORY.exec(realpath.replaceAll("\\", "/"))?.[1] ?? null;
 
@@ -123,28 +123,43 @@ export const installedPackage = (realpath: string): string | null => PACKAGE_DIR
  */
 const SYSTEM_PLACE = [/^\/(?:usr\/(?!local\/)|bin\/|sbin\/|opt\/local\/|nix\/store\/|snap\/)/, /\/\.cargo\/bin\//, /\/chocolatey\//i];
 
-/** Whether a tool's realpath is somewhere a system package manager may own it, so no bare binary's update replaces it (#1833). */
+/** Whether a tool's realpath is somewhere a system package manager may own it, so no self-update replaces it (#1833). */
 export const heldBySystem = (realpath: string): boolean => {
   const slashed = realpath.replaceAll("\\", "/");
   return SYSTEM_PLACE.some((place) => place.test(slashed));
 };
 
-/** The table a tool at `realpath` takes its documented command from: without the bare binaries' updates where a system package manager may own it (#1833). */
-export const documentedTable = (commands: readonly ToolCommandEntry[], realpath: string | null): readonly ToolCommandEntry[] =>
-  realpath !== null && heldBySystem(realpath) ? commands.filter((entry) => entry.method !== "manual") : commands;
+/** A shim directory of Scoop, mise or asdf, whose root (`scoop`, `mise`, `.asdf`) holds the packages' directory too. */
+const SHIM = /^(.*\/(scoop|mise|\.asdf))\/shims\/[^/]+$/i;
 
 /**
- * The update `entry` runs for a tool at `realpath`, else null when the
- * table must not drive it (#1833): a bare binary somewhere a system package
- * manager may own it, or a Scoop, mise or asdf package other than the
- * tool's own (`npm i -g` into a Node they installed), whose upgrade would
- * update that package instead.
+ * Which of `own` (a tool's own package names) a shim of Scoop, mise or asdf
+ * at `file` stands for: the first whose package directory exists beside the
+ * shims (`scoop/apps/<name>`, `mise/installs/<name>`, `.asdf/installs/<name>`).
+ * A shim does not say which package it runs (mise's is a link to mise
+ * itself), so one for a tool npm installed into their Node is none (#1833).
  */
-export const drivenUpdate = (entry: ToolCommandEntry, realpath: string): ToolCommand | null => {
-  if (entry.method === "manual" && heldBySystem(realpath)) return null;
-  const installedAs = installedPackage(realpath);
-  if (installedAs !== null && entry.package !== undefined && installedAs !== entry.tool && installedAs !== entry.package) return null;
-  return updateCommand(entry, installedAs);
+const shimPackage = (file: string, own: readonly string[]): string | null => {
+  const shim = SHIM.exec(file.replaceAll("\\", "/"));
+  if (shim === null) return null;
+  const packages = `${shim[1]}/${shim[2]?.toLowerCase() === "scoop" ? "apps" : "installs"}`;
+  return own.find((name) => existsSync(`${packages}/${name}`)) ?? null;
+};
+
+/**
+ * The update `entry` runs for a tool found at `found`, else null when the
+ * table must not drive it (#1833): a bare binary somewhere a system package
+ * manager may own it; for Scoop, mise and asdf, a package other than the
+ * tool's own (`npm i -g` into a Node they installed), read from the
+ * realpath's package directory, else from the package directories beside
+ * a shim, whose upgrade would update that package instead.
+ */
+export const drivenUpdate = (entry: ToolCommandEntry, found: FoundTool): ToolCommand | null => {
+  if (entry.method === "manual") return heldBySystem(found.realpath) ? null : entry.update;
+  if (entry.package === undefined) return entry.update;
+  const own = [entry.package, entry.tool];
+  const installedAs = installedPackage(found.realpath) ?? shimPackage(found.path, own) ?? shimPackage(found.realpath, own);
+  return installedAs !== null && own.includes(installedAs) ? updateCommand(entry, installedAs) : null;
 };
 
 /** A version in a tool's `--version`, with an optional leading `v`, standing alone: not part of a longer dotted run or a word. */

@@ -211,7 +211,8 @@ posix("the install method", () => {
       mkdirSync(directory, { recursive: true });
       path.append(directory);
     }
-    // mise's shims are links to mise itself; asdf's are scripts of their own.
+    mkdirSync(join(path.root, ".local/share/mise/installs/doppler"), { recursive: true });
+    // mise's shims are links to mise itself, driven where mise has the tool's own package; asdf's are scripts of their own.
     const miseBinary = fakeToolPath(join(path.root, "mise-itself")).install("mise", { output: "2025.1.0 linux-x64" });
     symlinkSync(miseBinary.file, join(mise, "doppler"));
     fakeToolPath(join(path.root, "asdf-shim")).install("vault", { output: "Vault v1.15.0" });
