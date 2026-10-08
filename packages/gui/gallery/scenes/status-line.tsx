@@ -34,4 +34,4 @@ export const geometry: readonly SceneGeometry[] = [
   { selector: '[aria-label="Status line"] [data-status-chip]', height: 22 },
   ...["Account", "Model", "Mode", "Containment", "Browser"].map((name) => ({ selector: `[aria-label="Status line"] button[aria-label^="${name}:"]`, height: 22 })),
   { selector: '[aria-label="Plan usage"] svg[role="img"]', width: 24, height: 24 },
-];
+].map((check) => ({ ...check, visibleWithin: "[data-grid-card]" })); // every chip and ring inside its pane: three stacked at 1024 × 768 have no room for a second line (#1865)
