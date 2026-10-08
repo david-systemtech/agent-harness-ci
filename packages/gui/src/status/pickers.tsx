@@ -7,7 +7,6 @@ import {
   identityWords,
   modelName,
   modelsOf,
-  readingWords,
   gaugeOf,
   sessionModeOf,
   setSessionContainment,
@@ -34,6 +33,7 @@ import { RunChoiceRow, RunPickerColumn, RunPickerContent, RunPickerSteps, RunPic
 import { useSayModeSet } from "./mode-said.js";
 import { ModeSheet, focusModeSheet, trapModeSheetTab } from "./mode-sheet.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
+import { UsageRings } from "./window-reading.js";
 
 /**
  * The status line's pickers (docs/specs/gui.md, "A session pane": pickers
@@ -47,7 +47,8 @@ import { useHandedOnto, useModelChoice } from "./run-choices.js";
  * `setSessionContainment`, the hand-off), so the terminal UI says the same.
  *
  * - **Accounts**: the environment's accounts, each with its identity, its
- *   sign-in status and its identity's plan reading, then Add an account.
+ *   sign-in status and its identity's plan windows as compact usage rings
+ *   (the reading in words their tooltip; #1822), then Add an account.
  *   An account not signed in starts its sign-in on the sign-in card; a
  *   session's account is fixed, so another signed-in account hands the
  *   session off onto it, the hand-off picker's fork.
@@ -250,7 +251,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
           {accounts.value.map((candidate) => <RunChoiceRow key={candidate.id} icon={candidate.id === accountId ? KeyRound : ArrowRightLeft}
             label={`${candidate.label} ${identityWords(candidate)}`} selected={candidate.id === accountId} dim={live || listingAccounts.status === "absent"}
             note={[ACCOUNT_STATUS_WORDS[candidate.status.state], candidate.id === accountId ? "this session" : candidate.status.state === "signed-in" ? "Fork onto this account" : "Sign in", candidate.provider].join(" · ")}
-            under={readingWords(gaugeOf(usage.gauges, environmentId, candidate.id))} onSelect={() => pickAccount(candidate)} />)}
+            usage={<UsageRings gauge={gaugeOf(usage.gauges, environmentId, candidate.id)} />} onSelect={() => pickAccount(candidate)} />)}
         </>}
         {accountId !== null && accounts.value !== null && !accounts.value.some((entry) => entry.id === accountId) && <Waiting>Stored account {accountId} is not listed on this environment.</Waiting>}
         {accounts.error !== null && <RunChoiceRow icon={RefreshCw} label="Refresh accounts" onSelect={() => runtime.requests.refresh(environmentId, "accounts.list", {})} />}

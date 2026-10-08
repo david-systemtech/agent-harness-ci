@@ -1,5 +1,5 @@
 import { useComposition } from "../composer/composition.js";
-import { choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
+import { buttonRows, denylistMatchWords, denylistRepeatWords, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type PromptEntry, type RowOutcome } from "@agent-harness/client-runtime";
 import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { ChevronDown, ChevronUp, ClipboardList, MessageCircleQuestionMark, ShieldAlert, StickyNote } from "lucide-react";
 import { Kbd } from "../ui/kbd.js";
@@ -54,7 +54,11 @@ export const PromptFieldsProvider = ({ children }: { readonly children: ReactNod
  *   (`remember: 'session'`, a `permission` prompt's only), or by Mod+Enter
  *   (`permission.allow`) for Allow once; never by a bare Enter, which an
  *   approving button refuses even with the focus on it. Esc
- *   (`permission.deny`) denies. A `denylist` prompt names what it matched.
+ *   (`permission.deny`) denies. A `denylist` prompt offers Deny and Allow
+ *   once, never remembered, as the terminal UI's card does (ADR 0006: the
+ *   person present may allow a denylisted call); it names each entry it
+ *   matched in words with what the agent may do instead, and says when the
+ *   run asked about the same entry before (#1820).
  * - **A question** offers its options, several at once where it allows, and
  *   an answer in the person's own words; Mod+Enter sends, Esc skips (a deny).
  * - **A plan** offers Keep planning (Esc) and one approval per mode, the
@@ -87,6 +91,7 @@ export const PromptCard = ({ environmentId, sessionId }: PromptCardProps) => {
   const waiting = parked.filter((prompt) => !answering.sent.has(prompt.promptId));
   const shown = waiting[0];
   if (shown === undefined) return null;
+  const repeat = shown.prompt.kind === "denylist" ? denylistRepeatWords(shown.prompt, projection.items.filter((item): item is PromptEntry => item.kind === "prompt")) : undefined;
   const { promptId } = shown;
   return (
     <ParkedCard
@@ -94,6 +99,7 @@ export const PromptCard = ({ environmentId, sessionId }: PromptCardProps) => {
       environmentId={environmentId}
       parked={shown}
       place={waiting.length > 1 ? `1 of ${waiting.length} waiting` : undefined}
+      repeat={repeat}
       capability={runtime.capability(environmentId, "permissions.prompts.answer")}
       fields={filled.get(promptId) ?? NO_FIELDS}
       setFields={(fields) => setFilled((current) => new Map(current).set(promptId, fields))}
@@ -108,6 +114,8 @@ interface ParkedCardProps {
   readonly environmentId: string;
   readonly parked: ParkedPrompt;
   readonly place: string | undefined;
+  /** A denylist prompt's line saying its run asked about the same entry before. */
+  readonly repeat: string | undefined;
   /** Whether the connection can send `permissions.prompts.answer` now. */
   readonly capability: CapabilityAnswer;
   readonly fields: CardFields;
@@ -135,7 +143,7 @@ const ICON_COLOURS: Readonly<Record<PromptKind, string>> = { permission: "text-a
 const ICONS = { permission: ShieldAlert, denylist: ShieldAlert, question: MessageCircleQuestionMark, plan: ClipboardList };
 
 /** One prompt's card. */
-const ParkedCard = ({ environmentId, parked, place, capability, fields, setFields, line, say, answer }: ParkedCardProps) => {
+const ParkedCard = ({ environmentId, parked, place, repeat, capability, fields, setFields, line, say, answer }: ParkedCardProps) => {
   const { onCompositionStart, onCompositionEnd, onKeyDownCapture } = useComposition();
   const { prompt } = parked;
   const self = useRef<HTMLElement>(null);
@@ -155,9 +163,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   // How long the prompt has before its TTL denies it; none when it never is.
   const remaining = useEnvironmentCountdown(environmentId, prompt.ttlExpiresAt);
   const ttl = remaining === undefined ? undefined : ttlWords(remaining);
-  const choices = choiceRows(prompt);
-  const rows = prompt.kind === "denylist" ? choices.filter((row) => row.kind === "deny")
-    : prompt.kind === "permission" ? [...choices.filter((row) => row.kind !== "allow"), ...choices.filter((row) => row.kind === "allow")] : choices;
+  const rows = buttonRows(prompt);
 
   // The card takes the focus when its prompt comes to it: the card, never a button, so a stray Enter fires nothing. In a
   // pane the grid is not focused on it leaves the focus in the pane being typed in, and does not take it when its own
@@ -178,7 +184,6 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   };
   const choose = (row: ChoiceRow | undefined) => settle(rowAnswer(prompt, row, fields.note));
   const allow = () => {
-    if (prompt.kind === "denylist") return;
     if (prompt.kind === "question") return settle(questionAnswers(prompt, fields.picks, fields.note));
     choose(rows.find((row) => row.kind === "allow" || (row.kind === "approve" && row.mode === null)));
   };
@@ -192,7 +197,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
 
   const note = <>
     <label htmlFor={noteId} className="flex items-center gap-2 text-xs font-medium"><StickyNote aria-hidden="true" className="size-3.5" />Note</label>
-    <PromptTooltip content="Note" keys={[denyKey, prompt.kind !== "denylist" && allowKey].filter(Boolean).join(" · ") || undefined}>
+    <PromptTooltip content="Note" keys={[denyKey, allowKey].filter(Boolean).join(" · ") || undefined}>
       <Textarea
         id={noteId}
         rows={2}
@@ -206,7 +211,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
     </PromptTooltip>
   </>;
 
-  const request = <PromptBody prompt={prompt} fields={fields} setFields={setFields} full={phone} />;
+  const request = <PromptBody prompt={prompt} repeat={repeat} fields={fields} setFields={setFields} full={phone} />;
 
   const actions = <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
     {prompt.kind === "question" ? <>
@@ -289,7 +294,7 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
 };
 
 /** What the prompt asks, by its kind. */
-const PromptBody = ({ prompt, fields, setFields, full = false }: { readonly prompt: PromptOpenedPayload; readonly fields: CardFields; setFields(fields: CardFields): void; readonly full?: boolean }) => {
+const PromptBody = ({ prompt, repeat, fields, setFields, full = false }: { readonly prompt: PromptOpenedPayload; readonly repeat?: string | undefined; readonly fields: CardFields; setFields(fields: CardFields): void; readonly full?: boolean }) => {
   if (prompt.kind === "question") return <QuestionForm prompt={prompt} picks={fields.picks} setPicks={(picks) => setFields({ ...fields, picks })} />;
   if (prompt.kind === "plan") return <PlanBody text={prompt.plan ?? prompt.summary} />;
   const input = inputText(prompt.input);
@@ -301,11 +306,17 @@ const PromptBody = ({ prompt, fields, setFields, full = false }: { readonly prom
       {prompt.agentId !== null && <p className="text-xs text-ink-muted">Asked by the subagent {prompt.agentId}</p>}
       {prompt.denylist !== null && prompt.denylist.length > 0 && (
         <ul aria-label="On the denylist" className="flex flex-col gap-0.5 text-signal">
-          {prompt.denylist.map((match, at) => (
-            <li key={at}>{describeDenylistMatch(match)}</li>
-          ))}
+          {prompt.denylist.map((match, at) => {
+            const words = denylistMatchWords(match);
+            return <li key={at} className="flex flex-col gap-0.5">
+              <span>{describeDenylistMatch(match)}</span>
+              <span className="text-xs text-ink">{words.protects}</span>
+              <span className="text-xs text-ink-muted">{words.instead}</span>
+            </li>;
+          })}
         </ul>
       )}
+      {repeat !== undefined && <p className="text-xs font-medium text-signal">{repeat}</p>}
       {input !== undefined && (
         <pre aria-label="Arguments" className={classes("max-h-[224px] overflow-auto rounded-none border border-hairline bg-inset px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink-muted", prompt.kind === "permission" && "min-h-0")}>{input}</pre>
       )}
@@ -384,6 +395,6 @@ const KeysHint = ({ kind }: { readonly kind: PromptKind }) => {
   const allow = useFirstKey("permission.allow");
   return <p className="flex flex-wrap items-center gap-1 text-xs text-ink-faint">
     {deny !== undefined && <><Kbd>{deny}</Kbd>{KEY_WORDS[kind].deny}</>}
-    {allow !== undefined && kind !== "denylist" && <><Kbd>{allow}</Kbd>{KEY_WORDS[kind].allow}</>}
+    {allow !== undefined && <><Kbd>{allow}</Kbd>{KEY_WORDS[kind].allow}</>}
   </p>;
 };
