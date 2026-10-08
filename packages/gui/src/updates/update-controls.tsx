@@ -4,7 +4,6 @@ import {
   drainAndUpdateQuestion,
   drainableUpdate,
   environmentVersionWords,
-  outcomeWords,
   pendingUpdateId,
   pendingUpdateWords,
   pinnedWords,
@@ -22,6 +21,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { DialogFooter } from "../ui/dialog.js";
 import { useSettingsValues } from "../settings/settings-values.js";
+import { Outcome } from "../setup/outcome.js";
 import { Button, Dialog, DialogClose, DialogContent, Select, Switch, Tooltip } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { useUpdatesStatus } from "./use-updates-status.js";
@@ -159,7 +159,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
           </Button></Tooltip>
         )}
       </div>
-      {shown !== undefined && <p role="status" className={shown.ok ? "text-ink-muted" : "text-signal"}>{outcomeWords(shown)}</p>}
+      {shown !== undefined && <Outcome outcome={shown} role="status" className={shown.ok ? "text-ink-muted" : "text-signal"} />}
       <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
         {drainable !== null && (
           <DialogContent showClose={false} title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>

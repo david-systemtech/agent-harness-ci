@@ -172,7 +172,8 @@ describe("About", () => {
     const app = await opened({ receipts: { "updates.apply": { rejected: "conflict", message: "desk is pinned to 0.5.0.", data: { reason: "pinned" } } } });
     const about = await openAbout(app);
     await app.user.click(await within(about).findByRole("button", { name: "Update now" }));
-    expect(await within(about).findByText("This computer is pinned to another version. Change or clear the pin, then choose Update now. Details: conflict (pinned): desk is pinned to 0.5.0.")).toBeDefined();
+    expect(await within(about).findByText("This computer is pinned to another version. Change or clear the pin, then choose Update now.")).toBeDefined();
+    expect(within(within(about).getByRole("region", { name: "Details" })).getByText("conflict (pinned): desk is pinned to 0.5.0.")).toBeDefined();
   });
 
   it("is read-only without admin, with the capability's line said once", async () => {

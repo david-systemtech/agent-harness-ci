@@ -788,6 +788,29 @@ describe("/setup", () => {
     await app.waitUntil(() => !app.frame().includes("could not check desk"), "the refused check cleared");
   });
 
+  it("drops a Check again answer that comes back after /setup was opened again", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      account: { state: "needs-attention", reason: "Account needs a check.", actions: ["check-again"] },
+    } })]);
+    const answers: ((message: string) => void)[] = [];
+    env.wire.answer("setup.check", () => new Promise((resolve) => answers.push((message) => resolve({ error: { code: "internal", message, data: {} } }))));
+    await command(app, "/setup");
+    await app.waitFor("Check again");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => answers.length === 1, "the first Check again sent");
+    await app.press(KEY.esc);
+    await command(app, "/setup");
+    await app.waitFor("Check again");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => answers.length === 2, "the second Check again sent");
+    answers[1]!("This card's check.");
+    await app.waitFor("Details: This card's check.");
+    answers[0]!("The earlier card's check.");
+    await app.tick(10);
+    expect(app.frame()).toContain("Details: This card's check.");
+    expect(app.frame()).not.toContain("The earlier card's check.");
+  });
+
   it("pulls both sources named by the line, even after a refusal", async () => {
     const ids = ["0f8fad5b-d9cb-469f-a165-70867728950e", "0f8fad5b-d9cb-469f-a165-70867728950f"];
     const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
@@ -809,7 +832,7 @@ describe("/setup", () => {
     await app.waitFor("Update now: team-skills, house-skills");
     await app.press(KEY.enter);
     await app.waitFor("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills is up to date.");
-    await app.waitFor("Details: not_found: The source was removed.");
+    await app.waitFor("Details: team-skills: not_found: The source was removed.");
     expect(env.requests("skills.sources.pull").map((r) => r.params?.sourceId)).toEqual(ids);
   });
 

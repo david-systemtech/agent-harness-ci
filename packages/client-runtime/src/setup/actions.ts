@@ -1,6 +1,6 @@
 import { DenylistSection, ManagedToolName, SETTINGS, type MethodName, type RegisteredStepId, type RunnableToolAction, type SettingsRowId, type SetupAction, type SetupTarget, type StepId, type UpdateWhen } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
-import { restoreDenylistPresets } from "../permissions/actions.js";
+import { restoreDenylistPresets, type DenylistRestored } from "../permissions/actions.js";
 import { adminCall } from "../status/actions.js";
 import { uuidv7 } from "../ids.js";
 import { plainRefusal, type PlainRefusal } from "../words/refusal.js";
@@ -208,7 +208,7 @@ export interface UpdateNowOutcome extends ActionOutcome {
  * past refusals, each reported by its sync rather than its command receipt,
  * in the Skills step's words (setup-copy.md §5.9): a refusal through the
  * refusal mapper, a failed sync `{collection} could not update.`, its words
- * in Details.
+ * in Details, each named by its collection.
  */
 export const pullSetupSources = async (runtime: Pick<Runtime, "requests">, environmentId: string, sources: readonly NamedItem[], now: () => Date): Promise<ActionOutcome> => {
   const verb = SETUP_ACTION_WORDS["pull-now"];
@@ -217,16 +217,20 @@ export const pullSetupSources = async (runtime: Pick<Runtime, "requests">, envir
     const answer = await adminCall(() => runtime.requests.call(environmentId, "skills.sources.pull", { commandId: uuidv7(now()), sourceId: source.id }));
     if (!answer.ok) {
       const refusal = plainRefusal(answer.refusal, verb);
-      outcomes.push({ ok: false, line: `${source.label}: ${refusal.line}`, details: refusal.details });
+      outcomes.push({ ok: false, line: `${source.label}: ${refusal.line}`, details: refusal.details.map((detail) => `${source.label}: ${detail}`) });
       continue;
     }
     const sync = answer.result?.source.sync;
     if (sync?.outcome === "ok") outcomes.push({ ok: true, line: `${source.label} is up to date.` });
     else if (sync?.outcome === "layout_moved") outcomes.push({ ok: false, line: `${source.label} no longer has skills where they were. Choose its folders again.` });
-    else outcomes.push({ ok: false, line: `${source.label} could not update. Choose ${verb}.`, details: sync?.outcome === "failed" ? [sync.line] : ["No sync result."] });
+    else outcomes.push({ ok: false, line: `${source.label} could not update. Choose ${verb}.`, details: [`${source.label}: ${sync?.outcome === "failed" ? sync.line : "No sync result."}`] });
   }
   return { ok: outcomes.every((outcome) => outcome.ok), line: outcomes.map((outcome) => outcome.line).join(" "), details: outcomes.flatMap((outcome) => outcome.details ?? []) };
 };
+
+/** The denylist's restore as the Permissions step says it: its line, or its refusal through the refusal mapper. */
+export const restoredOutcome = (restored: DenylistRestored): ActionOutcome =>
+  restored.ok ? { ok: true, line: restored.line } : refusedOutcome(plainRefusal(restored.refusal, SETUP_ACTION_WORDS.restore));
 
 /**
  * The step's restore, as a direct `admin` command with `commandId`: the
@@ -248,8 +252,7 @@ export const restoreStep = async (
     const saved = await adminCall(() => runtime.requests.call(environmentId, "settings.update", { commandId, values: { "appearance.theme": preset } }));
     return saved.ok ? { ok: true, line: `Restored the ${preset.name} theme.` } : refusedOutcome(plainRefusal(saved.refusal, verb));
   }
-  const restored = await restoreDenylistPresets(runtime, environmentId, sections, commandId);
-  return restored.ok ? { ok: true, line: restored.line } : refusedOutcome(plainRefusal(restored.refusal, verb));
+  return restoredOutcome(await restoreDenylistPresets(runtime, environmentId, sections, commandId));
 };
 
 /**

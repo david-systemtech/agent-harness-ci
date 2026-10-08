@@ -253,6 +253,7 @@ export {
   planSetupAction,
   pullSetupSources,
   restoreStep,
+  restoredOutcome,
   setupActions,
   updateEnvironment,
   type ActingStep,

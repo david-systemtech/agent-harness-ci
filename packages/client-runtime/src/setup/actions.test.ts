@@ -76,13 +76,13 @@ describe("Set up actions' refusals, in plain words", () => {
     expect(await pullSetupSources(refused("unreachable", "The socket closed (1006) before the environment answered."), "env-a", team, NOW)).toEqual({
       ok: false,
       line: "team-skills: This app cannot reach that computer right now. Choose Update now to try again.",
-      details: ["unreachable: The socket closed (1006) before the environment answered."],
+      details: ["team-skills: unreachable: The socket closed (1006) before the environment answered."],
     });
     const synced = (sync: Record<string, unknown>) => answering({ ok: true, result: { receipt: { status: "applied", sequence: 4, changed: true }, result: { source: { sync } } } });
     expect(await pullSetupSources(synced({ outcome: "failed", line: "git: could not resolve host" }), "env-a", team, NOW)).toEqual({
       ok: false,
       line: "team-skills could not update. Choose Update now.",
-      details: ["git: could not resolve host"],
+      details: ["team-skills: git: could not resolve host"],
     });
     expect((await pullSetupSources(synced({ outcome: "layout_moved" }), "env-a", team, NOW)).line).toBe("team-skills no longer has skills where they were. Choose its folders again.");
     expect(await pullSetupSources(synced({ outcome: "ok" }), "env-a", team, NOW)).toEqual({ ok: true, line: "team-skills is up to date.", details: [] });

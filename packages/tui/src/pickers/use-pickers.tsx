@@ -648,7 +648,7 @@ export const usePickers = (host: PickersHost): Pickers => {
                 return host.say(outcomeWords(await pullSetupSources(runtime, card.environmentId, plan.sources, () => runtime.environmentNow(card.environmentId))));
               case "check": {
                 const answer = await runtime.setup.check(card.environmentId, plan.step);
-                return host.change((held) => (held.kind === "setup" && held.environmentId === card.environmentId ? { ...held, failed: answer.ok ? null : answer.error.message } : held));
+                return host.change((held) => (held.kind === "setup" && held.environmentId === card.environmentId && setupCheck.current === generation ? { ...held, failed: answer.ok ? null : answer.error.message } : held));
               }
             }
             host.say(`${offer.words} runs in the desktop window.`);

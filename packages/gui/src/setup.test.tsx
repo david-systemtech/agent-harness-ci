@@ -500,6 +500,21 @@ describe("a step's named actions on their targets", () => {
     expect(within(settings()).getByRole("region", { name: "Forges" })).toBeDefined();
   });
 
+  it("says a refused restore on the Permissions card plainly, its raw words under Details", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { permissions: {
+      state: "needs-attention", reason: "The paths section of the denylist is missing 1 of its presets (~/.ssh); Restore puts them back.", failing: ["permissions.denylist"],
+      actions: ["restore"], targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }],
+    } } }] });
+    await screen.findByText(NO_SESSION);
+    app.environment("desk").wire.answer("permissions.denylist.restorePresets", () => ({ error: { code: "internal", message: "The denylist store is locked.", data: {} } }));
+    const permissions = await cardOf(app, "Permissions");
+    await app.user.click(within(permissions).getByRole("button", { name: "Restore: paths" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets Paths lost?" })).getByRole("button", { name: "Restore" }));
+    expect(await within(permissions).findByText("agent-harness ran into a problem. Choose Restore to try again.")).toBeDefined();
+    expect(within(within(permissions).getByRole("region", { name: "Details" })).getByText("internal: The denylist store is locked.")).toBeDefined();
+    expect(within(permissions).queryByText(/Not restored/)).toBeNull();
+  });
+
   it("restore puts back the presets of the denylist sections it names alone, and update is Update now on Your machines", async () => {
     const presets = denylistPresets("/home");
     const app = await renderApp({
@@ -565,7 +580,9 @@ describe("a step's named actions on their targets", () => {
     });
     const skills = await cardOf(app, "Skills");
     await app.user.click(within(skills).getByRole("button", { name: "Update now: team-skills, house-skills, work-skills" }));
-    expect(await within(skills).findByText("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills could not update. Choose Update now. work-skills is up to date. Details: not_found: The source was removed.; Could not reach the repository.")).toBeDefined();
+    expect(await within(skills).findByText("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills could not update. Choose Update now. work-skills is up to date.")).toBeDefined();
+    // The raw words stay out of the main text, under Details, each naming its collection (setup-copy.md, rule 7).
+    expect(within(within(skills).getByRole("region", { name: "Details" })).getByText("team-skills: not_found: The source was removed. house-skills: Could not reach the repository.", { normalizer: (text) => text.replace(/\s+/g, " ").trim() })).toBeDefined();
     expect(desk.requests("skills.sources.pull").map((request) => request.params.sourceId)).toEqual(ids);
     expect(new Set(desk.requests("skills.sources.pull").map((request) => request.params.commandId)).size).toBe(3);
     expect(checklist()).not.toBeNull();

@@ -1,7 +1,6 @@
 import {
   RESTORE_METHODS,
   lastGoodWords,
-  outcomeWords,
   planSetupAction,
   pullSetupSources,
   restoreStep,
@@ -29,6 +28,7 @@ import { Button, Tooltip } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 import type { StepCardProps } from "./cards.js";
 import { useChecklist } from "./checklist-window.js";
+import { Outcome } from "./outcome.js";
 
 /** A step's restore, as its named action plans it. */
 export type RestorePlan = Extract<SetupActionPlan, { readonly kind: "restore" }>;
@@ -39,6 +39,9 @@ export type RestorePlan = Extract<SetupActionPlan, { readonly kind: "restore" }>
  * null when the person did not go ahead.
  */
 export type CardRestore = (plan: RestorePlan) => Promise<ActionOutcome | null>;
+
+/** What the card last said a command did: its line, and its raw words for Details. */
+type Said = Pick<ActionOutcome, "line" | "details">;
 
 /**
  * Carries out a named action on the environment checked (`planSetupAction`):
@@ -51,7 +54,7 @@ export type CardRestore = (plan: RestorePlan) => Promise<ActionOutcome | null>;
  * A verb that is a step card's, on a card that has none, opens the step's
  * home row. What a command did is said through `say`.
  */
-const useSetupActions = (environmentId: string, say: (line: string | undefined) => void, signIn: (account: NamedItem) => void, restore: CardRestore | undefined, started: (run: ShownRun) => void, refused: (command: string | null) => void) => {
+const useSetupActions = (environmentId: string, say: (said: Said | undefined) => void, signIn: (account: NamedItem) => void, restore: CardRestore | undefined, started: (run: ShownRun) => void, refused: (command: string | null) => void) => {
   const runtime = useRuntime();
   const clock = useClock();
   const service = useLocalService();
@@ -65,7 +68,7 @@ const useSetupActions = (environmentId: string, say: (line: string | undefined) 
       case "restore": {
         const restored = restore === undefined ? await restoreStep(runtime, environmentId, plan.step, uuidv7(clock.now()), plan.sections) : await restore(plan);
         if (restored === null) return;
-        say(outcomeWords(restored));
+        say(restored);
         if (restored.ok) void runtime.setup.check(environmentId, plan.step);
         return;
       }
@@ -76,17 +79,17 @@ const useSetupActions = (environmentId: string, say: (line: string | undefined) 
       case "sign-in":
         return signIn(plan.account);
       case "update":
-        return say(outcomeWords(await updateEnvironment(runtime, environmentId, environment === undefined ? "the environment" : nameOf(environment), uuidv7(clock.now()))));
+        return say(await updateEnvironment(runtime, environmentId, environment === undefined ? "the environment" : nameOf(environment), uuidv7(clock.now())));
       case "pull-sources":
         say(undefined);
-        return say(outcomeWords(await pullSetupSources(runtime, environmentId, plan.sources, () => clock.now())));
+        return say(await pullSetupSources(runtime, environmentId, plan.sources, () => clock.now()));
       case "run-tool": {
         say(undefined);
         refused(null);
         const outcome = await runTool(runtime, environmentId, plan.tool, plan.action, clock.now());
         if (outcome.ok) return started(outcome.run);
         refused(outcome.command);
-        return say(outcome.line);
+        return say(outcome);
       }
       case "managed-tools":
         return leave("about.about", environmentId, "managed-tools");
@@ -125,7 +128,7 @@ interface StepStatusProps extends StepCardProps {
 export const StepStatus = ({ environmentId, step, restore, actions, cardAction, handledActions = [], toolStarted }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
-  const [line, say] = useState<string | undefined>(undefined);
+  const [said, say] = useState<Said | undefined>(undefined);
   const [signingIn, signIn] = useState<NamedItem | null>(null);
   const [drawn, started] = useState<ShownRun | null>(null);
   const [refusedCommand, refused] = useState<string | null>(null);
@@ -183,10 +186,10 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
         <Tooltip content={`Open ${settingsRow(step.home).label}`} keys="Tab, Enter"><Button variant="outline" onClick={() => leave(step.home, environmentId)}><ExternalLink aria-hidden="true" />Open {settingsRow(step.home).label}</Button></Tooltip>
       </div>
       {reasons.map((reason) => <p key={reason} className="text-sm text-ink-faint">{reason}</p>)}
-      {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
+      {said !== undefined && <Outcome outcome={said} className="text-sm text-ink-muted" />}
       {refusedCommand !== null && <CopyLine label="The vendor's command, to run yourself" text={refusedCommand} />}
       {drawn !== null && <ToolTerminal key={drawn.terminal.id} environmentId={environmentId} run={drawn} label={managedTool(drawn.tool).label} close={() => started(null)} />}
-      {signingIn !== null && <SignInCard environmentId={environmentId} account={signingIn} close={() => signIn(null)} say={say} />}
+      {signingIn !== null && <SignInCard environmentId={environmentId} account={signingIn} close={() => signIn(null)} say={(line) => say({ line })} />}
     </>
   );
 };
