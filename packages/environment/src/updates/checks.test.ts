@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock, MANUAL_CLOCK_START } from "../../test/clock.js";
 import type { ChannelFailure, ChannelReading, ReleaseChannelReader } from "./channel.js";
-import { CHECK_AGAIN_MS, FIRST_CHECK_MS, RELEASE_CHANNEL_FILE, RELEASE_CHANNEL_FRESH_MS, createChannelChecks, type ChannelChecksOptions } from "./checks.js";
+import { CHECK_AGAIN_MS, CLIENT_READ_WAIT_MS, FIRST_CHECK_MS, RELEASE_CHANNEL_FILE, RELEASE_CHANNEL_FRESH_MS, createChannelChecks, type ChannelChecksOptions } from "./checks.js";
 
 /**
  * The channel's checks against a read held until the test lets it answer,
@@ -267,6 +267,24 @@ describe("the Your machines step's release channel check (#1848; setup-copy.md Â
     clock.advance(CHECK_AGAIN_MS - 1);
     expect(await checks.releaseChannelHolds(CLIENT)).toMatchObject({ reason: "agent-harness could not check for updates. Check the internet connection, then choose Check again." });
     expect(reads()).toBe(1);
+  });
+
+  it("on a client's ask answers from what is known once the read outlasts its wait, and so does an ask that joins it", async () => {
+    const dataDir = tempDir("agent-harness-checks-");
+    const kept = "2026-09-22T23:48:00.000Z";
+    writeFileSync(join(dataDir, RELEASE_CHANNEL_FILE), `${JSON.stringify({ lastSucceededAt: kept })}\n`);
+    const { clock, checks, answer, reads } = heldChecks(dataDir);
+    clock.jump(RELEASE_CHANNEL_FRESH_MS);
+    const stale = { reason: "agent-harness has not checked for updates in the last day. Choose Check again.", details: [`Last read of the release channel: ${kept}`] };
+    const first = checks.releaseChannelHolds(CLIENT);
+    clock.advance(CLIENT_READ_WAIT_MS);
+    expect(await first).toEqual(stale);
+    const joined = checks.releaseChannelHolds(CLIENT);
+    clock.advance(CLIENT_READ_WAIT_MS);
+    expect(await joined).toEqual(stale);
+    expect(reads()).toBe(1);
+    await answer(reading("0.5.0"));
+    expect(await checks.releaseChannelHolds(SCHEDULE)).toBe(true);
   });
 
   it("on the schedule's ask reads nothing: checking for updates until the first check is due, then late", async () => {

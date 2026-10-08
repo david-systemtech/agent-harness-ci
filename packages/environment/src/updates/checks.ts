@@ -59,6 +59,13 @@ export const CHECK_INTERVAL_MS = 60 * MINUTE_MS;
 /** How long after a check's start `updates.check` answers its result instead of reading the forge again. */
 export const CHECK_AGAIN_MS = MINUTE_MS;
 
+/**
+ * How long a client's ask waits for the channel's read before answering from
+ * what is known: inside the Your machines step's network budget, which a
+ * slow forge or a stalled manifest download would otherwise run out (#1848).
+ */
+export const CLIENT_READ_WAIT_MS = (CHECK_BUDGET_SECONDS.network - 2) * 1000;
+
 /** How long a successful check keeps the release channel's Set up check holding. */
 export const RELEASE_CHANNEL_FRESH_MS = 24 * 60 * MINUTE_MS;
 
@@ -272,7 +279,15 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   };
 
   const readAsAsked = async ({ maxAgeMs }: StateCheckRequest): Promise<void> => {
-    if (maxAgeMs === 0) await checkNow()?.read;
+    const read = maxAgeMs === 0 ? checkNow()?.read : undefined;
+    if (read === undefined) return;
+    let timer: Timer | undefined;
+    const waited = new Promise<void>((resolve) => (timer = clock.setTimeout(resolve, CLIENT_READ_WAIT_MS)));
+    try {
+      await Promise.race([read, waited]);
+    } finally {
+      timer?.cancel();
+    }
   };
 
   return {
