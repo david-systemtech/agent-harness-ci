@@ -188,6 +188,35 @@ it.each(["dock-terminal", "dock-browser", "dock-preview"])("renders %s after hel
   }
 });
 
+it("holds dock-terminal's readiness until the terminal's face has loaded and xterm.js opened in it", async () => {
+  let loadFace!: () => void;
+  const faceLoaded = new Promise<FontFace[]>((resolve) => { loadFace = () => resolve([]); });
+  let faceAsked!: () => void;
+  const asked = new Promise<void>((resolve) => { faceAsked = resolve; });
+  const terminalFace = (font: string) => font.includes("JetBrains Mono");
+  Object.defineProperty(document, "fonts", { configurable: true, value: {
+    check: (font: string) => !terminalFace(font),
+    load: (font: string) => {
+      if (!terminalFace(font)) return Promise.resolve([]);
+      faceAsked();
+      return faceLoaded;
+    },
+    ready: Promise.resolve(),
+  } });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const gallery = await mountGallery(container, "dock-terminal");
+  close = gallery.close;
+  await asked;
+  const screenOf = () => screen.getByLabelText("Terminal screen");
+  expect(screenOf().querySelector(".xterm")).toBeNull();
+  expect(await Promise.race([gallery.ready, Promise.resolve("pending")])).toBe("pending");
+  expect(container.dataset["galleryReady"]).toBeUndefined();
+  await act(async () => { loadFace(); });
+  expect(await gallery.ready).toBe(true);
+  expect(screenOf().textContent).toContain("12 checks passed");
+});
+
 it("marks a scene ready after an accessible-name attribute changes to the required state", async () => {
   const container = document.createElement("div");
   document.body.append(container);
