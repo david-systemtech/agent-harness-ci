@@ -164,7 +164,7 @@ export const modelRows = (models: readonly ModelEntry[], current: string | null)
   const names = columnOf(models.map(modelName));
   return models.map((model) => ({
     key: model.id,
-    cells: [{ text: pad(modelName(model), names) }, { text: model.efforts.length > 0 ? model.efforts.join(" · ") : "no effort levels", dim: model.efforts.length === 0 }],
+    cells: [{ text: pad(modelName(model), names) }, { text: model.efforts.length > 0 ? model.efforts.map(effortName).join(" · ") : "no effort levels", dim: model.efforts.length === 0 }],
     dim: false,
     ...(model.id === current && { note: { text: "this session", dim: true } }),
   }));

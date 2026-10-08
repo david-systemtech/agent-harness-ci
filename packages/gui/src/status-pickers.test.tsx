@@ -257,6 +257,16 @@ describe("the model picker", () => {
     await waitFor(() => expect(paneLine()).toBe("The next run of Receipts goes out on Fable 5.1 - High."));
     expect(within(statusLine()).getByRole("button", { name: "Model: Fable 5.1 - High" })).toBeTruthy();
   });
+
+  it("finds a model in a long catalogue by the name its row shows", async () => {
+    const samples = Array.from({ length: 13 }, (_, index) => ({ id: `model-${index}`, family: "sample", tier: index, efforts: [], label: `Model ${index}` }));
+    const listed = [{ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" }, ...samples];
+    const { app } = await opened([desk({ models: [{ accountId: "account-1", live: true, models: listed }] })]);
+    const menu = await openPicker(app, "Model");
+    await app.user.type(within(menu).getByRole("textbox", { name: "Search models" }), "Fable 5.1");
+    expect(within(menu).getByRole("menuitem", { name: "Fable 5.1 (fable)" })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: "Model 1 (model-1)" })).toBeNull();
+  });
 });
 
 describe("the account picker", () => {
@@ -381,6 +391,14 @@ describe("the hand-off offer and picker", () => {
     expect(await within(dialog).findByText("Not handed off: The account is busy.")).toBeTruthy();
     await app.user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Hand off Receipts on desk" })).toBeNull());
+  });
+
+  it("names each account's models in the hand-off picker as the model picker does", async () => {
+    const fable = [{ accountId: "account-2", live: false, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" }] }];
+    const { app } = await opened([desk({ recommendation: out, models: fable })]);
+    await app.user.click(await within(statusLine()).findByRole("button", { name: "Hand off…" }));
+    const accounts = within(await screen.findByRole("dialog", { name: "Hand off Receipts on desk" })).getByRole("list", { name: "Accounts" });
+    expect(await within(accounts).findByText("Models: Fable 5.1 (fable)")).toBeTruthy();
   });
 
   it("opens the hand-off picker: the environment's accounts with their status and plan readings, the recommended one marked; choosing one forks onto it", async () => {

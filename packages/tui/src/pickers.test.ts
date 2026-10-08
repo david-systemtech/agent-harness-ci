@@ -243,7 +243,7 @@ describe("/model", () => {
     await command(app, "/model");
     await app.waitFor("Models for work on desk");
     await app.waitFor("Opus 4 (claude-opus-4)");
-    expect(app.rows().find((row) => row.includes("claude-opus-4"))).toMatch(/Opus 4 \(claude-opus-4\)\s+low · medium · high\s+this session/);
+    expect(app.rows().find((row) => row.includes("claude-opus-4"))).toMatch(/Opus 4 \(claude-opus-4\)\s+Low · Medium · High\s+this session/);
     expect(app.frame()).toContain("claude-haiku-4");
     await app.press(KEY.enter);
     await app.waitFor("Effort for Opus 4");

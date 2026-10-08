@@ -1,17 +1,18 @@
-import type { AccountRecord, RunPolicy, RunSummary } from "@agent-harness/contracts";
+import type { AccountCatalogue, AccountRecord, RunPolicy, RunSummary } from "@agent-harness/contracts";
 import { endWords, formatTokens, formatUsd } from "../transcript/format.js";
-import { effortName, identityWords, modelDisplayName, spendOf } from "./words.js";
+import { effortName, identityWords, modelDisplayName, modelsOf, spendOf } from "./words.js";
 
 export const NO_RUN_YET = "No run yet: the session's first message starts one.";
 const POLICY_NOT_HEARD = "not heard by this client: the run's policy was resolved before it caught up";
 
-/** The latest run's facts, in the same words in every client, from its own record and resolved policy. */
-export const runInfoFacts = (run: RunSummary, policy: RunPolicy | undefined, account: AccountRecord | undefined): readonly { readonly term: string; readonly words: string }[] => {
+/** The latest run's facts, in the same words in every client, from its own record and resolved policy; its model by its account's catalogue label when the display table does not know it. */
+export const runInfoFacts = (run: RunSummary, policy: RunPolicy | undefined, account: AccountRecord | undefined, catalogues: readonly AccountCatalogue[] | null = null): readonly { readonly term: string; readonly words: string }[] => {
   const spend = spendOf(run.usage);
+  const listed = modelsOf(catalogues ?? [], run.accountId).find((entry) => entry.id === run.model);
   return [
     { term: "Started by", words: policy ? startedBy(policy) : run.origin },
     { term: "Account", words: account ? `${account.label} (${identityWords(account)})` : run.accountId },
-    { term: "Model", words: modelDisplayName(run.model) },
+    { term: "Model", words: modelDisplayName(run.model, listed?.label) },
     { term: "Effort", words: run.effort !== null ? effortName(run.effort) : "the model's own" },
     { term: "Mode", words: modeWords(run, policy) },
     { term: "Containment", words: policy ? containmentWords(policy) : POLICY_NOT_HEARD },

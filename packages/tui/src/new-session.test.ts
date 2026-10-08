@@ -106,6 +106,17 @@ describe("the new-session card", () => {
     await app.waitFor("environment LA laptop · account Work · model Opus 5 · workspace directory train");
   });
 
+  it("names its model as the provider does, on the chip by its name and in the model step with its id", async () => {
+    const app = await launch({ desk: { models: [{ accountId: "account-1", live: true, models: [{ id: "fable", family: "fable", tier: 3, efforts: ["high"], label: "Fable" }] }] } });
+    await headingTo(app, "desk");
+    await app.press(KEY.enter);
+    await app.waitFor("account Work · model Fable 5.1 · workspace");
+    await rowTo(app, "Another model");
+    await app.press(KEY.enter);
+    await app.waitFor("New session on desk: its model");
+    await app.waitFor("Fable 5.1 (fable)");
+  });
+
   it("redraws its environment chip when another client renames the environment while it is open (#327)", async () => {
     const app = await launch();
     await headingTo(app, "laptop");

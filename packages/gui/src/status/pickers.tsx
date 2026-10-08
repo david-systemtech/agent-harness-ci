@@ -240,7 +240,7 @@ export const RunPickerColumns = ({ environmentId, sessionId, accountId, model, i
   };
   const active = activeColumn === "Effort" && (selected?.efforts.length ?? 0) === 0 ? "Models" : activeColumn;
   const column = (name: "Accounts" | "Models" | "Effort", children: ReactNode) => <RunPickerColumn name={name} narrow={narrow} activeColumn={active} showEffortWithModel={false}>{children}</RunPickerColumn>;
-  const visible = models.filter((entry) => `${entry.label ?? ""} ${entry.id}`.toLowerCase().includes(query.toLowerCase()));
+  const visible = models.filter((entry) => `${modelName(entry)} ${entry.label ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   const quick = model?.model === undefined ? models.slice(0, 5) : models.filter((entry, index) => entry.id === model.model || index < 5);
   return <div data-run-picker data-narrow={narrow ? "true" : undefined} className={classes("flex flex-col", narrow && "w-[min(512px,calc(100vw-16px))]")}
     onKeyDownCapture={moveInColumns}>
