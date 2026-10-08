@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EndpointName } from "./routines.js";
 
 /** Lock-screen delivery contains no session title, prompt, transcript or credentials. */
 export const AttentionPayload = z.strictObject({
@@ -19,6 +20,7 @@ export const AttentionTargetInput = z.strictObject({
 export type AttentionTargetInput = z.infer<typeof AttentionTargetInput>;
 
 export const AttentionTargetStatus = AttentionTargetInput.omit({ configuration: true }).extend({
+  webhookEndpoint: EndpointName.optional().meta({ description: "A webhook target's named endpoint, which an admin tests with routines.endpoints.test; never its URL or secret, and absent for push." }),
   global: z.boolean(),
   state: z.enum(["disabled", "ready", "pending", "failed", "unavailable"]).meta({ description: "Disabled by choice, ready, delivery pending, a failed attempt, or a transport/HTTPS origin unavailable." }),
   failure: z.string().nullable(),

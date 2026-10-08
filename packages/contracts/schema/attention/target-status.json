@@ -28,6 +28,11 @@
     "completion": {
       "type": "boolean"
     },
+    "webhookEndpoint": {
+      "description": "A webhook target's named endpoint, which an admin tests with routines.endpoints.test; never its URL or secret, and absent for push.",
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,40}$"
+    },
     "global": {
       "type": "boolean"
     },
