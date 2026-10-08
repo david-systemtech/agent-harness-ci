@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { mountGallery } from "../../gallery/mount.js";
 import { discoverScenes, type SceneModule } from "../../gallery/scene-registry.js";
@@ -24,7 +24,7 @@ it("opens Other models beside the favourites on the desktop", async () => {
   expect(rows(others)[0]).toBe("Sample model 2 (sample-model-2)");
 });
 
-it("opens Other models with a tap in the phone's run sheet", async () => {
+it("shows Other models under its row with a tap in the phone's run sheet", async () => {
   const previousWidth = window.innerWidth;
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
   onTestFinished(() => { Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth }); });
@@ -35,7 +35,8 @@ it("opens Other models with a tap in the phone's run sheet", async () => {
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
   const sheet = screen.getByRole("dialog", { name: "Run choices" });
-  await waitFor(() => expect(rows(within(sheet).getByRole("group", { name: "Models" }))).toEqual(["Sample quick model (sample-model-quick)", "Sample model with a long descriptive name (sample-model-with-a-long-identifier)", "Other models", "Edit favourites…"]));
-  const others = await screen.findByRole("menu", { name: "Other models" });
-  expect(rows(others)).toEqual(["Sample model with a wide context (sample-model-wide-context)", "Sample previous model (sample-model-previous)"]);
+  const others = await within(sheet).findByRole("group", { name: "Other models" });
+  const wider = ["Sample model with a wide context (sample-model-wide-context)", "Sample previous model (sample-model-previous)"];
+  expect(rows(others)).toEqual(wider);
+  expect(rows(within(sheet).getByRole("group", { name: "Models" }))).toEqual(["Sample quick model (sample-model-quick)", "Sample model with a long descriptive name (sample-model-with-a-long-identifier)", "Other models", ...wider, "Edit favourites…"]);
 });

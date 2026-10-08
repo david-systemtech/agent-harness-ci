@@ -1,7 +1,7 @@
 import type { SceneModule } from "./scene-registry.js";
 import type { RunStage } from "../src/status/run-picker-parts.js";
 
-/** The real session chips and phone sheet, with long account and model labels; with `otherModels`, Other models tapped open (#1821). */
+/** The real session chips and phone sheet, with long account and model labels; with `otherModels`, Other models tapped open under its row (#1821). */
 export const phoneRunPickerScene = (stage: RunStage, otherModels = false): SceneModule => ({
   platform: "web",
   script: { environments: [{ name: "desk", reach: "paired", accounts: [
@@ -43,7 +43,7 @@ export const phoneRunPickerScene = (stage: RunStage, otherModels = false): Scene
         next.click();
       }
       if (otherModels && !tapped) {
-        const flyout = document.querySelector<HTMLElement>("[data-run-sheet] [data-other-models]");
+        const flyout = document.querySelector<HTMLElement>('[data-run-sheet] [role="menuitem"][aria-label="Other models"]');
         if (!flyout) return;
         tapped = true;
         flyout.click();

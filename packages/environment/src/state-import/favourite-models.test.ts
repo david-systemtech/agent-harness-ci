@@ -40,7 +40,7 @@ describe("Carry over's favourite models", () => {
     await run(client, true);
     expect(t.env.log.head()).toBe(head);
     expect(await favouritesOf(client)).toEqual([]);
-    expect((await run(client)).result.failed).toEqual([]);
+    expect((await run(client)).result?.failed).toEqual([]);
     expect(await favouritesOf(client)).toEqual(["claude-sonnet-5", "claude-opus-5", "claude-haiku-5"]);
     // Carried once: a person's later edit is not undone by another import.
     await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.favouriteModels": ["claude-haiku-5"] } });
@@ -51,7 +51,7 @@ describe("Carry over's favourite models", () => {
   it("keeps the favourites the environment already has", async () => {
     const { client } = await start(PREFERENCES);
     await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.favouriteModels": ["claude-fable-5"] } });
-    expect((await run(client)).result.failed).toEqual([]);
+    expect((await run(client)).result?.failed).toEqual([]);
     expect(await favouritesOf(client)).toEqual(["claude-fable-5"]);
   });
 

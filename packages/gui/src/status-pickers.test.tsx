@@ -312,15 +312,19 @@ describe("the model picker's favourites (ticket 1821)", () => {
     expect(rows(within(others).getByRole("group", { name: "personal" }))).toEqual(["claude-sonnet-3"]);
   });
 
-  it("opens Other models with a tap on a phone", async () => {
+  it("shows Other models under its row with a tap on a phone, where a flyout has no room", async () => {
     const previousWidth = globalThis.window.innerWidth;
     Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: 360 });
     onTestFinished(() => { Object.defineProperty(globalThis.window, "innerWidth", { configurable: true, value: previousWidth }); });
     const { app } = await opened([desk({ models: [FOUR] })]);
     await app.user.click(within(statusLine()).getByRole("button", { name: /^Model:/ }));
     const dialog = await screen.findByRole("dialog", { name: "Run choices" });
-    await app.user.pointer({ keys: "[TouchA]", target: within(dialog).getByRole("menuitem", { name: "Other models" }) });
-    const others = await screen.findByRole("menu", { name: "Other models" });
+    const trigger = within(dialog).getByRole("menuitem", { name: "Other models" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    await app.user.pointer({ keys: "[TouchA]", target: trigger });
+    const others = await within(dialog).findByRole("group", { name: "Other models" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.queryByRole("menu", { name: "Other models" })).toBeNull();
     await app.user.pointer({ keys: "[TouchA]", target: within(others).getByRole("menuitem", { name: "claude-opus-4-1m" }) });
     await waitFor(() => expect(screen.getByRole("button", { name: "Model: claude-opus-4-1m", hidden: true })).toBeTruthy());
   });
