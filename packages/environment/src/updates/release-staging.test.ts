@@ -535,6 +535,19 @@ describe("a target that needs a newer launcher", () => {
     expect(results[0]).toMatchObject({ state: "done", failing: [] });
   });
 
+  it("waits for the running release's handover toward a pin, saying nothing of the pin", async () => {
+    const { fake, client } = await withReleases({
+      harnessVersion: "0.6.0",
+      launcherProtocol: 2,
+      launch: { versions: () => ({ type: "versions", installed: ["0.6.0"], launcherVersion: RUNNING, launcherProtocol: 1 }) },
+    });
+    fake.publish(release("0.7.0", { manifest: { launcherProtocol: 2 } }), release("0.8.0", { manifest: { launcherProtocol: 2 } }));
+    await setUpdates(client, { "updates.pinnedVersion": "0.7.0" });
+    expect(await check(client)).toMatchObject({ target: { version: "0.7.0", source: "pin" }, pending: { state: "current" } });
+    const { results } = await client.request("setup.check", { step: "your-machines" });
+    expect(results[0]).toMatchObject({ state: "done", failing: [] });
+  });
+
   it("still takes an available stepping stone after the running release's launcher handover failed", async () => {
     const { fake, t, client } = await withReleases({
       harnessVersion: "0.6.0",
@@ -814,6 +827,34 @@ describe("the Your machines step's updates check", () => {
       actions: ["update"],
       reason: "The update to 0.5.0 did not work. Desk still runs 0.4.1. Choose Update now to try again.",
       details: ["Running: 0.4.1", "Updates that did not work: 0.5.0", "Last update: to 0.5.0, failed at crash-loop: exit"],
+    });
+  });
+
+  it("names a failed pin in the failed line, as Update now tries the pin again", async () => {
+    const dataDir = join(tempDir(), "data");
+    const failedAt = async (t: TestEnvironment, toVersion: string) => {
+      const updateId = idOf(updateNotices(t).at(-1));
+      t.clock.advance(10 * MINUTE);
+      await t.env.drained;
+      const record: OutcomeRecord = { updateId, fromVersion: RUNNING, toVersion, stage: "crash-loop", reason: "exit" };
+      writeFileSync(join(dataDir, OUTCOME_RECORD_FILE), `${JSON.stringify(record)}\n`);
+    };
+    const { fake, t, client } = await withReleases({ dataDir });
+    fake.publish(release("0.4.9"), release("0.5.0"));
+    await check(client);
+    await failedAt(t, "0.5.0");
+    const second = await start(fake, { dataDir, clock: t.clock });
+    const pinning = await second.client();
+    await setUpdates(pinning, { "updates.pinnedVersion": "0.4.9" });
+    expect((await check(pinning)).pending).toMatchObject({ state: "waiting", toVersion: "0.4.9", source: "pin" });
+    await failedAt(second, "0.4.9");
+    const third = await start(fake, { dataDir, clock: t.clock });
+    const client3 = await third.client();
+    await rename(client3, "Desk");
+    expect(await machines(client3)).toMatchObject({
+      failing: ["your-machines.updates"],
+      actions: ["update"],
+      reason: "The update to 0.4.9 did not work. Desk still runs 0.4.1. Choose Update now to try again.",
     });
   });
 

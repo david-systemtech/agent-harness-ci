@@ -306,6 +306,8 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
   let staging: Omit<Update, "since"> | undefined;
   /** The target the last check that read the channel found blocked, shown while nothing else is pending. */
   let blocked: ChannelBlock | null = null;
+  /** The target the last check found waiting for a handover to the running version's newer launcher: nothing staged, nothing blocked. */
+  let handoverDueFor: string | null = null;
   let started = false;
   let stopped = false;
   let capTimer: Timer | undefined;
@@ -789,6 +791,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     async follow(reading, settings) {
       blocked = reading.blocked;
       const { stage, target } = reading;
+      handoverDueFor = target !== null && stage === null && reading.blocked === null ? target.version : null;
       if (stage === null || target === null || staging !== undefined || !channelReplaces(stage.version)) return null;
       // Managed outside, nothing is staged: the target is pending with its image, which the host-side updater pulls.
       if (options.managedOutside) {
@@ -824,10 +827,15 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       if (newest !== null && newer(newest, harnessVersion)) {
         const updates = `Updates: ${pinnedVersion === null ? "off" : `pinned to ${pinnedVersion}`}`;
         // It stays on a pin only while the pin runs. An update toward the pin (through a stepping stone too) staging or held,
-        // a pin the launcher blocks and a pin whose update failed are spoken for by the lines below.
+        // a pin waiting for the launcher handover, a pin the launcher blocks and a pin whose update failed are on their way or
+        // spoken for by the lines below.
         const towardPin = (update: Omit<Update, "since"> | undefined): boolean => update !== undefined && (update.source === "pin" || update.toVersion === pinnedVersion);
         const pinSpokenFor =
-          towardPin(held.state === "current" ? undefined : held.update) || towardPin(staging) || blocked?.toVersion === pinnedVersion || failed.includes(pinnedVersion ?? "");
+          towardPin(held.state === "current" ? undefined : held.update) ||
+          towardPin(staging) ||
+          handoverDueFor === pinnedVersion ||
+          blocked?.toVersion === pinnedVersion ||
+          failed.includes(pinnedVersion ?? "");
         if (pinnedVersion === harnessVersion) {
           findings.push({ reason: `${name} stays on ${harnessVersion} because it is pinned. ${newest} is available.`, details: [running, `Newest on the channel: ${newest}`, updates] });
         } else if (pinnedVersion === null && !autoUpdate) {
@@ -844,7 +852,8 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       if (blocked !== null) {
         findings.push({ reason: `Version ${blocked.toVersion} needs a newer installer. Reinstall agent-harness from the ${blocked.installVersion} download.`, details: [blocked.message] });
       }
-      const lastFailed = failed.at(-1);
+      // A failed pin is named, as Update now tries the pin again.
+      const lastFailed = pinnedVersion !== null && failed.includes(pinnedVersion) ? pinnedVersion : failed.at(-1);
       if (lastFailed !== undefined) {
         const last = outcomes.lastOutcome;
         findings.push({
