@@ -14,11 +14,12 @@ import {
 } from "@agent-harness/contracts/launcher";
 import { listed } from "../listed.js";
 import { clearHandover, readHandover, writeHandover, type Handover } from "./handover.js";
+import type { DurableFs } from "./durable.js";
 import { createInstaller } from "./install.js";
 import { LAUNCHER_VERSION_FILE, writeLauncherVersion } from "./launcher-version.js";
 import { pruning, removeVersion, snapshotsIn } from "./prune.js";
 import { discardSnapshot, finishMarkedRestore, hasSnapshot, restoreSnapshot, snapshotNeeds, takeSnapshot, writeOutcomeRecord } from "./snapshot.js";
-import { serveNode } from "./serve-node.js";
+import { serveNode, waitForHeldCopy } from "./serve-node.js";
 import { readServiceState, writeServiceState, type PendingUpdate, type ServiceState } from "./state.js";
 import { completeVersions, isComplete, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
 
@@ -159,6 +160,8 @@ export interface LauncherOptions {
   readonly version?: string;
   /** The platform whose Node the child runs on (`serveNode`): on Windows, one copy at a path no update changes. Preset: the running one. */
   readonly platform?: NodeJS.Platform;
+  /** The file calls that change the Windows copy of Node (`serveNode`). Preset: node's own. */
+  readonly fs?: DurableFs;
 }
 
 export interface Launcher {
@@ -765,10 +768,24 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     });
   };
 
-  /** Spawns `version`'s `serve`: the trial of `trial` when given, which fails unless it says `prepared` within the deadline. */
-  const run = (version: string, trial?: PendingUpdate) => {
+  /**
+   * Spawns `version`'s `serve`: the trial of `trial` when given, which fails
+   * unless it says `prepared` within the deadline. While Windows still holds
+   * the copy of Node, it is tried again after a wait (`waitForHeldCopy`,
+   * `waited` ms so far) before the version runs on its own Node.
+   */
+  const run = (version: string, trial?: PendingUpdate, waited = 0) => {
     const [, entry] = versionCommand(versionDirectory(dataDir, version));
-    const { node, problem } = serveNode(dataDir, version, options.platform);
+    const { node, problem, held } = serveNode(dataDir, version, options.platform, options.fs);
+    const wait = held === true ? waitForHeldCopy(waited) : undefined;
+    if (wait !== undefined) {
+      log(`the Node copy for ${version} is still held (${problem}); trying again in ${wait} ms`);
+      cancelRestart = timer.after(wait, () => {
+        cancelRestart = undefined;
+        run(version, trial, waited + wait);
+      });
+      return;
+    }
     if (problem !== undefined) log(`${version} runs on its own Node, which Windows Firewall may ask about again, since the copy could not be made: ${problem}`);
     const serve = ["serve", "--data-dir", dataDir, ...(port === undefined ? [] : ["--port", String(port)]), ...(name === undefined ? [] : ["--name", name])];
     const started: Child = {

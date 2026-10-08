@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { SERVE_NODE_DIRECTORY, SERVE_NODE_SOURCE_FILE, serveNode } from "./serve-node.js";
+import { MOVE_RETRY_FIRST_WAIT_MS, MOVE_RETRY_LONGEST_WAIT_MS, MOVE_RETRY_MS } from "./install.js";
+import { SERVE_NODE_DIRECTORY, SERVE_NODE_SOURCE_FILE, serveNode, waitForHeldCopy } from "./serve-node.js";
 import { versionDirectory } from "./versions.js";
 
 /**
@@ -76,10 +77,31 @@ describe("the Node a version's serve runs from", () => {
       },
     };
     const own = join(versionDirectory(dataDir, "0.1.9"), "node", "node.exe");
-    expect(serveNode(dataDir, "0.1.9", "win32", busy)).toEqual({ node: own, problem: expect.stringContaining("EPERM") });
+    expect(serveNode(dataDir, "0.1.9", "win32", busy)).toEqual({ node: own, problem: expect.stringContaining("EPERM"), held: true });
     // Nothing staged is left, and the copy no longer claims a version, so the next start copies again.
     expect(readdirSync(join(dataDir, SERVE_NODE_DIRECTORY))).toEqual(["node.exe"]);
     expect(serveNode(dataDir, "0.1.8", "win32")).toEqual({ node: stable(dataDir) });
+  });
+
+  it("says the copy was not held when it failed for another reason, which waiting does not end", () => {
+    const dataDir = dataDirectory("0.1.9");
+    // A folder where the copy goes: it cannot be renamed over.
+    mkdirSync(stable(dataDir), { recursive: true });
+    const result = serveNode(dataDir, "0.1.9", "win32");
+    expect(result).toEqual({ node: join(versionDirectory(dataDir, "0.1.9"), "node", "node.exe"), problem: expect.any(String) });
+    expect(result).not.toHaveProperty("held");
+  });
+
+  it("is tried again after a hold with waits doubling to the longest, for as long as an install's move is, then not", () => {
+    const waits: number[] = [];
+    let waited = 0;
+    for (let wait = waitForHeldCopy(waited); wait !== undefined; wait = waitForHeldCopy(waited)) {
+      waits.push(wait);
+      waited += wait;
+    }
+    expect(waits.slice(0, 6)).toEqual([MOVE_RETRY_FIRST_WAIT_MS, 200, 400, 800, 1600, MOVE_RETRY_LONGEST_WAIT_MS]);
+    expect(waited).toBeLessThanOrEqual(MOVE_RETRY_MS);
+    expect(waited + MOVE_RETRY_LONGEST_WAIT_MS).toBeGreaterThan(MOVE_RETRY_MS);
   });
 
   it("is the version's own Node on Linux and macOS, which key no firewall decision on the path, and nothing is copied", () => {
