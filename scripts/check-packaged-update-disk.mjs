@@ -8,6 +8,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+// Removes the check's scratch directory. Windows releases an exited node.exe's image a moment after the exit, and the
+// launcher runs each version on the data directory's own Node in it (#1910), so a removal right after the stop is
+// retried while the hold lasts (#1940).
+export function removeScratch(path, remove = fs.rmSync) {
+  remove(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+}
+
 // The shipped modules, with only disk availability held. No service manager or user data is touched.
 export async function checkPackagedUpdateDisk(server) {
   const require = createRequire(join(server, "packages/cli/package.json"));
@@ -89,7 +96,7 @@ export async function checkPackagedUpdateDisk(server) {
     fs.default.statfsSync = originalStatfs;
     syncBuiltinESMExports();
     await launcher?.stop();
-    fs.rmSync(work, { recursive: true, force: true });
+    removeScratch(work);
   }
 }
 
