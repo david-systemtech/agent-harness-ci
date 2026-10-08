@@ -1087,6 +1087,10 @@
       "title": "ForgeOriginMissingPayload"
     },
     {
+      "path": "forge/events/forge.origin-answered.json",
+      "title": "ForgeOriginAnsweredPayload"
+    },
+    {
       "path": "key-managers/provider.json",
       "title": "KeyManagerProvider"
     },

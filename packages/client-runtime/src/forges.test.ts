@@ -28,7 +28,7 @@ const paired = (options: { readonly capabilities?: readonly string[]; readonly s
 const TOKEN = "token-for-tests";
 
 describe("forge.accounts.list in the request cache", () => {
-  it("is fetched again on every forge.account.* notice, and not on a missing origin", async () => {
+  it("is fetched again on every forge.account.* notice, and not on a missing origin or one answered", async () => {
     const { runtime, wire, env, environment } = await paired();
     const account = forgeRecord();
     let asked = 0;
@@ -57,6 +57,7 @@ describe("forge.accounts.list in the request cache", () => {
       expect(asked, type).toBe(index + 2);
     }
     environment.event(noticeEvent(types.length + 1, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)));
+    environment.event(noticeEvent(types.length + 2, env, "forge.origin-answered", forgeEventPayload("forge.origin-answered", account)));
     await flush();
     expect(asked).toBe(types.length + 1);
   });
@@ -167,6 +168,28 @@ describe("the forge notices", () => {
       { ...forges, message: "https://github.com on desk: GitHub refused the token: give this forge account a new credential in Set up, Forges." },
       { ...forges, message: "git on desk was refused on https://github.com with the forge account's credential, which desk is verifying again." },
       { ...forges, message: "desk was refused on https://git.example.com when it tried to read a skill source: no forge account covers it; add one in Set up, Forges." },
+    ]);
+  });
+
+  it("withdraw a missing origin's row once the operation it names is answered there, and only that row", async () => {
+    const { runtime, env, environment } = await paired();
+    const account = forgeRecord();
+    const channel = { origin: "https://github.com", operation: "read the release channel" };
+    environment.event(noticeEvent(1, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)));
+    environment.event(noticeEvent(2, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account, channel)));
+    await flush();
+    expect(shown(runtime)).toHaveLength(2);
+
+    environment.event(noticeEvent(3, env, "forge.origin-answered", forgeEventPayload("forge.origin-answered", account, { origin: channel.origin, operation: "read a skill source" })));
+    environment.event(noticeEvent(4, env, "forge.origin-answered", forgeEventPayload("forge.origin-answered", account, channel)));
+    await flush();
+    expect(shown(runtime)).toEqual([
+      {
+        environmentId: env,
+        kind: "forge",
+        action: "setup.forges",
+        message: "desk was refused on https://git.example.com when it tried to read a skill source: no forge account covers it; add one in Set up, Forges.",
+      },
     ]);
   });
 

@@ -2,7 +2,7 @@ import type { ForgeAccountMissingError, ForgeAccountRecord, ForgeOrigin } from "
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
-import { missingOrigins, type MissingOrigin } from "./forge-store.js";
+import { missingOn, missingOrigins, type MissingOrigin } from "./forge-store.js";
 import { servedOrigins } from "./git-helper.js";
 import { FORGE_ACTOR } from "./verifier.js";
 
@@ -12,7 +12,14 @@ import { FORGE_ACTOR } from "./verifier.js";
  * recorded as `forge.origin-missing`, as `system:forge`, at most once a day
  * per origin, and counts, for the Forges step's coverage check (#319), for
  * seven days after its last record, until a forge account covers it (chosen
- * defaults; a day and a week are rolling, from the last record).
+ * defaults; a day and a week are rolling, from the last record), or until
+ * the operation its last record names reads the repository it names
+ * anonymously after all, recorded as `forge.origin-answered` (#1891): a
+ * public repository the forge refused once in passing needs no forge
+ * account. Another repository read under the same operation clears nothing:
+ * an operation names a kind of work (`sync a memory bank`), which a private
+ * and a public repository on one origin can share. A record naming no
+ * repository is never answered.
  */
 
 /** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the origin and the Forges step. */
@@ -38,19 +45,29 @@ export interface MissingOriginsOptions {
 }
 
 export interface MissingOrigins {
-  /** Records that `operation` was refused on `origin`, unless the origin was recorded within the day. */
-  record(origin: ForgeOrigin, operation: string): void;
+  /** Records that `operation` was refused on `origin`, on `repository` where it names one, unless the origin was recorded within the day. */
+  record(origin: ForgeOrigin, operation: string, repository?: string): void;
+  /** Clears the origin's record when its last one names `operation` on `repository`, which the origin has now answered anonymously; a no-op otherwise. */
+  answered(origin: ForgeOrigin, operation: string, repository: string): void;
   /** The missing origins that count now: recorded within seven days, and served by no forge account. */
   counted(): MissingOrigin[];
 }
 
 export const createMissingOrigins = ({ log, clock, stream, reader, accounts }: MissingOriginsOptions): MissingOrigins => ({
-  record(origin, operation) {
+  record(origin, operation, repository) {
     // Read and appended in one transaction, so two refusals at once record one.
     log.atomically((tx) => {
       const last = missingOrigins(reader).find((missing) => missing.origin === origin);
       if (last !== undefined && clock.now().getTime() - Date.parse(last.recordedAt) < MISSING_ORIGIN_RECORD_MS) return;
-      log.append(stream, [{ type: "forge.origin-missing", payload: { origin, operation } }], { tx, actor: FORGE_ACTOR });
+      log.append(stream, [{ type: "forge.origin-missing", payload: { origin, operation, ...(repository !== undefined && { repository }) } }], { tx, actor: FORGE_ACTOR });
+    });
+  },
+  answered(origin, operation, repository) {
+    const recorded = (): boolean => missingOn(reader, origin, operation, repository);
+    // Nearly every anonymous read finds no record, and takes no transaction; one that does is checked again in it.
+    if (!recorded()) return;
+    log.atomically((tx) => {
+      if (recorded()) log.append(stream, [{ type: "forge.origin-answered", payload: { origin, operation, repository } }], { tx, actor: FORGE_ACTOR });
     });
   },
   counted() {
