@@ -15,13 +15,13 @@ const answering = (message: string) => ({ capability: (): CapabilityAnswer => ({
 
 describe("the read-only line of an environment never reached", () => {
   it("follows a block's sentence with a sentence of its own", () => {
-    const runtime = answering("Stored credentials for laptop could not be read: pair it again.");
-    expect(readOnlyLine(runtime, LAPTOP, false)).toBe("Stored credentials for laptop could not be read: pair it again. This window has read none of its values.");
-    expect(readOnlyLine(runtime, LAPTOP, true)).toBe("Stored credentials for laptop could not be read: pair it again. The values this window last read, read-only.");
+    const runtime = answering("This app cannot read its saved key for laptop. Pair again.");
+    expect(readOnlyLine(runtime, LAPTOP, false)).toBe("This app cannot read its saved key for laptop. Pair again. This window has read none of its values.");
+    expect(readOnlyLine(runtime, LAPTOP, true)).toBe("This app cannot read its saved key for laptop. Pair again. The values this window last read, read-only.");
   });
 
   it("follows any other line with one clause after a colon", () => {
-    const runtime = answering("This client was paired with laptop without the admin scope.");
+    const runtime = answering("This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     expect(readOnlyLine(runtime, LAPTOP, false)).toBe("This client was paired with laptop without the admin scope: this window has read none of its values.");
   });
 });
@@ -29,6 +29,6 @@ describe("the read-only line of an environment never reached", () => {
 describe("what follows the connection's line", () => {
   it("is a clause after a colon, or a sentence after a line that already has one", () => {
     expect(afterReach("Unreachable since 09:30", "read-only.")).toBe("Unreachable since 09:30: read-only.");
-    expect(afterReach("This client's access to laptop expired: pair it again", "read-only.")).toBe("This client's access to laptop expired: pair it again. Read-only.");
+    expect(afterReach("This client's access to laptop expired: pair it again", "read-only.")).toBe("This app's access to laptop has run out. Pair again. Read-only.");
   });
 });

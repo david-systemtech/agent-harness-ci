@@ -212,7 +212,7 @@ describe("/account", () => {
     await command(app, "/account");
     await app.waitFor("+ Add an account");
     await app.press(KEY.down, KEY.down, KEY.enter);
-    await app.waitFor("Cannot add an account on desk: This client was paired with desk without the admin scope.");
+    await app.waitFor("Cannot add an account on desk: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
   });
 
   it("says why the accounts could not be read, offering no row, where Enter adds nothing (PR review)", async () => {
@@ -577,9 +577,9 @@ describe("/settings", () => {
   it("is read-only without the admin scope, saying why", async () => {
     const { app, env } = await launch([desk({ scopes: ["read", "sessions:write", "runs:drive"] })]);
     await command(app, "/settings");
-    await app.waitFor("read-only: This client was paired with desk without the admin scope.");
+    await app.waitFor("read-only: This app has limited access to desk, so it cannot change settings or sign in accounts");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("Not changed: This client was paired with desk without the admin scope.");
+    await app.waitFor("Not changed: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     expect(env.requests("settings.update")).toEqual([]);
   });
 
@@ -705,17 +705,19 @@ describe("/setup", () => {
         skills: null,
       },
     })]);
-    await app.waitFor("Set up on desk: 7 of 9 done, 1 need attention (Permissions). Run it in the desktop window.");
+    await app.waitFor("Set up on desk: 7 of 9 done, 1 needs a fix (Permissions).");
+    expect(app.frame()).not.toContain("Run it in the desktop window.");
     await command(app, "/setup");
-    await app.waitFor(/Account.*done/);
+    await app.waitFor(/Account.*Done/);
     await app.waitFor("Choose your agent’s account");
     // Outcome hints make rows two lines; move to the steps below the fold.
     for (let row = 0; row < 6; row++) await app.press(KEY.down);
-    await app.waitFor(/Browser.*skipped/);
+    await app.waitFor(/Browser.*Not set up/);
     await app.waitFor("See and use web pages");
     await app.press(KEY.down);
-    await app.waitFor(/Permissions.*needs attention.*The denylist could not be read\./);
-    await app.waitFor("7 done, 1 needs attention, 1 skipped");
+    await app.waitFor(/Permissions.*Needs a fix.*The denylist could not be read\./);
+    await app.waitFor("7 done · 1 needs a fix · 1 not set up");
+    await app.waitFor("Press Enter on a step to run its fix, or open Set up in the desktop app.");
     expect(app.frame()).not.toContain("Memory bank:");
     expect(app.frame()).not.toContain("Skills:");
     expect(env.requests("setup.check")).toEqual([]);
@@ -727,13 +729,13 @@ describe("/setup", () => {
       "your-machines": { state: "pending", reason: "Waiting for the first release channel read." },
     } })]);
     await command(app, "/setup");
-    await app.waitFor("Your machines: checking — Waiting for the first release channel read.");
-    await app.waitFor("0 done, 0 need attention, 0 skipped, 1 checking");
-    expect(app.frame()).not.toContain("need attention (Your machines)");
+    await app.waitFor("Your machines: Checking — Waiting for the first release channel read.");
+    await app.waitFor("0 done · 0 need a fix · 0 not set up · 1 checking");
+    expect(app.frame()).not.toContain("a fix (Your machines)");
     env.setSetup({ "your-machines": { state: "done" } });
     env.passSetup(["your-machines"]);
-    await app.waitFor("Your machines: done");
-    await app.waitFor("1 done, 0 need attention, 0 skipped");
+    await app.waitFor("Your machines: Done");
+    await app.waitFor("1 done · 0 need a fix · 0 not set up");
     expect(env.requests("setup.check")).toEqual([]);
   });
 
@@ -741,20 +743,20 @@ describe("/setup", () => {
     const { app, env } = await launch([desk({ capabilities: ["setup"] })]);
     await command(app, "/setup");
     for (let row = 0; row < 9; row++) await app.press(KEY.down);
-    await app.waitFor(/Permissions.*done/);
+    await app.waitFor(/Permissions.*Done/);
     env.setSetup({ permissions: { state: "needs-attention", reason: "Containment is unavailable." } });
     env.passSetup(["permissions"]);
-    await app.waitFor(/Permissions.*needs attention.*Containment is unavailable\./);
-    await app.waitFor(/Containment is unavailable\. \(unchanged since 00:00\)/);
+    await app.waitFor(/Permissions.*Needs a fix.*Containment is unavailable\./);
+    await app.waitFor(/Containment is unavailable\. No change since 00:00\./);
     expect(env.requests("setup.check")).toHaveLength(0);
     env.setSetup({ permissions: { state: "done" } });
     env.passSetup(["permissions"]);
-    await app.waitUntil(() => !app.frame().includes("need attention (Permissions)"), "the header to clear");
+    await app.waitUntil(() => !app.frame().includes("a fix (Permissions)"), "the header to clear");
     await app.press(KEY.esc);
     await app.waitFor("Nothing said yet.");
     await command(app, "/setup");
     for (let row = 0; row < 9; row++) await app.press(KEY.down);
-    await app.waitFor(/Permissions.*done/);
+    await app.waitFor(/Permissions.*Done/);
     expect(env.requests("setup.check")).toHaveLength(0);
   });
 
@@ -766,7 +768,7 @@ describe("/setup", () => {
     await app.waitFor("Check again");
     env.setSetup({ account: { state: "done", actions: [] } });
     await app.press(KEY.enter);
-    await app.waitFor(/Account.*done/);
+    await app.waitFor(/Account.*Done/);
     expect(env.requests("setup.check").map((r) => r.params)).toEqual([{ step: "account" }]);
   });
 
@@ -788,9 +790,9 @@ describe("/setup", () => {
       } } } };
     });
     await command(app, "/setup");
-    await app.waitFor("Pull now: team-skills, house-skills");
+    await app.waitFor("Update now: team-skills, house-skills");
     await app.press(KEY.enter);
-    await app.waitFor("team-skills: Not pulled: The source was removed. house-skills: Source pulled.");
+    await app.waitFor("team-skills: agent-harness could not find what this needs. Choose Update now to try again. house-skills is up to date.");
     expect(env.requests("skills.sources.pull").map((r) => r.params?.sourceId)).toEqual(ids);
   });
 
@@ -908,12 +910,12 @@ describe("/setup", () => {
     } }]);
     const env = app.environment("laptop");
     await command(app, "/setup laptop");
-    await app.waitFor(/Account.*done/);
+    await app.waitFor(/Account.*Done/);
     env.autoAccept(false);
     env.discovery("nothing");
     env.server.drop();
-    await app.waitFor("laptop is unreachable since");
-    await app.waitFor(/Account.*done.*stale/);
+    await app.waitFor("This app cannot reach laptop (since");
+    await app.waitFor(/Account.*Done — Account ready\. This may be out of date: laptop cannot be reached\./);
     expect(env.requests("setup.check")).toEqual([]);
   });
 
@@ -922,7 +924,8 @@ describe("/setup", () => {
     env.wire.answer("setup.check", () => ({ error: { code: "forbidden", message: "This grant cannot read setup.", data: { scope: "read" } } }));
     await command(app, "/setup");
     await app.waitFor("Set up on desk");
-    await app.waitFor("Set up could not be checked: This grant cannot read setup.");
+    await app.waitFor("agent-harness could not check desk. Run /setup to try again.");
+    await app.waitFor("Details: This grant cannot read setup.");
     expect(app.frame()).not.toContain("Checking Set up…");
     expect(env.requests("setup.check")).toHaveLength(1);
   });
@@ -949,7 +952,7 @@ describe("/setup", () => {
     const { app } = await launch([desk(), { name: "laptop", reach: "paired" }], false);
     await command(app, "/setup laptop");
     await app.waitFor("Set up on laptop");
-    await app.waitFor(/Account.*done/);
+    await app.waitFor(/Account.*Done/);
     await app.waitFor("Live Set up updates are unavailable on this environment; /setup checks again.");
     expect(app.environment("laptop").requests("setup.check").map((r) => r.params)).toEqual([{}]);
     expect(app.environment("desk").requests("setup.check")).toEqual([]);

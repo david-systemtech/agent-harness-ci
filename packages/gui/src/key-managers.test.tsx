@@ -780,11 +780,11 @@ describe("the row's reach", () => {
       { name: "laptop", reach: "paired", capabilities: [...FLAGGED], scopes: ["read", "sessions:write", "runs:drive", "terminal"], keyManagers: { connections: [{ label: "Laptop OpenBao", address: "https://bao.laptop.test" }], items: [{ name: "https://github.com", slug: "github" }] } },
     ]);
     const desk = await openKeyManagers(app);
-    expect(within(desk).getByText("desk does not offer keyManagers; a version that does is needed.")).toBeDefined();
+    expect(within(desk).getByText("desk runs an older agent-harness without this. Update expect(within(desk).getByText("desk to use it.")).toBeDefined();
     expect(within(desk).queryByRole("button", { name: "Add a key manager" })).toBeNull();
 
     const laptop = await openKeyManagers(app, "laptop");
-    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     const bao = await card("Laptop OpenBao");
     for (const name of ["Sign in again", "Verify now", "Edit", "Sign out", "Remove"]) expect(within(bao).getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
     expect(within(laptop).getByRole("button", { name: "Add a key manager" }).hasAttribute("disabled")).toBe(true);

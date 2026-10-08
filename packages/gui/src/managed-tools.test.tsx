@@ -388,7 +388,7 @@ describe("About's Managed tools", () => {
   it("is absent with its reason where the environment does not offer managedTools, asking nothing", async () => {
     const app = await opened({ capabilities: [] });
     await openAbout(app);
-    expect(within(section()).getByText("desk does not offer managedTools; a version that does is needed.")).toBeDefined();
+    expect(within(section()).getByText("desk runs an older agent-harness without this. Update expect(within(section()).getByText("desk to use it.")).toBeDefined();
     expect(within(section()).queryAllByRole("region")).toEqual([]);
     expect(app.environment("desk").requests("tools.list")).toEqual([]);
   });
@@ -396,7 +396,7 @@ describe("About's Managed tools", () => {
   it("dims Install, Update and Verify without admin, About saying the capability's line once, and still copies and opens claude's detail", async () => {
     const app = await opened({ scopes: ["read", "sessions:write", "runs:drive", "terminal"] });
     const about = await openAbout(app);
-    expect(await within(about).findByText("Read-only: This client was paired with desk without the admin scope.")).toBeDefined();
+    expect(await within(about).findByText("Read-only: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(about).getAllByText(/^Read-only:/)).toHaveLength(1);
     for (const [label, name] of [
       ["OpenBao CLI", "Install"],

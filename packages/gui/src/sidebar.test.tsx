@@ -265,7 +265,7 @@ describe("a blocked environment", () => {
     const app = await settled(await two());
     app.environment("laptop").bye("revoked");
     const heading = region("laptop");
-    expect(await within(heading).findByText("This client's access to laptop was revoked: pair it again.")).toBeDefined();
+    expect(await within(heading).findByText("This app's access to laptop was taken away. Pair again.")).toBeDefined();
     expect(within(sidebar()).getByRole("button", { name: /Train tidy/, description: "Cached: laptop is not answering." })).toBeDefined();
 
     await app.user.click(within(heading).getByRole("button", { name: "Pair again" }));

@@ -75,13 +75,13 @@ describe("plainRefusal", () => {
     expect(plainRefusal({ code: "unreachable", message: "The socket closed (1006) before the environment answered." }, "Check again").line).toBe(
       "This app cannot reach that computer right now. Choose Check again to try again.",
     );
-    expect(plainRefusal({ code: "scope", message: "This app has limited access to desk, so it cannot change settings or sign in accounts." }, "Save").line).toBe(
-      "This app has limited access to that computer, so it cannot do this. Pair again with full access to change this.",
+    // A capability's absence is said in the capability's own plain line, which names the environment.
+    const limited = "This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.";
+    expect(plainRefusal({ code: "scope", message: limited }, "Save")).toEqual({ line: limited, details: [`scope: ${limited}`] });
+    expect(plainRefusal({ code: "unsupported", message: "desk runs an older agent-harness without this. Update desk to use it." }, "Save").line).toBe(
+      "desk runs an older agent-harness without this. Update desk to use it.",
     );
-    expect(plainRefusal({ code: "unsupported", message: "desk runs an older agent-harness without this." }, "Save").line).toBe(
-      "That computer runs an older agent-harness without this. Update it to use this.",
-    );
-    expect(plainRefusal({ code: "no-shell", message: "This app cannot use the clipboard here." }, "Copy").line).toBe("This app cannot do this here.");
+    expect(plainRefusal({ code: "no-shell", message: "This app cannot use the clipboard here." }, "Copy").line).toBe("This app cannot use the clipboard here.");
   });
 
   it("never shows a params refusal's raw words, from this client or from the environment", () => {

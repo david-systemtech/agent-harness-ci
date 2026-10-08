@@ -327,7 +327,7 @@ describe("the Your machines card in Set up", () => {
 
   it("is read-only without admin, the switches and the settings under Advanced among it, with the capability's line said once", async () => {
     const app = await opened({ laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"] } });
-    expect(await within(card("laptop")).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(card("laptop")).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(card("laptop")).getAllByText(/^Read-only:/)).toHaveLength(1);
     const reachability = part("laptop", "Reachability");
     expect(await within(reachability).findByRole("switch", { name: "Bind the tailnet address" })).toBeDefined();

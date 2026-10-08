@@ -239,7 +239,7 @@ describe("Add from this computer's gh", () => {
     await app.user.click(within(await openForges(app)).getByRole("button", { name: "Add a forge" }));
     const add = await screen.findByRole("region", { name: "Add a forge on desk" });
     expect(within(add).queryByRole("button", { name: "Use the gh signed in on this computer" })).toBeNull();
-    expect(within(add).getByText("This client cannot read the gh signed in on this computer: its shell has no shell.gh.")).toBeDefined();
+    expect(within(add).getByText("This app cannot use the gh tool signed in on this computer here. Add a token instead.")).toBeDefined();
   });
 });
 
@@ -313,11 +313,11 @@ describe("the row's reach", () => {
       { name: "laptop", reach: "paired", capabilities: ["forge"], scopes: ["read", "sessions:write", "runs:drive", "terminal"], forges: { accounts: [{}, { origin: "https://git.example.test" }] } },
     ]);
     const desk = await openForges(app);
-    expect(within(desk).getByText("desk does not offer forge; a version that does is needed.")).toBeDefined();
+    expect(within(desk).getByText("desk runs an older agent-harness without this. Update expect(within(desk).getByText("desk to use it.")).toBeDefined();
     expect(within(desk).queryByRole("button", { name: "Add a forge" })).toBeNull();
 
     const laptop = await openForges(app, "laptop");
-    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(laptop).getByRole("button", { name: "Add a forge" }).hasAttribute("disabled")).toBe(true);
     for (const name of ["Verify now", "Remove"]) expect(within(await card("https://github.com")).getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
     expect(within(await card("https://git.example.test")).getByRole("button", { name: "Make primary" }).hasAttribute("disabled")).toBe(true);

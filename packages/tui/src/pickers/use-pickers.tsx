@@ -21,7 +21,6 @@ import {
   restoreStep,
   saveSetting,
   setupActions,
-  stepLine,
   sendSignInCode,
   sessionModeOf,
   setSessionContainment,
@@ -62,7 +61,7 @@ import { wrap, type Line, type Span } from "../transcript/lines.js";
 import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Question } from "../view.js";
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
-import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, setupRows, usageLines, type Panel, type PanelRow } from "./panel.js";
+import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, setupRows, setupStepWords, usageLines, type Panel, type PanelRow } from "./panel.js";
 import { editorKeys, editorRows, noRowLine, settingLabel } from "./settings.js";
 
 /**
@@ -426,7 +425,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         return containmentRows(report, own, fallback);
       }
       case "setup":
-        return setup ? setupRows(setup.read(), runtime.environmentNow(card.environmentId)) : [];
+        return setup ? setupRows(setup.read(), runtime.environmentNow(card.environmentId), nameFor(card.environmentId)) : [];
       case "settings":
         return settingsRows(card);
       default:
@@ -877,7 +876,7 @@ export const usePickers = (host: PickersHost): Pickers => {
               cursor={clamp(card.cursor, rows.length)} height={size.height} width={size.width}
               footer={[
                 ...footer,
-                ...(step ? [[{ text: stepLine(step, runtime.environmentNow(card.environmentId)), dim: true }]] : []),
+                ...(step ? [[{ text: setupStepWords(step, runtime.environmentNow(card.environmentId), nameFor(card.environmentId)), dim: true }]] : []),
                 ...reasons,
                 [{ text: card.sending ? "Running the action…" : offer ? `Action: ${offer.words}` : loadingTools ? "Waiting for managed tools before offering Update." : "No action offered.", dim: true }],
               ]}

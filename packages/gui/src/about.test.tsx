@@ -178,7 +178,7 @@ describe("About", () => {
   it("is read-only without admin, with the capability's line said once", async () => {
     const app = await opened({ scopes: ["read", "sessions:write", "runs:drive", "terminal"], updates: { status: { version: "0.5.0" } } });
     const about = await openAbout(app);
-    expect(await within(about).findByText("Read-only: This client was paired with desk without the admin scope.")).toBeDefined();
+    expect(await within(about).findByText("Read-only: This app has limited access to desk, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(about).getAllByText(/^Read-only:/)).toHaveLength(1);
     for (const control of [
       within(about).getByRole("combobox", { name: "Channel" }),

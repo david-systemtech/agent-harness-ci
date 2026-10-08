@@ -91,7 +91,7 @@ describe("the bundle's platform", () => {
     expect(runtime.capability("any", "shell.gh")).toEqual({
       status: "absent",
       reason: "no-shell",
-      message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh.",
+      message: "This app cannot use the gh tool signed in on this computer here. Add a token instead.",
     });
   });
 });

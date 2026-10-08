@@ -59,7 +59,7 @@ it("restores the Documents sheet on a revoked connection's reload with no hint o
   const gallery = await mountGallery(root, "phone-pane-reload-revoked", "dark", registry, { platform: "web", textSize: 20 });
   close = gallery.close;
   expect(await gallery.ready).toBe(true);
-  const notice = screen.getByText("This client's access to desk was revoked: pair it again. Make a new code on a trusted client first.");
+  const notice = screen.getByText("This app's access to desk was taken away. Pair again. Make a new code on a trusted client first.");
   const again = within(notice.closest<HTMLElement>("[data-connection-blocked]")!).getByRole("button", { name: "Pair again" });
   expect(screen.getByRole("note", { name: "Limited access" }).compareDocumentPosition(again) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const sheet = screen.getByRole("dialog", { name: "Side column" });

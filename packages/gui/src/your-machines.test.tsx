@@ -331,7 +331,7 @@ describe("Your machines", () => {
     const app = await opened({ laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"] } });
     const pane = await openMachines(app);
     const laptop = card(pane, "laptop");
-    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
     for (const control of [
       within(laptop).getByRole("textbox", { name: "Name" }),
@@ -485,7 +485,7 @@ describe("Your machines' update controls", () => {
     const scripted = app.environment("laptop");
     scripted.discovery({ protocolVersion: PROTOCOL_VERSION, capabilities: ["self-update"] });
     scripted.bye("protocol", { protocolVersion: PROTOCOL_VERSION });
-    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("laptop is older than this client: update laptop to this client's version.");
+    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("laptop runs an older agent-harness than this app. Update })).findByText("laptop.");
     const pane = await openMachines(app);
     const laptop = card(pane, "laptop");
     expect(within(laptop).getByText("This client runs 0.6.0, newer than laptop's 0.0.0-fake.")).toBeDefined();
@@ -498,7 +498,7 @@ describe("Your machines' update controls", () => {
     // desk speaks this build's protocol and the client one more, from the start on: the start's exchange refused before sending the secret.
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { protocolVersion: PROTOCOL_VERSION + 1, version: "0.6.0" });
     const scripted = app.environment("desk");
-    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("desk is older than this client: update desk to this client's version.");
+    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("desk runs an older agent-harness than this app. Update })).findByText("desk.");
     expect(scripted.wire.credential()).toBeUndefined();
     const pane = await openMachines(app);
     const desk = card(pane, "desk");
@@ -639,7 +639,7 @@ describe("Your machines' update controls", () => {
     });
     const pane = await openMachines(app);
     const laptop = card(pane, "laptop");
-    await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.");
+    await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.");
     await waitFor(() => expect(within(laptop).getByRole("combobox", { name: "Channel" }).hasAttribute("disabled")).toBe(true));
     expect(within(laptop).getByRole("switch", { name: "Auto-update" }).hasAttribute("disabled")).toBe(true);
     expect(within(laptop).getByRole("button", { name: "Update now" }).hasAttribute("disabled")).toBe(true);

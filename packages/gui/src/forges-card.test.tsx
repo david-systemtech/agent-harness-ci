@@ -230,7 +230,7 @@ describe("the gh paths", () => {
     const app = await opened({}, [{ name: "laptop", reach: "paired", capabilities: ["forge"] }], { on: "laptop", shell: { ...fakeShell(), gh: undefined } as unknown as FakeShell });
     const add = await openAdd(app, "laptop");
     expect(within(add).queryByRole("button", { name: "Use the gh signed in on this computer" })).toBeNull();
-    expect(within(add).getByText("This client cannot read the gh signed in on this computer: its shell has no shell.gh.")).toBeDefined();
+    expect(within(add).getByText("This app cannot use the gh tool signed in on this computer here. Add a token instead.")).toBeDefined();
   });
 
   it("on an environment with gh, Use this machine's gh adds the forge account with forge.gh.probe's login for the host, read on every use", async () => {
@@ -369,7 +369,7 @@ describe("without admin", () => {
     await opened({}, [
       { name: "laptop", reach: "paired", capabilities: ["forge"], scopes: ["read", "sessions:write", "runs:drive", "terminal"], forges: { accounts: [{}, { origin: "https://git.example.test" }] } },
     ], { on: "laptop" });
-    expect(await within(step()).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(step()).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(step()).getByRole("button", { name: "Add a forge" }).hasAttribute("disabled")).toBe(true);
     const forgejo = await row("https://git.example.test");
     expect(within(forgejo).getByRole("button", { name: "Make primary" }).hasAttribute("disabled")).toBe(true);
@@ -400,7 +400,7 @@ describe("without admin", () => {
         },
       },
     ], { on: "laptop" });
-    expect(await within(step()).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(step()).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     const github = await row("https://github.com");
     expect(within(github).getByRole("button", { name: "Sign in again" }).hasAttribute("disabled")).toBe(true);
     expect(within(github).getByRole("button", { name: "Move to your key manager" }).hasAttribute("disabled")).toBe(false);

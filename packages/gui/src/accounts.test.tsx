@@ -350,7 +350,7 @@ describe("Accounts", () => {
       desk: { accounts: [{ label: "personal" }] },
     });
     const laptop = await openRow(app, "Accounts", "laptop");
-    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
     const milo = await within(laptop).findByRole("region", { name: "laptop milo" });
     const offer = await within(laptop).findByRole("region", { name: /^Use the Claude Code sign-in/ });
@@ -553,7 +553,7 @@ describe("Default account and model", () => {
       laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"], accounts: [{ label: "laptop milo" }], settings: { "accounts.defaultEffort": "medium" } },
     });
     const laptop = await openRow(app, "Default account and model", "laptop");
-    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(await within(laptop).findByText("Read-only: This app has limited access to laptop, so it cannot change settings or sign in accounts. Pair again with full access to change this.")).toBeDefined();
     expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
     await within(laptop).findByRole("button", { name: "Effort: medium (not offered: runs take the model's own)" });
     for (const name of ["Default account", "Model family", "Effort"]) expect(within(laptop).getByRole("button", { name: new RegExp(`^${name}:`) }).hasAttribute("disabled"), name).toBe(true);

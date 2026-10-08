@@ -35,16 +35,16 @@ const PARAMS: Words = (verb) => `agent-harness could not use what was sent. Chec
 const CONFLICT: Words = (verb) => `This cannot be done right now. Wait a moment, then choose ${verb}.`;
 const EXISTS = said("That already exists. Choose another name.");
 
-/** The failures this client meets itself, which carry no data: a capability's absence, a request never sent, or no answer. */
+/** The failures this client meets itself, which carry no data: a request never sent, or no answer. */
 const OWN: Readonly<Record<string, Words>> = {
   timeout: (verb) => `There was no answer in time. ${tryAgain(verb)}`,
   malformed: (verb) => `agent-harness answered in a way this app cannot read. Update this app, then choose ${verb}.`,
   unreachable: (verb) => `This app cannot reach that computer right now. ${tryAgain(verb)}`,
   invalid_params: PARAMS,
-  scope: LIMITED,
-  unsupported: said("That computer runs an older agent-harness without this. Update it to use this."),
-  "no-shell": said("This app cannot do this here."),
 };
+
+/** A capability's absence the request layer answers with, whose message is the capability's own plain line (`answerCapability`), naming the environment. */
+const CAPABILITY_LINES: ReadonlySet<string> = new Set(["scope", "unsupported", "no-shell"]);
 
 /** The environment's error codes, shared and each method's own. */
 const WIRE: Readonly<Record<string, Words>> = {
@@ -155,11 +155,12 @@ const reasonOf = ({ code, data }: RefusedAnswer): string | undefined => {
  * to try again.`; Details hold the code, the reason and the raw message.
  * A refusal with no data is this client's own (`requests.call`'s), worded
  * apart: its `unreachable` is a lost connection, the wire's a site that did
- * not answer.
+ * not answer; a capability's absence keeps the capability's plain line.
  */
 export const plainRefusal = (refusal: RefusedAnswer, verb: string): PlainRefusal => {
   const reason = reasonOf(refusal);
-  const words = (reason === undefined ? undefined : REASONS[refusal.code]?.[reason]) ?? (refusal.data === undefined ? OWN : WIRE)[refusal.code];
+  const own = refusal.data === undefined;
+  const words = (reason === undefined ? undefined : REASONS[refusal.code]?.[reason]) ?? (own && CAPABILITY_LINES.has(refusal.code) ? said(refusal.message) : (own ? OWN : WIRE)[refusal.code]);
   return {
     line: words === undefined ? `Something went wrong. ${tryAgain(verb)}` : words(verb),
     details: [`${refusal.code}${reason === undefined ? "" : ` (${reason})`}: ${refusal.message}`],
