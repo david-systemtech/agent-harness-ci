@@ -127,6 +127,30 @@ describe("the side column", () => {
     expect(screen.queryByRole("button", { name: "Close side sheet" })).toBeNull();
   });
 
+  it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, its waiting card in sight and the edge handle bringing back the pane it showed", async () => {
+    narrowSheet();
+    const app = await opened();
+    const env = app.environment("desk"), session = env.sessionId();
+    env.startRun(session, "Clean the build");
+    await openPane(app, "Documents");
+    expect(screen.getByRole("dialog", { name: "Side column" })).toBeDefined();
+    env.openPrompt(session, {});
+
+    const again = await app.remount();
+    expect(await screen.findByRole("region", { name: "Parked prompt" })).toBeDefined();
+    await waitFor(() => expect(column()).toBeNull());
+    expect(document.activeElement?.closest("[data-dock-sheet]")).toBeNull();
+    await again.user.click(screen.getByRole("button", { name: "Show the side column" }));
+    expect(strip()).toEqual({ names: ["Documents"], shown: "Documents" });
+
+    again.open("desk", 1);
+    await screen.findByRole("region", { name: "Transcript" });
+    again.open("desk", 0);
+    expect(await screen.findByRole("region", { name: "Parked prompt" })).toBeDefined();
+    await waitFor(() => expect(column()).toBeNull());
+    expect(screen.getByRole("button", { name: "Show the side column" })).toBeDefined();
+  });
+
   it("repairs focus after switching from preview to source, closing a pane and closing the final sheet", async () => {
     narrowSheet();
     const app = await opened();

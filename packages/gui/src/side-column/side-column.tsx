@@ -101,12 +101,20 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
   useEffect(() => {
     const owner = host.current?.parentElement;
     if (!owner) return;
+    // Runs each time the session arrives in the pane: a session coming back from its hidden Activity keeps its refs, not its effects.
+    let arrived = false;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setNarrow((entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width) < 900);
+      if (!entry) return;
+      const floats = (entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width) < 900;
+      setNarrow(floats);
+      // A sheet left open is not put back over the session it would cover (#1903): the session opens with its
+      // column hidden, and the edge handle brings back the pane it showed. A wide column is restored as it was.
+      if (floats && !arrived) change((held) => (held.hidden ? held : hideColumn(held, true)));
+      arrived = true;
     });
     observer.observe(owner);
     return () => observer.disconnect();
-  }, []);
+  }, [change]);
 
   const { shown } = column;
   const hide = () => change((held) => hideColumn(held, true));
