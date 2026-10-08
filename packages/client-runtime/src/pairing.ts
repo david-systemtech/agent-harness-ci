@@ -1,5 +1,4 @@
 import {
-  DEFAULT_ENVIRONMENT_PORT,
   PAIR_PATH,
   PRODUCT_NAME,
   normalisePairingCode,
@@ -8,7 +7,7 @@ import {
 } from "@agent-harness/contracts";
 import { parseAddress } from "./connections/address.js";
 import type { RemoveResult } from "./connections/records.js";
-import { compareProtocol, type DiscoveryRefusal } from "./discovery.js";
+import { compareProtocol, type DiscoveryRead, type DiscoveryRefusal, type ProtocolRefusal } from "./discovery.js";
 import { postExchange } from "./exchange.js";
 import type { ClientIdentity, HttpFetch } from "./platform.js";
 
@@ -50,8 +49,10 @@ export type PairingFailureReason =
 
 export interface PairingFailure {
   readonly reason: PairingFailureReason;
-  /** One line for people, the same in every renderer. */
+  /** One line for people, the same in every renderer, in setup-copy.md §4.2's words. */
   readonly message: string;
+  /** The raw failure behind the line, one line each, for Details (setup-copy.md §1 rule 7); absent where the line says it all. */
+  readonly details?: readonly string[];
 }
 
 export type PairingOutcome =
@@ -65,14 +66,47 @@ export type PairingOutcome =
   | { readonly status: "re-pair-offered"; readonly environmentId: string; readonly name: string }
   | { readonly status: "failed"; readonly failure: PairingFailure };
 
-export const pairingFailed = (reason: PairingFailureReason, message: string): PairingOutcome => ({
+export const pairingFailed = (reason: PairingFailureReason, message: string, details?: readonly string[]): PairingOutcome => ({
   status: "failed",
-  failure: { reason, message },
+  failure: { reason, message, ...(details !== undefined && { details }) },
 });
 
-/** A discovery refusal as a pairing failure: starting or draining is `not-ready`. */
-export const discoveryFailure = (reason: DiscoveryRefusal): PairingFailureReason =>
-  reason === "starting" || reason === "draining" ? "not-ready" : reason;
+/** The host and port of `origin` (an origin `parseAddress` made), as a person reads an address. */
+const hostOf = (origin: string): string => origin.replace(/^https?:\/\//, "");
+
+/** Nothing answered at `origin`: what to check, and what the platform said (`fetch failed`) in Details. */
+export const unreachableFailure = (origin: string, raw: string): PairingFailure => ({
+  reason: "unreachable",
+  message: `Nothing answered at ${hostOf(origin)}. Check that the other computer is on and that both are connected to Tailscale.`,
+  details: [raw],
+});
+
+/** The two sides' protocols differ: which side to update, by name. */
+export const protocolFailure = (reason: ProtocolRefusal, name: string, raw: string): PairingFailure => ({
+  reason,
+  message: `This app and ${name} run versions that cannot talk. Update ${reason === "unsupported-client" ? "this app" : name}, then pair again.`,
+  details: [raw],
+});
+
+const NOT_READY = "The other computer is still starting. Try again in a moment.";
+
+/** What reading discovery at `origin` came to, when it did not come to a document. */
+export const discoveryReadFailure = (origin: string, read: Extract<DiscoveryRead, { ok: false }>): PairingFailure =>
+  read.kind === "unreachable" ? unreachableFailure(origin, read.message) : { reason: "refused", message: `${hostOf(origin)} is not running agent-harness.`, details: [read.message] };
+
+/** A discovery refusal as a pairing failure: starting or draining is `not-ready`; a protocol gap names the side to update. */
+export const discoveryFailure = (reason: DiscoveryRefusal, name: string, raw: string): PairingFailure => {
+  switch (reason) {
+    case "starting":
+    case "draining":
+      return { reason: "not-ready", message: NOT_READY, details: [raw] };
+    case "unsupported-client":
+    case "protocol-mismatch":
+      return protocolFailure(reason, name, raw);
+    case "different-environment":
+      return { reason, message: "That address reaches a different computer than the one that made the code. Make a new code and try again.", details: [raw] };
+  }
+};
 
 /**
  * A pairing link as the desktop app is handed it by the OS, from a page or
@@ -102,52 +136,48 @@ export const parsePairingInput = (
   if ("link" in input) {
     const link = parsePairingLink(unwrapped(input.link));
     const origin = link && parseAddress(link.origin);
-    if (!link || !origin) return refuse("invalid-link", "That is not a pairing link: it looks like http://<address>/pair#<code>.");
+    if (!link || !origin) return refuse("invalid-link", "That is not a pairing link. A pairing link ends with /pair# and a code.");
     return { ok: true, origin, code: link.code };
   }
   const origin = parseAddress(input.address);
-  if (!origin) {
-    return refuse(
-      "invalid-address",
-      `"${input.address}" is not an address: give a host name or IP address and, if not ${DEFAULT_ENVIRONMENT_PORT}, its port.`,
-    );
-  }
+  if (!origin) return refuse("invalid-address", "Enter the other computer's address, like my-server or 192.168.1.20.");
   const code = normalisePairingCode(input.code);
-  if (!code) return refuse("invalid-code", "That is not a pairing code: it is ten letters and digits, like K7Q2M-XH4RT.");
+  if (!code) return refuse("invalid-code", "A pairing code has 10 letters and numbers, like K7Q2M-XH4RT.");
   return { ok: true, origin, code };
 };
 
-const REFUSALS: Readonly<Record<string, PairingFailure>> = {
-  pairing_expired: { reason: "expired-code", message: "The pairing code has expired; ask the environment for a new one." },
-  pairing_used: { reason: "used-code", message: "The pairing code has been used already; each code pairs one client." },
-  pairing_invalid: { reason: "invalid-code", message: "The environment issued no such pairing code; check it and try again." },
-  rate_limited: { reason: "rate-limited", message: "Too many pairing attempts from this address; wait a minute and try again." },
-  unavailable: { reason: "not-ready", message: "The environment is not ready yet; try again in a moment." },
+/** The exchange's refusals by error code, in setup-copy.md §4.2's words. */
+const REFUSALS: Readonly<Record<string, Omit<PairingFailure, "details">>> = {
+  pairing_expired: { reason: "expired-code", message: "This code has run out. Make a new code on the other computer." },
+  pairing_used: { reason: "used-code", message: "This code was already used. Make a new code on the other computer." },
+  pairing_invalid: { reason: "invalid-code", message: "The other computer does not know this code. Check it, or make a new one." },
+  rate_limited: { reason: "rate-limited", message: "Too many tries. Wait one minute, then try again." },
+  unavailable: { reason: "not-ready", message: NOT_READY },
 };
 
-/** `POST /api/pair` with the code, the client's kind and label and its protocol version: a client session, or why not. */
+/**
+ * `POST /api/pair` with the code, the client's kind and label and its
+ * protocol version: a client session, or why not, the environment that made
+ * the code named `name` in the line (its host until discovery said).
+ */
 export const exchangeCode = async (
   fetch: HttpFetch,
   origin: string,
   code: string,
   client: ClientIdentity,
   protocolVersion: number,
+  name: string = hostOf(origin),
 ): Promise<{ readonly ok: true; readonly credential: ClientSessionCredential } | { readonly ok: false; readonly failure: PairingFailure }> => {
   const answer = await postExchange(fetch, `${origin}${PAIR_PATH}`, { code, kind: client.kind, label: client.label, protocolVersion });
   if (answer.ok) return answer;
-  if (answer.kind === "unreachable") return { ok: false, failure: { reason: "unreachable", message: answer.message } };
+  if (answer.kind === "unreachable") return { ok: false, failure: unreachableFailure(origin, answer.message) };
+  const raw = `${answer.code ?? "no error code"} (HTTP ${answer.status})${answer.message === undefined ? "" : `: ${answer.message}`}`;
   if (answer.code === "protocol_mismatch") {
     const theirs = answer.data["protocolVersion"];
     const mismatch = typeof theirs === "number" ? compareProtocol(theirs, protocolVersion) : undefined;
-    return { ok: false, failure: mismatch ?? { reason: "protocol-mismatch", message: answer.message ?? "The protocol versions differ." } };
+    return { ok: false, failure: protocolFailure(mismatch?.reason ?? "protocol-mismatch", name, mismatch?.message ?? raw) };
   }
   // Own keys only: a code such as `constructor` names nothing here and is `refused`.
   const known = answer.code !== undefined && Object.hasOwn(REFUSALS, answer.code) ? REFUSALS[answer.code] : undefined;
-  return {
-    ok: false,
-    failure: known ?? {
-      reason: "refused",
-      message: `The environment refused the pairing (HTTP ${answer.status})${answer.message === undefined ? "." : `: ${answer.message}`}`,
-    },
-  };
+  return { ok: false, failure: { ...(known ?? { reason: "refused", message: `${hostOf(origin)} did not accept the pairing. Make a new code and try again.` }), details: [raw] } };
 };

@@ -47,12 +47,18 @@ describe("reading what David pastes or types", () => {
     expect(parsePairingInput({ address: "desk", code: "K7Q2MXH4RT" })).toMatchObject({ ok: true, origin: "http://desk:7433" });
   });
 
-  it("refuses a link that carries no code, an address that is not one, and a code that is not one", () => {
-    expect(parsePairingInput({ link: "http://desk:7433/pair" })).toMatchObject({ ok: false, failure: { reason: "invalid-link" } });
-    expect(parsePairingInput({ address: "desk:7433", code: "0000" })).toMatchObject({ ok: false, failure: { reason: "invalid-code" } });
-    expect(parsePairingInput({ address: "desk:7433/some/path?x", code: "K7Q2MXH4RT" })).toMatchObject({
+  it("refuses a link that carries no code, an address that is not one, and a code that is not one, in setup-copy.md §4.2's words", () => {
+    expect(parsePairingInput({ link: "http://desk:7433/pair" })).toEqual({
       ok: false,
-      failure: { reason: "invalid-address" },
+      failure: { reason: "invalid-link", message: "That is not a pairing link. A pairing link ends with /pair# and a code." },
+    });
+    expect(parsePairingInput({ address: "desk:7433", code: "0000" })).toEqual({
+      ok: false,
+      failure: { reason: "invalid-code", message: "A pairing code has 10 letters and numbers, like K7Q2M-XH4RT." },
+    });
+    expect(parsePairingInput({ address: "desk:7433/some/path?x", code: "K7Q2MXH4RT" })).toEqual({
+      ok: false,
+      failure: { reason: "invalid-address", message: "Enter the other computer's address, like my-server or 192.168.1.20." },
     });
   });
 });
@@ -324,7 +330,7 @@ describe("pairing with an environment", () => {
 
       expect(await runtime.connections.add({ link })).toMatchObject({
         status: "failed",
-        failure: { reason: "expired-code", message: expect.any(String) },
+        failure: { reason: "expired-code", message: "This code has run out. Make a new code on the other computer.", details: [expect.stringContaining("pairing_expired")] },
       });
       expect(runtime.connections.list.read()).toEqual([]);
     });
@@ -336,7 +342,10 @@ describe("pairing with an environment", () => {
       const { code, link } = await t.createPairing();
       expect((await t.pairExchange({ code, kind: "program", label: "first", protocolVersion: PROTOCOL_VERSION })).status).toBe(200);
 
-      expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "used-code" } });
+      expect(await runtime.connections.add({ link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "used-code", message: "This code was already used. Make a new code on the other computer.", details: [expect.stringContaining("pairing_used")] },
+      });
     });
 
     it("unreachable: nothing answers at the address", async () => {
@@ -346,24 +355,37 @@ describe("pairing with an environment", () => {
       const runtime = harness.runtime(inMemoryPlatform());
       await runtime.start();
 
-      expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "unreachable" } });
+      // The line names the host the person can check; the address and what the platform said ("fetch failed") are Details.
+      const host = new URL(link).host;
+      expect(await runtime.connections.add({ link })).toEqual({
+        status: "failed",
+        failure: {
+          reason: "unreachable",
+          message: `Nothing answered at ${host}. Check that the other computer is on and that both are connected to Tailscale.`,
+          details: [expect.stringMatching(new RegExp(`^Nothing answered at http://${host.replace(/\./g, "\\.")}: .+\\.$`))],
+        },
+      });
     });
 
     it("protocol-mismatch: the environment speaks an older protocol than this client, and the code is not spent", async () => {
-      const t = await harness.environment();
+      const t = await harness.environment({ name: "desk" });
       const runtime = harness.runtime(inMemoryPlatform(), { protocolVersion: PROTOCOL_VERSION + 1 });
       await runtime.start();
       const { code, link } = await t.createPairing();
 
       expect(await runtime.connections.add({ link })).toMatchObject({
         status: "failed",
-        failure: { reason: "protocol-mismatch", message: expect.stringContaining("update the environment") },
+        failure: {
+          reason: "protocol-mismatch",
+          message: "This app and desk run versions that cannot talk. Update desk, then pair again.",
+          details: [expect.stringContaining("update the environment")],
+        },
       });
       expect((await t.pairExchange({ code, kind: "program", label: "later", protocolVersion: PROTOCOL_VERSION })).status).toBe(200);
     });
 
     it("unsupported-client: the environment speaks a newer protocol than this client", async () => {
-      const t = await harness.environment();
+      const t = await harness.environment({ name: "desk" });
       const runtime = harness.runtime(
         inMemoryPlatform({ fetch: rewritingFetch(DISCOVERY_PATH, (body) => ({ ...body, protocolVersion: PROTOCOL_VERSION + 1 })) }),
       );
@@ -371,7 +393,11 @@ describe("pairing with an environment", () => {
 
       expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
         status: "failed",
-        failure: { reason: "unsupported-client", message: expect.stringContaining("update this client") },
+        failure: {
+          reason: "unsupported-client",
+          message: "This app and desk run versions that cannot talk. Update this app, then pair again.",
+          details: [expect.stringContaining("update this client")],
+        },
       });
     });
 
@@ -398,7 +424,7 @@ describe("pairing with an environment", () => {
 
       expect(await runtime.connections.add({ address: originOf(address as Address), code: "23456-789AB" })).toMatchObject({
         status: "failed",
-        failure: { reason: "not-ready" },
+        failure: { reason: "not-ready", message: "The other computer is still starting. Try again in a moment.", details: [expect.stringContaining("starting")] },
       });
     });
 
@@ -421,9 +447,10 @@ describe("pairing with an environment", () => {
       const runtime = harness.runtime(inMemoryPlatform({ fetch: notJsonAt(DISCOVERY_PATH, 502) }));
       await runtime.start();
 
-      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+      const { link } = await t.createPairing();
+      expect(await runtime.connections.add({ link })).toMatchObject({
         status: "failed",
-        failure: { reason: "refused", message: expect.stringContaining("502") },
+        failure: { reason: "refused", message: `${new URL(link).host} is not running agent-harness.`, details: [expect.stringContaining("502")] },
       });
     });
 
@@ -432,9 +459,10 @@ describe("pairing with an environment", () => {
       const runtime = harness.runtime(inMemoryPlatform({ fetch: notJsonAt(PAIR_PATH, 204) }));
       await runtime.start();
 
-      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+      const { link } = await t.createPairing();
+      expect(await runtime.connections.add({ link })).toMatchObject({
         status: "failed",
-        failure: { reason: "refused", message: expect.stringContaining("204") },
+        failure: { reason: "refused", message: `${new URL(link).host} did not accept the pairing. Make a new code and try again.`, details: [expect.stringContaining("204")] },
       });
     });
 
@@ -443,9 +471,26 @@ describe("pairing with an environment", () => {
       const runtime = harness.runtime(inMemoryPlatform({ fetch: rewritingFetch(PAIR_PATH, () => ({ code: "constructor", message: "no" })) }));
       await runtime.start();
 
-      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toEqual({
+      const { link } = await t.createPairing();
+      expect(await runtime.connections.add({ link })).toEqual({
         status: "failed",
-        failure: { reason: "refused", message: expect.stringContaining("no") },
+        failure: { reason: "refused", message: `${new URL(link).host} did not accept the pairing. Make a new code and try again.`, details: [expect.stringContaining(": no")] },
+      });
+    });
+
+    it("rate-limited and not-ready: the exchange's refusals read setup-copy.md §4.2, the environment's own words in Details", async () => {
+      const t = await harness.environment();
+      const answers = [{ code: "rate_limited", message: "slow down" }, { code: "unavailable", message: "draining" }];
+      const runtime = harness.runtime(inMemoryPlatform({ fetch: rewritingFetch(PAIR_PATH, () => answers.shift() ?? {}) }));
+      await runtime.start();
+
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "rate-limited", message: "Too many tries. Wait one minute, then try again.", details: [expect.stringContaining("rate_limited")] },
+      });
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "not-ready", message: "The other computer is still starting. Try again in a moment.", details: [expect.stringContaining("draining")] },
       });
     });
 
@@ -456,7 +501,7 @@ describe("pairing with an environment", () => {
 
       expect(await runtime.connections.add({ address: originOf(t.address), code: "23456-789AB" })).toMatchObject({
         status: "failed",
-        failure: { reason: "invalid-code" },
+        failure: { reason: "invalid-code", message: "The other computer does not know this code. Check it, or make a new one.", details: [expect.stringContaining("pairing_invalid")] },
       });
     });
 
@@ -469,7 +514,11 @@ describe("pairing with an environment", () => {
 
       expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
         status: "failed",
-        failure: { reason: "different-environment" },
+        failure: {
+          reason: "different-environment",
+          message: "That address reaches a different computer than the one that made the code. Make a new code and try again.",
+          details: [expect.stringContaining("not the one its address named")],
+        },
       });
 
       expect(runtime.connections.list.read()).toEqual([]);
@@ -481,7 +530,7 @@ describe("pairing with an environment", () => {
     });
 
     it("unsupported-client: hello speaks a newer protocol than discovery said, and nothing is kept", async () => {
-      const t = await harness.environment();
+      const t = await harness.environment({ name: "desk" });
       const newer = (frame: Record<string, unknown>) => (frame["type"] === "hello" ? { ...frame, protocolVersion: PROTOCOL_VERSION + 1 } : frame);
       const platform = inMemoryPlatform({ webSocket: rewritingWebSocket(newer, () => true) });
       const runtime = harness.runtime(platform);
@@ -489,7 +538,7 @@ describe("pairing with an environment", () => {
 
       expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
         status: "failed",
-        failure: { reason: "unsupported-client" },
+        failure: { reason: "unsupported-client", message: "This app and desk run versions that cannot talk. Update this app, then pair again." },
       });
       expect(runtime.connections.list.read()).toEqual([]);
       expect(await platform.secrets.get(t.env.id)).toBeUndefined();

@@ -16,6 +16,7 @@ import type { Notices } from "../notices.js";
 import { notifyAll, writable, type Observable } from "../observable.js";
 import {
   discoveryFailure,
+  discoveryReadFailure,
   exchangeCode,
   pairingFailed,
   parsePairingInput,
@@ -1076,10 +1077,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (options.rePair !== undefined) entryOf(options.rePair);
 
       const discovery = await readDiscovery(platform.fetch, origin);
-      if (!discovery.ok) return pairingFailed(discovery.kind, discovery.message);
+      if (!discovery.ok) return { status: "failed", failure: discoveryReadFailure(origin, discovery) };
       const document = discovery.document;
       const check = checkDiscovery(document, { protocolVersion });
-      if (!check.ok) return pairingFailed(discoveryFailure(check.reason), check.message);
+      if (!check.ok) return { status: "failed", failure: discoveryFailure(check.reason, document.environmentName, check.message) };
       const id = document.environmentId;
       if (options.rePair !== undefined && options.rePair !== id) {
         const saved = entries.get(options.rePair)?.saved.descriptor.name ?? options.rePair;
@@ -1087,7 +1088,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       }
       const existing = entries.get(id);
       if (existing?.saved.kind === "local") {
-        return pairingFailed("refused", `${document.environmentName} is this machine's local environment: it connects through its grant, with no code.`);
+        return pairingFailed("refused", "That link is for this computer. This app is already connected to it.", [`${document.environmentName} is this computer's own agent-harness: this app connects to it through its grant, with no code.`]);
       }
       if (existing && options.rePair === undefined) {
         return { status: "re-pair-offered", environmentId: id, name: existing.saved.descriptor.name };
@@ -1098,7 +1099,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if ((await platform.secrets.protection?.()) === "none") {
         return pairingFailed("refused", "This device cannot keep a client session token: the OS keeps no key for it now. Unlock or set up the system keychain, then pair again.");
       }
-      const exchanged = await exchangeCode(platform.fetch, origin, code, platform.client, protocolVersion);
+      const exchanged = await exchangeCode(platform.fetch, origin, code, platform.client, protocolVersion, document.environmentName);
       if (!exchanged.ok) return { status: "failed", failure: exchanged.failure };
       const { credential } = exchanged;
 
@@ -1114,7 +1115,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         if (refusal) {
           await revokeNew(answer.socket);
           answer.socket.close();
-          return pairingFailed(refusal.reason, refusal.message);
+          return { status: "failed", failure: discoveryFailure(refusal.reason, answer.socket.hello.environmentName, refusal.message) };
         }
       }
 
