@@ -29,11 +29,11 @@ it("explains an account held on another environment and opens Forges on the bank
   await app.user.click(screen.getByRole("button", { name: "Settings" }));
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
-  expect(await within(card).findByText(`A forge account for ${origin} is connected on server, but this bank belongs to desk. Connect a forge account on desk for this bank.`)).toBeDefined();
+  expect(await within(card).findByText("Your forge.example.test:5526 account is connected on server, not here. Connect it here too.")).toBeDefined();
   expect(within(card).getByText(/^agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
-  expect(within(card).getByText("BANK.md lacks entities.")).toBeDefined();
+  expect(within(card).getByText("Description: has a problem")).toBeDefined();
   expect(app.environment("desk").requests("forge.accounts.add")).toHaveLength(0);
-  await app.user.click(within(card).getByRole("button", { name: "Connect forge on desk" }));
+  await app.user.click(within(card).getByRole("button", { name: "Go to Forges" }));
   const pane = await screen.findByRole("region", { name: "Forges" });
   expect((within(pane).getByRole("combobox", { name: "Environment" }) as HTMLSelectElement).value).toBe(app.environment("desk").environmentId);
   await app.user.click(within(pane).getByRole("button", { name: "Add a forge" }));
@@ -48,8 +48,8 @@ it("explains an account held on another environment and opens Forges on the bank
   expect(app.environment("server").requests("forge.accounts.add")).toHaveLength(0);
   await app.user.click(screen.getByRole("button", { name: "Memory banks" }));
   const repaired = await screen.findByRole("region", { name: bank.name });
-  expect(within(repaired).queryByRole("button", { name: "Connect forge on desk" })).toBeNull();
-  expect(within(repaired).getByText("BANK.md lacks entities.")).toBeDefined();
+  expect(within(repaired).queryByRole("button", { name: "Go to Forges" })).toBeNull();
+  expect(within(repaired).getByText("Description: has a problem")).toBeDefined();
 });
 
 it.each([
@@ -65,11 +65,11 @@ it.each([
   await app.user.click(screen.getByRole("button", { name: "Settings" }));
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
-  expect(await within(card).findByText(/is connected on server, but this bank belongs to desk/)).toBeDefined();
+  expect(await within(card).findByText(/is connected on server, not here\./)).toBeDefined();
   expect(within(card).getByText(reason)).toBeDefined();
   expect(within(card).queryByText(/to reach it/)).toBeNull();
-  expect(within(card).getByText("BANK.md lacks entities.")).toBeDefined();
-  expect(within(card).getByRole("button", { name: "Connect forge on desk" })).toBeDefined();
+  expect(within(card).getByText("Description: has a problem")).toBeDefined();
+  expect(within(card).getByRole("button", { name: "Go to Forges" })).toBeDefined();
 });
 
 const cases: readonly [string, Partial<ForgeAccountRecord>, boolean, boolean?][] = [
@@ -93,10 +93,10 @@ it.each(cases)("compares another environment's account with %s", async (_, accou
   await app.user.click(await screen.findByRole("button", { name: "Memory banks" }));
   const card = await screen.findByRole("region", { name: bank.name });
   if (!local) await waitFor(() => expect(app.environment("server").requests("forge.accounts.list").length).toBeGreaterThan(0));
-  if (matches) expect(await within(card).findByText(/is connected on server, but this bank belongs to desk/)).toBeDefined();
+  if (matches) expect(await within(card).findByText(/is connected on server, not here\./)).toBeDefined();
   else {
     expect(await within(card).findByText(/agent-harness needed a forge for forge\.example\.test:5526 and found none\./)).toBeDefined();
     expect(within(card).queryByText(/is connected on server/)).toBeNull();
-    if (local) expect(within(card).queryByRole("button", { name: "Connect forge on desk" })).toBeNull();
+    if (local) expect(within(card).queryByRole("button", { name: "Go to Forges" })).toBeNull();
   }
 });

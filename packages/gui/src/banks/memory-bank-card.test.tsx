@@ -1,4 +1,3 @@
-import { oneLine } from "@agent-harness/client-runtime";
 import type { BankRecord } from "@agent-harness/contracts";
 import { screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
@@ -35,7 +34,8 @@ const cardOf = async (bank: BankRecord, forges: { readonly origin: string; reado
 
 it("keeps a landing refused for want of a forge account, with its fix, while no forge account covers the bank's origin", async () => {
   const card = await cardOf(team, []);
-  expect(within(card).getByRole("alert").textContent).toBe(oneLine(`Landing failed at fetch: ${refusal}`));
+  expect(within(card).getByRole("alert").textContent).toBe("Error: The last change to team-memory could not be saved to forge.example.test:5526.");
+  expect(within(card).getByRole("region", { name: "Details" }).textContent).toContain(`fetch: ${refusal}`);
 });
 
 it("says nothing of that landing once the environment's verification has cleared it, a verified account covering the bank's reachable origin", async () => {

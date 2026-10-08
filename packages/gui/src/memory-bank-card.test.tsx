@@ -1,6 +1,6 @@
 import { uuidv4 } from "@agent-harness/client-runtime";
 import { registry, type BankJoinPreview, type BankRecord, type ParamsOf } from "@agent-harness/contracts";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment, type EnvironmentHandle } from "../test/harness.js";
 
@@ -40,9 +40,11 @@ describe("the Memory bank card", () => {
     const { app, desk, card } = await open({}, [older, current]);
     desk.wire.answer("banks.validator.update", () => accepted({ version: 2, landing: { state: "awaiting-review", bank: "older", pullRequest: "https://github.com/david/older/pull/1", files: [{ path: ".agent-harness/validate.mjs", state: "pending" }] } }));
     const olderCard = await within(card).findByRole("region", { name: "older" });
-    expect(within(await within(card).findByRole("region", { name: "current" })).queryByRole("button", { name: "Update validator" })).toBeNull();
-    await app.user.click(within(olderCard).getByRole("button", { name: "Update validator" }));
-    const review = await within(olderCard).findByRole("button", { name: "Awaiting owner review" });
+    expect(within(await within(card).findByRole("region", { name: "current" })).queryByRole("button", { name: "Update the rules" })).toBeNull();
+    expect(within(olderCard).getByText("older uses an older copy of the notebook rules.")).toBeDefined();
+    await app.user.click(within(olderCard).getByRole("button", { name: "Update the rules" }));
+    expect(await within(olderCard).findByText("older's latest changes are waiting for your approval on github.com.")).toBeDefined();
+    const review = within(olderCard).getByRole("button", { name: "Open the review" });
     expect(review.getAttribute("title")).toBe("https://github.com/david/older/pull/1");
     expect(desk.requests("banks.validator.update").at(-1)?.params).toMatchObject({ bankId: older.id, commandId: expect.any(String) });
   });
@@ -53,15 +55,17 @@ describe("the Memory bank card", () => {
     const landing = state === "failed" ? { state, bank: "older", step: "pull-request", reason: "The forge is unavailable.\nTry again." } : { state, bank: "older", pullRequest: null, files: [{ path: ".agent-harness/validate.mjs", state: "present" }] };
     desk.wire.answer("banks.validator.update", () => accepted({ version: 2, landing }));
     const row = await within(card).findByRole("region", { name: "older" });
-    await app.user.click(within(row).getByRole("button", { name: "Update validator" }));
-    if (state === "failed") expect((await within(row).findByRole("alert")).textContent).toBe("Validator update failed at pull-request: The forge is unavailable. Try again.");
-    else expect(await within(row).findByText("Validator update verified on main.")).toBeDefined();
+    await app.user.click(within(row).getByRole("button", { name: "Update the rules" }));
+    if (state === "failed") {
+      expect((await within(row).findByRole("alert")).textContent).toBe("Error: The last change to older could not be saved to github.com.");
+      expect(within(within(row).getByRole("region", { name: "Details" })).getByText("pull-request: The forge is unavailable.\nTry again.", { normalizer: (text) => text })).toBeDefined();
+    } else expect(await within(row).findByText("The rules are up to date.")).toBeDefined();
   });
 
   it("disables an outdated bank's validator action without admin", async () => {
     const older = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "older", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } }), validator: { installedVersion: 1, currentVersion: 2, needsUpdate: true } };
     const { card } = await open({ scopes: ["read"] }, [older]);
-    expect((await within(card).findByRole("button", { name: "Update validator" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((await within(card).findByRole("button", { name: "Update the rules" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("keeps each bank's authoring actions on its own card", async () => {
@@ -79,38 +83,52 @@ describe("the Memory bank card", () => {
     const scoped = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "notes", creation: { kind: "personal", localOnly: true, org: "personal", project: "harness" } }), accounts: [personal, team], defaultFor: [personal, team] };
     const { app, card } = await open({ accounts: [{ id: personal, label: "Personal mail" }, { id: team, label: "Team" }] }, [scoped]);
     const notes = await within(card).findByRole("region", { name: "notes" });
-    expect(await within(notes).findByText("Default for Personal mail, Team")).toBeDefined();
-    await app.user.click(within(notes).getByText("Repository and scope"));
-    expect(within(notes).getByText("Personal mail, Team")).toBeDefined();
+    await app.user.click(await within(notes).findByRole("button", { name: "Details" }));
+    expect(within(notes).getAllByText("Personal mail, Team")).toHaveLength(2);
     expect(notes.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
   });
 
   it("shows the cached bank controls read-only without admin", async () => {
     const { card } = await open({ scopes: ["read"] });
-    const create = await within(card).findByRole("button", { name: "Create" });
+    const create = await within(card).findByRole("button", { name: "Create notebook" });
     expect((create as HTMLButtonElement).disabled).toBe(true);
-    expect((within(card).getByRole("button", { name: "Keep it on this machine for now" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(within(card).getByText(/Read-only:/)).toBeDefined();
+    expect((within(card).getByRole("button", { name: "Keep it on this computer for now" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(card).getByText(/^You can look but not change this\. /)).toBeDefined();
   });
 
-  it("keeps command and preview refusals on one line", async () => {
+  // setup-copy.md §5.8 and §3: a refusal is the environment's plain line, or plainRefusal's, never cut at 120 characters; its raw words are in Details.
+  it("says a refusal's whole line, never cut, with its raw words in Details", async () => {
     const { app, desk, card } = await open();
-    desk.wire.answer("banks.create", () => ({ result: { receipt: { status: "rejected", sequence: 1, changed: false, reason: "conflict", error: { code: "conflict", message: "That name is taken.\nChoose another.", data: { reason: "name_taken" } } } } }));
-    await within(card).findByRole("textbox", { name: "Bank name" });
-    await app.user.click(within(card).getByRole("button", { name: "Create" }));
-    expect((await within(card).findByRole("alert")).textContent).toBe("That name is taken. Choose another.");
-    desk.wire.answer("banks.join.preview", () => ({ error: { code: "internal", message: "Cannot read this bank.\nTry later.", data: {} } }));
-    await app.user.click(within(card).getByRole("radio", { name: "Join a bank" }));
-    await app.user.type(within(card).getByRole("textbox", { name: "Bank link" }), "https://github.com/platform/memory");
+    const long = "These answers do not make a notebook agent-harness can use. Check the names and try again, then choose Create notebook once more.";
+    desk.wire.answer("banks.create", () => ({ result: { receipt: { status: "rejected", sequence: 1, changed: false, reason: "invalid_params", error: { code: "invalid_params", message: long, data: { issues: [], details: ["projects/personal: not a folder name"] } } } } }));
+    await within(card).findByRole("textbox", { name: "Name" });
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    const refusal = await within(card).findByRole("alert");
+    expect(refusal.textContent).toBe(`Error: ${long}`);
+    expect(card.querySelector("[data-bank-form]")!.compareDocumentPosition(refusal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(card).getByRole("region", { name: "Details" }).textContent).toContain("projects/personal: not a folder name");
+    desk.wire.answer("banks.join.preview", () => ({ error: { code: "internal", message: "TypeError: cannot read properties of undefined (reading 'clone')", data: {} } }));
+    await app.user.click(within(card).getByRole("radio", { name: "Join my team's notebook" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Notebook link" }), "https://github.com/platform/memory");
     await app.user.click(within(card).getByRole("button", { name: "Preview" }));
-    expect(await within(card).findByText("Cannot read this bank. Try later.")).toBeDefined();
+    expect((await within(card).findByRole("alert")).textContent).toBe("Error: agent-harness ran into a problem. Choose Preview to try again.");
+    expect(within(card).getByRole("region", { name: "Details" }).textContent).toContain("TypeError: cannot read properties of undefined (reading 'clone')");
+  });
+
+  it("words a refused switch through plainRefusal, not the environment's raw message", async () => {
+    const notes = bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "notes", creation: { kind: "personal", localOnly: true, org: "personal", project: "harness" } });
+    const { app, desk, card } = await open({}, [notes]);
+    desk.wire.answer("banks.registry.update", () => ({ error: { code: "not_found", message: `No bank ${notes.id} is registered on this environment.`, data: {} } }));
+    await app.user.click(within(await within(card).findByRole("region", { name: "notes" })).getByRole("button", { name: "Turn off" }));
+    expect((await within(card).findByRole("alert")).textContent).toBe("Error: agent-harness could not find what this needs. Choose Turn off to try again.");
+    expect(within(card).getByRole("region", { name: "Details" }).textContent).toContain(`No bank ${notes.id} is registered on this environment.`);
   });
 
   it("lists only verified forges and replaces live owners when a different forge is picked", async () => {
     const { app, desk, card } = await open({ forges: { accounts: [{}, { origin: "https://git.example.test", kind: "forgejo", primary: false }, { origin: "https://offline.example.test", identity: null, problem: { kind: "needs-credential", since, message: "No credential." } }] } });
     const nextId = desk.forgeAccounts()[1]?.id ?? "";
     desk.wire.answer("forge.orgs.list", (params) => ({ result: { owners: params.forgeAccountId === nextId ? [{ login: "other-team", kind: "organisation" as const }] : [{ login: "david", kind: "user" as const }, { login: "first-team", kind: "organisation" as const }] } }));
-    await app.user.click(within(card).getByRole("radio", { name: "Team" }));
+    await app.user.click(within(card).getByRole("radio", { name: "Create a notebook for my team" }));
     await within(card).findByRole("option", { name: "first-team" });
     await app.user.selectOptions(within(card).getByRole("combobox", { name: "Owner" }), "first-team");
     const forge = within(card).getByRole("combobox", { name: "Forge" });
@@ -122,7 +140,7 @@ describe("the Memory bank card", () => {
     expect(desk.requests("forge.orgs.list").at(-1)?.params["forgeAccountId"]).toBe(nextId);
   });
 
-  it("previews a join and attaches exactly the account ticked, with none preset", async () => {
+  it("previews a join in §5.8's words and attaches every account but the one unticked", async () => {
     const { app, desk, card } = await open();
     const preview: BankJoinPreview = {
       name: "team-memory", kind: "team", line: "Platform team's shared memory.",
@@ -137,26 +155,29 @@ describe("the Memory bank card", () => {
       scriptBanks(desk, [joined]);
       return accepted({ bank: joined });
     });
-    await app.user.click(within(card).getByRole("radio", { name: "Join a bank" }));
-    await app.user.type(within(card).getByRole("textbox", { name: "Bank link" }), "https://github.com/platform/team-memory");
+    await app.user.click(within(card).getByRole("radio", { name: "Join my team's notebook" }));
+    expect(within(card).queryByText(/^Forge: /)).toBeNull();
+    await app.user.type(within(card).getByRole("textbox", { name: "Notebook link" }), "https://github.com/platform/team-memory");
     await app.user.click(within(card).getByRole("button", { name: "Preview" }));
-    const facts = await within(card).findByRole("region", { name: "Bank preview" });
-    for (const text of ["Platform team's shared memory.", "Platform organisation", "Runtime project", "how-we-work", "Shared with the team: no personal facts, no secrets.", "Can read: yes. Can push: no."]) expect(within(facts).getByText(text)).toBeDefined();
-    for (const name of ["Organisations", "Projects", "Entities", "Orientation", "Access and review"]) expect(within(facts).getByRole("heading", { name })).toBeDefined();
-    expect(facts.textContent).toContain("engine");
-    expect(facts.textContent).toContain("david, alex");
-    expect(facts.textContent).toContain("orientation, decisions, status, manifest");
-    for (const chip of within(card).getAllByRole("checkbox")) expect((chip as HTMLInputElement).checked).toBe(false);
-    await app.user.click(within(card).getByRole("checkbox", { name: "Work" }));
-    await app.user.clear(within(card).getByRole("textbox", { name: "Bank link" }));
-    expect(within(card).queryByRole("region", { name: "Bank preview" })).toBeNull();
-    expect(within(card).queryByRole("button", { name: "Join" })).toBeNull();
-    await app.user.type(within(card).getByRole("textbox", { name: "Bank link" }), "https://github.com/platform/team-memory");
+    const facts = await within(card).findByRole("region", { name: "Notebook preview" });
+    expect(within(facts).getByRole("heading", { name: "team-memory: Platform team's shared memory." })).toBeDefined();
+    for (const name of ["Owners", "Projects"]) expect(within(facts).getByRole("heading", { name })).toBeDefined();
+    for (const text of ["david, alex", "Runtime project", "Shared with the team: no personal facts, no secrets."]) expect(within(facts).getByText(text)).toBeDefined();
+    for (const jargon of ["Entities", "Orientation", "Can push"]) expect(within(facts).queryByText(new RegExp(jargon))).toBeNull();
+    await app.user.click(within(facts).getByRole("button", { name: "Details" }));
+    expect(facts.textContent).toContain("Can read: yes. Can push: no.");
+    const accounts = within(card).getByRole("group", { name: "Which of your accounts should use it?" });
+    for (const chip of within(accounts).getAllByRole("checkbox")) expect((chip as HTMLInputElement).checked).toBe(true);
+    await app.user.click(within(card).getByRole("checkbox", { name: "Home" }));
+    await app.user.clear(within(card).getByRole("textbox", { name: "Notebook link" }));
+    expect(within(card).queryByRole("region", { name: "Notebook preview" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Join notebook" })).toBeNull();
+    await app.user.type(within(card).getByRole("textbox", { name: "Notebook link" }), "https://github.com/platform/team-memory");
     await app.user.click(within(card).getByRole("button", { name: "Preview" }));
-    await within(card).findByRole("region", { name: "Bank preview" });
-    expect((within(card).getByRole("checkbox", { name: "Work" }) as HTMLInputElement).checked).toBe(false);
-    await app.user.click(within(card).getByRole("checkbox", { name: "Work" }));
-    await app.user.click(within(card).getByRole("button", { name: "Join" }));
+    await within(card).findByRole("region", { name: "Notebook preview" });
+    expect((within(card).getByRole("checkbox", { name: "Home" }) as HTMLInputElement).checked).toBe(true);
+    await app.user.click(within(card).getByRole("checkbox", { name: "Home" }));
+    await app.user.click(within(card).getByRole("button", { name: "Join notebook" }));
     await waitFor(() => expect(desk.requests("banks.join")).toHaveLength(1));
     expect(desk.requests("banks.join").at(-1)?.params).toMatchObject({ url: "https://github.com/platform/team-memory", accounts: ["work"], repositories: "all" });
   });
@@ -164,7 +185,7 @@ describe("the Memory bank card", () => {
   it("creates a team under a live organisation owner and offers its invitation and copyable join link", async () => {
     const { app, desk, card } = await open();
     desk.wire.answer("forge.orgs.list", () => ({ result: { owners: [{ login: "david", kind: "user" as const }, { login: "team-org", kind: "organisation" as const }] } }));
-    await app.user.click(within(card).getByRole("radio", { name: "Team" }));
+    await app.user.click(within(card).getByRole("radio", { name: "Create a notebook for my team" }));
     const forge = await within(card).findByRole("combobox", { name: "Forge" });
     expect((forge as HTMLSelectElement).value).toBe(desk.forgeAccounts()[0]?.id);
     await within(card).findByRole("option", { name: "team-org" });
@@ -175,22 +196,23 @@ describe("the Memory bank card", () => {
     expect((within(card).getByRole("textbox", { name: "First organisation" }) as HTMLInputElement).value).toBe("platform-team");
     await app.user.type(within(card).getByRole("textbox", { name: "First projects (one per line)" }), "Runtime\nDesktop");
     expect(within(card).getByText("Every teammate needs an account on github.com.")).toBeDefined();
-    await app.user.click(within(card).getByRole("button", { name: "Create" }));
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
     const invite = await within(card).findByRole("button", { name: "Invite teammates on github.com" });
     expect(invite.getAttribute("title")).toBe("https://github.com/orgs/team-org/people");
     await app.user.click(invite);
     expect(app.shell.calls).toContainEqual(["openExternal", "https://github.com/orgs/team-org/people"]);
-    const link = within(card).getByRole("region", { name: "Join link" });
+    const link = within(card).getByRole("region", { name: "Notebook link" });
     await app.user.click(within(link).getByRole("button", { name: "Copy" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", "https://github.com/team-org/platform-team"]);
     expect(desk.requests("banks.create").at(-1)?.params).toMatchObject({ name: "platform-team", creation: { kind: "team", owner: { login: "team-org", kind: "organisation" }, repositoryName: "platform-team", teamName: "Platform Team", org: "platform-team", projects: [{ name: "Runtime", folder: "runtime" }, { name: "Desktop", folder: "desktop" }] } });
   });
 
-  it("keeps a real local bank and offers Publish, including after the card is reopened", async () => {
+  it("keeps a real local bank and offers to move it to the forge, including after the card is reopened", async () => {
     const { app, desk, card } = await open();
-    await within(card).findByRole("textbox", { name: "Bank name" });
-    await app.user.click(within(card).getByRole("button", { name: "Keep it on this machine for now" }));
-    expect(await within(card).findByText("This bank lives on this machine only until you publish it.")).toBeDefined();
+    await within(card).findByRole("textbox", { name: "Name" });
+    await app.user.click(within(card).getByRole("button", { name: "Keep it on this computer for now" }));
+    expect(await within(card).findByText("david-memory is on this computer only. Move it to your forge to use it on other computers too.")).toBeDefined();
+    expect(within(within(card).getByRole("region", { name: "david-memory" })).getByText("On this computer only")).toBeDefined();
     expect(desk.requests("banks.create").at(-1)?.params["creation"]).toMatchObject({ kind: "personal", localOnly: true });
     await app.user.click(within(card).getByRole("button", { name: "Skip for now" }));
     await app.user.click(screen.getByRole("button", { name: "Memory bank" }));
@@ -200,20 +222,20 @@ describe("the Memory bank card", () => {
       scriptBanks(desk, [published]);
       return accepted({ bank: published, review: { state: "awaiting-review" as const, bank: published.name, pullRequest: "https://github.com/david/david-memory/pull/1", files: [] }, followUps: [] });
     });
-    await app.user.click(await screen.findByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(screen.queryByText("This bank lives on this machine only until you publish it.")).toBeNull());
+    await app.user.click(await screen.findByRole("button", { name: "Move to your forge" }));
+    await waitFor(() => expect(screen.queryByText(/is on this computer only/)).toBeNull());
     expect(desk.requests("banks.publish").at(-1)?.params["bankId"]).toBe(desk.requests("banks.create").at(-1)?.params["bankId"]);
   });
 
   it("proposes personal seed answers, creates an edited name and embeds its describe conversation", async () => {
     const { app, desk, card } = await open();
-    expect((await within(card).findByRole("textbox", { name: "Bank name" }) as HTMLInputElement).value).toBe("david-memory");
+    expect((await within(card).findByRole("textbox", { name: "Name" }) as HTMLInputElement).value).toBe("david-memory");
     expect((within(card).getByRole("textbox", { name: "What do you call your own work?" }) as HTMLInputElement).value).toBe("personal");
     expect((within(card).getByRole("textbox", { name: "Your first project" }) as HTMLInputElement).value).toBe("harness");
-    await app.user.clear(within(card).getByRole("textbox", { name: "Bank name" }));
-    await app.user.type(within(card).getByRole("textbox", { name: "Bank name" }), "my-memory");
-    await app.user.click(within(card).getByRole("button", { name: "Create" }));
-    await within(card).findByRole("button", { name: "Describe this bank" });
+    await app.user.clear(within(card).getByRole("textbox", { name: "Name" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Name" }), "my-memory");
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    await within(card).findByRole("button", { name: "Describe it" });
     expect(desk.requests("banks.create").at(-1)?.params).toMatchObject({ name: "my-memory", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } });
     desk.wire.answer("setup.mint", async () => {
       const id = uuidv4();
@@ -221,8 +243,113 @@ describe("the Memory bank card", () => {
       desk.startRun(id, "Describe this bank.");
       return accepted({ sessionId: id });
     });
-    await app.user.click(within(card).getByRole("button", { name: "Describe this bank" }));
+    await app.user.click(within(card).getByRole("button", { name: "Describe it" }));
     expect(await within(await screen.findByRole("dialog", { name: "Authoring conversation" })).findByRole("textbox", { name: "Message" })).toBeDefined();
     expect(desk.requests("setup.mint").at(-1)?.params).toMatchObject({ step: "memory-bank", subject: desk.requests("banks.create").at(-1)?.params["bankId"], variant: "first" });
+  });
+  // setup-copy.md §5.8: the question and its three choices, and the ready-to-go row as visible text (#1853).
+  it("asks what you would like and shows the forge a new notebook goes to", async () => {
+    const { app, card } = await open();
+    const choices = await within(card).findByRole("radiogroup", { name: "What would you like?" });
+    expect(within(choices).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Create my own notebook", "Join my team's notebook", "Create a notebook for my team"]);
+    expect(within(choices).getByRole("radio", { name: "Create my own notebook" }).getAttribute("aria-checked")).toBe("true");
+    expect((await within(card).findByText("Forge: david on github.com")).textContent).toBe("Forge: david on github.comReady");
+    await app.user.click(within(choices).getByRole("radio", { name: "Create a notebook for my team" }));
+    expect(within(card).queryByText(/^Forge: /)).toBeNull();
+    expect((await within(card).findByRole("combobox", { name: "Forge" }) as HTMLSelectElement).value).toBe(app.environment("desk").forgeAccounts()[0]?.id);
+  });
+
+  it("says No forge yet with Go to Forges, which opens the Forges step inside Set up, and still keeps a notebook on this computer", async () => {
+    const { app, desk, card } = await open({ forges: { accounts: [] } });
+    expect(await within(card).findByText("No forge yet.")).toBeDefined();
+    const create = within(card).getByRole("button", { name: "Create notebook" }) as HTMLButtonElement;
+    expect(create.disabled).toBe(false);
+    expect(create.hasAttribute("aria-describedby")).toBe(false);
+    await app.user.click(within(card).getByRole("button", { name: "Keep it on this computer for now" }));
+    await waitFor(() => expect(desk.requests("banks.create").at(-1)?.params["creation"]).toMatchObject({ kind: "personal", localOnly: true }));
+    await app.user.click(within(card.querySelector<HTMLElement>("[data-bank-ready]")!).getByRole("button", { name: "Go to Forges" }));
+    expect(await screen.findByRole("region", { name: "Forges" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "Memory bank" })).toBeNull();
+  });
+
+  it("keeps Create enabled and says Enter {field} beside each field a press found empty, sending nothing", async () => {
+    const { app, desk, card } = await open();
+    const name = await within(card).findByRole("textbox", { name: "Name" });
+    expect(within(card).getByText("Used as a folder name, for example personal.")).toBeDefined();
+    expect(within(card).getByText("For example the name of a repository you work on.")).toBeDefined();
+    await app.user.clear(name);
+    await app.user.clear(within(card).getByRole("textbox", { name: "Your first project" }));
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    const errors = within(card).getAllByRole("alert");
+    expect(errors.map((error) => error.textContent)).toEqual(["Error: Enter a name.", "Error: Enter your first project."]);
+    expect(name.getAttribute("aria-invalid")).toBe("true");
+    expect(name.getAttribute("aria-describedby")).toContain(errors[0]!.id);
+    expect(desk.requests("banks.create")).toHaveLength(0);
+    await app.user.type(name, "notes");
+    await app.user.type(within(card).getByRole("textbox", { name: "Your first project" }), "harness");
+    await app.user.click(within(card).getByRole("button", { name: "Create notebook" }));
+    await waitFor(() => expect(desk.requests("banks.create")).toHaveLength(1));
+    expect(within(card).queryByText("Enter a name.")).toBeNull();
+  });
+
+  it("shows a notebook's badges and its description's state in words, the rest in Details", async () => {
+    const team = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "team-memory", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } }), kind: "team" as const, enabled: false };
+    const broken = { ...team, id: "0199aa00-0000-4000-8000-000000000003", name: "broken", status: { ...team.status, manifest: { state: "invalid" as const, rule: "retired_key", message: "BANK.md uses description.", since } } };
+    const { app, card } = await open({}, [team, broken]);
+    const row = await within(card).findByRole("region", { name: "team-memory" });
+    expect([...row.querySelectorAll("[data-bank-badge]")].map((badge) => badge.textContent)).toEqual(["Team", "Off", "On github.com", "Description: ready"]);
+    expect(row.textContent).not.toMatch(/Manifest|Validator|Remote|Read and write/);
+    const problem = within(card).getByRole("region", { name: "broken" });
+    expect(within(problem).getByText("Description: has a problem")).toBeDefined();
+    expect(within(problem).queryByText(/BANK\.md/)).toBeNull();
+    await app.user.click(within(problem).getByRole("button", { name: "Details" }));
+    expect(within(problem).getByText("retired_key: BANK.md uses description.")).toBeDefined();
+  });
+
+  it("says what Describe it does after Create, names the conversation's states, and opens the review", async () => {
+    const fresh = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "notes", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } }) };
+    const missing = { ...fresh, status: { ...fresh.status, manifest: { state: "missing" as const, since } } };
+    const { app, desk, card } = await open({}, [missing]);
+    const row = await within(card).findByRole("region", { name: "notes" });
+    expect(within(row).getByText("Now describe your notebook. An agent asks a few questions and writes the description.")).toBeDefined();
+    const id = uuidv4();
+    desk.wire.answer("setup.mint", async () => {
+      await app.runtime.commands.dispatch(desk.environmentId, "sessions.create", { id, title: "Describe notes", workspace: { kind: "scratch" } });
+      desk.startRun(id, "Describe this bank.");
+      return accepted({ sessionId: id });
+    });
+    await app.user.click(within(row).getByRole("button", { name: "Describe it" }));
+    const dialog = await screen.findByRole("dialog", { name: "Authoring conversation" });
+    expect(within(dialog).getByRole("status", { name: "Authoring status" }).textContent).toBe("Writing the description…");
+    act(() => desk.openPrompt(id, { kind: "question", input: null, questions: [{ header: "Kept", question: "What should it keep?", options: [], multiSelect: false }] }));
+    await waitFor(() => expect(within(dialog).getByRole("status", { name: "Authoring status" }).textContent).toBe("Waiting for your answer"));
+    const pullRequest = "https://github.com/david/notes/pull/2";
+    scriptBanks(desk, [{ ...fresh, status: { ...fresh.status, manifest: { state: "awaiting-review", pullRequest, since } } }]);
+    act(() => { app.runtime.requests.refresh(desk.environmentId, "banks.list", {}); });
+    await waitFor(() => expect(within(row).getByText("Saved. Waiting for your approval on github.com.")).toBeDefined());
+    await app.user.click(within(dialog).getByRole("button", { name: "Close dialog" }));
+    await app.user.click(within(row).getByRole("button", { name: "Open the review" }));
+    expect(app.shell.calls).toContainEqual(["openExternal", pullRequest]);
+  });
+
+  it("joins in §5.8's words: a link the forge account cannot read, and the environment's refusal of a bad link", async () => {
+    const { app, desk, card } = await open();
+    const preview: BankJoinPreview = {
+      name: "team-memory", kind: "team", line: "Shared memory.", orgs: [], projects: [], entities: [{ name: "Runtime", aliases: ["engine"] }], orientation: ["how-we-work"], owners: ["alex"],
+      merge: { memories: "auto", reviewed: ["orientation", "decisions", "status", "manifest"] }, rules: ["No personal facts.", "No secrets."], canRead: false, canPush: false,
+    };
+    desk.wire.answer("banks.join.preview", (params) => params["url"] === "https://github.com/platform/team-memory"
+      ? { result: preview }
+      : { error: { code: "invalid_params", message: "That is not a notebook link. Paste the link an owner shared with you.", data: { issues: [], details: ["https://github.com/platform names no repository."] } } });
+    await app.user.click(within(card).getByRole("radio", { name: "Join my team's notebook" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Notebook link" }), "https://github.com/platform/team-memory");
+    await app.user.click(within(card).getByRole("button", { name: "Preview" }));
+    expect((await within(card).findByRole("alert")).textContent).toBe("Error: Your forge account cannot read this notebook. Ask an owner to add you.");
+    expect(within(card).queryByRole("button", { name: "Join notebook" })).toBeNull();
+    await app.user.clear(within(card).getByRole("textbox", { name: "Notebook link" }));
+    await app.user.type(within(card).getByRole("textbox", { name: "Notebook link" }), "https://github.com/platform");
+    await app.user.click(within(card).getByRole("button", { name: "Preview" }));
+    expect((await within(card).findByRole("alert")).textContent).toBe("Error: That is not a notebook link. Paste the link an owner shared with you.");
+    expect(within(card).getByRole("region", { name: "Details" }).textContent).toContain("https://github.com/platform names no repository.");
   });
 });

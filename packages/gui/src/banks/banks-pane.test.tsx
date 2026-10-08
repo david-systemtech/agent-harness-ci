@@ -1,5 +1,5 @@
 import { settingsDeepLink } from "@agent-harness/client-runtime";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { renderApp } from "../../test/harness.js";
 
@@ -9,13 +9,12 @@ it("opens Memory banks on the picked environment with described creation choices
   });
   app.shell.openDeepLink(settingsDeepLink("knowledge.banks"));
   const pane = await screen.findByRole("region", { name: "Memory banks" });
-  expect(await within(pane).findByText("Facts your agents keep")).toBeDefined();
-  const choices = within(pane).getByRole("radiogroup", { name: "Bank kind" });
-  expect(within(choices).getByRole("radio", { name: "Personal" }).getAttribute("aria-checked")).toBe("true");
-  await app.user.click(within(choices).getByRole("radio", { name: "Team" }));
+  const choices = await within(pane).findByRole("radiogroup", { name: "What would you like?" });
+  expect(within(choices).getByRole("radio", { name: "Create my own notebook" }).getAttribute("aria-checked")).toBe("true");
+  await app.user.click(within(choices).getByRole("radio", { name: "Create a notebook for my team" }));
   expect(await within(pane).findByRole("textbox", { name: "Team name" })).toBeDefined();
-  await app.user.click(within(choices).getByRole("radio", { name: "Join a bank" }));
-  expect(await within(pane).findByRole("textbox", { name: "Bank link" })).toBeDefined();
+  await app.user.click(within(choices).getByRole("radio", { name: "Join my team's notebook" }));
+  expect(await within(pane).findByRole("textbox", { name: "Notebook link" })).toBeDefined();
 });
 
 it("turns a bank off, refreshes its badges, and confirms removal while keeping the checkout", async () => {
@@ -49,19 +48,20 @@ it("turns a bank off, refreshes its badges, and confirms removal while keeping t
   });
   app.shell.openDeepLink(settingsDeepLink("knowledge.banks"));
   const row = await screen.findByRole("region", { name: "project-memory" });
-  expect(within(row).getByText("3 memories · 1 folder")).toBeDefined();
-  expect(within(row).getByText("Validator 2 · up to date")).toBeDefined();
+  await app.user.click(within(row).getByRole("button", { name: "Details" }));
+  expect(within(row).getByText("3 memories in 1 folder")).toBeDefined();
+  expect(within(row).getByText("Version 2, up to date")).toBeDefined();
   await app.user.click(within(row).getByRole("button", { name: "Turn off" }));
   expect(await within(row).findByText("Off")).toBeDefined();
   await app.user.click(within(row).getByRole("button", { name: "Remove" }));
   const question = await screen.findByRole("dialog", { name: "Remove project-memory?" });
-  expect(within(question).getByText(/checkout stays on this machine/)).toBeDefined();
+  expect(within(question).getByText(/folder stays on this computer/)).toBeDefined();
   await app.user.click(within(question).getByRole("button", { name: "Cancel" }));
   expect(app.environment("desk").requests("banks.forget")).toHaveLength(0);
   await app.user.click(within(row).getByRole("button", { name: "Remove" }));
-  await app.user.click(within(await screen.findByRole("dialog", { name: "Remove project-memory?" })).getByRole("button", { name: "Remove bank" }));
+  await app.user.click(within(await screen.findByRole("dialog", { name: "Remove project-memory?" })).getByRole("button", { name: "Remove notebook" }));
   expect(app.environment("desk").requests("banks.forget").at(-1)?.params).toMatchObject({ bankId: "0199aa00-0000-4000-8000-000000000002", removeCheckout: false });
-  expect(await screen.findByText("No banks yet. Create a notebook or join one your team shares.")).toBeDefined();
+  await waitFor(() => expect(screen.queryByRole("region", { name: "project-memory" })).toBeNull());
 });
 
 it("shows creation read-only and names why its actions are unavailable", async () => {
@@ -70,10 +70,10 @@ it("shows creation read-only and names why its actions are unavailable", async (
   });
   app.shell.openDeepLink(settingsDeepLink("knowledge.banks"));
   const pane = await screen.findByRole("region", { name: "Memory banks" });
-  const create = await within(pane).findByRole("button", { name: "Create" });
+  const create = await within(pane).findByRole("button", { name: "Create notebook" });
   expect(create.hasAttribute("disabled")).toBe(true);
-  expect(within(pane).getByRole("button", { name: "Keep it on this machine for now" }).hasAttribute("disabled")).toBe(true);
-  expect(within(pane).getByText(/Read-only:/)).toBeDefined();
+  expect(within(pane).getByRole("button", { name: "Keep it on this computer for now" }).hasAttribute("disabled")).toBe(true);
+  expect(within(pane).getByText(/^You can look but not change this\. /)).toBeDefined();
 });
 
 it("uses the selected environment and resets a creation draft when it changes", async () => {
@@ -85,10 +85,10 @@ it("uses the selected environment and resets a creation draft when it changes", 
   });
   app.shell.openDeepLink(settingsDeepLink("knowledge.banks"));
   const pane = await screen.findByRole("region", { name: "Memory banks" });
-  await app.user.click(await within(pane).findByRole("radio", { name: "Team" }));
+  await app.user.click(await within(pane).findByRole("radio", { name: "Create a notebook for my team" }));
   await app.user.type(within(pane).getByRole("textbox", { name: "Team name" }), "Draft team");
   await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), app.environment("laptop").environmentId);
-  expect(await within(pane).findByRole("textbox", { name: "Bank name" })).toBeDefined();
+  expect(await within(pane).findByRole("textbox", { name: "Name" })).toBeDefined();
   expect(within(pane).queryByRole("textbox", { name: "Team name" })).toBeNull();
   expect(app.environment("laptop").requests("banks.list").length).toBeGreaterThan(0);
 });

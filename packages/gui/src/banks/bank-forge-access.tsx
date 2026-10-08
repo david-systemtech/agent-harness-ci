@@ -1,11 +1,10 @@
-import { derived, oneLine } from "@agent-harness/client-runtime";
+import { derived } from "@agent-harness/client-runtime";
 import { matchForgeAccount, normaliseRemote, type BankRecord, type ForgeAccountRecord } from "@agent-harness/contracts";
-import { ArrowUpRight } from "lucide-react";
 import { useMemo } from "react";
 import { nameOf } from "../connections/words.js";
-import { useSettings } from "../settings/settings-window.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { BankButton } from "./bank-controls.js";
+import { GoToForges } from "./bank-controls.js";
+import { hostOf } from "./bank-words.js";
 
 /** HTTPS origins include their port; only verified aliases serve bank reads (ADR 0020). */
 const accountFor = (origin: string, accounts: readonly ForgeAccountRecord[]) => {
@@ -16,22 +15,27 @@ const accountFor = (origin: string, accounts: readonly ForgeAccountRecord[]) => 
   })))?.account ?? null;
 };
 
-/** A bank's forge access belongs to its own environment, even when another paired one has the account. */
+/**
+ * Why a notebook cannot be reached, in one plain line, never cut (setup-copy.md
+ * §5.8): the environment's line and, when no forge account here covers its
+ * forge but another computer's does, that it is connected there, not here,
+ * with Go to Forges. A bank's forge access belongs to its own environment.
+ */
 export const BankForgeAccess = ({ environmentId, bank, accounts }: {
   readonly environmentId: string;
   readonly bank: BankRecord;
   readonly accounts: readonly ForgeAccountRecord[] | undefined;
 }) => {
-  const missing = accounts !== undefined && bank.location.kind === "remote" && bank.status.reachable.state === "unreachable" && accountFor(bank.location.origin, accounts) === null;
-  return <>
-    <p className="text-2xs text-ink-muted">Manifest: {bank.status.manifest.state}. {missing ? null : bank.status.reachable.state === "unreachable" ? oneLine(bank.status.reachable.reason) : "Reachable."}</p>
-    {missing && bank.location.kind === "remote" && <MissingBankForge environmentId={environmentId} origin={bank.location.origin} reason={bank.status.reachable.state === "unreachable" ? bank.status.reachable.reason : ""} />}
-  </>;
+  const { location, status: { reachable } } = bank;
+  if (reachable.state !== "unreachable") return null;
+  const missing = accounts !== undefined && location.kind === "remote" && accountFor(location.origin, accounts) === null;
+  return missing && location.kind === "remote"
+    ? <MissingBankForge environmentId={environmentId} origin={location.origin} reason={reachable.reason} />
+    : <p className="text-xs text-ink">{reachable.reason}</p>;
 };
 
 const MissingBankForge = ({ environmentId, origin, reason }: { readonly environmentId: string; readonly origin: string; readonly reason: string }) => {
   const runtime = useRuntime();
-  const settings = useSettings();
   const environments = useObservable(runtime.projections.environments);
   const sources = useObservable(useMemo(() => {
     const others = environments.filter((view) => view.environmentId !== environmentId && view.enabled && view.phase === "ready" && runtime.capability(view.environmentId, "forge.accounts.list").status === "present");
@@ -42,11 +46,9 @@ const MissingBankForge = ({ environmentId, origin, reason }: { readonly environm
         return account !== null && account.problem === null && account.identity !== null && account.capabilities.readRepository.state === "verified";
       }));
   }, [runtime, environments, environmentId, origin]));
-  const owner = environments.find((view) => view.environmentId === environmentId);
-  const ownerName = owner === undefined ? environmentId : nameOf(owner);
   return <>
-    <p className="text-2xs text-ink-muted">{oneLine(reason)}</p>
-    {sources.length > 0 && <p className="text-2xs text-ink-muted">A forge account for {origin} is connected on {sources.map(nameOf).join(", ")}, but this bank belongs to {ownerName}. Connect a forge account on {ownerName} for this bank.</p>}
-    <BankButton label={`Connect forge on ${ownerName}`} icon={ArrowUpRight} onClick={() => settings.open("access.forges", environmentId)} />
+    <p className="text-xs text-ink">{reason}</p>
+    {sources.length > 0 && <p className="text-xs text-ink">Your {hostOf(origin)} account is connected on {sources.map(nameOf).join(", ")}, not here. Connect it here too.</p>}
+    <GoToForges environmentId={environmentId} />
   </>;
 };

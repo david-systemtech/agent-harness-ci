@@ -330,9 +330,10 @@ describe("the minted session on its card", () => {
   });
 
   it("offers a first authoring action when the step has not minted a session yet", async () => {
-    const FirstCard = (props: StepCardProps) => <MintedSessionCard {...props} subject="bank-1" artefact={{ kind: "folder", path: "/banks/receipts" }} startLabel="Describe this bank" />;
+    const FirstCard = (props: StepCardProps) => <MintedSessionCard {...props} subject="bank-1" artefact={{ kind: "folder", path: "/banks/receipts" }} words={{ start: "Describe it" }} startLine="Now describe your notebook. An agent asks a few questions and writes the description." />;
     const app = await openCard({ setup: { "memory-bank": { state: "needs-attention", reason: "BANK.md is missing.", actions: [] } } }, false, FirstCard);
-    await app.user.click(screen.getByRole("button", { name: "Describe this bank" }));
+    expect(screen.getByText("Now describe your notebook. An agent asks a few questions and writes the description.")).toBeDefined();
+    await app.user.click(screen.getByRole("button", { name: "Describe it" }));
     await screen.findByRole("textbox", { name: "Message" });
     expect(app.environment("desk").requests("setup.mint").at(-1)?.params).toMatchObject({ variant: "first", subject: "bank-1" });
   });
@@ -369,7 +370,7 @@ describe("the minted session on its card", () => {
     env.wire.answer("setup.mint", () => ({ error: { code: "conflict", message: "The bank checkout is missing.", data: { reason: "bank_missing" } } }));
     await closeAuthoring(app);
     await app.user.click(screen.getByRole("button", { name: "Start again" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("The bank checkout is missing.");
+    expect((await screen.findByRole("alert")).textContent).toBe("Error: The bank checkout is missing.");
     expect(env.liveRun(id)).toBeDefined();
     await app.user.click(screen.getByRole("button", { name: "Continue authoring" }));
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();

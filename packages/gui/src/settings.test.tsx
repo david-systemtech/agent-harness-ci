@@ -326,7 +326,7 @@ describe("built and unbuilt row controls", () => {
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("radiogroup");
     expect(within(ceiling).getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["Plan only", "Accept file edits", "Automatic review", "Bypass permissions"]);
     const banks = await openRow(app, "Memory banks");
-    expect(await within(banks).findByText("Facts your agents keep")).toBeDefined();
+    expect(await within(banks).findByRole("radiogroup", { name: "What would you like?" })).toBeDefined();
     expect(within(banks).getByRole("button", { name: "Open the Memory bank step in Set up" })).toBeDefined();
   });
 

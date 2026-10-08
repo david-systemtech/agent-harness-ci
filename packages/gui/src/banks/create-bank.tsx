@@ -1,8 +1,8 @@
-import { oneLine } from "@agent-harness/client-runtime";
 import type { ForgeAccountRecord, ParamsOf } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { Folder, GitBranch, GitFork, Plus, Server, UserRound, UsersRound } from "lucide-react";
-import { BankButton, BankField } from "./bank-controls.js";
+import { BankButton, BankField, BankRefusal } from "./bank-controls.js";
+import { bankRefusal } from "./bank-words.js";
 import { Input, Select, Textarea } from "../ui/index.js";
 import { useFollowed, useRuntime } from "../window-context.js";
 
@@ -17,21 +17,41 @@ interface CreateProps {
 /** Bank and folder names follow the bank contract; display names keep their spelling. */
 const slug = (name: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40).replace(/-$/, "");
 
+/** `Enter {field}.` for each field a press found empty (setup-copy.md §5.8), by the field's name. */
+const empties = <Field extends string>(fields: Readonly<Record<Field, readonly [value: string, words: string]>>): Partial<Record<Field, string>> =>
+  Object.fromEntries(Object.entries<readonly [string, string]>(fields).filter(([, [value]]) => value.trim() === "").map(([field, [, words]]) => [field, `Enter ${words}.`])) as Partial<Record<Field, string>>;
+
+/** A press with an empty field says so beside it and sends nothing; one with every field filled sends. */
+const useFieldCheck = <Field extends string>() => {
+  const [missing, setMissing] = useState<Partial<Record<Field, string>>>({});
+  const press = (fields: Readonly<Record<Field, readonly [string, string]>>, send: () => void) => {
+    const found = empties(fields);
+    setMissing(found);
+    if (Object.keys(found).length === 0) send();
+  };
+  return { missing, press };
+};
+
 export const PersonalBankForm = ({ forges, busy, create, firstProject }: CreateProps & { readonly firstProject: string }) => {
   const primary = forges.find((forge) => forge.primary);
   const [name, setName] = useState<string>();
   const [org, setOrg] = useState("personal");
   const [project, setProject] = useState<string>();
+  const { missing, press } = useFieldCheck<"name" | "org" | "project">();
   const bankName = name ?? (primary?.identity === undefined || primary.identity === null ? "personal-memory" : `${primary.identity.login}-memory`);
   const projectName = project ?? firstProject;
-  const send = (localOnly: boolean) => create(bankName, { kind: "personal", localOnly, org, project: projectName });
-  const invalid = bankName === "" || org === "" || projectName === "";
+  const send = (localOnly: boolean) => press(
+    { name: [bankName, "a name"], org: [org, "what you call your own work"], project: [projectName, "your first project"] },
+    () => void create(bankName, { kind: "personal", localOnly, org, project: projectName }),
+  );
   return <>
-    <BankField icon={GitBranch} label="Bank name"><Input value={bankName} onChange={(event) => setName(event.target.value)} /></BankField>
-    <BankField icon={Folder} label="What do you call your own work?"><Input value={org} onChange={(event) => setOrg(event.target.value)} /></BankField>
-    <BankField icon={Folder} label="Your first project"><Input value={projectName} onChange={(event) => setProject(event.target.value)} /></BankField>
-    <div className="flex flex-wrap gap-1.5"><BankButton label="Create" icon={Plus} variant={primary === undefined ? "outline" : "default"} disabled={busy} reason={primary === undefined ? "Connect a verified primary forge, or keep the bank on this machine." : invalid ? "Fill in the bank name, organisation and first project." : undefined} onClick={() => void send(false)} />
-    <BankButton label="Keep it on this machine for now" icon={Server} variant={primary === undefined ? "default" : "outline"} disabled={busy} reason={invalid ? "Fill in the bank name, organisation and first project." : undefined} onClick={() => void send(true)} /></div>
+    <BankField icon={GitBranch} label="Name" error={missing.name}><Input value={bankName} onChange={(event) => setName(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="What do you call your own work?" hint="Used as a folder name, for example personal." error={missing.org}><Input value={org} onChange={(event) => setOrg(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="Your first project" hint="For example the name of a repository you work on." error={missing.project}><Input value={projectName} onChange={(event) => setProject(event.target.value)} /></BankField>
+    <div className="flex flex-wrap gap-1.5">
+      <BankButton label="Create notebook" icon={Plus} variant={primary === undefined ? "outline" : "default"} disabled={busy} onClick={() => send(false)} />
+      <BankButton label="Keep it on this computer for now" icon={Server} variant={primary === undefined ? "default" : "outline"} disabled={busy} onClick={() => send(true)} />
+    </div>
   </>;
 };
 
@@ -46,26 +66,32 @@ export const TeamBankForm = ({ environmentId, forges, busy, create }: CreateProp
   const [name, setName] = useState<string>();
   const [org, setOrg] = useState<string>();
   const [projects, setProjects] = useState("");
+  const { missing, press } = useFieldCheck<"team" | "name" | "org" | "projects">();
+  const [unchosen, setUnchosen] = useState<string>();
   const repositoryName = name ?? slug(team);
   const firstOrg = org ?? slug(team);
   const firstProjects = projects.split("\n").map((name) => name.trim()).filter(Boolean).map((name) => ({ name, folder: slug(name) }));
+  const send = () => {
+    setUnchosen(forge === undefined ? "Choose a forge." : owner === undefined ? "Choose the owner from the list." : undefined);
+    press({ team: [team, "a team name"], name: [repositoryName, "a repository name"], org: [firstOrg, "a first organisation"], projects: [projects, "the first projects"] }, () => {
+      if (forge !== undefined && owner !== undefined) void create(repositoryName, { kind: "team", forgeAccountId: forge.id, owner, repositoryName, teamName: team, org: firstOrg, projects: firstProjects });
+    });
+  };
   return <>
     <BankField icon={GitFork} label="Forge"><Select value={forge?.id ?? ""} onChange={(event) => { pick(event.target.value); setOwner(undefined); }}>
-      <option value="" disabled>Choose a verified forge</option>
+      <option value="" disabled>Choose a forge</option>
       {forges.map((forge) => <option key={forge.id} value={forge.id}>{new URL(forge.origin).host} — {forge.identity?.login}</option>)}
     </Select></BankField>
-    <BankField icon={UserRound} label="Owner"><Select value={owner?.login ?? ""} disabled={owners?.result === null || owners?.error !== null} onChange={(event) => setOwner(event.target.value)}>
+    <BankField icon={UserRound} label="Owner" error={unchosen}><Select value={owner?.login ?? ""} disabled={owners?.result === null || owners?.error !== null} onChange={(event) => setOwner(event.target.value)}>
       <option value="" disabled>Choose an owner</option>
       {owners?.result?.owners.map((owner) => <option key={owner.login} value={owner.login}>{owner.login}</option>)}
     </Select></BankField>
-    {owners?.error != null && <p role="alert">{oneLine(owners.error.message)}</p>}
+    {owners?.error != null && <BankRefusal refusal={bankRefusal(owners.error, "Create notebook")} />}
     {forge !== undefined && <p>Every teammate needs an account on {new URL(forge.origin).host}.</p>}
-    <BankField icon={UsersRound} label="Team name"><Input value={team} onChange={(event) => setTeam(event.target.value)} /></BankField>
-    <BankField icon={Folder} label="Repository name"><Input value={repositoryName} onChange={(event) => setName(event.target.value)} /></BankField>
-    <BankField icon={Folder} label="First organisation"><Input value={firstOrg} onChange={(event) => setOrg(event.target.value)} /></BankField>
-    <BankField wide icon={Folder} label="First projects (one per line)"><Textarea rows={4} title="First projects · Tab to focus, type one project per line" value={projects} onChange={(event) => setProjects(event.target.value)} className="w-full" /></BankField>
-    <BankButton label="Create" icon={Plus} variant="default" className="self-start" disabled={busy} reason={forge === undefined ? "Connect a verified forge." : owner === undefined || owners?.error !== null ? "Choose an available owner." : team.trim() === "" || repositoryName === "" || firstOrg === "" || firstProjects.length === 0 ? "Fill in the team, repository, organisation and first projects." : undefined} onClick={() => {
-      if (forge !== undefined && owner !== undefined) void create(repositoryName, { kind: "team", forgeAccountId: forge.id, owner, repositoryName, teamName: team, org: firstOrg, projects: firstProjects });
-    }} />
+    <BankField icon={UsersRound} label="Team name" error={missing.team}><Input value={team} onChange={(event) => setTeam(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="Repository name" error={missing.name}><Input value={repositoryName} onChange={(event) => setName(event.target.value)} /></BankField>
+    <BankField icon={Folder} label="First organisation" error={missing.org}><Input value={firstOrg} onChange={(event) => setOrg(event.target.value)} /></BankField>
+    <BankField wide icon={Folder} label="First projects (one per line)" error={missing.projects}><Textarea rows={4} title="First projects · Tab to focus, type one project per line" value={projects} onChange={(event) => setProjects(event.target.value)} className="w-full" /></BankField>
+    <BankButton label="Create notebook" icon={Plus} variant="default" className="self-start" disabled={busy} onClick={send} />
   </>;
 };
