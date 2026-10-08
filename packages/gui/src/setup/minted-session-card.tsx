@@ -7,6 +7,7 @@ import { SessionPane } from "../grid/session-pane.js";
 import { useOpenInFocusedPane } from "../grid/open-session.js";
 import { sideColumnKey } from "../presentation.js";
 import { NO_COLUMN, showPane } from "../side-column/column.js";
+import { keepShownOnArrival } from "../side-column/side-column.js";
 import { StatusLine } from "../status/status-line.js";
 import { PaneLines } from "../session/pane-line.js";
 import { PromptFieldsProvider } from "../prompt-card/prompt-card.js";
@@ -76,6 +77,7 @@ export const MintedSessionCard = ({ environmentId, step, subject, artefact, outc
       const manual = { environmentId, sessionId: id };
       const columnKey = sideColumnKey(manual);
       setColumns((columns) => ({ ...columns, [columnKey]: showPane(columns[columnKey] ?? NO_COLUMN, "files") }));
+      keepShownOnArrival(manual);
       open(manual);
       checklist.leaveForMain();
       return;

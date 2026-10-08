@@ -130,6 +130,19 @@ describe("binding", () => {
     expect(snapshot.payload).toMatchObject({ status: { binding: { tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] } } });
   });
 
+  it("says on Windows that its firewall asks once, at the first start that binds beside loopback, and says nothing of it elsewhere (#1910)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const stable = join(dataDir, "node", "node.exe");
+    expect(await binding(await start({ dataDir, interfaces: detector(undefined), platform: "win32", execPath: stable }))).toMatchObject({ firewallAsksOnce: true });
+    for (const platform of ["linux", "darwin"] as const) expect(await binding(await start({ interfaces: detector(undefined), platform }))).not.toHaveProperty("firewallAsksOnce");
+  });
+
+  it("says nothing of the firewall asking once on Windows when it runs on another Node than the launcher's copy, which an update may change (#1910)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const own = join(dataDir, "versions", "0.5.0", "node", "node.exe");
+    expect(await binding(await start({ dataDir, interfaces: detector(undefined), platform: "win32", execPath: own }))).not.toHaveProperty("firewallAsksOnce");
+  });
+
   it("reports an installed but unreadable Tailscale and refreshes installation on Check again", async () => {
     let installed = true;
     const t = await start({ interfaces: { ...detector(undefined), tailscaleInstalled: () => installed } });
