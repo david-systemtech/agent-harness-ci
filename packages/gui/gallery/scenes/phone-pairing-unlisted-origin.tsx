@@ -11,8 +11,8 @@ import type { SceneViewport } from "../scene-registry.js";
 /**
  * The phone's own pairing screen refusing a further HTTPS environment its
  * serving environment does not allow (#1713), at the 390 px the refusal was
- * squeezed at (#1739): the line takes the full width with Browser origins
- * below it, and no origin in it breaks inside its host name. The page's own
+ * squeezed at (#1739): the alert's line takes its full width with Browser
+ * origins below it, and no host in it breaks inside its name (#1847). The page's own
  * origin serves desk, as a real browser client's does, so the refusal is the
  * product's own; that origin is the capture's fixed one (`serve.ts`), so the
  * line names the same port on every run (#1763).
@@ -66,11 +66,12 @@ export const activate = () => {
   return () => observer.disconnect();
 };
 
-export const readySelector = '[data-phone-pairing] [role="status"] [data-pairing-origin]';
+export const readySelector = '[data-phone-pairing] [data-pairing-refusal] [data-pairing-origin]';
 
-const line = '[data-phone-pairing] [role="status"] > span';
+/** The refusal's line, beside its icon in the alert (setup-copy.md §4.2): the page's 24 px margins, the alert's border, padding, icon and gap. */
+const line = "[data-phone-pairing] [data-pairing-line]";
 export const geometry = ({ width }: SceneViewport) => [
-  { selector: line, minimumWidth: width - 48, contentFits: true },
-  { selector: '[data-phone-pairing] [role="status"] button', below: line, minimumHeight: 44 },
+  { selector: line, minimumWidth: width - 96, contentFits: true },
+  { selector: "[data-phone-pairing] [data-pairing-refusal] button", below: line, minimumHeight: 44 },
   { selector: "[data-pairing-origin]", unbroken: true },
 ];

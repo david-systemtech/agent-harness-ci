@@ -69,7 +69,7 @@ describe("the Your machines card in Set up", () => {
       within(step())
         .getAllByRole("heading", { level: 3 })
         .map((heading) => heading.textContent)
-        .filter((name) => name !== "Add a machine"),
+        .filter((name) => name !== "Add a device"),
     ).toEqual(["desk", "laptop"]);
     expect(await within(part("desk", "Reachability")).findByText("Reachable on the tailnet at desk.tail1234.ts.net (100.101.102.103).")).toBeDefined();
     expect(within(part("desk", "Reachability")).queryByText(TAILSCALE_WARNING)).toBeNull();
@@ -289,7 +289,7 @@ describe("the Your machines card in Set up", () => {
       },
     });
     expect(picked()).toBe("desk");
-    const form = within(within(step()).getByRole("region", { name: "Add a machine" })).getByRole("form", { name: "Pair by link" });
+    const form = within(within(step()).getByRole("region", { name: "Add a device" })).getByRole("form", { name: "Pair by link" });
     act(() => within(form).getByRole("textbox", { name: "Pairing link" }).focus());
     await app.user.paste(app.environment("laptop").wire.link);
     await app.user.click(within(form).getByRole("button", { name: "Pair" }));

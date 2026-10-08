@@ -1,4 +1,4 @@
-import { COUNTDOWN_TICK_MS, adminCall, pairingLinkIsLocal, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
+import { COUNTDOWN_TICK_MS, adminCall, grantWords, pairingLinkIsLocal, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
 import { formatPairingCode, parsePairingLink, type Ceiling, type MintedPairing, type Scope } from "@agent-harness/contracts";
 import { KeyRound } from "lucide-react";
 import { CopyLine } from "../settings/copy-line.js";
@@ -59,6 +59,8 @@ interface PairingCodeProps {
   readonly action?: string;
   /** A line above the button, where the computer has one: that other devices cannot reach it yet. */
   readonly warning?: ReactNode;
+  /** Whether the code made says what it grants as the environment answered it, in scope and mode ids: Settings' Access pane does, Add a device does not. */
+  readonly grantShown?: boolean;
 }
 
 const MINUTE_MS = 60_000;
@@ -95,7 +97,7 @@ const useMinutesLeft = (until: Date | undefined): number | undefined => {
  * reachable only from itself, is never offered to another device: it says
  * so, with no QR (#1847).
  */
-export const PairingCode = ({ view, writable, grant, action = "Make a pairing code", warning }: PairingCodeProps) => {
+export const PairingCode = ({ view, writable, grant, action = "Make a pairing code", warning, grantShown = false }: PairingCodeProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const [minted, setMinted] = useState<Minted | undefined>(undefined);
@@ -138,6 +140,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
                 <CopyLine label="Code" text={formatPairingCode(live.pairing.code)} copyLabel="Copy pairing code" />
               </div>
             </Fold>
+            {grantShown && <p>{grantWords(live.pairing.scopes, live.pairing.ceiling)}</p>}
             <p role="timer" className="text-ink-muted">
               This code works once, for {live.minutes} minutes. {left} min left.
             </p>

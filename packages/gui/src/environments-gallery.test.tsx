@@ -20,8 +20,8 @@ it("draws the Your machines scene with named cards, pairing QR and measured cont
   const pane = await within(settings).findByRole("region", { name: "Your machines" });
   const desk = await within(pane).findByRole("region", { name: "desk" });
   expect(await within(desk).findByRole("img", { name: "QR code of the pairing link" })).toBeTruthy();
-  expect(within(desk).getByRole("button", { name: "Copy pairing code" })).toBeTruthy();
-  expect(within(pane).getByRole("region", { name: "Add a machine" })).toBeTruthy();
+  expect(within(desk).getByRole("button", { name: "Copy pairing link" })).toBeTruthy();
+  expect(within(pane).getByRole("region", { name: "Add a device" })).toBeTruthy();
   for (const rule of geometry({ width: 1400, height: 900 })) expect(document.querySelector(rule.selector), rule.selector).not.toBeNull();
 });
 

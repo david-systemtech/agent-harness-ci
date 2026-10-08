@@ -43,7 +43,7 @@ it("keeps a failed start in the introduction, words its kind with the text under
   expect(screen.getByRole("button", { name: "Begin set up" }).hasAttribute("disabled")).toBe(true);
   expect(screen.getByText(AVAILABLE_ONCE)).toBeDefined();
   await app.user.click(screen.getByRole("button", { name: "Connect to another computer" }));
-  expect(screen.getByRole("dialog", { name: "Pair with an environment" })).toBeDefined();
+  expect(screen.getByRole("dialog", { name: "Connect to another computer" })).toBeDefined();
   await app.user.keyboard("{Escape}");
   let started!: () => void;
   shell.answer("service.status", async () => ({ installed: true, running: false, ready: false }));

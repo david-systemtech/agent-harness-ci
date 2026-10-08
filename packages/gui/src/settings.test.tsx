@@ -238,7 +238,7 @@ describe("a row's scope", () => {
           .getAllByRole("heading", { level: 3 })
           .map((heading) => heading.textContent),
         label,
-      ).toEqual(label === "Your machines" ? ["desk", "laptop", "Add a machine"] : ["desk", "laptop"]);
+      ).toEqual(label === "Your machines" ? ["desk", "laptop", "Add a device"] : ["desk", "laptop"]);
       for (const name of ["desk", "laptop"]) expect(within(everywhere).getByRole("region", { name }), `${label} ${name}`).toBeDefined();
     }
   });

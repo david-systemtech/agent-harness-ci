@@ -52,22 +52,31 @@ const servedByDesk = async (size: { readonly width: number; readonly height: num
   });
   await screen.findByRole("note", { name: "Limited access" });
   const user = userEvent.setup();
-  /** Pastes `link` into the pairing form in `place` and sends it; the line under the form once it says more than Pairing…. */
+  /** Pastes `link` into the pairing form in `place` and sends it; the refusal under the form, an alert, once it is said. */
   const pairIn = async (place: HTMLElement, link: string) => {
     const form = await within(place).findByRole("form", { name: "Pair by link" });
     await user.click(within(form).getByRole("textbox", { name: "Pairing link" }));
     await user.paste(link);
     await user.click(within(form).getByRole("button", { name: "Pair" }));
-    const status = form.parentElement!.querySelector<HTMLElement>('[role="status"]')!;
-    await waitFor(() => expect(status.textContent).toMatch(/^Not paired|^Use the environment/));
-    return status;
+    return waitFor(() => {
+      const refusal = form.parentElement!.querySelector<HTMLElement>("[data-pairing-refusal]");
+      expect(refusal?.getAttribute("role")).toBe("alert");
+      return refusal as HTMLElement;
+    });
+  };
+  /** A refusal's line, without the hidden "Error: " a screen reader reads first. */
+  const lineOf = (refusal: HTMLElement) => refusal.querySelector("[data-pairing-line]")!.textContent!.replace(/^Error: /, "");
+  /** What a refusal's Details say, once opened. */
+  const detailsOf = async (refusal: HTMLElement) => {
+    await user.click(within(refusal).getByRole("button", { name: "Details" }));
+    return refusal.querySelector("pre")!.textContent!;
   };
   /** Settings, opened from the phone header. */
   const openSettings = async () => {
     await user.click(screen.getByRole("button", { name: "Settings" }));
     return screen.findByRole("dialog", { name: "Settings" });
   };
-  /** Pastes `link` into Settings' Add a machine form and sends it. */
+  /** Pastes `link` into Settings' Add a device form and sends it. */
   const pair = async (link: string) => pairIn(await openSettings(), link);
   /** desk's Browser origins, once they have the focus. */
   const goneToOrigins = async () => {
@@ -77,52 +86,54 @@ const servedByDesk = async (size: { readonly width: number; readonly height: num
     expect(scrolled).toContain(origins);
     return origins;
   };
-  return { user, pair, pairIn, openSettings, goneToOrigins, fetched, scrolled, runtime, world };
+  return { user, pair, pairIn, lineOf, detailsOf, openSettings, goneToOrigins, fetched, scrolled, runtime, world };
 };
 
 const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 640 }] as const;
 
 describe.each(PHONES)("pairing another HTTPS environment from the browser client at $width x $height", (size) => {
-  it("refuses an origin this environment does not allow before any fetch, names it, says both steps and goes to Browser origins", async () => {
-    const { user, pair, goneToOrigins, fetched, scrolled } = await servedByDesk(size);
+  it("refuses an origin this environment does not allow before any fetch, names it, keeps both steps in Details and goes to Browser origins", async () => {
+    const { user, pair, lineOf, detailsOf, goneToOrigins, fetched, scrolled } = await servedByDesk(size);
     const status = await pair(LINK);
-    expect(status.textContent).toContain(`This browser client may not contact ${OTHER}`);
-    expect(status.textContent).toContain(`add ${OTHER} to desk's Allowed connection origins under Your machines, Browser origins, then reload this page`);
-    expect(status.textContent).toContain(`ask that environment's admin to add this client's origin, ${location.origin}, to its Allowed client origins`);
-    expect(status.textContent).not.toContain("Nothing answered");
+    const host = OTHER.replace(/^https:\/\//, "");
+    expect(lineOf(status)).toBe(`This page is not allowed to connect to ${host}. Ask whoever runs ${host} to allow this page.`);
     expect(fetched.filter((url) => url.startsWith(OTHER))).toEqual([]);
-    expect(scrolled).toContain(status);
-    // Each origin is its own code run, which wraps whole rather than at its hyphens on a phone (#1739).
-    expect(Array.from(status.querySelectorAll("code[data-pairing-origin]"), (origin) => origin.textContent)).toEqual([OTHER, OTHER, location.origin]);
+    expect(scrolled).toContain(status.parentElement);
+    // Each host is its own code run, which wraps whole rather than at its hyphens on a phone (#1739).
+    expect(Array.from(status.querySelectorAll("code[data-pairing-origin]"), (origin) => origin.textContent)).toEqual([host, host]);
+    const details = await detailsOf(status);
+    expect(details).toContain(`Add ${OTHER} to desk's Allowed connection origins (Your machines, Browser origins), then reload this page.`);
+    expect(details).toContain(`Add this page's origin, ${location.origin}, to the Allowed client origins of the agent-harness at ${OTHER}.`);
     await user.click(within(status).getByRole("button", { name: "Browser origins" }));
     await goneToOrigins();
   });
 
   it("offers the same words and the way to Browser origins on the phone's own pairing screen", async () => {
-    const { user, pairIn, goneToOrigins, fetched } = await servedByDesk(size);
+    const { user, pairIn, lineOf, goneToOrigins, fetched } = await servedByDesk(size);
     await user.click(screen.getByRole("button", { name: "More" }));
     await user.click(await screen.findByRole("menuitem", { name: "Pair with an environment" }));
     const screenOf = (await screen.findByRole("heading", { name: "Pair with this environment" })).parentElement!;
     const status = await pairIn(screenOf, LINK);
-    expect(status.textContent).toContain(`This browser client may not contact ${OTHER}`);
+    expect(lineOf(status)).toMatch(/^This page is not allowed to connect to /);
     expect(fetched.filter((url) => url.startsWith(OTHER))).toEqual([]);
     await user.click(within(status).getByRole("button", { name: "Browser origins" }));
     await goneToOrigins();
   });
 
   it("keeps Nothing answered for an allowed origin where nothing answers", async () => {
-    const { pair, fetched, scrolled } = await servedByDesk(size, [OTHER]);
+    const { pair, lineOf, detailsOf, fetched, scrolled } = await servedByDesk(size, [OTHER]);
     const status = await pair(LINK);
-    expect(status.textContent).toBe(`Not paired: Nothing answered at ${OTHER}: fetch failed.`);
+    expect(lineOf(status)).toBe(`Nothing answered at ${OTHER.replace(/^https:\/\//, "")}. Check that the other computer is on and that both are connected to Tailscale.`);
+    expect(await detailsOf(status)).toContain(`Nothing answered at ${OTHER}: fetch failed.`);
     expect(fetched.some((url) => url.startsWith(OTHER))).toBe(true);
-    expect(scrolled).toContain(status);
+    expect(scrolled).toContain(status.parentElement);
   });
 
   it("refuses an HTTP link before any fetch, and scrolls the line into view", async () => {
-    const { pair, fetched, scrolled } = await servedByDesk(size);
+    const { pair, lineOf, fetched, scrolled } = await servedByDesk(size);
     const status = await pair("http://laptop.example.test:8444/pair#K7Q2MXH4RT");
-    expect(status.textContent).toBe("Use the environment’s HTTPS pairing link or HTTPS address. HTTP connections are unavailable in the browser.");
+    expect(lineOf(status)).toBe("Use the other computer's HTTPS pairing link or HTTPS address. This page cannot connect over HTTP.");
     expect(fetched.filter((url) => url.startsWith("http://laptop.example.test"))).toEqual([]);
-    expect(scrolled).toContain(status);
+    expect(scrolled).toContain(status.parentElement);
   });
 });

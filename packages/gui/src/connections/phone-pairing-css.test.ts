@@ -30,7 +30,7 @@ const declared = (rules: readonly CSSStyleRule[], element: Element, property: st
 /** The phone layout media (`phoneLayoutMedia`, src/frame/phone-frame.tsx): portrait phones, and short landscape touch screens. */
 const PHONE_LAYOUT = "(width < 640px), (pointer: coarse) and (hover: none) and (640px <= width <= 960px) and (height <= 500px)";
 
-const FORM = `<div data-phone-pairing><div role="status"><span>Not paired: This browser client may not contact <code data-pairing-origin>https://second-laptop.example.test:8444</code>.</span><button>Browser origins</button></div></div>`;
+const FORM = `<div data-phone-pairing><div role="status"><span>laptop is already connected. Connect again?</span><button>Connect again</button></div><div role="alert" data-pairing-refusal><h3 data-pairing-line>This page is not allowed to connect to <code data-pairing-origin>second-laptop.example.test:8444</code>.</h3><button>Browser origins</button></div></div>`;
 
 it("gives the line the full width in the phone layout, a phone held landscape too, and puts its actions below it", () => {
   const dom = new JSDOM(`<body>${FORM}</body>`);

@@ -134,7 +134,7 @@ export const PairingRefusal = ({ line, details, actions, computer }: PairingRefu
   return (
     <Alert role="alert" variant="destructive" data-pairing-refusal>
       <CircleAlert aria-hidden="true" />
-      <AlertTitle><span className="sr-only">Error:</span> {line}</AlertTitle>
+      <AlertTitle data-pairing-line><span className="sr-only">Error:</span> {line}</AlertTitle>
       {actions !== undefined && <div className="col-start-2 mt-1.5 flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
       {details.length > 0 && (
         <div className="col-start-2 mt-1 min-w-0 text-ink">
