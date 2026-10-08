@@ -43,6 +43,14 @@ describe("Set up actions on named items", () => {
     ]);
     expect(planSetupAction(skills, "how-to-set-up")).toEqual({ kind: "row", row: "knowledge.skills" });
   });
+
+  it("offers Choose folders for each collection whose folders moved, one button each, opening Skills where no card carries it out (#1855)", () => {
+    const moved = sources.map((source) => ({ ...source, action: "choose-folders" as const }));
+    expect(setupActions(skills, { actions: ["choose-folders"], targets: moved })).toMatchObject([
+      { key: "choose-folders skill-source source-team", words: "Choose folders: team-skills", targets: [moved[0]], plan: { kind: "row", row: "knowledge.skills" } },
+      { key: "choose-folders skill-source source-house", words: "Choose folders: house-skills", targets: [moved[1]], plan: { kind: "row", row: "knowledge.skills" } },
+    ]);
+  });
 });
 
 describe("Set up actions' words (setup-copy.md §3 and the steps)", () => {
