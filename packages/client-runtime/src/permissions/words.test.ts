@@ -9,7 +9,7 @@ import { MODE_WORDS, PROMPT_TIMEOUT_CHOICES, SANDBOX_LEVEL_WORDS, promptTimeoutC
  * by the probe's cause, and the timeout of a question nobody answers.
  */
 
-const refused = (cause: ContainmentCause): ContainmentAvailability => ({ level: "workspace", available: false, reason: `The probe says no (${cause}).`, cause });
+const refused = (cause: ContainmentCause): Extract<ContainmentAvailability, { readonly available: false }> => ({ level: "workspace", available: false, reason: `The probe says no (${cause}).`, cause });
 
 describe("the mode choices", () => {
   it("name every mode in §5.12's words, its id kept for Details", () => {
