@@ -348,7 +348,7 @@ describe("Carry over in Set up", () => {
     await waitFor(() => expect(desk.requests("stateImport.run")).toHaveLength(1));
     expect(desk.requests("stateImport.run")[0]?.params).toMatchObject({ dryRun: false });
     act(() => desk.setSetup({ "carry-over": { state: "done", reason: "Brought over today at 16:24.", failing: [], actions: [], targets: [] } }));
-    await app.user.click(screen.getByRole("button", { name: "Check now" }));
+    await app.user.click(screen.getByRole("button", { name: "Check again" }));
     await screen.findByText("Brought over today at 16:24.");
     answerInventory(app, { ...imported(), sessions: { ...imported().sessions, total: 7, new: 2 } });
     await act(async () => desk.notice("carry-over.imported", report()));
