@@ -14,7 +14,7 @@ import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironme
  * computer a card offering Set up this machine, each refusal in §4.2's words
  * with the raw failure in Details; Part 3 installs agent-harness on another
  * computer from this computer's release; and Set up's "Set up another
- * machine" opens it. Driven through the harness over two scripted
+ * computer" opens it. Driven through the harness over two scripted
  * environments: `desk`, this computer's, and `laptop`, unpaired until a test
  * pairs it.
  */
@@ -167,11 +167,11 @@ describe("Add a device, Part 2: connect this app to another computer", () => {
     expect(within(add).getByText("This app cannot scan a QR code here. Paste the link instead.")).toBeDefined();
   });
 
-  it("is where Set up's Set up another machine opens, its link's field taking the focus", async () => {
+  it("is where Set up's Set up another computer opens, its link's field taking the focus", async () => {
     const app = await opened();
     await app.user.keyboard("{Control>},{/Control}");
     const settings = await screen.findByRole("region", { name: "Settings" });
-    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Set up another machine" }));
+    await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Set up another computer" }));
     const add = within(within(settings).getByRole("region", { name: "Your machines" })).getByRole("region", { name: "Add a device" });
     expect(document.activeElement).toBe(within(add).getByRole("textbox", { name: "Pairing link" }));
   });

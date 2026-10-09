@@ -104,7 +104,7 @@ const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
  * platform gives the window a camera, else why not), whose exchange makes the
  * computer a card, which `added` hears; and installing agent-harness on
  * another computer, the lines from the home environment's release. Opened at
- * it (Set up's "Set up another machine"), the link's field takes the focus.
+ * it (Set up's "Set up another computer"), the link's field takes the focus.
  */
 export const AddAMachine = ({ added }: { readonly added: (environmentId: string) => void }) => {
   const runtime = useRuntime();

@@ -35,7 +35,7 @@ it.each([{ width: 1400, height: 900 }, { width: 1024, height: 768 }])(
     expect(within(notices).getAllByRole("alert").some((alert) => alert.textContent?.includes(message))).toBe(true);
     expect(within(screen.getByRole("region", { name: /^Status feedback/ })).queryByText(message, { exact: false })).toBeNull();
     await app.user.keyboard("{Control>},{/Control}");
-    await app.user.click(within(screen.getByRole("dialog", { name: "Settings" })).getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(within(screen.getByRole("dialog", { name: "Settings" })).getByRole("button", { name: "Open Set up" }));
     const checklist = await screen.findByRole("region", { name: "Set up" });
     expect(app.runtime.projections.notices.read()).toHaveLength(3);
     expect(screen.queryByRole("region", { name: "Notifications" })).toBeNull();
