@@ -35,6 +35,7 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
   const [said, setSaid] = useState<Said | undefined>(undefined);
   const [pulling, setPulling] = useState(false);
   const [choosing, setChoosing] = useState<SkillsViewSource | undefined>(undefined);
+  const [addingFolders, setAddingFolders] = useState(false);
   const skills = read.result;
   const sources = skills?.sources ?? [];
   const ticks = catalogueTickStates(CATALOGUE.skills, sources);
@@ -81,8 +82,8 @@ export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
       {said !== undefined && <Outcome outcome={said} className="text-sm text-ink-muted" />}
       {choosing !== undefined && (
         <section aria-label={`Choose folders for ${skillCollectionName(choosing, CATALOGUE.skills)}`} className="flex flex-col gap-3 rounded-md border border-line p-4">
-          <FoundFolders key={choosing.id} environmentId={environmentId} url={choosing.url} replacing={{ source: choosing, followed: sources.length }} done={(line) => { setSaid({ ok: true, line }); setChoosing(undefined); }} partly={(line) => setSaid({ ok: true, line })} />
-          <Button variant="outline" className="self-start" onClick={() => setChoosing(undefined)}>Cancel</Button>
+          <FoundFolders key={choosing.id} environmentId={environmentId} url={choosing.url} replacing={{ source: choosing, followed: sources.length }} onBusy={setAddingFolders} done={(line) => { setSaid({ ok: true, line }); setChoosing(undefined); }} partly={(line) => setSaid({ ok: true, line })} />
+          <Button variant="outline" className="self-start" disabled={addingFolders} onClick={() => setChoosing(undefined)}>Cancel</Button>
         </section>
       )}
       <section aria-label="Skills catalogue" className="flex flex-col gap-3">

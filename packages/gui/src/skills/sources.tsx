@@ -133,12 +133,13 @@ const folderWords = (identity: string, folder: string, count: number): string =>
  * way has `partly` say on the card itself what was done before it: the
  * folders added, and the moved one removed.
  */
-export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
+export const FoundFolders = ({ environmentId, url, replacing, done, partly, onBusy }: {
   readonly environmentId: string;
   readonly url: string;
   readonly replacing?: { readonly source: SkillsViewSource; readonly followed: number };
   readonly done: (line: string) => void;
   readonly partly: (line: string) => void;
+  readonly onBusy?: (busy: boolean) => void;
 }) => {
   const runtime = useRuntime();
   // Capability answers change with the connection, even while its probe result stays cached.
@@ -151,6 +152,8 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   // Each new look starts with no ticks; accepted-folder lines are kept separately below.
   useEffect(() => choose([]), [probed.result]);
   const { send, sending, refusal, commandId } = useCollectionVerb();
+  const [working, setWorking] = useState(false);
+  const batch = useRef(false);
   // Set once the moved collection is removed, so a retry after a refused add never removes it again.
   const removed = useRef(false);
   // Keep accepted folders for this panel, so a refused retry still says what earlier attempts added.
@@ -183,7 +186,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
   const blocked = ((chosen.length > 0 || !finishing) && adding.status === "absent" ? adding.message : undefined)
     ?? (removing?.status === "absent" ? removing.message : undefined);
   const reason = blocked ?? (chosen.length === 0 && !finishing ? "Choose a skill folder first." : undefined);
-  const add = async () => {
+  const addFolders = async () => {
     if ((chosen.length > 0 && runtime.capability(environmentId, "skills.sources.add").status === "absent")
       || (replacing !== undefined && !removed.current && runtime.capability(environmentId, "skills.sources.remove").status === "absent")) return;
     const remove = async () => {
@@ -220,6 +223,19 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
     }
     done(addedLines().join(" "));
   };
+  // The entire batch stays busy, including the gaps between add/remove commands.
+  const add = async () => {
+    if (batch.current) return;
+    batch.current = true;
+    setWorking(true);
+    onBusy?.(true);
+    try { await addFolders(); }
+    finally {
+      batch.current = false;
+      setWorking(false);
+      onBusy?.(false);
+    }
+  };
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm">{folders.length === 1 ? "Found 1 skill folder:" : `Found ${folders.length} skill folders:`}</p>
@@ -229,7 +245,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
           <input
             type="checkbox"
             className="accent-beam focus-visible:outline-beam"
-            disabled={folder.count === 0 || sending || adding.status === "absent" || removing?.status === "absent"}
+            disabled={folder.count === 0 || working || sending || adding.status === "absent" || removing?.status === "absent"}
             checked={chosen.includes(folder.folder)}
             onChange={(event) => choose(event.target.checked ? [...chosen, folder.folder] : chosen.filter((value) => value !== folder.folder))}
           /><Folder aria-hidden="true" className="size-3.5" />
@@ -237,7 +253,7 @@ export const FoundFolders = ({ environmentId, url, replacing, done, partly }: {
         </label>
       ))}
       <span className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" disabled={reason !== undefined || sending} onClick={() => void add()}><Plus aria-hidden="true" />Add selected</Button>
+        <Button variant="outline" size="sm" disabled={reason !== undefined || working || sending} onClick={() => void add()}><Plus aria-hidden="true" />Add selected</Button>
         {reason !== undefined && <span className="text-xs text-ink-muted">{reason}</span>}
       </span>
       {refusal !== undefined && <RefusedLine environmentId={environmentId} refusal={refusal} />}
