@@ -109,6 +109,8 @@ describe("the side column", () => {
     await app.user.keyboard("{Escape}");
     expect(column()).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Show the side column" }));
+    // A narrow pane that is not a phone's keeps its edge handle.
+    expect(screen.getByRole("button", { name: "Show the side column" }).closest("[data-dock-owner]")).not.toBeNull();
     await app.user.click(screen.getByRole("button", { name: "Show the side column" }));
     expect(within(screen.getByRole("region", { name: "Files" })).getByRole("heading", { name: "src/" })).toBeDefined();
     act(() => resize?.(900));
@@ -116,7 +118,7 @@ describe("the side column", () => {
     expect(screen.queryByRole("button", { name: "Close side sheet" })).toBeNull();
   });
 
-  it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, uncovering its waiting card, focus kept off the sheet and off the edge handle that brings back the pane it showed", async () => {
+  it("opens a session on a phone with the sheet left open hidden, after a reload and from the drawer, uncovering its waiting card, focus kept off the sheet and off the header's control that brings back the pane it showed", async () => {
     phoneLayout();
     narrowSheet();
     const app = await opened();
@@ -135,10 +137,30 @@ describe("the side column", () => {
 
     again.open("desk", 1);
     await screen.findByRole("region", { name: "Transcript" });
-    again.open("desk", 0);
+    const trigger = screen.getByRole("button", { name: "Show sessions" });
+    await again.user.click(trigger);
+    await again.user.click(within(screen.getByRole("dialog", { name: "Sessions" })).getByRole("button", { name: /desk Receipts/ }));
     expect(await screen.findByRole("region", { name: "Parked prompt" })).toBeDefined();
     await waitFor(() => expect(column()).toBeNull());
     expect(screen.getByRole("button", { name: "Show the side column" })).not.toBe(document.activeElement);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("brings back a phone's hidden sheet from the window header, beside More, never from over the session's transcript", async () => {
+    phoneLayout();
+    narrowSheet();
+    const app = await opened();
+    await openPane(app, "Files");
+    await app.user.click(screen.getByRole("button", { name: "Close side sheet" }));
+    await waitFor(() => expect(column()).toBeNull());
+
+    const restore = screen.getByRole("button", { name: "Show the side column" });
+    expect(document.activeElement).toBe(restore);
+    expect(restore.closest("[data-window-header]")).not.toBeNull();
+    expect(screen.getByRole("region", { name: "Transcript" }).closest("[data-dock-owner]")?.querySelector("[data-dock-reopen]")).toBeNull();
+    await app.user.click(restore);
+    expect(screen.getByRole("dialog", { name: "Side column" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Show the side column" })).toBeNull();
   });
 
   it("hides a phone's sheet over the session a tapped notification names when the window was already showing it", async () => {
