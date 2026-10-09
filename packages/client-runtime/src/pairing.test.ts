@@ -395,6 +395,30 @@ describe("pairing with an environment", () => {
       expect((await t.pairExchange({ code, kind: "program", label: "later", protocolVersion: PROTOCOL_VERSION })).status).toBe(200);
     });
 
+    it.each([
+      { version: PROTOCOL_VERSION + 1, reason: "protocol-mismatch", update: "desk" },
+      { version: PROTOCOL_VERSION - 1, reason: "unsupported-client", update: "this app" },
+    ])("keeps the raw exchange refusal in Details for $reason", async ({ version, reason, update }) => {
+      const t = await harness.environment({ name: "desk" });
+      const runtime = harness.runtime(
+        inMemoryPlatform({ fetch: rewritingFetch(DISCOVERY_PATH, body => ({ ...body, protocolVersion: version })) }),
+        { protocolVersion: version },
+      );
+      await runtime.start();
+      const { code, link } = await t.createPairing();
+
+      expect(await runtime.connections.add({ link })).toMatchObject({
+        status: "failed",
+        failure: {
+          reason,
+          message: `This app and desk run versions that cannot talk. Update ${update}, then pair again.`,
+          details: [`protocol_mismatch (HTTP 400): The client speaks protocol ${version}; this environment speaks ${PROTOCOL_VERSION}.`],
+        },
+      });
+      expect(runtime.connections.list.read()).toEqual([]);
+      expect((await t.pairExchange({ code, kind: "program", label: "later", protocolVersion: PROTOCOL_VERSION })).status).toBe(200);
+    });
+
     it("unsupported-client: the environment speaks a newer protocol than this client", async () => {
       const t = await harness.environment({ name: "desk" });
       const runtime = harness.runtime(
