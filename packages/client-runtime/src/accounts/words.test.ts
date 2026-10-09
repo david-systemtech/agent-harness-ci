@@ -52,7 +52,12 @@ describe("an account and its gauge", () => {
     expect(accountStatusWords({ state: "unreadable", detail: "auth status exited 1" })).toBe("status unreadable: auth status exited 1");
     expect(gaugeWho({ identity: PROBE.identity })).toBe("milo@example.test");
     expect(gaugeWho({ identity: null })).toBe("An account never read");
-    expect(resetWords(null)).toBeUndefined();
-    expect(resetWords("2026-09-30T14:05:00.000Z")).toMatch(/^resets \d\d:\d\d$/);
+    const now = new Date(2026, 8, 30, 10, 0);
+    expect(resetWords(null, now)).toBeUndefined();
+    expect(resetWords(new Date(2026, 8, 30, 14, 5).toISOString(), now)).toBe("resets 14:05");
+  });
+
+  it("name the day of a reset that is not today, as a weekly window's is (#1951)", () => {
+    expect(resetWords(new Date(2026, 9, 6, 9, 30).toISOString(), new Date(2026, 8, 30, 10, 0))).toBe("resets 6 Oct 09:30");
   });
 });

@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import type { AccountIdentity, AccountUsage } from "@agent-harness/contracts";
+import { whenWords, type AccountIdentity, type AccountUsage } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -741,11 +741,14 @@ describe("Usage", () => {
     app.environment("desk").setUsage([{ ...known, windows: [...known.windows, unknown("iguana_necktie", 0), unknown("walrus_hat", null), unknown("otter_scarf", null, "rejected"), unknown("mole_cap", null)] }]);
     const usage = await openRow(app, "Usage");
     const gauge = await within(usage).findByRole("region", { name: "milo@example.test" });
-    expect(windows(gauge)).toEqual([expect.stringMatching(/^5-hour 42 42%, resets \d\d:\d\d$/), "Weekly 10 10%", "Other limit 0%", "Other limit — out"]);
+    // The clock is days before the reset, so the reset names its day (#1951).
+    const reset = `resets ${whenWords("2026-09-30T14:00:00.000Z", app.clock.now())}`;
+    expect(reset).toMatch(/^resets \d+ [A-Z][a-z]{2} \d\d:\d\d$/);
+    expect(windows(gauge)).toEqual([`5-hour 42 42%, ${reset}`, "Weekly 10 10%", "Other limit 0%", "Other limit — out"]);
     expect(within(gauge).getByText("2 other limits give no reading.")).toBeDefined();
     // The comma is not an item of its own in the row's flex line, so no gap sits before it.
     const fiveHour = within(within(gauge).getByRole("list", { name: "Windows" })).getAllByRole("listitem")[0]!;
-    expect(within(fiveHour).getByText("42%").parentElement?.textContent).toMatch(/^42%, resets \d\d:\d\d$/);
+    expect(within(fiveHour).getByText("42%").parentElement?.textContent).toBe(`42%, ${reset}`);
   });
 
   it("says only how many unknown limits give no reading when a gauge has no other window", async () => {
@@ -778,7 +781,7 @@ describe("Usage", () => {
 
     const milo = await within(usage).findByRole("region", { name: "milo@example.test" });
     await waitFor(() => expect(pooled(milo)).toEqual(["personal on desk", "laptop milo on laptop"]));
-    expect(windows(milo)).toEqual([expect.stringMatching(/^5-hour 50 50%, resets \d\d:\d\d$/), "Weekly 20 20%"]);
+    expect(windows(milo)).toEqual([`5-hour 50 50%, resets ${whenWords("2026-09-30T14:00:00.000Z", app.clock.now())}`, "Weekly 20 20%"]);
     expect(windows(within(usage).getByRole("region", { name: "work@example.test" }))).toEqual(["5-hour 95 95% out"]);
     const unread = within(usage).getByRole("region", { name: "An account never read" });
     expect(pooled(unread)).toEqual(["spare on desk"]);

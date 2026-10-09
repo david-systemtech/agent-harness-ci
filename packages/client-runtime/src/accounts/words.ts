@@ -1,7 +1,7 @@
 import type { AccountCatalogue, AccountRecord, AmbientProbe, ModelEntry } from "@agent-harness/contracts";
 import type { UsageGauge } from "../projections/accounts.js";
 import { ACCOUNT_STATUS_WORDS, effortName, modelName, readingWords } from "../status/words.js";
-import { clockTime } from "../transcript/format.js";
+import { whenWords } from "../transcript/format.js";
 
 /**
  * What the Accounts rows say, as both renderers say it (docs/specs/gui.md,
@@ -90,8 +90,8 @@ export const gaugeWho = (gauge: Pick<UsageGauge, "identity">): string => gauge.i
 /** An account a gauge pools: its label on its environment. */
 export const pooledWords = (label: string, environment: string): string => `${label} on ${environment}`;
 
-/** When a window rolls over, on this client's clock; undefined when the provider does not say. */
-export const resetWords = (resetsAt: string | null): string | undefined => (resetsAt === null ? undefined : `resets ${clockTime(resetsAt)}`);
+/** When a window rolls over, on this client's clock, its day too when that is not `now`'s (#1951); undefined when the provider does not say. */
+export const resetWords = (resetsAt: string | null, now: Date): string | undefined => (resetsAt === null ? undefined : `resets ${whenWords(resetsAt, now)}`);
 
 /** A gauge with no window, whose reading gives no reason. */
 export const NO_WINDOWS_READ = "No plan windows read yet.";

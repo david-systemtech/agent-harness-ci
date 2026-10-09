@@ -223,6 +223,7 @@ export const usageLines = (
   views: readonly EnvironmentView[],
   accounts: (environmentId: string) => AccountsAnswer | undefined,
   cells: number,
+  now: Date,
 ): readonly (readonly Span[])[] => {
   const name = (environmentId: string) => {
     const view = views.find((v) => v.environmentId === environmentId);
@@ -237,7 +238,7 @@ export const usageLines = (
     const words = columnOf(gauge.windows.map((w) => windowWords(w.window)));
     for (const window of gauge.windows) {
       const tone = meterTone(window);
-      const reset = resetWords(window.resetsAt);
+      const reset = resetWords(window.resetsAt, now);
       lines.push([
         { text: `  ${pad(windowWords(window.window), words)}` },
         ...(window.utilisation !== null && cells > 0 ? [{ text: `${meterBar(window.utilisation, cells)} `, ...(tone !== undefined && { color: tone }) }] : []),

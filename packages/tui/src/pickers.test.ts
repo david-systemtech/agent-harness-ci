@@ -395,7 +395,8 @@ describe("/usage", () => {
     await command(app, "/usage");
     await app.waitFor("Plan usage");
     await app.waitFor("milo@work.test · work on desk, work on laptop");
-    await app.waitFor(/5-hour\s+█*░* ?61% out\s+resets \d\d:\d\d/);
+    // The clock is the day before the reset, so the reset names its day (#1951).
+    await app.waitFor(/5-hour\s+█*░* ?61% out\s+resets \d+ [A-Z][a-z]{2} \d\d:\d\d/);
     expect(app.frame()).toMatch(/Weekly\s+█*░* ?10%/);
     expect(app.frame()).toContain("milo@home.test · personal on desk");
     expect(app.frame()).toContain("scroll");
