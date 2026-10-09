@@ -13,7 +13,7 @@ it("runs the hosted transpiled callback in a page without module helpers", async
   const firstFrame = new Promise<void>((resolve) => { requested = resolve; });
   const ready: Promise<void> = new Script(`(${source})()`).runInNewContext({
     Event,
-    document: { fonts: { ready: Promise.resolve() }, querySelectorAll: () => [] },
+    document: { body: new EventTarget(), fonts: { ready: Promise.resolve() }, querySelectorAll: () => [] },
     requestAnimationFrame: (callback: FrameRequestCallback) => { frames.push(callback); requested(); return frames.length; },
   });
   const result = ready.then(() => ({ ok: true }), (error: unknown) => ({ ok: false, error: String(error) }));
