@@ -191,6 +191,23 @@ describe("revoking", () => {
     expect(await within(pane("Access")).findByText("Revoked hermes: its token is refused from now on.")).toBeDefined();
     expect(await within(programs).findByText("No program is paired.")).toBeDefined();
   });
+
+  it("says this client's own revoked when its socket closes with bye revoked before the answer, and the window offers Pair again", async () => {
+    const app = await opened();
+    const laptop = app.environment("laptop");
+    const sessions = part(await openAccess(app, "laptop"), "Client sessions");
+    await labels(sessions, "Client sessions");
+
+    await app.user.click(within(item(sessions, "milo@desk:pts/3")).getByRole("button", { name: "Revoke…" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Revoke milo@desk:pts/3 on laptop?" })).getByRole("button", { name: "Revoke" }));
+
+    expect(await within(pane("Access")).findByText("Revoked this client. Pair again to reconnect.")).toBeDefined();
+    expect(within(pane("Access")).queryByText(/^Not revoked/)).toBeNull();
+    expect(laptop.clientSessions().at(-1)?.revokedAt).not.toBeNull();
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Settings" })).toBeNull());
+    expect(await screen.findByRole("button", { name: "Pair again" })).toBeDefined();
+  });
 });
 
 describe("a program pairing", () => {

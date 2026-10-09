@@ -48,11 +48,13 @@ The #1537 hosted probe (run 37178192474, PR #1538) repeated restore captures eig
 
 Each completed report stores immutable capture bytes in the `window-gallery` generic package under version `<head>-<comment-id>`. Repeating a hosted run on the same head creates another report version, so a retry cannot replace bytes in an earlier review. The comment manifest records the version, exact package download URL and SHA-256 of each capture. Acceptance selects the latest reported shard group (or legacy single report) for the current head and verifies its hashes before writing any baseline. Existing head-only manifests remain downloadable for compatibility.
 
+The trusted Unix publisher bounds each complete API request (including response reads and reused-package verification) to 60 seconds. The report-set budget scales with the validated workload: one second per attachment, capture-storage request, possible reused-package verification and comment write, with a ten-minute minimum. The relay bounds the complete job to 55 minutes. Socket activity does not extend either deadline. A termination signal also finalizes an active report as interrupted. If comment creation committed but its response was lost, a unique attempt marker recovers the matching relay-authored comment from the bounded thread before finalizing it. Recovery and failure finalization each get a fresh 60-second request budget.
+
 Attachment or package upload failures finalize the comment with the failed stage, HTTP status when available, and instructions to rerun the gallery job or check write permissions. A failed report carries no acceptance manifest. If tracker connectivity also prevents finalizing the comment, the relay log explicitly reports that failure.
 
 Capture versions expire 30 days after their package creation time, except every version referenced by a relay-authored gallery manifest in an open pull request and every version belonging to an open pull request's current head. This includes earlier reviewed heads and the head-only versions created before per-report versioning. Unfinished uploads that no longer belong to an open PR's current head receive the same 30-day grace period. The `window-gallery` package is reserved for this repository's gallery captures; other package names and types are untouched. Closing a PR releases its captures for cleanup once their creation time is past the retention period.
 
-Cleanup runs daily in the `gallery-retention` workflow, can be dispatched manually, and also runs after each completed report. It reads every page of open PRs and package versions, and each complete comment thread, before deleting anything; unreadable or invalid API listings stop cleanup. Acceptance and cleanup only use reports authored by Forgejo’s reserved Actions identity. A modern version must match the head and the containing comment’s own ID; older head-only reports from that identity remain supported. Copied markers in ordinary discussion and malformed examples are ignored. A concurrent cleanup's already-deleted version is harmless. Cleanup errors leave completed reports usable and emit a workflow warning; rerun the retention workflow after restoring API access. Authenticated manual cleanup uses `FORGEJO_URL`, `FORGEJO_REPOSITORY` and `FORGEJO_TOKEN` with `python3 scripts/gallery-retention.py`.
+Cleanup runs daily in the `gallery-retention` workflow and can be dispatched manually. It runs separately from gallery publication so a repository-wide inventory scan cannot invalidate clean reports or consume their relay deadline. It reads every page of open PRs and package versions, and each complete comment thread, before deleting anything; unreadable or invalid API listings stop cleanup. Acceptance and cleanup only use reports authored by Forgejo’s reserved Actions identity. A modern version must match the head and the containing comment’s own ID; older head-only reports from that identity remain supported. Copied markers in ordinary discussion and malformed examples are ignored. A concurrent cleanup's already-deleted version is harmless. Cleanup errors leave completed reports usable and fail the retention job; rerun the retention workflow after restoring API access. Authenticated manual cleanup uses `FORGEJO_URL`, `FORGEJO_REPOSITORY` and `FORGEJO_TOKEN` with `python3 scripts/gallery-retention.py`.
 
 The workflows use the repository job token for PRs and comments and the existing `PACKAGES_TOKEN` secret (with package read/write access) for owner-scoped capture storage, inventory and deletion. For manual cleanup, `FORGEJO_TOKEN` may be a user token with both repository and package access, or set `PACKAGES_TOKEN` separately. Acceptance likewise needs a user token with package read access.
 
@@ -113,3 +115,14 @@ unfinished retries and mixed runs before writing baselines. Acceptance stages
 capture bytes on disk and validates each report's 48 MiB bound. Acceptance and
 retention read complete comment threads with a 64 MiB bound; individual capture
 and report limits remain unchanged.
+
+The hosted plan uploads its exact matrix as `gallery-plan` (`matrix.json`). The
+trusted relay validates this bounded artifact and waits for `plan` and every
+`gallery (<shard>)` job named by the matrix, including captures not yet present
+in the jobs listing. Once they finish, it downloads the complete planned report
+set, validates each report against the matrix, and publishes before returning
+its capture verdict. Queued or failed hosted cleanup does not delay publication
+or change that verdict. Geometry, pixel differences, incomplete artifacts and
+publication failures still fail. The hosted cleanup job and scheduled ref sweep
+continue removing temporary `ci/*` branches. During workflow rollout, a run
+without the plan artifact retains the whole-run completion path.
