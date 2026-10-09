@@ -140,12 +140,13 @@ const UpdateChoices = ({ view, writable }: { readonly view: EnvironmentView; rea
 /** All settings for this computer: Settings › Your machines on it, which leaves Set up (setup-copy.md §3, §5.4). */
 const AllSettings = ({ view }: { readonly view: EnvironmentView }) => {
   const checklist = useChecklist();
+  const hint = useId();
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button onClick={() => checklist.leave("environments.machines", view.environmentId)} title="All settings for this computer (Enter or Space)">
+      <Button aria-describedby={hint} onClick={() => checklist.leave("environments.machines", view.environmentId)} title="All settings for this computer (Enter or Space)">
         <ExternalLink aria-hidden="true" data-icon="inline-start" />All settings for this computer
       </Button>
-      <span className="text-xs text-ink-muted">Leaves Set up</span>
+      <span id={hint} className="text-xs text-ink-muted">Leaves Set up</span>
     </div>
   );
 };
