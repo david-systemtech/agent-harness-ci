@@ -28,6 +28,9 @@ concurrency:
 
 jobs:
   image:
+    # Forgejo publishes skipped jobs too. Keep unrelated label events out of
+    # the canonical check so they cannot overwrite a pending or failed build.
+    name: ${{ (github.event.label && github.event.label.name != 'image') && 'other-label' || 'image' }}
     # Other labels must neither start a build nor cancel one already running.
     if: ${{ !github.event.label || github.event.label.name == 'image' }}
     runs-on: build

@@ -312,6 +312,13 @@ describe("the workflows that run it", () => {
     expect(text).not.toMatch(/paths(-ignore)?:|if:.*outputs.*\n.*runs-on:/);
   });
 
+  it("gives unrelated label events their own check so a skipped job cannot replace image / image", () => {
+    const lines = workflow("image.yml");
+    expect(lines).toContain("    name: ${{ (github.event.label && github.event.label.name != 'image') && 'other-label' || 'image' }}");
+    expect(lines).toContain("    if: ${{ !github.event.label || github.event.label.name == 'image' }}");
+    expect(lines).toContain("  group: image-${{ github.event.pull_request.number }}-${{ (github.event.label && github.event.label.name != 'image') && 'other-label' || 'build' }}");
+  });
+
   it("builds a pull request's image on the build runner with no secret, and nothing on a push to main", () => {
     const lines = workflow("image.yml");
     expect(triggers(lines)).toEqual(["  pull_request:", "    types: [opened, synchronize, reopened, labeled]"]);
