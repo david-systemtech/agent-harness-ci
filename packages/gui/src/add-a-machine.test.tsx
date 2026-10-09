@@ -279,6 +279,29 @@ describe("Add a device, Part 1: connect a phone or computer to this one", () => 
     expect(code.getByRole("timer").textContent).toBe("This code works once, for 10 minutes. 9 min left.");
   });
 
+  it.each([
+    "https://desk.tail1234.ts.net",
+    "https://desk.tail1234.ts.net:8443",
+    "https://[2001:db8::7]",
+  ])("keeps HTTPS in the address shown and copied for a code from %s", async (origin) => {
+    const { app, part, desk } = await partOne();
+    desk.wire.answer("access.pairings.create", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: {
+      pairingId: "0199dd00-0000-7000-8000-000000000001",
+      code: "K7Q2MXH4RT",
+      link: `${origin}/pair#K7Q2MXH4RT`,
+      expiresAt: new Date(app.clock.now().getTime() + 10 * 60_000).toISOString(),
+      scopes: [...SCOPES],
+      ceiling: "bypassPermissions",
+    } } }));
+    await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));
+    const code = await made(part);
+    await app.user.click(code.getByRole("button", { name: "Type it instead" }));
+    const address = within(code.getByRole("region", { name: "Address" })).getByText(/./, { selector: "pre" }).textContent ?? "";
+    expect(address).toBe(origin);
+    await app.user.click(code.getByRole("button", { name: "Copy address" }));
+    expect(app.shell.calls).toContainEqual(["clipboard.writeText", address]);
+  });
+
   it("says a code ran out once its ten minutes are over, and offers Make a new code", async () => {
     const { app, part, desk } = await partOne();
     await app.user.click(within(part).getByRole("button", { name: "Make a pairing code" }));

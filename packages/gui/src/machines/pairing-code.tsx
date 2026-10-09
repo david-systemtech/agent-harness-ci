@@ -141,7 +141,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
             <CopyLine label="Pairing link" text={live.pairing.link} copyLabel="Copy pairing link" />
             <Fold summary="Type it instead" open={manual} onOpenChange={setManual}>
               <div className="flex flex-col gap-1">
-                {origin !== undefined && <CopyLine label="Address" text={origin.replace(/^https?:\/\//, "")} copyLabel="Copy address" />}
+                {origin !== undefined && <CopyLine label="Address" text={origin.replace(/^http:\/\//, "")} copyLabel="Copy address" />}
                 <CopyLine label="Code" text={formatPairingCode(live.pairing.code)} copyLabel="Copy pairing code" />
               </div>
             </Fold>
