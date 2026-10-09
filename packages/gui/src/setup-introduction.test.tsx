@@ -127,7 +127,7 @@ it("asks before leaving without an account and keeps setup available after relau
   const again = await app.remount();
   expect(screen.queryByRole("heading", { name: "Welcome to agent-harness" })).toBeNull();
   await again.user.keyboard("{Control>},{/Control}");
-  await again.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+  await again.user.click(screen.getByRole("button", { name: "Open Set up" }));
   await screen.findByRole("region", { name: "Account" });
   expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
   await again.user.click(screen.getByRole("button", { name: "Appearance" }));

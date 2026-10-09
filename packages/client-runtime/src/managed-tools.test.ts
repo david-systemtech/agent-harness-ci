@@ -58,11 +58,13 @@ describe("a tool run", () => {
     expect(await runTool(runtime, env, "gh", "update", new Date(MANUAL_CLOCK_START))).toEqual({
       ok: false,
       line: "Not run: The harness does not update gh installed by mise: run the vendor's command yourself.",
+      refusal: expect.objectContaining({ code: "tool_not_runnable", message: "The harness does not update gh installed by mise: run the vendor's command yourself." }),
       command: "brew install gh",
     });
     expect(await runTool(runtime, env, "gh", "update", new Date(MANUAL_CLOCK_START))).toEqual({
       ok: false,
       line: "Not run: A bao install is running on this environment; package managers lock, so one tool run runs at a time.",
+      refusal: expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "tool_run_in_progress" }) }),
       command: null,
     });
   });
@@ -86,6 +88,7 @@ describe("a tool run", () => {
     expect(await runTool(runtime, env, "gh", "install", new Date(MANUAL_CLOCK_START))).toEqual({
       ok: false,
       line: "Not run: desk runs an older agent-harness without this. Update desk to use it.",
+      refusal: expect.objectContaining({ message: "desk runs an older agent-harness without this. Update desk to use it." }),
       command: null,
     });
   });

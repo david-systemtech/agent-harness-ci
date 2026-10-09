@@ -1,4 +1,4 @@
-import { LOCAL_PLACEHOLDER_ID, addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInLeftWords, startSignIn, uuidv4 } from "@agent-harness/client-runtime";
+import { LOCAL_PLACEHOLDER_ID, addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInFailed, signInLeftWords, startSignIn, uuidv4 } from "@agent-harness/client-runtime";
 import { Check, Copy, ExternalLink, KeyRound, LoaderCircle, Plus, Send, X } from "lucide-react";
 import { SignInCode, type AccountRecord } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
@@ -26,8 +26,8 @@ export interface SignInCardProps {
   readonly close: () => void;
   /** Told, inline, as the sign-in succeeds, with the line Done will say: the card waits only on Done from then on. */
   readonly succeeded?: (line: string) => void;
-  /** Says one line where the card was opened from: how the sign-in ended, or why it could not go on. */
-  readonly say: (line: string) => void;
+  /** Says one line where the card was opened from: how the sign-in ended, or why it could not go on; `ok` false for a failure. */
+  readonly say: (line: string, ok: boolean) => void;
 }
 
 /** The command on its way, whose answer the card waits for: the new account, the sign-in's start, or the code. */
@@ -115,7 +115,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
       if (!started.ok) {
         ended.current = true;
         close();
-        return say(started.line);
+        return say(started.line, false);
       }
       attend(account);
       if (departed.current) return;
@@ -129,7 +129,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     if (end === undefined || ended.current) return;
     ended.current = true;
     if (inline && followed?.state === "done") { setCompleted(end); succeeded?.(end); }
-    else { close(); say(end); }
+    else { close(); say(end, followed === undefined || !signInFailed(followed)); }
   }, [end]);
 
   // The local provider opens its loopback flow itself. Paired flows open the manual URL once.
@@ -162,7 +162,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
       if (added.kind === "added") {
         ended.current = true;
         close();
-        return say(added.line);
+        return say(added.line, added.ok);
       }
       attend(added.account);
       if (departed.current) return;
@@ -214,7 +214,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
     close();
     if (accountId === null || ended.current || (inline && attended.current === null)) return;
     ended.current = true;
-    void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4(), environment).then(say);
+    void cancelSignIn(runtime, environmentId, { id: accountId, label }, uuidv4(), environment).then(({ ok, line }) => say(line, ok));
   };
 
   const directory = accounts.value?.find((candidate) => candidate.id === accountId)?.directory.path;
@@ -232,7 +232,7 @@ export const SignInCard = ({ environmentId, account, close, say, succeeded, inli
   const cancelButton = <AccountAction icon={X} className={inline ? "self-end" : undefined} onClick={leave}>Cancel the sign-in</AccountAction>;
   const content = completed !== null ? <div className="flex flex-col gap-3">
     <p role="status" className="flex items-center gap-2 text-sm text-mint"><Check aria-hidden="true" className="size-4" />{completed}</p>
-    <AccountAction icon={Check} variant="default" className="self-end" onClick={() => { say(completed); close(); }}>Done</AccountAction>
+    <AccountAction icon={Check} variant="default" className="self-end" onClick={() => { say(completed, true); close(); }}>Done</AccountAction>
   </div> : (
     <>
         {labelling ? (

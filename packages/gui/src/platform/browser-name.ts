@@ -4,7 +4,7 @@ const SYSTEMS: readonly (readonly [RegExp, string])[] = [[/Android/, "Android"],
 const HOME_SCREENS: ReadonlySet<string> = new Set(["Android", "iPhone", "iPad"]);
 
 /** The system a user agent runs on; an iPad says Macintosh unless "Request Desktop Website" is off, and its touch screen gives it away. */
-const systemOf = (userAgent: string, touchPoints: number): string | undefined => {
+export const systemOf = (userAgent: string, touchPoints: number): string | undefined => {
   const system = SYSTEMS.find(([pattern]) => pattern.test(userAgent))?.[1];
   return system === "Mac" && touchPoints > 1 ? "iPad" : system;
 };
