@@ -228,6 +228,19 @@ describe("accounts.adopt", () => {
     expect(accountEvents(t)).toEqual([]);
   });
 
+  it("refuses a sign-in with no email when no label is given, conflict no_email, its folder in the data", async () => {
+    const ambient = makeAmbient();
+    const t = await start({ fake: { ambientDirectory: ambient, status: statusBy(ambient) } });
+    const client = await t.client();
+    t.adapter.setStatus(() => ({ ...signedInAs(DAVID), email: null }));
+    await client.request("accounts.probe", {});
+    const unnamed = await command(client, "accounts.adopt", {});
+    // setup-copy.md §5.1: an account store refusal like its siblings, so a client says its line rather than a generic one.
+    expect(unnamed.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { message: "This sign-in has no email to name the account by. Enter a name.", data: { reason: "no_email", directory: ambient } } });
+    expect(accountEvents(t)).toEqual([]);
+    expect((await applied(client, "accounts.adopt", { label: "Home" })).account.label).toBe("Home");
+  });
+
   it("refuses a label another account holds, ignoring case, conflict label_taken", async () => {
     const ambient = makeAmbient();
     const t = await start({ fake: { ambientDirectory: ambient, status: statusBy(ambient) } });

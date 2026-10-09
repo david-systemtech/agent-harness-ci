@@ -588,10 +588,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       return conflict(aggregate, "already_added", alreadyUsed(holder.label), { accountId: holder.id, directory });
     }
     const label = AccountLabel.safeParse(labelGiven ?? source.identity?.email);
-    if (!label.success) {
-      const message = "This sign-in has no email to name the account by. Enter a name.";
-      throw new ContractError(invalidParams([{ code: "custom", path: ["label"], message }], message));
-    }
+    if (!label.success) return conflict(aggregate, "no_email", "This sign-in has no email to name the account by. Enter a name.", { directory });
     const taken = labelTaken(aggregate, label.data);
     if (taken !== null) return taken;
     const events: EventInput[] = [{ type: "account.adopted", payload: { accountId, provider, label: label.data, directory } }];

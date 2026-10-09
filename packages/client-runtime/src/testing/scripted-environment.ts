@@ -1501,7 +1501,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     }
     const holder = accounts.find((a) => a.id === ambient.accountId);
     if (holder) return accountRefusal("already_added", `This sign-in is already used by ${holder.label}.`, { accountId: holder.id, directory: ambient.directory });
-    const label = (params["label"] as string | undefined) ?? ambient.identity?.email ?? "";
+    const label = (params["label"] as string | undefined) ?? ambient.identity?.email;
+    if (label === undefined) return accountRefusal("no_email", "This sign-in has no email to name the account by. Enter a name.", { directory: ambient.directory });
     const taken = labelTaken(label);
     if (taken) return taken;
     const account = accountOf({ id: `account-${++accountsMinted}`, label, directory: { kind: "adopted", path: ambient.directory }, identity: ambient.identity }, accounts.length);

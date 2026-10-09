@@ -80,7 +80,8 @@ export const accountsRefresh = defineMethod({
  * accounts, never of it): unless that read found it present and signed in
  * the command is rejected `conflict` (reason `ambient_unavailable`); an
  * account holding the directory already, or the identity it is signed in as,
- * is `conflict` (reason `already_added`, "already added as <label>").
+ * is `conflict` (reason `already_added`, "already added as <label>"); with no
+ * `label` and no email to name it by, `conflict` (reason `no_email`).
  */
 export const accountsAdopt = defineMethod({
   name: "accounts.adopt",

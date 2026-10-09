@@ -57,7 +57,7 @@ export const nameProblem = (label: string): string | undefined => {
 };
 
 /** The account store's own refusals, which the environment words for a person (setup-copy.md §5.1): said as it says them. */
-const STORE_REASONS: ReadonlySet<string> = new Set(["ambient_unavailable", "already_added", "label_taken"]);
+const STORE_REASONS: ReadonlySet<string> = new Set(["ambient_unavailable", "already_added", "label_taken", "no_email"]);
 
 /**
  * A refused account command in plain words, for the button `verb` names: the

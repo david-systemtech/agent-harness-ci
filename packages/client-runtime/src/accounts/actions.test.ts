@@ -87,6 +87,12 @@ describe("using this computer's Claude Code sign-in", () => {
     });
   });
 
+  it("says a sign-in with no email to name it by in the environment's words, its folder in Details", async () => {
+    const message = "This sign-in has no email to name the account by. Enter a name.";
+    const { runtime } = answering(rejected("conflict", message, { reason: "no_email", directory: "/home/milo/.claude" }));
+    expect(await adoptAccount(runtime, "env-a", "", "c-1")).toEqual({ ok: false, line: message, details: [`conflict (no_email): ${message}`, "Folder: /home/milo/.claude"] });
+  });
+
   it("says any other refusal through the refusal mapper, for Use this sign-in", async () => {
     const { runtime } = answering({ ok: false, error: { code: "unreachable", message: "The connection closed." } });
     expect(await adoptAccount(runtime, "env-a", "", "c-1")).toMatchObject({ ok: false, line: "This app cannot reach that computer right now. Choose Use this sign-in to try again." });
