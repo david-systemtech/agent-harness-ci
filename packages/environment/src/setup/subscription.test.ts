@@ -219,7 +219,7 @@ describe("environment.subscribe's snapshot", () => {
     (await late.call(1)).answer(true);
     await t.env.setup.startPass;
     const account = { step: "account", state: "done", reason: "Set up here.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
-    expect(await snapshot(t, client)).toEqual({ status: freshStatus(0), environment: lookOf(t), setup: [account, permissions, appearance] });
+    expect(await snapshot(t, client)).toEqual({ status: freshStatus(0), environment: lookOf(t), stateImportFailures: [], setup: [account, permissions, appearance] });
   });
 
   it("carries every registered step's result once the step registry's checks have run, in the milestone-1 order", async () => {
@@ -245,7 +245,7 @@ describe("environment.subscribe's snapshot", () => {
 
     const second = await start({ dataDir, setupSteps, clock: manualClock(after(2 * HOUR)) });
     const client = await second.client();
-    expect(await snapshot(second, client)).toEqual({ status: freshStatus(2 * HOUR), environment: lookOf(second), setup: results.map((result) => ({ ...result, checkedAt: after(2 * HOUR) })) });
+    expect(await snapshot(second, client)).toEqual({ status: freshStatus(2 * HOUR), environment: lookOf(second), stateImportFailures: [], setup: results.map((result) => ({ ...result, checkedAt: after(2 * HOUR) })) });
     // Four notices at the first start (three first results, and Account's change), none at the second.
     const subscription = await watch(client, 0);
     expect(noticed(client, subscription)).toHaveLength(4);

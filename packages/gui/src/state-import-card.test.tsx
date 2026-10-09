@@ -80,6 +80,22 @@ describe("State import on Carry over", () => {
     expect(app.environment("desk").requests("stateImport.run")).toHaveLength(1);
   });
 
+  it("shows a retained failure once when Preview finds the same unreadable store, alongside new preview failures", async () => {
+    const failure = { label: "Desktop routines", message: "This list could not be read.", details: ["routines.json: invalid JSON"] };
+    const retained = { label: "Team skills", message: "Connect a forge for forge.test.", step: "forges" as const };
+    const app = await opened({ stateImportFailures: [failure, retained] });
+    const preview = report(true);
+    preview.failed = [failure, { label: "Memory banks", message: "This list could not be read." }];
+    preview.reEnter = [];
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false }, result: preview } }));
+    await app.user.click(section().getByRole("button", { name: "Preview" }));
+    await section().findByText(/^This would bring over:/);
+    expect(section().getAllByRole("list", { name: "Did not come over" })).toHaveLength(1);
+    expect(section().getAllByText("Desktop routines: This list could not be read.")).toHaveLength(1);
+    expect(section().getByText("Memory banks: This list could not be read.")).toBeDefined();
+    expect(section().getByRole("button", { name: "Go to Forges" })).toBeDefined();
+  });
+
   it("lets a paired headless environment with signed-in owned accounts finish its empty Carry over step", async () => {
     const reason = "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.";
     const app = await opened({ reach: "paired", accounts: [{ label: "Server", directory: { kind: "owned", path: "/data/owned" } }],

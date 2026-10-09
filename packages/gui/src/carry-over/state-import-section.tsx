@@ -69,6 +69,13 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
   const sourceFound = detection !== null && (detection.dataFolder !== null || detection.terminalFolder !== null);
   if (!sourceFound && failures.length === 0) return null;
   const line = sourceFound ? foundLine(detection) : null;
+  // Preview can rediscover a retained failure; show both sets in one list, once per failure.
+  const displayedReport = report?.dryRun ? {
+    ...report,
+    failed: [...new Map([...failures, ...report.failed].map((failure) => [
+      JSON.stringify([failure.label, failure.message, failure.step ?? null, failure.details ?? []]), failure,
+    ])).values()],
+  } : report;
   return (
     <section aria-label="Earlier work" data-earlier-work className="flex flex-col gap-3 rounded-lg border border-hairline bg-panel p-4">
       {line !== null && detection !== null && <>
@@ -84,11 +91,11 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
         <p role="alert" className="text-sm text-signal"><span className="sr-only">Error: </span>{refusal.line}</p>
         <TechnicalDetails {...detailsOf(refusal.line, refusal.details)} />
       </div>}
-      {(report === undefined || report.dryRun) && failures.length > 0 && <div className="flex flex-col gap-3 rounded-lg border border-hairline bg-inset p-3 text-xs text-ink">
+      {report === undefined && failures.length > 0 && <div className="flex flex-col gap-3 rounded-lg border border-hairline bg-inset p-3 text-xs text-ink">
         <h4 className="text-xs font-medium">Needs you</h4>
         <StateImportFailures environmentId={environmentId} failures={failures} />
       </div>}
-      {report !== undefined && <StateImportResult environmentId={environmentId} report={report} clientLocalApplied={clientLocalApplied} />}
+      {displayedReport !== undefined && <StateImportResult environmentId={environmentId} report={displayedReport} clientLocalApplied={clientLocalApplied} />}
     </section>
   );
 };
