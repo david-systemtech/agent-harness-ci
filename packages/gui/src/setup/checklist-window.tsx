@@ -2,8 +2,8 @@ import { CredentialNoticeProvider } from "../notices/credential-notice.js";
 import { homeEnvironment, LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/contracts";
 import { ArrowLeft, LogOut } from "lucide-react";
-import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
-import { useSettings, type SettingsPart } from "../settings/settings-window.js";
+import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { usePickedEnvironment, useSettings, type SettingsPart } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { Button, Dialog, DialogContent, Tooltip } from "../ui/index.js";
 import { ChecklistAuthoringProvider } from "./authoring-run.js";
@@ -29,6 +29,10 @@ export interface Checklist {
   readonly part: StepPart | undefined;
   /** Opens it on `step`, else on the step it showed last, at `part` of its card when one is named. */
   open(step?: StepId, part?: StepPart): void;
+  /** The computer whose check just opened this card; cleared by other navigation. */
+  readonly checkedEnvironmentId: string | undefined;
+  /** Opens the first step needing a fix after Check everything again on this computer. */
+  openChecked(step: StepId, environmentId: string): void;
   /** Shows another step's card. */
   choose(step: StepId): void;
   /** Closes it and sets the first-launch mark: its Close, and Finish on the last step. */
@@ -70,16 +74,25 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   const [authoringRunId, setAuthoringRunId] = useState(0);
   const [step, setStep] = useState<StepId>(STEP_ORDER[0]);
   const [part, setPart] = useState<StepPart | undefined>(undefined);
+  const [checkedEnvironmentId, setCheckedEnvironmentId] = useState<string | undefined>(undefined);
+  const picked = usePickedEnvironment();
+  useEffect(() => setCheckedEnvironmentId(undefined), [picked?.environmentId]);
 
   const open = useCallback((at?: StepId, to?: StepPart) => {
     if (at !== undefined) setStep(at);
     setPart(to);
+    setCheckedEnvironmentId(undefined);
     setIntroduction(false);
     setShown(true);
   }, []);
+  const openChecked = useCallback((at: StepId, environmentId: string) => {
+    open(at);
+    setCheckedEnvironmentId(environmentId);
+  }, [open]);
   const choose = useCallback((at: StepId) => {
     setStep(at);
     setPart(undefined);
+    setCheckedEnvironmentId(undefined);
   }, []);
   const finish = useCallback(() => {
     mark(true);
@@ -103,7 +116,7 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
     [openRow],
   );
 
-  const checklist = useMemo<Checklist>(() => ({ shown, step, part, open, choose, close, leaveForMain, leave }), [shown, step, part, open, choose, close, leaveForMain, leave]);
+  const checklist = useMemo<Checklist>(() => ({ shown, step, part, checkedEnvironmentId, open, openChecked, choose, close, leaveForMain, leave }), [shown, step, part, checkedEnvironmentId, open, openChecked, choose, close, leaveForMain, leave]);
   return <ChecklistContext value={checklist}>
     <CredentialNoticeProvider>
     <ChecklistAuthoringProvider runId={authoringRunId}>
