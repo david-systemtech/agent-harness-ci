@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
-import { captureCases, sceneFiles } from "../gallery/capture-plan.js";
+import { capturePlan, captureCases, sceneFiles } from "../gallery/capture-plan.js";
 import { accessSettingsDetails, detailGeometry } from "../gallery/access-settings-details.js";
 import { measureSceneGeometry } from "../gallery/geometry.js";
 import { galleryOrigin, serveGallery } from "../gallery/serve.js";
@@ -166,7 +166,7 @@ it("serves the built gallery at the same origin on every run, so a scene that sh
 });
 
 it("captures every scene in dark and the specified light subset without exceeding the report budget", () => {
-  expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "settings-usage", "setup-account", "setup-appearance", "settings-banks", "dock-files"])).toEqual([
+  expect(captureCases(["settings-accounts", "settings-permissions", "settings-theme", "settings-usage", "setup-account", "setup-appearance", "settings-banks", "dock-files", "status-line-usage-details", "status-line-docked"])).toEqual([
     { scene: "settings-accounts", ladder: "light", name: "settings-accounts.light" }, { scene: "settings-accounts", ladder: "dark", name: "settings-accounts.dark" },
     { scene: "settings-permissions", ladder: "light", name: "settings-permissions.light" }, { scene: "settings-permissions", ladder: "dark", name: "settings-permissions.dark" },
     { scene: "settings-theme", ladder: "light", name: "settings-theme.light" }, { scene: "settings-theme", ladder: "dark", name: "settings-theme.dark" },
@@ -174,6 +174,9 @@ it("captures every scene in dark and the specified light subset without exceedin
     { scene: "setup-account", ladder: "light", name: "setup-account.light" }, { scene: "setup-account", ladder: "dark", name: "setup-account.dark" },
     { scene: "setup-appearance", ladder: "light", name: "setup-appearance.light" }, { scene: "setup-appearance", ladder: "dark", name: "setup-appearance.dark" },
     { scene: "settings-banks", ladder: "dark", name: "settings-banks.dark" }, { scene: "dock-files", ladder: "dark", name: "dock-files.dark" },
+    // The status line's usage details popover is in the light subset as the status line is (#1951); the docked status line is not.
+    { scene: "status-line-usage-details", ladder: "light", name: "status-line-usage-details.light" }, { scene: "status-line-usage-details", ladder: "dark", name: "status-line-usage-details.dark" },
+    { scene: "status-line-docked", ladder: "dark", name: "status-line-docked.dark" },
   ]);
 });
 
@@ -274,4 +277,10 @@ it("rejects a visible decision that an overlay intercepts", () => {
   expect(measureSceneGeometry()).toEqual([]);
   hit.mockReturnValue(null);
   expect(measureSceneGeometry()).toHaveLength(1);
+});
+
+it("captures the Appearance reset question at both desktop sizes in light and dark", () => {
+  expect(capturePlan(["setup-appearance-default"]).captures.map(({ viewport, ladder }) => [viewport.width, viewport.height, ladder])).toEqual([
+    [1400, 900, "light"], [1400, 900, "dark"], [1024, 768, "light"], [1024, 768, "dark"],
+  ]);
 });

@@ -51,6 +51,33 @@ it("captures Your machines' never-polled container line with the host updater's 
   } finally { view.unmount(); }
 });
 
+// setup-copy.md §5.11: the Browser card before anything is done, at step 5 with its code, and with its Chrome closed (#1857).
+it("captures the Browser card's steps 1 to 4 with no code, step 5 with its code, and a closed Chrome with no Unpair beside its line", async () => {
+  for (const [kind, check] of [
+    ["browser-step-1", async (card: HTMLElement) => {
+      await within(card).findByText("/extension/current");
+      expect(within(card).getByRole("img", { name: "Step 1: not done yet" })).toBeDefined();
+      expect(within(card).queryByRole("textbox", { name: "Pairing code" })).toBeNull();
+    }],
+    ["browser-code", async (card: HTMLElement) => {
+      expect(((await within(card).findByRole("textbox", { name: "Pairing code" })) as HTMLInputElement).value).toBe("TEST2345");
+      expect(within(card).getByRole("timer").textContent).toBe("5 min left");
+      expect(within(card).getByText("Chrome found the extension.")).toBeDefined();
+    }],
+    ["browser-closed", async (card: HTMLElement) => {
+      expect(await within(card).findByText("Chrome is closed, so agents cannot use it. Open Chrome. This updates by itself.")).toBeDefined();
+      await within(card).findByRole("img", { name: "Step 5: done" });
+      expect(within(card).queryByRole("button", { name: /Unpair/ })).toBeNull();
+    }],
+  ] as const) {
+    const Scene = setupRegionScene(kind);
+    const view = render(<Scene ladder="dark" />);
+    try {
+      await check(await screen.findByRole("region", { name: "Browser" }));
+    } finally { view.unmount(); }
+  }
+});
+
 // setup-copy.md §5.10: the Instructions card's Your note, Suggestions and fold, and its unread line with Go to each step (#1856).
 it("captures the Instructions card with Your note, Suggestions and Write your own, and its unread line naming the steps with Go to each", async () => {
   const Scene = setupRegionScene("instructions");
@@ -108,5 +135,20 @@ it("captures the ready introduction before the owner enters Account", async () =
     expect((await screen.findByRole("button", { name: "Begin set up" })).hasAttribute("disabled")).toBe(false);
     expect(screen.getByText("agent-harness is ready on this computer.")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Step navigation" })).toBeNull();
+  } finally { view.unmount(); }
+});
+
+// setup-copy.md §5.13: the saved colours survive while the Default question is open.
+it.each(["light", "dark"] as const)("captures the Default theme question in %s before any write", async (ladder) => {
+  const { default: Scene } = await import("../gallery/scenes/setup-appearance-default.js");
+  const view = render(<Scene ladder={ladder} />);
+  try {
+    const question = await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
+    expect(within(question).getByText("Your colour changes to Loud will be lost.")).toBeDefined();
+    expect(within(question).getByRole("button", { name: "Use Default" })).toBeDefined();
+    await userEvent.setup().click(within(question).getByRole("button", { name: "Keep Loud" }));
+    const card = screen.getByRole("region", { name: "Appearance" });
+    expect(within(card).getByText("Loud, on desk")).toBeDefined();
+    expect(within(card).getByRole("button", { name: "Use the Default theme" })).toBeDefined();
   } finally { view.unmount(); }
 });

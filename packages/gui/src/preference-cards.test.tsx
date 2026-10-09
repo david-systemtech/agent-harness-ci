@@ -25,7 +25,7 @@ const checklist = () => screen.getByRole("region", { name: "Set up" });
 
 /** A first launch on this machine's environment, `desk`, as `given` scripts it, with Set up open over the window. */
 const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
-  const app = await renderApp({ environments: [{ name: "desk", reach: "local", ...given }] }, { firstLaunch: true });
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", ...given, setup: { appearance: { reason: "Your theme is easy to read." }, ...given.setup } }] }, { firstLaunch: true });
   await app.user.click(await screen.findByRole("button", { name: "Begin set up" }));
   await screen.findByRole("region", { name: "Set up" });
   return app;
@@ -85,7 +85,7 @@ describe("on a fresh environment", () => {
     expect(within(appearance).queryByText(/^Read-only:/)).toBeNull();
     expect(within(appearance).getByRole("radiogroup", { name: "Light or dark" })).toBeDefined();
     expect(await within(appearance).findByText("Default, on desk")).toBeDefined();
-    expect(within(appearance).getByText("No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.")).toBeDefined();
+    expect(within(appearance).getByText("Your theme is easy to read.")).toBeDefined();
     expect(within(appearance).getByRole("button", { name: "Finish set up" })).toBeDefined();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -154,7 +154,7 @@ describe("the Appearance card", () => {
     const desk = app.environment("desk");
     const appearance = await cardOf(app, "Appearance");
     const choice = within(appearance).getByRole("radiogroup", { name: "Light or dark" });
-    expect((within(choice).getByRole("radio", { name: "The OS's" }) as HTMLInputElement).checked).toBe(true);
+    expect((within(choice).getByRole("radio", { name: "Match my computer" }) as HTMLInputElement).checked).toBe(true);
     const writes = () => ["settings.update", "permissions.settings.set"].flatMap((method) => desk.requests(method));
 
     await app.user.click(within(choice).getByRole("radio", { name: "Light" }));
@@ -171,7 +171,7 @@ describe("the Appearance card", () => {
       setup: {
         appearance: {
           state: "needs-attention",
-          reason: 'Theme "Loud" has 2 seeds clamped to meet the rules: accent (gamut, light and dark ladders), success (gamut, light and dark ladders). Restore puts back the Default theme.',
+          reason: 'Some colours in Loud were adjusted so text stays readable.',
           failing: ["appearance.contrast"],
           actions: ["restore"],
         },
@@ -181,32 +181,51 @@ describe("the Appearance card", () => {
     const appearance = await cardOf(app, "Appearance");
     expect(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Appearance", description: / Needs a fix / })).toBeDefined();
     expect(await within(appearance).findByText("Loud, on desk")).toBeDefined();
-    expect(within(appearance).getByText("accent: hue 264, chroma 0.4")).toBeDefined();
-    for (const ladder of ["Light ladder", "Dark ladder"]) {
+    const more = within(appearance).getByRole("button", { name: "More options" });
+    if (more.getAttribute("aria-expanded") !== "true") await app.user.click(more);
+    expect(within(appearance).getByText("Accent")).toBeDefined();
+    for (const ladder of ["Light colours", "Dark colours"]) {
       expect(within(within(appearance).getByRole("group", { name: ladder })).getAllByRole("img").map((swatch) => swatch.getAttribute("aria-label"))).toEqual([
-        "canvas",
-        "accent",
-        "machine",
-        "thinking",
-        "success",
-        "warning",
-        "danger",
+        "Background",
+        "Accent",
+        "Code",
+        "Thinking",
+        "Success",
+        "Warning",
+        "Danger",
       ]);
     }
     const clamped = () =>
-      within(within(appearance).getByRole("list", { name: "Clamped seeds" }))
+      within(within(appearance).getByRole("list", { name: "Adjusted colours" }))
         .getAllByRole("listitem")
         .map((clamp) => clamp.textContent);
-    expect(clamped()).toEqual(["accent: gamut, light and dark ladders", "success: gamut, light and dark ladders"]);
+    expect(clamped()).toEqual(["Accent: screen colour limits, Light and Dark mode", "Success: screen colour limits, Light and Dark mode"]);
 
+    const reset = () => within(appearance).getByRole("button", { name: "Use the Default theme" });
+    await app.user.click(reset());
+    let question = await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
+    expect(within(question).getByText("Your colour changes to Loud will be lost.")).toBeDefined();
+    expect(desk.requests("settings.update")).toEqual([]);
+    await app.user.click(within(question).getByRole("button", { name: "Keep Loud" }));
+    expect(desk.requests("settings.update")).toEqual([]);
+    expect(desk.settings()["appearance.theme"]).toEqual(LOUD);
+
+    await app.user.click(reset());
+    await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
+    await app.user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(desk.requests("settings.update")).toEqual([]);
+
+    await app.user.click(reset());
+    question = await screen.findByRole("alertdialog", { name: "Use the Default theme?" });
     desk.setSetup({ appearance: {} });
-    await app.user.click(within(appearance).getByRole("button", { name: "Restore" }));
-    expect(await within(appearance).findByText("Restored the Default theme.")).toBeDefined();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await app.user.click(within(question).getByRole("button", { name: "Use Default" }));
+    expect(await within(appearance).findByText("Saved Default on desk.")).toBeDefined();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(desk.requests("settings.update").map((request) => request.params["values"])).toEqual([{ "appearance.theme": DEFAULT_THEME }]);
     expect(desk.settings()["appearance.theme"]).toEqual(DEFAULT_THEME);
     expect(await within(appearance).findByText("Default, on desk")).toBeDefined();
-    expect(within(appearance).getByText("No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.")).toBeDefined();
+    expect(within(appearance).getByText("Your theme is easy to read.")).toBeDefined();
     expect(await within(screen.getByRole("navigation", { name: "Set up steps" })).findByRole("button", { name: "Appearance", description: / Done / })).toBeDefined();
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "appearance" });
   });
@@ -223,7 +242,7 @@ describe("without admin", () => {
             scopes: ["read", "sessions:write", "runs:drive", "terminal"],
             setup: {
               permissions: { state: "needs-attention", reason: "The denylist lost 1 preset.", failing: ["permissions.denylist"], actions: ["restore"] },
-              appearance: { state: "needs-attention", reason: 'Theme "Loud" has 2 seeds clamped.', failing: ["appearance.contrast"], actions: ["restore"] },
+              appearance: { state: "needs-attention", reason: 'Some colours in Loud were adjusted so text stays readable.', failing: ["appearance.contrast"], actions: ["restore"] },
             },
             settings: { "appearance.theme": LOUD },
             lostPresets: [PRESETS.paths[0]!.id],
@@ -249,7 +268,7 @@ describe("without admin", () => {
     const appearance = await cardOf(app, "Appearance");
     expect(await within(appearance).findByText(line)).toBeDefined();
     expect(within(appearance).getAllByText(/^Read-only:/)).toHaveLength(1);
-    expect(within(appearance).getByRole("button", { name: "Restore" }).hasAttribute("disabled")).toBe(true);
+    expect(within(appearance).getByRole("button", { name: "Use the Default theme" }).hasAttribute("disabled")).toBe(true);
     expect(await within(appearance).findByText("Loud, on laptop")).toBeDefined();
     for (const radio of within(within(appearance).getByRole("radiogroup", { name: "Light or dark" })).getAllByRole("radio")) {
       expect(radio.hasAttribute("disabled")).toBe(false);
