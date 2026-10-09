@@ -82,7 +82,7 @@ const unreachedLine = (runtime: Runtime, view: EnvironmentView, read: boolean): 
 };
 
 /** What a command did, in one line over the cards: a refusal as an alert, its raw words under Details. */
-const SaidLine = ({ said }: { readonly said: AccountOutcome }) => (
+export const SaidLine = ({ said }: { readonly said: AccountOutcome }) => (
   <>
     {said.ok ? (
       <p role="status" className="text-sm text-ink-muted">{said.line}</p>

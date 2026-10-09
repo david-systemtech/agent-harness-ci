@@ -322,6 +322,16 @@ describe("the Account card's defaults", () => {
     expect(writes(app)).toEqual([{ "accounts.defaultAccount": "account-2" }, { "accounts.defaultModelFamily": "sonnet" }, { "accounts.defaultEffort": "medium" }]);
   });
 
+  it("says a preset settings.update refused as an alert, Error: before it, with the refusal under Details", async () => {
+    const app = await opened({ ambient: { present: true, signedIn: true, identity: MILO }, models: MODELS, receipts: { "settings.update": { rejected: "invalid_params", message: "accounts.defaultEffort: an effort is a word." } } });
+    await within(step()).findByRole("radio", { name: /^Use the Claude Code sign-in/ });
+    await app.user.click(within(question()).getByRole("button", { name: "Use this sign-in" }));
+    const line = await within(step()).findByText("Choose a model for new sessions in More options.");
+    expect(line.closest("[role]")?.getAttribute("role")).toBe("alert");
+    expect(line.closest("[role]")?.textContent).toBe("Error: Choose a model for new sessions in More options.");
+    expect(within(step()).getByText(/accounts\.defaultEffort: an effort is a word\./)).toBeDefined();
+  });
+
   it("presets the family the first signed-in account's catalogue ranks highest at high effort when both are unset, once", async () => {
     const app = await opened({ ambient: { present: true, signedIn: true, identity: MILO }, models: MODELS });
     const desk = app.environment("desk");

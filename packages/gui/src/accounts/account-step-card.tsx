@@ -1,7 +1,6 @@
 import { modelPreset, presetModelDefaults, uuidv7, type AccountOutcome, type EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow, type AccountRecord } from "@agent-harness/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CopyLine } from "../settings/copy-line.js";
 import { Part } from "../settings/part.js";
 import type { StepCardProps } from "../setup/cards.js";
 import { useHoldContinue } from "../setup/continue-hold.js";
@@ -9,7 +8,7 @@ import { MoreOptions } from "../setup/more-options.js";
 import { StepStatus } from "../setup/step-status.js";
 import { Input } from "../ui/index.js";
 import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
-import { AccountsList } from "./accounts-pane.js";
+import { AccountsList, SaidLine } from "./accounts-pane.js";
 import { DefaultChoices } from "./default-model-pane.js";
 
 /** Why Continue past Account waits (setup-copy.md §4.4; ADR 0018: the step needs a signed-in account to continue). */
@@ -64,13 +63,7 @@ export const AccountStepCard = ({ environmentId, step }: StepCardProps) => {
 const Preset = ({ view, accounts }: { readonly view: EnvironmentView; readonly accounts: readonly AccountRecord[] | null }) => {
   const [said, say] = useState<AccountOutcome | undefined>(undefined);
   usePresetOnFirstSignIn(view, accounts, say);
-  if (said === undefined) return null;
-  return (
-    <>
-      <p role="status" className="text-sm text-ink-muted">{said.line}</p>
-      {said.details !== undefined && said.details.length > 0 && <CopyLine label="Details" text={said.details.join("\n")} copyLabel="Copy details" />}
-    </>
-  );
+  return said === undefined ? null : <SaidLine said={said} />;
 };
 
 /**
